@@ -2,7 +2,7 @@
 
 Ngày: 2026-08-26
 Trạng thái: **ĐÃ HỘI TỤ** sau 19 vòng tranh luận đối kháng Claude ↔ Codex.
-Mức độ: đủ để lập kế hoạch triển khai. **Chưa** phải giấy phép bắt đầu viết code sản phẩm — xem mục 12.
+Mức độ: đủ để lập kế hoạch triển khai. **Chưa** phải giấy phép bắt đầu viết code sản phẩm — xem mục 13.
 
 ---
 
@@ -122,7 +122,7 @@ Nhưng **không hoãn việc kiểm chứng đến sau retention** — chạy so
 - AI **chỉ tạo đề xuất có kiểu**. Một bộ thực thi tất định chỉ chạy sau khi **đúng chủ thể có thẩm quyền** xác nhận.
 - Phát biểu chính xác: **AI không được gây side effect vật chất.** Truy vấn tất định (mở bảng thu, tính lại số dư) chạy ngay, không cần nút xác nhận vô nghĩa.
 - Khoản chi do thành viên đã xác thực ghi và xác nhận thì **có hiệu lực ngay**, kể cả khi người ghi không phải người ứng tiền. **Không bao giờ có trạng thái chờ chặn ở tầng sổ.**
-- Nhưng **không được phát thu tiền dưới danh nghĩa người ứng tiền** khi họ chưa xác nhận (mục 7).
+- Nhưng **không được phát thu tiền dưới danh nghĩa người ứng tiền** khi họ chưa xác nhận (mục 8).
 - Ghi riêng `recorded_by`, `paid_by/advancer`, `payer_acknowledgement`.
 
 ### Ba mức xác minh của dữ liệu AI
@@ -233,9 +233,74 @@ Người giải quyết **chỉ thấy diff theo field** và phần nội dung h
 
 ---
 
-## 6. Danh tính
+## 6. Mô hình dữ liệu — danh sách thực thể
 
-### 6.1 Bốn khái niệm tách biệt
+Danh sách hợp nhất. Chi tiết ngữ nghĩa và máy trạng thái nằm ở các mục tương ứng.
+
+### 6.1 Nhóm và danh tính *(mục 7)*
+
+| Thực thể | Vai trò | Ghi chú then chốt |
+|---|---|---|
+| `Account` | Người đã đăng nhập | Cần account linking + recovery, nếu không một người thành hai sổ |
+| `PersonStub` | "Hà" do người ghi tạo, chưa chắc có tài khoản | **Không bao giờ merge theo tên** |
+| `PersonStubClaim` | Yêu cầu nhận `PersonStub` về một `Account` | Vòng đời riêng; chặn mọi quyền tài chính khi chưa `finalized` |
+| `Membership` | Vai trò của Account/PersonStub trong một nhóm | `joined_at`, `left_at`, vai trò, biệt danh |
+| `GuestCapability` | Quyền xem/báo trạng thái qua link | Phủ **một tập nghĩa vụ bất biến** của đúng một người gửi |
+| `Group` | Nhóm người ổn định | |
+| `EphemeralWorkspace` | Không gian riêng của lần dùng đầu | **ID ổn định**; lưu nhóm là *gắn*, không phải *chuyển* |
+| `Context` | Chu kỳ sinh hoạt hoặc buổi/chuyến | **Tự sinh.** Người dùng chỉ thấy chữ "Chu kỳ / Buổi / Chuyến", không bao giờ thấy chữ `Context`. Một khoản chi thuộc đúng một context; một context có nhiều đợt thu |
+
+### 6.2 Trợ lý *(mục 5)*
+
+`SkillDefinition` (capability registry — sinh ra chip, không do model tự nghĩ) · `SkillInvocation` · `AnswerEvent` (tham chiếu `proposal_version`) · `SuggestionEvent` (góp ý về phần của chính mình, không tự đổi đề xuất) · `SharedInvocationSummary` (bản dẫn xuất đã che, audience snapshot **của chính nó**) · `UnsupportedIntentSignal` (chỉ lưu sau khi người dùng chủ động gửi).
+
+### 6.3 Khoản chi *(mục 3, 4)*
+
+| Thực thể | Ghi chú |
+|---|---|
+| `ExpenseDraft` + `DraftItem` | Model suy ra. **Bằng chứng chưa xác minh, không phải chuẩn đúng** |
+| `ExpenseProposal` | Có `version`; vòng đời riêng, gồm `conflicted` |
+| `ExpenseVersion` | Sửa tạo bản mới, **không ghi đè** |
+| `ConfirmedAllocation` | Số tiền theo người đã được nhìn và xác nhận → **sổ chính thức** |
+| `VerifiedItem` | Món người dùng trực tiếp xem/sửa → **tập đánh giá có nhãn** |
+| `CreditAdjustment` | Hoàn tiền; tham chiếu khoản chi gốc |
+| `WriteOff` | Miễn nợ; **chỉ chủ nợ của đúng khoản phải thu đó** |
+
+Trường bắt buộc trên khoản chi: `recorded_by` · `paid_by/advancer` · `payer_acknowledgement` · `verification_scope` (`totals_only` \| `items_reviewed`) · phí/VAT/ship/giảm giá.
+
+### 6.4 Thu tiền *(mục 8)*
+
+`CollectionBatch` · `CollectionObligation` (một cạnh `sender → recipient`, có `due_at` **riêng**) · `CollectionEnvelope` (theo cặp `(batch, sender)`) · `GuestLink` (vòng đời riêng `active|revoked|expired|rotated`) · `PaymentReport` và `ReceiptConfirmation` (**event có số tiền**, tham chiếu từng nghĩa vụ — trạng thái nghĩa vụ **suy ra** từ tổng đã xác nhận) · `Dispute` (`open → accepted | rejected | withdrawn | resolved`) · `OffsetProposal` · `Settlement` · `PromisedFor`.
+
+### 6.5 Tài khoản nhận tiền *(mục 7.4)*
+
+`BankRecipient` · `BankRecipientAuthorization` (`account_id` + `claim_id/context` + `authorized_at` — provenance này là thứ giới hạn phạm vi đình chỉ khi có khiếu nại) · `BankRecipientSnapshot` (đóng băng trong phiên bản batch).
+
+### 6.6 Điều phối, kiểm toán, an toàn
+
+`ActionItem` (do domain sinh tất định; **LLM không bao giờ tự viết**) · `AuditEvent` · `IntegrityIncident` · `AccountCompromiseIncident` · `SettlementIntegrityIncident` · `ModerationReport` (`submitted → reviewing → removed | retained | escalated`) · `AttachmentAsset` + bảng **data-lineage** (blob, thumbnail, text OCR, input gửi model, log, cache, request ID và thời hạn lưu của nhà cung cấp) · `EvidenceHold` (`started_at`, lý do, reviewer, `expires_at`, **không tự gia hạn**).
+
+### 6.7 Mô hình tương lai — KHÔNG chạy migration ở v1
+
+`RecurringRule` (`active ↔ paused → archived`) và `RecurringOccurrence` (`scheduled → draft_generated → confirmed | skipped | expired`, giữ `rule_version`).
+
+Tách hai thực thể này là bắt buộc về mặt thiết kế: nếu bản thân quy tắc đi từ `active` sang `confirmed` thì sau kỳ đầu tiên không còn gì để sinh kỳ tiếp theo. Nhưng **"thiết kế được đường mở rộng" khác "deploy một schema chết"** — chỉ triển khai sau cổng ở mục 18.
+
+### 6.8 Bất biến xuyên suốt
+
+1. Tổng các `ConfirmedAllocation` = đúng tổng khoản chi. Không ngoại lệ.
+2. Tiền là **số nguyên đồng**. Không có số thực ở bất kỳ đâu.
+3. Số dư luôn tính lại được từ sổ; bản cache không bao giờ là nguồn sự thật.
+4. Mức hiển thị của output ≤ mức nhạy cảm nhất của input, trừ khi đã che **và** có chấp thuận.
+5. Mọi thay đổi vật chất sau `published_at` cần chấp thuận của **tất cả** các bên bị ảnh hưởng.
+6. Không có capability nào phủ nhiều hơn một tập nghĩa vụ bất biến của đúng một người gửi.
+7. `completed` chỉ do domain transition tạo ra — không có nút "đánh dấu xong" tuỳ ý.
+
+---
+
+## 7. Danh tính
+
+### 7.1 Bốn khái niệm tách biệt
 
 | | Nghĩa |
 |---|---|
@@ -244,7 +309,7 @@ Người giải quyết **chỉ thấy diff theo field** và phần nội dung h
 | `Membership` | Vai trò của một Account/PersonStub trong một nhóm |
 | `GuestCapability` | Quyền xem/báo trạng thái của **đúng một tập nghĩa vụ**, qua link |
 
-### 6.2 Đăng nhập tiến triển
+### 7.2 Đăng nhập tiến triển
 
 - Tạo nháp được **trước** khi đăng nhập.
 - Bắt buộc đăng nhập trước hành vi có **tác động ra ngoài**: ghi sổ trên server, tạo link, publish đợt thu, lưu nhóm.
@@ -253,7 +318,7 @@ Người giải quyết **chỉ thấy diff theo field** và phần nội dung h
 - **Cần account linking và recovery** — đăng nhập Apple hôm nay, Google ngày mai mà tạo hai tài khoản thì sổ sẽ tách đôi một người.
 - **Không bao giờ merge theo tên hay biệt danh.**
 
-### 6.3 Vòng đời claim PersonStub
+### 7.3 Vòng đời claim PersonStub
 
 ```
 requested → pending_verification → finalized | rejected
@@ -273,7 +338,7 @@ Moderator **không cần chứng minh ai là người thật**; họ đánh giá
 
 → **Hệ quả kinh doanh:** bắt buộc có bộ phận hỗ trợ/kiểm duyệt **ngay từ ngày đầu**. Đây là chi phí thật.
 
-### 6.4 Bốn mức bảo đảm — không bao giờ gom thành một cờ `valid=true`
+### 7.4 Bốn mức bảo đảm — không bao giờ gom thành một cờ `valid=true`
 
 1. `AccountAuthenticated` — chỉ chứng minh ai đó kiểm soát ô đăng nhập
 2. `PersonStubClaimFinalized`
@@ -286,7 +351,7 @@ Thêm/đổi BankRecipient: **xác thực lại tại chỗ**, ghi kiểm toán,
 
 `BankRecipientAuthorization → account_id + claim_id/context + authorized_at`
 
-### 6.5 Ba tầng kích hoạt (đo riêng, không gộp)
+### 7.5 Ba tầng kích hoạt (đo riêng, không gộp)
 
 - `solo_value` — người tổ chức hoàn tất một invocation riêng tư
 - `transactional_group` — khách thanh toán qua capability
@@ -296,9 +361,9 @@ Thêm/đổi BankRecipient: **xác thực lại tại chỗ**, ghi kiểm toán,
 
 ---
 
-## 7. Thu tiền
+## 8. Thu tiền
 
-### 7.1 Đơn vị là đợt thu
+### 8.1 Đơn vị là đợt thu
 
 Nếu mỗi lần mua bó rau 35k lại phát một link đòi tiền thì app thành máy spam. Một đợt thu gom được: một hoá đơn lẻ / một buổi đi chơi / một tuần tiền chợ / một chu kỳ sinh hoạt.
 
@@ -312,7 +377,7 @@ CollectionBatch: accruing → frozen → published → collecting → completed 
 - UI *"Cộng vào đợt đang mở"* **chỉ liệt kê batch đang `accruing`**.
 - `completed` chỉ khi mọi nghĩa vụ đang hiệu lực đã kết thúc. `closed_with_exceptions` cho batch có miễn nợ, tranh chấp, hoặc nghĩa vụ bị huỷ.
 
-### 7.2 Nghĩa vụ và phong bì
+### 8.2 Nghĩa vụ và phong bì
 
 - Một `CollectionObligation` là **một cạnh duy nhất** `sender → recipient`, kèm số tiền, nguồn phân bổ, snapshot tài khoản nhận, và **`due_at` riêng**.
 - Các khoản cùng cặp `sender → recipient` trong một batch được cộng lại thành một nghĩa vụ. **Không tự bù trừ giữa các recipient khác nhau.**
@@ -322,7 +387,7 @@ CollectionBatch: accruing → frozen → published → collecting → completed 
 - Mỗi người nhận tự xác nhận phần mình. **Tranh chấp với Hà không chặn khoản gửi Nam.**
 - `GuestLink` có vòng đời riêng: `active | revoked | expired | rotated` — link hết hạn **không** làm nghĩa vụ biến mất.
 
-### 7.3 Ba cổng trước khi publish
+### 8.3 Ba cổng trước khi publish
 
 | Cổng | Nội dung |
 |---|---|
@@ -337,11 +402,11 @@ CollectionBatch: accruing → frozen → published → collecting → completed 
 > Phát biểu đúng: **"Người chỉ cầm bearer link không thể một mình đổi nơi nhận tiền."**
 > ❌ Không phải "không bao giờ chuyển tiền cho kẻ xấu".
 
-### 7.4 Một người nhận chưa sẵn sàng
+### 8.4 Một người nhận chưa sẵn sàng
 
 Trước khi freeze, người tạo đợt thu **phải chọn tường minh**: chờ tất cả người nhận sẵn sàng, **hoặc** tách các nghĩa vụ chưa sẵn sàng sang batch `blocked_recipient_setup`. Nghĩa vụ bị chặn **không bao giờ được âm thầm thêm vào phong bì đã publish**.
 
-### 7.5 Giao link
+### 8.5 Giao link
 
 - **Chỉ có link cá nhân hoá cho từng người.**
 - **Không** có "Copy tất cả", **không** xuất gói, **không** chia sẻ hàng loạt.
@@ -349,7 +414,7 @@ Trước khi freeze, người tạo đợt thu **phải chọn tường minh**: 
 - Không có trạng thái "đã giao". Chỉ đo `frozen_at` · `capability_exposed_at` (người dùng copy hoặc mở Share Sheet — từ đây coi như link **có thể** đã thoát khỏi app) · `first_opened_at`.
 - **Rủi ro còn lại được ghi nhận thẳng:** người tổ chức vẫn có thể tự copy từng link rồi dán chung vào group chat, và khi đó thông tin lộ. App **không** cung cấp affordance giúp làm hàng loạt, và **không tuyên bố phát hiện được** hành vi ngoài app — hệ thống không thể biết.
 
-### 7.6 Trang cho khách
+### 8.6 Trang cho khách
 
 Câu chữ **không được giả định** người mở link đúng là người được chỉ định:
 
@@ -365,11 +430,11 @@ Câu chữ **không được giả định** người mở link đúng là ngư�
 - **Không** nhận ảnh chuyển khoản làm bằng chứng mặc định.
 - ⚠️ **Người ta thường mở link trên chính chiếc điện thoại đang dùng** — lúc đó không có máy thứ hai để quét QR. Bắt buộc có: copy số tài khoản/số tiền/nội dung, deep link mở app ngân hàng, lưu ảnh QR.
 
-### 7.7 Tiến độ
+### 8.7 Tiến độ
 
 Đếm theo **lượt chuyển**: *"3/5 lượt chuyển hoàn tất"*. Phụ mới đếm theo người: *"2/4 người đã xong toàn bộ"*. Chỉ đếm người sẽ sai khi một người phải chuyển cho hai người nhận. Người ứng tiền không nằm trong mẫu số nếu họ không phải chuyển đi đâu.
 
-### 7.8 Bù trừ
+### 8.8 Bù trừ
 
 - Số dư toàn nhóm **luôn** hiển thị dạng đã bù trừ.
 - Đợt thu **không bao giờ** tự bù trừ xuyên đợt.
@@ -382,7 +447,7 @@ Offset: draft → proposed(published) → accepted_by_all → applied
                                    ↘ rejected | expired
 ```
 
-### 7.9 Đợt thu bị bỏ dở
+### 8.9 Đợt thu bị bỏ dở
 
 Ba khái niệm **khác nhau**: `stale` (nhãn UI suy ra từ thời gian, hoạt động lại được) · `archived` (ẩn khỏi hộp thư, **không** đổi sổ) · `abandoned`/`closed_with_exceptions` (kết quả nghiệp vụ có kiểm toán).
 
@@ -395,11 +460,11 @@ Ba khái niệm **khác nhau**: `stale` (nhãn UI suy ra từ thời gian, hoạ
 
 ---
 
-## 8. Bảng phân quyền
+## 9. Bảng phân quyền
 
 **Spec triển khai phải có MỘT bảng duy nhất, mọi API và mọi ActionItem tham chiếu về đó.** Quyền rải rác chính là cách "confused deputy" quay lại. Bảng phủ 11 nhóm hành động: tạo invocation riêng/chung · xem input, clarification, proposal · xác nhận ExpenseProposal · acknowledge vai trò người ứng tiền · thêm/đổi BankRecipient · freeze/publish/revoke batch và envelope · giải quyết từng loại xung đột · yêu cầu và chia sẻ bằng chứng · mời, phê duyệt, khiếu nại claim PersonStub · gỡ nội dung hoặc thành viên · gắn workspace vào Group.
 
-### 8.1 Freeze / Publish / Revoke
+### 9.1 Freeze / Publish / Revoke
 
 | Hành động | Ai |
 |---|---|
@@ -416,7 +481,7 @@ Khi người nhận thu hồi một phong bì nhiều người nhận: **thu h�
 
 Nếu `batch_owner` mất khả năng hoạt động: trước publication cho chuyển `batch_owner` tường minh (người nhận quyền phải chấp thuận, có kiểm toán), hoặc huỷ rồi tạo batch mới. **Group admin không tự kế thừa quyền tài chính chỉ vì là admin.**
 
-### 8.2 Group admin — hậu cần, không phải quyền lực tài chính
+### 9.2 Group admin — hậu cần, không phải quyền lực tài chính
 
 **Được:** quản lý thành viên và lời mời · gỡ nội dung do chính mình tải lên · loại thành viên khỏi nhóm · chuyển quyền admin. *(Quản lý quy tắc định kỳ thuộc giai đoạn tương lai.)*
 
@@ -424,7 +489,7 @@ Nếu `batch_owner` mất khả năng hoạt động: trước publication cho c
 
 Loại một thành viên **không xoá** nghĩa vụ tài chính của họ hoặc với họ. Sau khi bị loại, người đó vẫn giữ `SettlementView` tối thiểu; admin không vì thế được xem thêm dữ liệu riêng của họ.
 
-### 8.3 Khiếu nại danh tính — phạm vi đình chỉ
+### 9.3 Khiếu nại danh tính — phạm vi đình chỉ
 
 Khi claim bị `challenged`/`rolled_back`, **trong cùng một giao dịch cơ sở dữ liệu**: đình chỉ BankRecipient **được cấp quyền dựa trên đúng `claim_id` đó** · chặn batch/capability dùng binding đó · batch chưa publish quay về blocked · thu hồi capability chưa dùng · tạo `IntegrityIncident` · **ghi** thông báo vào transactional outbox.
 
@@ -449,9 +514,9 @@ Khi claim bị `challenged`/`rolled_back`, **trong cùng một giao dịch cơ s
 
 ---
 
-## 9. Hiển thị và quyền xem
+## 10. Hiển thị và quyền xem
 
-### 9.1 Nguyên tắc chống rò rỉ ngữ cảnh
+### 10.1 Nguyên tắc chống rò rỉ ngữ cảnh
 
 > **Output không bao giờ được có mức hiển thị rộng hơn input nhạy cảm nhất**, trừ khi đã che VÀ có chấp thuận.
 
@@ -459,7 +524,7 @@ Ba mức: `private_to_invoker` · `group_summary_private_details` (**mặc đị
 
 Hiển thị invocation **độc lập** với cách giao link. Đăng lệnh trong luồng nhóm **không** tự chuyển batch sang chế độ công khai.
 
-### 9.2 Ma trận
+### 10.2 Ma trận
 
 | Thành phần | Mặc định |
 |---|---|
@@ -475,12 +540,12 @@ Composer phải cảnh báo nếu nội dung đang gõ sẽ hiện cho cả nhó
 
 Chỗ AI không chắc phải thành **câu hỏi cụ thể**, không chỉ tô màu: *"Hà" là Hà Nguyễn hay Hà Trần?* · *82k của Nam đã gồm phí ship chưa?*
 
-### 9.3 Declassification
+### 10.3 Declassification
 
 - Invocation **riêng tư**: cả **sự kiện** cũng không hiện ra nhóm — nhóm không thấy dòng "X đã gọi bot".
 - Là hành động tường minh của **chủ sở hữu field**, luôn tạo ra một **bản dẫn xuất đã che**. **Không bao giờ đổi ACL của bản gốc.**
 
-### 9.4 Quyền xem lịch sử
+### 10.4 Quyền xem lịch sử
 
 Là **giao của ba điều kiện**: membership trong khoảng thời gian hợp lệ **và** object visibility cho phép **và** audience snapshot cho phép. *(Một invocation riêng tư không trở thành nhìn thấy được chỉ vì người xem là thành viên tại thời điểm đó.)*
 
@@ -491,7 +556,7 @@ Là **giao của ba điều kiện**: membership trong khoảng thời gian hợ
 
 **`SettlementView` tối thiểu** (cho nghĩa vụ ngoài khoảng membership): số tiền của họ · người nhận và hướng dẫn chuyển · nguồn tính ở mức đủ giải thích · các phiên bản đã làm đổi nghĩa vụ của họ · dispute và receipt events liên quan. **Không** lộ phân bổ người khác, bill gốc, hay clarification.
 
-### 9.5 Xin bằng chứng khi tranh chấp
+### 10.5 Xin bằng chứng khi tranh chấp
 
 Người bị ghi phần phải có đường xin **bằng chứng đã che**: dòng món hoặc phép tính liên quan trực tiếp tới họ · trích đoạn bill đã che phần không liên quan · provenance và verification scope.
 
@@ -499,9 +564,9 @@ Nếu người tải lên không đồng ý chia sẻ thêm: dispute vẫn tồn
 
 ---
 
-## 10. Vòng đời thành viên và promotion
+## 11. Vòng đời thành viên và promotion
 
-### 10.1 Rời nhóm
+### 11.1 Rời nhóm
 
 **Không được bắt "tất toán xong mới được rời"** — một khoản tranh chấp là mắc kẹt vĩnh viễn.
 
@@ -517,7 +582,7 @@ Nếu người tải lên không đồng ý chia sẻ thêm: dispute vẫn tồn
 
 **Chặn (block)** ngăn mời lại, ngăn nhắc tên, ngăn thông báo không cần thiết — nhưng **không xoá nghĩa vụ tài chính hợp lệ**. Hai người ghét nhau vẫn phải tất toán được.
 
-### 10.2 Session-first → nhóm
+### 11.2 Session-first → nhóm
 
 - **Lần dùng đầu:** không gian riêng của người gọi (`EphemeralWorkspace` có **ID ổn định**). Vẫn là invocation, vẫn là bot, nhưng chỉ mình họ thấy. Không có luồng chung.
 - Sau khi xác nhận khoản chi và chọn cách giao, app đề nghị lưu thành nhóm.
@@ -529,7 +594,7 @@ Nếu người tải lên không đồng ý chia sẻ thêm: dispute vẫn tồn
 
 **Ràng buộc giao dịch:** idempotency key do client tạo · ràng buộc duy nhất (một workspace không gắn được vào hai Group) · kiểm tra quyền lại **trong** transaction · danh sách Expense/Context attach phải **tường minh** · transactional outbox cho mời và thông báo · retry outbox không đẻ ra lời mời hay ActionItem trùng.
 
-### 10.3 ActionItem
+### 11.3 ActionItem
 
 - Vòng đời nghiệp vụ: `open → completed | cancelled | expired | declined`. `completed` **chỉ do domain transition tạo** — không có nút "đánh dấu xong" tuỳ ý.
 - Trạng thái trình bày tách riêng: `visible | snoozed_until | hidden`. **Không làm ActionItem tài chính biến mất khỏi tìm kiếm và kiểm toán.**
@@ -542,9 +607,9 @@ Luồng nhóm và hộp thư là **hai projection trên cùng một ActionItem**
 
 ---
 
-## 11. Thông báo, an toàn, quyền của người gửi
+## 12. Thông báo, an toàn, quyền của người gửi
 
-### 11.1 Thông báo
+### 12.1 Thông báo
 
 Định tuyến theo `ActionItem.assigned_to`, **không** theo vai trò cố định. **Không có khái niệm "báo cả nhóm"** — nếu tất cả thật sự phải xác nhận thì tạo ActionItem riêng cho từng người.
 
@@ -560,13 +625,13 @@ Trần theo **người nhận** và **loại hành động**, không chỉ theo 
 
 **Tuyệt đối cấm:** thông báo kiểu "X chưa chuyển tiền" gửi cho cả nhóm · bảng xếp hạng trả chậm · streak · màu đỏ bêu tên · thông báo công khai ai chưa gửi.
 
-### 11.2 Quyền chủ động của người gửi
+### 12.2 Quyền chủ động của người gửi
 
 `Tôi sẽ gửi vào ngày…` (`promised_for` là **event riêng**, tạm ngừng nhắc đến ngày đã chọn nhưng **không** coi là đã thanh toán) · `Nhắc lại cho tôi sau` · `Tạm dừng nhắc` · `Số tiền không đúng`.
 
 `promised_for`, dispute, stale tạm ngừng **đúng loại nhắc tương ứng** nhưng không tắt các xác nhận tiền quan trọng.
 
-### 11.3 An toàn tệp và nội dung
+### 12.3 An toàn tệp và nội dung
 
 **Kỹ thuật:** MIME sniffing · giải mã trong sandbox · giới hạn kích thước **sau** giải nén · quét mã độc · gỡ EXIF · bảng data-lineage (blob, thumbnail, text OCR, input gửi model, log, cache, request ID và thời hạn lưu của nhà cung cấp).
 
@@ -580,7 +645,7 @@ Trần theo **người nhận** và **loại hành động**, không chỉ theo 
 
 Ghi rõ SLA xoá cho object store, cache, backup, nhà cung cấp model. **Không hứa xoá ngay ở phía nhà cung cấp nếu hợp đồng của họ không cho.** Ảnh đã từng `group_visible` thì **không đảo ngược được** — chỉ thu hồi được quyền truy cập trong hệ thống.
 
-### 11.4 Rủi ro quan hệ — guardrail có quyền phủ quyết
+### 12.4 Rủi ro quan hệ — guardrail có quyền phủ quyết
 
 Sản phẩm có thể tăng tốc độ thu tiền bằng cách **tăng áp lực xã hội**. Đó không phải thành công.
 
@@ -593,12 +658,12 @@ Phỏng vấn **riêng từng người gửi**, trước và sau chu kỳ (khôn
 
 ---
 
-## 12. Giai đoạn 0 — kiểm chứng bằng người, TRƯỚC khi viết code
+## 13. Giai đoạn 0 — kiểm chứng bằng người, TRƯỚC khi viết code
 
 > **Không xây máy trạng thái trước khi kiểm chứng bằng người thật.**
 > "Khó sửa sau" không phải lý do xây nền móng cho một sản phẩm có thể không nên tồn tại. Giai đoạn 0 chỉ dùng công cụ nghiên cứu dùng một lần, cộng threat model và bản phác schema trên giấy.
 
-### 12.1 Giao thức
+### 13.1 Giao thức
 
 - **Baseline trước:** quan sát trực tiếp một chu kỳ chi phí thật theo cách họ đang làm. **Không hỏi hồi tưởng** (recall bias). Baseline và concierge phải tương đương về số người, số tiền, độ phức tạp phân bổ, số người nhận.
 - **Chu kỳ concierge:** người vận hành đứng **sau một giao diện giả lập**. Người tổ chức vẫn phải tự làm đúng những thao tác v1 đòi hỏi: nhập dữ liệu, chia sẻ, chủ động gửi lời nhắc. **Người vận hành không được tự nhắn và tự nhắc trực tiếp trong group chat** — app tương lai không có quyền đó với khách vô danh.
@@ -608,14 +673,14 @@ Phỏng vấn **riêng từng người gửi**, trước và sau chu kỳ (khôn
 - **Lấy mẫu tuần tự:** wave A 6 nhóm mỗi cohort để sửa giao thức → block 3 nhóm mỗi cohort → mở gate khi ≥10 nhóm trong một cohort **thực sự có cơ hội chi phí tiếp theo** → dừng tuyển khi hai block liên tiếp không sinh failure mode mới và hướng kết quả không còn đảo ngược.
 - Gắn `protocol_version` cho từng nhóm. Dữ liệu trước và sau một thay đổi lớn không được gộp. *(Người vận hành sẽ giỏi dần — nếu không có SOP và version, cải thiện theo wave sẽ bị nhầm thành khác biệt cohort.)*
 
-### 12.2 A/B cần chạy
+### 13.2 A/B cần chạy
 
 - **Đường nhập:** text tiếng Việt · ảnh bill · form cấu trúc (**control bắt buộc**). Randomize thứ tự trên các bill tương đương hoặc dùng Latin square — **không** cho một người làm ba cách trên cùng một bill (lần đầu đã tiết lộ đáp án). Đo **thời gian tới phân bổ ĐÚNG**, không phải thời gian tới lúc có kết quả.
 - **Chip so với gõ lệnh** — ý định của chủ sản phẩm không đòi người dùng phải gõ nếu một cái nút nhanh hơn.
 - **Invocation riêng so với invocation chung.**
 - **Thứ tự thông điệp:** `tầm nhìn rộng → năng lực tiền` so với `năng lực tiền → tầm nhìn rộng`. *(Không phải test xem có giữ RB-2 hay không; test cách diễn đạt ít gây hại nhất.)*
 
-### 12.3 Cổng hành vi để được phép xây prototype
+### 13.3 Cổng hành vi để được phép xây prototype
 
 *(Chưa phải PMF)*
 
@@ -634,7 +699,7 @@ Phỏng vấn **riêng từng người gửi**, trước và sau chu kỳ (khôn
 
 ⚠️ Tín hiệu "tự xin làm lần nữa" là **độ chính xác cao, độ bao phủ thấp** — chỉ có nghĩa khi: nhóm biết dịch vụ vẫn còn · thực sự phát sinh cơ hội chi phí hợp lệ · người tổ chức **chủ động** đưa khoản mới vào (không phải trả lời "có" khi được hỏi) · người vận hành không chăm sóc vượt mức sản phẩm tương lai.
 
-### 12.4 Cổng OCR (nếu giữ đường ảnh bill)
+### 13.4 Cổng OCR (nếu giữ đường ảnh bill)
 
 **Gate A — 50 bill thật, đa dạng có chủ ý:** bill nhiệt rõ/mờ/lệch/nhàu · quán ăn, trà sữa, siêu thị nhỏ · ảnh camera và ảnh chụp màn hình/hoá đơn điện tử. **Không loại mẫu xấu sau khi đã đưa vào tập.**
 
@@ -644,7 +709,7 @@ Phỏng vấn **riêng từng người gửi**, trước và sau chu kỳ (khôn
 
 Fail → v1 chỉ còn text tiếng Việt và nhập tay. Đây là cắt đúng: ảnh bill là đường phụ, không phải wedge.
 
-### 12.5 Đạo đức và rủi ro nghiên cứu
+### 13.5 Đạo đức và rủi ro nghiên cứu
 
 Mọi người bị quan sát phải biết và đồng ý — **kể cả việc có người thật đọc dữ liệu trong Wizard-of-Oz**. Ghi nhận thiên lệch chọn mẫu (chọn về các nhóm vốn dễ chịu với chia sẻ dữ liệu). VietQR do người vận hành tạo **vẫn có thể chuyển sai người** → quy trình hai bước đối chiếu người nhận, số tài khoản, số tiền, tên ngân hàng, kèm kế hoạch hoàn trả nếu nghiên cứu gây sai lệch.
 
@@ -652,7 +717,7 @@ Mọi người bị quan sát phải biết và đồng ý — **kể cả việ
 
 **Giai đoạn 0 không rẻ chỉ vì không viết code** — vẫn cần tuyển nhóm, chi phí khuyến khích, người vận hành, quy trình chấp thuận, xử lý dữ liệu, kiểm soát tiền thật.
 
-### 12.6 Thời gian
+### 13.6 Thời gian
 
 **Ngân sách 4 tháng, có thể kéo 5–6.** *(2 tháng chỉ khả thi khi dừng sớm hoặc với cohort có chi phí hàng tuần.)*
 
@@ -664,9 +729,9 @@ Với nhóm ở trọ: baseline tháng 0 → concierge tháng 1 → cơ hội qu
 
 ---
 
-## 13. Kiến trúc và thứ tự xây
+## 14. Kiến trúc và thứ tự xây
 
-### 13.1 Stack
+### 14.1 Stack
 
 | Tầng | Chọn | Ghi chú |
 |---|---|---|
@@ -686,7 +751,7 @@ Với nhóm ở trọ: baseline tháng 0 → concierge tháng 1 → cơ hội qu
 
 **Đồng bộ ngoại tuyến:** `local_draft | pending_sync | synced | conflict`. **Không publish link trước khi server commit thành công.** Mọi sync và retry cần idempotency key.
 
-### 13.2 Chi phí
+### 14.2 Chi phí
 
 Spec chỉ ghi **công thức** và **trần**:
 
@@ -704,7 +769,7 @@ Trần phải là con số VND cụ thể hoặc tỉ lệ trên doanh thu mục
 
 Kết luận định tính đã thống nhất: **AI dạng giao dịch thì chi phí kiểm soát được; AI dạng chat có thể đội lên hơn mười lần.** Trần theo lượt gọi và quota theo nhóm cũng là biện pháp chống **denial-of-wallet** khi có người gọi bot liên tục.
 
-### 13.3 Thứ tự xây
+### 14.3 Thứ tự xây
 
 1. Định nghĩa `SkillInvocation`, hợp đồng kỹ năng, **bảng phân quyền**, ma trận hiển thị, máy trạng thái thu tiền, ngữ nghĩa bù trừ, bảo mật link khách
 2. Lõi tiền: sổ, bất biến, đường lui thủ công, danh tính và phân quyền tối thiểu
@@ -717,7 +782,7 @@ Kết luận định tính đã thống nhất: **AI dạng giao dịch thì chi
 
 ---
 
-## 14. Chỉ số và cổng quyết định
+## 15. Chỉ số và cổng quyết định
 
 **Chỉ số chính:** tỉ lệ nhóm **hoàn tất đợt thu thứ hai do người dùng chủ động tạo**.
 *(Không dùng "khoản chi thứ hai trong 30 ngày" — một người có thể nhập ba cuốc taxi trong cùng một buổi.)*
@@ -760,9 +825,9 @@ Cả hai thấp ở cả hai cohort → **dừng mở rộng phạm vi, chẩn �
 
 ---
 
-## 15. Rủi ro và hạng mục cần rà soát
+## 16. Rủi ro và hạng mục cần rà soát
 
-### 15.1 Pháp lý — cần luật sư, không được tự kết luận
+### 16.1 Pháp lý — cần luật sư, không được tự kết luận
 
 - Lập bản đồ luồng dữ liệu cho mọi thứ gửi tới nhà cung cấp model.
 - Rà theo **Luật Bảo vệ dữ liệu cá nhân 91/2025/QH15** (hiệu lực 01/01/2026) và **Nghị định 356/2025/NĐ-CP**. Đưa dữ liệu thu thập tại Việt Nam lên nền tảng ngoài Việt Nam để xử lý tiếp là **chuyển dữ liệu xuyên biên giới**, kéo theo hồ sơ đánh giá tác động. Consent phải có **trước khi thu thập**.
@@ -783,7 +848,7 @@ Cả hai thấp ở cả hai cohort → **dừng mở rộng phạm vi, chẩn �
 ⚠️ Phải nói thật trong spec: đây là **giảm thiểu rủi ro**, không phải "khử định danh tuyệt đối". OCR trên máy vẫn là xử lý dữ liệu và vẫn cần thông báo phù hợp; nó chỉ tránh chuyển **ảnh gốc** xuyên biên giới.
 → Ảnh từ Share Sheet phải mở bộ che, **không được upload thẳng**.
 
-### 15.2 VietQR — chặn phát hành
+### 16.2 VietQR — chặn phát hành
 
 Sai payload thì **tiền chạy vào tài khoản người khác**. Đây là lỗi có hậu quả nặng nhất trong toàn bộ app.
 
@@ -796,15 +861,15 @@ Sai payload thì **tiền chạy vào tài khoản người khác**. Đây là l
 - Nhắc người chuyển kiểm tra tên chủ tài khoản do chính ngân hàng hiển thị.
 - ⚠️ **Checksum đúng chỉ chứng minh payload không hỏng — nó không chứng minh số tài khoản là đúng người.** Phải xác minh cả dữ liệu đầu vào.
 
-### 15.3 Bảo mật và lạm dụng
+### 16.3 Bảo mật và lạm dụng
 
 Chống tạo nợ giả và quấy rối · chống truy cập trực tiếp bằng cách đoán mã và dò token · thông báo tài chính ẩn nội dung nhạy cảm trên màn hình khoá · thao tác xác nhận nhanh phải gắn với thiết bị đã xác thực · **confused deputy**: bot chạy bằng service account mạnh nhưng quyền thực hiện phải tính theo `invoked_by` và chủ thể bị ảnh hưởng · **task interleaving**: câu "ừ, sửa Hà thành 92k" phải gắn với đúng `invocation_id`, không dùng bộ nhớ hội thoại chung để đoán · **shared-output authority**: mọi output ghi rõ `Đề xuất của bot` / `Ai đã xác nhận` / `Chưa có hiệu lực` — bot không được nói "nhóm đã chốt" khi mới có một người gọi.
 
-### 15.4 Tính đúng và vận hành
+### 16.4 Tính đúng và vận hành
 
 Test tính chất cho tiền số nguyên, làm tròn, tổng phân bổ · bảo đảm thao tác lặp không nhân đôi hiệu lực · test sửa đồng thời, sinh khoản định kỳ, chấp thuận bù trừ · đường lui thủ công/ngoại tuyến khi AI quá hạn (**không được khoá luồng cốt lõi vì AI**) · tập đánh giá tiếng Việt cho biệt danh, đại từ ("nó", "thằng Nam"), tên trùng, hoá đơn lỗi — **AI không được tự đoán khi có nhiều ứng viên, phải hỏi** · thành viên rời nhóm không để nghĩa vụ mồ côi · thanh toán trên cùng một điện thoại phải có phương án ngoài quét QR.
 
-### 15.5 Dữ liệu `unsupported_intent`
+### 16.5 Dữ liệu `unsupported_intent`
 
 Sự kiện đã chuẩn hoá gắn pseudonymous group ID: **vẫn là dữ liệu cá nhân** trong tối đa 12 tháng — **không được gọi là vô danh**; sau đó chỉ còn tổng hợp không ID. Chỉ lưu **sau khi người dùng chủ động bấm gửi tín hiệu**.
 
@@ -814,7 +879,7 @@ Thêm `taxonomy_version`, lịch sử phân loại lại, chống spam, xoá the
 
 ---
 
-## 16. Giả định chưa được kiểm chứng
+## 17. Giả định chưa được kiểm chứng
 
 Nếu giả định số 1 sai thì cả sản phẩm sai.
 
@@ -835,7 +900,7 @@ Nếu giả định số 1 sai thì cả sản phẩm sai.
 
 ---
 
-## 17. Sau v1 — nơi tầm nhìn quay lại
+## 18. Sau v1 — nơi tầm nhìn quay lại
 
 Mỗi kỹ năng mới chỉ được mở khi có **nguồn dữ liệu, eval, renderer, mô hình quyền, cổng an toàn, và bài toán chi phí riêng**. "Tích hợp" **không phải** giấy phép dùng lại mọi dữ liệu — việc người dùng cho kỹ năng tiền đọc bill không cho kỹ năng gợi ý quán sau này đọc lịch sử chi tiêu.
 
@@ -850,7 +915,7 @@ Mỗi kỹ năng mới chỉ được mở khi có **nguồn dữ liệu, eval, 
 
 ---
 
-## 18. Phụ lục — 19 vòng tranh luận
+## 19. Phụ lục — 19 vòng tranh luận
 
 | Vòng | Ai sai | Nội dung |
 |---|---|---|
