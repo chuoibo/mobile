@@ -1,0 +1,228 @@
+from __future__ import annotations
+
+import hashlib
+import importlib.util
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+
+MODULE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "repo_guard.py"
+SPEC = importlib.util.spec_from_file_location("repo_guard", MODULE_PATH)
+assert SPEC is not None and SPEC.loader is not None
+repo_guard = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = repo_guard
+SPEC.loader.exec_module(repo_guard)
+
+
+class PatternScannerTests(unittest.TestCase):
+    def scan_text(self, text: str):
+        raw = text.encode("utf-8")
+        return repo_guard.content_findings(
+            path="safe-note.txt",
+            raw=raw,
+            file_number=1,
+            config=repo_guard.GuardConfig(artifacts=()),
+            digest=hashlib.sha256(raw).hexdigest(),
+            line_numbers=None,
+            commit=None,
+        )
+
+    def test_email_phone_and_long_number_are_masked(self):
+        fake_email = "an.kiemthu" + "@" + "example.invalid"
+        fake_phone = "+84" + " 912 345" + " 678"
+        fake_identifier = "1234" + "567890"
+        findings = self.scan_text("\n".join((fake_email, fake_phone, fake_identifier)))
+
+        self.assertEqual(
+            {finding.rule for finding in findings},
+            {"email", "vn-phone", "long-number"},
+        )
+        rendered = "\n".join(finding.render() for finding in findings)
+        self.assertNotIn(fake_email, rendered)
+        self.assertNotIn(fake_phone, rendered)
+        self.assertNotIn(fake_identifier, rendered)
+
+    def test_grouped_vnd_is_not_treated_as_an_identifier(self):
+        findings = self.scan_text("Chi phí tổng hợp: 100.000.000 VND")
+        self.assertEqual(findings, [])
+
+    def test_common_vietnamese_phone_formats_are_detected(self):
+        fake_numbers = (
+            "+84" + " (0) 912 345" + " 678",
+            "0" + "28 1234" + " 5678",
+        )
+        for fake_number in fake_numbers:
+            with self.subTest(fake_number=fake_number):
+                findings = self.scan_text(fake_number)
+                self.assertEqual({item.rule for item in findings}, {"vn-phone"})
+
+    def test_inline_annotation_requires_a_specific_rule_and_reason(self):
+        fake_identifier = "9876" + "543210"
+        text = (
+            "<!-- repo-guard: allow=long-number "
+            "reason=synthetic-aggregate-fixture -->\n"
+            f"Mã tổng hợp giả: {fake_identifier}"
+        )
+        self.assertEqual(self.scan_text(text), [])
+
+    def test_controlled_artifact_requires_exact_path_and_digest(self):
+        path = "docs/assets/synthetic-diagram.png"
+        raw = b"\x89PNG\r\n\x1a\nsynthetic-only"
+        digest = hashlib.sha256(raw).hexdigest()
+        config = repo_guard.GuardConfig(
+            artifacts=(
+                repo_guard.ArtifactAllowance(
+                    path=path,
+                    sha256=digest,
+                    rules=frozenset({"controlled-artifact"}),
+                ),
+            )
+        )
+        entry = repo_guard.GitEntry("100644", "blob", "0" * 40, path.encode())
+
+        allowed = repo_guard.scan_entry(entry, raw, 1, config, None, None)
+        changed = repo_guard.scan_entry(entry, raw + b"changed", 1, config, None, None)
+
+        self.assertEqual(allowed, [])
+        self.assertIn("controlled-artifact", {item.rule for item in changed})
+
+    def test_each_required_artifact_category_is_controlled(self):
+        extensions = (".png", ".pdf", ".zip", ".xlsx", ".sqlite")
+        for suffix in extensions:
+            with self.subTest(suffix=suffix):
+                path = f"safe/synthetic-artifact{suffix}"
+                entry = repo_guard.GitEntry("100644", "blob", "0" * 40, path.encode())
+                findings = repo_guard.scan_entry(
+                    entry,
+                    b"obviously synthetic text payload",
+                    1,
+                    repo_guard.GuardConfig(artifacts=()),
+                    None,
+                    None,
+                )
+                self.assertIn("controlled-artifact", {item.rule for item in findings})
+
+    def test_forbidden_data_path_cannot_be_allowlisted(self):
+        path = "data/raw/synthetic-note.txt"
+        raw = b"obviously synthetic"
+        entry = repo_guard.GitEntry("100644", "blob", "0" * 40, path.encode())
+        findings = repo_guard.scan_entry(
+            entry,
+            raw,
+            1,
+            repo_guard.GuardConfig(artifacts=()),
+            None,
+            None,
+        )
+        self.assertIn("forbidden-path", {item.rule for item in findings})
+
+    def test_export_filename_is_not_echoed(self):
+        filename = "participants" + "_export.csv"
+        entry = repo_guard.GitEntry("100644", "blob", "0" * 40, filename.encode())
+        findings = repo_guard.scan_entry(
+            entry,
+            b"synthetic,only\n",
+            1,
+            repo_guard.GuardConfig(artifacts=()),
+            None,
+            None,
+        )
+        rendered = "\n".join(item.render() for item in findings)
+        self.assertIn("export-filename", {item.rule for item in findings})
+        self.assertNotIn(filename, rendered)
+
+
+class GitIntegrationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.repo = Path(self.temp_dir.name)
+        self.git("init", "-b", "main")
+        self.git("config", "user.name", "Synthetic Test")
+        self.git("config", "user.email", "synthetic-test" + "@" + "example.invalid")
+        (self.repo / ".repo-guard-allowlist.json").write_text(
+            '{"version": 1, "artifacts": []}\n', encoding="utf-8"
+        )
+        (self.repo / "note.txt").write_text("safe baseline\n", encoding="utf-8")
+        self.git("add", ".repo-guard-allowlist.json", "note.txt")
+        self.git("commit", "-m", "synthetic baseline")
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def git(self, *args: str) -> str:
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=self.repo,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        return completed.stdout.strip()
+
+    def run_guard(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["python3", str(MODULE_PATH), *args],
+            cwd=self.repo,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+    def test_staged_scan_reads_index_not_unstaged_worktree(self):
+        (self.repo / "note.txt").write_text(
+            "safe baseline\nstaged safe line\n", encoding="utf-8"
+        )
+        self.git("add", "note.txt")
+        fake_email = "unstaged.person" + "@" + "example.invalid"
+        (self.repo / "note.txt").write_text(
+            f"safe baseline\nstaged safe line\n{fake_email}\n", encoding="utf-8"
+        )
+
+        completed = self.run_guard("staged")
+
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        self.assertNotIn(fake_email, completed.stdout + completed.stderr)
+
+    def test_staged_failure_never_logs_raw_match_or_path(self):
+        fake_email = "participant.synthetic" + "@" + "example.invalid"
+        filename = "participants" + "_export.csv"
+        (self.repo / filename).write_text(fake_email + "\n", encoding="utf-8")
+        self.git("add", "-f", filename)
+
+        completed = self.run_guard("staged")
+        output = completed.stdout + completed.stderr
+
+        self.assertEqual(completed.returncode, 1, output)
+        self.assertNotIn(fake_email, output)
+        self.assertNotIn(filename, output)
+        self.assertIn("rule=email", output)
+        self.assertIn("rule=export-filename", output)
+
+    def test_range_scan_catches_data_removed_in_a_later_commit(self):
+        base = self.git("rev-parse", "HEAD")
+        fake_email = "transient.synthetic" + "@" + "example.invalid"
+        (self.repo / "note.txt").write_text(
+            f"safe baseline\n{fake_email}\n", encoding="utf-8"
+        )
+        self.git("add", "note.txt")
+        self.git("commit", "-m", "synthetic transient fixture")
+        (self.repo / "note.txt").write_text("safe baseline\n", encoding="utf-8")
+        self.git("add", "note.txt")
+        self.git("commit", "-m", "remove synthetic transient fixture")
+        head = self.git("rev-parse", "HEAD")
+
+        completed = self.run_guard("range", base, head)
+        output = completed.stdout + completed.stderr
+
+        self.assertEqual(completed.returncode, 1, output)
+        self.assertNotIn(fake_email, output)
+        self.assertIn("rule=email", output)
+
+
+if __name__ == "__main__":
+    unittest.main()
