@@ -216,3 +216,43 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# W9a research-data boundary
+# Real participant data belongs under /srv/mobile-study-private on an
+# access-controlled research host. These patterns are only a last-resort guard:
+# ignored data is still forbidden inside this repository or any worktree.
+/.research-data/
+/research-data/
+/research_data/
+/study-data/
+/study_data/
+/participant-data/
+/private-data/
+/operator-exports/
+/survey-responses/
+/exports/
+/export/
+/receipts/
+/bills/
+/transcripts/
+/data/raw/
+/data/private/
+/data/participants/
+/data/exports/
+
+# Common local research exports and databases
+*_export.csv
+*_export.tsv
+*_export.json
+*responses*.csv
+*responses*.tsv
+*participants*.csv
+*participants*.tsv
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.xlsx
+*.xls
+*.xlsm
+*.ods
