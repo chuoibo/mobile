@@ -28,6 +28,7 @@ Ranh giới dễ trượt nhất, ghi ở đây để cả hai tự soi:
 | **W8** | Pricing/WTP trên **mẫu tách biệt** | Claude | Codex | — |
 | **W4b** | Phác schema sản phẩm | **HOÃN** tới sau W7, **chỉ nếu PASS**. Claude draft, Codex review invariants | | Không chặn và không ảnh hưởng dữ liệu Giai đoạn 0 |
 | — | Tuyển nhóm · làm operator · thuê counsel · ngân sách · giám sát tiền thật · sự cố thực địa · **ký quyết định gate** | **LEADER** | | **Tất cả** |
+| **W9a-E** | Bật enforcement: required check `repo-guard` · PR bắt buộc · chặn direct push · chạy PR dry-run âm tính và xác nhận **bị chặn thật** · lưu bằng chứng cấu hình (không PII) vào gate packet | **LEADER** | Codex xác minh | **FIELD-GATE** |
 
 ### Vì sao W0 thuộc Claude chứ không Codex
 Codex sở hữu W1/W2/W4a/W9a. **Người viết giao thức đo không nên là người xây công cụ hiện thực giao thức đó** — công cụ sẽ lặng lẽ định hình lại giao thức. Codex review W0 với quyền chặn đầy đủ.
@@ -67,6 +68,8 @@ W8 pricing (mẫu tách biệt, song song về thời gian) ──────�
                                                                   v
                                      chỉ khi PASS → mục 14.3 → W4b
 ```
+
+⚠️ **Governance (W0/W9/W9a/W4a) chặn DỮ LIỆU THẬT và thực thi thực địa — KHÔNG chặn việc build và test W1/W2 bằng fixture tổng hợp.** *(Suggestion 3 của Codex, 2026-08-26.)* Mọi mũi tên ở trên là ràng buộc về thứ tự **chạm người thật**, không phải ràng buộc về thứ tự viết code.
 
 ## Cửa sổ rỗng của engineer — xử lý trung thực
 
