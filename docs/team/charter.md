@@ -24,7 +24,15 @@ Engineer không phủi trách nhiệm kỹ thuật khi công cụ lỗi, kể c�
 
 `<slug>` mơ hồ kiểu `backend` / `research` là sai. **Work ID là thứ nối branch ↔ review ↔ nhật ký ↔ protocol_version.**
 
-Reviewer tạo review-only branch từ HEAD của nhánh đích, thêm file dưới thư mục của mình, rồi merge commit review vào nhánh đích. Review-only PR **miễn review đệ quy** — nhưng chỉ khi CI xác nhận diff chỉ chứa Markdown review, không executable, không binary, không symlink.
+### Review doc đi đường nào
+
+**Review doc commit thẳng vào `main` bởi chính người viết review.** Không PR, không review lại.
+
+Đường dẫn bị giới hạn: `docs/<owner>/<YYYY-MM-DD>/review-*.md`. Chỉ Markdown.
+
+Vì sao không dùng review-only branch có miễn trừ: một ngoại lệ MERGE-GATE mà không có cơ chế xác minh thì không phải quy tắc, chỉ là lời hứa. Muốn quay lại mô hình review-only PR thì phải có CI check giới hạn đường dẫn và chặn executable/binary/symlink **trước**, không phải sau. *(Blocker B-02 của Codex, 2026-08-26.)*
+
+Review doc **ghi nhận** một verdict. Nó **không** mang quyền quyết định — quyền đó sống ở `docs/decisions/`. Đó là lý do nó không cần cổng riêng.
 
 ## 3. Hai cổng tách biệt
 
@@ -33,7 +41,7 @@ Reviewer tạo review-only branch từ HEAD của nhánh đích, thêm file dư�
 - test/kết quả tái lập được
 
 **FIELD-GATE** — được phép chạm người thật và dữ liệu thật:
-- W9a (repo guard) xong
+- W9a **enforcement đang hoạt động** — không phải chỉ artifact xong. Xem mục 3.1
 - W9 (chính sách dữ liệu) xong + **counsel checkpoint đã qua**
 - W4a (threat model nghiên cứu) xong
 - W0 (protocol + measurement contract) đã đóng băng ở một `protocol_version`
@@ -41,6 +49,17 @@ Reviewer tạo review-only branch từ HEAD của nhánh đích, thêm file dư�
 - leader lane sẵn sàng: operator đã chỉ định, nơi lưu dữ liệu ngoài repo, kế hoạch sự cố/hoàn trả, đã chạy dry run
 
 Merge được **không** đồng nghĩa được ra thực địa.
+
+### 3.1 `W9a artifact xong` ≠ `W9a enforcement active`
+
+Hai trạng thái khác nhau và **chỉ trạng thái thứ hai mới mở được FIELD-GATE**. *(Blocker B-01 của Codex, 2026-08-26.)*
+
+| Trạng thái | Nghĩa | Ai làm |
+|---|---|---|
+| `artifact_complete` | Scanner, hook, workflow file, allowlist, runbook đã tồn tại và test xanh | Codex |
+| `enforcement_active` | Required status check `repo-guard` đã **bật** · PR bắt buộc · **chặn direct push** (hoặc giới hạn bypass rõ ràng) · đã chạy **một PR dry-run âm tính** và nó thực sự bị chặn · bằng chứng cấu hình (không chứa PII) đã lưu vào gate packet | **LEADER** |
+
+Lý do phải tách: hook local bị bỏ qua bằng `--no-verify`. Có workflow file trong repo mà required check chưa bật thì scanner đỏ vẫn merge được — và FIELD-GATE sẽ bị hiểu nhầm là đã mở trong khi hàng rào server chưa hề enforce.
 
 ## 4. Quyền chặn
 
@@ -76,6 +95,8 @@ docs/superpowers/specs/     spec sản phẩm — ĐÓNG BĂNG cho tới sau gat
 Mỗi `protocol_version` là **snapshot bất biến**. Không sửa `v1` tại chỗ; ADR cho phép tạo `v2` và dữ liệu mới trỏ tới `v2`. ADR phải được duyệt **trước** khi thay đổi có hiệu lực — không hợp thức hoá hậu nghiệm.
 
 Review doc bắt buộc có: **commit SHA · protocol_version · verdict · blocker còn mở · bằng chứng đã xem.**
+
+`verdict` dùng đúng ba giá trị, không dùng câu tự do: **`APPROVE`** · **`REQUEST_CHANGES`** · **`REJECT`**. *(Suggestion 1 của Codex, 2026-08-26 — để tự động hoá review không phải suy diễn text.)*
 
 Nhật ký là nhật ký, **không phải nguồn quyết định**. Quyết định sống ở `docs/decisions/`.
 
