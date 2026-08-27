@@ -1,0 +1,45 @@
+name: Repo Guard
+
+on:
+  pull_request:
+  push:
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  repo-guard:
+    name: repo-guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out complete history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run synthetic guard tests
+        run: python3 -m unittest discover -s tests -p 'test_repo_guard.py' -v
+
+      - name: Scan the complete checked-out tree
+        run: python3 scripts/repo_guard.py tree HEAD
+
+      - name: Scan every commit introduced by the pull request
+        if: github.event_name == 'pull_request'
+        env:
+          REPO_GUARD_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          REPO_GUARD_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: >-
+          python3 scripts/repo_guard.py range
+          "$REPO_GUARD_BASE_SHA" "$REPO_GUARD_HEAD_SHA"
+
+      - name: Scan every commit introduced by the push
+        if: github.event_name == 'push'
+        env:
+          REPO_GUARD_BASE_SHA: ${{ github.event.before }}
+          REPO_GUARD_HEAD_SHA: ${{ github.sha }}
+        run: >-
+          python3 scripts/repo_guard.py range
+          "$REPO_GUARD_BASE_SHA" "$REPO_GUARD_HEAD_SHA"

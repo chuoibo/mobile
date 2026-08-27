@@ -1,0 +1,11 @@
+#!/bin/sh
+# Run the repository-owned staged-content guard without exposing raw Git errors.
+set -eu
+
+if ! repo_root=$(git rev-parse --show-toplevel 2>/dev/null); then
+  echo "Repo guard hook could not resolve the repository root." >&2
+  exit 2
+fi
+
+cd "$repo_root"
+exec python3 scripts/repo_guard.py staged
