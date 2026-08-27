@@ -39,7 +39,7 @@ Hai bản viết **độc lập, không đọc code của nhau**, và blindness 
 
 > Tuyên bố này đã bị hạ hai lần dưới review. Bản đầu nói golden vector là "lớp phòng thủ chống hai bản cùng sai" — Codex chứng minh nó cho qua mutant chuyển 1đ sang sai người (`ADR4-05`), rồi chứng minh **lần thứ hai** rằng nó cho qua mutant đảo thứ tự hợp thành một cách tự nhất quán (`V2-05`).
 
-`tests/test_selfcheck_catches_mutants.py` giữ cho lớp thứ nhất **không mất răng lần nữa**: 8 mutant, mỗi cái **bắt buộc** làm self-check đỏ. Một bộ test không thể thất bại thì không phải một cổng.
+`tests/test_selfcheck_catches_mutants.py` giữ cho lớp thứ nhất **không mất răng lần nữa**: mỗi mutant trong `MUTANTS` **bắt buộc** làm self-check đỏ — số lượng đọc từ chính danh sách đó, không viết cứng vào tài liệu. Một bộ test không thể thất bại thì không phải một cổng.
 
 **Số tiền trong golden giữ dưới 10⁸ VND.** `LONG_NUMBER_RE` ở `scripts/repo_guard.py` chặn mọi chuỗi ≥9 chữ số, và JSON không có comment nên không gắn được annotation miễn trừ. Ca giá trị cực đại (`AMOUNT_TOO_LARGE`, gần cận trên) **sinh trong property test, không lưu thành literal**.
 

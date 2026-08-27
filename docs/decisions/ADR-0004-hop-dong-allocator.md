@@ -1,6 +1,7 @@
 # ADR-0004 — Hợp đồng allocator (W6)
 
-- **Trạng thái:** 🟡 **ĐỀ XUẤT** — chờ Codex tấn công. Đóng băng khi cả hai ký.
+- **Trạng thái:** 🟢 **ĐÓNG BĂNG** 2026-08-27, sau **4 vòng review** với Codex
+- **Corpus:** 23 vector thành công + 18 vector lỗi
 - **Ngày:** 2026-08-27
 - **DRI:** Claude · **Reviewer:** Codex
 - **Chặn:** W6a (Codex), W6b (Claude), harness, golden vector
@@ -65,38 +66,38 @@ Hệ quả đáng giá: golden corpus **chạy thẳng** được lên cả hai 
 
 ### Ngữ nghĩa so sánh — đóng băng cho differential
 
-### Kiểu dữ liệu
+### Lược đồ dữ liệu — MỘT biểu diễn duy nhất
 
-```python
-ParticipantId = str          # không rỗng, không khoảng trắng đầu/cuối
+> **Sửa theo blocker V3-01 của Codex.** Bản v3 để lại **hai** biểu diễn: khối kiểu khái niệm (`ExpenseInput`, `Fraction`) và biên `dict` mới. Lỗi merge, không phải bất đồng thiết kế — nhưng nó đủ để hai bản trả hai kiểu khác nhau.
 
-Item:       item_id: str
-            amount_vnd: int            # > 0
-            shared_by: tuple[ParticipantId, ...]   # KHÔNG rỗng, không trùng, ⊆ participants
+`dict` thuần, đúng bằng schema của golden vector. Không có kiểu riêng nào ở biên.
 
-Surcharge:  surcharge_id: str
-            kind: str                  # "fee" | "vat" | "shipping" | "unlisted" | nhãn khác
-            amount_vnd: int            # > 0
-            mode: "proportional" | "even"
+```jsonc
+// input
+{
+  "participants": ["a", "b"],          // KHÔNG rỗng, không trùng, mỗi ID 1..64 byte
+  "total_vnd": 110000,                 // >= 0, <= 10**12
+  "items": [
+    {"item_id": "i1", "amount_vnd": 60000, "shared_by": ["a"]}   // amount > 0; shared_by KHÔNG rỗng, không trùng
+  ],
+  "surcharges": [
+    {"surcharge_id": "s1", "kind": "fee", "amount_vnd": 10000, "mode": "proportional"}  // mode: proportional | even
+  ],
+  "discounts": [
+    {"discount_id": "d1", "amount_vnd": 4000, "scope": "global_proportional", "item_id": null}
+    // scope: global_proportional | item ; item_id bắt buộc KHI VÀ CHỈ KHI scope == "item"
+    // amount luôn là ĐỘ LỚN, luôn bị TRỪ
+  ],
+  "advancer_id": "a"                   // hoặc null
+}
 
-Discount:   discount_id: str
-            amount_vnd: int            # > 0 — luôn là ĐỘ LỚN, luôn bị TRỪ
-            scope: "global_proportional" | "item"
-            item_id: str | None        # bắt buộc khi và chỉ khi scope == "item"
-
-ExpenseInput:
-            participants: tuple[ParticipantId, ...]   # KHÔNG rỗng, không trùng
-            total_vnd: int                            # >= 0
-            items: tuple[Item, ...]
-            surcharges: tuple[Surcharge, ...]
-            discounts: tuple[Discount, ...]
-            advancer_id: ParticipantId | None
-
-ApportionResult:
-            allocations: dict[ParticipantId, int]     # Σ == total_vnd
-            exact_shares: dict[ParticipantId, Fraction]
-            rounding_gainers: tuple[ParticipantId, ...]   # ai nhận +1đ, theo đúng thứ tự
-            warnings: tuple[str, ...]
+// output
+{
+  "allocations":      {"a": 66000, "b": 44000},        // int, Σ == total_vnd
+  "exact_shares":     {"a": "66000/1", "b": "44000/1"}, // chuỗi "num/den" TỐI GIẢN, den > 0
+  "rounding_gainers": [],                               // CÓ THỨ TỰ
+  "warnings":         []                                // sắp xếp alphabet, từ vựng đóng
+}
 ```
 
 **Không có trường `currency`.** V1 chỉ VND (spec mục 4).

@@ -71,17 +71,19 @@ def mutate_g22_swap_composition_order(vector):
 
 def mutate_g11_split_even_surcharge_only_among_eaters(vector):
     """Decision 14 read backwards: split the even surcharge only among people
-    who ate something, instead of among all participants.
+    who actually ate, instead of among every participant.
 
-    a = b = 45000 + 5000 = 50000 exactly, c = 0. Self-consistent: sum is 100000,
-    there is no deficit, and the gainer tuple is correctly empty. But c now has
-    an exact share of zero, so the corpus would also have to declare a
-    zero_share_participants warning -- which this mutant omits, exactly as a
-    careless hand-computation would.
+    Made fully self-consistent under blocker V3-02 -- the previous version left
+    the warning list stale, so it could have been caught for the wrong reason.
+    Here a and b absorb the whole 10000 shipping fee, c drops to an exact share
+    of zero, the sum still equals 100000, there is no deficit, and the
+    zero_share_participants warning is added exactly as decision 21 requires.
+    Only recomputing stage 3 from the input can see that this is wrong.
     """
     vector["expect"]["exact_shares"] = {"a": "50000/1", "b": "50000/1", "c": "0/1"}
     vector["expect"]["allocations"] = {"a": 50000, "b": 50000, "c": 0}
     vector["expect"]["rounding_gainers"] = []
+    vector["expect"]["warnings"] = ["zero_share_participants"]
 
 
 MUTANTS = [
