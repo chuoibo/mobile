@@ -464,6 +464,34 @@ def current_head_tree(repo: Path) -> dict[bytes, GitEntry]:
     return parse_tree(repo, "HEAD")
 
 
+# Dependency and build directories. Not a privacy rule, but the same failure
+# shape: one `git add -A` swept 12,629 node_modules files into the repository
+# and took .git from a few hundred kilobytes to 84 MB, because the ignore rule
+# happened to live on a different branch. A guard that trusts .gitignore
+# inherits whichever branch it is standing on; this list does not.
+JUNK_PATH_SEGMENTS = (
+    "node_modules",
+    ".expo",
+    "__pycache__",
+    ".ruff_cache",
+    ".pytest_cache",
+    ".venv",
+)
+
+# A file whose entire name is punctuation is a shell accident. A zero-byte file
+# called `=` reached main this way, was flagged in review, and got merged
+# anyway. Cheap to catch, embarrassing to explain.
+STRAY_NAMES = frozenset({"=", "-", "--", "~", "*", "?", "."})
+
+
+def is_junk_path(path: str) -> bool:
+    return any(segment in PurePosixPath(path).parts for segment in JUNK_PATH_SEGMENTS)
+
+
+def is_stray_name(path: str) -> bool:
+    return PurePosixPath(path).name in STRAY_NAMES
+
+
 def is_forbidden_path(path: str) -> bool:
     parts = tuple(part.casefold() for part in PurePosixPath(path).parts)
     if any(part in FORBIDDEN_COMPONENTS for part in parts):
@@ -720,6 +748,20 @@ def scan_entry(
                 commit=commit,
             )
         )
+
+    for rule, matches in (("junk-path", is_junk_path), ("stray-name", is_stray_name)):
+        if matches(path):
+            findings.append(
+                Finding(
+                    rule=rule,
+                    file_number=file_number,
+                    line=None,
+                    column=None,
+                    masked_match=f"<redacted-{rule}>",
+                    masked_path=masked_path(path),
+                    commit=commit,
+                )
+            )
 
     if has_export_filename(path) and not config.permits(
         path, digest, "export-filename"
