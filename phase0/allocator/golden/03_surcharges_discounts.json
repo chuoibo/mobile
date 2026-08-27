@@ -1,0 +1,36 @@
+[
+  {"id":"G10","note":"phu phi proportional theo phan tam tinh (60/40 -> 6000/4000)",
+   "input":{"participants":["a","b"],"total_vnd":110000,
+            "items":[{"item_id":"i1","amount_vnd":60000,"shared_by":["a"]},
+                     {"item_id":"i2","amount_vnd":40000,"shared_by":["b"]}],
+            "surcharges":[{"surcharge_id":"s1","kind":"fee","amount_vnd":10000,"mode":"proportional"}],
+            "discounts":[],"advancer_id":null},
+   "expect":{"exact_shares":{"a":"66000/1","b":"44000/1"},
+             "allocations":{"a":66000,"b":44000},"rounding_gainers":[],"warnings":[]}},
+
+  {"id":"G11","note":"phu phi EVEN chia cho MOI nguoi ke ca nguoi khong an gi (QD #14). c chi tra phi ship",
+   "input":{"participants":["a","b","c"],"total_vnd":100000,
+            "items":[{"item_id":"i1","amount_vnd":90000,"shared_by":["a","b"]}],
+            "surcharges":[{"surcharge_id":"s1","kind":"shipping","amount_vnd":10000,"mode":"even"}],
+            "discounts":[],"advancer_id":"b"},
+   "expect":{"exact_shares":{"a":"145000/3","b":"145000/3","c":"10000/3"},
+             "allocations":{"a":48333,"b":48334,"c":3333},"rounding_gainers":["b"],"warnings":[]}},
+
+  {"id":"G13","note":"giam gia chung theo ti le -> moi phan nhan he so 9/10",
+   "input":{"participants":["a","b"],"total_vnd":90000,
+            "items":[{"item_id":"i1","amount_vnd":60000,"shared_by":["a"]},
+                     {"item_id":"i2","amount_vnd":40000,"shared_by":["b"]}],
+            "surcharges":[],
+            "discounts":[{"discount_id":"d1","amount_vnd":10000,"scope":"global_proportional","item_id":null}],
+            "advancer_id":null},
+   "expect":{"exact_shares":{"a":"54000/1","b":"36000/1"},
+             "allocations":{"a":54000,"b":36000},"rounding_gainers":[],"warnings":[]}},
+
+  {"id":"G15","note":"toan bo khoan chi la phu phi -> B'=0 -> proportional LUI VE chia deu (QD #15,#19,#22)",
+   "input":{"participants":["a","b","c"],"total_vnd":90000,"items":[],
+            "surcharges":[{"surcharge_id":"s1","kind":"fee","amount_vnd":90000,"mode":"proportional"}],
+            "discounts":[],"advancer_id":null},
+   "expect":{"exact_shares":{"a":"30000/1","b":"30000/1","c":"30000/1"},
+             "allocations":{"a":30000,"b":30000,"c":30000},"rounding_gainers":[],
+             "warnings":["proportional_fallback_to_even"]}}
+]
