@@ -23,6 +23,8 @@ from typing import Iterable, Mapping, Sequence
 CONFIG_PATH = ".repo-guard-allowlist.json"
 CONFIG_PATH_BYTES = CONFIG_PATH.encode("ascii")
 MAX_TEXT_BYTES = 2 * 1024 * 1024
+MAX_BASE64_LINE_BYTES = 4 * 1024
+MIN_BASE64_CHARACTER_DENSITY = 0.98
 MAX_FINDINGS_TO_PRINT = 100
 
 # New files with these extensions must be reviewed and pinned by path and digest.
@@ -131,12 +133,27 @@ VN_LANDLINE_RE = re.compile(
 LONG_NUMBER_RE = re.compile(r"(?<![A-Za-z0-9])\d(?:[ .-]?\d){8,63}(?![A-Za-z0-9])")
 GROUPED_VND_RE = re.compile(r"\d{1,3}(?:[., ]\d{3})+")
 CURRENCY_RE = re.compile(r"(?:\bVND\b|₫|\bđồng\b)", re.IGNORECASE)
+DATA_URI_BASE64_RE = re.compile(
+    r"data:[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+"
+    r"(?:;[^,\s;]+)*;base64,",
+    re.IGNORECASE,
+)
+BASE64_BYTE_VALUES = frozenset(
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=_-"
+)
 ANNOTATION_RE = re.compile(
-    r"repo-guard:\s*allow=(email|vn-phone|long-number)"
+    r"repo-guard:\s*allow=(email|vn-phone|long-number|data-uri-base64|"
+    r"dense-base64-line)"
     r"\s+reason=([A-Za-z0-9][A-Za-z0-9._-]{7,})"
 )
 
-CONTENT_RULES = {"email", "long-number", "vn-phone"}
+CONTENT_RULES = {
+    "data-uri-base64",
+    "dense-base64-line",
+    "email",
+    "long-number",
+    "vn-phone",
+}
 ALLOWLISTABLE_RULES = CONTENT_RULES | {"controlled-artifact", "export-filename"}
 
 
@@ -257,6 +274,9 @@ def mask_match(rule: str, value: str) -> str:
     if rule == "long-number":
         digits = sum(character.isdigit() for character in value)
         return f"******** (digits={digits})"
+    if rule in {"data-uri-base64", "dense-base64-line"}:
+        line_bytes = len(value.encode("utf-8"))
+        return f"<redacted-base64-line> (line-bytes={line_bytes})"
     if rule == "export-filename":
         suffix = PurePosixPath(value).suffix.lower()
         safe_suffix = suffix if suffix in SAFE_DISPLAY_EXTENSIONS else ".***"
@@ -469,6 +489,14 @@ def grouped_vnd_amount(line: str, start: int, end: int) -> bool:
     return CURRENCY_RE.search(context) is not None
 
 
+def is_dense_base64_line(line: str) -> bool:
+    raw_line = line.encode("utf-8")
+    if len(raw_line) <= MAX_BASE64_LINE_BYTES:
+        return False
+    base64_bytes = sum(byte in BASE64_BYTE_VALUES for byte in raw_line)
+    return base64_bytes / len(raw_line) >= MIN_BASE64_CHARACTER_DENSITY
+
+
 def overlaps(span: tuple[int, int], occupied: Iterable[tuple[int, int]]) -> bool:
     start, end = span
     return any(
@@ -498,6 +526,18 @@ def content_findings(
 
         occupied: list[tuple[int, int]] = []
         candidates: list[tuple[int, int, str, str]] = []
+        data_uri_match = DATA_URI_BASE64_RE.search(line)
+        if data_uri_match is not None:
+            candidates.append(
+                (
+                    data_uri_match.start(),
+                    data_uri_match.end(),
+                    "data-uri-base64",
+                    line,
+                )
+            )
+        elif is_dense_base64_line(line):
+            candidates.append((0, len(line), "dense-base64-line", line))
         for match in EMAIL_RE.finditer(line):
             candidates.append((match.start(), match.end(), "email", match.group(0)))
             occupied.append(match.span())

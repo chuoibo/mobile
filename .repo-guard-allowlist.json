@@ -1,4 +1,11 @@
 {
   "version": 1,
-  "artifacts": []
+  "artifacts": [
+    {
+      "path": "docs/claude/2026-08-26/review-p0-w9a-repo-guard.md",
+      "sha256": "7d2be32a51b6cbdab65f1222cfe492d6b0e56dc9da47a78298975351c04ab68e",
+      "rules": ["vn-phone", "long-number"],
+      "reason": "Synthetic attack fixtures documented by reviewer"
+    }
+  ]
 }
