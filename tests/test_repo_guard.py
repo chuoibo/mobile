@@ -123,6 +123,39 @@ class PatternScannerTests(unittest.TestCase):
                 self.assertNotIn(payload[:76], rendered)
                 self.assertNotIn("notes/synthetic-bill.txt", rendered)
 
+    def test_wrapped_base64_blocks_tolerate_single_line_gaps(self):
+        payload = base64.b64encode(bytes(range(256)) * 88).decode("ascii")
+
+        for width in (40, 76, 200):
+            for separator in (
+                "\n\n",
+                "\n-\n",
+                "\nnot-base64: synthetic separator\n",
+            ):
+                with self.subTest(width=width, separator=repr(separator)):
+                    wrapped = separator.join(textwrap.wrap(payload, width=width))
+                    findings = self.scan_text(
+                        wrapped, path="notes/synthetic-gapped-bill.txt"
+                    )
+                    matches = [
+                        item for item in findings if item.rule == "dense-base64-block"
+                    ]
+
+                    self.assertEqual(len(matches), 1)
+                    rendered = matches[0].render()
+                    self.assertIn("<redacted-base64-block>", rendered)
+                    self.assertNotIn(payload[:40], rendered)
+                    self.assertNotIn("notes/synthetic-gapped-bill.txt", rendered)
+
+    def test_base64_block_gap_is_bounded(self):
+        encoded = base64.b64encode(bytes(range(256)) * 24).decode("ascii")
+        first = "\n".join(textwrap.wrap(encoded[:3000], width=76))
+        second = "\n".join(textwrap.wrap(encoded[3000:6000], width=76))
+
+        findings = self.scan_text(first + "\n\n\n" + second)
+
+        self.assertNotIn("dense-base64-block", {item.rule for item in findings})
+
     def test_long_base64_token_is_blocked_in_json_and_plain_text(self):
         encoded = base64.b64encode(bytes(range(256)) * 20).decode("ascii")
         payload = encoded[:3000]
@@ -217,6 +250,30 @@ class PatternScannerTests(unittest.TestCase):
                     ),
                     [],
                 )
+
+        python_source = "\n".join(f"value_{index} = {index}" for index in range(60))
+        markdown_table = "| key | value |\n|---|---|\n" + "\n".join(
+            f"| row-{index:03d} | synthetic text |" for index in range(120)
+        )
+        adr_path = (
+            MODULE_PATH.parents[1]
+            / "docs"
+            / "decisions"
+            / "ADR-0004-hop-dong-allocator.md"
+        )
+        repository_text_cases = (
+            ("python-60-lines", python_source, "src/synthetic_module.py"),
+            ("markdown-table", markdown_table, "docs/synthetic-table.md"),
+            (
+                "adr-0004",
+                adr_path.read_text(encoding="utf-8"),
+                "docs/decisions/ADR-0004-hop-dong-allocator.md",
+            ),
+        )
+        self.assertGreater(len(markdown_table.encode("utf-8")), 3000)
+        for name, text, path in repository_text_cases:
+            with self.subTest(repository_text=name):
+                self.assertEqual(self.scan_text(text, path=path), [])
 
     def test_dense_base64_fixture_can_use_narrow_inline_annotation(self):
         payload = base64.b64encode(b"synthetic fixture bytes" * 300).decode()
@@ -417,7 +474,7 @@ class GitIntegrationTests(unittest.TestCase):
         wrapped_path = "synthetic-wrapped.txt"
         json_path = "synthetic-payload.json"
         encoded = base64.b64encode(bytes(range(256)) * 88).decode("ascii")
-        wrapped_payload = "\n".join(textwrap.wrap(encoded, width=76))
+        wrapped_payload = "\n\n".join(textwrap.wrap(encoded, width=76))
         token = encoded[:3000]
         json_payload = json.dumps({"image": token}, separators=(",", ":"))
         (self.repo / wrapped_path).write_text(wrapped_payload + "\n", encoding="utf-8")

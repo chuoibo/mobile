@@ -26,6 +26,7 @@ MAX_TEXT_BYTES = 2 * 1024 * 1024
 MAX_BASE64_LINE_BYTES = 4 * 1024
 MAX_BASE64_BLOCK_BYTES = 4 * 1024
 MAX_BASE64_TOKEN_BYTES = 2 * 1024
+MAX_BASE64_BLOCK_GAP_LINES = 1
 MIN_BASE64_CHARACTER_DENSITY = 0.98
 MAX_FINDINGS_TO_PRINT = 100
 
@@ -525,23 +526,41 @@ def is_dense_base64_block_line(line: str) -> bool:
 def dense_base64_blocks(lines: Sequence[str]) -> list[tuple[int, int]]:
     blocks: list[tuple[int, int]] = []
     block_start: int | None = None
+    block_end: int | None = None
     block_bytes = 0
+    dense_line_count = 0
+    gap_line_count = 0
 
-    for line_index in range(len(lines) + 1):
-        if line_index < len(lines) and is_dense_base64_block_line(lines[line_index]):
+    for line_index, line in enumerate(lines):
+        if is_dense_base64_block_line(line):
             if block_start is None:
                 block_start = line_index
-            block_bytes += len(lines[line_index].encode("utf-8"))
+            block_end = line_index + 1
+            block_bytes += len(line.encode("utf-8"))
+            dense_line_count += 1
+            gap_line_count = 0
             continue
 
-        if (
-            block_start is not None
-            and line_index - block_start >= 2
-            and block_bytes > MAX_BASE64_BLOCK_BYTES
-        ):
-            blocks.append((block_start, line_index))
+        if block_start is None:
+            continue
+
+        gap_line_count += 1
+        if gap_line_count <= MAX_BASE64_BLOCK_GAP_LINES:
+            continue
+
+        assert block_end is not None
+        if dense_line_count >= 2 and block_bytes > MAX_BASE64_BLOCK_BYTES:
+            blocks.append((block_start, block_end))
         block_start = None
+        block_end = None
         block_bytes = 0
+        dense_line_count = 0
+        gap_line_count = 0
+
+    if block_start is not None:
+        assert block_end is not None
+        if dense_line_count >= 2 and block_bytes > MAX_BASE64_BLOCK_BYTES:
+            blocks.append((block_start, block_end))
 
     return blocks
 
