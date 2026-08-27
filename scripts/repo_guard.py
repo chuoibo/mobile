@@ -24,6 +24,8 @@ CONFIG_PATH = ".repo-guard-allowlist.json"
 CONFIG_PATH_BYTES = CONFIG_PATH.encode("ascii")
 MAX_TEXT_BYTES = 2 * 1024 * 1024
 MAX_BASE64_LINE_BYTES = 4 * 1024
+MAX_BASE64_BLOCK_BYTES = 4 * 1024
+MAX_BASE64_TOKEN_BYTES = 2 * 1024
 MIN_BASE64_CHARACTER_DENSITY = 0.98
 MAX_FINDINGS_TO_PRINT = 100
 
@@ -141,16 +143,21 @@ DATA_URI_BASE64_RE = re.compile(
 BASE64_BYTE_VALUES = frozenset(
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=_-"
 )
+BASE64_TOKEN_RE = re.compile(
+    rf"[A-Za-z0-9+/_-]{{{MAX_BASE64_TOKEN_BYTES + 1},}}={{0,2}}"
+)
 ANNOTATION_RE = re.compile(
     r"repo-guard:\s*allow=(email|vn-phone|long-number|data-uri-base64|"
-    r"dense-base64-line)"
+    r"dense-base64-line|dense-base64-block|long-base64-token)"
     r"\s+reason=([A-Za-z0-9][A-Za-z0-9._-]{7,})"
 )
 
 CONTENT_RULES = {
     "data-uri-base64",
+    "dense-base64-block",
     "dense-base64-line",
     "email",
+    "long-base64-token",
     "long-number",
     "vn-phone",
 }
@@ -277,6 +284,16 @@ def mask_match(rule: str, value: str) -> str:
     if rule in {"data-uri-base64", "dense-base64-line"}:
         line_bytes = len(value.encode("utf-8"))
         return f"<redacted-base64-line> (line-bytes={line_bytes})"
+    if rule == "dense-base64-block":
+        block_lines = value.split("\n")
+        block_bytes = sum(len(line.encode("utf-8")) for line in block_lines)
+        return (
+            f"<redacted-base64-block> (block-bytes={block_bytes}, "
+            f"lines={len(block_lines)})"
+        )
+    if rule == "long-base64-token":
+        token_bytes = len(value.encode("utf-8"))
+        return f"<redacted-base64-token> (token-bytes={token_bytes})"
     if rule == "export-filename":
         suffix = PurePosixPath(value).suffix.lower()
         safe_suffix = suffix if suffix in SAFE_DISPLAY_EXTENSIONS else ".***"
@@ -497,6 +514,38 @@ def is_dense_base64_line(line: str) -> bool:
     return base64_bytes / len(raw_line) >= MIN_BASE64_CHARACTER_DENSITY
 
 
+def is_dense_base64_block_line(line: str) -> bool:
+    raw_line = line.encode("utf-8")
+    if not raw_line:
+        return False
+    base64_bytes = sum(byte in BASE64_BYTE_VALUES for byte in raw_line)
+    return base64_bytes / len(raw_line) >= MIN_BASE64_CHARACTER_DENSITY
+
+
+def dense_base64_blocks(lines: Sequence[str]) -> list[tuple[int, int]]:
+    blocks: list[tuple[int, int]] = []
+    block_start: int | None = None
+    block_bytes = 0
+
+    for line_index in range(len(lines) + 1):
+        if line_index < len(lines) and is_dense_base64_block_line(lines[line_index]):
+            if block_start is None:
+                block_start = line_index
+            block_bytes += len(lines[line_index].encode("utf-8"))
+            continue
+
+        if (
+            block_start is not None
+            and line_index - block_start >= 2
+            and block_bytes > MAX_BASE64_BLOCK_BYTES
+        ):
+            blocks.append((block_start, line_index))
+        block_start = None
+        block_bytes = 0
+
+    return blocks
+
+
 def overlaps(span: tuple[int, int], occupied: Iterable[tuple[int, int]]) -> bool:
     start, end = span
     return any(
@@ -518,6 +567,36 @@ def content_findings(
     text = raw.decode("utf-8")
     lines = text.splitlines()
     findings: list[Finding] = []
+    base64_block_lines: set[int] = set()
+
+    for block_start, block_end in dense_base64_blocks(lines):
+        relevant_lines = [
+            line_index
+            for line_index in range(block_start, block_end)
+            if line_numbers is None or line_index + 1 in line_numbers
+        ]
+        if not relevant_lines:
+            continue
+
+        base64_block_lines.update(range(block_start, block_end))
+        rule = "dense-base64-block"
+        if config.permits(path, digest, rule) or inline_allows(
+            lines, block_start, rule
+        ):
+            continue
+
+        block_text = "\n".join(lines[block_start:block_end])
+        findings.append(
+            Finding(
+                rule=rule,
+                file_number=file_number,
+                line=relevant_lines[0] + 1,
+                column=1,
+                masked_match=mask_match(rule, block_text),
+                masked_path=masked_path(path),
+                commit=commit,
+            )
+        )
 
     for zero_based_line, line in enumerate(lines):
         line_number = zero_based_line + 1
@@ -526,18 +605,30 @@ def content_findings(
 
         occupied: list[tuple[int, int]] = []
         candidates: list[tuple[int, int, str, str]] = []
-        data_uri_match = DATA_URI_BASE64_RE.search(line)
-        if data_uri_match is not None:
-            candidates.append(
-                (
-                    data_uri_match.start(),
-                    data_uri_match.end(),
-                    "data-uri-base64",
-                    line,
+        if zero_based_line not in base64_block_lines:
+            data_uri_match = DATA_URI_BASE64_RE.search(line)
+            if data_uri_match is not None:
+                candidates.append(
+                    (
+                        data_uri_match.start(),
+                        data_uri_match.end(),
+                        "data-uri-base64",
+                        line,
+                    )
                 )
-            )
-        elif is_dense_base64_line(line):
-            candidates.append((0, len(line), "dense-base64-line", line))
+            elif is_dense_base64_line(line):
+                candidates.append((0, len(line), "dense-base64-line", line))
+            else:
+                base64_token_match = BASE64_TOKEN_RE.search(line)
+                if base64_token_match is not None:
+                    candidates.append(
+                        (
+                            base64_token_match.start(),
+                            base64_token_match.end(),
+                            "long-base64-token",
+                            base64_token_match.group(0),
+                        )
+                    )
         for match in EMAIL_RE.finditer(line):
             candidates.append((match.start(), match.end(), "email", match.group(0)))
             occupied.append(match.span())
