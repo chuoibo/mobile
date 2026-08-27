@@ -84,6 +84,9 @@ Thêm: sửa khoản chi tạo **phiên bản mới** chứ không ghi đè; `re
 | `tests/api/` với fake repository (`tests/api/conftest.py`) | Orchestration HTTP ↔ domain | Bất kỳ câu SQL, index, view, trigger nào |
 | `tests/postgres/` | `SqlAlchemyApiRepository` thật sau khi Alembic migrate một schema riêng | Mọi method, mọi race, mọi query plan |
 | `tests/db/test_migration_matches_models.py` | Migration khớp models, không cần DB | — |
+| QA hình ảnh + thăm dò (agy) — ADR-0010 | Trang render được, đọc được, không lộ dữ liệu người khác, ở các trạng thái và thiết bị **đã quét** | **Mã QR có quét được bằng app ngân hàng thật không** · người thật có hiểu không · ô nào **chưa** quét · rằng agy không tự sửa môi trường để ra xanh |
+
+Hàng cuối cần đọc kỹ cột phải. Tác giả plugin đã quan sát được agy **tự sửa môi trường của chính nó** (vá package đã cài, mock-stub dependency) để ép một lệnh pass. Digest của agy **không phải bằng chứng**; người giao việc chạy lại cổng trong cây sạch.
 
 SQLite bị từ chối có chủ ý: schema production dựa vào JSONB, partial unique index, view và trigger append-only. Thêm hành vi persistence mới thì **thêm ca live tương ứng**; mở rộng fake rồi coi đó là bằng chứng DB là nói dối.
 

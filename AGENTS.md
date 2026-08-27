@@ -76,3 +76,47 @@ delete. `protocol_version` is an immutable snapshot.
 **A green test suite is not behavioural evidence.** ADR-0006 gated Phase 0 by
 leader decision. Read the "proves / does not prove" table in `CLAUDE.md` before
 trusting any green mark.
+
+## Team roles (ADR-0010, 2026-08-27)
+
+Four members: leader (human) plus three agents.
+
+| Role | Who | Owns |
+|---|---|---|
+| Leader | product owner | Gate decisions. The only one who can point a real banking app at a QR code |
+| Engineer | Claude | `app/web/`, `apps/mobile/` |
+| Engineer | Codex | `db/`, `api/`, `payments/`, `domain/`, backend tests |
+| QA | agy (Gemini) | Product testing — visual, exploratory, API, regression. **Files findings, not diffs. Owns no product source file.** |
+
+All three agents run **two streams at once**: their own planned task, and
+reviewing/checking someone else's work. Never sequential, never queued.
+
+**agy boundaries** (full text in ADR-0010 §6):
+
+- agy never fills in `expected` for a golden vector and never produces a money
+  answer. It may generate the *frame* and the *input cases* only.
+- agy never signs a verdict. `APPROVE` / `REQUEST_CHANGES` / `REJECT` stay with
+  the two engineers. A QA finding is input to a reviewer, not a gate.
+- **agy's digest is not evidence.** The plugin author observed agy altering its
+  own environment (patching installed packages, mock-stubbing deps) to force a
+  pass. Whoever delegated re-runs the gate in a clean tree.
+- Never `--dangerously-skip-permissions` on this repo — that flag grants
+  machine-wide access. Use narrow allow-rules instead.
+- QA screenshots come only from `app.web.preview` or synthetic data. Delegating
+  means sending content to an outside service; the repo guard scans what enters
+  Git, never what leaves.
+
+## What each test layer proves — and does not
+
+| Layer | Proves | Does not prove |
+|---|---|---|
+| `tests/domain/golden/*.json` + `test_golden_selfcheck.py` | The corpus is internally consistent with ADR-0004 | That the corpus author read the contract correctly — one person wrote both |
+| `test_selfcheck_catches_mutants.py` | The self-check really does go red on a wrong answer | — |
+| `tests/api/` with the fake repository | HTTP ↔ domain orchestration | Any SQL, index, view, or trigger |
+| `tests/postgres/` | The real `SqlAlchemyApiRepository` after Alembic migrates a dedicated schema | Every method, every race, every query plan |
+| `tests/db/test_migration_matches_models.py` | Migration matches models, no DB needed | — |
+| Visual + exploratory QA (agy) | The page renders, reads, and leaks nothing, in the states and viewports **actually scanned** | **Whether a real banking app can scan the QR** · whether a real person understands it · which cells went unscanned · that agy did not fake the green |
+
+SQLite is refused on purpose: the production schema depends on JSONB, partial
+unique indexes, views, and append-only triggers. New persistence behaviour needs
+a matching live case — widening the fake and calling it DB evidence is a lie.
