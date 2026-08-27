@@ -199,8 +199,31 @@ LOCKFILE_EXEMPT_RULES = frozenset({
 })
 
 
-def is_generated_lockfile(path: str) -> bool:
-    return PurePosixPath(path).name in GENERATED_LOCKFILES
+# A filename is not evidence. Codex proved the first version was a complete
+# backdoor: a 22 KB base64 bill plus a bank account number, in any file called
+# package-lock.json anywhere in the tree, produced zero findings. The same
+# bytes named notes.json produced four.
+#
+# So the exemption now needs the content to actually be that kind of file. A
+# real npm lockfile declares lockfileVersion; a real Cargo.lock has [[package]]
+# sections. Something merely wearing the name does not qualify.
+LOCKFILE_SIGNATURES = {
+    "package-lock.json": (b'"lockfileVersion"',),
+    "yarn.lock": (b"# yarn lockfile", b"__metadata:"),
+    "pnpm-lock.yaml": (b"lockfileVersion:",),
+    "poetry.lock": (b"[[package]]",),
+    "Cargo.lock": (b"[[package]]",),
+}
+
+
+def is_generated_lockfile(path: str, raw: bytes = b"") -> bool:
+    signatures = LOCKFILE_SIGNATURES.get(PurePosixPath(path).name)
+    if signatures is None:
+        return False
+    # Only look at the head: a real lockfile declares its format up front, and
+    # scanning megabytes to find a marker would let one be buried at the end.
+    head = raw[:8192]
+    return any(marker in head for marker in signatures)
 
 
 CONTENT_RULES = {
@@ -660,7 +683,7 @@ def content_findings(
         # A lockfile is thousands of integrity hashes by construction. Pinning
         # it by digest would need re-approving on every dependency bump, which
         # is how an allowlist turns into a rubber stamp.
-        and not is_generated_lockfile(path)
+        and not is_generated_lockfile(path, raw)
         and not config.permits(path, digest, aggregate_rule)
     ):
         first_line, first_column, _first_fragment = aggregate_fragments[0]
@@ -750,7 +773,7 @@ def content_findings(
                 (match.start(), match.end(), "long-number", match.group(0))
             )
 
-        if is_generated_lockfile(path):
+        if is_generated_lockfile(path, raw):
             candidates = [c for c in candidates if c[2] not in LOCKFILE_EXEMPT_RULES]
 
         for start, _end, rule, value in sorted(candidates):
