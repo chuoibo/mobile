@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import importlib.util
+import json
 import subprocess
 import sys
 import tempfile
@@ -18,10 +20,10 @@ SPEC.loader.exec_module(repo_guard)
 
 
 class PatternScannerTests(unittest.TestCase):
-    def scan_text(self, text: str):
+    def scan_text(self, text: str, path: str = "safe-note.txt"):
         raw = text.encode("utf-8")
         return repo_guard.content_findings(
-            path="safe-note.txt",
+            path=path,
             raw=raw,
             file_number=1,
             config=repo_guard.GuardConfig(artifacts=()),
@@ -67,6 +69,83 @@ class PatternScannerTests(unittest.TestCase):
             f"Mã tổng hợp giả: {fake_identifier}"
         )
         self.assertEqual(self.scan_text(text), [])
+
+    def test_data_uri_base64_is_blocked_for_every_filename_shape_and_masked(self):
+        payload = base64.b64encode(b"obviously synthetic image bytes").decode()
+        markers = (
+            "data:image/" + "jpeg;base64,",
+            "DATA:application/" + "octet-stream;charset=utf-8;BASE64,",
+        )
+
+        for marker in markers:
+            line = f"preview={marker}{payload}"
+            for path in ("docs/note.md", "src/fixture.py", "README"):
+                with self.subTest(marker=marker, path=path):
+                    findings = self.scan_text(line, path=path)
+                    matches = [
+                        item for item in findings if item.rule == "data-uri-base64"
+                    ]
+                    self.assertEqual(len(matches), 1)
+                    rendered = matches[0].render()
+                    self.assertIn(f"line-bytes={len(line.encode('utf-8'))}", rendered)
+                    self.assertNotIn(payload, rendered)
+                    self.assertNotIn(path, rendered)
+
+    def test_dense_raw_base64_line_is_blocked_and_masked(self):
+        payload = base64.b64encode(b"synthetic binary fixture" * 1400).decode()
+        self.assertGreater(len(payload.encode("utf-8")), 32 * 1024)
+
+        findings = self.scan_text(payload, path="notes/synthetic.md")
+        matches = [item for item in findings if item.rule == "dense-base64-line"]
+
+        self.assertEqual(len(matches), 1)
+        rendered = matches[0].render()
+        self.assertIn(f"line-bytes={len(payload.encode('utf-8'))}", rendered)
+        self.assertNotIn(payload[:80], rendered)
+        self.assertNotIn("notes/synthetic.md", rendered)
+
+    def test_base64_line_threshold_is_strict(self):
+        at_threshold = "A" * repo_guard.MAX_BASE64_LINE_BYTES
+        over_threshold = at_threshold + "A"
+
+        self.assertNotIn(
+            "dense-base64-line",
+            {item.rule for item in self.scan_text(at_threshold)},
+        )
+        self.assertIn(
+            "dense-base64-line",
+            {item.rule for item in self.scan_text(over_threshold)},
+        )
+
+    def test_hashes_signatures_and_long_golden_vector_json_are_not_blocked(self):
+        digest = hashlib.sha256(b"synthetic golden vector").hexdigest()
+        signature = base64.b64encode(bytes(range(64))).decode()
+        vectors = [
+            {
+                "case": f"synthetic-{index:03d}",
+                "sha256": digest,
+                "signature": signature,
+            }
+            for index in range(40)
+        ]
+        golden_json = json.dumps({"vectors": vectors}, separators=(",", ":"))
+        self.assertGreater(
+            len(golden_json.encode("utf-8")), repo_guard.MAX_BASE64_LINE_BYTES
+        )
+
+        for value in (digest, signature, golden_json):
+            with self.subTest(length=len(value)):
+                self.assertEqual(self.scan_text(value, path="vectors/golden.json"), [])
+
+    def test_dense_base64_fixture_can_use_narrow_inline_annotation(self):
+        payload = base64.b64encode(b"synthetic fixture bytes" * 300).decode()
+        text = (
+            "# repo-guard: allow=dense-base64-line "
+            "reason=reviewed-synthetic-vector\n"
+            f"{payload}"
+        )
+
+        self.assertEqual(self.scan_text(text, path="vectors/fixture.txt"), [])
 
     def test_controlled_artifact_requires_exact_path_and_digest(self):
         path = "docs/assets/synthetic-diagram.png"
@@ -202,6 +281,33 @@ class GitIntegrationTests(unittest.TestCase):
         self.assertNotIn(filename, output)
         self.assertIn("rule=email", output)
         self.assertIn("rule=export-filename", output)
+
+    def test_staged_scan_blocks_embedded_and_raw_base64_without_logging_them(self):
+        embedded_path = "synthetic-preview.md"
+        raw_path = "synthetic-encoded.md"
+        embedded_payload = base64.b64encode(b"synthetic jpeg bytes" * 900).decode()
+        raw_payload = base64.b64encode(b"synthetic raw bytes" * 1400).decode()
+        data_uri_marker = "data:image/" + "jpeg;base64,"
+        embedded_line = f"{data_uri_marker}{embedded_payload}"
+        (self.repo / embedded_path).write_text(embedded_line + "\n", encoding="utf-8")
+        (self.repo / raw_path).write_text(raw_payload + "\n", encoding="utf-8")
+        self.git("add", embedded_path, raw_path)
+
+        completed = self.run_guard("staged")
+        output = completed.stdout + completed.stderr
+
+        self.assertEqual(completed.returncode, 1, output)
+        self.assertIn("rule=data-uri-base64", output)
+        self.assertIn("rule=dense-base64-line", output)
+        self.assertIn(f"line-bytes={len(embedded_line.encode('utf-8'))}", output)
+        self.assertIn(f"line-bytes={len(raw_payload.encode('utf-8'))}", output)
+        for sensitive_value in (
+            embedded_path,
+            raw_path,
+            embedded_payload[:80],
+            raw_payload[:80],
+        ):
+            self.assertNotIn(sensitive_value, output)
 
     def test_range_scan_catches_data_removed_in_a_later_commit(self):
         base = self.git("rev-parse", "HEAD")
