@@ -15,6 +15,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
 from jinja2 import Environment, FileSystemLoader  # noqa: E402
 
+from app.api.limits import OBJECTION_LIMIT, REPORT_LIMIT
 from app.web.guest_view import (  # noqa: E402
     ALLOWED_BLOCK,
     ALLOWED_TOP_LEVEL,
@@ -45,6 +46,10 @@ def envelope(**overrides):
             "transfer_note": "Bua lau",
             "qr_payload": "00020101",
         }],
+        "reports_used": 0,
+        "reports_allowed": REPORT_LIMIT,
+        "objections_used": 0,
+        "objections_allowed": OBJECTION_LIMIT,
     }
     data.update(overrides)
     return data

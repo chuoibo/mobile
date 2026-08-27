@@ -141,7 +141,7 @@ def build_guest_view(envelope: dict) -> dict:
         # Section 8.6 caps how often a guest may report or object, so a leaked
         # link cannot be used to spam the recipient.
         "can_report_payment": envelope.get("reports_used", 0) < envelope.get("reports_allowed", 3),
-        "can_object": envelope.get("objections_used", 0) < envelope.get("objections_allowed", 2),
+        "can_object": envelope["objections_used"] < envelope["objections_allowed"],
     }
     extra = set(view) - ALLOWED_TOP_LEVEL
     if extra:

@@ -24,6 +24,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 from jinja2 import Environment, FileSystemLoader, select_autoescape  # noqa: E402
 
 from app.payments.vietqr import build_payload  # noqa: E402
+from app.api.limits import OBJECTION_LIMIT, REPORT_LIMIT
 from app.web.guest_view import NEUTRAL_PREVIEW, build_guest_view  # noqa: E402
 from app.web.objection_view import (  # noqa: E402
     build_not_me_view,
@@ -67,13 +68,17 @@ def fixture(state: str) -> dict:
         "claimed_person_display_name": "Hà",
         "link_state": "active",
         "obligations": [lau],
+        "reports_used": 0,
+        "reports_allowed": REPORT_LIMIT,
+        "objections_used": 0,
+        "objections_allowed": OBJECTION_LIMIT,
     }
     if state == "two":
         envelope["obligations"] = [lau, xe]
     elif state in ("expired", "revoked"):
         envelope["link_state"] = state
     elif state == "limited":
-        envelope.update(reports_used=3, reports_allowed=3, objections_used=2, objections_allowed=2)
+        envelope.update(reports_used=REPORT_LIMIT, objections_used=OBJECTION_LIMIT)
     elif state == "reported":
         envelope["obligations"] = [{**lau, "already_reported": True}]
     elif state == "confirmed":

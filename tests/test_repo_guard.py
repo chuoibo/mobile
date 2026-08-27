@@ -184,9 +184,34 @@ class PatternScannerTests(unittest.TestCase):
                 self.assertEqual(len(matches), 1)
                 rendered = matches[0].render()
                 self.assertIn("<redacted-base64-fragments>", rendered)
-                self.assertIn(f"aggregate-bytes={len(payload)}", rendered)
+                # Not an exact byte total. Fragments that could be ordinary
+                # identifiers no longer count, so a few all-lowercase chunks
+                # drop out at narrow wrap widths. Pinning the exact figure
+                # would pin the false-positive behaviour: counting every word
+                # in a source file is what pushed repository.py over this
+                # threshold at 1199 lines. What matters is that essentially
+                # all of the payload is still accounted for.
+                counted = int(rendered.split("aggregate-bytes=", 1)[1].split(",", 1)[0])
+                self.assertGreater(counted, len(payload) * 0.95)
                 self.assertNotIn(payload[:76], rendered)
                 self.assertNotIn("notes/synthetic-bill.txt", rendered)
+
+    def test_ordinary_source_does_not_aggregate_into_a_payload(self):
+        """The fragment alphabet includes `_` for URL-safe base64, so every
+        snake_case name of eight characters or more used to count. The rule was
+        scoring source files by length: repository.py crossed the 16 KB
+        threshold at 1199 lines with 1236 fragments, roughly one per line."""
+        line = (
+            "        self.session.add(AuditEvent("
+            "aggregate_type=aggregate_type, obligation_id=obligation_id, "
+            "token_digest=token_digest, save_guest_objection=confirmed_by_id))"
+        )
+        source = "\n".join(line for _ in range(400))
+        self.assertGreater(len(source.encode("utf-8")), 32 * 1024)
+
+        rules = {item.rule for item in self.scan_text(source, path="app/repo.py")}
+
+        self.assertNotIn("aggregate-base64-fragments", rules)
 
     def test_long_base64_token_is_blocked_in_json_and_plain_text(self):
         encoded = base64.b64encode(bytes(range(256)) * 20).decode("ascii")

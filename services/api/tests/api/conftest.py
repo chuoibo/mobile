@@ -18,6 +18,7 @@ import anyio
 import httpx
 import pytest
 
+from app.api.limits import OBJECTION_LIMIT, REPORT_LIMIT
 from app.api.deps import get_repository
 from app.api.errors import RepositoryConflict
 from app.api.main import create_app
@@ -75,11 +76,6 @@ class FakeReceipt:
 
 
 class FakeRepository:
-    REPORT_LIMIT = 3
-    # Section 8.6 caps objections so a leaked link cannot be used to bury
-    # the recipient. Was hardcoded to zero while the two objection routes
-    # did not exist, which made both buttons dead before they 404ed.
-    OBJECTION_LIMIT = 3
 
     def __init__(self):
         self.expenses: dict[uuid.UUID, ExpenseIdentity] = {}
@@ -305,6 +301,11 @@ class FakeRepository:
                     "transfer_note": note,
                     "qr_payload": payload,
                     "qr_image_data_uri": None,
+                    "evidence_requested": any(
+                        objection["kind"] == "evidence_request"
+                        and objection["obligation_id"] == item.id
+                        for objection in self.objections
+                    ),
                     "already_reported": any(
                         report.link_id == link.id and report.obligation_id == item.id
                         for report in self.reports.values()
@@ -321,9 +322,15 @@ class FakeRepository:
             "reports_used": sum(
                 report.link_id == link.id for report in self.reports.values()
             ),
-            "reports_allowed": self.REPORT_LIMIT,
-            "objections_used": 0,
-            "objections_allowed": self.OBJECTION_LIMIT,
+            "reports_allowed": REPORT_LIMIT,
+            # Counted, not assumed. This double said zero forever, so a test
+            # could not have caught the quota never being reached.
+            "objections_used": sum(
+                objection["token_digest"] == token_digest
+                and objection["kind"] in ("not_me", "wrong_amount")
+                for objection in self.objections
+            ),
+            "objections_allowed": OBJECTION_LIMIT,
         }
         if self.leak_guest_input:
             envelope["group_balance"] = {"someone_else": 123}

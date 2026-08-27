@@ -111,15 +111,18 @@ def not_me_submit(
     repository: Annotated[ApiRepository, Depends(get_repository)],
 ) -> HTMLResponse:
     service = ApiService(repository)
+    # Read the names before objecting: recording it revokes the link, and after
+    # that the envelope refuses to load. Rendering empty strings put a blank
+    # where the reader had just been shown a name, and left the confirmation
+    # telling them nothing about who to contact.
+    seen = service.not_me_view(token)
     service.record_objection(token, "not_me", None, None)
-    # The link is revoked by now, so the page is rendered from what the reader
-    # already knew rather than by loading the envelope again.
     return _page(
         request,
         "guest_not_me.html",
         {
-            "claimed_person_display_name": "",
-            "recorded_by_display_name": "",
+            "claimed_person_display_name": seen["claimed_person_display_name"],
+            "recorded_by_display_name": seen["recorded_by_display_name"],
             "already_reported": True,
             "can_object": False,
         },

@@ -24,8 +24,18 @@
     {% if view.already_reported %}
       <p class="eyebrow">Đã ghi nhận</p>
       <h1 class="lede">Bạn đã báo rằng đây không phải link của mình.</h1>
+      {# Nothing notifies anyone. The objection is an append-only audit event
+         and no surface shows it to the person who recorded the expense. Saying
+         "họ đã được báo" would send this reader away relaxed while the debt
+         stays outstanding against them. #}
       <p class="note">
-        {{ view.recorded_by_display_name }} đã được báo. Bạn không cần làm gì thêm.
+        Ghi nhận này được lưu lại kèm thời điểm, và link đã ngừng hiển thị số
+        tiền cùng số tài khoản.
+      </p>
+      <p class="note">
+        Ứng dụng chưa tự báo cho {{ view.recorded_by_display_name }}. Nhắn trực
+        tiếp cho {{ view.recorded_by_display_name }} là cách nhanh nhất để khoản
+        này được gửi đúng người.
       </p>
     {% else %}
       <p class="eyebrow">Link này ghi tên {{ view.claimed_person_display_name }}</p>
@@ -47,9 +57,10 @@
       {% endif %}
 
       <p class="note">
-        Sau khi báo: link này ngừng hiển thị số tiền và số tài khoản,
-        và {{ view.recorded_by_display_name }} được báo để gửi lại đúng người.
-        Khoản chi vẫn còn nguyên, chỉ là không còn gắn với bạn.
+        Sau khi báo: link này ngừng hiển thị số tiền và số tài khoản, và ghi
+        nhận được lưu lại kèm thời điểm. Ứng dụng chưa tự báo cho
+        {{ view.recorded_by_display_name }}, nên nhắn trực tiếp vẫn là cách
+        nhanh nhất. Khoản chi vẫn còn nguyên, chỉ là không còn gắn với bạn.
       </p>
     {% endif %}
   </section>

@@ -539,8 +539,24 @@ class ApiService:
             raise ApiProblem(422, "unknown_reason", "Unknown objection reason")
 
         envelope = self._objection_envelope(token)
-        used = envelope.get("objections_used", 0)
-        if used >= envelope.get("objections_allowed", 2):
+
+        # The token is the capability, and it covers exactly the obligations in
+        # this envelope. Without this check a guest holding a valid link could
+        # post someone else's obligation_id and file an objection against a
+        # debt that was never shown to them. The sibling route report_payment
+        # already 404s on the same forgery; this one did not.
+        if obligation_id is not None:
+            in_scope = any(
+                block["obligation_id"] == str(obligation_id)
+                for block in envelope["obligations"]
+            )
+            if not in_scope:
+                raise ApiProblem(404, "unknown_obligation", "No such obligation on this link")
+
+        # Indexed, not .get() with a default. The defaults scattered through
+        # this codebase said 2 while the repository enforced 3, so the page
+        # promised a quota the server did not honour.
+        if envelope["objections_used"] >= envelope["objections_allowed"]:
             raise ApiProblem(429, "objection_rate_limited", "Too many objections on this link")
 
         self.repository.save_guest_objection(

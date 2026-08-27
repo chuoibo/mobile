@@ -16,6 +16,7 @@ from typing import Protocol
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.api.limits import OBJECTION_LIMIT, REPORT_LIMIT
 from app.api.errors import RepositoryConflict
 from app.api.schemas import ExpenseInput
 from app.db.models import (
@@ -280,43 +281,6 @@ class ApiRepository(Protocol):
         """
         ...
 
-    def save_guest_objection(
-        self,
-        *,
-        token_digest: bytes,
-        kind: str,
-        obligation_id: uuid.UUID | None,
-        reason: str | None,
-        now: datetime,
-    ) -> None:
-        link = self.session.scalar(
-            select(GuestLink).where(GuestLink.token_digest == token_digest)
-        )
-        if link is None:
-            return
-
-        self.session.add(
-            AuditEvent(
-                actor_id=None,  # a guest has no account; the capability is the subject
-                event_type=f"guest_objection.{kind}",
-                aggregate_type="guest_link",
-                aggregate_id=link.id,
-                event_data={
-                    "kind": kind,
-                    "obligation_id": str(obligation_id) if obligation_id else None,
-                    "reason": reason,
-                },
-                occurred_at=now,
-            )
-        )
-
-        if kind == "not_me":
-            # The reader says this link is not theirs, so it stops showing an
-            # amount and an account number immediately. The obligation itself
-            # survives: section 8.2 is explicit that a dead link does not make
-            # a debt disappear.
-            link.status = GuestLinkStatus.REVOKED
-            link.revoked_at = now
 
     def get_receipt_target(self, obligation_id: uuid.UUID) -> ReceiptTarget | None: ...
 
@@ -335,7 +299,6 @@ class ApiRepository(Protocol):
 class SqlAlchemyApiRepository:
     """PostgreSQL implementation. One instance owns one request transaction."""
 
-    REPORT_LIMIT = 3
 
     # Section 8.6 caps objections so a leaked link cannot be used to bury
 
@@ -343,7 +306,6 @@ class SqlAlchemyApiRepository:
 
     # did not exist, which made both buttons dead before they 404ed.
 
-    OBJECTION_LIMIT = 3
 
     def __init__(self, session: Session):
         self.session = session
@@ -905,6 +867,20 @@ class SqlAlchemyApiRepository:
             ],
         )
 
+        # Asking for the calculation is stored as an audit event, same as an
+        # objection. Without reading it back the page offered the button
+        # forever and never acknowledged the ask.
+        evidence_asked = {
+            str(row["obligation_id"])
+            for row in self.session.scalars(
+                select(AuditEvent.event_data).where(
+                    AuditEvent.aggregate_type == "guest_link",
+                    AuditEvent.aggregate_id == link.id,
+                    AuditEvent.event_type == "guest_objection.evidence_request",
+                )
+            )
+            if row.get("obligation_id")
+        }
         blocks = []
         recorded_by_ids: set[uuid.UUID] = set()
         for obligation in obligations:
@@ -975,6 +951,7 @@ class SqlAlchemyApiRepository:
                     "qr_payload": payload,
                     "qr_image_data_uri": payload_to_png_data_uri(payload),
                     "already_reported": already_reported,
+                    "evidence_requested": str(obligation.id) in evidence_asked,
                     "receiver_confirmed": derived_status
                     in {"confirmed", "over_confirmed"},
                 }
@@ -982,6 +959,15 @@ class SqlAlchemyApiRepository:
         report_count = self.session.scalar(
             select(func.count(PaymentReport.id)).where(
                 PaymentReport.guest_link_id == link.id
+            )
+        )
+        objection_count = self.session.scalar(
+            select(func.count(AuditEvent.id)).where(
+                AuditEvent.aggregate_type == "guest_link",
+                AuditEvent.aggregate_id == link.id,
+                AuditEvent.event_type.in_(
+                    ("guest_objection.not_me", "guest_objection.wrong_amount")
+                ),
             )
         )
         recorded_by = (
@@ -995,10 +981,14 @@ class SqlAlchemyApiRepository:
             "link_state": state,
             "obligations": blocks,
             "reports_used": report_count,
-            "reports_allowed": self.REPORT_LIMIT,
-            # The current 18-table schema has no Dispute table yet.
-            "objections_used": 0,
-            "objections_allowed": self.OBJECTION_LIMIT,
+            "reports_allowed": REPORT_LIMIT,
+            # Objections are stored as audit events by save_guest_objection,
+            # so they can be counted without a Dispute table. Asking for the
+            # calculation is not an objection and does not spend the quota --
+            # charging someone for asking how a number was reached is how a
+            # group learns not to ask.
+            "objections_used": objection_count,
+            "objections_allowed": OBJECTION_LIMIT,
         }
         return GuestEnvelopeRecord(link_id=link.id, envelope=raw_envelope)
 
@@ -1173,6 +1163,44 @@ class SqlAlchemyApiRepository:
                 .order_by(ReceiptConfirmation.confirmed_at, ReceiptConfirmation.id)
             )
         )
+
+    def save_guest_objection(
+        self,
+        *,
+        token_digest: bytes,
+        kind: str,
+        obligation_id: uuid.UUID | None,
+        reason: str | None,
+        now: datetime,
+    ) -> None:
+        link = self.session.scalar(
+            select(GuestLink).where(GuestLink.token_digest == token_digest)
+        )
+        if link is None:
+            return
+
+        self.session.add(
+            AuditEvent(
+                actor_id=None,  # a guest has no account; the capability is the subject
+                event_type=f"guest_objection.{kind}",
+                aggregate_type="guest_link",
+                aggregate_id=link.id,
+                event_data={
+                    "kind": kind,
+                    "obligation_id": str(obligation_id) if obligation_id else None,
+                    "reason": reason,
+                },
+                occurred_at=now,
+            )
+        )
+
+        if kind == "not_me":
+            # The reader says this link is not theirs, so it stops showing an
+            # amount and an account number immediately. The obligation itself
+            # survives: section 8.2 is explicit that a dead link does not make
+            # a debt disappear.
+            link.status = GuestLinkStatus.REVOKED
+            link.revoked_at = now
 
 
 __all__ = [
