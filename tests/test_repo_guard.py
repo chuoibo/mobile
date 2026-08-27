@@ -48,6 +48,55 @@ class PatternScannerTests(unittest.TestCase):
         self.assertNotIn(fake_phone, rendered)
         self.assertNotIn(fake_identifier, rendered)
 
+    def test_github_and_aws_credentials_are_blocked_and_masked(self):
+        github_classic = "ghp_" + "A" * 36
+        github_fine_grained = "github" + "_pat_" + "B" * 30
+        aws_access_key = "AKIA" + "C" * 16
+        aws_secret = "D" * 20 + "/" + "E" * 19
+        text = "\n".join(
+            (
+                github_classic,
+                github_fine_grained,
+                aws_access_key,
+                "aws_secret_access_key=" + aws_secret,
+            )
+        )
+
+        findings = self.scan_text(text)
+
+        self.assertEqual(
+            {finding.rule for finding in findings},
+            {
+                "github-token",
+                "aws-access-key-id",
+                "aws-secret-access-key",
+            },
+        )
+        rendered = "\n".join(finding.render() for finding in findings)
+        for credential in (
+            github_classic,
+            github_fine_grained,
+            aws_access_key,
+            aws_secret,
+        ):
+            self.assertNotIn(credential, rendered)
+        self.assertEqual(rendered.count("<redacted-secret>"), 4)
+
+    def test_secret_rules_cannot_be_allowlisted(self):
+        payload = {
+            "version": 1,
+            "artifacts": [
+                {
+                    "path": "safe-note.txt",
+                    "sha256": "a" * 64,
+                    "rules": ["github-token"],
+                    "reason": "synthetic credential fixture",
+                }
+            ],
+        }
+        with self.assertRaises(repo_guard.GuardError):
+            repo_guard.load_config(json.dumps(payload).encode("utf-8"))
+
     def test_grouped_vnd_is_not_treated_as_an_identifier(self):
         findings = self.scan_text("Chi phí tổng hợp: 100.000.000 VND")
         self.assertEqual(findings, [])
@@ -466,6 +515,21 @@ class GitIntegrationTests(unittest.TestCase):
         self.assertNotIn(filename, output)
         self.assertIn("rule=email", output)
         self.assertIn("rule=export-filename", output)
+
+    def test_staged_secret_failure_never_logs_the_credential(self):
+        fake_token = "ghp_" + "S" * 36
+        (self.repo / "note.txt").write_text(
+            "safe baseline\n" + fake_token + "\n", encoding="utf-8"
+        )
+        self.git("add", "note.txt")
+
+        completed = self.run_guard("staged")
+        output = completed.stdout + completed.stderr
+
+        self.assertEqual(completed.returncode, 1, output)
+        self.assertIn("rule=github-token", output)
+        self.assertIn("<redacted-secret>", output)
+        self.assertNotIn(fake_token, output)
 
     def test_staged_scan_blocks_embedded_and_raw_base64_without_logging_them(self):
         embedded_path = "synthetic-preview.md"
