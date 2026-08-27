@@ -10,6 +10,7 @@ view hay trigger append-only hoạt động. Tầng test này chạy đúng
 Phạm vi hiện được khóa bằng test:
 
 - vòng đời khoản chi → version đã xác nhận → đợt thu → obligation → guest link;
+- projection guest từ PostgreSQL đi qua HTTP và hiện tên ngân hàng từ BIN đã biết;
 - payment report không tự tất toán;
 - hai receipt confirmation dẫn view từ outstanding tới confirmed;
 - bank destination trong batch là snapshot, không trôi theo record hiện tại;
