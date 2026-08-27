@@ -228,3 +228,77 @@ Vì contract chưa đóng băng, **không viết `impl_a`, không mở W6a/W6b**
 - `docs/codex/2026-08-27/00-nhat-ky.md`
 
 Không commit, không sửa nhánh allocator, không viết allocator và không chạm `/home/lakiet/mobile`.
+
+---
+
+## Bổ sung cùng ngày — C-03 và review ADR-0004 v2
+
+### Metadata lượt bổ sung
+
+- **Work ID:** W9a/C-03; W6 contract review v2
+- **Nhánh:** `codex/p0-w9a-repo-guard`
+- **HEAD trước thay đổi:** `fb7d89d6b65f9a40453d0330b0f31c72f9759c94`
+- **C-02 đã được leader commit hộ:** `a9d51ed`
+- **ADR v2:** commit sửa `5cfafbe`, merge `fb7d89d`
+- **Dữ liệu test:** chỉ payload tổng hợp sinh runtime, golden/doc đã track và Git repository tạm; không dùng dữ liệu participant
+- **Cách ly W6:** không đọc hoặc quét nội dung `phase0/allocator/impl_b/`
+- **Commit:** không tạo theo yêu cầu của leader
+
+### C-03 — tái hiện và bản vá
+
+Tái hiện đúng hình dạng né tránh bằng cách xen **một dòng rỗng giữa mỗi hai dòng wrap**. Trước bản vá, cả ba ca đều không có finding:
+
+| Ca | Width | Trước C-03 | Sau C-03 |
+|---|---:|---|---|
+| f2 | 40 | lọt | `dense-base64-block` |
+| f2b | 76 | lọt | `dense-base64-block` |
+| f2d | 200 | lọt | `dense-base64-block` |
+
+`dense_base64_blocks` giờ cho phép tối đa **một dòng rỗng/không khớp liên tiếp** giữa các dòng dense. Giới hạn là theo số gap liên tiếp, nên một dòng rỗng xen lặp lại không reset khối; hai gap liên tiếp kết thúc khối thay vì nối qua một khoảng phân cách dài.
+
+Test mới phủ:
+
+- f2/f2b/f2d với dòng rỗng xen lặp lại;
+- f2c với dòng `-` xen lặp lại;
+- cùng ba width với một dòng text không khớp xen lặp lại;
+- hai gap liên tiếp phải reset, để chứng minh cửa sổ có giới hạn;
+- staged integration với wrap-76 xen dòng rỗng;
+- output vẫn chỉ có match/path đã che.
+
+Tài liệu security được cập nhật đúng semantics gap và false-positive story. Scanner vẫn là mitigation; quy tắc dữ liệu thật không vào repo/worktree không đổi.
+
+### Kiểm chứng C-03
+
+- `python3 -m pytest tests/test_repo_guard.py -q` — **25 passed, 42 subtests passed**.
+- `ruff check` — pass; `ruff format --check` — pass.
+- Chạy gộp repo guard + allocator self-check — **42 passed, 361 subtests passed**; `py_compile` và `git diff --check` đều pass.
+- Ma trận độc lập f2/f2b/f2d đều trả `dense-base64-block`.
+- Sáu lớp false-positive tiếp tục không có finding: SHA-256/chữ ký ngắn; golden JSON thật; chuỗi lặp 300; Python 60 dòng; bảng Markdown trên 3000 byte; nguyên văn ADR-0004.
+- Quét trực tiếp năm candidate file bằng chính `scan_entry` — **0 finding**; không stage và không sửa Git index dùng chung.
+
+### Review ADR-0004 v2
+
+- **Verdict:** `REQUEST_CHANGES`
+- **Blocker:** 5
+- **Review:** `docs/codex/2026-08-27/review-claude-adr0004-v2.md`
+- **Baseline:** **17 test, 319 subtest pass** trên 41 golden vector.
+
+Các sửa v2 đã đóng đúng phần lớn blocker cũ, nhưng chưa đủ đóng băng:
+
+1. ADR còn hai danh sách precedence cùng tự nhận là đầy đủ nhưng khác nhau; câu #16 cũ cũng chưa được thay.
+2. Chưa chốt `INVALID_PARTICIPANT_ID`/`INVALID_ENTITY_ID` áp vào declaration hay cả reference/advancer.
+3. Chưa có concrete input/output boundary chung; `exact_shares: Fraction` xung đột với `impl_a` không dùng Fraction.
+4. Valid generator thiếu cận số discount và lịch bắt buộc sát biên trên.
+5. Một mutant G22 sai composition nhưng tự nhất quán vẫn làm self-check xanh **15 test, 313 subtest**; mutant hiện tại chỉ phá tổng.
+
+Vì verdict chưa phải `APPROVE`, **không tạo `phase0/allocator/impl_a/` và không tạo `phase0/allocator/harness/`**. Blindness được giữ nguyên.
+
+### File thay đổi trong lượt bổ sung
+
+- `scripts/repo_guard.py`
+- `tests/test_repo_guard.py`
+- `docs/security/repo-guard.md`
+- `docs/codex/2026-08-27/review-claude-adr0004-v2.md`
+- `docs/codex/2026-08-27/00-nhat-ky.md`
+
+Không commit, không sửa Git index dùng chung, không đọc `impl_b` và không chạm `/home/lakiet/mobile`.

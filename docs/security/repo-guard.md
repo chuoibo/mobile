@@ -87,7 +87,7 @@ Scanner hiện có các rule:
 - `long-number`: chuỗi từ 9 chữ số, có thể có dấu cách, chấm hoặc gạch nối.
 - `data-uri-base64`: marker `data:<mime>;base64,` trên dòng được quét, không phụ thuộc đuôi file;
 - `dense-base64-line`: dòng dài hơn 4 KiB có ít nhất 98% byte thuộc bảng chữ cái base64/base64url.
-- `dense-base64-block`: ít nhất hai dòng không rỗng liên tiếp, mỗi dòng có ít nhất 98% byte thuộc bảng chữ cái base64/base64url, và tổng độ dài các dòng lớn hơn 4 KiB;
+- `dense-base64-block`: ít nhất hai dòng có từ 98% byte thuộc bảng chữ cái base64/base64url, tổng byte của các dòng đó lớn hơn 4 KiB; giữa hai dòng khớp cho phép tối đa một dòng rỗng/không khớp liên tiếp để việc xen dòng trống không reset detector;
 - `long-base64-token`: một token liên tục dài hơn 2 KiB chỉ gồm bảng chữ cái base64/base64url và tối đa hai dấu padding `=`.
 
 Ở mode `staged`, các content rule chỉ báo khi match nằm trên dòng được thêm/thay trong index; riêng detector theo khối đọc các dòng kề nhau trong cùng staged blob để không mất biên khối, nhưng chỉ báo nếu khối giao với ít nhất một dòng được thêm/thay. Ở mode `tree`, `range` và `history`, scanner xét toàn bộ dòng của từng snapshot được quét. File text lớn hơn 2 MiB hoặc binary bị chặn ở cấp `controlled-artifact` trước khi content scanner đọc dòng.
@@ -125,7 +125,7 @@ Email TỔNG HỢP GIẢ: nguoi-gia@du-lieu.invalid
 
 `reason` là token ASCII ít nhất 8 ký tự. Annotation phải cụ thể theo rule và nằm ngay cạnh match để reviewer thấy. Không dùng annotation cho dữ liệu thật. Nếu cùng một file cần nhiều miễn trừ, từng vị trí phải có annotation riêng.
 
-Một SHA-256 dài 64 ký tự, chữ ký base64 ngắn và chuỗi lặp 300 ký tự đều thấp hơn ngưỡng token. Golden-vector JSON hiện tại có field và dấu phân cách nên không tạo token dài hơn 2 KiB hay khối dòng đạt mật độ 98%. Tuy nhiên, một danh sách rất dài gồm các hash thuần trên nhiều dòng liên tiếp có thể bị detector theo khối chặn; khi đó phải format lại để thể hiện cấu trúc hoặc dùng annotation hẹp sau review. Việc wrap một blob dài thành dòng ngắn không còn là cách tránh rule. `data:` URI vẫn phải được annotation riêng khi nó không nằm trong một khối đã bị rule mạnh hơn bao phủ.
+Một SHA-256 dài 64 ký tự, chữ ký base64 ngắn và chuỗi lặp 300 ký tự đều thấp hơn ngưỡng token. Golden-vector JSON hiện tại có field và dấu phân cách nên không tạo token dài hơn 2 KiB hay khối dòng đạt mật độ 98%. Tuy nhiên, một danh sách rất dài gồm các hash thuần trên nhiều dòng, kể cả có xen từng dòng trống, có thể bị detector theo khối chặn; khi đó phải format lại để thể hiện cấu trúc hoặc dùng annotation hẹp sau review. Việc wrap một blob dài thành dòng ngắn hoặc xen một dòng rỗng giữa mỗi đoạn không còn là cách tránh rule. `data:` URI vẫn phải được annotation riêng khi nó không nằm trong một khối đã bị rule mạnh hơn bao phủ.
 
 ### Allowlist cho artifact/export hợp lệ
 
