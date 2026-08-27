@@ -174,6 +174,35 @@ ANNOTATION_RE = re.compile(
     r"\s+reason=([A-Za-z0-9][A-Za-z0-9._-]{7,})"
 )
 
+# Machine-generated dependency manifests are full of base64 integrity hashes
+# and long registry numbers. Every JavaScript project trips the base64 rules on
+# its lockfile, and a guard that fires on a file nobody edits by hand is a
+# guard people learn to ignore -- the exact failure I warned about when
+# reviewing this scanner's first version.
+#
+# The exemption is narrow on purpose: only these rules, only these filenames.
+# Email, phone, forbidden paths and controlled artifacts still apply, so a bill
+# pasted into a lockfile is still caught by everything that would catch it
+# anywhere else.
+GENERATED_LOCKFILES = frozenset({
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    "poetry.lock",
+    "Cargo.lock",
+})
+LOCKFILE_EXEMPT_RULES = frozenset({
+    "aggregate-base64-fragments",
+    "dense-base64-line",
+    "long-base64-token",
+    "long-number",
+})
+
+
+def is_generated_lockfile(path: str) -> bool:
+    return PurePosixPath(path).name in GENERATED_LOCKFILES
+
+
 CONTENT_RULES = {
     "aggregate-base64-fragments",
     "conflict-marker",
@@ -626,8 +655,13 @@ def content_findings(
         len(fragment.encode("ascii"))
         for _line, _column, fragment in aggregate_fragments
     )
-    if aggregate_bytes > MAX_AGGREGATE_BASE64_BYTES and not config.permits(
-        path, digest, aggregate_rule
+    if (
+        aggregate_bytes > MAX_AGGREGATE_BASE64_BYTES
+        # A lockfile is thousands of integrity hashes by construction. Pinning
+        # it by digest would need re-approving on every dependency bump, which
+        # is how an allowlist turns into a rubber stamp.
+        and not is_generated_lockfile(path)
+        and not config.permits(path, digest, aggregate_rule)
     ):
         first_line, first_column, _first_fragment = aggregate_fragments[0]
         aggregate_text = "\n".join(
@@ -715,6 +749,9 @@ def content_findings(
             candidates.append(
                 (match.start(), match.end(), "long-number", match.group(0))
             )
+
+        if is_generated_lockfile(path):
+            candidates = [c for c in candidates if c[2] not in LOCKFILE_EXEMPT_RULES]
 
         for start, _end, rule, value in sorted(candidates):
             if config.permits(path, digest, rule) or inline_allows(
