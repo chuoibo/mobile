@@ -7,7 +7,7 @@
 
 ## 1. Kết quả CHÍNH
 
-**Tỉ lệ nhóm evaluable có `valid_cost_opportunity = confirmed` mà người tổ chức tự khởi tạo lần dùng tiếp theo.**
+**Tỉ lệ nhóm evaluable có `valid_cost_opportunity = confirmed` đạt `qualifying_repeat`** *(chuỗi bốn mắt xích ở `00-` mục 1.2 — KHÔNG phải chỉ `voluntary_start`)*.
 
 | Kết quả | Hành động — quyết định TRƯỚC, không diễn giải lại sau |
 |---|---|
@@ -25,7 +25,12 @@ Cửa sổ đo: cohort đi chơi — cơ hội chi chung kế tiếp, hoặc 60 
 | Median `organizer_active_time` | Giảm **≥30%** so với baseline **của chính nhóm đó** |
 | Đường nhập | Ít nhất một đường nhanh hơn form cấu trúc về **thời gian tới phân bổ ĐÚNG**, không tăng lỗi vật chất |
 | Hiểu đúng năng lực sau onboarding | **≥80%**. Không đạt → sửa lời hứa ra mắt, không sửa ngưỡng |
-| Tỉ lệ nghĩa vụ `receiver_confirmed` trong 7 ngày | **≥ baseline của chính nhóm đó.** Sàn tuyệt đối 50% là vô nghĩa nếu Zalo đang cho họ 70% |
+| Tỉ lệ nghĩa vụ `receiver_confirmed` trong 7 ngày | **≥ max(50%, baseline của chính nhóm đó)** |
+
+> **Sửa theo blocker W0-03 của Codex.** Bản đầu thay sàn tuyệt đối 50% bằng "≥ baseline", cho rằng hai câu trong spec mục 15 xung đột. **Chúng không xung đột.** Sàn 50% là ngưỡng thử nghiệm; câu về baseline chỉ nói sàn đó *chưa đủ* khi baseline cao. Baseline **siết chặt** thêm khi baseline > 50%; nó **không xoá** sàn khi baseline thấp.
+> Hậu quả nếu giữ cách đọc cũ: một nhóm baseline 20% đạt 25% được coi là qua chỉ số phụ, dù vi phạm sàn đã đăng ký. Tôi đã tự ý xoá một ngưỡng của spec — muốn đổi ngưỡng thì phải qua ADR sửa spec, không phải diễn giải lại.
+>
+> Comparator: **cùng nhóm · cùng loại chi phí · cùng mẫu số.** Báo **cả** theo nghĩa vụ **và** theo nhóm. Cách tổng hợp paired result, xử lý tie và missing chốt trước khi pilot bắt đầu.
 
 ⚠️ **Thời gian tới phân bổ ĐÚNG**, không phải thời gian tới lúc có kết quả. Một đường nhập cho ra kết quả trong 5 giây rồi cần 3 phút sửa thì chậm hơn form.
 
@@ -47,7 +52,7 @@ Guardrail thất bại → **không có kết quả PASS**, bất kể chỉ s�
 - Phân tầng theo cohort. Báo **mô tả**, không xếp hạng.
 - Báo `N` và `N_missing` ở mọi chỉ số.
 - Báo `attrited` và `indeterminate` riêng.
-- Nhãn operator: báo kèm Cohen's kappa. `kappa < 0.6` → chỉ mô tả, không mở cổng.
+- Nhãn operator: báo **confusion matrix + đồng thuận theo từng lớp**, kèm kappa. Điều kiện mở cổng là đồng thuận ở hai lớp `human_judgment_required` và `out_of_contract_rescue`, **không** phải một con số kappa toàn cục (`01-` mục 3).
 
 ## 5. Lịch xem interim — cố định trước
 

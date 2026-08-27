@@ -67,15 +67,18 @@ Q1. Hợp đồng của sản phẩm tương lai có CHO PHÉP hành động nà
 
 Q2. Operator có dùng thông tin KHÔNG nằm trong dữ liệu phiên đã ghi lại không?
     (biết người đó ngoài đời, nhớ từ nhóm khác, đoán từ quan hệ cá nhân)
-    CÓ, và sản phẩm không thể có thông tin đó ──> out_of_contract_rescue
-    CÓ, nhưng sản phẩm có thể có ─────────────> human_judgment_required
+    CÓ, và sản phẩm KHÔNG THỂ có thông tin đó ─> out_of_contract_rescue
+    CÓ, nhưng sản phẩm CÓ THỂ có ─────────────> missing_input_deviation
+                                                (protocol deviation, KHÔNG phải
+                                                 bằng chứng cần phán đoán người)
 
 Q3. Một QUY TẮC CỐ ĐỊNH, không cần hiểu ngôn ngữ hay hình ảnh, có sinh ra
     đúng output này từ dữ liệu đã có trong hệ thống không?
     CÓ ────────────────────────────────> deterministic_automatable
 
-Q4. Một model ngôn ngữ/thị giác hiện nay có KHẢ NĂNG HỢP LÝ sinh ra output này
-    từ đúng những input người dùng đã cung cấp, với người dùng xác nhận sau đó?
+Q4. Model đã NEO TRONG capability_snapshot (có tên model + version + ngày)
+    có sinh ra output này từ đúng input người dùng đã cung cấp không?
+    Phán quyết bằng REPLAY TEST đã version, KHÔNG bằng cảm giác
     CÓ ────────────────────────────────> model_plausible
 
 Q5. Còn lại ──────────────────────────> human_judgment_required
@@ -89,7 +92,28 @@ Q5. Còn lại ─────────────────────�
 
 Một người **độc lập** gán lại nhãn cho **≥20% mẫu ngẫu nhiên**. Báo cả tỉ lệ đồng thuận thô **và** Cohen's kappa.
 
-> **kappa < 0.6 → nhãn KHÔNG dùng được** để kết luận "giá trị đến từ loại nào". Khi đó chỉ được báo cáo mô tả, và phải sửa cây quyết định trước wave sau.
+> **Sửa theo blocker W0-05 của Codex.** Ba sai lầm trong bản đầu:
+> 1. `"sản phẩm có thể có input này"` → `human_judgment_required` là **phi logic**. Thiếu input trong phiên **không chứng minh** cần phán đoán con người. Đó là **protocol deviation**, giờ có nhãn riêng `missing_input_deviation`.
+> 2. `"model hiện nay có khả năng hợp lý"` — model nào? phiên bản nào? Người thứ hai **không tái lập được**. Giờ neo vào `capability_snapshot` có version và phán quyết bằng **replay test**.
+> 3. **Một con số kappa toàn cục che được lỗi ở đúng hai lớp quyết định luận đề.** Với bốn lớp lệch mạnh, `kappa ≥ 0.6` vẫn đi cùng đồng thuận rất tệ riêng ở `human_judgment_required` và `out_of_contract_rescue` — mà chính hai lớp đó quyết định "đây là phần mềm hay dịch vụ vận hành".
+
+**Ba trục, ghi riêng, không gộp thành một nhãn rồi mất thông tin:**
+
+| Trục | Câu hỏi | Giá trị |
+|---|---|---|
+| `contract_authority` | Sản phẩm có QUYỀN làm việc này không? | `permitted` · `not_permitted` |
+| `input_provenance` | Thông tin đến từ đâu? | `in_session` · `outside_session_obtainable` · `outside_session_impossible` |
+| `generation_mechanism` | Cơ chế nào sinh ra output? | `deterministic_rule` · `model_replayable` · `human_judgment` |
+
+Bốn nhãn cũ vẫn suy ra được từ ba trục theo precedence Q1→Q5. Nhưng **dữ liệu thô là ba trục**, để phân tích lại được khi taxonomy sai.
+
+**Đo độ tin cậy — đóng băng trước field:**
+- Đơn vị lấy mẫu · **seed** · độ phủ **lớp hiếm** (lấy mẫu phân tầng, không lấy ngẫu nhiên thuần)
+- Báo **confusion matrix** và **đồng thuận theo từng lớp**, không chỉ một con số
+- Quy trình adjudication cho mọi bất đồng, đã đăng ký trước
+- **Rule gate riêng cho nhóm `human_judgment_required` + `out_of_contract_rescue`** — đây là nhóm quyết định luận đề
+
+> Báo kappa, nhưng **kappa KHÔNG phải công tắc duy nhất**. Đồng thuận theo lớp ở hai lớp gate-critical mới là điều kiện.
 
 Không có bất kỳ người gán lại độc lập nào → kết luận từ nhãn chỉ là **hypothesis-generating**, ghi rõ như vậy ở mọi nơi con số xuất hiện.
 
@@ -103,10 +127,35 @@ Block: +3 nhóm/cohort, lặp lại
 Mở cổng 13.3 khi: ≥10 nhóm evaluable trong MỘT cohort có valid_cost_opportunity = confirmed
    ↓
 Dừng tuyển khi: hai block liên tiếp không sinh failure mode mới
-                VÀ hướng kết quả không còn đảo ngược
+                VÀ "hướng" đã ổn định (định nghĩa bên dưới)
 ```
 
-**"Failure mode mới"** = một thất bại không khớp mục nào trong `failure-mode register`. Register là **append-only**, mỗi mục có: mô tả, lần đầu quan sát, nhóm, `protocol_version`.
+> **Sửa theo blocker W0-06 của Codex.** "Hướng kết quả không còn đảo ngược" là **câu tự do, không phải preregistration**. Hai analyst đọc cùng dữ liệu có thể ra hai quyết định khác nhau; và sau khi xem block, team có thể **gộp hoặc tách failure mode** cho vừa ý.
+
+**`failure-mode register`** — tạo và **version TRƯỚC dữ liệu đầu tiên**, không phải khi gặp lỗi đầu tiên. Append-only. Mỗi mục có: mô tả · lần đầu quan sát · nhóm · `protocol_version` · `register_version`.
+
+**"Mới hay không mới"** do một người adjudicate theo rule đã đăng ký, **không do người đang muốn dừng tuyển**. Gộp hai mục hoặc tách một mục đều là thay đổi `register_version`, và phải ghi lý do **trước khi** xem block tiếp theo.
+
+**"Hướng" được định nghĩa bằng VỊ TRÍ SO VỚI NGƯỠNG**, không bằng cảm nhận xu hướng:
+
+> "Hướng đã ổn định" = qua **hai block liên tiếp**, ước lượng điểm của chỉ số chính **không đổi khoang** trong bốn khoang đã đăng ký: `<4/10` · `4–5/10` · `≥6/10` · `≥7/10 kèm ≤20% can thiệp`.
+
+Đổi khoang giữa hai block ⇒ **chưa ổn định**, tiếp tục tuyển.
+
+**Đổi `protocol_version` RESET chuỗi hai block.** Dữ liệu trước và sau không gộp được thì cũng không tính chung vào điều kiện dừng.
+
+**Trần và dừng sớm — đăng ký trước:**
+
+| Rule | Ngưỡng |
+|---|---|
+| Trần tuyển | `N_max` nhóm mỗi cohort, và `T_max` tuần theo lịch. Chạm trần → dừng, báo cáo với mẫu hiện có, **không gia hạn** |
+| `stop-futility` | Ước lượng điểm nằm ở khoang `<4/10` qua **hai block liên tiếp** |
+| `stop-harm` | Bất kỳ điều kiện nào ở mục 5 — **có hiệu lực ngay, không chờ ranh giới block** |
+| `stop-saturation` | Hai block không có failure mode mới **VÀ** hướng đã ổn định |
+
+`N_max` và `T_max` chốt cùng lúc với ADR-0002 — chúng phụ thuộc biến thể.
+
+**Golden block sequence** phải viết trước, dạng chuỗi tổng hợp, cho cả bốn kết cục `continue` · `stop-futility` · `stop-harm` · `stop-saturation`. Hai analyst chạy rule trên cùng chuỗi phải ra cùng quyết định — nếu không thì rule chưa đủ chặt.
 
 ⚠️ Hai điều kiện dừng là **độc lập**. Chạm `/10` không cho phép dừng tuyển nếu block vẫn đang sinh failure mode mới.
 
