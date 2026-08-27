@@ -1,0 +1,575 @@
+"""SQLAlchemy models for the first expense-to-collection vertical slice.
+
+Money is represented exclusively as integer Vietnamese dong. Financial facts and
+batch compositions are append-only; the first migration enforces that property for
+the corresponding tables at the PostgreSQL layer.
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime
+from enum import StrEnum
+from typing import Any
+
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    Enum,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Index,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
+)
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.db.base import Base
+
+
+class PayerAcknowledgement(StrEnum):
+    PENDING = "pending"
+    ACKNOWLEDGED = "acknowledged"
+    DISPUTED = "disputed"
+
+
+class VerificationScope(StrEnum):
+    TOTALS_ONLY = "totals_only"
+    ITEMS_REVIEWED = "items_reviewed"
+
+
+class CollectionBatchStatus(StrEnum):
+    ACCRUING = "accruing"
+    FROZEN = "frozen"
+    PUBLISHED = "published"
+    COLLECTING = "collecting"
+    COMPLETED = "completed"
+    CLOSED_WITH_EXCEPTIONS = "closed_with_exceptions"
+    CANCELLED = "cancelled"
+
+
+class GuestLinkStatus(StrEnum):
+    ACTIVE = "active"
+    REVOKED = "revoked"
+    EXPIRED = "expired"
+    ROTATED = "rotated"
+
+
+def _enum_type(enum_class: type[StrEnum], name: str) -> Enum:
+    return Enum(
+        enum_class,
+        values_callable=lambda members: [member.value for member in members],
+        name=name,
+        native_enum=False,
+        create_constraint=True,
+        validate_strings=True,
+    )
+
+
+class Expense(Base):
+    """Stable identity for an expense whose facts live in immutable versions."""
+
+    __tablename__ = "expenses"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    context_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class ExpenseVersion(Base):
+    """Immutable material state of an expense at one version number."""
+
+    __tablename__ = "expense_versions"
+    __table_args__ = (
+        UniqueConstraint(
+            "expense_id", "version_number", name="uq_expense_versions_expense_version"
+        ),
+        ForeignKeyConstraint(
+            ["expense_id", "previous_version_number"],
+            ["expense_versions.expense_id", "expense_versions.version_number"],
+            name="fk_expense_versions_previous_version",
+        ),
+        CheckConstraint(
+            "(version_number = 1 AND previous_version_number IS NULL) OR "
+            "(version_number > 1 AND previous_version_number = version_number - 1)",
+            name="version_chain",
+        ),
+        CheckConstraint("subtotal_amount_vnd >= 0", name="subtotal_nonnegative"),
+        CheckConstraint("fee_amount_vnd >= 0", name="fee_nonnegative"),
+        CheckConstraint("vat_amount_vnd >= 0", name="vat_nonnegative"),
+        CheckConstraint("shipping_amount_vnd >= 0", name="shipping_nonnegative"),
+        CheckConstraint("discount_amount_vnd >= 0", name="discount_nonnegative"),
+        CheckConstraint("total_amount_vnd > 0", name="total_positive"),
+        CheckConstraint(
+            "total_amount_vnd = subtotal_amount_vnd + fee_amount_vnd + "
+            "vat_amount_vnd + shipping_amount_vnd - discount_amount_vnd",
+            name="total_components_match",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    expense_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("expenses.id"), nullable=False, index=True
+    )
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    previous_version_number: Mapped[int | None] = mapped_column(Integer)
+    description: Mapped[str | None] = mapped_column(Text)
+    recorded_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    paid_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    payer_acknowledgement: Mapped[PayerAcknowledgement] = mapped_column(
+        _enum_type(PayerAcknowledgement, "payer_acknowledgement"),
+        nullable=False,
+        default=PayerAcknowledgement.PENDING,
+        server_default=PayerAcknowledgement.PENDING.value,
+    )
+    verification_scope: Mapped[VerificationScope] = mapped_column(
+        _enum_type(VerificationScope, "verification_scope"), nullable=False
+    )
+    subtotal_amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    fee_amount_vnd: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
+    vat_amount_vnd: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
+    shipping_amount_vnd: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
+    discount_amount_vnd: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
+    total_amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class ConfirmedAllocation(Base):
+    """Append-only official ledger allocation for one expense version and person."""
+
+    __tablename__ = "confirmed_allocations"
+    __table_args__ = (
+        UniqueConstraint(
+            "expense_version_id",
+            "participant_id",
+            name="uq_confirmed_allocations_version_participant",
+        ),
+        CheckConstraint("amount_vnd >= 0", name="amount_nonnegative"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    expense_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("expense_versions.id"),
+        nullable=False,
+        index=True,
+    )
+    participant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    confirmed_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    confirmed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class CollectionBatch(Base):
+    """Mutable state-machine shell around immutable batch compositions."""
+
+    __tablename__ = "collection_batches"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    context_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False, index=True
+    )
+    owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    status: Mapped[CollectionBatchStatus] = mapped_column(
+        _enum_type(CollectionBatchStatus, "collection_batch_status"),
+        nullable=False,
+        default=CollectionBatchStatus.ACCRUING,
+        server_default=CollectionBatchStatus.ACCRUING.value,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    frozen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    collecting_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class CollectionBatchVersion(Base):
+    """Immutable composition version used by snapshots, obligations, and envelopes."""
+
+    __tablename__ = "collection_batch_versions"
+    __table_args__ = (
+        UniqueConstraint(
+            "batch_id", "version_number", name="uq_batch_versions_batch_version"
+        ),
+        ForeignKeyConstraint(
+            ["batch_id", "previous_version_number"],
+            ["collection_batch_versions.batch_id", "collection_batch_versions.version_number"],
+            name="fk_batch_versions_previous_version",
+        ),
+        CheckConstraint(
+            "(version_number = 1 AND previous_version_number IS NULL) OR "
+            "(version_number > 1 AND previous_version_number = version_number - 1)",
+            name="version_chain",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    batch_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("collection_batches.id"),
+        nullable=False,
+        index=True,
+    )
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    previous_version_number: Mapped[int | None] = mapped_column(Integer)
+    created_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class BankRecipient(Base):
+    """Recipient-confirmed bank destination; not proof of bank-account ownership."""
+
+    __tablename__ = "bank_recipients"
+    __table_args__ = (
+        CheckConstraint("bank_bin ~ '^[0-9]{6}$'", name="bank_bin_format"),
+        CheckConstraint(
+            "account_number ~ '^[A-Za-z0-9]{1,19}$'", name="account_number_format"
+        ),
+        Index(
+            "uq_bank_recipients_active_recipient",
+            "recipient_id",
+            unique=True,
+            postgresql_where=text("revoked_at IS NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    recipient_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False, index=True
+    )
+    bank_bin: Mapped[str] = mapped_column(String(6), nullable=False)
+    account_number: Mapped[str] = mapped_column(String(19), nullable=False)
+    account_name: Mapped[str | None] = mapped_column(String(255))
+    confirmed_by_recipient_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class BankRecipientSnapshot(Base):
+    """Immutable bank destination frozen into one batch composition version."""
+
+    __tablename__ = "bank_recipient_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "id", "batch_version_id", name="uq_bank_snapshots_id_batch_version"
+        ),
+        UniqueConstraint(
+            "batch_version_id",
+            "recipient_id",
+            name="uq_bank_snapshots_batch_recipient",
+        ),
+        CheckConstraint("bank_bin ~ '^[0-9]{6}$'", name="bank_bin_format"),
+        CheckConstraint(
+            "account_number ~ '^[A-Za-z0-9]{1,19}$'", name="account_number_format"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    batch_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("collection_batch_versions.id"),
+        nullable=False,
+        index=True,
+    )
+    bank_recipient_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("bank_recipients.id"), nullable=False
+    )
+    recipient_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    bank_bin: Mapped[str] = mapped_column(String(6), nullable=False)
+    account_number: Mapped[str] = mapped_column(String(19), nullable=False)
+    account_name: Mapped[str | None] = mapped_column(String(255))
+    confirmed_by_recipient_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    snapshotted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class CollectionObligation(Base):
+    """One sender-to-recipient edge with its own due date and frozen destination."""
+
+    __tablename__ = "collection_obligations"
+    __table_args__ = (
+        UniqueConstraint(
+            "batch_version_id",
+            "sender_id",
+            "recipient_id",
+            name="uq_obligations_batch_sender_recipient",
+        ),
+        ForeignKeyConstraint(
+            ["bank_recipient_snapshot_id", "batch_version_id"],
+            ["bank_recipient_snapshots.id", "bank_recipient_snapshots.batch_version_id"],
+            name="fk_obligations_snapshot_same_batch_version",
+        ),
+        CheckConstraint("sender_id <> recipient_id", name="different_parties"),
+        CheckConstraint("amount_vnd > 0", name="amount_positive"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    batch_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("collection_batch_versions.id"),
+        nullable=False,
+        index=True,
+    )
+    sender_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    recipient_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    bank_recipient_snapshot_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class CollectionObligationSource(Base):
+    """Normalized provenance from confirmed allocations into an obligation."""
+
+    __tablename__ = "collection_obligation_sources"
+    __table_args__ = (CheckConstraint("amount_vnd > 0", name="amount_positive"),)
+
+    obligation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("collection_obligations.id"),
+        primary_key=True,
+    )
+    confirmed_allocation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("confirmed_allocations.id"),
+        primary_key=True,
+        index=True,
+    )
+    amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class CollectionEnvelope(Base):
+    """One immutable capability scope for a sender in a batch version."""
+
+    __tablename__ = "collection_envelopes"
+    __table_args__ = (
+        UniqueConstraint(
+            "batch_version_id",
+            "sender_id",
+            name="uq_collection_envelopes_batch_sender",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    batch_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("collection_batch_versions.id"),
+        nullable=False,
+        index=True,
+    )
+    sender_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class GuestLink(Base):
+    """Rotatable bearer capability; only a SHA-256 token digest is persisted."""
+
+    __tablename__ = "guest_links"
+    __table_args__ = (
+        UniqueConstraint("rotated_from_id", name="uq_guest_links_rotated_from"),
+        CheckConstraint("expires_at > created_at", name="expiry_after_creation"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    envelope_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("collection_envelopes.id"),
+        nullable=False,
+        index=True,
+    )
+    token_digest: Mapped[bytes] = mapped_column(
+        LargeBinary(32), nullable=False, unique=True
+    )
+    status: Mapped[GuestLinkStatus] = mapped_column(
+        _enum_type(GuestLinkStatus, "guest_link_status"),
+        nullable=False,
+        default=GuestLinkStatus.ACTIVE,
+        server_default=GuestLinkStatus.ACTIVE.value,
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    capability_exposed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    first_opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    rotated_from_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("guest_links.id")
+    )
+
+
+class PaymentReport(Base):
+    """Append-only sender report; it never settles an obligation by itself."""
+
+    __tablename__ = "payment_reports"
+    __table_args__ = (
+        UniqueConstraint(
+            "id", "obligation_id", name="uq_payment_reports_id_obligation"
+        ),
+        CheckConstraint("amount_vnd > 0", name="amount_positive"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    obligation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("collection_obligations.id"),
+        nullable=False,
+        index=True,
+    )
+    guest_link_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("guest_links.id")
+    )
+    reported_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    idempotency_key: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False, unique=True
+    )
+    reported_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class ReceiptConfirmation(Base):
+    """Append-only recipient confirmation carrying an explicit VND amount."""
+
+    __tablename__ = "receipt_confirmations"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["payment_report_id", "obligation_id"],
+            ["payment_reports.id", "payment_reports.obligation_id"],
+            name="fk_receipt_confirmations_report_same_obligation",
+        ),
+        CheckConstraint("amount_vnd > 0", name="amount_positive"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    obligation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("collection_obligations.id"),
+        nullable=False,
+        index=True,
+    )
+    payment_report_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    confirmed_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    idempotency_key: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False, unique=True
+    )
+    confirmed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class AuditEvent(Base):
+    """Append-only record of material actions and transitions."""
+
+    __tablename__ = "audit_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    aggregate_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    aggregate_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False, index=True
+    )
+    request_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), index=True)
+    event_data: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+__all__ = [
+    "AuditEvent",
+    "BankRecipient",
+    "BankRecipientSnapshot",
+    "CollectionBatch",
+    "CollectionBatchStatus",
+    "CollectionBatchVersion",
+    "CollectionEnvelope",
+    "CollectionObligation",
+    "CollectionObligationSource",
+    "ConfirmedAllocation",
+    "Expense",
+    "ExpenseVersion",
+    "GuestLink",
+    "GuestLinkStatus",
+    "PayerAcknowledgement",
+    "PaymentReport",
+    "ReceiptConfirmation",
+    "VerificationScope",
+]
