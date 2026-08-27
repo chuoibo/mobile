@@ -1,0 +1,37 @@
+[
+  {"id":"G01","note":"EVEN_SPLIT chia het",
+   "input":{"participants":["a","b","c"],"total_vnd":300000,"items":[],"surcharges":[],"discounts":[],"advancer_id":"a"},
+   "expect":{"exact_shares":{"a":"100000/1","b":"100000/1","c":"100000/1"},
+             "allocations":{"a":100000,"b":100000,"c":100000},"rounding_gainers":[],"warnings":[]}},
+
+  {"id":"G02","note":"EVEN_SPLIT du 1d, advancer LA participant -> advancer nuot phan le (QD #16)",
+   "input":{"participants":["a","b","c"],"total_vnd":100000,"items":[],"surcharges":[],"discounts":[],"advancer_id":"b"},
+   "expect":{"exact_shares":{"a":"100000/3","b":"100000/3","c":"100000/3"},
+             "allocations":{"a":33333,"b":33334,"c":33333},"rounding_gainers":["b"],"warnings":[]}},
+
+  {"id":"G03","note":"advancer NGOAI tap tham gia -> mat tie-break, lui ve thu tu byte (QD #7,#17)",
+   "input":{"participants":["a","b","c"],"total_vnd":100000,"items":[],"surcharges":[],"discounts":[],"advancer_id":"z"},
+   "expect":{"exact_shares":{"a":"100000/3","b":"100000/3","c":"100000/3"},
+             "allocations":{"a":33334,"b":33333,"c":33333},"rounding_gainers":["a"],
+             "warnings":["advancer_not_participant"]}},
+
+  {"id":"G04","note":"deficit = 2, khong co advancer",
+   "input":{"participants":["a","b","c"],"total_vnd":100001,"items":[],"surcharges":[],"discounts":[],"advancer_id":null},
+   "expect":{"exact_shares":{"a":"100001/3","b":"100001/3","c":"100001/3"},
+             "allocations":{"a":33334,"b":33334,"c":33333},"rounding_gainers":["a","b"],"warnings":[]}},
+
+  {"id":"G05","note":"total_vnd < n (QD #11). 3 dong / 5 nguoi. advancer d thang tie truoc, roi byte order",
+   "input":{"participants":["a","b","c","d","e"],"total_vnd":3,"items":[],"surcharges":[],"discounts":[],"advancer_id":"d"},
+   "expect":{"exact_shares":{"a":"3/5","b":"3/5","c":"3/5","d":"3/5","e":"3/5"},
+             "allocations":{"a":1,"b":1,"c":0,"d":1,"e":0},"rounding_gainers":["d","a","b"],"warnings":[]}},
+
+  {"id":"G06","note":"total_vnd = 0 (QD #9). KHONG bao zero_share vi total = 0 (QD #21)",
+   "input":{"participants":["a","b"],"total_vnd":0,"items":[],"surcharges":[],"discounts":[],"advancer_id":"a"},
+   "expect":{"exact_shares":{"a":"0/1","b":"0/1"},
+             "allocations":{"a":0,"b":0},"rounding_gainers":[],"warnings":[]}},
+
+  {"id":"G07","note":"n = 1",
+   "input":{"participants":["a"],"total_vnd":12345,"items":[],"surcharges":[],"discounts":[],"advancer_id":"a"},
+   "expect":{"exact_shares":{"a":"12345/1"},
+             "allocations":{"a":12345},"rounding_gainers":[],"warnings":[]}}
+]

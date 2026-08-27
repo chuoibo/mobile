@@ -4,6 +4,7 @@
 - **Ngày:** 2026-08-27
 - **DRI:** Claude · **Reviewer:** Codex
 - **Chặn:** W6a (Codex), W6b (Claude), harness, golden vector
+- **Sửa đổi:** #18–#22 thêm ngày 2026-08-27 — **cả năm do chính việc tính golden vector bằng tay lôi ra**, trước khi viết bất kỳ dòng code allocator nào. Đây là lý do bước đóng băng hợp đồng tồn tại
 
 > **KHÔNG ai được viết code allocator trước khi ADR này đóng băng.** Đây là bước 1 trong quy trình 7 bước ở `docs/team/backlog.md`. Viết code trước rồi hợp thức hoá hợp đồng sau sẽ biến differential test thành nghi lễ.
 
@@ -113,7 +114,7 @@ Khi `items`, `surcharges`, `discounts` **đều rỗng**: toàn bộ `total_vnd`
 
 ---
 
-## 3. Mười bảy quyết định
+## 3. Hai mươi hai quyết định
 
 Spec im lặng ở những chỗ này. Để fuzzer tự quyết là sai — nó sẽ biến bất đồng thiết kế thành "bug" của một trong hai bản.
 
@@ -136,6 +137,22 @@ Spec im lặng ở những chỗ này. Để fuzzer tự quyết là sai — nó
 | **15** | Phụ phí `proportional` khi `B' = 0` | Lui về **chia đều**. Warning `proportional_fallback_to_even` | Không có cơ sở tỉ lệ thì chia đều là phân bố duy nhất bảo vệ được. Thay thế duy nhất là chia cho 0 |
 | **16** | **Advancer thắng tie-break nghĩa là nhận THÊM hay BỚT 1đ?** | **THÊM** — advancer nhận `+1đ` | ⚠️ Đây là chỗ mơ hồ thật, dễ đọc ngược. Phần chia = **số tiền người đó nợ**. Advancer nhận thêm 1đ ⇒ **người ứng tiền nuốt phần lẻ**, cả nhóm nợ ít đi. Đó là hành vi đúng về mặt xã hội và là cách đọc duy nhất khiến "thắng" có nghĩa là chịu thiệt thay cho nhóm |
 | **17** | "Thứ tự ổn định theo ID" là thứ tự nào? | Sắp xếp `participant_id` theo **byte UTF-8**, KHÔNG theo thứ tự input, KHÔNG theo collation ngôn ngữ | Thứ tự input khác nhau giữa client và server. Collation tiếng Việt khác nhau giữa nền tảng và phiên bản ICU. Byte UTF-8 là thứ duy nhất tái lập được ở mọi nơi — và điều này quan trọng nếu sau này thêm bản TypeScript |
+| **18** | Định dạng `warnings` | **Từ vựng đóng, không mang payload, sắp xếp theo alphabet:** `advancer_not_participant` · `proportional_fallback_to_even` · `zero_share_participants` | ⚠️ Tự tìm ra khi tính golden vector bằng tay. Nếu để mở, hai bản sẽ format chuỗi khác nhau (`"zero:a,c"` với `"zero_share=a, c"`) và tạo ra một **bất đồng giả** không phải lỗi số học. Chi tiết ai phần 0 caller tự suy ra từ `allocations` — không nhân bản dữ liệu vào chuỗi |
+| **19** | `items` rỗng nhưng `surcharges` hoặc `discounts` KHÔNG rỗng | ✅ Hợp lệ. **Không phải** `EVEN_SPLIT` — đi đường thường, có đối chiếu, `B = 0` | ⚠️ Cũng tự tìm ra khi viết golden vector. Quyết định #2 chỉ định nghĩa `EVEN_SPLIT`, nó **không** cấm ca này. Kết hợp với #15 (`B' = 0` → lui về chia đều) thì ca "toàn bộ khoản chi là phụ phí" có hành vi xác định |
+| **20** | Nhiều lỗi cùng áp dụng — trả `code` nào? | **Thứ tự kiểm tra cố định:** cấu trúc → tham chiếu → số học → đối chiếu. Trong mỗi nhóm, duyệt phần tử theo **thứ tự byte của `item_id` / `surcharge_id` / `discount_id`**, KHÔNG theo thứ tự input | ⚠️ Tự tìm ra khi viết golden vector cho ca lỗi. Nếu không chốt, hai bản sẽ trả `code` khác nhau cho cùng input — một **bất đồng giả**. Và nếu duyệt theo thứ tự input thì đảo thứ tự `items` sẽ đổi `code`, **phá bất biến 6** |
+
+**Thứ tự đầy đủ:**
+1. **Cấu trúc:** `NO_PARTICIPANTS` → `DUPLICATE_PARTICIPANT` → `NEGATIVE_AMOUNT` → `AMOUNT_TOO_LARGE` → `INVALID_MODE` → `INVALID_SCOPE` → `EMPTY_SHARED_BY`
+2. **Tham chiếu:** `UNKNOWN_PARTICIPANT` → `UNKNOWN_ITEM`
+3. **Số học:** `DISCOUNT_EXCEEDS_ITEM` → `DISCOUNT_EXCEEDS_BASE`
+4. **Đối chiếu:** `RECONCILIATION_MISMATCH` — **luôn cuối cùng**
+
+Đối chiếu đứng cuối vì nó là hệ quả: giảm giá vượt món gần như luôn kéo theo lệch đối chiếu, và báo `RECONCILIATION_MISMATCH` khi nguyên nhân thật là `DISCOUNT_EXCEEDS_ITEM` sẽ khiến giao diện chỉ sai chỗ cho người dùng.
+
+| # | Tình huống | Quyết định | Vì sao |
+|---|---|---|---|
+| **21** | `zero_share_participants` kích hoạt khi nào? | Khi **phần chính xác** của một người bằng 0 **VÀ** `total_vnd > 0` | ⚠️ Lại một chỗ tự tìm ra khi tính vector. Nếu tính theo **allocation** = 0 thì ca `total_vnd < n` (3 đồng / 5 người) sẽ báo warning cho những người chỉ đơn giản bị làm tròn xuống — nhiễu. Phần chính xác bằng 0 nghĩa là người đó bị loại **về mặt cấu trúc** khỏi mọi món và mọi phụ phí chia đều; đó mới là thứ đáng hiện ra. Điều kiện `total_vnd > 0` chặn ca khoản chi bằng 0 báo warning cho tất cả mọi người |
+| **22** | `B = 0` ở tầng giảm giá chung | `base'_i = 0`, **không chia**. Nếu `D > 0` thì `DISCOUNT_EXCEEDS_BASE` đã kích hoạt trước đó (`D > 0 = B`) | Chặn chia cho 0. Ràng buộc `D ≤ B` khiến `B = 0 ⟹ D = 0`, nên nhánh này luôn xác định |
 
 ---
 
@@ -198,7 +215,7 @@ Một ngoại lệ `AllocationError` mang `code`. Danh sách đóng:
 3. Mọi allocation `≥ 0`
 4. `set(allocations.keys()) == set(participants)` — không bịa người, không bỏ sót người
 5. Advancer ngoài tập tham gia **không** xuất hiện trong `allocations`
-6. Tất định: cùng input → cùng output, **kể cả khi đảo thứ tự** `participants`, `items`, `surcharges`, `discounts`
+6. Tất định: cùng input → cùng output, **kể cả khi đảo thứ tự** `participants`, `items`, `surcharges`, `discounts`. Áp dụng cho **cả kết quả thành công lẫn `code` lỗi** — được bảo đảm bởi quyết định #20
 7. `len(rounding_gainers) == deficit`, và mỗi người nhận nhiều nhất +1đ
 8. Không ai có `remainder = 0` được nhận +1đ khi còn người `remainder > 0` chưa nhận
 9. `Σ exact_shares == total_vnd` chính xác về mặt hữu tỉ
