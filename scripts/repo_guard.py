@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Block likely participant data and unreviewed artifacts from Git.
+"""Block likely participant data, credentials, and unreviewed artifacts from Git.
 
 The scanner intentionally never prints raw matched content or raw repository paths.
 It is a mitigation layer, not a PII classifier and not a replacement for keeping
@@ -134,6 +134,19 @@ VN_LANDLINE_RE = re.compile(
     r"(?:[ ().-]*\d){8,9}(?!\d)"
 )
 LONG_NUMBER_RE = re.compile(r"(?<![A-Za-z0-9])\d(?:[ .-]?\d){8,63}(?![A-Za-z0-9])")
+GITHUB_TOKEN_RE = re.compile(
+    r"(?<![A-Za-z0-9_])(?:"
+    r"gh[pousr]_[A-Za-z0-9]{36,255}|"
+    r"github_pat_[A-Za-z0-9_]{20,255}"
+    r")(?![A-Za-z0-9_])"
+)
+AWS_ACCESS_KEY_ID_RE = re.compile(
+    r"(?<![A-Z0-9])(?:AKIA|ASIA)[A-Z0-9]{16}(?![A-Z0-9])"
+)
+AWS_SECRET_ACCESS_KEY_RE = re.compile(
+    r"(?i)(?:aws_)?secret(?:_access)?_key\s*[:=]\s*[\"']?"
+    r"(?P<secret>[A-Za-z0-9/+=]{40})(?![A-Za-z0-9/+=])"
+)
 GROUPED_VND_RE = re.compile(r"\d{1,3}(?:[., ]\d{3})+")
 CURRENCY_RE = re.compile(r"(?:\bVND\b|₫|\bđồng\b)", re.IGNORECASE)
 DATA_URI_BASE64_RE = re.compile(
@@ -161,11 +174,22 @@ CONTENT_RULES = {
     "data-uri-base64",
     "dense-base64-line",
     "email",
+    "github-token",
+    "aws-access-key-id",
+    "aws-secret-access-key",
     "long-base64-token",
     "long-number",
     "vn-phone",
 }
-ALLOWLISTABLE_RULES = CONTENT_RULES | {"controlled-artifact", "export-filename"}
+SECRET_RULES = {
+    "aws-access-key-id",
+    "aws-secret-access-key",
+    "github-token",
+}
+ALLOWLISTABLE_RULES = (CONTENT_RULES - SECRET_RULES) | {
+    "controlled-artifact",
+    "export-filename",
+}
 
 
 class GuardError(RuntimeError):
@@ -277,6 +301,8 @@ def masked_path(path: str) -> str:
 
 
 def mask_match(rule: str, value: str) -> str:
+    if rule in SECRET_RULES:
+        return f"<redacted-secret> (chars={len(value)})"
     if rule == "email":
         return "***@***.***"
     if rule == "vn-phone":
@@ -436,6 +462,34 @@ def current_head_tree(repo: Path) -> dict[bytes, GitEntry]:
     if not run_git(repo, "rev-parse", "--verify", "HEAD", allow_failure=True):
         return {}
     return parse_tree(repo, "HEAD")
+
+
+# Dependency and build directories. Not a privacy rule, but the same failure
+# shape: one `git add -A` swept 12,629 node_modules files into the repository
+# and took .git from a few hundred kilobytes to 84 MB, because the ignore rule
+# happened to live on a different branch. A guard that trusts .gitignore
+# inherits whichever branch it is standing on; this list does not.
+JUNK_PATH_SEGMENTS = (
+    "node_modules",
+    ".expo",
+    "__pycache__",
+    ".ruff_cache",
+    ".pytest_cache",
+    ".venv",
+)
+
+# A file whose entire name is punctuation is a shell accident. A zero-byte file
+# called `=` reached main this way, was flagged in review, and got merged
+# anyway. Cheap to catch, embarrassing to explain.
+STRAY_NAMES = frozenset({"=", "-", "--", "~", "*", "?", "."})
+
+
+def is_junk_path(path: str) -> bool:
+    return any(segment in PurePosixPath(path).parts for segment in JUNK_PATH_SEGMENTS)
+
+
+def is_stray_name(path: str) -> bool:
+    return PurePosixPath(path).name in STRAY_NAMES
 
 
 def is_forbidden_path(path: str) -> bool:
@@ -616,6 +670,24 @@ def content_findings(
         for match in EMAIL_RE.finditer(line):
             candidates.append((match.start(), match.end(), "email", match.group(0)))
             occupied.append(match.span())
+        for secret_re, rule in (
+            (GITHUB_TOKEN_RE, "github-token"),
+            (AWS_ACCESS_KEY_ID_RE, "aws-access-key-id"),
+        ):
+            for match in secret_re.finditer(line):
+                candidates.append((match.start(), match.end(), rule, match.group(0)))
+                occupied.append(match.span())
+        for match in AWS_SECRET_ACCESS_KEY_RE.finditer(line):
+            secret = match.group("secret")
+            candidates.append(
+                (
+                    match.start("secret"),
+                    match.end("secret"),
+                    "aws-secret-access-key",
+                    secret,
+                )
+            )
+            occupied.append((match.start("secret"), match.end("secret")))
         for phone_re in (VN_MOBILE_RE, VN_LANDLINE_RE):
             for match in phone_re.finditer(line):
                 if overlaps(match.span(), occupied):
@@ -676,6 +748,20 @@ def scan_entry(
                 commit=commit,
             )
         )
+
+    for rule, matches in (("junk-path", is_junk_path), ("stray-name", is_stray_name)):
+        if matches(path):
+            findings.append(
+                Finding(
+                    rule=rule,
+                    file_number=file_number,
+                    line=None,
+                    column=None,
+                    masked_match=f"<redacted-{rule}>",
+                    masked_path=masked_path(path),
+                    commit=commit,
+                )
+            )
 
     if has_export_filename(path) and not config.permits(
         path, digest, "export-filename"

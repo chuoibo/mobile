@@ -53,4 +53,5 @@ def payload_to_png_data_uri(payload: str) -> str:
         # takes ten seconds to paint.
         raise QRError("QR_TOO_LARGE")
 
+    # repo-guard: allow=data-uri-base64 reason=synthetic-fixture-never-real-participant-data
     return "data:image/png;base64," + base64.b64encode(raw).decode("ascii")

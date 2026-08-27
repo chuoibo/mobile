@@ -18,11 +18,13 @@ from app.payments.vietqr import (  # noqa: E402
 
 class Crc(unittest.TestCase):
     def test_standard_check_value(self):
+        # repo-guard: allow=long-number reason=synthetic-test-fixture-never-real-participant-data
         """CRC-16/CCITT-FALSE is defined by CRC("123456789") == 0x29B1.
 
         Pinning the variant matters: CCITT, XMODEM and KERMIT all differ, and
         picking the wrong one yields a QR every banking app quietly rejects.
         """
+        # repo-guard: allow=long-number reason=synthetic-test-fixture-never-real-participant-data
         self.assertEqual(crc16_ccitt_false("123456789"), "29B1")
 
     def test_empty_input_is_the_init_value(self):
@@ -31,6 +33,7 @@ class Crc(unittest.TestCase):
 
 class Payload(unittest.TestCase):
     def build(self, **overrides):
+        # repo-guard: allow=long-number reason=synthetic-test-fixture-never-real-participant-data
         args = {"bank_bin": "970415", "account_number": "113366668888"}
         args.update(overrides)
         return build_payload(**args)
@@ -49,6 +52,7 @@ class Payload(unittest.TestCase):
         self.assertEqual(merchant["02"], "QRIBFTTA")
         beneficiary = parse_tlv(merchant["01"])
         self.assertEqual(beneficiary["00"], "970415")
+        # repo-guard: allow=long-number reason=synthetic-test-fixture-never-real-participant-data
         self.assertEqual(beneficiary["01"], "113366668888")
         self.assertEqual(parse_tlv(fields["62"])["08"], "Bua lau")
 
@@ -68,6 +72,7 @@ class Payload(unittest.TestCase):
             self.build(amount_vnd=82000)[-4:],
             self.build(amount_vnd=82001)[-4:],
             self.build(amount_vnd=82000, note="x")[-4:],
+            # repo-guard: allow=long-number reason=synthetic-test-fixture-never-real-participant-data
             self.build(amount_vnd=82000, account_number="113366668889")[-4:],
         }
         self.assertEqual(len(crcs), 4)
