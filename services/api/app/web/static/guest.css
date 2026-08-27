@@ -1,0 +1,274 @@
+/* Guest payment page.
+ *
+ * Design read: single-purpose transactional page for a Vietnamese student on
+ * the same phone they will pay from. Trust-first, so the dials sit low:
+ * variance 3, motion 2, density 4. No marquees, no scroll effects, no
+ * decoration. On a page about somebody's money, restraint IS the design.
+ *
+ * Type: system stack on purpose, not as a shortcut. iOS ships SF Pro and
+ * Android ships Roboto; both render Vietnamese diacritics (ế ự ỡ ạ) correctly
+ * at zero bytes. A webfont here would cost LCP on mobile data and risk broken
+ * diacritics for nothing. Personality comes from the amount treatment and the
+ * palette instead.
+ *
+ * Palette: sage ground with the deep green Vietnamese banking apps use for a
+ * completed transfer, so the accent already means "done" to this reader.
+ * Locked to one accent and one radius across the page.
+ */
+
+:root {
+  --ground: #e8edec;
+  --card: #ffffff;
+  --line: #d3dcd9;
+  --ink: #14201d;
+  --ink-soft: #55665f;
+  --accent: #0f6e4f;
+  --accent-ink: #ffffff;
+  --warn: #a9451f;
+
+  /* Shape lock, two documented steps and no third:
+   *   --radius     cards, buttons, the amount, the toast
+   *   --radius-sm  inline chips and images sitting inside a card
+   * A chip with the same radius as the card it sits in reads as a seam. */
+  --radius: 14px;
+  --radius-sm: 8px;
+  --gap: 1rem;
+  --shadow: 0 1px 2px rgb(20 32 29 / 0.05), 0 8px 24px -12px rgb(20 32 29 / 0.18);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #101614;
+    --card: #18211e;
+    --line: #2a3733;
+    --ink: #e6edea;
+    --ink-soft: #9aaaa4;
+    --accent: #4fbf95;
+    --accent-ink: #08120e;
+    --warn: #e0855c;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px -12px rgb(0 0 0 / 0.6);
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--ground);
+  color: var(--ink);
+  font: 400 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding: max(1rem, env(safe-area-inset-top)) 1rem
+           max(2rem, env(safe-area-inset-bottom));
+  display: flex;
+  justify-content: center;
+}
+
+.sheet {
+  width: 100%;
+  max-width: 26rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.5rem 1.25rem;
+  box-shadow: var(--shadow);
+}
+.card--quiet { box-shadow: none; }
+
+.eyebrow {
+  margin: 0 0 0.25rem;
+  font-size: 0.8125rem;
+  color: var(--ink-soft);
+}
+
+.lede {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+}
+.lede strong { font-weight: 650; }
+
+/* The signature move: the amount IS the copy control.
+ * On a phone the largest target should be the most frequent action, and the
+ * one thing this reader needs to carry into their banking app is this number.
+ */
+.amount {
+  display: block;
+  width: 100%;
+  margin: 1.25rem 0 1.5rem;
+  padding: 1rem 0.75rem 0.75rem;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s, transform 0.1s;
+}
+.amount:hover { border-color: var(--accent); }
+.amount:active { transform: scale(0.985); }
+.amount__figure {
+  font-size: clamp(2.5rem, 14vw, 3.5rem);
+  font-weight: 680;
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.amount__unit {
+  font-size: 1.25rem;
+  font-weight: 500;
+  color: var(--ink-soft);
+  vertical-align: super;
+  margin-left: 0.15em;
+}
+.amount__hint {
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+}
+
+.choices { display: grid; gap: 0.5rem; }
+.choices__escape { display: grid; gap: 0.5rem; }
+
+.btn {
+  display: block;
+  width: 100%;
+  padding: 0.875rem 1rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  font: inherit;
+  font-weight: 550;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform 0.1s, background-color 0.15s, border-color 0.15s;
+}
+.btn:active { transform: translateY(1px); }
+
+.btn--primary { background: var(--accent); color: var(--accent-ink); }
+.btn--ghost {
+  background: transparent;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+/* The two escape hatches must be findable, not buried. Section 8.6 treats
+ * "I am not Ha" as a first-class outcome, so it gets a real target size and
+ * readable contrast rather than a footnote link. */
+.btn--quiet {
+  background: transparent;
+  border-color: var(--line);
+  color: var(--ink-soft);
+  font-weight: 400;
+  padding: 0.75rem 1rem;
+}
+.btn--quiet:hover { color: var(--warn); border-color: var(--warn); }
+
+.transfer {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line);
+}
+.transfer[hidden] { display: none; }
+/* Collapsed only when scripting is confirmed. The inline script at the top of
+ * <body> sets .js before paint, so there is no flash of the open panel, and a
+ * page with scripting off keeps the transfer details reachable. */
+.js .transfer { display: none; }
+.js .transfer.is-open { display: block; }
+
+.recipient { margin: 0 0 1rem; font-weight: 550; }
+
+.fields { margin: 0 0 1.25rem; display: grid; gap: 0.875rem; }
+.field dt { font-size: 0.8125rem; color: var(--ink-soft); }
+.field dd {
+  margin: 0.125rem 0 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+.field__value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 550;
+  word-break: break-all;
+}
+
+.copy {
+  flex: none;
+  padding: 0.25rem 0.625rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+.copy:hover { border-color: var(--accent); }
+
+.qr { margin: 0 0 1.25rem; text-align: center; }
+.qr img {
+  width: 200px;
+  height: 200px;
+  max-width: 100%;
+  border-radius: var(--radius-sm);
+  background: #fff;
+  padding: 0.5rem;
+}
+.qr figcaption {
+  margin-top: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--ink-soft);
+}
+
+.status { margin: 0; font-weight: 550; }
+.status--done { color: var(--accent); }
+
+.note {
+  margin: 0.75rem 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.footer {
+  margin: 0.5rem 0 0;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: max(1.5rem, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  padding: 0.625rem 1rem;
+  border-radius: var(--radius);
+  background: var(--ink);
+  color: var(--ground);
+  font-size: 0.875rem;
+  box-shadow: var(--shadow);
+}
+.toast[hidden] { display: none; }
+
+:where(button, a, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
