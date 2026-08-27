@@ -100,5 +100,14 @@ jobs:
         working-directory: apps/mobile
         run: npm ci
       - if: steps.present.outputs.found == 'true'
+        name: Types
         working-directory: apps/mobile
         run: npx tsc --noEmit
+      - if: steps.present.outputs.found == 'true'
+        # The offline demo must replay precomputed answers and must never derive
+        # a split of its own, and editing the roster must never move who paid
+        # onto a different person. Both were real defects; a typecheck sees
+        # neither.
+        name: Offline demo replays, never computes
+        working-directory: apps/mobile
+        run: npm test

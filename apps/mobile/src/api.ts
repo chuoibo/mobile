@@ -1,18 +1,43 @@
 /** Talks to services/api.
  *
  * The routes do not exist yet (Codex owns them, in flight). Until they land,
- * `OFFLINE` returns fixtures so the screens can be walked end to end. The
+ * `OFFLINE` REPLAYS fixtures so the screens can be walked end to end. The
  * fixture path is loud on purpose: a stub that looks like a real response is
  * how a demo quietly becomes a lie.
  *
- * Nothing here computes money. The split comes from the server, which calls
- * the allocator that 41 hand-computed golden vectors are pinned against.
- * A second implementation in TypeScript would be a second thing to get wrong.
+ * Nothing here computes money, and that is now enforced rather than promised.
+ * This file used to carry an even split written in TypeScript, sitting twenty
+ * lines under this very sentence -- `Math.floor(total / n)`, a deficit, a
+ * tie-break. That was a second allocator implementation and `/` produces float
+ * intermediates, both forbidden. Worse, a client that derives its own split can
+ * disagree with the server about money while looking perfectly convincing.
+ *
+ * So the fake replays instead. `src/fixtures/proposals.json` is generated from
+ * the golden vectors by `services/api/tools/build_mobile_fixtures.py`, which
+ * makes it a projection of the hand-computed oracle rather than a second source
+ * of truth. When a draft matches no fixture the fake REFUSES -- loudly, by
+ * throwing -- because inventing an answer is the exact failure this replaced.
  */
 import type { Proposal } from "./screens/DeXuat";
 import type { Obligation } from "./screens/DotThu";
 import type { Envelope } from "./screens/ChiaSe";
 import type { Draft, Participant } from "./screens/NhapKhoanChi";
+import { PROPOSAL_FIXTURES } from "./fixtures/proposals";
+
+/** One generated fixture. Shape mirrors build_mobile_fixtures.py. */
+export type Fixture = {
+  id: string;
+  note: string;
+  occasion: string;
+  totalVnd: number;
+  advancerId: string | null;
+  participants: Participant[];
+  allocations: Record<string, number>;
+  roundingGainers: string[];
+};
+
+/** The situations the offline demo can actually answer. */
+export const FIXTURES = PROPOSAL_FIXTURES;
 
 export const OFFLINE = true;
 export const BASE_URL = "http://localhost:8000";
@@ -29,34 +54,46 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-/** Even split, computed the way the server will, for fixture mode only. */
-function fixtureProposal(draft: Draft): Proposal {
-  const n = draft.participants.length;
-  const floor = Math.floor(draft.totalVnd / n);
-  const deficit = draft.totalVnd - floor * n;
-  // Largest remainder with every remainder equal: the advancer absorbs the
-  // rounding first, then plain byte order. Mirrors ADR-0004 decisions 16 and 17.
-  const ordered = [...draft.participants].sort((a, b) =>
-    a.id === draft.advancerId ? -1 : b.id === draft.advancerId ? 1
-      : (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+export class FixtureMissingError extends Error {
+  constructor(draft: Draft) {
+    super(
+      `Chế độ dữ liệu giả không có sẵn đáp án cho ${draft.totalVnd}đ chia ` +
+        `${draft.participants.length} người. Hãy chọn một tình huống mẫu. ` +
+        `Ứng dụng cố ý không tự tính — phép chia thuộc về máy chủ.`,
+    );
+    this.name = "FixtureMissingError";
+  }
+}
+
+/** The fixture whose input matches this draft exactly, or nothing. */
+function lookupFixture(draft: Draft): Fixture | undefined {
+  const wanted = [...draft.participants.map((p) => p.id)].sort().join(",");
+  return FIXTURES.find(
+    (fixture) =>
+      fixture.totalVnd === draft.totalVnd &&
+      (fixture.advancerId ?? null) === (draft.advancerId ?? null) &&
+      [...fixture.participants.map((p) => p.id)].sort().join(",") === wanted,
   );
-  const gainers = ordered.slice(0, deficit).map((p) => p.id);
-  const allocations: Record<string, number> = {};
-  for (const person of draft.participants) {
-    allocations[person.id] = floor + (gainers.includes(person.id) ? 1 : 0);
+}
+
+/** Replay a precomputed answer. No arithmetic: every number is read, not made. */
+function replayProposal(draft: Draft): Proposal {
+  const fixture = lookupFixture(draft);
+  if (!fixture) {
+    throw new FixtureMissingError(draft);
   }
   return {
     participants: draft.participants,
-    allocations,
-    roundingGainers: gainers,
-    totalVnd: draft.totalVnd,
+    allocations: fixture.allocations,
+    roundingGainers: fixture.roundingGainers,
+    totalVnd: fixture.totalVnd,
     advancerId: draft.advancerId,
     occasion: draft.occasion,
   };
 }
 
 export async function proposeSplit(draft: Draft): Promise<Proposal> {
-  if (OFFLINE) return fixtureProposal(draft);
+  if (OFFLINE) return replayProposal(draft);
   return post<Proposal>("/expenses", {
     participants: draft.participants.map((p) => ({ id: p.id, display_name: p.name })),
     total_vnd: draft.totalVnd,

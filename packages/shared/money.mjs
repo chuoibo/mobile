@@ -29,3 +29,57 @@ export function formatVnd(amountVnd) {
   }
   return out;
 }
+
+/** One thousand billion dong. Far above any group bill, far below 2^53. */
+// repo-guard: allow=long-number reason=synthetic-numeric-boundary-not-an-account
+export const MAX_AMOUNT_VND = 1_000_000_000_000;
+
+const MAX_DIGITS = String(MAX_AMOUNT_VND).length;
+
+/**
+ * Read a VND amount out of what a person typed, without ever guessing.
+ *
+ * The mobile app used to do `Number(typed.replace(/\D/g, ""))`. Two things go
+ * wrong there. JavaScript numbers are doubles, so a digit string past
+ * `Number.MAX_SAFE_INTEGER` is silently rounded to a different number --
+ * repo-guard: allow=long-number reason=synthetic-numeric-boundary-not-an-account
+ * `Number("9007199254740993")` is `9007199254740992`, and `Number.isInteger`
+ * still returns true, so the obvious guard never fires. And nothing rejected an
+ * amount outside any sane range, so a typo could ride all the way into a
+ * proposal.
+ *
+ * The bound is therefore checked on the DIGIT STRING, before any conversion.
+ * By the time a value becomes a number here, a double already represents it
+ * exactly.
+ *
+ * @param {string} typed
+ * @returns {{ok: true, value: number} | {ok: false, reason: "empty" | "not-a-number" | "too-large"}}
+ */
+export function parseAmountVnd(typed) {
+  if (typeof typed !== "string") {
+    return { ok: false, reason: "not-a-number" };
+  }
+  const trimmed = typed.trim();
+  if (trimmed === "") {
+    return { ok: false, reason: "empty" };
+  }
+  // Grouping separators people actually type are noise. Any other character
+  // means this is not a plain amount, and stripping it would invent intent.
+  if (!/^[\d.,\s]+$/.test(trimmed)) {
+    return { ok: false, reason: "not-a-number" };
+  }
+  const digits = trimmed.replace(/[.,\s]/g, "");
+  if (digits === "") {
+    return { ok: false, reason: "not-a-number" };
+  }
+  const significant = digits.replace(/^0+/, "");
+  if (significant === "") {
+    return { ok: true, value: 0 };
+  }
+  const tooLong = significant.length > MAX_DIGITS;
+  const tooBig = significant.length === MAX_DIGITS && significant > String(MAX_AMOUNT_VND);
+  if (tooLong || tooBig) {
+    return { ok: false, reason: "too-large" };
+  }
+  return { ok: true, value: Number(significant) };
+}
