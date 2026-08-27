@@ -44,6 +44,16 @@ class Rendering(unittest.TestCase):
                     payload_to_png_data_uri(bad)
                 self.assertEqual(caught.exception.code, "EMPTY_PAYLOAD")
 
+    def test_quiet_zone_matches_the_qr_standard(self):
+        """Four modules, not two.
+
+        A narrow quiet zone makes some phone cameras fail to lock on, and a QR
+        nobody can scan produces no error message -- it just does not work.
+        Caught in review by Codex.
+        """
+        from app.web import qr
+        self.assertEqual(qr._BORDER, 4)
+
     def test_stays_small_enough_for_a_mobile_connection(self):
         self.assertLess(len(payload_to_png_data_uri(payload())), 60_000)
 
