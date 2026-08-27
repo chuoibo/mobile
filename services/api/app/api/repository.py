@@ -441,7 +441,11 @@ class SqlAlchemyApiRepository:
             )
             .where(Expense.context_id == context_id)
             .order_by(ExpenseVersion.id)
-            .with_for_update()
+            # The query joins a grouped subquery to select the latest version.
+            # PostgreSQL cannot apply an unqualified locking clause to an
+            # aggregate result because those rows do not map one-to-one to
+            # physical rows. Only the material version rows need locking here.
+            .with_for_update(of=ExpenseVersion)
         )
         if expense_version_ids is not None:
             statement = statement.where(ExpenseVersion.id.in_(expense_version_ids))

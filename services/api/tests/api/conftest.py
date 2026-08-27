@@ -3,8 +3,9 @@
 SQLite is deliberately not used: the production schema relies on PostgreSQL
 JSONB, regex checks, partial indexes, views, and append-only triggers. SQLite
 would turn a green test into a false claim about those guarantees. This fake
-tests HTTP/domain orchestration only; migration/model parity remains covered by
-the existing static database tests.
+tests HTTP/domain orchestration only; static tests cover migration/model parity,
+while ``tests/postgres`` executes the production adapter and constraints on a
+real PostgreSQL server.
 """
 
 from __future__ import annotations
