@@ -7,11 +7,15 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+import anyio
+import httpx
 import pytest
 from sqlalchemy import func, inspect, select, text, update
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_repository
+from app.api.main import create_app
 from app.api.repository import (
     GuestLinkDraft,
     ObligationDraft,
@@ -46,6 +50,8 @@ TOTAL_VND = 80_000
 OBLIGATION_VND = 40_000
 ORIGINAL_ACCOUNT = "TESTACCOUNT001"
 CHANGED_ACCOUNT = "TESTACCOUNT002"
+GUEST_TOKEN = "synthetic_repository_integration_token"
+KNOWN_BANK_BIN = "970407"
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,7 +158,7 @@ def _persist_lifecycle(session: Session) -> LifecycleState:
 
     bank_recipient = BankRecipient(
         recipient_id=recipient_id,
-        bank_bin="970415",
+        bank_bin=KNOWN_BANK_BIN,
         account_number=ORIGINAL_ACCOUNT,
         account_name="SYNTHETIC RECIPIENT",
         confirmed_by_recipient_at=NOW,
@@ -188,7 +194,7 @@ def _persist_lifecycle(session: Session) -> LifecycleState:
     bank_recipient.account_number = CHANGED_ACCOUNT
     session.flush()
 
-    token_digest = hashlib.sha256(b"synthetic repository integration token").digest()
+    token_digest = hashlib.sha256(GUEST_TOKEN.encode()).digest()
     stored_links = repository.save_published_batch(
         batch=batch,
         status="published",
@@ -348,6 +354,41 @@ def test_repository_lifecycle_reaches_confirmed_receipt(postgres_session: Sessio
         "receipt_confirmed",
         "receipt_confirmed",
     )
+
+
+def test_guest_http_uses_name_derived_from_real_postgres_projection(
+    postgres_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    state = _persist_lifecycle(postgres_session)
+    repository = SqlAlchemyApiRepository(postgres_session)
+    envelope = repository.get_guest_envelope(
+        state.token_digest, NOW + timedelta(minutes=10)
+    )
+    assert envelope is not None
+    assert envelope.envelope["obligations"][0]["bank_bin"] == KNOWN_BANK_BIN
+
+    async def run_sync_inline(function, *args, **kwargs):
+        del kwargs
+        return function(*args)
+
+    monkeypatch.setattr(anyio.to_thread, "run_sync", run_sync_inline)
+    monkeypatch.setattr("app.api.service._now", lambda: NOW + timedelta(minutes=10))
+    app = create_app()
+    app.dependency_overrides[get_repository] = lambda: repository
+
+    async def get_page():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
+            return await client.get(f"/g/{GUEST_TOKEN}")
+
+    response = anyio.run(get_page)
+
+    assert response.status_code == 200
+    assert "Techcombank" in response.text
+    assert f"Ngân hàng {KNOWN_BANK_BIN}" not in response.text
 
 
 def test_partial_unique_index_allows_only_one_active_bank_destination(
