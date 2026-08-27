@@ -180,6 +180,11 @@ body {
   border-top: 1px solid var(--line);
 }
 .transfer[hidden] { display: none; }
+/* Collapsed only when scripting is confirmed. The inline script at the top of
+ * <body> sets .js before paint, so there is no flash of the open panel, and a
+ * page with scripting off keeps the transfer details reachable. */
+.js .transfer { display: none; }
+.js .transfer.is-open { display: block; }
 
 .recipient { margin: 0 0 1rem; font-weight: 550; }
 
