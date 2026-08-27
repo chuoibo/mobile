@@ -191,11 +191,29 @@ class DesignDiscipline(unittest.TestCase):
     def test_focus_is_visible(self):
         self.assertIn("focus-visible", self.css)
 
-    def test_page_works_without_javascript(self):
-        """The transfer panel is collapsed BY script, not by markup, so a
-        script failure leaves the page usable rather than empty."""
+    def test_no_js_guest_can_still_reach_the_account_number(self):
+        """The claim this file used to make was false.
+
+        An earlier version shipped `hidden` straight on the transfer panel, so
+        a guest with scripting disabled could not reach the account number at
+        all -- while three commit messages and a PR description said the
+        opposite. Codex caught it in review.
+
+        Collapsing now happens in CSS gated on a .js class, so scripting off
+        means the panel stays open.
+        """
+        markup = (WEB / "templates/guest.html").read_text(encoding="utf-8")
+        panel = re.search(r"<div class=\"transfer\"[^>]*>", markup)
+        self.assertIsNotNone(panel)
+        self.assertNotIn("hidden", panel.group(0), "no-JS guests cannot pay")
+
+        self.assertIn(".js .transfer { display: none; }", self.css)
         js = (WEB / "static/guest.js").read_text(encoding="utf-8")
-        self.assertIn("panel.hidden = true", js)
+        self.assertNotIn("panel.hidden = true", js, "hiding must not live in script")
+
+    def test_the_rendered_account_number_is_present_without_running_script(self):
+        """Server-rendered, so it is in the HTML the browser receives."""
+        self.assertIn("19036812345678", self.html)
 
 
 if __name__ == "__main__":
