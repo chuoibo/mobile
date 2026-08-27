@@ -20,19 +20,30 @@ Nguồn duy nhất: **spec mục 4**. ADR này không phát minh quy tắc mới
 
 ## 1. Hình dạng hợp đồng
 
-Hai tầng, **đúng một điểm làm tròn**. Làm tròn hai lần là nguồn lỗi kinh điển của loại bài toán này.
+Một **entry point công khai duy nhất**, hai tầng là helper nội bộ, **đúng một điểm làm tròn**.
 
 ```python
-compute_exact_shares(expense: ExpenseInput) -> dict[ParticipantId, Fraction]
-    # Σ giá trị == expense.total_vnd, đẳng thức HỮU TỈ CHÍNH XÁC, không xấp xỉ
+allocate(expense: ExpenseInput) -> ApportionResult      # ← DUY NHẤT public
 
-apportion(total_vnd: int,
-          exact: dict[ParticipantId, Fraction],
-          advancer_id: ParticipantId | None) -> ApportionResult
-    # Σ allocations == total_vnd, đẳng thức SỐ NGUYÊN
+_compute_exact_shares(expense) -> tuple[dict[ParticipantId, Fraction], tuple[str, ...]]
+_apportion(total_vnd, exact, advancer_id) -> tuple[dict[ParticipantId, int], tuple[ParticipantId, ...]]
 ```
 
-`Fraction` chỉ là **ngôn ngữ của hợp đồng** để nói "chính xác". Bản `impl_a` được phép hiện thực bằng số nguyên thuần miễn kết quả trùng khớp.
+> **Sửa theo blocker ADR4-02 của Codex.** Bản đầu khai **hai hàm public**, và thiết kế đó **làm mất warning**: `proportional_fallback_to_even` chỉ biết được ở tầng phụ phí, nhưng `apportion` không có đối số nào mang được thông tin đó. Impl A có thể đặt warning ở wrapper, impl B trả từ tầng một — và harness **không có entry point thống nhất để so**.
+> Bản đầu cũng nói `Σ exact_i == total_vnd` phải "kiểm tra, không giả định" nhưng **không có error code** cho việc vi phạm tiền đề. Với input sai tiền đề, một bản assert, một bản trả error, một bản vẫn làm tròn — **cả ba đều không trái câu chữ cũ**.
+
+**Helper là nội bộ.** Vi phạm precondition của helper là lỗi lập trình, không phải `AllocationError`: nó phải `assert`, và nếu harness gọi thẳng helper thì mọi thất bại phân loại là **`harness_bug`**, không phải `impl_bug`. Harness **chỉ được fuzz qua `allocate`**.
+
+`Fraction` là **ngôn ngữ của hợp đồng** để nói "chính xác". `impl_a` được phép dùng số nguyên thuần miễn kết quả trùng khớp.
+
+### Ngữ nghĩa so sánh — đóng băng cho differential
+
+| Kiểu | So thế nào |
+|---|---|
+| `dict` | **Mapping equality.** Thứ tự chèn **không** tính |
+| `tuple` | Có thứ tự, so từng phần tử |
+| `Fraction` | Serialize **tối giản** dạng `numerator/denominator` |
+| Lỗi | So bằng **`code`**, không so message |
 
 ### Kiểu dữ liệu
 
@@ -177,50 +188,123 @@ deficit người đầu tiên nhận +1đ
 
 ---
 
-## 5. Miền input hợp lệ — dành cho generator của harness
+## 5. Hai hợp đồng generator — tách bạch
 
-Generator **chỉ** được sinh trong miền này. Sinh ra ngoài rồi coi lỗi là `impl_bug` là `generator_out_of_domain` — một trong 5 loại phân loại.
+> **Sửa theo blocker ADR4-03 của Codex.** Bản đầu chỉ có range cho số lượng và số tiền, không có miền cho entity ID, `mode`, `scope`, `kind`, target item, hay **ràng buộc liên trường**. Lấy mẫu từng field độc lập thì **gần như mọi ca sẽ rơi vào đường lỗi** thay vì kiểm đường số học — fuzzing chạy cả đêm mà không chạm tới phép làm tròn.
+> Và câu "generator chỉ được sinh trong miền hợp lệ" **mâu thuẫn** với nhu cầu fuzz chính thứ tự lỗi.
+
+### 5.1 `valid_success_generator` — xây theo quan hệ, KHÔNG lấy mẫu độc lập
+
+Xây theo thứ tự nhân quả, rồi **suy ra** `total_vnd` từ những gì đã xây. Như vậy đối chiếu **luôn khớp theo cấu tạo**, và ca sinh ra thật sự kiểm đường số học.
+
+```
+1. participants        1…30, ID duy nhất
+2. items               0…40; shared_by ⊆ participants, không trùng, không rỗng
+3. item discounts      Σ trên MỖI item ≤ amount của item đó
+4. global discounts    Σ ≤ B
+5. surcharges          0…5, mode ∈ {proportional, even}
+6. total_vnd  :=  Σ items + Σ surcharges − Σ discounts     ← SUY RA
+7. advancer            trong participants | ngoài | None — cả ba phải xuất hiện
+```
+
+`EVEN_SPLIT` sinh riêng: items, surcharges, discounts rỗng; `total_vnd` lấy tự do trong `0…10¹²`.
 
 | Trường | Miền |
 |---|---|
-| `len(participants)` | 1 … 30 |
-| `participant_id` | chuỗi không rỗng; **phải** có ca ký tự tiếng Việt có dấu và ca chỉ khác nhau ở dấu, để ép lộ vấn đề thứ tự byte |
-| `total_vnd` | 0 … 10¹² |
-| `len(items)` | 0 … 40 |
-| `item.amount_vnd` | 1 … 10⁹ |
-| `len(item.shared_by)` | 1 … `len(participants)` |
-| `len(surcharges)` | 0 … 5 |
-| `len(discounts)` | 0 … 5 |
-| `advancer_id` | thuộc participants · ngoài participants · `None` — **cả ba đều phải xuất hiện** |
+| `participant_id` | UTF-8 hợp lệ, **1…64 byte**. Bắt buộc có: ca tiếng Việt có dấu · ca chỉ khác nhau ở dấu · ca **prefix của nhau** (`"a"` và `"aa"`) · ≥1 ca **ngoài BMP** |
+| `item_id` / `surcharge_id` / `discount_id` | UTF-8 hợp lệ, 1…64 byte, **duy nhất trong namespace của chính loại đó** |
+| `item.amount_vnd` | 1…10⁹ |
+| `surcharge.amount_vnd` / `discount.amount_vnd` | 1…10⁹ |
+| `kind` | chuỗi không rỗng, 1…32 byte |
+| `total_vnd` (EVEN_SPLIT) | 0…10¹² |
 
-Ca **bắt buộc có mặt** trong bộ sinh, không phó mặc xác suất:
-`n = 1` · `total_vnd = 0` · `total_vnd < n` · phần dư bằng nhau ở nhiều người · một món chia cho một người · một món chia cho tất cả · giảm giá vừa đúng bằng món · toàn bộ khoản chi là phụ phí · `EVEN_SPLIT`.
+**Ca bắt buộc có mặt, không phó mặc xác suất:**
+`n = 1` · `total_vnd = 0` · `total_vnd < n` · phần dư bằng nhau ở nhiều người · một món cho một người · một món cho tất cả · giảm giá **vừa đúng bằng** món · toàn bộ khoản chi là phụ phí · `EVEN_SPLIT` · **item discount + global discount + cả hai mode phụ phí trong CÙNG một ca** · nhiều discount trên **cùng** một item · mọi item net về 0 rồi phụ phí proportional lui về chia đều · **hai warning cùng lúc** · biên `10¹²` · **permutation của `shared_by`**.
+
+### 5.2 `invalid_case_generator` — một lỗi mục tiêu, có đăng ký
+
+Sinh **đúng một** lỗi mục tiêu, hoặc **một tổ hợp lỗi đã đăng ký trước** để kiểm precedence.
+
+Bắt buộc kiểm: mỗi code ở mục 6 có ít nhất một ca đơn lẻ · mỗi cặp precedence liền kề có một ca tổ hợp · **permutation của thứ tự phần tử phải cho cùng `code`**.
+
+⚠️ Sinh lỗi mà **không kiểm soát** thì một lỗi ưu tiên cao hơn sẽ che mất lỗi đang muốn kiểm. Đó là lý do phải sinh có mục tiêu, không sinh mù.
+
+### 5.3 Seed và replay
+
+Mọi ca sinh ra phải tái tạo được từ `(generator_name, seed, index)`. Counterexample lưu vào Git ở dạng **tổng hợp, an toàn**, kèm bộ ba đó.
 
 ---
 
 ## 6. Lỗi
 
-Một ngoại lệ `AllocationError` mang `code`. Danh sách đóng:
+> **Sửa theo blocker ADR4-01 của Codex.** Miền dữ liệu ở mục 1 cấm nhiều thứ mà **danh sách lỗi không gán hành vi cho chúng**. Nguy hiểm nhất: **hai item trùng `item_id`** — một item discount có thể áp vào item này, item kia, cả hai, hoặc map bị ghi đè. Đó là **đổi nghĩa vụ tiền**, không phải đổi thông báo lỗi. Và "duyệt theo thứ tự byte của ID" **không phá được tie giữa hai entity trùng ID**.
 
-`RECONCILIATION_MISMATCH` · `EMPTY_SHARED_BY` · `DISCOUNT_EXCEEDS_ITEM` · `DISCOUNT_EXCEEDS_BASE` · `DUPLICATE_PARTICIPANT` · `NO_PARTICIPANTS` · `NEGATIVE_AMOUNT` · `AMOUNT_TOO_LARGE` · `UNKNOWN_PARTICIPANT` · `UNKNOWN_ITEM` · `INVALID_MODE` · `INVALID_SCOPE`
+Một ngoại lệ `AllocationError` mang `code`. **Danh sách đóng, đầy đủ, có vị trí chính xác trong precedence:**
 
-**Hai bản phải trả về cùng `code` cho cùng input.** Khác `code` là một bất đồng thật, không phải chi tiết hiện thực — vì `code` là thứ giao diện dùng để nói cho người dùng biết họ sai ở đâu.
+### Nhóm 1 — cấu trúc
+
+`NO_PARTICIPANTS` → `INVALID_PARTICIPANT_ID` *(rỗng, có whitespace đầu/cuối, > 64 byte, không phải UTF-8 hợp lệ)* → `DUPLICATE_PARTICIPANT` → `INVALID_ENTITY_ID` *(item/surcharge/discount)* → `DUPLICATE_ENTITY_ID` *(trùng trong cùng namespace)* → `NEGATIVE_AMOUNT` → `ZERO_AMOUNT` *(item/surcharge/discount amount = 0)* → `AMOUNT_TOO_LARGE` → `INVALID_KIND` → `INVALID_MODE` → `INVALID_SCOPE` → `SCOPE_TARGET_MISMATCH` *(scope `item` mà `item_id = None`, hoặc scope global mà lại mang `item_id`)* → `EMPTY_SHARED_BY` → `DUPLICATE_SHARED_BY`
+
+### Nhóm 2 — tham chiếu
+`UNKNOWN_PARTICIPANT` → `UNKNOWN_ITEM`
+
+### Nhóm 3 — số học
+`DISCOUNT_EXCEEDS_ITEM` → `DISCOUNT_EXCEEDS_BASE`
+
+### Nhóm 4 — đối chiếu
+`RECONCILIATION_MISMATCH` — **luôn cuối cùng**
+
+Đối chiếu đứng cuối vì nó là **hệ quả**: giảm giá vượt món gần như luôn kéo theo lệch đối chiếu, và báo `RECONCILIATION_MISMATCH` khi nguyên nhân thật là `DISCOUNT_EXCEEDS_ITEM` sẽ khiến giao diện **chỉ sai chỗ** cho người dùng.
+
+### Quy tắc định danh — đóng băng
+
+| | |
+|---|---|
+| **Namespace** | `item_id`, `surcharge_id`, `discount_id` là **ba namespace tách biệt**. Trùng nhau giữa các loại là hợp lệ |
+| **Bằng nhau** | So sánh **byte UTF-8 chính xác**. **KHÔNG normalize Unicode.** Normalize sẽ gộp hai ID mà caller coi là khác nhau — tức có thể **gộp hai người** |
+| **Thứ tự** | Lexicographic trên **byte không dấu**. Nếu một dãy là **prefix** của dãy kia thì **dãy ngắn hơn đứng trước** |
+| **Độ dài** | 1…64 byte. Vượt → `INVALID_PARTICIPANT_ID` hoặc `INVALID_ENTITY_ID` |
+
+**Hai bản phải trả cùng `code` cho cùng input** — `code` là thứ giao diện dùng để nói cho người dùng biết họ sai ở đâu. Khác `code` là bất đồng thật.
 
 ---
 
-## 7. Bất biến — property test, chạy trên MỌI ca sinh ra
+## 7. Property — tách SUCCESS và ERROR
+
+> **Sửa theo blocker ADR4-04 của Codex.** Chín bất biến cũ **không đặc tả largest remainder**. Phản ví dụ của Codex:
+> ```
+> total = 1,  exact = {a: 9/10, b: 1/10},  output = {a: 0, b: 1},  gainers = (b,)
+> ```
+> Sai — `a` có phần dư lớn hơn. **Nhưng nó qua cả chín bất biến cũ:** tổng đúng, int, không âm, đủ key, tất định, một gainer, gainer có phần dư ≠ 0, exact sum đúng.
+> Cổng property của tôi là một **cổng cho qua giả**. Đây là blocker nghiêm trọng nhất trong năm.
+
+### 7.1 Property cho ca THÀNH CÔNG
 
 1. `Σ allocations.values() == total_vnd` — **không ngoại lệ, 100%**
-2. Mọi giá trị allocation là `int`. **Không `float` ở bất kỳ đâu**, kể cả trung gian
-3. Mọi allocation `≥ 0`
-4. `set(allocations.keys()) == set(participants)` — không bịa người, không bỏ sót người
-5. Advancer ngoài tập tham gia **không** xuất hiện trong `allocations`
-6. Tất định: cùng input → cùng output, **kể cả khi đảo thứ tự** `participants`, `items`, `surcharges`, `discounts`. Áp dụng cho **cả kết quả thành công lẫn `code` lỗi** — được bảo đảm bởi quyết định #20
-7. `len(rounding_gainers) == deficit`, và mỗi người nhận nhiều nhất +1đ
-8. Không ai có `remainder = 0` được nhận +1đ khi còn người `remainder > 0` chưa nhận
-9. `Σ exact_shares == total_vnd` chính xác về mặt hữu tỉ
+2. Mọi allocation là `int`, và `≥ 0`
+3. `set(allocations) == set(exact_shares) == set(participants)` · mọi `exact_share ≥ 0`
+4. Advancer ngoài tập tham gia **không** xuất hiện trong `allocations`
+5. `Σ exact_shares == total_vnd` — đẳng thức **hữu tỉ chính xác**
+6. **`allocations[p] == floor(exact[p]) + (1 nếu p ∈ rounding_gainers ngược lại 0)`**
+7. **`rounding_gainers` BẰNG ĐÚNG TUPLE** `deficit` người đầu tiên theo khoá `(−remainder, 0 nếu advancer-và-là-participant ngược lại 1, byte UTF-8 của id)` — **không chỉ đúng SỐ LƯỢNG**
+8. `warnings` xuất hiện **khi và chỉ khi** điều kiện #7 / #15 / #21 đúng · không trùng · sắp xếp alphabet · thuộc từ vựng đóng
+9. **Metamorphic:** đảo thứ tự `participants`, `items`, `surcharges`, `discounts`, **và thứ tự bên trong từng `shared_by`** → **cùng output** theo ngữ nghĩa so sánh ở mục 1
 
-Bất biến 6 đặc biệt quan trọng: nó bắt được mọi chỗ hiện thực lén dùng thứ tự input thay vì thứ tự byte của ID.
+Property 7 là thứ bắt được phản ví dụ ở trên. Property 6 và 7 cùng nhau **đặc tả trọn vẹn** phần dư lớn nhất.
+
+### 7.2 Property cho ca LỖI
+
+10. Ném `AllocationError` với `code` thuộc danh sách đóng ở mục 6
+11. **Metamorphic:** đảo thứ tự phần tử → **cùng `code`**
+12. Tổ hợp lỗi đã đăng ký → `code` của nhóm có **ưu tiên cao nhất**
+
+> Property 1–9 **không áp được** vào ca lỗi. Câu "chạy trên MỌI ca sinh ra" ở bản đầu là sai lớp.
+
+### 7.3 Ràng buộc hiện thực — KHÔNG phải property
+
+**"Không `float` ở bất kỳ đâu, kể cả trung gian"** không quan sát được bằng black-box property test.
+
+Kiểm bằng: lint/AST cấm `float`, `/` trên số không phải Fraction, `round`, `math.floor` trên float — **cộng** một test có instrument. Ghi ở đây để không ai tưởng property test đã bao phủ nó.
 
 ---
 
