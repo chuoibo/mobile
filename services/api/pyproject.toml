@@ -34,6 +34,9 @@ include = ["app*"]
 addopts = "-ra --strict-config --strict-markers"
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+  "postgres: requires a real PostgreSQL database migrated by Alembic",
+]
 
 [tool.ruff]
 target-version = "py312"
