@@ -27,9 +27,19 @@ Hai bản viết **độc lập, không đọc code của nhau**, và blindness 
 
 ## Về `golden/`
 
-**Tính tay bởi con người, đối chiếu trực tiếp với ADR-0004.** Tuyệt đối **KHÔNG** được sinh lại từ bất kỳ hiện thực nào — làm vậy là biến golden vector thành ảnh chụp của một bug, và mất luôn lớp phòng thủ duy nhất chống "hai bản cùng hiểu sai một câu spec".
+**Tính tay bởi con người, đối chiếu trực tiếp với ADR-0004.** Tuyệt đối **KHÔNG** được sinh lại từ bất kỳ hiện thực nào — làm vậy là biến golden vector thành ảnh chụp của một bug.
 
-`tests/test_golden_selfcheck.py` kiểm tra **tính nhất quán nội tại** của bộ vector mà **không import allocator nào** — bắt lỗi số học của chính người viết vector trước khi có bất kỳ hiện thực nào tồn tại.
+### Ba lớp, ba tuyên bố khác nhau. Không lớp nào một mình là cổng.
+
+| Lớp | Bắt được gì | **KHÔNG** bắt được gì |
+|---|---|---|
+| `test_golden_selfcheck.py` | Sai số học và mâu thuẫn nội tại của bộ vector. Tính lại exact shares, thứ hạng làm tròn và tập warning từ input | **Việc đọc sai hợp đồng.** File này và bộ vector **cùng một tác giả** — một cách hiểu sai nhất quán sẽ xuất hiện giống nhau ở cả hai và vẫn xanh |
+| Tính tay độc lập của reviewer | Đọc sai hợp đồng | Bug hiện thực |
+| Differential `impl_a` ↔ `impl_b` | Bug hiện thực | **Hai bản cùng hiểu sai một câu.** Đó là việc của hai lớp trên |
+
+> Tuyên bố này đã bị hạ hai lần dưới review. Bản đầu nói golden vector là "lớp phòng thủ chống hai bản cùng sai" — Codex chứng minh nó cho qua mutant chuyển 1đ sang sai người (`ADR4-05`), rồi chứng minh **lần thứ hai** rằng nó cho qua mutant đảo thứ tự hợp thành một cách tự nhất quán (`V2-05`).
+
+`tests/test_selfcheck_catches_mutants.py` giữ cho lớp thứ nhất **không mất răng lần nữa**: 8 mutant, mỗi cái **bắt buộc** làm self-check đỏ. Một bộ test không thể thất bại thì không phải một cổng.
 
 **Số tiền trong golden giữ dưới 10⁸ VND.** `LONG_NUMBER_RE` ở `scripts/repo_guard.py` chặn mọi chuỗi ≥9 chữ số, và JSON không có comment nên không gắn được annotation miễn trừ. Ca giá trị cực đại (`AMOUNT_TOO_LARGE`, gần cận trên) **sinh trong property test, không lưu thành literal**.
 

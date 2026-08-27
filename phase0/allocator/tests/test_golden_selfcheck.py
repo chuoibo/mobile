@@ -1,15 +1,24 @@
 """Check the golden corpus is internally consistent, without any allocator.
 
-The golden vectors are hand-computed by a human against ADR-0004. They are the
-defence against "both implementations agree and both are wrong", so an
-arithmetic slip in the corpus itself would silently disarm that defence.
+WHAT THIS PROVES, and what it does not.
 
-This file deliberately does NOT import an allocator. Every rule below is
-transcribed from ADR-0004 prose, not from an implementation.
+It recomputes exact shares, the rounding ranking and the warning set from the
+recorded input, following ADR-0004 sections 2, 4 and 6 transcribed by hand. So
+it catches arithmetic slips and internal inconsistency in the corpus.
 
-Rewritten after Codex blocker ADR4-05: the first version checked only
-`allocation == floor + gainer` and the *count* of gainers, so mutants that moved
-the rounding dong to the wrong participant passed. Ranking is now recomputed.
+It does NOT prove the corpus author read the contract correctly. This file and
+the vectors have the same author, so a consistent misreading of, say, the order
+in which discounts compose would appear identically in both and stay green.
+That gap is covered by a different artifact: an independent hand recomputation
+by the reviewer, recorded with a signature. Neither layer alone is a gate.
+
+Rewritten twice under review:
+  ADR4-05 -- the first version checked only `allocation == floor + gainer` and
+  the *count* of gainers, so mutants that moved the rounding dong to the wrong
+  participant passed.
+  V2-05 -- the second version still could not see composition order: Codex built
+  a self-consistent mutant that applied the global discount before the item
+  discount, recomputed every expected value coherently, and it passed clean.
 """
 
 from __future__ import annotations
@@ -49,6 +58,62 @@ def load_vectors():
 def parse_fraction(text: str) -> Fraction:
     numerator, denominator = text.split("/")
     return Fraction(int(numerator), int(denominator))
+
+
+def recompute_exact_shares(vector) -> dict[str, Fraction]:
+    """Recompute exact shares from the input, per ADR-0004 section 2.
+
+    Five stages, transcribed from the contract prose. Written to catch the
+    composition-order mutant of blocker V2-05, which stayed self-consistent
+    across every other check in this file.
+    """
+    data = vector["input"]
+    participants = data["participants"]
+    n = len(participants)
+    total = Fraction(data["total_vnd"])
+
+    # Decision 2: EVEN_SPLIT is the one named special case.
+    if not data["items"] and not data["surcharges"] and not data["discounts"]:
+        return {p: total / n for p in participants}
+
+    # Stage 1 -- item shares, net of item-scoped discounts, split evenly.
+    item_net = {i["item_id"]: Fraction(i["amount_vnd"]) for i in data["items"]}
+    for discount in data["discounts"]:
+        if discount["scope"] == "item":
+            item_net[discount["item_id"]] -= discount["amount_vnd"]
+
+    base = {p: Fraction(0) for p in participants}
+    for item in data["items"]:
+        share = item_net[item["item_id"]] / len(item["shared_by"])
+        for participant in item["shared_by"]:
+            base[participant] += share
+
+    # Stage 2 -- global discounts, proportional. Decision 22 guards B == 0.
+    total_base = sum(base.values(), Fraction(0))
+    global_discount = sum(
+        Fraction(d["amount_vnd"])
+        for d in data["discounts"]
+        if d["scope"] == "global_proportional"
+    )
+    if total_base > 0:
+        factor = (total_base - global_discount) / total_base
+        base = {p: v * factor for p, v in base.items()}
+
+    # Stage 3 -- surcharges.
+    basis = sum(base.values(), Fraction(0))
+    extra = {p: Fraction(0) for p in participants}
+    for surcharge in data["surcharges"]:
+        amount = Fraction(surcharge["amount_vnd"])
+        if surcharge["mode"] == "even" or basis == 0:
+            # Decision 15: no proportional basis means fall back to even.
+            for participant in participants:
+                extra[participant] += amount / n
+        else:
+            for participant in participants:
+                extra[participant] += amount * base[participant] / basis
+
+    # Stage 4.
+    return {p: base[p] + extra[p] for p in participants}
 
 
 def expected_rounding_gainers(vector) -> tuple[str, ...]:
@@ -205,6 +270,21 @@ class GoldenCorpusSelfCheck(unittest.TestCase):
                     tuple(vector["expect"]["rounding_gainers"]),
                     expected_rounding_gainers(vector),
                 )
+
+    def test_exact_shares_equal_the_recomputed_pipeline(self):
+        """ADR-0004 section 2: the five stages, in order.
+
+        This is the check that sees composition order. Without it, applying the
+        global discount before the item discount produces a corpus that is
+        wrong yet passes every conservation and ranking check (blocker V2-05).
+        """
+        for name, vector in self.success:
+            with self.subTest(vector["id"], file=name):
+                recorded = {
+                    p: parse_fraction(t)
+                    for p, t in vector["expect"]["exact_shares"].items()
+                }
+                self.assertEqual(recorded, recompute_exact_shares(vector))
 
     def test_warnings_are_exactly_the_recomputed_set(self):
         """ADR-0004 property 8: if and only if, not merely a subset."""

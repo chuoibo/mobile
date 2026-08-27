@@ -50,9 +50,38 @@ def mutate_g25_give_the_dong_to_a_zero_remainder_advancer(vector):
 
 
 def mutate_g22_swap_composition_order(vector):
-    # Applying the global discount before the item discount changes the shares.
-    vector["expect"]["exact_shares"]["c"] = "229499/7"
-    vector["expect"]["exact_shares"]["a"] = "207250/7"
+    """Apply the global discount BEFORE the item discount, self-consistently.
+
+    Codex blocker V2-05 built this one and proved the previous self-check passed
+    it clean. Every derived value below is recomputed to match the wrong order,
+    so conservation, floor-plus-gainer, ranking, warnings and reconciliation all
+    still hold. Only recomputing the pipeline from the input can see it.
+
+    Sum still equals 92000, so `test_exact_shares_sum_to_total` cannot catch it.
+    """
+    vector["expect"]["exact_shares"] = {
+        "a": "177325/6",
+        "b": "177325/6",
+        "c": "98675/3",
+    }
+    vector["expect"]["allocations"] = {"a": 29554, "b": 29554, "c": 32892}
+    vector["expect"]["rounding_gainers"] = ["c"]
+    vector["expect"]["warnings"] = []
+
+
+def mutate_g11_split_even_surcharge_only_among_eaters(vector):
+    """Decision 14 read backwards: split the even surcharge only among people
+    who ate something, instead of among all participants.
+
+    a = b = 45000 + 5000 = 50000 exactly, c = 0. Self-consistent: sum is 100000,
+    there is no deficit, and the gainer tuple is correctly empty. But c now has
+    an exact share of zero, so the corpus would also have to declare a
+    zero_share_participants warning -- which this mutant omits, exactly as a
+    careless hand-computation would.
+    """
+    vector["expect"]["exact_shares"] = {"a": "50000/1", "b": "50000/1", "c": "0/1"}
+    vector["expect"]["allocations"] = {"a": 50000, "b": 50000, "c": 0}
+    vector["expect"]["rounding_gainers"] = []
 
 
 MUTANTS = [
@@ -62,6 +91,7 @@ MUTANTS = [
     ("G15", mutate_g15_drop_the_fallback_warning),
     ("G25", mutate_g25_give_the_dong_to_a_zero_remainder_advancer),
     ("G22", mutate_g22_swap_composition_order),
+    ("G11", mutate_g11_split_even_surcharge_only_among_eaters),
 ]
 
 
