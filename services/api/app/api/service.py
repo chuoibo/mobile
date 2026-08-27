@@ -57,12 +57,42 @@ def token_digest(token: str) -> bytes:
     return hashlib.sha256(token.encode("utf-8")).digest()
 
 
+def _guest_actor(token: str) -> Actor:
+    """A guest has no account, and the product deliberately keeps it that way:
+    spec section 8.6 rules out OTP for guests in v1 because it would break the
+    spread that makes the collection loop work at all.
+
+    So the subject of a guest action is the capability itself. The token digest
+    names the bearer without pretending to know which person is holding it,
+    which is exactly the claim the guest page is careful never to make.
+    """
+    return Actor(id=f"capability:{token_digest(token).hex()[:16]}", roles=frozenset({"guest"}), context_ids=frozenset())
+
+
 def _require_permission(
-    action: str,
-    roles: frozenset[str] | set[str],
-    context: dict,
+    action: str, actor: Actor, context: dict, *, extra_roles: frozenset[str] | set[str] = frozenset()
 ) -> None:
-    reason = permissions.denial_reason(action, roles, context)
+    """The one place a permission is decided.
+
+    Facts are built here rather than accepted from a caller. `denial_reason`
+    refuses a plain dict on purpose: a dict assembled from a request body and a
+    dict read out of the database look identical to a function signature, and
+    that resemblance is how a confused deputy gets in.
+
+    `provenance` records which layer proved the predicates, so a later audit can
+    answer "who said so" rather than only "it was allowed".
+    """
+    facts = permissions.AuthorizationFacts(
+        actor_id=str(actor.id),
+        # `extra_roles` carries a role the service just derived from the
+        # resource, such as "you are the owner because you created this batch
+        # one line ago". It is never read from a request body.
+        roles=frozenset(actor.roles) | frozenset(extra_roles),
+        resource_id=context.get("resource_id"),
+        proven=frozenset(name for name, proved in context.items() if proved is True),
+        provenance="api_service",
+    )
+    reason = permissions.denial_reason(action, facts)
     if reason is not None:
         raise ApiProblem(403, "permission_denied", reason)
 
@@ -150,14 +180,14 @@ class ApiService:
 
         _require_permission(
             "confirm_expense_proposal",
-            actor.roles,
+            actor,
             {"is_group_member": identity.context_id in actor.context_ids},
         )
         acknowledgement = "pending"
         if request.acknowledge_as_advancer:
             _require_permission(
                 "acknowledge_advancer_role",
-                actor.roles,
+                actor,
                 {"is_named_advancer": actor.id == request.proposal.paid_by_id},
             )
             acknowledgement = "acknowledged"
@@ -204,15 +234,16 @@ class ApiService:
     ) -> BatchCreateResponse:
         _require_permission(
             "create_batch",
-            actor.roles,
+            actor,
             {"is_group_member": request.context_id in actor.context_ids},
         )
         # The creator becomes the owner before the freeze action is evaluated;
         # the role is resource-derived, not accepted from the request body.
         _require_permission(
             "freeze_batch",
-            set(actor.roles) | {"batch_owner"},
+            actor,
             {"owns_batch": True},
+            extra_roles={"batch_owner"},
         )
         now = _now()
         if request.due_at <= now:
@@ -342,7 +373,7 @@ class ApiService:
             raise ApiProblem(404, "batch_not_found", "Batch does not exist")
         _require_permission(
             "publish_batch",
-            actor.roles,
+            actor,
             {
                 "owns_batch": actor.id == batch.owner_id,
                 "all_recipients_eligible": batch.all_recipients_eligible,
@@ -455,7 +486,7 @@ class ApiService:
             raise ApiProblem(404, "guest_link_not_found", "Guest link does not exist")
         _require_permission(
             "view_guest_envelope",
-            {"guest"},
+            _guest_actor(token),
             {"is_own_capability": True},
         )
         try:
@@ -476,7 +507,7 @@ class ApiService:
             )
         _require_permission(
             "report_payment",
-            {"guest"},
+            _guest_actor(token),
             {
                 "is_own_capability": True,
                 "active_capability": target.active_capability,
@@ -515,7 +546,7 @@ class ApiService:
             raise ApiProblem(404, "obligation_not_found", "Obligation does not exist")
         _require_permission(
             "confirm_receipt",
-            actor.roles,
+            actor,
             {"is_recipient_of_this_obligation": actor.id == target.recipient_id},
         )
         try:

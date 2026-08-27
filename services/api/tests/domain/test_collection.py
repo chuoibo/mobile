@@ -51,10 +51,25 @@ class StateMachine(unittest.TestCase):
                         transition(state, event, READY)
                     self.assertEqual(caught.exception.code, "ILLEGAL_TRANSITION")
 
-    def test_cancel_is_available_before_the_end(self):
+    def test_cancel_is_free_before_anyone_was_asked_for_money(self):
         for state in ("accruing", "frozen", "published", "collecting"):
             with self.subTest(state=state):
                 self.assertEqual(transition(state, "cancel", READY), "cancelled")
+
+    def test_cancel_after_exposure_needs_consent(self):
+        """Blocker P1-04, spec section 9.1.
+
+        Once an envelope could have left the app, people have already been
+        asked for money. Erasing that unilaterally rewrites a social
+        expectation without anybody agreeing to it.
+        """
+        exposed = {**READY, "capability_exposed_at": "2026-08-01T00:00:00+07:00"}
+        with self.assertRaises(CollectionError) as caught:
+            transition("collecting", "cancel", exposed)
+        self.assertEqual(caught.exception.code, "CANCEL_AFTER_EXPOSURE_NEEDS_CONSENT")
+
+        consented = {**exposed, "all_affected_parties_consented": True}
+        self.assertEqual(transition("collecting", "cancel", consented), "cancelled")
 
 
 class PublishGates(unittest.TestCase):
@@ -84,8 +99,16 @@ class PublishGates(unittest.TestCase):
         with self.assertRaises(CollectionError) as caught:
             transition("accruing", "freeze", context)
         self.assertEqual(caught.exception.code, "UNREADY_RECIPIENT_CHOICE_REQUIRED")
-        allowed = {**context, "unready_recipient_choice": "split_to_blocked_batch"}
+        allowed = {**context, "unready_recipient_choice": "split_blocked_recipient_setup"}
         self.assertEqual(transition("accruing", "freeze", allowed), "frozen")
+
+    def test_an_arbitrary_string_is_not_a_choice(self):
+        """Blocker P1-04. Section 8.4 offers exactly two answers, so truthiness
+        was letting a batch freeze on a choice nobody actually made."""
+        context = {**READY, "has_unready_recipient": True, "unready_recipient_choice": "anything"}
+        with self.assertRaises(CollectionError) as caught:
+            transition("accruing", "freeze", context)
+        self.assertEqual(caught.exception.code, "UNREADY_RECIPIENT_CHOICE_REQUIRED")
 
 
 class Closing(unittest.TestCase):
