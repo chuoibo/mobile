@@ -26,13 +26,13 @@ Engineer không phủi trách nhiệm kỹ thuật khi công cụ lỗi, kể c�
 
 ### Review doc đi đường nào
 
-**Review doc commit thẳng vào `main` bởi chính người viết review.** Không PR, không review lại.
+> **Review doc đi kèm chính thứ nó review.** Reviewer commit file review lên **nhánh đang được review**; nó vào `main` qua chính PR của nhánh đó.
 
-Đường dẫn bị giới hạn: `docs/<owner>/<YYYY-MM-DD>/review-*.md`. Chỉ Markdown.
+Không PR riêng cho review. Không ngoại lệ. Không direct push. Vòng lặp "review-only PR cần được review" biến mất vì **không còn PR nào chỉ chứa review**.
 
-Vì sao không dùng review-only branch có miễn trừ: một ngoại lệ MERGE-GATE mà không có cơ chế xác minh thì không phải quy tắc, chỉ là lời hứa. Muốn quay lại mô hình review-only PR thì phải có CI check giới hạn đường dẫn và chặn executable/binary/symlink **trước**, không phải sau. *(Blocker B-02 của Codex, 2026-08-26.)*
+Với thứ đã nằm trên `main`: review đi kèm **nhánh sửa** nó.
 
-Review doc **ghi nhận** một verdict. Nó **không** mang quyền quyết định — quyền đó sống ở `docs/decisions/`. Đó là lý do nó không cần cổng riêng.
+Hệ quả: verdict `REQUEST_CHANGES` **chặn merge về mặt cơ học**, vì review nằm trong cùng PR. *(ADR-0005 — thay thế cách làm ở ADR-0003, vốn mâu thuẫn với W9a-E.)*
 
 ## 3. Hai cổng tách biệt
 
