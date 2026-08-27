@@ -1,69 +1,474 @@
 [
-  {"id":"G30","note":"listed 90000 != total 100000",
-   "input":{"participants":["a","b"],"total_vnd":100000,
-            "items":[{"item_id":"i1","amount_vnd":90000,"shared_by":["a","b"]}],
-            "surcharges":[],"discounts":[],"advancer_id":null},
-   "expect_error":"RECONCILIATION_MISMATCH"},
-
-  {"id":"G31","note":"shared_by rong -> KHONG mac dinh chia cho tat ca (QD #4)",
-   "input":{"participants":["a","b"],"total_vnd":100,
-            "items":[{"item_id":"i1","amount_vnd":100,"shared_by":[]}],
-            "surcharges":[],"discounts":[],"advancer_id":null},
-   "expect_error":"EMPTY_SHARED_BY"},
-
-  {"id":"G32","note":"THU TU LOI (QD #20): ca DISCOUNT_EXCEEDS_ITEM lan RECONCILIATION_MISMATCH deu ap dung. So hoc dung TRUOC doi chieu",
-   "input":{"participants":["a","b"],"total_vnd":50,
-            "items":[{"item_id":"i1","amount_vnd":100,"shared_by":["a","b"]}],
-            "surcharges":[],
-            "discounts":[{"discount_id":"d1","amount_vnd":150,"scope":"item","item_id":"i1"}],
-            "advancer_id":null},
-   "expect_error":"DISCOUNT_EXCEEDS_ITEM"},
-
-  {"id":"G33","note":"participants rong, ke ca khi total = 0 (QD #10)",
-   "input":{"participants":[],"total_vnd":0,"items":[],"surcharges":[],"discounts":[],"advancer_id":null},
-   "expect_error":"NO_PARTICIPANTS"},
-
-  {"id":"G34","note":"THU TU LOI: DUPLICATE dung truoc NEGATIVE trong nhom cau truc",
-   "input":{"participants":["a","a"],"total_vnd":-5,"items":[],"surcharges":[],"discounts":[],"advancer_id":null},
-   "expect_error":"DUPLICATE_PARTICIPANT"},
-
-  {"id":"G35","note":"total am -> hoan tien la CreditAdjustment, thuc the khac (QD #12)",
-   "input":{"participants":["a","b"],"total_vnd":-100,"items":[],"surcharges":[],"discounts":[],"advancer_id":null},
-   "expect_error":"NEGATIVE_AMOUNT"},
-
-  {"id":"G37","note":"shared_by tro toi nguoi khong thuoc participants",
-   "input":{"participants":["a","b"],"total_vnd":100,
-            "items":[{"item_id":"i1","amount_vnd":100,"shared_by":["z"]}],
-            "surcharges":[],"discounts":[],"advancer_id":null},
-   "expect_error":"UNKNOWN_PARTICIPANT"},
-
-  {"id":"G38","note":"giam gia chung 150 > B = 100",
-   "input":{"participants":["a","b"],"total_vnd":0,
-            "items":[{"item_id":"i1","amount_vnd":100,"shared_by":["a","b"]}],
-            "surcharges":[],
-            "discounts":[{"discount_id":"d1","amount_vnd":150,"scope":"global_proportional","item_id":null}],
-            "advancer_id":null},
-   "expect_error":"DISCOUNT_EXCEEDS_BASE"},
-
-  {"id":"G39","note":"THU TU LOI: tham chieu dung truoc doi chieu. item_id khong ton tai",
-   "input":{"participants":["a","b"],"total_vnd":90,
-            "items":[{"item_id":"i1","amount_vnd":100,"shared_by":["a","b"]}],
-            "surcharges":[],
-            "discounts":[{"discount_id":"d1","amount_vnd":10,"scope":"item","item_id":"i9"}],
-            "advancer_id":null},
-   "expect_error":"UNKNOWN_ITEM"},
-
-  {"id":"G40","note":"mode khong hop le",
-   "input":{"participants":["a","b"],"total_vnd":100,"items":[],
-            "surcharges":[{"surcharge_id":"s1","kind":"fee","amount_vnd":100,"mode":"split_evenly"}],
-            "discounts":[],"advancer_id":null},
-   "expect_error":"INVALID_MODE"},
-
-  {"id":"G41","note":"scope khong hop le",
-   "input":{"participants":["a","b"],"total_vnd":90,
-            "items":[{"item_id":"i1","amount_vnd":100,"shared_by":["a","b"]}],
-            "surcharges":[],
-            "discounts":[{"discount_id":"d1","amount_vnd":10,"scope":"per_item","item_id":"i1"}],
-            "advancer_id":null},
-   "expect_error":"INVALID_SCOPE"}
+ {
+  "id": "G30",
+  "note": "listed 90000 != total 100000",
+  "input": {
+   "participants": [
+    "a",
+    "b"
+   ],
+   "total_vnd": 100000,
+   "items": [
+    {
+     "item_id": "i1",
+     "amount_vnd": 90000,
+     "shared_by": [
+      "a",
+      "b"
+     ]
+    }
+   ],
+   "surcharges": [],
+   "discounts": [],
+   "advancer_id": null
+  },
+  "expect_error": "RECONCILIATION_MISMATCH"
+ },
+ {
+  "id": "G31",
+  "note": "shared_by rong -> KHONG mac dinh chia cho tat ca (QD #4)",
+  "input": {
+   "participants": [
+    "a",
+    "b"
+   ],
+   "total_vnd": 100,
+   "items": [
+    {
+     "item_id": "i1",
+     "amount_vnd": 100,
+     "shared_by": []
+    }
+   ],
+   "surcharges": [],
+   "discounts": [],
+   "advancer_id": null
+  },
+  "expect_error": "EMPTY_SHARED_BY"
+ },
+ {
+  "id": "G32",
+  "note": "THU TU LOI (QD #20): ca DISCOUNT_EXCEEDS_ITEM lan RECONCILIATION_MISMATCH deu ap dung. So hoc dung TRUOC doi chieu",
+  "input": {
+   "participants": [
+    "a",
+    "b"
+   ],
+   "total_vnd": 50,
+   "items": [
+    {
+     "item_id": "i1",
+     "amount_vnd": 100,
+     "shared_by": [
+      "a",
+      "b"
+     ]
+    }
+   ],
+   "surcharges": [],
+   "discounts": [
+    {
+     "discount_id": "d1",
+     "amount_vnd": 150,
+     "scope": "item",
+     "item_id": "i1"
+    }
+   ],
+   "advancer_id": null
+  },
+  "expect_error": "DISCOUNT_EXCEEDS_ITEM"
+ },
+ {
+  "id": "G33",
+  "note": "participants rong, ke ca khi total = 0 (QD #10)",
+  "input": {
+   "participants": [],
+   "total_vnd": 0,
+   "items": [],
+   "surcharges": [],
+   "discounts": [],
+   "advancer_id": null
+  },
+  "expect_error": "NO_PARTICIPANTS"
+ },
+ {
+  "id": "G34",
+  "note": "THU TU LOI: DUPLICATE dung truoc NEGATIVE trong nhom cau truc",
+  "input": {
+   "participants": [
+    "a",
+    "a"
+   ],
+   "total_vnd": -5,
+   "items": [],
+   "surcharges": [],
+   "discounts": [],
+   "advancer_id": null
+  },
+  "expect_error": "DUPLICATE_PARTICIPANT"
+ },
+ {
+  "id": "G35",
+  "note": "total am -> hoan tien la CreditAdjustment, thuc the khac (QD #12)",
+  "input": {
+   "participants": [
+    "a",
+    "b"
+   ],
+   "total_vnd": -100,
+   "items": [],
+   "surcharges": [],
+   "discounts": [],
+   "advancer_id": null
+  },
+  "expect_error": "NEGATIVE_AMOUNT"
+ },
+ {
+  "id": "G37",
+  "note": "shared_by tro toi nguoi khong thuoc participants",
+  "input": {
+   "participants": [
+    "a",
+    "b"
+   ],
+   "total_vnd": 100,
+   "items": [
+    {
+     "item_id": "i1",
+     "amount_vnd": 100,
+     "shared_by": [
+      "z"
+     ]
+    }
+   ],
+   "surcharges": [],
+   "discounts": [],
+   "advancer_id": null
+  },
+  "expect_error": "UNKNOWN_PARTICIPANT"
+ },
+ {
+  "id": "G38",
+  "note": "giam gia chung 150 > B = 100",
+  "input": {
+   "participants": [
+    "a",
+    "b"
+   ],
+   "total_vnd": 0,
+   "items": [
+    {
+     "item_id": "i1",
+     "amount_vnd": 100,
+     "shared_by": [
+      "a",
+      "b"
+     ]
+    }
+   ],
+   "surcharges": [],
+   "discounts": [
+    {
+     "discount_id": "d1",
+     "amount_vnd": 150,
+     "scope": "global_proportional",
+     "item_id": null
+    }
+   ],
+   "advancer_id": null
+  },
+  "expect_error": "DISCOUNT_EXCEEDS_BASE"
+ },
+ {
+  "id": "G39",
+  "note": "THU TU LOI: tham chieu dung truoc doi chieu. item_id khong ton tai",
+  "input": {
+   "participants": [
+    "a",
+    "b"
+   ],
+   "total_vnd": 90,
+   "items": [
+    {
+     "item_id": "i1",
+     "amount_vnd": 100,
+     "shared_by": [
+      "a",
+      "b"
+     ]
+    }
+   ],
+   "surcharges": [],
+   "discounts": [
+    {
+     "discount_id": "d1",
+     "amount_vnd": 10,
+     "scope": "item",
+     "item_id": "i9"
+    }
+   ],
+   "advancer_id": null
+  },
+  "expect_error": "UNKNOWN_ITEM"
+ },
+ {
+  "id": "G40",
+  "note": "mode khong hop le",
+  "input": {
+   "participants": [
+    "a",
+    "b"
+   ],
+   "total_vnd": 100,
+   "items": [],
+   "surcharges": [
+    {
+     "surcharge_id": "s1",
+     "kind": "fee",
+     "amount_vnd": 100,
+     "mode": "split_evenly"
+    }
+   ],
+   "discounts": [],
+   "advancer_id": null
+  },
+  "expect_error": "INVALID_MODE"
+ },
+ {
+  "id": "G41",
+  "note": "scope khong hop le",
+  "input": {
+   "participants": [
+    "a",
+    "b"
+   ],
+   "total_vnd": 90,
+   "items": [
+    {
+     "item_id": "i1",
+     "amount_vnd": 100,
+     "shared_by": [
+      "a",
+      "b"
+     ]
+    }
+   ],
+   "surcharges": [],
+   "discounts": [
+    {
+     "discount_id": "d1",
+     "amount_vnd": 10,
+     "scope": "per_item",
+     "item_id": "i1"
+    }
+   ],
+   "advancer_id": null
+  },
+  "expect_error": "INVALID_SCOPE"
+ },
+ {
+  "id": "G42a",
+  "note": "PERMUTATION: EMPTY_SHARED_BY (nhom 1) thang DISCOUNT_EXCEEDS_ITEM (nhom 3). Thu tu item [i1, i2]",
+  "input": {
+   "participants": [
+    "a",
+    "b"
+   ],
+   "total_vnd": 50,
+   "items": [
+    {
+     "item_id": "i1",
+     "amount_vnd": 100,
+     "shared_by": [
+      "a",
+      "b"
+     ]
+    },
+    {
+     "item_id": "i2",
+     "amount_vnd": 50,
+     "shared_by": []
+    }
+   ],
+   "surcharges": [],
+   "discounts": [
+    {
+     "discount_id": "d1",
+     "amount_vnd": 150,
+     "scope": "item",
+     "item_id": "i1"
+    }
+   ],
+   "advancer_id": null
+  },
+  "expect_error": "EMPTY_SHARED_BY"
+ },
+ {
+  "id": "G42b",
+  "note": "PERMUTATION: cung input, thu tu item DAO thanh [i2, i1] -> PHAI cung code",
+  "input": {
+   "participants": [
+    "a",
+    "b"
+   ],
+   "total_vnd": 50,
+   "items": [
+    {
+     "item_id": "i2",
+     "amount_vnd": 50,
+     "shared_by": []
+    },
+    {
+     "item_id": "i1",
+     "amount_vnd": 100,
+     "shared_by": [
+      "a",
+      "b"
+     ]
+    }
+   ],
+   "surcharges": [],
+   "discounts": [
+    {
+     "discount_id": "d1",
+     "amount_vnd": 150,
+     "scope": "item",
+     "item_id": "i1"
+    }
+   ],
+   "advancer_id": null
+  },
+  "expect_error": "EMPTY_SHARED_BY"
+ },
+ {
+  "id": "G43",
+  "note": "HAI ITEM TRUNG item_id -> discount co the ap vao mot, ca hai, hoac map bi ghi de. Doi NGHIA VU TIEN chu khong chi doi thong bao loi",
+  "input": {
+   "participants": [
+    "a",
+    "b"
+   ],
+   "total_vnd": 200,
+   "items": [
+    {
+     "item_id": "i1",
+     "amount_vnd": 100,
+     "shared_by": [
+      "a",
+      "b"
+     ]
+    },
+    {
+     "item_id": "i1",
+     "amount_vnd": 100,
+     "shared_by": [
+      "a",
+      "b"
+     ]
+    }
+   ],
+   "surcharges": [],
+   "discounts": [],
+   "advancer_id": null
+  },
+  "expect_error": "DUPLICATE_ENTITY_ID"
+ },
+ {
+  "id": "G44",
+  "note": "amount = 0: tu choi, khong coi la no-op",
+  "input": {
+   "participants": [
+    "a",
+    "b"
+   ],
+   "total_vnd": 0,
+   "items": [
+    {
+     "item_id": "i1",
+     "amount_vnd": 0,
+     "shared_by": [
+      "a",
+      "b"
+     ]
+    }
+   ],
+   "surcharges": [],
+   "discounts": [],
+   "advancer_id": null
+  },
+  "expect_error": "ZERO_AMOUNT"
+ },
+ {
+  "id": "G45",
+  "note": "shared_by chua cung nguoi hai lan",
+  "input": {
+   "participants": [
+    "a",
+    "b"
+   ],
+   "total_vnd": 100,
+   "items": [
+    {
+     "item_id": "i1",
+     "amount_vnd": 100,
+     "shared_by": [
+      "a",
+      "a"
+     ]
+    }
+   ],
+   "surcharges": [],
+   "discounts": [],
+   "advancer_id": null
+  },
+  "expect_error": "DUPLICATE_SHARED_BY"
+ },
+ {
+  "id": "G46",
+  "note": "scope global nhung lai mang item_id",
+  "input": {
+   "participants": [
+    "a",
+    "b"
+   ],
+   "total_vnd": 90,
+   "items": [
+    {
+     "item_id": "i1",
+     "amount_vnd": 100,
+     "shared_by": [
+      "a",
+      "b"
+     ]
+    }
+   ],
+   "surcharges": [],
+   "discounts": [
+    {
+     "discount_id": "d1",
+     "amount_vnd": 10,
+     "scope": "global_proportional",
+     "item_id": "i1"
+    }
+   ],
+   "advancer_id": null
+  },
+  "expect_error": "SCOPE_TARGET_MISMATCH"
+ },
+ {
+  "id": "G47",
+  "note": "participant id co whitespace dau",
+  "input": {
+   "participants": [
+    " a",
+    "b"
+   ],
+   "total_vnd": 100,
+   "items": [],
+   "surcharges": [],
+   "discounts": [],
+   "advancer_id": null
+  },
+  "expect_error": "INVALID_PARTICIPANT_ID"
+ }
 ]

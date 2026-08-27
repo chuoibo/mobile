@@ -1,0 +1,42 @@
+[
+  {"id":"G22","note":"HOP THANH: item discount + global discount + phu phi proportional VA even + tie-break, trong CUNG mot ca. advancer a co phan du 1/7 THUA c co 5/7",
+   "input":{"participants":["a","b","c"],"total_vnd":92000,
+            "items":[{"item_id":"i1","amount_vnd":60000,"shared_by":["a","b"]},
+                     {"item_id":"i2","amount_vnd":30000,"shared_by":["c"]}],
+            "surcharges":[{"surcharge_id":"s1","kind":"fee","amount_vnd":9000,"mode":"proportional"},
+                          {"surcharge_id":"s2","kind":"shipping","amount_vnd":3000,"mode":"even"}],
+            "discounts":[{"discount_id":"d1","amount_vnd":6000,"scope":"item","item_id":"i1"},
+                         {"discount_id":"d2","amount_vnd":4000,"scope":"global_proportional","item_id":null}],
+            "advancer_id":"a"},
+   "expect":{"exact_shares":{"a":"207250/7","b":"207250/7","c":"229500/7"},
+             "allocations":{"a":29607,"b":29607,"c":32786},"rounding_gainers":["c"],"warnings":[]}},
+
+  {"id":"G23","note":"HAI WARNING cung luc: advancer_not_participant + zero_share_participants",
+   "input":{"participants":["a","b","c"],"total_vnd":100000,
+            "items":[{"item_id":"i1","amount_vnd":100000,"shared_by":["a","b"]}],
+            "surcharges":[],"discounts":[],"advancer_id":"z"},
+   "expect":{"exact_shares":{"a":"50000/1","b":"50000/1","c":"0/1"},
+             "allocations":{"a":50000,"b":50000,"c":0},"rounding_gainers":[],
+             "warnings":["advancer_not_participant","zero_share_participants"]}},
+
+  {"id":"G24","note":"HAI WARNING cung luc: advancer_not_participant + proportional_fallback_to_even",
+   "input":{"participants":["a","b","c"],"total_vnd":90000,"items":[],
+            "surcharges":[{"surcharge_id":"s1","kind":"fee","amount_vnd":90000,"mode":"proportional"}],
+            "discounts":[],"advancer_id":"z"},
+   "expect":{"exact_shares":{"a":"30000/1","b":"30000/1","c":"30000/1"},
+             "allocations":{"a":30000,"b":30000,"c":30000},"rounding_gainers":[],
+             "warnings":["advancer_not_participant","proportional_fallback_to_even"]}},
+
+  {"id":"G25","note":"ADVANCER CHINH LA NGUOI PHAN 0. c la advancer nhung phan du = 0 nen KHONG BAO GIO nhan 1d. Chung minh tie-break khong vuot qua phan du",
+   "input":{"participants":["a","b","c"],"total_vnd":101,
+            "items":[{"item_id":"i1","amount_vnd":101,"shared_by":["a","b"]}],
+            "surcharges":[],"discounts":[],"advancer_id":"c"},
+   "expect":{"exact_shares":{"a":"101/2","b":"101/2","c":"0/1"},
+             "allocations":{"a":51,"b":50,"c":0},"rounding_gainers":["a"],
+             "warnings":["zero_share_participants"]}},
+
+  {"id":"G26","note":"THU TU PREFIX: 'a' la prefix cua 'aa' -> day NGAN HON dung truoc",
+   "input":{"participants":["a","aa"],"total_vnd":3,"items":[],"surcharges":[],"discounts":[],"advancer_id":null},
+   "expect":{"exact_shares":{"a":"3/2","aa":"3/2"},
+             "allocations":{"a":2,"aa":1},"rounding_gainers":["a"],"warnings":[]}}
+]
