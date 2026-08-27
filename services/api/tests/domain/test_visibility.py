@@ -89,7 +89,7 @@ class Declassification(unittest.TestCase):
 
     def test_creates_a_derivative_and_leaves_the_original_alone(self):
         original = self.field()
-        derived = declassify(original, "group_visible", actor_id="ha", redaction={"masked": ["phone"]})
+        derived = declassify(original, "group_visible", actor_id="ha", redaction={"applied": ["mask_phone"]})
         self.assertEqual(derived["derived_from_id"], "f1")
         self.assertEqual(derived["visibility"], "group_visible")
         self.assertEqual(original["visibility"], "private_to_invoker")
@@ -97,13 +97,23 @@ class Declassification(unittest.TestCase):
 
     def test_only_the_field_owner_may_declassify(self):
         with self.assertRaises(VisibilityError) as caught:
-            declassify(self.field(), "group_visible", actor_id="nam", redaction={"masked": []})
+            declassify(self.field(), "group_visible", actor_id="nam", redaction={"applied": ["mask_phone"]})
         self.assertEqual(caught.exception.code, "NOT_FIELD_OWNER")
 
     def test_redaction_is_mandatory(self):
         with self.assertRaises(VisibilityError) as caught:
             declassify(self.field(), "group_visible", actor_id="ha", redaction={})
         self.assertEqual(caught.exception.code, "REDACTION_REQUIRED")
+
+    def test_redaction_must_name_what_it_actually_removed(self):
+        """Blocker P1-03. An arbitrary dict was a label, not a projection: a
+        caller could widen a field while claiming redaction, with nothing
+        removed."""
+        for bad in ({"applied": []}, {"applied": ["trust_me"]}, {"note": "redacted"}):
+            with self.subTest(bad=bad):
+                with self.assertRaises(VisibilityError) as caught:
+                    declassify(self.field(), "group_visible", actor_id="ha", redaction=bad)
+                self.assertIn(caught.exception.code, {"UNKNOWN_REDACTION", "REDACTION_REQUIRED"})
 
 
 class HistoryAccess(unittest.TestCase):
@@ -135,6 +145,16 @@ class HistoryAccess(unittest.TestCase):
 
     def test_not_in_the_audience_snapshot_means_no(self):
         self.assertFalse(can_view_history(**self.base(audience_snapshot={"nam"})))
+
+    def test_fails_closed_on_an_unknown_join_date(self):
+        """Blocker P1-03. A missing fact was becoming a permission: a viewer
+        with no known join date passed as long as the caller put them in the
+        snapshot it supplied."""
+        self.assertFalse(can_view_history(**self.base(viewer_joined_at=None)))
+
+    def test_fails_closed_on_an_unrecognised_visibility(self):
+        """A typo in a visibility string was read as permissive."""
+        self.assertFalse(can_view_history(**self.base(object_visibility="typo")))
 
 
 class SettlementView(unittest.TestCase):

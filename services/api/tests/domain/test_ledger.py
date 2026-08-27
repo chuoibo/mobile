@@ -61,6 +61,68 @@ class ObligationsFromAllocations(unittest.TestCase):
         )
 
 
+class MoneyValidation(unittest.TestCase):
+    """Blocker P1-01. Review found three separate ways an invalid amount got
+    in, because each entry point checked differently or not at all."""
+
+    def test_a_negative_advancer_allocation_is_caught(self):
+        """The advancer branch ran before validation, so an amount that never
+        became an obligation was also never checked."""
+        with self.assertRaises(LedgerError) as caught:
+            obligations_from_allocations({"a": 100, "nam": -100}, "nam", "v1")
+        self.assertEqual(caught.exception.code, "NEGATIVE_AMOUNT")
+
+    def test_merge_refuses_a_negative_amount(self):
+        """100 and -80 used to merge into a cheerful obligation of 20."""
+        with self.assertRaises(LedgerError) as caught:
+            merge_obligations([
+                {"sender_id": "a", "recipient_id": "b", "amount_vnd": 100, "source_expense_version_id": "v1"},
+                {"sender_id": "a", "recipient_id": "b", "amount_vnd": -80, "source_expense_version_id": "v2"},
+            ])
+        self.assertEqual(caught.exception.code, "NEGATIVE_AMOUNT")
+
+    def test_floats_and_bools_are_refused_everywhere(self):
+        for bad in (0.5, True, "100"):
+            with self.subTest(bad=bad):
+                with self.assertRaises(LedgerError):
+                    obligations_from_allocations({"a": bad}, "nam", "v1")
+
+    def test_settlement_suggestions_refuse_float_balances(self):
+        with self.assertRaises(LedgerError) as caught:
+            settlement_suggestions({"a": -0.5, "b": 0.5})
+        self.assertEqual(caught.exception.code, "AMOUNT_NOT_INTEGER")
+
+
+class ReceiptsAreSubtractedOnce(unittest.TestCase):
+    """Blocker P1-01, the one that showed a wrong number to a real person."""
+
+    def test_two_obligations_in_one_pair_share_one_receipt(self):
+        """The receipt used to be subtracted from every obligation in the pair,
+        so 60 + 40 against a receipt of 50 showed 10 remaining instead of 50.
+
+        Reading low is the dangerous direction: nobody chases what they believe
+        they have already been paid.
+        """
+        obligations = [
+            {"sender_id": "a", "recipient_id": "b", "amount_vnd": 60},
+            {"sender_id": "a", "recipient_id": "b", "amount_vnd": 40},
+        ]
+        self.assertEqual(group_balances(obligations, {("a", "b"): 50}), {"a": -50, "b": 50})
+
+    def test_a_full_receipt_clears_the_pair(self):
+        obligations = [
+            {"sender_id": "a", "recipient_id": "b", "amount_vnd": 60},
+            {"sender_id": "a", "recipient_id": "b", "amount_vnd": 40},
+        ]
+        self.assertEqual(group_balances(obligations, {("a", "b"): 100}), {})
+
+    def test_suggestions_are_shaped_as_drafts_not_obligations(self):
+        """An obligation-shaped dict invites a caller to persist it, and
+        section 8.8 requires every affected party to accept an offset first."""
+        for transfer in settlement_suggestions({"a": -70, "b": 70}):
+            self.assertEqual(transfer["kind"], "offset_proposal_draft")
+
+
 class Merging(unittest.TestCase):
     def test_same_pair_is_summed(self):
         merged = merge_obligations([

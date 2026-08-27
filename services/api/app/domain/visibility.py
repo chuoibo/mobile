@@ -91,6 +91,18 @@ def check_no_context_laundering(
     raise VisibilityError("CONTEXT_LAUNDERING")
 
 
+# A closed vocabulary of what redaction can mean. An arbitrary dict was a
+# label rather than a projection: it let a caller widen a field while claiming
+# it had been redacted, without anything being removed.
+REDACTABLE = frozenset({
+    "mask_bank_account",
+    "mask_phone",
+    "mask_full_name",
+    "drop_other_allocations",
+    "drop_attachment",
+})
+
+
 def declassify(field: dict, to_level: str, *, actor_id: str, redaction: dict) -> dict:
     """Produce a redacted derivative. Never touches the original's ACL.
 
@@ -102,6 +114,9 @@ def declassify(field: dict, to_level: str, *, actor_id: str, redaction: dict) ->
         raise VisibilityError("NOT_FIELD_OWNER")
     if not redaction:
         raise VisibilityError("REDACTION_REQUIRED")
+    applied = redaction.get("applied")
+    if not applied or not set(applied) <= REDACTABLE:
+        raise VisibilityError("UNKNOWN_REDACTION")
     check_no_context_laundering(
         field["component"], to_level, [field["visibility"]],
         redacted=True, owner_consented=True,
@@ -133,7 +148,15 @@ def can_view_history(
     does not become visible merely because the viewer happened to be a member
     when it happened.
     """
-    if viewer_joined_at is not None and object_created_at < viewer_joined_at:
+    # Fail closed on anything unproven. The earlier version let a viewer with
+    # no known join date through as long as they appeared in the snapshot the
+    # caller supplied, and let an unrecognised visibility string through as if
+    # it were permissive. Both readings turn a missing fact into a permission.
+    if object_visibility not in LEVELS:
+        return False
+    if viewer_joined_at is None:
+        return False
+    if object_created_at < viewer_joined_at:
         return False  # new members see nothing from before they joined
     if viewer_left_at is not None and object_created_at > viewer_left_at:
         return False  # departed members see nothing created after they left
