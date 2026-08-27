@@ -105,56 +105,39 @@ class PatternScannerTests(unittest.TestCase):
         self.assertNotIn(payload[:80], rendered)
         self.assertNotIn("notes/synthetic.md", rendered)
 
-    def test_wrapped_base64_blocks_are_blocked_and_masked(self):
+    def test_wrapped_base64_fragments_are_aggregated_across_arbitrary_gaps(self):
         payload = base64.b64encode(bytes(range(256)) * 88).decode("ascii")
         self.assertGreater(len(payload.encode("utf-8")), 22 * 1024)
 
-        for width in (12, 76, 1000):
-            with self.subTest(width=width):
-                wrapped = "\n".join(textwrap.wrap(payload, width=width))
+        separators = (
+            (8, "\n"),
+            (40, "\n\n\n"),
+            (76, "\n\n\n\n"),
+            (
+                200,
+                "\n"
+                + "\n".join(
+                    f"Dòng phân cách tổng hợp số {index}." for index in range(50)
+                )
+                + "\n",
+            ),
+        )
+        for width, separator in separators:
+            with self.subTest(width=width, separator_lines=separator.count("\n") - 1):
+                wrapped = separator.join(textwrap.wrap(payload, width=width))
                 findings = self.scan_text(wrapped, path="notes/synthetic-bill.txt")
                 matches = [
-                    item for item in findings if item.rule == "dense-base64-block"
+                    item
+                    for item in findings
+                    if item.rule == "aggregate-base64-fragments"
                 ]
 
                 self.assertEqual(len(matches), 1)
                 rendered = matches[0].render()
-                self.assertIn("<redacted-base64-block>", rendered)
+                self.assertIn("<redacted-base64-fragments>", rendered)
+                self.assertIn(f"aggregate-bytes={len(payload)}", rendered)
                 self.assertNotIn(payload[:76], rendered)
                 self.assertNotIn("notes/synthetic-bill.txt", rendered)
-
-    def test_wrapped_base64_blocks_tolerate_single_line_gaps(self):
-        payload = base64.b64encode(bytes(range(256)) * 88).decode("ascii")
-
-        for width in (40, 76, 200):
-            for separator in (
-                "\n\n",
-                "\n-\n",
-                "\nnot-base64: synthetic separator\n",
-            ):
-                with self.subTest(width=width, separator=repr(separator)):
-                    wrapped = separator.join(textwrap.wrap(payload, width=width))
-                    findings = self.scan_text(
-                        wrapped, path="notes/synthetic-gapped-bill.txt"
-                    )
-                    matches = [
-                        item for item in findings if item.rule == "dense-base64-block"
-                    ]
-
-                    self.assertEqual(len(matches), 1)
-                    rendered = matches[0].render()
-                    self.assertIn("<redacted-base64-block>", rendered)
-                    self.assertNotIn(payload[:40], rendered)
-                    self.assertNotIn("notes/synthetic-gapped-bill.txt", rendered)
-
-    def test_base64_block_gap_is_bounded(self):
-        encoded = base64.b64encode(bytes(range(256)) * 24).decode("ascii")
-        first = "\n".join(textwrap.wrap(encoded[:3000], width=76))
-        second = "\n".join(textwrap.wrap(encoded[3000:6000], width=76))
-
-        findings = self.scan_text(first + "\n\n\n" + second)
-
-        self.assertNotIn("dense-base64-block", {item.rule for item in findings})
 
     def test_long_base64_token_is_blocked_in_json_and_plain_text(self):
         encoded = base64.b64encode(bytes(range(256)) * 20).decode("ascii")
@@ -191,24 +174,34 @@ class PatternScannerTests(unittest.TestCase):
             {item.rule for item in self.scan_text(over_threshold)},
         )
 
-    def test_base64_block_and_token_thresholds_are_strict(self):
-        block_at_threshold = "\n".join(
-            (
-                "A" * (repo_guard.MAX_BASE64_BLOCK_BYTES // 2),
-                "A" * (repo_guard.MAX_BASE64_BLOCK_BYTES // 2),
-            )
+    def test_base64_aggregate_and_token_thresholds_are_strict(self):
+        fragment_count = (
+            repo_guard.MAX_AGGREGATE_BASE64_BYTES
+            // repo_guard.MIN_BASE64_FRAGMENT_BYTES
         )
-        block_over_threshold = block_at_threshold + "A"
+        aggregate_at_threshold = "\n".join(
+            "A" * repo_guard.MIN_BASE64_FRAGMENT_BYTES
+            for _index in range(fragment_count)
+        )
+        aggregate_over_threshold = "\n".join(
+            [
+                *(
+                    "A" * repo_guard.MIN_BASE64_FRAGMENT_BYTES
+                    for _index in range(fragment_count - 1)
+                ),
+                "A" * (repo_guard.MIN_BASE64_FRAGMENT_BYTES + 1),
+            ]
+        )
         token_at_threshold = "A" * repo_guard.MAX_BASE64_TOKEN_BYTES
         token_over_threshold = token_at_threshold + "A"
 
         self.assertNotIn(
-            "dense-base64-block",
-            {item.rule for item in self.scan_text(block_at_threshold)},
+            "aggregate-base64-fragments",
+            {item.rule for item in self.scan_text(aggregate_at_threshold)},
         )
         self.assertIn(
-            "dense-base64-block",
-            {item.rule for item in self.scan_text(block_over_threshold)},
+            "aggregate-base64-fragments",
+            {item.rule for item in self.scan_text(aggregate_over_threshold)},
         )
         self.assertNotIn(
             "long-base64-token",
@@ -251,7 +244,7 @@ class PatternScannerTests(unittest.TestCase):
                     [],
                 )
 
-        python_source = "\n".join(f"value_{index} = {index}" for index in range(60))
+        python_source = "\n".join(f"value_{index} = {index}" for index in range(200))
         markdown_table = "| key | value |\n|---|---|\n" + "\n".join(
             f"| row-{index:03d} | synthetic text |" for index in range(120)
         )
@@ -261,16 +254,29 @@ class PatternScannerTests(unittest.TestCase):
             / "decisions"
             / "ADR-0004-hop-dong-allocator.md"
         )
+        team_markdown_path = (
+            MODULE_PATH.parents[1]
+            / "docs"
+            / "superpowers"
+            / "specs"
+            / "2026-08-25-group-hangout-ai-design.md"
+        )
         repository_text_cases = (
-            ("python-60-lines", python_source, "src/synthetic_module.py"),
+            ("python-200-lines", python_source, "src/synthetic_module.py"),
             ("markdown-table", markdown_table, "docs/synthetic-table.md"),
             (
                 "adr-0004",
                 adr_path.read_text(encoding="utf-8"),
                 "docs/decisions/ADR-0004-hop-dong-allocator.md",
             ),
+            (
+                "long-team-markdown",
+                team_markdown_path.read_text(encoding="utf-8"),
+                "docs/superpowers/specs/2026-08-25-group-hangout-ai-design.md",
+            ),
         )
         self.assertGreater(len(markdown_table.encode("utf-8")), 3000)
+        self.assertGreater(team_markdown_path.stat().st_size, 80 * 1024)
         for name, text, path in repository_text_cases:
             with self.subTest(repository_text=name):
                 self.assertEqual(self.scan_text(text, path=path), [])
@@ -287,14 +293,16 @@ class PatternScannerTests(unittest.TestCase):
 
     def test_new_base64_rules_can_use_narrow_inline_annotations(self):
         payload = base64.b64encode(bytes(range(256)) * 88).decode("ascii")
-        wrapped = "\n".join(textwrap.wrap(payload, width=76))
+        wrapped = "\n".join(
+            "# repo-guard: allow=aggregate-base64-fragments "
+            "reason=reviewed-wrapped-vector\n" + fragment
+            for fragment in textwrap.wrap(payload, width=76)
+        )
         token = payload[:3000]
         cases = (
             (
-                "dense-base64-block",
-                "# repo-guard: allow=dense-base64-block "
-                "reason=reviewed-wrapped-vector\n"
-                f"{wrapped}",
+                "aggregate-base64-fragments",
+                wrapped,
             ),
             (
                 "long-base64-token",
@@ -307,6 +315,22 @@ class PatternScannerTests(unittest.TestCase):
         for rule, text in cases:
             with self.subTest(rule=rule):
                 self.assertEqual(self.scan_text(text, path="vectors/fixture.txt"), [])
+
+    def test_aggregate_base64_annotation_does_not_exempt_distant_lines(self):
+        payload = base64.b64encode(bytes(range(256)) * 88).decode("ascii")
+        fragments = textwrap.wrap(payload, width=76)
+        text = (
+            "# repo-guard: allow=aggregate-base64-fragments "
+            "reason=reviewed-one-fragment\n"
+            + fragments[0]
+            + "\n\n\n"
+            + "\n\n\n".join(fragments[1:])
+        )
+
+        self.assertIn(
+            "aggregate-base64-fragments",
+            {item.rule for item in self.scan_text(text, path="vectors/fixture.txt")},
+        )
 
     def test_controlled_artifact_requires_exact_path_and_digest(self):
         path = "docs/assets/synthetic-diagram.png"
@@ -474,7 +498,12 @@ class GitIntegrationTests(unittest.TestCase):
         wrapped_path = "synthetic-wrapped.txt"
         json_path = "synthetic-payload.json"
         encoded = base64.b64encode(bytes(range(256)) * 88).decode("ascii")
-        wrapped_payload = "\n\n".join(textwrap.wrap(encoded, width=76))
+        separator = (
+            "\n"
+            + "\n".join(f"synthetic separator line {index}" for index in range(50))
+            + "\n"
+        )
+        wrapped_payload = separator.join(textwrap.wrap(encoded, width=76))
         token = encoded[:3000]
         json_payload = json.dumps({"image": token}, separators=(",", ":"))
         (self.repo / wrapped_path).write_text(wrapped_payload + "\n", encoding="utf-8")
@@ -485,7 +514,7 @@ class GitIntegrationTests(unittest.TestCase):
         output = completed.stdout + completed.stderr
 
         self.assertEqual(completed.returncode, 1, output)
-        self.assertIn("rule=dense-base64-block", output)
+        self.assertIn("rule=aggregate-base64-fragments", output)
         self.assertIn("rule=long-base64-token", output)
         self.assertIn("token-bytes=3000", output)
         for sensitive_value in (
@@ -496,30 +525,38 @@ class GitIntegrationTests(unittest.TestCase):
         ):
             self.assertNotIn(sensitive_value, output)
 
-    def test_staged_block_scan_uses_unchanged_neighboring_lines(self):
-        wrapped_path = "synthetic-growing-block.txt"
-        encoded = base64.b64encode(bytes(range(256)) * 20).decode("ascii")
-        baseline_payload = "\n".join(textwrap.wrap(encoded[:4028], width=76))
-        self.assertEqual(len(baseline_payload.splitlines()), 53)
-        (self.repo / wrapped_path).write_text(baseline_payload + "\n", encoding="utf-8")
-        self.git("add", wrapped_path)
-        self.git("commit", "-m", "synthetic block below aggregate threshold")
+    def test_staged_aggregate_counts_all_added_lines_in_one_file(self):
+        path = "synthetic-scattered-fragments.txt"
+        encoded = base64.b64encode(bytes(range(256)) * 88).decode("ascii")
+        fragments = textwrap.wrap(encoded, width=40)
+        split_at = len(fragments) // 2
+        self.assertLess(sum(map(len, fragments[:split_at])), 16 * 1024)
+        self.assertLess(sum(map(len, fragments[split_at:])), 16 * 1024)
 
-        added_line = encoded[4028:4104]
-        self.assertEqual(len(added_line), 76)
-        (self.repo / wrapped_path).write_text(
-            baseline_payload + "\n" + added_line + "\n", encoding="utf-8"
-        )
-        self.git("add", wrapped_path)
+        stable_context = [f"safe stable context line {index}" for index in range(500)]
+        baseline = ["synthetic heading", *stable_context, "synthetic footer"]
+        (self.repo / path).write_text("\n".join(baseline) + "\n", encoding="utf-8")
+        self.git("add", path)
+        self.git("commit", "-m", "synthetic baseline with two insertion points")
+
+        candidate = [
+            "synthetic heading",
+            *fragments[:split_at],
+            *stable_context,
+            *fragments[split_at:],
+            "synthetic footer",
+        ]
+        (self.repo / path).write_text("\n".join(candidate) + "\n", encoding="utf-8")
+        self.git("add", path)
 
         completed = self.run_guard("staged")
         output = completed.stdout + completed.stderr
 
         self.assertEqual(completed.returncode, 1, output)
-        self.assertIn("rule=dense-base64-block", output)
-        self.assertIn("lines=54", output)
-        self.assertNotIn(wrapped_path, output)
-        self.assertNotIn(added_line, output)
+        self.assertIn("rule=aggregate-base64-fragments", output)
+        self.assertIn(f"aggregate-bytes={len(encoded)}", output)
+        self.assertNotIn(path, output)
+        self.assertNotIn(encoded[:40], output)
 
     def test_range_scan_catches_data_removed_in_a_later_commit(self):
         base = self.git("rev-parse", "HEAD")
