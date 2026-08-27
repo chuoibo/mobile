@@ -11,7 +11,7 @@ import { formatVnd } from "../../../../packages/shared/money.mjs";
 import { radius, space, type, usePalette } from "../theme";
 import { Button, Card, Screen } from "../ui/Kit";
 
-export type Envelope = { sender: string; amountVnd: number; url: string; opened: boolean };
+export type Envelope = { senderId: string; senderName: string; amountVnd: number; url: string; opened: boolean };
 
 export function ChiaSe({ envelopes, onDone }: { envelopes: Envelope[]; onDone: () => void }) {
   const c = usePalette();
@@ -21,9 +21,9 @@ export function ChiaSe({ envelopes, onDone }: { envelopes: Envelope[]; onDone: (
     // One capability, one person, one share sheet. The warning goes in the
     // message body so it travels with the link.
     await Share.share({
-      message: `Phần của ${envelope.sender}: ${formatVnd(envelope.amountVnd)}đ\n${envelope.url}\n\nLink này dành cho ${envelope.sender}; ai có link đều xem được phần của ${envelope.sender}.`,
+      message: `Phần của ${envelope.senderName}: ${formatVnd(envelope.amountVnd)}đ\n${envelope.url}\n\nLink này dành cho ${envelope.senderName}; ai có link đều xem được phần của ${envelope.senderName}.`,
     });
-    setShared((s) => ({ ...s, [envelope.sender]: true }));
+    setShared((s) => ({ ...s, [envelope.senderId]: true }));
   }
 
   return (
@@ -42,24 +42,24 @@ export function ChiaSe({ envelopes, onDone }: { envelopes: Envelope[]; onDone: (
       <ScrollView contentContainerStyle={{ gap: space.sm }}>
         {envelopes.map((e) => (
           <View
-            key={e.sender}
+            key={e.senderId}
             style={{
               backgroundColor: c.card, borderColor: c.line, borderWidth: 1,
               borderRadius: radius.base, padding: space.md, gap: space.sm,
             }}
           >
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" }}>
-              <Text style={{ ...type.body, color: c.ink }}>{e.sender}</Text>
+              <Text style={{ ...type.body, color: c.ink }}>{e.senderName}</Text>
               <Text style={{ ...type.amountSmall, color: c.ink }}>{formatVnd(e.amountVnd)}đ</Text>
             </View>
             <Button
-              label={shared[e.sender] ? `Gửi lại cho ${e.sender}` : `Gửi cho ${e.sender}`}
-              tone={shared[e.sender] ? "quiet" : "ghost"}
+              label={shared[e.senderId] ? `Gửi lại cho ${e.senderName}` : `Gửi cho ${e.senderName}`}
+              tone={shared[e.senderId] ? "quiet" : "ghost"}
               onPress={() => shareOne(e)}
             />
             {/* Section 8.5 has no "delivered" state, only observable moments. */}
             <Text style={{ ...type.label, color: e.opened ? c.accent : c.inkSoft }}>
-              {e.opened ? "Đã mở link" : shared[e.sender] ? "Đã mở khay chia sẻ, chưa rõ đã mở link chưa" : "Chưa chia sẻ"}
+              {e.opened ? "Đã mở link" : shared[e.senderId] ? "Đã mở khay chia sẻ, chưa rõ đã mở link chưa" : "Chưa chia sẻ"}
             </Text>
           </View>
         ))}

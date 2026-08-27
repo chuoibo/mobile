@@ -13,7 +13,8 @@ import { Button, Card, Screen } from "../ui/Kit";
 
 export type Obligation = {
   id: string;
-  sender: string;
+  senderId: string;
+  senderName: string;
   recipient: string;
   amountVnd: number;
   status: "outstanding" | "partially_confirmed" | "confirmed" | "over_confirmed" | "waived" | "disputed";
@@ -37,9 +38,9 @@ export function DotThu({ obligations, published, onPublish, onShare }: {
 }) {
   const c = usePalette();
   const done = obligations.filter((o) => TRANSFERRED.has(o.status)).length;
-  const senders = new Set(obligations.map((o) => o.sender));
-  const peopleDone = [...senders].filter((s) =>
-    obligations.filter((o) => o.sender === s).every((o) => NOTHING_LEFT.has(o.status))
+  const senders = new Set(obligations.map((o) => o.senderId));
+  const peopleDone = [...senders].filter((id) =>
+    obligations.filter((o) => o.senderId === id).every((o) => NOTHING_LEFT.has(o.status))
   ).length;
 
   return (
@@ -79,7 +80,7 @@ export function DotThu({ obligations, published, onPublish, onShare }: {
             >
               <View style={{ flexShrink: 1, gap: 2 }}>
                 <Text style={{ ...type.body, color: c.ink }}>
-                  {o.sender} <Text style={{ color: c.inkSoft }}>gửi</Text> {o.recipient}
+                  {o.senderName} <Text style={{ color: c.inkSoft }}>gửi</Text> {o.recipient}
                 </Text>
                 <Text style={{ ...type.label, color: flagged ? c.warn : settled ? c.accent : c.inkSoft }}>
                   {WORDING[o.status]}

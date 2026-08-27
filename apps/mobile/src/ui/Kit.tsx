@@ -98,3 +98,46 @@ export function Row({ left, right, muted }: { left: string; right: string; muted
 }
 
 export type { Palette };
+
+/** Pick one of a few people. A free-text field cannot name a person when two
+ *  of them are called Nam, so anywhere identity matters this replaces typing. */
+export function Choice({ label, options, value, onChange }: {
+  label: string;
+  options: { id: string; label: string }[];
+  value: string | null;
+  onChange: (id: string) => void;
+}) {
+  const c = usePalette();
+  return (
+    <View style={{ gap: space.xs }}>
+      <Text style={{ ...type.label, color: c.inkSoft }}>{label}</Text>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.xs }}>
+        {options.length === 0 ? (
+          <Text style={{ ...type.body, color: c.inkSoft }}>Nhập tên phía trên trước.</Text>
+        ) : null}
+        {options.map((o) => {
+          const on = o.id === value;
+          return (
+            <Pressable
+              key={o.id}
+              onPress={() => onChange(o.id)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: on }}
+              style={({ pressed }) => ({
+                borderWidth: 1, borderRadius: radius.base,
+                paddingVertical: 10, paddingHorizontal: space.md,
+                borderColor: on ? c.accent : c.line,
+                backgroundColor: on ? c.accent : "transparent",
+                opacity: pressed ? 0.85 : 1,
+              })}
+            >
+              <Text style={{ ...type.body, fontWeight: on ? "600" : "400", color: on ? c.accentInk : c.ink }}>
+                {o.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}

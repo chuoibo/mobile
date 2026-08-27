@@ -12,7 +12,7 @@
 import type { Proposal } from "./screens/DeXuat";
 import type { Obligation } from "./screens/DotThu";
 import type { Envelope } from "./screens/ChiaSe";
-import type { Draft } from "./screens/NhapKhoanChi";
+import type { Draft, Participant } from "./screens/NhapKhoanChi";
 
 export const OFFLINE = true;
 export const BASE_URL = "http://localhost:8000";
@@ -37,18 +37,20 @@ function fixtureProposal(draft: Draft): Proposal {
   // Largest remainder with every remainder equal: the advancer absorbs the
   // rounding first, then plain byte order. Mirrors ADR-0004 decisions 16 and 17.
   const ordered = [...draft.participants].sort((a, b) =>
-    a === draft.advancer ? -1 : b === draft.advancer ? 1 : (a < b ? -1 : a > b ? 1 : 0)
+    a.id === draft.advancerId ? -1 : b.id === draft.advancerId ? 1
+      : (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
   );
-  const gainers = ordered.slice(0, deficit);
+  const gainers = ordered.slice(0, deficit).map((p) => p.id);
   const allocations: Record<string, number> = {};
-  for (const name of draft.participants) {
-    allocations[name] = floor + (gainers.includes(name) ? 1 : 0);
+  for (const person of draft.participants) {
+    allocations[person.id] = floor + (gainers.includes(person.id) ? 1 : 0);
   }
   return {
+    participants: draft.participants,
     allocations,
     roundingGainers: gainers,
     totalVnd: draft.totalVnd,
-    advancer: draft.advancer,
+    advancerId: draft.advancerId,
     occasion: draft.occasion,
   };
 }
@@ -56,9 +58,9 @@ function fixtureProposal(draft: Draft): Proposal {
 export async function proposeSplit(draft: Draft): Promise<Proposal> {
   if (OFFLINE) return fixtureProposal(draft);
   return post<Proposal>("/expenses", {
-    participants: draft.participants,
+    participants: draft.participants.map((p) => ({ id: p.id, display_name: p.name })),
     total_vnd: draft.totalVnd,
-    advancer_id: draft.advancer,
+    advancer_id: draft.advancerId,
     items: [],
     surcharges: [],
     discounts: [],
@@ -67,12 +69,15 @@ export async function proposeSplit(draft: Draft): Promise<Proposal> {
 
 export async function openBatch(proposal: Proposal): Promise<Obligation[]> {
   if (OFFLINE) {
+    const nameOf = (id: string) =>
+      proposal.participants.find((p) => p.id === id)?.name ?? id;
     return Object.entries(proposal.allocations)
-      .filter(([name, amount]) => name !== proposal.advancer && amount > 0)
-      .map(([name, amount], index) => ({
+      .filter(([id, amount]) => id !== proposal.advancerId && amount > 0)
+      .map(([id, amount], index) => ({
         id: `o${index + 1}`,
-        sender: name,
-        recipient: proposal.advancer,
+        senderId: id,
+        senderName: nameOf(id),
+        recipient: nameOf(proposal.advancerId),
         amountVnd: amount,
         status: "outstanding" as const,
       }));
@@ -83,7 +88,8 @@ export async function openBatch(proposal: Proposal): Promise<Obligation[]> {
 export async function publishBatch(obligations: Obligation[]): Promise<Envelope[]> {
   if (OFFLINE) {
     return obligations.map((o) => ({
-      sender: o.sender,
+      senderId: o.senderId,
+      senderName: o.senderName,
       amountVnd: o.amountVnd,
       url: `${BASE_URL}/g/vi-du-${o.id}`,
       opened: false,

@@ -4,6 +4,7 @@
  * executor runs only after the right person confirms. This screen is that
  * moment, so it shows the whole allocation rather than a summary.
  */
+import type { Participant } from "./NhapKhoanChi";
 import React from "react";
 import { ScrollView, Text, View } from "react-native";
 import { formatVnd } from "../../../../packages/shared/money.mjs";
@@ -11,10 +12,11 @@ import { space, type, usePalette } from "../theme";
 import { Button, Card, Row, Screen } from "../ui/Kit";
 
 export type Proposal = {
+  participants: Participant[];
   allocations: Record<string, number>;
   roundingGainers: string[];
   totalVnd: number;
-  advancer: string;
+  advancerId: string;
   occasion: string;
 };
 
@@ -22,13 +24,23 @@ export function DeXuat({ proposal, onConfirm, onBack }: {
   proposal: Proposal; onConfirm: () => void; onBack: () => void;
 }) {
   const c = usePalette();
-  const names = Object.keys(proposal.allocations).sort();
-  const owed = names.filter((n) => n !== proposal.advancer && proposal.allocations[n] > 0);
+  // Iterate people, not allocation keys: the key is an id, and only the
+  // participant list can turn it back into a name to show.
+  const people = proposal.participants;
+  const advancerName =
+    people.find((p) => p.id === proposal.advancerId)?.name ?? proposal.advancerId;
+  // roundingGainers holds ids; ids are never shown to anyone.
+  const gainerNames = proposal.roundingGainers.map(
+    (id) => people.find((p) => p.id === id)?.name ?? id
+  );
+  const owed = people.filter(
+    (p) => p.id !== proposal.advancerId && proposal.allocations[p.id] > 0
+  );
 
   return (
     <Screen
       title={`Chia ${proposal.occasion}`}
-      hint={`${proposal.advancer} đã trả trước ${formatVnd(proposal.totalVnd)}đ.`}
+      hint={`${advancerName} đã trả trước ${formatVnd(proposal.totalVnd)}đ.`}
       footer={
         <>
           <Button label="Đúng rồi, ghi vào sổ" onPress={onConfirm} />
@@ -38,12 +50,12 @@ export function DeXuat({ proposal, onConfirm, onBack }: {
     >
       <ScrollView contentContainerStyle={{ gap: space.md }}>
         <Card>
-          {names.map((name) => (
+          {people.map((person) => (
             <Row
-              key={name}
-              left={name === proposal.advancer ? `${name} (trả trước)` : name}
-              right={`${formatVnd(proposal.allocations[name])}đ`}
-              muted={name === proposal.advancer}
+              key={person.id}
+              left={person.id === proposal.advancerId ? `${person.name} (trả trước)` : person.name}
+              right={`${formatVnd(proposal.allocations[person.id])}đ`}
+              muted={person.id === proposal.advancerId}
             />
           ))}
           <View style={{ height: 1, backgroundColor: c.line, marginVertical: space.xs }} />
@@ -55,15 +67,15 @@ export function DeXuat({ proposal, onConfirm, onBack }: {
         {proposal.roundingGainers.length > 0 ? (
           <Card>
             <Text style={{ ...type.label, color: c.inkSoft }}>
-              Chia không hết chẵn. {proposal.roundingGainers.join(", ")} chịu thêm 1đ lẻ,
-              vì {proposal.advancer === proposal.roundingGainers[0] ? "là người trả trước" : "theo thứ tự cố định"}.
+              Chia không hết chẵn. {gainerNames.join(", ")} chịu thêm 1đ lẻ,
+              vì {proposal.advancerId === proposal.roundingGainers[0] ? "là người trả trước" : "theo thứ tự cố định"}.
             </Text>
           </Card>
         ) : null}
 
         <Card>
           <Text style={{ ...type.label, color: c.inkSoft }}>
-            {owed.length} người sẽ cần gửi tiền cho {proposal.advancer}.
+            {owed.length} người sẽ cần gửi tiền cho {advancerName}.
             Chưa ai bị nhắn gì cho tới khi bạn phát đợt thu.
           </Text>
         </Card>

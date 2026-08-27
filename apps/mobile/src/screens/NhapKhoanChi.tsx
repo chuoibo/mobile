@@ -8,12 +8,14 @@ import React, { useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { formatVnd } from "../../../../packages/shared/money.mjs";
 import { space, type, usePalette } from "../theme";
-import { Button, Card, Field, Screen } from "../ui/Kit";
+import { Button, Card, Choice, Field, Screen } from "../ui/Kit";
+
+export type Participant = { id: string; name: string };
 
 export type Draft = {
-  participants: string[];
+  participants: Participant[];
   totalVnd: number;
-  advancer: string;
+  advancerId: string;
   occasion: string;
 };
 
@@ -22,11 +24,27 @@ export function NhapKhoanChi({ onNext }: { onNext: (draft: Draft) => void }) {
   const [occasion, setOccasion] = useState("");
   const [names, setNames] = useState("");
   const [amount, setAmount] = useState("");
-  const [advancer, setAdvancer] = useState("");
+  const [advancerId, setAdvancerId] = useState<string | null>(null);
 
-  const participants = names.split(",").map((n) => n.trim()).filter(Boolean);
+  // Position in the list is the identity, not the name. Two friends called Nam
+  // are two people; keying anything by name collapses them into one and the
+  // second person's share silently vanishes.
+  const participants: Participant[] = names
+    .split(",")
+    .map((n) => n.trim())
+    .filter(Boolean)
+    .map((name, index) => ({ id: `p${index + 1}`, name }));
   const totalVnd = Number(amount.replace(/\D/g, "")) || 0;
-  const ready = participants.length > 0 && totalVnd > 0 && participants.includes(advancer.trim());
+  const chosen = participants.some((p) => p.id === advancerId);
+  const ready = participants.length > 0 && totalVnd > 0 && chosen;
+
+  const duplicated = [
+    ...new Set(
+      participants
+        .map((p) => p.name)
+        .filter((name, i, all) => all.indexOf(name) !== i)
+    ),
+  ];
 
   return (
     <Screen
@@ -34,15 +52,16 @@ export function NhapKhoanChi({ onNext }: { onNext: (draft: Draft) => void }) {
       hint="Ai có mặt, hết bao nhiêu, ai trả trước."
       footer={
         <>
-          {!ready && participants.length > 0 && !participants.includes(advancer.trim()) ? (
+          {duplicated.length > 0 ? (
             <Text style={{ ...type.label, color: c.warn }}>
-              Người trả trước phải nằm trong danh sách có mặt.
+              Có hai người tên {duplicated.join(", ")}. Chia tiền vẫn đúng, nhưng
+              thêm gì đó để phân biệt sẽ dễ đọc hơn — ví dụ Nam A và Nam B.
             </Text>
           ) : null}
           <Button
             label="Chia tiền"
             disabled={!ready}
-            onPress={() => onNext({ participants, totalVnd, advancer: advancer.trim(), occasion: occasion.trim() || "khoản chi" })}
+            onPress={() => onNext({ participants, totalVnd, advancerId: advancerId!, occasion: occasion.trim() || "khoản chi" })}
           />
         </>
       }
@@ -65,7 +84,12 @@ export function NhapKhoanChi({ onNext }: { onNext: (draft: Draft) => void }) {
         </Card>
 
         <Card>
-          <Field label="Ai trả trước" value={advancer} onChangeText={setAdvancer} placeholder="Nam" />
+          <Choice
+            label="Ai trả trước"
+            options={participants.map((p) => ({ id: p.id, label: p.name }))}
+            value={advancerId}
+            onChange={setAdvancerId}
+          />
           {/* Section 8.3 gate 2: nothing goes out in someone's name until they
               acknowledge it. Saying so here sets the expectation early. */}
           <Text style={{ ...type.label, color: c.inkSoft }}>
