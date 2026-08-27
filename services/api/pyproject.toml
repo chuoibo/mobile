@@ -9,6 +9,9 @@ description = "API service for the group-expense product"
 requires-python = ">=3.12"
 dependencies = [
   "alembic>=1.14,<2",
+  # Web layer (Claude): server-rendered guest page and its QR image.
+  "jinja2>=3.1,<4",
+  "segno>=1.6,<2",
   "fastapi>=0.115,<1",
   "psycopg[binary]>=3.2,<4",
   "sqlalchemy>=2.0,<2.1",
