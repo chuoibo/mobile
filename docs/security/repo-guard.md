@@ -1,4 +1,4 @@
-# W9a — Repo guard cho dữ liệu nghiên cứu
+# W9a — Repo guard cho dữ liệu nghiên cứu và credential
 
 ## 1. Quy tắc tuyệt đối và nơi lưu quy ước
 
@@ -85,6 +85,9 @@ Scanner hiện có các rule:
 - `vn-phone`: số di động và cố định Việt Nam ở dạng trong nước/quốc tế phổ biến;
 - `email`;
 - `long-number`: chuỗi từ 9 chữ số, có thể có dấu cách, chấm hoặc gạch nối.
+- `github-token`: token GitHub dạng prefix cổ điển (`ghp_*`, `gho_*`, `ghu_*`, `ghs_*`, `ghr_*`) và fine-grained `github_pat_*`;
+- `aws-access-key-id`: access-key ID AWS dạng `AKIA*` hoặc session key `ASIA*`;
+- `aws-secret-access-key`: secret 40 ký tự đứng sau tên field `secret_access_key`/`aws_secret_access_key`;
 - `data-uri-base64`: marker `data:<mime>;base64,` trên dòng được quét, không phụ thuộc đuôi file;
 - `dense-base64-line`: dòng dài hơn 4 KiB có ít nhất 98% byte thuộc bảng chữ cái base64/base64url.
 - `aggregate-base64-fragments`: trên các dòng thuộc phạm vi quét của một file, cộng tổng số byte của mọi token dài ít nhất 8 byte chỉ gồm bảng chữ cái base64/base64url; chặn khi tổng lớn hơn 16 KiB. Vị trí token, số dòng trống hay số dòng văn xuôi nằm giữa các token không tham gia quyết định;
@@ -104,7 +107,7 @@ Viết số tiền theo định dạng có phân nhóm và đơn vị, ví dụ 
 
 ### Annotation cho text tổng hợp
 
-Chỉ bảy content rule `email`, `vn-phone`, `long-number`, `data-uri-base64`, `dense-base64-line`, `aggregate-base64-fragments`, `long-base64-token` được miễn ở cùng dòng hoặc đúng dòng ngay sau annotation:
+Chỉ bảy content rule không phải credential — `email`, `vn-phone`, `long-number`, `data-uri-base64`, `dense-base64-line`, `aggregate-base64-fragments`, `long-base64-token` — được miễn ở cùng dòng hoặc đúng dòng ngay sau annotation. Ba rule credential **không thể annotation hoặc allowlist**; credential thật phải bị thu hồi/rotate và loại khỏi diff:
 
 ```text
 # repo-guard: allow=long-number reason=synthetic-aggregate-id
@@ -153,8 +156,8 @@ Binary là opaque đối với scanner. Reviewer phải kiểm tra nguồn tạo
 
 ## 8. Giới hạn đã biết — không được diễn giải quá mức
 
-Không scanner nào nhận ra mọi tên người Việt, biệt danh, địa chỉ, nội dung chat hay định danh theo ngữ cảnh. Ví dụ, một dòng chỉ có tên thật và số tiền viết hoàn toàn bằng chữ có thể đi qua. Regex này cũng có thể bỏ sót email/điện thoại bị làm rối hoặc format chưa biết.
+Không scanner nào nhận ra mọi tên người Việt, biệt danh, địa chỉ, nội dung chat hay định danh theo ngữ cảnh. Ví dụ, một dòng chỉ có tên thật và số tiền viết hoàn toàn bằng chữ có thể đi qua. Regex này cũng có thể bỏ sót email/điện thoại bị làm rối hoặc format chưa biết. Detector credential chỉ phủ các prefix GitHub/AWS đã nêu và AWS secret khi có tên field gần nó; nó không phải secret scanner tổng quát, không phát hiện mọi API key, private key, JWT, mật khẩu hay token đã bị chẻ/làm rối.
 
 Scanner chặn marker data URI, token base64/base64url dài, dòng dài có mật độ cao và tổng token base64 phân tán vượt ngưỡng, nhưng không giải mã base64 để phân loại nội dung. Payload có tổng không quá 16 KiB, bị chẻ thành token ngắn hơn 8 byte, bị xen ký tự để phá token/hạ mật độ, hoặc dùng encoding khác vẫn có thể lọt. Scanner cũng không OCR ảnh, không giải nén archive, không đọc PDF, spreadsheet/database theo schema và không thấy PII nằm trong ảnh nén hoặc archive mã hoá. Allowlist binary là quyết định của con người, không phải bằng chứng file sạch.
 
-Scanner không cung cấp consent, access control, encryption, retention, deletion hay incident response. Hook bị bypass được; CI chạy sau push; reviewer có thể dùng annotation/allowlist sai. Đây là lớp giảm thiểu. Quy tắc gốc vẫn là: **dữ liệu thật không đi vào repository hoặc worktree ngay từ đầu.**
+Scanner không cung cấp consent, access control, encryption, retention, deletion hay incident response. Nó cũng không thay thế secret manager hoặc việc revoke/rotate credential đã lộ. Hook bị bypass được; CI chạy sau push; reviewer có thể dùng annotation/allowlist sai. Đây là lớp giảm thiểu. Quy tắc gốc vẫn là: **dữ liệu thật và credential thật không đi vào repository hoặc worktree ngay từ đầu.**

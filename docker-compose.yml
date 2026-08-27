@@ -1,0 +1,22 @@
+name: mobile-local
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: mobile
+      POSTGRES_USER: mobile
+      POSTGRES_PASSWORD: mobile-dev-only
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mobile -d mobile"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - mobile-postgres-data:/var/lib/postgresql/data
+
+volumes:
+  mobile-postgres-data:
+
