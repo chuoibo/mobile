@@ -257,12 +257,6 @@ __marimo__/
 *.xlsm
 *.ods
 
-<<<<<<< HEAD
-# Expo / React Native
-apps/mobile/node_modules/
-apps/mobile/.expo/
-apps/mobile/dist/
-=======
 # Dependency directories. This rule once lived only on a feature branch, so a
 # `git add -A` from a different branch swept 12,629 files into the repository
 # and took .git from a few hundred kilobytes to 84 MB. The rule belongs on the
@@ -271,4 +265,3 @@ node_modules/
 **/node_modules/
 .expo/
 apps/*/dist/
->>>>>>> origin/main

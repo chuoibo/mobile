@@ -133,6 +133,11 @@ VN_LANDLINE_RE = re.compile(
     r"(?<!\d)(?:(?:\+|00)?84(?:[ ().-]*0)?|0)[ ().-]*2"
     r"(?:[ ().-]*\d){8,9}(?!\d)"
 )
+# A committed conflict marker breaks whatever file it lands in, and the damage
+# is quiet: a .gitignore carrying one stops ignoring things without saying so.
+# This got past the guard once, in this repository, in a commit that also
+# reported "Repo guard passed".
+CONFLICT_MARKER_RE = re.compile(r"^(?:<{7}|={7}|>{7})(?:\s|$)", re.MULTILINE)
 LONG_NUMBER_RE = re.compile(r"(?<![A-Za-z0-9])\d(?:[ .-]?\d){8,63}(?![A-Za-z0-9])")
 GITHUB_TOKEN_RE = re.compile(
     r"(?<![A-Za-z0-9_])(?:"
@@ -171,6 +176,7 @@ ANNOTATION_RE = re.compile(
 
 CONTENT_RULES = {
     "aggregate-base64-fragments",
+    "conflict-marker",
     "data-uri-base64",
     "dense-base64-line",
     "email",
@@ -311,6 +317,8 @@ def mask_match(rule: str, value: str) -> str:
     if rule == "long-number":
         digits = sum(character.isdigit() for character in value)
         return f"******** (digits={digits})"
+    if rule == "conflict-marker":
+        return "<redacted-conflict-marker>"
     if rule in {"data-uri-base64", "dense-base64-line"}:
         line_bytes = len(value.encode("utf-8"))
         return f"<redacted-base64-line> (line-bytes={line_bytes})"
@@ -696,6 +704,9 @@ def content_findings(
                     (match.start(), match.end(), "vn-phone", match.group(0))
                 )
                 occupied.append(match.span())
+        for match in CONFLICT_MARKER_RE.finditer(line):
+            candidates.append((match.start(), match.end(), "conflict-marker", match.group(0)))
+
         for match in LONG_NUMBER_RE.finditer(line):
             if overlaps(match.span(), occupied):
                 continue
