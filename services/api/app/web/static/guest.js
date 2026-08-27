@@ -53,16 +53,14 @@
       var card = reveal.closest(".card");
       var panel = card && card.querySelector("[data-transfer]");
       if (panel) {
-        panel.hidden = false;
+        panel.classList.add("is-open");
         reveal.hidden = true;
         panel.scrollIntoView({ block: "nearest", behavior: "smooth" });
       }
     }
   });
 
-  // Collapse the transfer panel only once JS is confirmed working, so a script
-  // error leaves the page usable rather than empty.
-  document.querySelectorAll("[data-transfer]").forEach(function (panel) {
-    panel.hidden = true;
-  });
+  // Collapsing is done in CSS, gated on the .js class the inline script sets
+  // before paint. Nothing here hides anything, so a failure in this file can
+  // never leave a guest unable to see where to transfer.
 })();

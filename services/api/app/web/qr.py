@@ -21,7 +21,7 @@ __all__ = ["QRError", "payload_to_png_data_uri"]
 # Small enough to stay well inside a data URI, large enough that a banking app
 # reading it off a saved screenshot still resolves the modules.
 _SCALE = 6
-_BORDER = 2
+_BORDER = 4  # QR standard quiet zone; 2 makes some scanners fail silently
 _MAX_BYTES = 60_000
 
 

@@ -8,9 +8,14 @@
        from, so there is no second device to scan a QR with. Copy, deep link
        and save-image are the primary paths; the QR is the fallback.
 
-  Rendered server-side and progressively enhanced. With JavaScript off the
-  transfer details are simply already open -- the failure mode is "shows more
-  at once", never "cannot pay".
+  Rendered server-side and progressively enhanced. The transfer panel is open
+  in the markup and collapsed by CSS only once the inline script has marked the
+  document as scripted, so with JavaScript off it stays open: the failure mode
+  is "shows more at once", never "cannot pay".
+
+  An earlier version put `hidden` straight on the panel, which meant a guest
+  with scripting disabled could not reach the account number at all. Caught in
+  review by Codex.
 #}<!doctype html>
 <html lang="vi">
 <head>
@@ -66,7 +71,7 @@
     </div>
 
     {# --- face two: how to transfer -------------------------------------- #}
-    <div class="transfer" data-transfer hidden>
+    <div class="transfer" data-transfer>
       <p class="eyebrow">Chuyển tới</p>
       <p class="recipient">{{ block.recipient_display_name }} · {{ block.bank_name }}</p>
 
