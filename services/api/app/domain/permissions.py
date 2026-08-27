@@ -1,0 +1,129 @@
+"""One permission table. Every API and every ActionItem asks this module.
+
+Spec section 9 opens with the reason: scattered permission checks are exactly
+how the confused deputy comes back. If three call sites each decide who may
+publish a batch, they will disagree eventually, and the disagreement will be
+discovered by someone collecting money they had no right to collect.
+
+So the rules live here as data, and `can()` is the only way to read them.
+
+Pure functions over plain dicts. No I/O, no ORM, no framework.
+"""
+
+from __future__ import annotations
+
+__all__ = ["ACTIONS", "ROLES", "can", "denial_reason", "PermissionError_"]
+
+ROLES = (
+    "group_admin",
+    "batch_owner",
+    "advancer",
+    "recipient",
+    "sender",
+    "creditor",
+    "member",
+    "former_member",
+    "guest",
+    "platform_moderator",
+)
+
+# Each entry is (roles that may act, extra predicates the context must satisfy).
+# A role listed here is necessary, never sufficient on its own -- the predicates
+# are what stop a batch_owner from acting outside their own batch.
+_TABLE: dict[str, dict] = {
+    # --- invocation ----------------------------------------------------
+    "create_private_invocation": {"roles": {"member"}, "requires": ()},
+    "create_shared_invocation": {"roles": {"member"}, "requires": ()},
+    "view_invocation_input": {"roles": {"member"}, "requires": ("is_invoker",)},
+    "view_invocation_proposal": {"roles": {"member"}, "requires": ("is_invoker",)},
+
+    # --- expense -------------------------------------------------------
+    "confirm_expense_proposal": {"roles": {"member"}, "requires": ("is_group_member",)},
+    # Gate 2 of section 8.3. Only the person who actually fronted the money may
+    # acknowledge that they fronted it; otherwise a member could raise
+    # collections in someone else's name.
+    "acknowledge_advancer_role": {"roles": {"advancer"}, "requires": ("is_named_advancer",)},
+
+    # --- bank recipient ------------------------------------------------
+    # Section 9.2: an admin may not add or change someone else's bank account,
+    # and an AdvancerApprovalCapability explicitly may not be used for this.
+    "set_bank_recipient": {"roles": {"member"}, "requires": ("is_own_account", "is_authenticated_account")},
+
+    # --- batch ---------------------------------------------------------
+    "freeze_batch": {"roles": {"batch_owner"}, "requires": ("owns_batch",)},
+    "publish_batch": {"roles": {"batch_owner"}, "requires": ("owns_batch", "all_recipients_eligible")},
+    # Section 9.1: whoever has data or risk inside a capability may pull it
+    # back. Three different subjects, three different scopes.
+    "revoke_capability_whole_batch": {"roles": {"batch_owner"}, "requires": ("owns_batch",)},
+    "revoke_capability_own_recipient_account": {"roles": {"recipient"}, "requires": ("envelope_contains_own_account",)},
+    "revoke_capability_own_envelope": {"roles": {"sender"}, "requires": ("is_own_capability",)},
+
+    # --- things the batch owner may NOT do alone ------------------------
+    "cancel_obligation": {"roles": {"batch_owner"}, "requires": ("all_affected_parties_consented",)},
+    "amend_obligation_after_publish": {"roles": {"batch_owner"}, "requires": ("all_affected_parties_consented",)},
+    "delete_payment_report": {"roles": set(), "requires": ()},
+    "delete_receipt_confirmation": {"roles": set(), "requires": ()},
+    "delete_audit_history": {"roles": set(), "requires": ()},
+    "close_dispute": {"roles": {"platform_moderator"}, "requires": ()},
+
+    # --- debt forgiveness ----------------------------------------------
+    # Spec section 4: only the creditor of that exact receivable. The organiser
+    # does not get to forgive on Ha's behalf.
+    "waive_obligation": {"roles": {"creditor"}, "requires": ("is_creditor_of_this_obligation",)},
+
+    # --- evidence ------------------------------------------------------
+    "request_redacted_evidence": {"roles": {"member", "guest"}, "requires": ("is_charged_party",)},
+    "share_evidence": {"roles": {"member"}, "requires": ("is_uploader",)},
+
+    # --- identity ------------------------------------------------------
+    "invite_person_stub_claim": {"roles": {"member"}, "requires": ()},
+    "challenge_person_stub_claim": {"roles": {"member"}, "requires": ()},
+    # Section 9.2: an admin does not adjudicate identity. Only the platform
+    # does -- because in a group dispute the attacker is a group member.
+    "adjudicate_person_stub_claim": {"roles": {"platform_moderator"}, "requires": ()},
+
+    # --- group logistics ------------------------------------------------
+    "manage_members_and_invites": {"roles": {"group_admin"}, "requires": ()},
+    "remove_member_from_group": {"roles": {"group_admin"}, "requires": ()},
+    "transfer_group_admin": {"roles": {"group_admin"}, "requires": ()},
+    "remove_own_uploaded_content": {"roles": {"group_admin", "member"}, "requires": ("is_uploader",)},
+    "remove_others_content": {"roles": {"platform_moderator"}, "requires": ()},
+    "attach_workspace_to_group": {"roles": {"member"}, "requires": ("is_workspace_owner",)},
+}
+
+ACTIONS = tuple(sorted(_TABLE))
+
+
+class PermissionError_(Exception):
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+def can(action: str, roles: set[str] | frozenset[str], context: dict | None = None) -> bool:
+    """True when `roles` may perform `action` in `context`."""
+    return denial_reason(action, roles, context) is None
+
+
+def denial_reason(action: str, roles: set[str] | frozenset[str], context: dict | None = None) -> str | None:
+    """None when allowed, otherwise why not.
+
+    Returning the reason rather than a bare False is deliberate: the UI has to
+    tell someone what is missing -- "the advancer has not acknowledged yet" is
+    actionable, "forbidden" is not.
+    """
+    if action not in _TABLE:
+        raise PermissionError_("UNKNOWN_ACTION")
+    rule = _TABLE[action]
+    context = context or {}
+
+    if not rule["roles"]:
+        # Nobody, ever. Deleting a receipt confirmation would let the ledger be
+        # rewritten to suit whoever holds the button.
+        return "action_permitted_to_nobody"
+    if not (set(roles) & rule["roles"]):
+        return "role_not_permitted"
+    for predicate in rule["requires"]:
+        if not context.get(predicate):
+            return predicate
+    return None
