@@ -1,13 +1,10 @@
-"""Shared boundary for the two blind allocator implementations.
+"""Frozen vocabulary of the allocator contract (ADR-0004).
 
-ADR-0004 blocker V2-03: without a neutral interoperable representation, impl_a
-(pure integer) and impl_b (Fraction) would return different concrete types for
-the same arithmetic, the differential harness would compare unequal, and whoever
-wrote the harness would have to read both implementations to build adapters --
-destroying the blindness the whole exercise depends on.
+Promoted from phase0/allocator/ to product code by ADR-0006. The blind
+two-implementation exercise was dropped there; what carries over is the frozen
+contract, the 41 hand-computed golden vectors and the property tests.
 
-This module contains constants and an exception class ONLY. No logic, ever.
-Sharing logic between the two implementations would defeat the differential.
+Constants and an exception class only. No logic.
 """
 
 from __future__ import annotations
