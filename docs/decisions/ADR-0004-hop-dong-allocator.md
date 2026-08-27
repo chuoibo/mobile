@@ -36,14 +36,34 @@ _apportion(total_vnd, exact, advancer_id) -> tuple[dict[ParticipantId, int], tup
 
 `Fraction` là **ngôn ngữ của hợp đồng** để nói "chính xác". `impl_a` được phép dùng số nguyên thuần miễn kết quả trùng khớp.
 
-### Ngữ nghĩa so sánh — đóng băng cho differential
+### Biên liên vận hành — đóng băng TRƯỚC khi viết hai bản
 
-| Kiểu | So thế nào |
+> **Sửa theo blocker V2-03 của Codex.** ADR khai `exact_shares` kiểu `Fraction`, nhưng `impl_a` bị yêu cầu dùng **số nguyên thuần, không `Fraction`**. Impl A có thể trả `(num, den)`, impl B trả `fractions.Fraction` — **mapping equality sẽ đỏ dù số học giống hệt nhau.** Và harness sẽ phải đọc code từng bản rồi viết adapter riêng, tức là **phá luôn ý nghĩa "viết mù"**.
+
+**Biên là `dict` thuần Python, đúng bằng schema của golden vector.** Không dataclass ở biên, không kiểu riêng của bản nào.
+
+```python
+# phase0/allocator/impl_{a,b}/allocator.py
+def allocate(expense: dict) -> dict: ...
+```
+
+| | |
 |---|---|
-| `dict` | **Mapping equality.** Thứ tự chèn **không** tính |
-| `tuple` | Có thứ tự, so từng phần tử |
-| `Fraction` | Serialize **tối giản** dạng `numerator/denominator` |
-| Lỗi | So bằng **`code`**, không so message |
+| **Input** | `dict` khớp đúng khoá `input` của golden vector |
+| **Output** | `dict` có `allocations` · `exact_shares` · `rounding_gainers` · `warnings` |
+| **`allocations`** | `dict[str, int]` |
+| **`exact_shares`** | `dict[str, str]` — **chuỗi `"num/den"` đã TỐI GIẢN, `den > 0`**, kể cả số nguyên (`"100000/1"`) |
+| **`rounding_gainers`** | `list[str]`, **có thứ tự** |
+| **`warnings`** | `list[str]`, sắp xếp alphabet |
+| **Lỗi** | `raise AllocationError(code)` từ `phase0/allocator/contract.py` |
+
+`impl_b` được dùng `Fraction` **nội bộ**, nhưng kiểu đó **không được rò qua biên**.
+
+`contract.py` là module dùng chung **duy nhất**, và nó chỉ chứa **hằng số và lớp ngoại lệ — không một dòng logic nào**. Chia sẻ logic sẽ phá viết mù.
+
+Hệ quả đáng giá: golden corpus **chạy thẳng** được lên cả hai bản, không cần adapter.
+
+### Ngữ nghĩa so sánh — đóng băng cho differential
 
 ### Kiểu dữ liệu
 
@@ -146,19 +166,15 @@ Spec im lặng ở những chỗ này. Để fuzzer tự quyết là sai — nó
 | **13** | Số tiền quá lớn | ❌ `AMOUNT_TOO_LARGE` khi bất kỳ số tiền nào > `10**12` | Khoản chi nhóm bạn không bao giờ tới nghìn tỉ. Miền input vô hạn khiến fuzzer đốt thời gian ở vùng không học được gì. Cũng giữ golden vector và log ở kích thước lành mạnh |
 | **14** | Phụ phí `even` | Chia đều cho **MỌI** participant, kể cả người phần = 0 | Phí ship/phục vụ là chi phí của việc **cả nhóm có mặt**, không phải của việc bạn ăn gì. Và "chia đều" theo nghĩa thông thường là tất cả — đó chính là lý do người dùng chọn tuỳ chọn này |
 | **15** | Phụ phí `proportional` khi `B' = 0` | Lui về **chia đều**. Warning `proportional_fallback_to_even` | Không có cơ sở tỉ lệ thì chia đều là phân bố duy nhất bảo vệ được. Thay thế duy nhất là chia cho 0 |
-| **16** | **Advancer thắng tie-break nghĩa là nhận THÊM hay BỚT 1đ?** | **THÊM** — advancer nhận `+1đ` | ⚠️ Đây là chỗ mơ hồ thật, dễ đọc ngược. Phần chia = **số tiền người đó nợ**. Advancer nhận thêm 1đ ⇒ **người ứng tiền nuốt phần lẻ**, cả nhóm nợ ít đi. Đó là hành vi đúng về mặt xã hội và là cách đọc duy nhất khiến "thắng" có nghĩa là chịu thiệt thay cho nhóm |
+| **16** | **Advancer thắng tie-break nghĩa là nhận THÊM hay BỚT 1đ?** | **THÊM** — advancer nhận `+1đ` | ⚠️ Đây là chỗ mơ hồ thật, dễ đọc ngược. Phần chia = **số tiền người đó nợ**. Advancer nhận thêm 1đ ⇒ **người ứng tiền nuốt phần lẻ**; những participant còn lại phải hoàn ít hơn 1đ. Tổng allocation **không** giảm. Đó là hành vi đúng về mặt xã hội và là cách đọc duy nhất khiến "thắng" có nghĩa là chịu thiệt thay cho nhóm |
 | **17** | "Thứ tự ổn định theo ID" là thứ tự nào? | Sắp xếp `participant_id` theo **byte UTF-8**, KHÔNG theo thứ tự input, KHÔNG theo collation ngôn ngữ | Thứ tự input khác nhau giữa client và server. Collation tiếng Việt khác nhau giữa nền tảng và phiên bản ICU. Byte UTF-8 là thứ duy nhất tái lập được ở mọi nơi — và điều này quan trọng nếu sau này thêm bản TypeScript |
 | **18** | Định dạng `warnings` | **Từ vựng đóng, không mang payload, sắp xếp theo alphabet:** `advancer_not_participant` · `proportional_fallback_to_even` · `zero_share_participants` | ⚠️ Tự tìm ra khi tính golden vector bằng tay. Nếu để mở, hai bản sẽ format chuỗi khác nhau (`"zero:a,c"` với `"zero_share=a, c"`) và tạo ra một **bất đồng giả** không phải lỗi số học. Chi tiết ai phần 0 caller tự suy ra từ `allocations` — không nhân bản dữ liệu vào chuỗi |
 | **19** | `items` rỗng nhưng `surcharges` hoặc `discounts` KHÔNG rỗng | ✅ Hợp lệ. **Không phải** `EVEN_SPLIT` — đi đường thường, có đối chiếu, `B = 0` | ⚠️ Cũng tự tìm ra khi viết golden vector. Quyết định #2 chỉ định nghĩa `EVEN_SPLIT`, nó **không** cấm ca này. Kết hợp với #15 (`B' = 0` → lui về chia đều) thì ca "toàn bộ khoản chi là phụ phí" có hành vi xác định |
 | **20** | Nhiều lỗi cùng áp dụng — trả `code` nào? | **Thứ tự kiểm tra cố định:** cấu trúc → tham chiếu → số học → đối chiếu. Trong mỗi nhóm, duyệt phần tử theo **thứ tự byte của `item_id` / `surcharge_id` / `discount_id`**, KHÔNG theo thứ tự input | ⚠️ Tự tìm ra khi viết golden vector cho ca lỗi. Nếu không chốt, hai bản sẽ trả `code` khác nhau cho cùng input — một **bất đồng giả**. Và nếu duyệt theo thứ tự input thì đảo thứ tự `items` sẽ đổi `code`, **phá bất biến 6** |
 
-**Thứ tự đầy đủ:**
-1. **Cấu trúc:** `NO_PARTICIPANTS` → `DUPLICATE_PARTICIPANT` → `NEGATIVE_AMOUNT` → `AMOUNT_TOO_LARGE` → `INVALID_MODE` → `INVALID_SCOPE` → `EMPTY_SHARED_BY`
-2. **Tham chiếu:** `UNKNOWN_PARTICIPANT` → `UNKNOWN_ITEM`
-3. **Số học:** `DISCOUNT_EXCEEDS_ITEM` → `DISCOUNT_EXCEEDS_BASE`
-4. **Đối chiếu:** `RECONCILIATION_MISMATCH` — **luôn cuối cùng**
+**Danh sách precedence chuẩn duy nhất nằm ở mục 6.** Không lặp lại ở đây.
 
-Đối chiếu đứng cuối vì nó là hệ quả: giảm giá vượt món gần như luôn kéo theo lệch đối chiếu, và báo `RECONCILIATION_MISMATCH` khi nguyên nhân thật là `DISCOUNT_EXCEEDS_ITEM` sẽ khiến giao diện chỉ sai chỗ cho người dùng.
+> **Sửa theo blocker V2-01 của Codex.** Bản v2 để lại **hai** danh sách cùng mang nhãn "đầy đủ": 12 code ở đây và 19 code ở mục 6. Phản ví dụ của Codex: `participants = (" a", " a")` → theo danh sách cũ là `DUPLICATE_PARTICIPANT`, theo mục 6 là `INVALID_PARTICIPANT_ID`. **Hai hiện thực đều viện dẫn được một đoạn có nhãn "đầy đủ" mà trả code khác nhau.** Đây là lỗi merge, không phải bất đồng thiết kế.
 
 | # | Tình huống | Quyết định | Vì sao |
 |---|---|---|---|
@@ -216,10 +232,11 @@ Xây theo thứ tự nhân quả, rồi **suy ra** `total_vnd` từ những gì 
 | `item.amount_vnd` | 1…10⁹ |
 | `surcharge.amount_vnd` / `discount.amount_vnd` | 1…10⁹ |
 | `kind` | chuỗi không rỗng, 1…32 byte |
+| `len(discounts)` | **0…5**, chia: item-scoped **0…3**, global-proportional **0…2** |
 | `total_vnd` (EVEN_SPLIT) | 0…10¹² |
 
 **Ca bắt buộc có mặt, không phó mặc xác suất:**
-`n = 1` · `total_vnd = 0` · `total_vnd < n` · phần dư bằng nhau ở nhiều người · một món cho một người · một món cho tất cả · giảm giá **vừa đúng bằng** món · toàn bộ khoản chi là phụ phí · `EVEN_SPLIT` · **item discount + global discount + cả hai mode phụ phí trong CÙNG một ca** · nhiều discount trên **cùng** một item · mọi item net về 0 rồi phụ phí proportional lui về chia đều · **hai warning cùng lúc** · biên `10¹²` · **permutation của `shared_by`**.
+`n = 1` · `total_vnd = 0` · `total_vnd < n` · phần dư bằng nhau ở nhiều người · một món cho một người · một món cho tất cả · giảm giá **vừa đúng bằng** món · toàn bộ khoản chi là phụ phí · `EVEN_SPLIT` · **item discount + global discount + cả hai mode phụ phí trong CÙNG một ca** · nhiều discount trên **cùng** một item · mọi item net về 0 rồi phụ phí proportional lui về chia đều · **hai warning cùng lúc** · **cặp sát biên sinh runtime: `total_vnd = 10¹²` HỢP LỆ và `10¹² + 1` → `AMOUNT_TOO_LARGE`** · **permutation của `shared_by`**.
 
 ### 5.2 `invalid_case_generator` — một lỗi mục tiêu, có đăng ký
 
@@ -255,6 +272,28 @@ Một ngoại lệ `AllocationError` mang `code`. **Danh sách đóng, đầy đ
 `RECONCILIATION_MISMATCH` — **luôn cuối cùng**
 
 Đối chiếu đứng cuối vì nó là **hệ quả**: giảm giá vượt món gần như luôn kéo theo lệch đối chiếu, và báo `RECONCILIATION_MISMATCH` khi nguyên nhân thật là `DISCOUNT_EXCEEDS_ITEM` sẽ khiến giao diện **chỉ sai chỗ** cho người dùng.
+
+### Validation theo VỊ TRÍ XUẤT HIỆN — hàm toàn phần
+
+> **Sửa theo blocker V2-02 của Codex.** `ParticipantId` xuất hiện ở **ba** vị trí, nhưng ADR không nói `INVALID_PARTICIPANT_ID` kiểm cả ba hay chỉ khai báo. Fork cụ thể: `shared_by = ("",)` → `INVALID_PARTICIPANT_ID` hay `UNKNOWN_PARTICIPANT`? `advancer_id = ""` → lỗi hay success kèm warning?
+
+**Quy tắc một câu: KHAI BÁO thì validate, THAM CHIẾU thì phân giải.**
+
+| Vị trí | Loại | Kiểm gì | Vi phạm → |
+|---|---|---|---|
+| `participants[*]` | khai báo | UTF-8 hợp lệ · 1…64 byte · không rỗng · **không whitespace đầu/cuối** | `INVALID_PARTICIPANT_ID` |
+| `item.shared_by[*]` | **tham chiếu** | chỉ kiểm thuộc `participants` | `UNKNOWN_PARTICIPANT` |
+| `advancer_id` | **tham chiếu** | chỉ kiểm thuộc `participants` | *(không lỗi)* → warning `advancer_not_participant` |
+| `item_id` · `surcharge_id` · `discount_id` | khai báo | như `participants[*]` | `INVALID_ENTITY_ID` |
+| `discount.item_id` | **tham chiếu** | chỉ kiểm tồn tại trong `items` | `UNKNOWN_ITEM` |
+
+Hệ quả được nêu rõ chứ không giấu:
+- `shared_by = ("",)` → **`UNKNOWN_PARTICIPANT`**, không phải `INVALID_PARTICIPANT_ID`
+- `advancer_id = ""` → **thành công**, kèm warning `advancer_not_participant`
+- `discount.item_id = ""` → **`UNKNOWN_ITEM`**, không phải `INVALID_ENTITY_ID`
+- `advancer_id = None` (không có người ứng tiền) **khác** `advancer_id = ""` (có, nhưng ngoài tập) — và khác nhau ở warning
+
+`advancer_id = ""` không bị từ chối là **có chủ ý**: validate tham chiếu sẽ tạo lại đúng fork mà quy tắc này xoá bỏ. Cái giá là một ID rỗng lọt qua thành warning — chấp nhận được vì nó **không sinh nghĩa vụ tiền cho ai**.
 
 ### Quy tắc định danh — đóng băng
 
