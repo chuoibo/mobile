@@ -1,0 +1,77 @@
+name: test
+
+# Runs on every push and every pull request. Before this existed, CI checked
+# only the repo guard, so 4214 subtests sat in the repository without ever
+# gating anything -- and two bugs got merged that the suite would have caught:
+# a migration that could not compile, and 12,629 dependency files.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    name: api and domain
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r services/api/requirements-dev.txt
+
+      - name: Test
+        run: python -m pytest services/api/tests tests -q
+
+      - name: Migration renders to DDL
+        # No database needed. This is the check that was missing when five
+        # foreign-key names ran past PostgreSQL's 63-character limit and the
+        # migration could not compile at all.
+        working-directory: services/api
+        run: |
+          python - <<'PY'
+          import contextlib, io
+          from alembic import command
+          from alembic.config import Config
+          config = Config("alembic.ini")
+          config.set_main_option("sqlalchemy.url", "postgresql+psycopg://offline/offline")
+          with contextlib.redirect_stdout(io.StringIO()):
+              command.upgrade(config, "head", sql=True)
+          print("migration renders")
+          PY
+
+  shared:
+    name: shared money format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Both surfaces agree on the same golden cases
+        run: node packages/shared/money.test.mjs
+
+  mobile:
+    name: mobile typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - working-directory: apps/mobile
+        run: npm ci
+      - working-directory: apps/mobile
+        run: npx tsc --noEmit
