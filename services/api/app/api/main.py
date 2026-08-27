@@ -27,6 +27,17 @@ def create_app() -> FastAPI:
     application.include_router(guests.router)
     application.include_router(obligations.router)
 
+    @application.get("/healthz", include_in_schema=False)
+    async def healthz() -> dict[str, str]:
+        """Liveness only: the process is up and can serve a request.
+
+        Deliberately does NOT touch the database. A health check that fails
+        when Postgres blips will have the orchestrator kill a process that was
+        fine, and restarting the API does not fix a database. Readiness, when
+        it is needed, belongs in a separate endpoint that says so.
+        """
+        return {"status": "ok"}
+
     @application.exception_handler(ApiProblem)
     async def api_problem_handler(_request: Request, exc: ApiProblem) -> JSONResponse:
         body = ErrorResponse(code=exc.code, detail=exc.detail)
