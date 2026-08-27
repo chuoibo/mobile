@@ -29,6 +29,7 @@ class VietQRError(Exception):
 def crc16_ccitt_false(data: str) -> str:
     """CRC-16/CCITT-FALSE: poly 0x1021, init 0xFFFF, no reflection, no final xor.
 
+    # repo-guard: allow=long-number reason=synthetic-fixture-never-real-participant-data
     The standard check value for this variant is CRC("123456789") == 0x29B1,
     which the tests assert. Getting the variant wrong is the classic way to
     produce a QR that every banking app silently refuses.
