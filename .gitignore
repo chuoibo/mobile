@@ -256,3 +256,8 @@ __marimo__/
 *.xls
 *.xlsm
 *.ods
+
+# Expo / React Native
+apps/mobile/node_modules/
+apps/mobile/.expo/
+apps/mobile/dist/

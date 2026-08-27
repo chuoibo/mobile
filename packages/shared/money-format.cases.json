@@ -1,0 +1,15 @@
+{
+  "_": "Shared golden cases for Vietnamese money formatting. Both the Python web layer and the TypeScript app assert against this file, so the same obligation can never render as two different numbers on two surfaces.",
+  "cases": [
+    { "amount_vnd": 0, "display": "0" },
+    { "amount_vnd": 7, "display": "7" },
+    { "amount_vnd": 999, "display": "999" },
+    { "amount_vnd": 1000, "display": "1.000" },
+    { "amount_vnd": 82000, "display": "82.000" },
+    { "amount_vnd": 145000, "display": "145.000" },
+    { "amount_vnd": 999999, "display": "999.999" },
+    { "amount_vnd": 1000000, "display": "1.000.000" },
+    { "amount_vnd": 1250000, "display": "1.250.000" },
+    { "amount_vnd": 12345678, "display": "12.345.678" }
+  ]
+}
