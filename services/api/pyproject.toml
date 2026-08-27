@@ -11,6 +11,7 @@ dependencies = [
   "alembic>=1.14,<2",
   # Web layer (Claude): server-rendered guest page and its QR image.
   "jinja2>=3.1,<4",
+  "python-multipart>=0.0.20,<1",
   "segno>=1.6,<2",
   "fastapi>=0.115,<1",
   "psycopg[binary]>=3.2,<4",
@@ -44,4 +45,3 @@ select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
-

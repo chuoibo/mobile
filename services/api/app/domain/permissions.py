@@ -36,59 +36,107 @@ _TABLE: dict[str, dict] = {
     "create_shared_invocation": {"roles": {"member"}, "requires": ()},
     "view_invocation_input": {"roles": {"member"}, "requires": ("is_invoker",)},
     "view_invocation_proposal": {"roles": {"member"}, "requires": ("is_invoker",)},
-
     # --- expense -------------------------------------------------------
     "confirm_expense_proposal": {"roles": {"member"}, "requires": ("is_group_member",)},
     # Gate 2 of section 8.3. Only the person who actually fronted the money may
     # acknowledge that they fronted it; otherwise a member could raise
     # collections in someone else's name.
-    "acknowledge_advancer_role": {"roles": {"advancer"}, "requires": ("is_named_advancer",)},
-
+    "acknowledge_advancer_role": {
+        "roles": {"advancer"},
+        "requires": ("is_named_advancer",),
+    },
     # --- bank recipient ------------------------------------------------
     # Section 9.2: an admin may not add or change someone else's bank account,
     # and an AdvancerApprovalCapability explicitly may not be used for this.
-    "set_bank_recipient": {"roles": {"member"}, "requires": ("is_own_account", "is_authenticated_account")},
-
+    "set_bank_recipient": {
+        "roles": {"member"},
+        "requires": ("is_own_account", "is_authenticated_account"),
+    },
     # --- batch ---------------------------------------------------------
+    "create_batch": {"roles": {"member"}, "requires": ("is_group_member",)},
     "freeze_batch": {"roles": {"batch_owner"}, "requires": ("owns_batch",)},
-    "publish_batch": {"roles": {"batch_owner"}, "requires": ("owns_batch", "all_recipients_eligible")},
+    "publish_batch": {
+        "roles": {"batch_owner"},
+        "requires": ("owns_batch", "all_recipients_eligible"),
+    },
     # Section 9.1: whoever has data or risk inside a capability may pull it
     # back. Three different subjects, three different scopes.
-    "revoke_capability_whole_batch": {"roles": {"batch_owner"}, "requires": ("owns_batch",)},
-    "revoke_capability_own_recipient_account": {"roles": {"recipient"}, "requires": ("envelope_contains_own_account",)},
-    "revoke_capability_own_envelope": {"roles": {"sender"}, "requires": ("is_own_capability",)},
-
+    "revoke_capability_whole_batch": {
+        "roles": {"batch_owner"},
+        "requires": ("owns_batch",),
+    },
+    "revoke_capability_own_recipient_account": {
+        "roles": {"recipient"},
+        "requires": ("envelope_contains_own_account",),
+    },
+    "revoke_capability_own_envelope": {
+        "roles": {"sender"},
+        "requires": ("is_own_capability",),
+    },
+    # --- guest settlement ----------------------------------------------
+    # A bearer token is a capability, not proof of identity. The repository
+    # first resolves it to one immutable envelope; these predicates ensure the
+    # API never widens that scope while deciding what the holder may do.
+    "view_guest_envelope": {"roles": {"guest"}, "requires": ("is_own_capability",)},
+    "report_payment": {
+        "roles": {"guest"},
+        "requires": (
+            "is_own_capability",
+            "active_capability",
+            "report_budget_available",
+        ),
+    },
+    # Receipt confirmation is a financial event. Only the creditor of this
+    # exact directed edge may create it; being a batch owner is irrelevant.
+    "confirm_receipt": {
+        "roles": {"recipient"},
+        "requires": ("is_recipient_of_this_obligation",),
+    },
     # --- things the batch owner may NOT do alone ------------------------
-    "cancel_obligation": {"roles": {"batch_owner"}, "requires": ("all_affected_parties_consented",)},
-    "amend_obligation_after_publish": {"roles": {"batch_owner"}, "requires": ("all_affected_parties_consented",)},
+    "cancel_obligation": {
+        "roles": {"batch_owner"},
+        "requires": ("all_affected_parties_consented",),
+    },
+    "amend_obligation_after_publish": {
+        "roles": {"batch_owner"},
+        "requires": ("all_affected_parties_consented",),
+    },
     "delete_payment_report": {"roles": set(), "requires": ()},
     "delete_receipt_confirmation": {"roles": set(), "requires": ()},
     "delete_audit_history": {"roles": set(), "requires": ()},
     "close_dispute": {"roles": {"platform_moderator"}, "requires": ()},
-
     # --- debt forgiveness ----------------------------------------------
     # Spec section 4: only the creditor of that exact receivable. The organiser
     # does not get to forgive on Ha's behalf.
-    "waive_obligation": {"roles": {"creditor"}, "requires": ("is_creditor_of_this_obligation",)},
-
+    "waive_obligation": {
+        "roles": {"creditor"},
+        "requires": ("is_creditor_of_this_obligation",),
+    },
     # --- evidence ------------------------------------------------------
-    "request_redacted_evidence": {"roles": {"member", "guest"}, "requires": ("is_charged_party",)},
+    "request_redacted_evidence": {
+        "roles": {"member", "guest"},
+        "requires": ("is_charged_party",),
+    },
     "share_evidence": {"roles": {"member"}, "requires": ("is_uploader",)},
-
     # --- identity ------------------------------------------------------
     "invite_person_stub_claim": {"roles": {"member"}, "requires": ()},
     "challenge_person_stub_claim": {"roles": {"member"}, "requires": ()},
     # Section 9.2: an admin does not adjudicate identity. Only the platform
     # does -- because in a group dispute the attacker is a group member.
     "adjudicate_person_stub_claim": {"roles": {"platform_moderator"}, "requires": ()},
-
     # --- group logistics ------------------------------------------------
     "manage_members_and_invites": {"roles": {"group_admin"}, "requires": ()},
     "remove_member_from_group": {"roles": {"group_admin"}, "requires": ()},
     "transfer_group_admin": {"roles": {"group_admin"}, "requires": ()},
-    "remove_own_uploaded_content": {"roles": {"group_admin", "member"}, "requires": ("is_uploader",)},
+    "remove_own_uploaded_content": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_uploader",),
+    },
     "remove_others_content": {"roles": {"platform_moderator"}, "requires": ()},
-    "attach_workspace_to_group": {"roles": {"member"}, "requires": ("is_workspace_owner",)},
+    "attach_workspace_to_group": {
+        "roles": {"member"},
+        "requires": ("is_workspace_owner",),
+    },
 }
 
 ACTIONS = tuple(sorted(_TABLE))
@@ -100,12 +148,16 @@ class PermissionError_(Exception):
         self.code = code
 
 
-def can(action: str, roles: set[str] | frozenset[str], context: dict | None = None) -> bool:
+def can(
+    action: str, roles: set[str] | frozenset[str], context: dict | None = None
+) -> bool:
     """True when `roles` may perform `action` in `context`."""
     return denial_reason(action, roles, context) is None
 
 
-def denial_reason(action: str, roles: set[str] | frozenset[str], context: dict | None = None) -> str | None:
+def denial_reason(
+    action: str, roles: set[str] | frozenset[str], context: dict | None = None
+) -> str | None:
     """None when allowed, otherwise why not.
 
     Returning the reason rather than a bare False is deliberate: the UI has to
