@@ -902,7 +902,8 @@ class SqlAlchemyApiRepository:
                     "amount_vnd": obligation.amount_vnd,
                     "recipient_display_name": snapshot.account_name
                     or str(obligation.recipient_id),
-                    "bank_name": f"Ngân hàng {snapshot.bank_bin}",
+                    # A routing BIN is not a display name. Leave naming to the
+                    # closed guest projection, which can also fall back honestly.
                     "bank_bin": snapshot.bank_bin,
                     "account_number": snapshot.account_number,
                     "account_holder_name": snapshot.account_name
