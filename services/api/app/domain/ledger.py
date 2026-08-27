@@ -20,6 +20,7 @@ from collections import defaultdict
 
 __all__ = [
     "LedgerError",
+    "require_vnd",
     "obligations_from_allocations",
     "merge_obligations",
     "confirmed_total",
@@ -33,6 +34,26 @@ class LedgerError(Exception):
     def __init__(self, code: str):
         super().__init__(code)
         self.code = code
+
+
+def require_vnd(value, *, positive: bool = False) -> int:
+    """One validator, used by every entry point that touches money.
+
+    Every function here used to check amounts differently, or not at all, and
+    review found three ways in: an advancer's negative allocation skipped
+    because the advancer branch ran first, a negative amount summed inside
+    merge, and a float surviving all the way into a suggested transfer.
+
+    `bool` is rejected explicitly because `isinstance(True, int)` is True in
+    Python, and `True` would silently become one dong.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise LedgerError("AMOUNT_NOT_INTEGER")
+    if value < 0:
+        raise LedgerError("NEGATIVE_AMOUNT")
+    if positive and value == 0:
+        raise LedgerError("NON_POSITIVE_AMOUNT")
+    return value
 
 
 def obligations_from_allocations(
@@ -54,12 +75,15 @@ def obligations_from_allocations(
         # obligation with no creditor is a debt owed to nobody.
         raise LedgerError("NO_ADVANCER")
 
+    # Validate the whole map first. Skipping the advancer before validating
+    # meant a negative allocation on the advancer never got checked at all.
+    for amount in allocations.values():
+        require_vnd(amount)
+
     obligations = []
     for participant, amount in allocations.items():
         if participant == advancer_id:
             continue
-        if amount < 0:
-            raise LedgerError("NEGATIVE_ALLOCATION")
         if amount == 0:
             # Someone who owes nothing gets no payment request. Sending a
             # zero-dong obligation would be pure noise.
@@ -90,7 +114,7 @@ def merge_obligations(obligations: list[dict]) -> list[dict]:
         if sender == recipient:
             raise LedgerError("SELF_OBLIGATION")
         pair = (sender, recipient)
-        totals[pair] += obligation["amount_vnd"]
+        totals[pair] += require_vnd(obligation["amount_vnd"], positive=True)
         sources[pair].append(obligation["source_expense_version_id"])
 
     merged = []
@@ -154,14 +178,26 @@ def group_balances(obligations: list[dict], receipts: dict[tuple[str, str], int]
     change section 8.8 requires everyone affected to accept first.
     """
     receipts = receipts or {}
-    positions: dict[str, int] = defaultdict(int)
+
+    # Sum by pair BEFORE subtracting. The previous version subtracted the pair
+    # receipt from every obligation in that pair, so two obligations of 60 and
+    # 40 against a receipt of 50 showed a remaining 10 instead of 50: the same
+    # payment counted twice. A balance that reads low is the dangerous
+    # direction, because nobody chases what they think they already received.
+    owed: dict[tuple[str, str], int] = defaultdict(int)
     for obligation in obligations:
-        pair = (obligation["sender_id"], obligation["recipient_id"])
-        remaining = obligation["amount_vnd"] - receipts.get(pair, 0)
+        sender, recipient = obligation["sender_id"], obligation["recipient_id"]
+        if sender == recipient:
+            raise LedgerError("SELF_OBLIGATION")
+        owed[(sender, recipient)] += require_vnd(obligation["amount_vnd"], positive=True)
+
+    positions: dict[str, int] = defaultdict(int)
+    for (sender, recipient), total in owed.items():
+        remaining = total - require_vnd(receipts.get((sender, recipient), 0))
         if remaining <= 0:
             continue
-        positions[obligation["sender_id"]] -= remaining
-        positions[obligation["recipient_id"]] += remaining
+        positions[sender] -= remaining
+        positions[recipient] += remaining
     return {person: amount for person, amount in sorted(positions.items()) if amount != 0}
 
 
@@ -176,6 +212,9 @@ def settlement_suggestions(balances: dict[str, int]) -> list[dict]:
     Nothing in this module applies the result. The name says `suggestions` and
     the caller has to walk it through consent.
     """
+    for amount in balances.values():
+        if isinstance(amount, bool) or not isinstance(amount, int):
+            raise LedgerError("AMOUNT_NOT_INTEGER")
     if sum(balances.values()) != 0:
         raise LedgerError("BALANCES_DO_NOT_NET_TO_ZERO")
 
@@ -188,7 +227,15 @@ def settlement_suggestions(balances: dict[str, int]) -> list[dict]:
         debtor, owed = debtors[debtor_index]
         creditor, due = creditors[creditor_index]
         amount = min(owed, due)
-        transfers.append({"sender_id": debtor, "recipient_id": creditor, "amount_vnd": amount})
+        transfers.append({
+            # Shaped as a draft, never as an obligation. An obligation-shaped
+            # dict invites a caller to persist it, and section 8.8 requires
+            # every affected party to accept an offset first.
+            "kind": "offset_proposal_draft",
+            "sender_id": debtor,
+            "recipient_id": creditor,
+            "amount_vnd": amount,
+        })
         debtors[debtor_index] = (debtor, owed - amount)
         creditors[creditor_index] = (creditor, due - amount)
         if debtors[debtor_index][1] == 0:

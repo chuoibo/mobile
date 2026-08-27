@@ -12,7 +12,9 @@ Pure functions over plain dicts. No I/O, no ORM, no framework.
 
 from __future__ import annotations
 
-__all__ = ["ACTIONS", "ROLES", "can", "denial_reason", "PermissionError_"]
+from dataclasses import dataclass, field
+
+__all__ = ["ACTIONS", "ROLES", "AuthorizationFacts", "can", "denial_reason", "PermissionError_"]
 
 ROLES = (
     "group_admin",
@@ -148,34 +150,66 @@ class PermissionError_(Exception):
         self.code = code
 
 
-def can(
-    action: str, roles: set[str] | frozenset[str], context: dict | None = None
-) -> bool:
-    """True when `roles` may perform `action` in `context`."""
-    return denial_reason(action, roles, context) is None
+@dataclass(frozen=True)
+class AuthorizationFacts:
+    """What an authoritative source proved, not what a request claimed.
+
+    The first version took a plain dict of booleans, so one adapter setting one
+    flag wrongly bypassed the whole table -- exactly the confused deputy this
+    module exists to prevent. A dict from an HTTP body and a dict from the
+    database look identical to a function signature.
+
+    So the type is the boundary. Only an adapter that read authoritative data
+    can build this, `provenance` records which one did, and `can()` refuses
+    anything else. Nothing here validates the facts; it makes the caller state
+    where they came from, which is what an audit needs.
+    """
+
+    actor_id: str
+    roles: frozenset[str]
+    resource_id: str | None
+    proven: frozenset[str] = field(default_factory=frozenset)
+    provenance: str = ""
+
+    def __post_init__(self):
+        if not self.actor_id:
+            raise PermissionError_("ANONYMOUS_ACTOR")
+        if not self.provenance:
+            # An unattributed fact cannot be audited later, and the point of
+            # one permission table is that every decision can be explained.
+            raise PermissionError_("FACTS_WITHOUT_PROVENANCE")
+        unknown = set(self.roles) - set(ROLES)
+        if unknown:
+            raise PermissionError_("UNKNOWN_ROLE")
 
 
-def denial_reason(
-    action: str, roles: set[str] | frozenset[str], context: dict | None = None
-) -> str | None:
-    """None when allowed, otherwise why not.
+def can(action: str, facts: AuthorizationFacts) -> bool:
+    """True when `facts` permit `action`."""
+    return denial_reason(action, facts) is None
 
-    Returning the reason rather than a bare False is deliberate: the UI has to
-    tell someone what is missing -- "the advancer has not acknowledged yet" is
-    actionable, "forbidden" is not.
+
+def denial_reason(action: str, facts: AuthorizationFacts) -> str | None:
+    """None when allowed, otherwise the name of what is missing.
+
+    Returning the reason rather than a bare False is deliberate: the interface
+    has to tell somebody what is missing. "The advancer has not acknowledged
+    yet" is actionable; "forbidden" is not.
     """
     if action not in _TABLE:
         raise PermissionError_("UNKNOWN_ACTION")
-    rule = _TABLE[action]
-    context = context or {}
+    if not isinstance(facts, AuthorizationFacts):
+        # A plain dict is how a request body sneaks in wearing the costume of
+        # a database read.
+        raise PermissionError_("UNTYPED_FACTS")
 
+    rule = _TABLE[action]
     if not rule["roles"]:
         # Nobody, ever. Deleting a receipt confirmation would let the ledger be
         # rewritten to suit whoever holds the button.
         return "action_permitted_to_nobody"
-    if not (set(roles) & rule["roles"]):
+    if not (set(facts.roles) & rule["roles"]):
         return "role_not_permitted"
     for predicate in rule["requires"]:
-        if not context.get(predicate):
+        if predicate not in facts.proven:
             return predicate
     return None

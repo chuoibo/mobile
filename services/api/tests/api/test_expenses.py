@@ -34,9 +34,12 @@ def test_confirm_writes_version_and_allocations_and_calls_central_permissions(
     calls = []
     real = permissions.denial_reason
 
-    def recording_denial(action, roles, context=None):
-        calls.append((action, set(roles), dict(context or {})))
-        return real(action, roles, context)
+    def recording_denial(action, facts):
+        # Facts are now a frozen dataclass rather than a loose dict, so the spy
+        # records what the service actually proved and where it said the proof
+        # came from.
+        calls.append((action, set(facts.roles), set(facts.proven), facts.provenance))
+        return real(action, facts)
 
     monkeypatch.setattr(permissions, "denial_reason", recording_denial)
     response = client.post(

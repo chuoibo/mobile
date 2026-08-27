@@ -23,6 +23,10 @@ __all__ = [
     "counts_toward_collection_rate",
 ]
 
+# Section 8.4 offers exactly two answers, so an arbitrary truthy string is not
+# one of them. Accepting "anything" let a batch freeze on a choice nobody made.
+UNREADY_CHOICES = ("wait_for_all_recipients", "split_blocked_recipient_setup")
+
 STATES = (
     "accruing",
     "frozen",
@@ -62,8 +66,9 @@ def unmet_freeze_requirements(context: dict) -> list[str]:
     already gone out.
     """
     unmet = []
-    if context.get("has_unready_recipient") and not context.get("unready_recipient_choice"):
-        unmet.append("unready_recipient_choice_required")
+    if context.get("has_unready_recipient"):
+        if context.get("unready_recipient_choice") not in UNREADY_CHOICES:
+            unmet.append("unready_recipient_choice_required")
     if not context.get("obligations"):
         unmet.append("no_obligations")
     return unmet
@@ -103,6 +108,14 @@ def transition(state: str, event: str, context: dict | None = None) -> str:
         unmet = unmet_publish_gates(context)
         if unmet:
             raise CollectionError(unmet[0].upper())
+
+    if event == "cancel" and context.get("capability_exposed_at") is not None:
+        # Section 9.1: once an envelope could have left the app, the batch
+        # owner cannot unilaterally erase the obligations inside it. People
+        # have already been asked for money; withdrawing that quietly rewrites
+        # a social expectation without anyone agreeing.
+        if not context.get("all_affected_parties_consented"):
+            raise CollectionError("CANCEL_AFTER_EXPOSURE_NEEDS_CONSENT")
 
     if event == "close":
         # Invariant 7 of the spec: `completed` is produced by a domain
