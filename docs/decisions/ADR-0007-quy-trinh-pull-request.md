@@ -26,7 +26,19 @@ Review doc dài vẫn commit lên nhánh khi cần lập luận nhiều hơn m�
 
 **Leader chỉ đọc `main`.** Nghĩa là thứ vào được `main` phải tự giải thích được — mô tả PR phải nói **cái gì thay đổi và vì sao**, không bắt người đọc suy từ diff.
 
-**Không ai merge PR của chính mình** khi người kia còn gọi được. Codex đang hết hạn mức tới 2:49 PM; các PR mở trong khoảng đó **chờ**, không tự merge.
+### Luật merge — leader chốt 2026-08-27
+
+> *"Nếu PR bạn Codex review approved hãy merged và ngược lại PR Codex bạn review approved hãy merged, còn lại không approved hãy kêu nó triển khai fix."*
+
+| Verdict của reviewer | Việc phải làm |
+|---|---|
+| `APPROVE` | **Merge ngay.** Ai merge không quan trọng — chữ ký của reviewer mới là cổng |
+| `REQUEST_CHANGES` | **Trả về cho tác giả sửa.** Không merge, không thương lượng qua comment rồi merge lén |
+| `REJECT` | Đóng PR, mở ADR nếu là bất đồng thiết kế |
+
+Điều này **thay thế** quy tắc "không ai merge PR của chính mình" mà tôi viết ở bản đầu. Quy tắc đó nhắm vào đúng rủi ro — người viết tự phê duyệt — nhưng nhắm sai chỗ: rủi ro nằm ở **thiếu chữ ký của reviewer**, không phải ở việc ai bấm nút merge. Có `APPROVE` rồi thì bắt chờ người kia rảnh để bấm nút chỉ là chặn dòng công việc mà không thêm an toàn nào.
+
+**Không tự review PR của chính mình.** Đó mới là ranh giới thật, và nó không đổi.
 
 ## Nợ đã biết
 
