@@ -53,25 +53,66 @@ Chỉ dùng khi nhóm không có sự kiện lên lịch. Gửi **sau khi cửa 
 - ❌ không gợi ý chia tiền
 - ✅ chỉ hỏi: trong khoảng thời gian X–Y, nhóm có phát sinh khoản chi chung nào mà một người trả trước không? Loại gì, khoảng bao nhiêu người?
 
-⚠️ **Đường B có recall bias được thừa nhận.** Chấp nhận được vì nó chỉ xác định **có/không có sự kiện**, không đo quy trình. Spec mục 13.1 cấm recall cho **baseline hành vi**, không cấm cho việc xác định mẫu số. Ghi rõ nhóm nào dùng đường nào; nếu kết quả đảo chiều giữa hai đường thì đó là phát hiện, không phải nhiễu.
+> **Sửa theo blocker W0-04 của Codex.** Tôi lo sai chỗ. Tôi lo **priming**, và Codex chỉ ra rằng gửi sau khi cửa sổ đã đóng thì câu hỏi **không thể làm phát sinh ngược** một hành vi đã xảy ra trong chính cửa sổ đó.
+> Rủi ro thật là **recall và demand bias trong việc PHÂN LOẠI mẫu số**: chỉ nhóm **không** có sự kiện đăng ký trước mới đi Đường B, và người trả lời **biết mình có dùng dịch vụ hay không**. Cùng một tập hành vi có thể thành `5/10` hay `6/10` chỉ vì một ca biên được nhớ và phán quyết **sau khi đã biết outcome**. Câu chữ giống hệt nhau không loại được sai lệch hệ thống này.
 
-### 1.2 `self_initiated` — tự khởi tạo
+**Điều kiện bắt buộc cho Đường B:**
 
-Chỉ số CHÍNH của Giai đoạn 0.
+| | |
+|---|---|
+| Đóng băng trước field | Nguyên văn script · ai là người trả lời · thời điểm · **số lần hỏi tối đa** · rubric bằng chứng |
+| Người phán quyết | **Độc lập và mù với usage outcome** khi khả thi. Không khả thi → ghi rõ, và kết quả bị giới hạn tương ứng |
+| Bằng chứng không đủ cho **cả bốn** điều kiện ở mục 1.1 | **BẮT BUỘC** `indeterminate`. Không được suy đoán theo hướng có lợi |
+| Phân tích | Đăng ký trước việc **tách riêng Đường A và Đường B**, và quy tắc gate khi hai đường cho kết quả khác nhau |
+| Sức bền | Đường B **một mình không tạo được GO** nếu kết quả không bền dưới cách phân loại **bảo thủ nhất** (mọi ca biên → không có cơ hội hoặc không repeat) |
+| Phơi nhiễm | Mọi dữ liệu **sau** check-in phải ghi `checkin_exposed = true`, kèm quy tắc loại hoặc washout đã đăng ký — check-in **có thể** prime các cửa sổ tương lai nếu nhóm còn được theo dõi |
 
-Tính là tự khởi tạo khi **cả ba** đúng:
-1. Người tổ chức **tự** đưa một khoản chi mới vào công cụ.
-2. Trong **48 giờ trước đó**, không có bất kỳ liên hệ nào từ phía nghiên cứu có nhắc tới dịch vụ, tới việc chia tiền, hoặc tới lần dùng trước.
-3. Hành động là **thao tác**, không phải câu trả lời.
+Ghi rõ nhóm nào dùng đường nào. Kết quả đảo chiều giữa hai đường là **phát hiện**, và khi đó **gate đóng** cho tới khi giải thích được — không phải nhiễu để bỏ qua.
 
-**KHÔNG tính:**
+### 1.2 Hai chỉ số khác nhau — KHÔNG được gộp
+
+> **Sửa theo blocker W0-01 của Codex.** Bản đầu tính tử số gate ngay khi người tổ chức đưa một khoản chi vào công cụ. Spec mục 15 đòi nhiều hơn hẳn: *"Chỉ tính repeat khi người dùng **xác nhận VÀ publish** một đợt thu có **ít nhất một nghĩa vụ hợp lệ**."*
+> Hậu quả nếu giữ định nghĩa cũ: một bản nháp nhập rồi bỏ, không xác nhận, không chia sẻ, không sinh nghĩa vụ nào **vẫn đẩy được kết quả từ `5/10` lên `6/10`** và mở quyền xây prototype. Đó là tự cho điểm.
+
+#### `voluntary_start` — tín hiệu CHẨN ĐOÁN, không phải tử số gate
+
+Người tổ chức tự đưa một khoản chi mới vào công cụ, không do nhắc.
+
+Dùng để: chẩn đoán chỗ rơi rụng giữa "bắt đầu" và "hoàn tất". **Không bao giờ** dùng để mở cổng.
+
+#### `qualifying_repeat` — TỬ SỐ CỔNG 13.3
+
+Suy ra từ một **chuỗi sự kiện quan sát được**, đủ cả bốn mắt xích, đúng thứ tự, trong cùng một cơ hội:
+
+```
+voluntary_start            người tổ chức tự bắt đầu, không do nhắc
+   → organizer_confirmed   xác nhận đề xuất
+   → organizer_shared      tự chia sẻ / phát đợt thu
+   → obligation_declared   ≥1 nghĩa vụ THẬT hợp lệ tới tay ít nhất một người gửi
+```
+
+Thiếu bất kỳ mắt xích nào → **không** phải `qualifying_repeat`. Ghi lại mắt xích cuối cùng đạt được, để phân tích rơi rụng.
+
+#### "Không do nhắc" — định nghĩa kiểm tra được, bỏ mốc 48 giờ
+
+Bản đầu dùng "48 giờ trước đó". Codex đúng khi nói mốc đó **không có căn cứ và không có event nào để kiểm tra** — một lời nhắc ở giờ thứ 49 vẫn được tính là tự khởi tạo.
+
+Thay bằng quy tắc **theo cửa sổ, nhị phân, không có con số tuỳ ý**:
+
+> Một `voluntary_start` là **không do nhắc** khi trong cửa sổ cơ hội đang xét, **không tồn tại** `research_contact` nào có `mentions_service = true` xảy ra **trước** nó.
+
+Event `research_contact` là **bắt buộc**: mọi liên hệ từ phía nghiên cứu tới nhóm đều phải log, kèm `mentions_service: bool`. Check-in trung lập ở mục 1.1 Đường B có `mentions_service = false` **theo thiết kế** — và điều đó phải kiểm chứng được bằng script đã đóng băng, không bằng trí nhớ.
+
+Không log `research_contact` ⇒ **không thể** kết luận "không do nhắc" ⇒ ca đó là `indeterminate`.
+
+**KHÔNG tính là `voluntary_start`:**
 - ❌ Trả lời "có" cho câu hỏi "bạn có muốn dùng lại không?"
 - ❌ Nói trong phỏng vấn rằng sẽ dùng lại
 - ❌ Nháp do quy tắc định kỳ tự sinh
-- ❌ Hành động trong vòng 48h sau bất kỳ liên hệ nào có nhắc dịch vụ
+- ❌ Bất kỳ hành động nào sau một `research_contact` có `mentions_service = true` trong cùng cửa sổ
 
-**Điều kiện tiên quyết để tính vào tử số** (spec mục 13.3): nhóm biết dịch vụ vẫn còn · thực sự có `valid_cost_opportunity` · operator không chăm sóc vượt mức sản phẩm tương lai.
-→ Nhóm không thoả cả ba **không nằm ở tử số cũng không nằm ở mẫu số**. Chúng được báo cáo riêng, **không bị xoá im lặng**.
+**Điều kiện tiên quyết để vào tử số** (spec mục 13.3): nhóm biết dịch vụ vẫn còn · thực sự có `valid_cost_opportunity` · operator không chăm sóc vượt mức sản phẩm tương lai.
+→ Nhóm không thoả cả ba **không nằm ở tử số cũng không nằm ở mẫu số**. Báo cáo riêng, **không xoá im lặng**.
 
 ### 1.3 `serious_error` — lỗi nghiêm trọng. Phải bằng 0.
 
