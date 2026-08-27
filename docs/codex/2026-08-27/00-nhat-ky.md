@@ -302,3 +302,98 @@ Vì verdict chưa phải `APPROVE`, **không tạo `phase0/allocator/impl_a/` v�
 - `docs/codex/2026-08-27/00-nhat-ky.md`
 
 Không commit, không sửa Git index dùng chung, không đọc `impl_b` và không chạm `/home/lakiet/mobile`.
+
+---
+
+## Bổ sung cùng ngày — C-04 và review ADR-0004 v3
+
+### Metadata lượt bổ sung
+
+- **Work ID:** W9a/C-04; W6 contract review v3
+- **Nhánh:** `codex/p0-w9a-repo-guard`
+- **HEAD trước thay đổi:** `41a63c7` (`merge: ADR-0004 v3`)
+- **C-03 đã được leader commit hộ:** `1832fd2`
+- **Dữ liệu test:** chỉ payload tổng hợp sinh runtime, golden/doc đã track và Git repository tạm; không dùng dữ liệu participant
+- **Cách ly W6:** không đọc, import, quét hoặc chạy `phase0/allocator/impl_b/`
+- **Commit:** không tạo theo yêu cầu của leader
+
+### C-04 — bỏ hẳn khái niệm dòng liên tiếp
+
+Xoá detector `dense_base64_blocks`, hằng gap-line và toàn bộ state nối/reset khối. Rule mới `aggregate-base64-fragments` làm đúng một phép tính trên phạm vi dòng đang quét của mỗi file:
+
+1. tìm token dài ít nhất **8 byte** chỉ thuộc alphabet base64/base64url, kể cả tối đa hai byte padding `=`;
+2. cộng tổng byte của mọi token đó, bất kể token nằm ở đâu và giữa chúng có gì;
+3. chặn khi tổng **lớn hơn 16 KiB**.
+
+Ở `staged`, phạm vi là toàn bộ dòng thêm/thay của file, không chia theo hunk. Ở `tree`, `range`, `history`, phạm vi là toàn snapshot. Số dòng trống/văn xuôi chen giữa không đi vào quyết định nên không còn hằng `N` để tấn công bằng `N+1` dòng.
+
+Đo trước khi chọn ngưỡng:
+
+| Nội dung | Tổng byte token với sàn 8 |
+|---|---:|
+| Bill tổng hợp wrap | 30040 |
+| `scripts/repo_guard.py` | 9372 |
+| `tests/test_repo_guard.py` trước C-04 | 8085 |
+| Markdown team dài khoảng 89 KiB | 6406 |
+| ADR-0004 v3 | 4455 |
+| Golden JSON tổng hợp lặp hash/chữ ký | 6960 |
+
+Ngưỡng 16 KiB giữ khoảng cách với corpus hợp lệ hiện tại nhưng vẫn chặn bill. Đây là heuristic có giới hạn được ghi thẳng: tổng không quá ngưỡng, token bị chẻ dưới 8 byte, phá bằng ký tự ngoài alphabet hoặc encoding khác vẫn có thể lọt. Scanner vẫn chỉ là mitigation.
+
+Test biên bắt một lỗi triển khai trong lượt: token cuối có 6 byte dữ liệu + `==` phải được tính là token 8 byte. Regex đầu tiên đòi 8 byte trước padding và hụt đúng 8 byte; đã sửa để ngưỡng tính cả padding, test sau sửa báo đúng 30040 byte.
+
+Annotation `aggregate-base64-fragments` chỉ loại token trên cùng dòng hoặc dòng ngay sau annotation khỏi tổng; không miễn toàn file. Allowlist vẫn pin exact path + digest + rule. Finding chỉ in path/match đã che cùng `aggregate-bytes` và số token.
+
+### Kiểm chứng black-box C-04
+
+Mỗi ca dưới đây được stage riêng trong Git repository tạm độc lập, chạy thật `python3 scripts/repo_guard.py staged`; output bị kiểm không chứa raw path hay prefix payload:
+
+| Ca | Kết quả |
+|---|---|
+| h1 — xen hai dòng trống giữa mọi fragment | `aggregate-base64-fragments` |
+| h2 — xen ba dòng trống | `aggregate-base64-fragments` |
+| h3 — xen văn xuôi tiếng Việt | `aggregate-base64-fragments` |
+| hN — xen 250 dòng trống | `aggregate-base64-fragments` |
+| SHA-256 | xanh |
+| nguyên văn ADR-0004 v3 | xanh |
+| Python 200 dòng | xanh |
+| Markdown team dài khoảng 89 KiB | xanh |
+| cả sáu file golden JSON | xanh |
+
+Unit/integration còn khóa ngưỡng strict, width 8/40/76/200, annotation theo dòng, masked output và phép cộng qua **hai hunk thêm mới cách nhau 500 dòng không đổi**; mỗi hunk riêng dưới 16 KiB nhưng tổng file vượt ngưỡng. Tài liệu security được cập nhật đúng semantics mới.
+
+- Chạy gộp repo guard + allocator self-check: **42 passed, 378 subtests passed**.
+- `ruff check`, `ruff format --check`, `py_compile` và `git diff --check`: pass.
+- Quét đúng năm candidate file bằng semantics added-lines và full-file, không stage: **0 finding / 0 finding**.
+
+### Review ADR-0004 v3
+
+- **Verdict:** `REQUEST_CHANGES`
+- **Blocker:** 2
+- **Review:** `docs/codex/2026-08-27/review-claude-adr0004-v3.md`
+- **Baseline:** `18 passed, 343 subtests passed`
+- **Corpus thực tế:** 23 success + 18 error = 41 vector
+
+Các sửa đúng đã được công nhận:
+
+- V2-01 đóng: một precedence chuẩn; câu #16 đúng.
+- V2-02 đóng cho bốn field occurrence được nêu.
+- V2-04 đóng ở mức hợp đồng generator.
+- Lõi V2-05 đóng thật: G22 tự nhất quán đỏ với pipeline check và xanh khi ablate đúng check đó; phép tính tay độc lập xác nhận golden G22 hiện tại đúng.
+
+Hai blocker còn lại:
+
+1. ADR vẫn đồng thời khai public `ExpenseInput -> ApportionResult` với `Fraction`/tuple và public `dict -> dict` với rational string/list. Missing key/sai wire type cũng chưa được phân loại là precondition/harness bug hay lỗi public.
+2. README nói tám mutant nhưng `MUTANTS` chỉ có bảy. G11 hiện không tự nhất quán vì bỏ warning mà chính docstring nói phải có; khi sửa warning và tắt pipeline check, mutant mới đi qua như kỳ vọng.
+
+Vì verdict chưa phải `APPROVE`, **không tạo `phase0/allocator/impl_a/` và không tạo `phase0/allocator/harness/`**.
+
+### File thay đổi trong lượt bổ sung
+
+- `scripts/repo_guard.py`
+- `tests/test_repo_guard.py`
+- `docs/security/repo-guard.md`
+- `docs/codex/2026-08-27/review-claude-adr0004-v3.md`
+- `docs/codex/2026-08-27/00-nhat-ky.md`
+
+Không commit, không sửa Git index dùng chung, không đọc `impl_b` và không chạm `/home/lakiet/mobile`.
