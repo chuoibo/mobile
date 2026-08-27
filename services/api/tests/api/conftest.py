@@ -76,6 +76,10 @@ class FakeReceipt:
 
 class FakeRepository:
     REPORT_LIMIT = 3
+    # Section 8.6 caps objections so a leaked link cannot be used to bury
+    # the recipient. Was hardcoded to zero while the two objection routes
+    # did not exist, which made both buttons dead before they 404ed.
+    OBJECTION_LIMIT = 3
 
     def __init__(self):
         self.expenses: dict[uuid.UUID, ExpenseIdentity] = {}
@@ -88,6 +92,7 @@ class FakeRepository:
         self.obligations: dict[uuid.UUID, PublishObligation] = {}
         self.links: dict[bytes, FakeLink] = {}
         self.reports: dict[uuid.UUID, FakeReport] = {}
+        self.objections: list[dict] = []
         self.receipts: dict[uuid.UUID, FakeReceipt] = {}
         self.leak_guest_input = False
 
@@ -318,7 +323,7 @@ class FakeRepository:
             ),
             "reports_allowed": self.REPORT_LIMIT,
             "objections_used": 0,
-            "objections_allowed": 0,
+            "objections_allowed": self.OBJECTION_LIMIT,
         }
         if self.leak_guest_input:
             envelope["group_balance"] = {"someone_else": 123}
@@ -344,6 +349,17 @@ class FakeRepository:
                 report.link_id == link.id for report in self.reports.values()
             ),
         )
+
+    def save_guest_objection(self, *, token_digest, kind, obligation_id, reason, now):
+        del now
+        self.objections.append(
+            {"token_digest": token_digest, "kind": kind,
+             "obligation_id": obligation_id, "reason": reason}
+        )
+        if kind == "not_me":
+            link = self.links.get(token_digest)
+            if link is not None:
+                link.status = "revoked"
 
     def save_payment_report(self, *, target, idempotency_key, now):
         del now

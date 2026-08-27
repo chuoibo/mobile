@@ -262,6 +262,62 @@ class ApiRepository(Protocol):
         now: datetime,
     ) -> PaymentReportRecord: ...
 
+    def save_guest_objection(
+        self,
+        *,
+        token_digest: bytes,
+        kind: str,
+        obligation_id: uuid.UUID | None,
+        reason: str | None,
+        now: datetime,
+    ) -> None:
+        """Record that a guest disagreed, and revoke the link for `not_me`.
+
+        Stored as an audit event rather than a new table. An objection IS an
+        audited fact -- who said what, about which obligation, when -- and the
+        append-only guarantee is exactly what it needs. A dedicated table would
+        have added a status column that could drift from the events.
+        """
+        ...
+
+    def save_guest_objection(
+        self,
+        *,
+        token_digest: bytes,
+        kind: str,
+        obligation_id: uuid.UUID | None,
+        reason: str | None,
+        now: datetime,
+    ) -> None:
+        link = self.session.scalar(
+            select(GuestLink).where(GuestLink.token_digest == token_digest)
+        )
+        if link is None:
+            return
+
+        self.session.add(
+            AuditEvent(
+                actor_id=None,  # a guest has no account; the capability is the subject
+                event_type=f"guest_objection.{kind}",
+                aggregate_type="guest_link",
+                aggregate_id=link.id,
+                event_data={
+                    "kind": kind,
+                    "obligation_id": str(obligation_id) if obligation_id else None,
+                    "reason": reason,
+                },
+                occurred_at=now,
+            )
+        )
+
+        if kind == "not_me":
+            # The reader says this link is not theirs, so it stops showing an
+            # amount and an account number immediately. The obligation itself
+            # survives: section 8.2 is explicit that a dead link does not make
+            # a debt disappear.
+            link.status = GuestLinkStatus.REVOKED
+            link.revoked_at = now
+
     def get_receipt_target(self, obligation_id: uuid.UUID) -> ReceiptTarget | None: ...
 
     def save_receipt_confirmation(
@@ -280,6 +336,14 @@ class SqlAlchemyApiRepository:
     """PostgreSQL implementation. One instance owns one request transaction."""
 
     REPORT_LIMIT = 3
+
+    # Section 8.6 caps objections so a leaked link cannot be used to bury
+
+    # the recipient. Was hardcoded to zero while the two objection routes
+
+    # did not exist, which made both buttons dead before they 404ed.
+
+    OBJECTION_LIMIT = 3
 
     def __init__(self, session: Session):
         self.session = session
@@ -934,7 +998,7 @@ class SqlAlchemyApiRepository:
             "reports_allowed": self.REPORT_LIMIT,
             # The current 18-table schema has no Dispute table yet.
             "objections_used": 0,
-            "objections_allowed": 0,
+            "objections_allowed": self.OBJECTION_LIMIT,
         }
         return GuestEnvelopeRecord(link_id=link.id, envelope=raw_envelope)
 

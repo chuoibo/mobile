@@ -47,6 +47,12 @@ from app.domain.ledger import (
 )
 from app.payments.vietqr import VietQRError, build_payload
 from app.web.guest_view import GuestViewError, build_guest_view
+from app.web.objection_view import (
+    OBJECTION_REASONS,
+    ObjectionError,
+    build_not_me_view,
+    build_wrong_amount_view,
+)
 
 
 def _now() -> datetime:
@@ -493,6 +499,57 @@ class ApiService:
             return build_guest_view(record.envelope)
         except GuestViewError as exc:
             raise ApiProblem(409, exc.code, "Guest envelope is not renderable") from exc
+
+    def _objection_envelope(self, token: str) -> dict:
+        record = self.repository.get_guest_envelope(token_digest(token), _now())
+        if record is None:
+            raise ApiProblem(404, "guest_link_not_found", "Guest link does not exist")
+        _require_permission(
+            "view_guest_envelope", _guest_actor(token), {"is_own_capability": True}
+        )
+        return record.envelope
+
+    def not_me_view(self, token: str) -> dict:
+        try:
+            return build_not_me_view(self._objection_envelope(token))
+        except ObjectionError as exc:
+            raise ApiProblem(409, exc.code, "Objection page is not renderable") from exc
+
+    def wrong_amount_view(self, token: str, obligation_id: str) -> dict:
+        try:
+            return build_wrong_amount_view(self._objection_envelope(token), obligation_id)
+        except ObjectionError as exc:
+            raise ApiProblem(409, exc.code, "Objection page is not renderable") from exc
+
+    def record_objection(
+        self, token: str, kind: str, obligation_id: uuid.UUID | None, reason: str | None
+    ) -> None:
+        """Spec section 8.6 treats both objections as first-class outcomes.
+
+        They were links to routes that did not exist, so a guest who pressed
+        either one got a 404: the page invited an objection and then behaved as
+        though objecting had broken something.
+        """
+        if kind not in {"not_me", "wrong_amount", "evidence_request"}:
+            raise ApiProblem(422, "unknown_objection", "Unknown objection kind")
+        if reason is not None and reason not in {value for value, _ in OBJECTION_REASONS}:
+            # A closed list, because free text from a stranger is where the
+            # group accidentally learns something, and where a bookkeeping
+            # question arrives in a tone that starts an argument.
+            raise ApiProblem(422, "unknown_reason", "Unknown objection reason")
+
+        envelope = self._objection_envelope(token)
+        used = envelope.get("objections_used", 0)
+        if used >= envelope.get("objections_allowed", 2):
+            raise ApiProblem(429, "objection_rate_limited", "Too many objections on this link")
+
+        self.repository.save_guest_objection(
+            token_digest=token_digest(token),
+            kind=kind,
+            obligation_id=obligation_id,
+            reason=reason,
+            now=_now(),
+        )
 
     def report_payment(
         self, token: str, request: PaymentReportRequest

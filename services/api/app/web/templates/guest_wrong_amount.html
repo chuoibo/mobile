@@ -1,0 +1,87 @@
+{#
+  "The amount is wrong."
+
+  Two constraints from the spec shape this page.
+
+  Section 8.2: a dispute stops collection on THIS obligation only. A
+  disagreement with Ha must not block the transfer to Nam, so the page says
+  which one it affects.
+
+  Section 10.5: the charged party may ask for redacted evidence, and if the
+  uploader declines, the dispute stands and the system must NOT read missing
+  evidence as the charged party being wrong. The page states that out loud,
+  because a person who thinks silence counts against them will pay an amount
+  they believe is wrong just to end the discomfort.
+#}<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{ preview.title }}</title>
+<meta property="og:title" content="{{ preview.title }}">
+<meta property="og:description" content="{{ preview.description }}">
+<meta name="robots" content="noindex, nofollow">
+<link rel="stylesheet" href="/static/guest.css">
+</head>
+<body>
+<main class="sheet">
+  <section class="card">
+    <p class="eyebrow">{{ view.recorded_by_display_name }} đã ghi</p>
+    <h1 class="lede">
+      Phần của {{ view.claimed_person_display_name }} trong {{ view.occasion_label }}
+      là {{ view.amount_display }}đ
+    </h1>
+
+    {% if view.can_object %}
+    <form method="post" action="/g/{{ token }}/doi-so-tien">
+      <input type="hidden" name="obligation_id" value="{{ view.obligation_id }}">
+
+      <fieldset style="border:0;padding:0;margin:1.25rem 0 0">
+        <legend class="eyebrow" style="padding:0">Chỗ nào chưa đúng</legend>
+        <div class="choices">
+          {% for value, label in view.reasons %}
+          <label class="btn btn--quiet" style="display:flex;gap:.625rem;align-items:center;text-align:left">
+            <input type="radio" name="reason" value="{{ value }}" {% if loop.first %}checked{% endif %}>
+            <span>{{ label }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </fieldset>
+
+      <button class="btn btn--primary" type="submit" style="margin-top:1rem">Gửi thắc mắc</button>
+    </form>
+
+    <p class="note">
+      Chỉ khoản này tạm dừng. Các khoản bạn cần gửi cho người khác không bị ảnh hưởng.
+    </p>
+    {% else %}
+      <p class="note">Bạn đã gửi thắc mắc nhiều lần rồi. Nhắn trực tiếp cho {{ view.recorded_by_display_name }} sẽ nhanh hơn.</p>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <p class="eyebrow">Muốn xem cách tính</p>
+    {% if view.evidence_requested %}
+      <p class="note">
+        Đã hỏi {{ view.recorded_by_display_name }} phần liên quan tới bạn. Đang chờ họ trả lời.
+      </p>
+    {% elif view.can_request_evidence %}
+      <form method="post" action="/g/{{ token }}/xin-cach-tinh">
+        <input type="hidden" name="obligation_id" value="{{ view.obligation_id }}">
+        <button class="btn btn--ghost" type="submit">Xin xem phần tính của tôi</button>
+      </form>
+      <p class="note">Chỉ những dòng liên quan trực tiếp tới bạn. Không phải toàn bộ hoá đơn của nhóm.</p>
+    {% endif %}
+
+    {# Section 10.5, stated to the person who needs to hear it. #}
+    <p class="note">
+      {{ view.recorded_by_display_name }} có thể không muốn chia sẻ thêm.
+      Nếu vậy, thắc mắc của bạn <strong>vẫn còn hiệu lực</strong> và khoản này vẫn dừng.
+      Việc không có bằng chứng <strong>không</strong> có nghĩa là bạn sai.
+    </p>
+  </section>
+
+  <p class="footer"><a href="/g/{{ token }}" style="color:inherit">Quay lại</a></p>
+</main>
+</body>
+</html>
