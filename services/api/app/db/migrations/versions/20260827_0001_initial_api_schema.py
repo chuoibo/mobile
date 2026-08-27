@@ -324,10 +324,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["batch_version_id"],
             ["collection_batch_versions.id"],
-            name=(
-                "fk_bank_recipient_snapshots_batch_version_id_"
-                "collection_batch_versions"
-            ),
+            name="fk_bank_recipient_snapshots_batch_version_id",
         ),
         sa.PrimaryKeyConstraint("id", name="pk_bank_recipient_snapshots"),
         sa.UniqueConstraint(
@@ -382,10 +379,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["batch_version_id"],
             ["collection_batch_versions.id"],
-            name=(
-                "fk_collection_obligations_batch_version_id_"
-                "collection_batch_versions"
-            ),
+            name="fk_collection_obligations_batch_version_id",
         ),
         sa.PrimaryKeyConstraint("id", name="pk_collection_obligations"),
         sa.UniqueConstraint(
@@ -420,18 +414,12 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["confirmed_allocation_id"],
             ["confirmed_allocations.id"],
-            name=(
-                "fk_collection_obligation_sources_confirmed_allocation_id_"
-                "confirmed_allocations"
-            ),
+            name="fk_collection_obligation_sources_confirmed_allocation_id",
         ),
         sa.ForeignKeyConstraint(
             ["obligation_id"],
             ["collection_obligations.id"],
-            name=(
-                "fk_collection_obligation_sources_obligation_id_"
-                "collection_obligations"
-            ),
+            name="fk_collection_obligation_sources_obligation_id",
         ),
         sa.PrimaryKeyConstraint(
             "obligation_id",
@@ -459,10 +447,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["batch_version_id"],
             ["collection_batch_versions.id"],
-            name=(
-                "fk_collection_envelopes_batch_version_id_"
-                "collection_batch_versions"
-            ),
+            name="fk_collection_envelopes_batch_version_id",
         ),
         sa.PrimaryKeyConstraint("id", name="pk_collection_envelopes"),
         sa.UniqueConstraint(
@@ -585,9 +570,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["obligation_id"],
             ["collection_obligations.id"],
-            name=(
-                "fk_receipt_confirmations_obligation_id_collection_obligations"
-            ),
+            name="fk_receipt_confirmations_obligation_id_collection_obligations",
         ),
         sa.ForeignKeyConstraint(
             ["payment_report_id", "obligation_id"],

@@ -4,9 +4,17 @@ A hand-written migration is the classic place for a schema to fork: the models
 grow a table, the migration does not, and the divergence only shows up the
 first time somebody runs against a real database.
 
-This is a STATIC comparison. It parses the migration source and checks that the
-same tables and columns appear on both sides. It does NOT prove the migration
-executes -- that needs a live PostgreSQL and is not attempted here.
+Two layers:
+
+  * a static comparison of tables and columns parsed from the migration source
+  * an actual offline DDL render, which is what catches a migration that
+    cannot compile at all
+
+The second layer exists because the first one passed while the migration was
+fundamentally broken: five foreign-key names ran past PostgreSQL's 63-character
+identifier limit, so the very first deploy would have failed. Alembic renders
+DDL with no database attached, so there was never a reason not to check.
+Caught in review by Codex.
 """
 
 from __future__ import annotations
@@ -69,6 +77,48 @@ class MigrationMatchesModels(unittest.TestCase):
                     sorted(self.declared.get(table, set())),
                     sorted(self.modelled[table]),
                 )
+
+    def test_the_migration_actually_renders_to_ddl(self):
+        """Offline render, no database needed.
+
+        A static name comparison cannot see an identifier PostgreSQL will
+        reject, a type that does not exist, or a constraint referencing a table
+        declared later. Rendering can.
+        """
+        import contextlib
+        import io
+        import os
+
+        from alembic import command
+        from alembic.config import Config
+
+        api_root = pathlib.Path(__file__).resolve().parents[2]
+        previous = os.getcwd()
+        os.chdir(api_root)
+        try:
+            config = Config(str(api_root / "alembic.ini"))
+            config.set_main_option("sqlalchemy.url", "postgresql+psycopg://offline/offline")
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                command.upgrade(config, "head", sql=True)
+        finally:
+            os.chdir(previous)
+        self.assertGreaterEqual(buffer.getvalue().count("CREATE TABLE"), len(self.modelled))
+
+    def test_no_identifier_exceeds_the_postgres_limit(self):
+        """PostgreSQL truncates identifiers at 63 characters, and a truncated
+        name can silently collide with another one."""
+        import re
+        source = "\n".join(path.read_text(encoding="utf-8") for path in sorted(MIGRATIONS.glob("*.py")))
+        source = re.sub(
+            r'name=\(\s*((?:"[^"]*"\s*)+)\)',
+            lambda m: 'name="' + "".join(re.findall(r'"([^"]*)"', m.group(1))) + '"',
+            source,
+        )
+        names = re.findall(r'name="([a-z0-9_]+)"', source)
+        self.assertGreater(len(names), 20, "expected the migration to name its constraints")
+        self.assertEqual(sorted({n for n in names if len(n) > 63}), [])
+        self.assertEqual(sorted({n for n in names if names.count(n) > 1}), [])
 
     def test_no_money_column_uses_a_lossy_type(self):
         """Spec section 4, invariant 2: integer dong, never a float.
