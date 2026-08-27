@@ -1,0 +1,34 @@
+[
+  {"id":"G08","note":"itemized, chia het, khong phu phi",
+   "input":{"participants":["a","b","c"],"total_vnd":90000,
+            "items":[{"item_id":"i1","amount_vnd":60000,"shared_by":["a","b"]},
+                     {"item_id":"i2","amount_vnd":30000,"shared_by":["c"]}],
+            "surcharges":[],"discounts":[],"advancer_id":null},
+   "expect":{"exact_shares":{"a":"30000/1","b":"30000/1","c":"30000/1"},
+             "allocations":{"a":30000,"b":30000,"c":30000},"rounding_gainers":[],"warnings":[]}},
+
+  {"id":"G09","note":"mot mon chia cho tat ca, du 1d, advancer c thang tie",
+   "input":{"participants":["a","b","c"],"total_vnd":100000,
+            "items":[{"item_id":"i1","amount_vnd":100000,"shared_by":["a","b","c"]}],
+            "surcharges":[],"discounts":[],"advancer_id":"c"},
+   "expect":{"exact_shares":{"a":"100000/3","b":"100000/3","c":"100000/3"},
+             "allocations":{"a":33333,"b":33333,"c":33334},"rounding_gainers":["c"],"warnings":[]}},
+
+  {"id":"G12","note":"c khong an gi -> phan chinh xac = 0, PHAI bao zero_share (QD #3,#21)",
+   "input":{"participants":["a","b","c"],"total_vnd":100000,
+            "items":[{"item_id":"i1","amount_vnd":100000,"shared_by":["a","b"]}],
+            "surcharges":[],"discounts":[],"advancer_id":"a"},
+   "expect":{"exact_shares":{"a":"50000/1","b":"50000/1","c":"0/1"},
+             "allocations":{"a":50000,"b":50000,"c":0},"rounding_gainers":[],
+             "warnings":["zero_share_participants"]}},
+
+  {"id":"G14","note":"giam gia gan mon -> tru vao dung mon do, khong lan sang mon khac",
+   "input":{"participants":["a","b","c"],"total_vnd":84000,
+            "items":[{"item_id":"i1","amount_vnd":60000,"shared_by":["a","b"]},
+                     {"item_id":"i2","amount_vnd":30000,"shared_by":["c"]}],
+            "surcharges":[],
+            "discounts":[{"discount_id":"d1","amount_vnd":6000,"scope":"item","item_id":"i1"}],
+            "advancer_id":null},
+   "expect":{"exact_shares":{"a":"27000/1","b":"27000/1","c":"30000/1"},
+             "allocations":{"a":27000,"b":27000,"c":30000},"rounding_gainers":[],"warnings":[]}}
+]
