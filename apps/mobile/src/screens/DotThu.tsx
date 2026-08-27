@@ -9,6 +9,7 @@ import React from "react";
 import { ScrollView, Text, View } from "react-native";
 import { formatVnd } from "../../../../packages/shared/money.mjs";
 import { radius, space, type, usePalette } from "../theme";
+import { canPublish, type PublishGates } from "../api";
 import { Button, Card, Screen } from "../ui/Kit";
 
 export type Obligation = {
@@ -32,11 +33,19 @@ const WORDING: Record<Obligation["status"], string> = {
   disputed: "đang thắc mắc",
 };
 
-export function DotThu({ obligations, published, onPublish, onShare }: {
-  obligations: Obligation[]; published: boolean;
-  onPublish: () => void; onShare: () => void;
+export function DotThu({
+  obligations, published, gates, onPublish, onShare, onAcknowledge, onSetRecipient,
+}: {
+  obligations: Obligation[];
+  published: boolean;
+  gates: PublishGates;
+  onPublish: () => void;
+  onShare: () => void;
+  onAcknowledge: () => void;
+  onSetRecipient: () => void;
 }) {
   const c = usePalette();
+  const ready = canPublish(gates);
   const done = obligations.filter((o) => TRANSFERRED.has(o.status)).length;
   const senders = new Set(obligations.map((o) => o.senderId));
   const peopleDone = [...senders].filter((id) =>
@@ -48,9 +57,18 @@ export function DotThu({ obligations, published, onPublish, onShare }: {
       title="Đợt thu"
       hint={published ? "Đã phát. Ai cũng xem được phần của mình." : "Chưa phát. Chưa ai bị nhắn gì."}
       footer={
-        published
-          ? <Button label="Chia sẻ cho từng người" onPress={onShare} />
-          : <Button label="Phát đợt thu" onPress={onPublish} />
+        published ? (
+          <Button label="Chia sẻ cho từng người" onPress={onShare} />
+        ) : (
+          <>
+            <Button label="Phát đợt thu" disabled={!ready} onPress={onPublish} />
+            {!ready ? (
+              <Text style={{ ...type.label, color: c.inkSoft }}>
+                Còn cổng chưa qua. Không ai bị nhắn gì cho tới khi cả hai xong.
+              </Text>
+            ) : null}
+          </>
+        )
       }
     >
       <Card>
@@ -63,6 +81,43 @@ export function DotThu({ obligations, published, onPublish, onShare }: {
           {peopleDone}/{senders.size} người đã xong toàn bộ
         </Text>
       </Card>
+
+      {/* Spec section 8.3. Both are shown even once passed: "who agreed to
+          this" is a thing an organiser should be able to check later, not a
+          checkbox that disappears the moment it is ticked. */}
+      {!published ? (
+        <Card>
+          <Text style={{ ...type.label, color: c.inkSoft }}>Trước khi phát</Text>
+
+          <View style={{ gap: 2 }}>
+            <Text style={{ ...type.body, color: gates.payerAcknowledged ? c.accent : c.ink }}>
+              {gates.payerAcknowledged ? "✓" : "○"} Người ứng tiền đã xác nhận
+            </Text>
+            {!gates.payerAcknowledged ? (
+              <>
+                <Text style={{ ...type.label, color: c.inkSoft }}>
+                  App không gửi gì dưới tên một người trước khi họ đồng ý.
+                </Text>
+                <Button label="Tôi là người ứng tiền, tôi xác nhận" tone="quiet" onPress={onAcknowledge} />
+              </>
+            ) : null}
+          </View>
+
+          <View style={{ gap: 2 }}>
+            <Text style={{ ...type.body, color: gates.recipientReady ? c.accent : c.ink }}>
+              {gates.recipientReady ? "✓" : "○"} Có tài khoản nhận
+            </Text>
+            {!gates.recipientReady ? (
+              <>
+                <Text style={{ ...type.label, color: c.inkSoft }}>
+                  {gates.recipientProblem ?? "Chưa rõ chuyển tiền về đâu."}
+                </Text>
+                <Button label="Nhập tài khoản nhận" tone="quiet" onPress={onSetRecipient} />
+              </>
+            ) : null}
+          </View>
+        </Card>
+      ) : null}
 
       <ScrollView contentContainerStyle={{ gap: space.sm }}>
         {obligations.map((o) => {

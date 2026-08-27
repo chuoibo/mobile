@@ -8,7 +8,13 @@
 import { StatusBar } from "expo-status-bar";
 import React, { useState } from "react";
 import { SafeAreaView, Text, View, useColorScheme } from "react-native";
-import { openBatch, proposeSplit, publishBatch, OFFLINE } from "./src/api";
+import {
+  openBatch,
+  proposeSplit,
+  publishBatch,
+  OFFLINE,
+  type PublishGates,
+} from "./src/api";
 import { ChiaSe, type Envelope } from "./src/screens/ChiaSe";
 import { DeXuat, type Proposal } from "./src/screens/DeXuat";
 import { DotThu, type Obligation } from "./src/screens/DotThu";
@@ -26,6 +32,12 @@ export default function App() {
   const [obligations, setObligations] = useState<Obligation[]>([]);
   const [envelopes, setEnvelopes] = useState<Envelope[]>([]);
   const [published, setPublished] = useState(false);
+  // Spec section 8.3. Reported by the batch, never assumed by the screen.
+  const [gates, setGates] = useState<PublishGates>({
+    payerAcknowledged: false,
+    recipientReady: false,
+    recipientProblem: null,
+  });
   const [error, setError] = useState<string | null>(null);
 
   async function guard(work: () => Promise<void>) {
@@ -62,7 +74,9 @@ export default function App() {
           proposal={proposal}
           onBack={() => setStep("nhap")}
           onConfirm={() => guard(async () => {
-            setObligations(await openBatch(proposal));
+            const batch = await openBatch(proposal);
+            setObligations(batch.obligations);
+            setGates(batch.gates);
             setPublished(false);
             setStep("dot-thu");
           })}
@@ -73,11 +87,20 @@ export default function App() {
         <DotThu
           obligations={obligations}
           published={published}
+          gates={gates}
           onPublish={() => guard(async () => {
-            setEnvelopes(await publishBatch(obligations));
+            setEnvelopes(await publishBatch(obligations, gates));
             setPublished(true);
           })}
           onShare={() => setStep("chia-se")}
+          // Offline, these stand in for actions the API will own: the advancer
+          // acknowledging in their own session, and a recipient being set up
+          // and confirmed. Local state is honest about being a stand-in --
+          // what it must not do is let publish happen without them.
+          onAcknowledge={() => setGates((g) => ({ ...g, payerAcknowledged: true }))}
+          onSetRecipient={() =>
+            setGates((g) => ({ ...g, recipientReady: true, recipientProblem: null }))
+          }
         />
       )}
 

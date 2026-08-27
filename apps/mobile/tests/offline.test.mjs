@@ -178,3 +178,55 @@ test("renaming changes the label, not the person", () => {
   assert.equal(advancer(roster)?.id, id);
   assert.equal(advancer(roster)?.name, "Nam A");
 });
+
+/* Spec section 8.3 -- the two gates before a collection round goes out.
+ *
+ * The prototype went straight from "confirm the split" to "publish", which
+ * teaches a flow where a round can go out under someone's name before they
+ * agree, and leaves nowhere to set up or check the recipient.
+ */
+test("a new batch starts with both gates shut", async () => {
+  const { openBatch, canPublish } = await import("../dist-test/api.js");
+  const fixture = FIXTURES[0];
+  const batch = await openBatch({
+    participants: fixture.participants,
+    allocations: fixture.allocations,
+    roundingGainers: fixture.roundingGainers,
+    totalVnd: fixture.totalVnd,
+    advancerId: fixture.advancerId,
+    occasion: fixture.occasion,
+  });
+  assert.equal(batch.gates.payerAcknowledged, false);
+  assert.equal(batch.gates.recipientReady, false);
+  assert.equal(canPublish(batch.gates), false);
+  assert.ok(batch.obligations.length > 0, "no obligations to gate");
+});
+
+test("publish is refused while either gate is shut", async () => {
+  const { publishBatch, GateNotPassedError } = await import("../dist-test/api.js");
+  const obligations = [
+    { id: "o1", senderId: "b", senderName: "Hà", recipient: "Nam", amountVnd: 100_000, status: "outstanding" },
+  ];
+  const shut = [
+    { payerAcknowledged: false, recipientReady: false, recipientProblem: null },
+    { payerAcknowledged: true, recipientReady: false, recipientProblem: null },
+    { payerAcknowledged: false, recipientReady: true, recipientProblem: null },
+  ];
+  for (const gates of shut) {
+    await assert.rejects(() => publishBatch(obligations, gates), GateNotPassedError);
+  }
+});
+
+test("publish goes through once both gates pass", async () => {
+  const { publishBatch } = await import("../dist-test/api.js");
+  const obligations = [
+    { id: "o1", senderId: "b", senderName: "Hà", recipient: "Nam", amountVnd: 100_000, status: "outstanding" },
+  ];
+  const envelopes = await publishBatch(obligations, {
+    payerAcknowledged: true,
+    recipientReady: true,
+    recipientProblem: null,
+  });
+  assert.equal(envelopes.length, 1);
+  assert.equal(envelopes[0].amountVnd, 100_000);
+});

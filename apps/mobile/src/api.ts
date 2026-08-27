@@ -104,11 +104,35 @@ export async function proposeSplit(draft: Draft): Promise<Proposal> {
   });
 }
 
-export async function openBatch(proposal: Proposal): Promise<Obligation[]> {
+/** Spec section 8.3: two things must be true before anything goes out.
+ *
+ * Nothing may be sent in the advancer's name until they have acknowledged it,
+ * and there must be a bank recipient to send people towards. The prototype used
+ * to skip straight from "confirm the split" to "publish", which taught a flow
+ * where a collection round can go out under someone's name before they agree
+ * to it -- and left no place to set up or check the recipient at all.
+ *
+ * These are reported, never inferred. When the real API lands it decides; the
+ * offline fake starts both closed so the demo has to walk through them.
+ */
+export type PublishGates = {
+  payerAcknowledged: boolean;
+  recipientReady: boolean;
+  /** Why the recipient is not usable yet, in words a person can act on. */
+  recipientProblem: string | null;
+};
+
+export type Batch = { obligations: Obligation[]; gates: PublishGates };
+
+export function canPublish(gates: PublishGates): boolean {
+  return gates.payerAcknowledged && gates.recipientReady;
+}
+
+export async function openBatch(proposal: Proposal): Promise<Batch> {
   if (OFFLINE) {
     const nameOf = (id: string) =>
       proposal.participants.find((p) => p.id === id)?.name ?? id;
-    return Object.entries(proposal.allocations)
+    const obligations = Object.entries(proposal.allocations)
       .filter(([id, amount]) => id !== proposal.advancerId && amount > 0)
       .map(([id, amount], index) => ({
         id: `o${index + 1}`,
@@ -118,11 +142,40 @@ export async function openBatch(proposal: Proposal): Promise<Obligation[]> {
         amountVnd: amount,
         status: "outstanding" as const,
       }));
+    // Both gates start shut. A fake that opens them for convenience would
+    // teach exactly the flow section 8.3 exists to prevent.
+    return {
+      obligations,
+      gates: {
+        payerAcknowledged: false,
+        recipientReady: false,
+        recipientProblem: `Chưa có tài khoản nhận cho ${nameOf(proposal.advancerId)}.`,
+      },
+    };
   }
-  return post<Obligation[]>("/batches", { proposal });
+  return post<Batch>("/batches", { proposal });
 }
 
-export async function publishBatch(obligations: Obligation[]): Promise<Envelope[]> {
+export class GateNotPassedError extends Error {
+  constructor(gates: PublishGates) {
+    const missing = [
+      gates.payerAcknowledged ? null : "người ứng tiền chưa xác nhận",
+      gates.recipientReady ? null : "chưa có tài khoản nhận",
+    ].filter(Boolean);
+    super(`Chưa phát được: ${missing.join(" và ")}. Spec mục 8.3.`);
+    this.name = "GateNotPassedError";
+  }
+}
+
+export async function publishBatch(
+  obligations: Obligation[],
+  gates: PublishGates,
+): Promise<Envelope[]> {
+  // Checked here as well as in the UI. A disabled button is a courtesy; this
+  // is the part that holds when someone calls the function directly.
+  if (!canPublish(gates)) {
+    throw new GateNotPassedError(gates);
+  }
   if (OFFLINE) {
     return obligations.map((o) => ({
       senderId: o.senderId,
