@@ -256,3 +256,12 @@ __marimo__/
 *.xls
 *.xlsm
 *.ods
+
+# Dependency directories. This rule once lived only on a feature branch, so a
+# `git add -A` from a different branch swept 12,629 files into the repository
+# and took .git from a few hundred kilobytes to 84 MB. The rule belongs on the
+# branch everything merges into.
+node_modules/
+**/node_modules/
+.expo/
+apps/*/dist/
