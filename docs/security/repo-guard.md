@@ -87,8 +87,10 @@ Scanner hiện có các rule:
 - `long-number`: chuỗi từ 9 chữ số, có thể có dấu cách, chấm hoặc gạch nối.
 - `data-uri-base64`: marker `data:<mime>;base64,` trên dòng được quét, không phụ thuộc đuôi file;
 - `dense-base64-line`: dòng dài hơn 4 KiB có ít nhất 98% byte thuộc bảng chữ cái base64/base64url.
+- `dense-base64-block`: ít nhất hai dòng không rỗng liên tiếp, mỗi dòng có ít nhất 98% byte thuộc bảng chữ cái base64/base64url, và tổng độ dài các dòng lớn hơn 4 KiB;
+- `long-base64-token`: một token liên tục dài hơn 2 KiB chỉ gồm bảng chữ cái base64/base64url và tối đa hai dấu padding `=`.
 
-Ở mode `staged`, các content rule chỉ xét dòng được thêm hoặc thay trong index. Ở mode `tree`, `range` và `history`, scanner xét toàn bộ dòng của từng snapshot được quét. File text lớn hơn 2 MiB hoặc binary bị chặn ở cấp `controlled-artifact` trước khi content scanner đọc dòng.
+Ở mode `staged`, các content rule chỉ báo khi match nằm trên dòng được thêm/thay trong index; riêng detector theo khối đọc các dòng kề nhau trong cùng staged blob để không mất biên khối, nhưng chỉ báo nếu khối giao với ít nhất một dòng được thêm/thay. Ở mode `tree`, `range` và `history`, scanner xét toàn bộ dòng của từng snapshot được quét. File text lớn hơn 2 MiB hoặc binary bị chặn ở cấp `controlled-artifact` trước khi content scanner đọc dòng.
 
 Khi chặn, scanner chỉ in mã file như `F0001`, dòng/cột, path đã che và match đã che. Nó không in raw path, raw source line hay raw match ra stdout/stderr hoặc log CI. Muốn tìm file local, đối chiếu mã theo thứ tự path đã stage/track trong môi trường tin cậy; không paste danh sách path lên ticket hoặc chat.
 
@@ -102,7 +104,7 @@ Viết số tiền theo định dạng có phân nhóm và đơn vị, ví dụ 
 
 ### Annotation cho text tổng hợp
 
-Chỉ năm content rule `email`, `vn-phone`, `long-number`, `data-uri-base64`, `dense-base64-line` được miễn ở cùng dòng hoặc đúng dòng ngay sau annotation:
+Chỉ bảy content rule `email`, `vn-phone`, `long-number`, `data-uri-base64`, `dense-base64-line`, `dense-base64-block`, `long-base64-token` được miễn ở cùng dòng hoặc đúng dòng ngay sau annotation:
 
 ```text
 # repo-guard: allow=long-number reason=synthetic-aggregate-id
@@ -113,11 +115,17 @@ Email TỔNG HỢP GIẢ: nguoi-gia@du-lieu.invalid
 
 # repo-guard: allow=dense-base64-line reason=reviewed-synthetic-vector
 <một dòng fixture base64 tổng hợp đã được review>
+
+# repo-guard: allow=dense-base64-block reason=reviewed-wrapped-vector
+<khối fixture base64 tổng hợp đã được review>
+
+# repo-guard: allow=long-base64-token reason=reviewed-encoded-vector
+<một token base64 tổng hợp đã được review>
 ```
 
 `reason` là token ASCII ít nhất 8 ký tự. Annotation phải cụ thể theo rule và nằm ngay cạnh match để reviewer thấy. Không dùng annotation cho dữ liệu thật. Nếu cùng một file cần nhiều miễn trừ, từng vị trí phải có annotation riêng.
 
-SHA-256 đơn lẻ dài 64 ký tự và chữ ký base64 thông thường ngắn hơn ngưỡng dòng nên không kích hoạt `dense-base64-line`. Golden-vector JSON dài chỉ bị rule này chặn khi cả dòng vượt 4 KiB **và** đạt mật độ 98%; JSON có nhiều field, dấu phân cách, hash và chữ ký riêng rẽ không mặc nhiên bị chặn. Nếu một fixture hợp lệ thực sự là một blob mã hoá dài, ưu tiên format lại thành nhiều dòng khi định dạng cho phép; nếu không, dùng annotation hẹp sau review. `data:` URI vẫn phải được annotation riêng vì marker này bị chặn bất kể độ dài.
+Một SHA-256 dài 64 ký tự, chữ ký base64 ngắn và chuỗi lặp 300 ký tự đều thấp hơn ngưỡng token. Golden-vector JSON hiện tại có field và dấu phân cách nên không tạo token dài hơn 2 KiB hay khối dòng đạt mật độ 98%. Tuy nhiên, một danh sách rất dài gồm các hash thuần trên nhiều dòng liên tiếp có thể bị detector theo khối chặn; khi đó phải format lại để thể hiện cấu trúc hoặc dùng annotation hẹp sau review. Việc wrap một blob dài thành dòng ngắn không còn là cách tránh rule. `data:` URI vẫn phải được annotation riêng khi nó không nằm trong một khối đã bị rule mạnh hơn bao phủ.
 
 ### Allowlist cho artifact/export hợp lệ
 
@@ -147,6 +155,6 @@ Binary là opaque đối với scanner. Reviewer phải kiểm tra nguồn tạo
 
 Không scanner nào nhận ra mọi tên người Việt, biệt danh, địa chỉ, nội dung chat hay định danh theo ngữ cảnh. Ví dụ, một dòng chỉ có tên thật và số tiền viết hoàn toàn bằng chữ có thể đi qua. Regex này cũng có thể bỏ sót email/điện thoại bị làm rối hoặc format chưa biết.
 
-Scanner chặn marker data URI base64 và dòng dài có mật độ base64 cao, nhưng không giải mã base64 để phân loại nội dung. Base64 thô được ngắt thành nhiều dòng ngắn hoặc làm rối có thể không bị hai rule này nhận ra. Scanner cũng không OCR ảnh, không giải nén archive, không đọc PDF, spreadsheet/database theo schema và không thấy PII nằm trong ảnh nén hoặc archive mã hoá. Allowlist binary là quyết định của con người, không phải bằng chứng file sạch.
+Scanner chặn marker data URI, token base64/base64url dài, dòng dài có mật độ cao và khối base64 được wrap qua nhiều dòng, nhưng không giải mã base64 để phân loại nội dung. Payload nhỏ hơn ngưỡng, bị xen ký tự để hạ mật độ dưới 98%, bị chia thành các đoạn không liên tiếp, hoặc dùng encoding khác vẫn có thể lọt. Scanner cũng không OCR ảnh, không giải nén archive, không đọc PDF, spreadsheet/database theo schema và không thấy PII nằm trong ảnh nén hoặc archive mã hoá. Allowlist binary là quyết định của con người, không phải bằng chứng file sạch.
 
 Scanner không cung cấp consent, access control, encryption, retention, deletion hay incident response. Hook bị bypass được; CI chạy sau push; reviewer có thể dùng annotation/allowlist sai. Đây là lớp giảm thiểu. Quy tắc gốc vẫn là: **dữ liệu thật không đi vào repository hoặc worktree ngay từ đầu.**

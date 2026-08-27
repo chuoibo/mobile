@@ -7,6 +7,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -104,6 +105,46 @@ class PatternScannerTests(unittest.TestCase):
         self.assertNotIn(payload[:80], rendered)
         self.assertNotIn("notes/synthetic.md", rendered)
 
+    def test_wrapped_base64_blocks_are_blocked_and_masked(self):
+        payload = base64.b64encode(bytes(range(256)) * 88).decode("ascii")
+        self.assertGreater(len(payload.encode("utf-8")), 22 * 1024)
+
+        for width in (12, 76, 1000):
+            with self.subTest(width=width):
+                wrapped = "\n".join(textwrap.wrap(payload, width=width))
+                findings = self.scan_text(wrapped, path="notes/synthetic-bill.txt")
+                matches = [
+                    item for item in findings if item.rule == "dense-base64-block"
+                ]
+
+                self.assertEqual(len(matches), 1)
+                rendered = matches[0].render()
+                self.assertIn("<redacted-base64-block>", rendered)
+                self.assertNotIn(payload[:76], rendered)
+                self.assertNotIn("notes/synthetic-bill.txt", rendered)
+
+    def test_long_base64_token_is_blocked_in_json_and_plain_text(self):
+        encoded = base64.b64encode(bytes(range(256)) * 20).decode("ascii")
+        payload = encoded[:3000]
+        self.assertEqual(len(payload.encode("utf-8")), 3000)
+        cases = (
+            json.dumps({"image": payload}, separators=(",", ":")),
+            payload,
+        )
+
+        for text in cases:
+            with self.subTest(container="json" if text != payload else "plain"):
+                findings = self.scan_text(text, path="notes/synthetic-payload.txt")
+                matches = [
+                    item for item in findings if item.rule == "long-base64-token"
+                ]
+
+                self.assertEqual(len(matches), 1)
+                rendered = matches[0].render()
+                self.assertIn("token-bytes=3000", rendered)
+                self.assertNotIn(payload[:80], rendered)
+                self.assertNotIn("notes/synthetic-payload.txt", rendered)
+
     def test_base64_line_threshold_is_strict(self):
         at_threshold = "A" * repo_guard.MAX_BASE64_LINE_BYTES
         over_threshold = at_threshold + "A"
@@ -115,6 +156,34 @@ class PatternScannerTests(unittest.TestCase):
         self.assertIn(
             "dense-base64-line",
             {item.rule for item in self.scan_text(over_threshold)},
+        )
+
+    def test_base64_block_and_token_thresholds_are_strict(self):
+        block_at_threshold = "\n".join(
+            (
+                "A" * (repo_guard.MAX_BASE64_BLOCK_BYTES // 2),
+                "A" * (repo_guard.MAX_BASE64_BLOCK_BYTES // 2),
+            )
+        )
+        block_over_threshold = block_at_threshold + "A"
+        token_at_threshold = "A" * repo_guard.MAX_BASE64_TOKEN_BYTES
+        token_over_threshold = token_at_threshold + "A"
+
+        self.assertNotIn(
+            "dense-base64-block",
+            {item.rule for item in self.scan_text(block_at_threshold)},
+        )
+        self.assertIn(
+            "dense-base64-block",
+            {item.rule for item in self.scan_text(block_over_threshold)},
+        )
+        self.assertNotIn(
+            "long-base64-token",
+            {item.rule for item in self.scan_text(token_at_threshold)},
+        )
+        self.assertIn(
+            "long-base64-token",
+            {item.rule for item in self.scan_text(token_over_threshold)},
         )
 
     def test_hashes_signatures_and_long_golden_vector_json_are_not_blocked(self):
@@ -133,9 +202,21 @@ class PatternScannerTests(unittest.TestCase):
             len(golden_json.encode("utf-8")), repo_guard.MAX_BASE64_LINE_BYTES
         )
 
-        for value in (digest, signature, golden_json):
+        repeated_text = "A" * 300
+        for value in (digest, signature, golden_json, repeated_text):
             with self.subTest(length=len(value)):
                 self.assertEqual(self.scan_text(value, path="vectors/golden.json"), [])
+
+        golden_dir = MODULE_PATH.parents[1] / "phase0" / "allocator" / "golden"
+        for vector_path in sorted(golden_dir.glob("*.json")):
+            with self.subTest(vector=vector_path.name):
+                self.assertEqual(
+                    self.scan_text(
+                        vector_path.read_text(encoding="utf-8"),
+                        path=f"phase0/allocator/golden/{vector_path.name}",
+                    ),
+                    [],
+                )
 
     def test_dense_base64_fixture_can_use_narrow_inline_annotation(self):
         payload = base64.b64encode(b"synthetic fixture bytes" * 300).decode()
@@ -146,6 +227,29 @@ class PatternScannerTests(unittest.TestCase):
         )
 
         self.assertEqual(self.scan_text(text, path="vectors/fixture.txt"), [])
+
+    def test_new_base64_rules_can_use_narrow_inline_annotations(self):
+        payload = base64.b64encode(bytes(range(256)) * 88).decode("ascii")
+        wrapped = "\n".join(textwrap.wrap(payload, width=76))
+        token = payload[:3000]
+        cases = (
+            (
+                "dense-base64-block",
+                "# repo-guard: allow=dense-base64-block "
+                "reason=reviewed-wrapped-vector\n"
+                f"{wrapped}",
+            ),
+            (
+                "long-base64-token",
+                "# repo-guard: allow=long-base64-token "
+                "reason=reviewed-encoded-vector\n"
+                f"{token}",
+            ),
+        )
+
+        for rule, text in cases:
+            with self.subTest(rule=rule):
+                self.assertEqual(self.scan_text(text, path="vectors/fixture.txt"), [])
 
     def test_controlled_artifact_requires_exact_path_and_digest(self):
         path = "docs/assets/synthetic-diagram.png"
@@ -308,6 +412,57 @@ class GitIntegrationTests(unittest.TestCase):
             raw_payload[:80],
         ):
             self.assertNotIn(sensitive_value, output)
+
+    def test_staged_scan_blocks_wrapped_and_json_base64_without_logging_them(self):
+        wrapped_path = "synthetic-wrapped.txt"
+        json_path = "synthetic-payload.json"
+        encoded = base64.b64encode(bytes(range(256)) * 88).decode("ascii")
+        wrapped_payload = "\n".join(textwrap.wrap(encoded, width=76))
+        token = encoded[:3000]
+        json_payload = json.dumps({"image": token}, separators=(",", ":"))
+        (self.repo / wrapped_path).write_text(wrapped_payload + "\n", encoding="utf-8")
+        (self.repo / json_path).write_text(json_payload + "\n", encoding="utf-8")
+        self.git("add", wrapped_path, json_path)
+
+        completed = self.run_guard("staged")
+        output = completed.stdout + completed.stderr
+
+        self.assertEqual(completed.returncode, 1, output)
+        self.assertIn("rule=dense-base64-block", output)
+        self.assertIn("rule=long-base64-token", output)
+        self.assertIn("token-bytes=3000", output)
+        for sensitive_value in (
+            wrapped_path,
+            json_path,
+            encoded[:76],
+            token[:80],
+        ):
+            self.assertNotIn(sensitive_value, output)
+
+    def test_staged_block_scan_uses_unchanged_neighboring_lines(self):
+        wrapped_path = "synthetic-growing-block.txt"
+        encoded = base64.b64encode(bytes(range(256)) * 20).decode("ascii")
+        baseline_payload = "\n".join(textwrap.wrap(encoded[:4028], width=76))
+        self.assertEqual(len(baseline_payload.splitlines()), 53)
+        (self.repo / wrapped_path).write_text(baseline_payload + "\n", encoding="utf-8")
+        self.git("add", wrapped_path)
+        self.git("commit", "-m", "synthetic block below aggregate threshold")
+
+        added_line = encoded[4028:4104]
+        self.assertEqual(len(added_line), 76)
+        (self.repo / wrapped_path).write_text(
+            baseline_payload + "\n" + added_line + "\n", encoding="utf-8"
+        )
+        self.git("add", wrapped_path)
+
+        completed = self.run_guard("staged")
+        output = completed.stdout + completed.stderr
+
+        self.assertEqual(completed.returncode, 1, output)
+        self.assertIn("rule=dense-base64-block", output)
+        self.assertIn("lines=54", output)
+        self.assertNotIn(wrapped_path, output)
+        self.assertNotIn(added_line, output)
 
     def test_range_scan_catches_data_removed_in_a_later_commit(self):
         base = self.git("rev-parse", "HEAD")
