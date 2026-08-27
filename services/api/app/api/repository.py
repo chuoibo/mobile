@@ -441,7 +441,11 @@ class SqlAlchemyApiRepository:
             )
             .where(Expense.context_id == context_id)
             .order_by(ExpenseVersion.id)
-            .with_for_update()
+            # The query joins a grouped subquery to select the latest version.
+            # PostgreSQL cannot apply an unqualified locking clause to an
+            # aggregate result because those rows do not map one-to-one to
+            # physical rows. Only the material version rows need locking here.
+            .with_for_update(of=ExpenseVersion)
         )
         if expense_version_ids is not None:
             statement = statement.where(ExpenseVersion.id.in_(expense_version_ids))
@@ -898,7 +902,8 @@ class SqlAlchemyApiRepository:
                     "amount_vnd": obligation.amount_vnd,
                     "recipient_display_name": snapshot.account_name
                     or str(obligation.recipient_id),
-                    "bank_name": f"Ngân hàng {snapshot.bank_bin}",
+                    # A routing BIN is not a display name. Leave naming to the
+                    # closed guest projection, which can also fall back honestly.
                     "bank_bin": snapshot.bank_bin,
                     "account_number": snapshot.account_number,
                     "account_holder_name": snapshot.account_name
