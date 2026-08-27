@@ -178,7 +178,7 @@ def upgrade() -> None:
             name="ck_expense_versions_subtotal_nonnegative",
         ),
         sa.CheckConstraint(
-            "total_amount_vnd > 0", name="ck_expense_versions_total_positive"
+            "total_amount_vnd >= 0", name="ck_expense_versions_total_nonnegative"
         ),
         sa.CheckConstraint(
             "total_amount_vnd = subtotal_amount_vnd + fee_amount_vnd + "
@@ -705,8 +705,81 @@ def upgrade() -> None:
         )
 
 
+    # --- Added under review blockers D-02 and D-03 -------------------------
+    # The migration has not been deployed anywhere, so it is amended in place
+    # rather than chained behind a second revision.
+    op.create_table(
+        "expense_items",
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+        sa.Column("expense_version_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("item_key", sa.String(length=64), nullable=False),
+        sa.Column("label", sa.Text()),
+        sa.Column("amount_vnd", sa.BigInteger(), nullable=False),
+        sa.ForeignKeyConstraint(["expense_version_id"], ["expense_versions.id"]),
+        sa.CheckConstraint("amount_vnd > 0", name="ck_expense_items_amount_positive"),
+        sa.UniqueConstraint("expense_version_id", "item_key", name="uq_expense_items_version_key"),
+    )
+    op.create_index("ix_expense_items_expense_version_id", "expense_items", ["expense_version_id"])
+
+    op.create_table(
+        "expense_item_shares",
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+        sa.Column("expense_item_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("participant_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.ForeignKeyConstraint(["expense_item_id"], ["expense_items.id"]),
+        sa.UniqueConstraint("expense_item_id", "participant_id", name="uq_item_share_unique"),
+    )
+    op.create_index("ix_expense_item_shares_expense_item_id", "expense_item_shares", ["expense_item_id"])
+
+    op.create_table(
+        "expense_surcharges",
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+        sa.Column("expense_version_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("surcharge_key", sa.String(length=64), nullable=False),
+        sa.Column("kind", sa.String(length=32), nullable=False),
+        sa.Column("amount_vnd", sa.BigInteger(), nullable=False),
+        sa.Column(
+            "mode",
+            sa.Enum("proportional", "even", name="surcharge_mode", native_enum=False, create_constraint=True),
+            nullable=False,
+        ),
+        sa.ForeignKeyConstraint(["expense_version_id"], ["expense_versions.id"]),
+        sa.CheckConstraint("amount_vnd > 0", name="ck_expense_surcharges_amount_positive"),
+        sa.UniqueConstraint("expense_version_id", "surcharge_key", name="uq_surcharges_version_key"),
+    )
+    op.create_index("ix_expense_surcharges_expense_version_id", "expense_surcharges", ["expense_version_id"])
+
+    op.create_table(
+        "expense_discounts",
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+        sa.Column("expense_version_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("discount_key", sa.String(length=64), nullable=False),
+        sa.Column("amount_vnd", sa.BigInteger(), nullable=False),
+        sa.Column(
+            "scope",
+            sa.Enum("global_proportional", "item", name="discount_scope", native_enum=False, create_constraint=True),
+            nullable=False,
+        ),
+        sa.Column("target_item_id", postgresql.UUID(as_uuid=True)),
+        sa.ForeignKeyConstraint(["expense_version_id"], ["expense_versions.id"]),
+        sa.ForeignKeyConstraint(["target_item_id"], ["expense_items.id"]),
+        sa.CheckConstraint("amount_vnd > 0", name="ck_expense_discounts_amount_positive"),
+        sa.CheckConstraint(
+            "(scope = 'item' AND target_item_id IS NOT NULL) OR "
+            "(scope = 'global_proportional' AND target_item_id IS NULL)",
+            name="ck_expense_discounts_scope_target_match",
+        ),
+        sa.UniqueConstraint("expense_version_id", "discount_key", name="uq_discounts_version_key"),
+    )
+    op.create_index("ix_expense_discounts_expense_version_id", "expense_discounts", ["expense_version_id"])
+
+
 def downgrade() -> None:
     op.execute(sa.text("DROP VIEW IF EXISTS collection_obligation_progress"))
+    op.drop_table("expense_discounts")
+    op.drop_table("expense_surcharges")
+    op.drop_table("expense_item_shares")
+    op.drop_table("expense_items")
     op.drop_table("audit_events")
     op.drop_table("receipt_confirmations")
     op.drop_table("payment_reports")

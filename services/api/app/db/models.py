@@ -62,6 +62,21 @@ class GuestLinkStatus(StrEnum):
     ROTATED = "rotated"
 
 
+class SurchargeMode(StrEnum):
+    """ADR-0004: how a surcharge spreads across participants."""
+
+    PROPORTIONAL = "proportional"
+    EVEN = "even"
+
+
+class DiscountScope(StrEnum):
+    """ADR-0004: a discount is either proportional across the bill or tied to
+    one item, and the two allocate very differently."""
+
+    GLOBAL_PROPORTIONAL = "global_proportional"
+    ITEM = "item"
+
+
 def _enum_type(enum_class: type[StrEnum], name: str) -> Enum:
     return Enum(
         enum_class,
@@ -112,7 +127,11 @@ class ExpenseVersion(Base):
         CheckConstraint("vat_amount_vnd >= 0", name="vat_nonnegative"),
         CheckConstraint("shipping_amount_vnd >= 0", name="shipping_nonnegative"),
         CheckConstraint("discount_amount_vnd >= 0", name="discount_nonnegative"),
-        CheckConstraint("total_amount_vnd > 0", name="total_positive"),
+        # ADR-0004 decision 9 and golden vector G06: a zero-dong expense is
+        # valid and allocates to zeroes. A `> 0` check here would reject an
+        # expense the allocator accepts, and only at write time -- after the
+        # user had already confirmed it.
+        CheckConstraint("total_amount_vnd >= 0", name="total_nonnegative"),
         CheckConstraint(
             "total_amount_vnd = subtotal_amount_vnd + fee_amount_vnd + "
             "vat_amount_vnd + shipping_amount_vnd - discount_amount_vnd",
@@ -140,6 +159,10 @@ class ExpenseVersion(Base):
     verification_scope: Mapped[VerificationScope] = mapped_column(
         _enum_type(VerificationScope, "verification_scope"), nullable=False
     )
+    # The five scalar columns below are DERIVED roll-ups kept for fast queries.
+    # After blocker D-03 the source of truth for surcharges and discounts is the
+    # child tables, which carry mode and scope. Do not reconstruct an allocation
+    # from these five numbers -- the information needed to do so is not here.
     subtotal_amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
     fee_amount_vnd: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=0, server_default="0"
@@ -157,6 +180,104 @@ class ExpenseVersion(Base):
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class ExpenseItem(Base):
+    """One line on the bill, belonging to one immutable expense version.
+
+    Added under review blocker D-02. Without items there is no way to rebuild
+    the "who ate what" drill-down, and spec section 3 requires that drill-down
+    to be either recomputed or marked stale after an edit -- neither of which
+    is possible if the items were never stored.
+    """
+
+    __tablename__ = "expense_items"
+    __table_args__ = (
+        UniqueConstraint("expense_version_id", "item_key", name="uq_expense_items_version_key"),
+        # ADR-0004 rejects a zero-amount line item (ZERO_AMOUNT) even though a
+        # zero-amount expense total is fine.
+        CheckConstraint("amount_vnd > 0", name="amount_positive"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    expense_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("expense_versions.id"), nullable=False, index=True
+    )
+    item_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    label: Mapped[str | None] = mapped_column(Text)
+    amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
+class ExpenseItemShare(Base):
+    """Which participant shares which item. The `shared_by` set of ADR-0004."""
+
+    __tablename__ = "expense_item_shares"
+    __table_args__ = (
+        UniqueConstraint("expense_item_id", "participant_id", name="uq_item_share_unique"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    expense_item_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("expense_items.id"), nullable=False, index=True
+    )
+    participant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+
+
+class ExpenseSurcharge(Base):
+    """A fee, VAT or shipping line, WITH its distribution mode.
+
+    Added under review blocker D-03. The flat `fee_amount_vnd` columns cannot
+    express mode: two expenses with identical totals but different modes
+    allocate differently (golden G10 gives {a: 66000, b: 44000} proportional
+    and {a: 65000, b: 45000} even). Storing them identically loses money facts.
+    """
+
+    __tablename__ = "expense_surcharges"
+    __table_args__ = (
+        UniqueConstraint("expense_version_id", "surcharge_key", name="uq_surcharges_version_key"),
+        CheckConstraint("amount_vnd > 0", name="amount_positive"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    expense_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("expense_versions.id"), nullable=False, index=True
+    )
+    surcharge_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    mode: Mapped[SurchargeMode] = mapped_column(
+        _enum_type(SurchargeMode, "surcharge_mode"), nullable=False
+    )
+
+
+class ExpenseDiscount(Base):
+    """A discount line, WITH its scope and, when item-scoped, its target."""
+
+    __tablename__ = "expense_discounts"
+    __table_args__ = (
+        UniqueConstraint("expense_version_id", "discount_key", name="uq_discounts_version_key"),
+        CheckConstraint("amount_vnd > 0", name="amount_positive"),
+        # ADR-0004 SCOPE_TARGET_MISMATCH: an item-scoped discount needs a
+        # target and a global one must not carry one.
+        CheckConstraint(
+            "(scope = 'item' AND target_item_id IS NOT NULL) OR "
+            "(scope = 'global_proportional' AND target_item_id IS NULL)",
+            name="scope_target_match",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    expense_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("expense_versions.id"), nullable=False, index=True
+    )
+    discount_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    scope: Mapped[DiscountScope] = mapped_column(
+        _enum_type(DiscountScope, "discount_scope"), nullable=False
+    )
+    target_item_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("expense_items.id")
     )
 
 
