@@ -21,7 +21,7 @@ import tempfile
 import unittest
 
 HERE = pathlib.Path(__file__).resolve()
-GOLDEN_DIR = HERE.parents[1] / "golden"
+GOLDEN_DIR = HERE.parent / "golden"
 SELFCHECK = HERE.parent / "test_golden_selfcheck.py"
 
 
@@ -107,15 +107,16 @@ def load_corpus():
 def run_selfcheck_against(corpus) -> int:
     workspace = pathlib.Path(tempfile.mkdtemp())
     try:
+        # The self-check resolves its corpus as `<its own directory>/golden`,
+        # so the copy and the mutated corpus must sit side by side here too.
         (workspace / "golden").mkdir()
-        (workspace / "tests").mkdir()
         for name, vectors in corpus.items():
             (workspace / "golden" / name).write_text(
                 json.dumps(vectors, ensure_ascii=False, indent=1), encoding="utf-8"
             )
-        shutil.copy(SELFCHECK, workspace / "tests" / "selfcheck.py")
+        shutil.copy(SELFCHECK, workspace / "selfcheck.py")
         result = subprocess.run(
-            [sys.executable, "-m", "pytest", str(workspace / "tests" / "selfcheck.py"), "-q"],
+            [sys.executable, "-m", "pytest", str(workspace / "selfcheck.py"), "-q"],
             capture_output=True,
             text=True,
         )
