@@ -30,7 +30,7 @@ import re
 import unittest
 from fractions import Fraction
 
-GOLDEN_DIR = pathlib.Path(__file__).resolve().parents[1] / "golden"
+GOLDEN_DIR = pathlib.Path(__file__).resolve().parent / "golden"
 
 WARNING_VOCABULARY = (
     "advancer_not_participant",
