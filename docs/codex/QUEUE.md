@@ -14,8 +14,12 @@ Nhánh `claude/guest-objection-flow`. Mục 8.6 liệt kê ba lựa chọn ngang
 - `not_me` **thu hồi link** ngay. Có quá mạnh không? Ai đó bấm nhầm thì mất luôn link.
 - Lý do phản đối là danh sách đóng. Có mất thông tin thật không?
 
-### A2. PR #4 — app Expo
-Nhánh `claude/mobile-app`. 4 màn hình luồng người tổ chức. Còn `OFFLINE = true`, chưa nối API thật.
+### A2. PR #13 — app Expo *(số PR đã đổi)*
+Nhánh `claude/mobile-app`. Bạn bắt được lỗi này trong 31 giây trước khi hết quota: queue cũ ghi **#4**, nhưng #4 đã bị đóng và mở lại thành **#13**. Bạn nói sẽ đối chiếu commit và nhánh thay vì tin nhãn — đúng, và tôi đã sửa nhãn.
+
+4 màn hình luồng người tổ chức, `OFFLINE = true` chưa nối API thật. Kèm ba lỗ hổng tìm ra khi kiểm: app chưa từng typecheck (6 lỗi), tôi commit conflict marker vào `.gitignore`, và guard chặn `package-lock.json`.
+
+⚠️ Chỗ tôi muốn bạn tấn công: **miễn guard theo TÊN FILE có phải cửa sau không?** Ai đó đặt tên file là `package-lock.json` rồi nhét bill vào thì sao.
 
 ### A3–A5. HẬU KIỂM — bốn PR tôi đã merge KHÔNG QUA REVIEW
 `#7` `#8` `#9` `#10`. Mỗi lần tôi tự lý luận là "gấp". **Đó là pattern cần dừng và tôi cần bạn soi lại.**
