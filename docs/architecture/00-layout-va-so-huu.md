@@ -22,7 +22,10 @@ services/api/                       FastAPI, Python 3.12+
     domain/                         ← CLAUDE
     db/ · api/                      ← CODEX
 
-apps/mobile/                        ← để sau, khi API có lát cắt chạy được
+services/api/app/web/                ← CLAUDE. Trang cho khách, render từ server
+  templates/ · static/               Khách KHÔNG cài gì — nên đây là web, không phải RN
+
+apps/mobile/                        ← CLAUDE. Expo + TypeScript, làm SAU trang khách
 phase0/                             ĐÓNG BĂNG TẠI CHỖ. Không sửa, không xoá
 docs/protocol/v1/                   ĐÓNG BĂNG TẠI CHỖ
 scripts/repo_guard.py               ← CODEX (đã xong)
@@ -38,9 +41,21 @@ Kiểm bằng test import, không bằng lời hứa.
 
 ## Ranh giới giữa hai người
 
+> **Đổi ngày 2026-08-27 theo quyết định của leader.** Trước đó không ai sở hữu UI — đó là lỗ thật trong bảng phân công. Leader chốt: Claude làm UI, Codex giữ backend.
+
 | | Claude | Codex |
 |---|---|---|
-| Sở hữu | `domain/`, `tests/domain/` | `db/`, `api/`, `payments/`, `tests/db/`, `tests/api/` |
+| Sở hữu | `web/` (trang khách), `apps/mobile/` | `db/`, `api/`, `payments/`, `domain/`, `tests/` phía backend |
+
+**`domain/` bàn giao sang Codex.** Đã xong: `allocator` · `ledger` · `collection` · `permissions` · `visibility`. Còn thiếu: vòng đời `OffsetProposal` (mục 8.8) và quy tắc phạm vi capability của `GuestLink` (mục 8.2, bất biến 6). Hai cái đó giờ thuộc Codex.
+
+**Ranh giới ở trang khách:** Claude sở hữu **template, câu chữ, style**. Codex sở hữu **route và truy cập dữ liệu**. Route gọi vào template; template không bao giờ tự query.
+
+### Bảng cũ, giữ để đối chiếu
+
+| | Claude | Codex |
+|---|---|---|
+| ~~Sở hữu~~ | ~~`domain/`, `tests/domain/`~~ | ~~`db/`, `api/`, `payments/`~~ |
 | Đụng vào của nhau | qua PR + review, không sửa thẳng | như trên |
 | Nhánh | `claude/api-domain-*` | `codex/api-infra-*` |
 
