@@ -24,6 +24,8 @@ EXPO_PUBLIC_API_URL=http://127.0.0.1:8099 npx expo export --platform web \
 
 cd tests/qa/rd-qa-02 && npm ci     # playwright + @axe-core/playwright
 
+# 0. tự kiểm bộ dò tên — không cần DB, không cần server, chạy trước mọi thứ
+node --test tests/qa/rd-qa-02/name-leak.selfcheck.mjs
 # 1. bất biến phía máy chủ
 EXPO_PUBLIC_API_URL=http://127.0.0.1:8099 node --test tests/qa/rd-qa-02/money-server-truth.mjs
 # 2. số màn hình vs số máy chủ
@@ -39,8 +41,13 @@ EXPO_PUBLIC_API_URL=http://127.0.0.1:8099 node tests/qa/rd-qa-02/repro-confirm-4
 
 ## Bảng đối chiếu: số màn hình vs số máy chủ
 
-47 phép đối chiếu, **0 lệch**. Trình duyệt thật (Chromium 390×844), bundle web
+59 phép đối chiếu, **0 lệch**. Trình duyệt thật (Chromium 390×844), bundle web
 thật, body API thật ghi lại trên dây rồi so với text render ra trong DOM.
+
+> Bản đầu của tài liệu này ghi 47 phép đối chiếu. **Ba trong số đó không thể đỏ**
+> — xem [Ba phép kiểm chết](#ba-phép-kiểm-chết-và-cách-chúng-bị-bắt) bên dưới.
+> Con số 59 = 47 cũ + 12 phép **đối chứng dương** mới, mỗi phép kiểm tên đi kèm
+> đúng một phép chứng minh bộ dò còn sống.
 
 | bề mặt | số gì | trên màn hình | máy chủ gửi | khớp |
 |---|---|---|---|---|
@@ -58,12 +65,79 @@ thật, body API thật ghi lại trên dây rồi so với text render ra trong
 | trang khách | số tiền in ra (4 người) | như máy chủ | như máy chủ | ✅ ×4 |
 | trang khách | `data-copy` (4 người) | như máy chủ | như máy chủ | ✅ ×4 |
 | trang khách | không thấy phần người khác | không lộ | không lộ | ✅ ×6 |
+| trang khách | **bộ dò thấy tên khi cắm vào** (đối chứng dương) | thấy | thấy | ✅ ×12 |
 | trang khách | không thấy tên người khác | không lộ | không lộ | ✅ ×12 |
 | trang khách | không thấy tổng nhóm | không lộ | không lộ | ✅ ×4 |
 
 **Client không tự tính.** Đột biến M7 dựng lại `Math.floor(total / n)` trong
 `apps/mobile/src/api.ts` và `offline.test.mjs` đỏ ngay — cổng chống mọc lại
 allocator ở client có thật và có răng.
+
+## Ba phép kiểm chết, và cách chúng bị bắt
+
+Bộ dò tên rò rỉ từng được viết là `new RegExp(`>[^<]*\b${name}\b`)`. Trong
+JavaScript `\b` định nghĩa trên `\w` == `[A-Za-z0-9_]`, và `à` **không** phải
+word character:
+
+```
+node -e 'console.log(/\bHà\b/.test("· Hà ·"), /\bHa\b/.test("· Ha ·"))'
+-> false true
+```
+
+Trong ROSTER chỉ `Hà` kết thúc bằng nguyên âm có dấu, nên đúng **3 trong 12**
+phép kiểm tên — `Quyên/Dũng/Linh không thấy tên Hà` — không bao giờ đỏ được.
+Chúng in ✅ trong bảng ở trên và không chứng minh gì cả.
+
+Sai theo **cả hai chiều**, không chỉ mù:
+
+| markup | `Hà` có trên trang? | `\bHà\b` nói |
+|---|---|---|
+| `<p>· Hà ·</p>` | **có** | không lộ ← bỏ sót thật |
+| `<p>Hàn Quốc</p>` | không | **LỘ** ← báo động giả |
+
+Chiều thứ hai chưa ai gặp vì trang khách chưa từng in chữ "Hàn"/"Hàng", nhưng nó
+nằm sẵn ở đó: `à→n` **là** một chuyển tiếp `\w`, nên `\b` khớp.
+
+### Đối chứng đỏ/xanh, chạy trên Postgres thật + API thật + trình duyệt thật
+
+Đột biến dùng để chứng minh (`guest_view.py:117`, rò rỉ thật trên mọi trang):
+
+```python
+"occasion_label": obligation["occasion_label"] + " · Hà · 1.234.567",
+```
+
+uvicorn được **khởi động lại** sau mỗi lần sửa file — một tiến trình chạy từ
+trước vẫn đang chạy code cũ, và đó đúng là cách một lượt đột biến tự nói dối.
+
+| máy chủ | bộ dò | kết quả | 3 dòng `không thấy tên Hà` |
+|---|---|---|---|
+| sạch | `\b` (trước sửa) | 59 đối chiếu, **3 lệch**, exit 1 | — bị đối chứng dương bắt |
+| sạch | Unicode (sau sửa) | 59 đối chiếu, **0 lệch**, exit 0 | ✅ đúng |
+| đột biến | `\b` (trước sửa) | 59 đối chiếu, 7 lệch, exit 1 | **✅ XANH GIẢ** — Hà in trên mọi trang |
+| đột biến | Unicode (sau sửa) | 59 đối chiếu, **7 lệch**, exit 1 | **❌ LỘ ×3** — bắt đúng |
+
+Hàng 3 là lỗi gốc, tái lập nguyên vẹn: máy chủ rò rỉ tên `Hà` ra bốn trang khách
+và ba phép kiểm phụ trách đúng chuyện đó vẫn in "không lộ".
+
+Hàng 1 là điều đáng giá hơn: **trên cây sạch, không cần đột biến nào**, bộ dò mù
+vẫn bị bắt — vì mỗi phép kiểm phủ định giờ đi kèm một **đối chứng dương** cắm tên
+vào chính bytes của trang đó rồi bắt bộ dò phải nói "thấy". Không ai còn phải nhớ
+chạy đột biến để phát hiện một phép kiểm đã chết.
+
+### Tự kiểm không cần môi trường
+
+`name-leak.selfcheck.mjs` cắm từng tên trong ROSTER vào markup hình dạng thật và
+bắt bộ dò phải đỏ, cộng các ca không được báo động giả (`Hàn Quốc`, `Namibia`,
+`Linhh`), ca NFD/NFC, và ca ghim lại chính tính chất ASCII của `\b` để không ai
+"đơn giản hoá" ngược về:
+
+| bộ dò | `node --test name-leak.selfcheck.mjs` |
+|---|---|
+| `\b` (trước sửa) | 32 ca, **10 pass / 22 fail**, exit 1 |
+| Unicode (sau sửa) | 32 ca, **32 pass / 0 fail**, exit 0 |
+
+Chạy trong 70ms, không cần DB, không cần server — nên nó là bước 0 của quy trình
+chạy lại ở trên.
 
 ### Ô KHÔNG quét được bằng so chuỗi
 
@@ -213,6 +287,13 @@ Chập chờn nên **một lượt sạch không phải bằng chứng đã hế
   được; cần leader cầm điện thoại thật. `test_vietqr.py` chỉ kiểm chuỗi EMVCo và
   CRC — một chuỗi đúng CRC vẫn có thể là chuỗi không app ngân hàng nào nhận.
 - **Rò rỉ giữa những người nợ đúng cùng một số tiền** — xem ô không quét được ở trên.
+- **Tên rò rỉ trong thuộc tính HTML** (`aria-label`, `title`, `href`, `alt`).
+  `name-leak.mjs` cố ý chỉ soi **text content**: tiền tố `>[^<]*` ghim phép khớp
+  vào đoạn ký tự sau khi một thẻ đóng, nên một cái tên nằm trong giá trị thuộc
+  tính không bị soi. Trình đọc màn hình thì đọc `aria-label`, nên đây là một lỗ
+  thật, chỉ là chưa mở rộng ở lượt này. Có ca tự kiểm ghim đúng phạm vi đó lại
+  (`does not fire on a name that only appears inside a tag`) để việc mở rộng sau
+  này là một quyết định có ý thức, không phải một thay đổi lặng lẽ.
 - **Đọc bill bằng AI**: chỉ kiểm đường sửa tay (đổi tổng → chia lại đúng). Chưa
   kiểm OCR đọc đúng bao nhiêu phần trăm trên ảnh bill thật.
 - **Đua thật sự**: hai `confirm` đồng thời trên cùng một expense (khoá thật của

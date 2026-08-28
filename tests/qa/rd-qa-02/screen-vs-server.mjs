@@ -15,6 +15,7 @@
  */
 import { chromium } from "playwright";
 import { formatVnd } from "../../../packages/shared/money.mjs";
+import { nameAppearsInText } from "./name-leak.mjs";
 
 const [, , WEB_DIR, API_BASE, STATIC_PORT] = process.argv;
 if (!WEB_DIR || !API_BASE || !STATIC_PORT) {
@@ -229,10 +230,24 @@ for (const link of wire.publish.guest_links) {
     );
   }
   // Names are distinguishable even when amounts are not.
+  //
+  // Each negative result below is preceded by a positive control on the SAME
+  // bytes: splice the name into a copy of this page and require the detector to
+  // report it. "Không lộ" is only worth reading once the detector has just
+  // proven, on this markup, that it is capable of saying "LỘ".
   for (const [i, id] of idOrder.entries()) {
     if (id === link.sender_id || id === advancerId) continue;
     const otherName = ROSTER[i];
-    const leaked = new RegExp(`>[^<]*\\b${otherName}\\b`).test(html);
+    const planted = html.includes("</body>")
+      ? html.replace("</body>", `<p>· ${otherName} ·</p></body>`)
+      : `${html}<p>· ${otherName} ·</p>`;
+    compare(
+      "trang khách",
+      `detector thấy tên ${otherName} khi cắm vào trang của ${name}`,
+      nameAppearsInText(planted, otherName) ? "thấy" : "MÙ",
+      "thấy",
+    );
+    const leaked = nameAppearsInText(html, otherName);
     compare("trang khách", `${name} không thấy tên ${otherName}`, leaked ? "LỘ" : "không lộ", "không lộ");
   }
   // Nor may the group total.

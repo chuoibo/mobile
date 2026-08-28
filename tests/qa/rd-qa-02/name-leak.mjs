@@ -17,11 +17,27 @@ function escapeRegExp(source) {
   return source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/* What counts as "still inside a word", written in Unicode rather than in
+ * ASCII. `\b` was the wrong tool here twice over: it is blind to "Hà " (à is
+ * not \w, so no boundary exists after it) AND it fires on "Hàn Quốc" (à->n IS a
+ * \w transition, so \bHà\b matches a page where Hà never appears). Letters,
+ * combining marks and digits are all word-interior; anything else -- space, ·,
+ * `<`, punctuation -- ends the word. */
+const WORD_INTERIOR = "\\p{L}\\p{M}\\p{N}_";
+
 /**
  * True when `name` appears as a standalone word inside the rendered text of
  * `html` -- i.e. this page leaks that person.
+ *
+ * Both sides are normalised to NFC first: the server and the browser are each
+ * free to emit "Hà" precomposed (U+00E0) or decomposed (a + U+0300), and a
+ * detector that only understands one form goes quiet on the other.
  */
 export function nameAppearsInText(html, name) {
-  const pattern = new RegExp(`>[^<]*\\b${escapeRegExp(name)}\\b`);
-  return pattern.test(html);
+  const needle = escapeRegExp(name.normalize("NFC"));
+  const pattern = new RegExp(
+    `>[^<]*(?<![${WORD_INTERIOR}])${needle}(?![${WORD_INTERIOR}])`,
+    "u",
+  );
+  return pattern.test(html.normalize("NFC"));
 }
