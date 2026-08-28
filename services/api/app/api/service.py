@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 
 from app.api.deps import Actor
 from app.api.errors import ApiProblem, RepositoryConflict
+from app.api.limits import OBJECTION_KINDS, QUOTA_CONSUMING_OBJECTIONS
 from app.api.repository import (
     ApiRepository,
     GuestLinkDraft,
@@ -18,6 +19,8 @@ from app.api.repository import (
 from app.api.schemas import (
     AllocationProposal,
     BatchCreateRequest,
+    BatchObligationsResponse,
+    BatchObligationView,
     BatchCreateResponse,
     BatchPublishRequest,
     BatchPublishResponse,
@@ -521,6 +524,34 @@ class ApiService:
         except ObjectionError as exc:
             raise ApiProblem(409, exc.code, "Objection page is not renderable") from exc
 
+    def list_batch_obligations(
+        self, batch_id: uuid.UUID, actor: Actor
+    ) -> BatchObligationsResponse:
+        """The collection board, disputes and all.
+
+        Section 8.2 says an objection stops collection on that obligation.
+        That is only true if somebody on the collecting side can see it, and
+        until now there was nowhere for them to look.
+        """
+        rows = self.repository.list_batch_obligations(batch_id)
+        if rows is None:
+            raise ApiProblem(404, "unknown_batch", "No such batch")
+        return BatchObligationsResponse(
+            batch_id=batch_id,
+            obligations=[
+                BatchObligationView(
+                    obligation_id=row.obligation_id,
+                    sender_id=row.sender_id,
+                    recipient_id=row.recipient_id,
+                    amount_vnd=row.amount_vnd,
+                    obligation_status=row.status,
+                    disputed_reason=row.disputed_reason,
+                )
+                for row in rows
+            ],
+            disputed_count=sum(1 for row in rows if row.status == "disputed"),
+        )
+
     def record_objection(
         self, token: str, kind: str, obligation_id: uuid.UUID | None, reason: str | None
     ) -> None:
@@ -530,7 +561,7 @@ class ApiService:
         either one got a 404: the page invited an objection and then behaved as
         though objecting had broken something.
         """
-        if kind not in {"not_me", "wrong_amount", "evidence_request"}:
+        if kind not in OBJECTION_KINDS:
             raise ApiProblem(422, "unknown_objection", "Unknown objection kind")
         if reason is not None and reason not in {value for value, _ in OBJECTION_REASONS}:
             # A closed list, because free text from a stranger is where the
@@ -556,7 +587,16 @@ class ApiService:
         # Indexed, not .get() with a default. The defaults scattered through
         # this codebase said 2 while the repository enforced 3, so the page
         # promised a quota the server did not honour.
-        if envelope["objections_used"] >= envelope["objections_allowed"]:
+        #
+        # And the check is gated on the KIND. It used to run for every kind,
+        # so someone who had objected three times got 429 for asking how a
+        # number was reached -- while the repository, and the comment next to
+        # it, both said asking does not spend the quota. The page kept offering
+        # the button; only the POST disagreed.
+        if (
+            kind in QUOTA_CONSUMING_OBJECTIONS
+            and envelope["objections_used"] >= envelope["objections_allowed"]
+        ):
             raise ApiProblem(429, "objection_rate_limited", "Too many objections on this link")
 
         self.repository.save_guest_objection(

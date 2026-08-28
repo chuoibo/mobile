@@ -139,7 +139,12 @@ def confirmed_total(receipt_confirmations: list[dict]) -> int:
     return total
 
 
-def obligation_status(declared_amount_vnd: int, receipt_confirmations: list[dict]) -> str:
+def obligation_status(
+    declared_amount_vnd: int,
+    receipt_confirmations: list[dict],
+    *,
+    disputed: bool = False,
+) -> str:
     """Derive status from confirmed amounts. Never stored as an enum.
 
     Spec section 8.2 is explicit that obligation state is derived from the sum
@@ -152,10 +157,24 @@ def obligation_status(declared_amount_vnd: int, receipt_confirmations: list[dict
     `over_confirmed` is not an error. A recipient can fat-finger the amount, or
     a sender can overpay, and the ledger must be able to show that rather than
     clamp it out of sight.
+
+    `disputed` is section 8.2: someone has said this amount is wrong, and
+    collection on THIS obligation stops until that is settled -- while every
+    other obligation in the same batch carries on untouched. It is passed in
+    rather than derived here because the evidence for it lives in the event
+    log, and this module does not read storage.
+
+    Money that already arrived outranks a dispute. Once an obligation is
+    `confirmed` or `over_confirmed` there is nothing left to collect, so
+    marking it disputed would stop a collection that already ended and hide a
+    payment that already happened. A disagreement after the fact is a
+    conversation, not a collection state.
     """
     if declared_amount_vnd <= 0:
         raise LedgerError("NON_POSITIVE_OBLIGATION")
     confirmed = confirmed_total(receipt_confirmations)
+    if disputed and confirmed < declared_amount_vnd:
+        return "disputed"
     if confirmed == 0:
         return "outstanding"
     if confirmed < declared_amount_vnd:

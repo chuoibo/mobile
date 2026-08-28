@@ -11,9 +11,21 @@ objecting had broken something.
 
 from __future__ import annotations
 
+import uuid
+
+import pytest
+
 from app.api.limits import OBJECTION_LIMIT
 
-from .helpers import create_batch, propose_and_confirm, publish_batch
+from .helpers import (
+    ADVANCER_ID,
+    OTHER_ID,
+    SENDER_ID,
+    actor_headers,
+    create_batch,
+    propose_and_confirm,
+    publish_batch,
+)
 
 
 def _published_flow(client, repository):
@@ -83,19 +95,36 @@ class TestWrongAmount:
         body = client.get(f"{path}/doi-so-tien").text
         assert "không bị ảnh hưởng" in body
 
-    def test_it_never_claims_collection_stops(self, client, repository):
-        """This test used to assert the opposite, pinning a promise the system
-        does not keep: nothing stops collection, and no surface shows the
-        objection to whoever recorded the expense. A guest who reads that the
-        amount is on hold and is then chased for it is worse off than one who
-        was never offered the button."""
+    def test_it_says_collection_stops_because_it_now_does(self, client, repository):
+        """This assertion has been inverted twice, and both moves were right.
+
+        It first claimed collection stopped, when nothing stopped it. It was
+        then changed to assert the page admits nothing stops -- honest, but it
+        pinned the missing behaviour in place, which is how a test stops
+        guarding a promise and starts guarding a gap.
+
+        The behaviour exists now: the objection is derived into the
+        obligation's status and shown on the collection board. So the sentence
+        changes with the behaviour, not ahead of it."""
         path = _published_flow(client, repository)
 
         body = client.get(f"{path}/doi-so-tien").text
 
-        assert "tạm dừng" not in body
-        assert "chưa tự dừng khoản này" in body
-        assert "chưa tự báo cho" in body
+        assert "dừng thu khoản này" in body
+        assert "không bị ảnh hưởng" in body
+
+    def test_it_still_never_claims_anyone_was_notified(self, client, repository):
+        """Appearing on a board is not the same as somebody having looked.
+
+        The page may now say collection stopped, because it does. It must not
+        slide from there into saying the person was told."""
+        path = _published_flow(client, repository)
+
+        body = client.get(f"{path}/doi-so-tien").text
+
+        assert "chưa" in body and "tự nhắn" in body
+        for lie in ("đã được báo", "đã báo cho", "đã thông báo"):
+            assert lie not in body
 
     def test_submitting_records_the_reason(self, client, repository):
         path = _published_flow(client, repository)
@@ -260,3 +289,118 @@ class TestTheRealRepositoryCanActuallyStoreOne:
             SqlAlchemyApiRepository.save_guest_objection
         )
         assert "session" not in inspect.getsource(ApiRepository.save_guest_objection)
+
+
+class TestADisputeStopsExactlyOneObligation:
+    """Section 8.2, and the whole point of PR11-01.
+
+    A guest could file "this amount is wrong", be told truthfully that it was
+    recorded, and every collection path carried on as though nothing had
+    happened -- because the objection was an audit event no surface read back.
+    These go through the collection board, which is the surface that was
+    missing.
+    """
+
+    @staticmethod
+    def _board(client, batch_id):
+        response = client.get(
+            f"/batches/{batch_id}/obligations", headers=actor_headers()
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    def test_the_objected_obligation_becomes_disputed(self, client, repository):
+        propose_and_confirm(client)
+        batch = create_batch(client, repository)
+        published = publish_batch(client, batch["batch_id"])
+        path = published["guest_links"][0]["path"]
+
+        before = self._board(client, batch["batch_id"])
+        assert before["disputed_count"] == 0
+        target = before["obligations"][0]["obligation_id"]
+
+        client.post(
+            f"{path}/doi-so-tien",
+            data={"obligation_id": target, "reason": "amount_too_high"},
+            follow_redirects=False,
+        )
+
+        after = self._board(client, batch["batch_id"])
+        rows = {row["obligation_id"]: row for row in after["obligations"]}
+        assert rows[target]["obligation_status"] == "disputed"
+        assert rows[target]["disputed_reason"] == "amount_too_high"
+        assert after["disputed_count"] == 1
+
+    def test_every_other_obligation_is_untouched(self, client, repository):
+        # Three participants, so two people owe the advancer and the batch has
+        # two obligations on two separate links. With one obligation there is
+        # nothing for a stray dispute to spill onto and the test proves nothing.
+        propose_and_confirm(
+            client, total=90_000, participants=[SENDER_ID, OTHER_ID, ADVANCER_ID]
+        )
+        batch = create_batch(client, repository)
+        published = publish_batch(client, batch["batch_id"])
+        path = published["guest_links"][0]["path"]
+
+        before = self._board(client, batch["batch_id"])
+        assert len(before["obligations"]) >= 2, "fixture stopped producing two obligations"
+        target = before["obligations"][0]["obligation_id"]
+        others = [row["obligation_id"] for row in before["obligations"][1:]]
+
+        client.post(
+            f"{path}/doi-so-tien",
+            data={"obligation_id": target, "reason": "amount_too_high"},
+            follow_redirects=False,
+        )
+
+        rows = {
+            row["obligation_id"]: row
+            for row in self._board(client, batch["batch_id"])["obligations"]
+        }
+        assert rows[target]["obligation_status"] == "disputed"
+        for other in others:
+            assert rows[other]["obligation_status"] != "disputed", (
+                "one objection stopped a different person's obligation"
+            )
+
+    def test_an_unknown_batch_is_404_not_an_empty_board(self, client, repository):
+        """An empty list would read as "nothing to collect" for a batch that
+        does not exist -- a quiet answer to a wrong question."""
+        response = client.get(
+            f"/batches/{uuid.uuid4()}/obligations", headers=actor_headers()
+        )
+        assert response.status_code == 404
+
+
+class TestAskingHowANumberWasReachedIsNotAnObjection:
+    """PR11-02. The repository said asking does not spend the quota, the
+    comment beside it said so too, and the service checked the quota before it
+    looked at the kind -- so a guest who had objected three times got 429 for
+    asking a question the code claimed was free."""
+
+    def test_evidence_request_survives_an_exhausted_objection_quota(
+        self, client, repository
+    ):
+        propose_and_confirm(client)
+        batch = create_batch(client, repository)
+        published = publish_batch(client, batch["batch_id"])
+        path = published["guest_links"][0]["path"]
+        board = client.get(
+            f"/batches/{batch['batch_id']}/obligations", headers=actor_headers()
+        ).json()
+        target = board["obligations"][0]["obligation_id"]
+
+        for _ in range(OBJECTION_LIMIT):
+            client.post(
+                f"{path}/doi-so-tien",
+                data={"obligation_id": target, "reason": "amount_too_high"},
+                follow_redirects=False,
+            )
+
+        response = client.post(
+            f"{path}/xin-cach-tinh",
+            data={"obligation_id": target},
+            follow_redirects=False,
+        )
+
+        assert response.status_code != 429, response.text

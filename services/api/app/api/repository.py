@@ -145,6 +145,23 @@ class BatchForPublish:
 
 
 @dataclass(frozen=True, slots=True)
+class BatchObligationRow:
+    """One obligation as the person collecting sees it.
+
+    Status is derived, never stored -- including `disputed`, which is read
+    back from the objection events rather than kept in a column that could
+    drift from them.
+    """
+
+    obligation_id: uuid.UUID
+    sender_id: uuid.UUID
+    recipient_id: uuid.UUID
+    amount_vnd: int
+    status: str
+    disputed_reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class GuestLinkDraft:
     sender_id: uuid.UUID
     token_digest: bytes
@@ -281,6 +298,10 @@ class ApiRepository(Protocol):
         """
         ...
 
+
+    def list_batch_obligations(
+        self, batch_id: uuid.UUID
+    ) -> list[BatchObligationRow] | None: ...
 
     def get_receipt_target(self, obligation_id: uuid.UUID) -> ReceiptTarget | None: ...
 
@@ -881,6 +902,22 @@ class SqlAlchemyApiRepository:
             )
             if row.get("obligation_id")
         }
+        # Section 8.2. "This amount is wrong" stops collection on THAT
+        # obligation and nothing else. It was only ever written to the audit
+        # log, so the page could tell a guest their objection was recorded
+        # while every collection path carried on as if nothing had happened.
+        # Reading it back here is what turns a stored event into a state.
+        disputed_ids = {
+            str(row["obligation_id"])
+            for row in self.session.scalars(
+                select(AuditEvent.event_data).where(
+                    AuditEvent.aggregate_type == "guest_link",
+                    AuditEvent.aggregate_id == link.id,
+                    AuditEvent.event_type == "guest_objection.wrong_amount",
+                )
+            )
+            if row.get("obligation_id")
+        }
         blocks = []
         recorded_by_ids: set[uuid.UUID] = set()
         for obligation in obligations:
@@ -918,6 +955,7 @@ class SqlAlchemyApiRepository:
             derived_status = obligation_status(
                 obligation.amount_vnd,
                 [{"amount_vnd": amount} for amount in receipt_amounts],
+                disputed=str(obligation.id) in disputed_ids,
             )
             already_reported = (
                 self.session.scalar(
@@ -953,6 +991,7 @@ class SqlAlchemyApiRepository:
                     "qr_image_data_uri": payload_to_png_data_uri(payload),
                     "already_reported": already_reported,
                     "evidence_requested": str(obligation.id) in evidence_asked,
+                    "disputed": derived_status == "disputed",
                     "receiver_confirmed": derived_status
                     in {"confirmed", "over_confirmed"},
                 }
@@ -1080,6 +1119,79 @@ class SqlAlchemyApiRepository:
             amount_vnd=report.amount_vnd,
             receipt_amounts_vnd=self._receipt_amounts(report.obligation_id),
         )
+
+    def list_batch_obligations(
+        self, batch_id: uuid.UUID
+    ) -> list[BatchObligationRow] | None:
+        """What the person collecting needs to see, disputes included.
+
+        Without this there was no surface at all on which a "this amount is
+        wrong" could be noticed. A guest could file one, be told truthfully
+        that it had been recorded, and the collection round would carry on --
+        because nobody on the other side had anywhere to read it.
+        """
+        version = self.session.scalar(
+            select(CollectionBatchVersion)
+            .where(CollectionBatchVersion.batch_id == batch_id)
+            .order_by(CollectionBatchVersion.version_number.desc())
+            .limit(1)
+        )
+        if version is None:
+            return None
+
+        obligations = list(
+            self.session.scalars(
+                select(CollectionObligation)
+                .where(CollectionObligation.batch_version_id == version.id)
+                .order_by(CollectionObligation.sender_id)
+            )
+        )
+
+        # One query for every dispute in this batch rather than one per
+        # obligation. The link ids are the aggregate the events hang off.
+        link_ids = list(
+            self.session.scalars(
+                select(GuestLink.id)
+                .join(CollectionEnvelope, CollectionEnvelope.id == GuestLink.envelope_id)
+                .where(CollectionEnvelope.batch_version_id == version.id)
+            )
+        )
+        disputes: dict[str, str | None] = {}
+        if link_ids:
+            for row in self.session.scalars(
+                select(AuditEvent.event_data).where(
+                    AuditEvent.aggregate_type == "guest_link",
+                    AuditEvent.aggregate_id.in_(link_ids),
+                    AuditEvent.event_type == "guest_objection.wrong_amount",
+                )
+            ):
+                target = row.get("obligation_id")
+                if target:
+                    # First reason wins: a second objection on the same
+                    # obligation does not overwrite why it was first raised.
+                    disputes.setdefault(str(target), row.get("reason"))
+
+        rows = []
+        for obligation in obligations:
+            key = str(obligation.id)
+            rows.append(
+                BatchObligationRow(
+                    obligation_id=obligation.id,
+                    sender_id=obligation.sender_id,
+                    recipient_id=obligation.recipient_id,
+                    amount_vnd=obligation.amount_vnd,
+                    status=obligation_status(
+                        obligation.amount_vnd,
+                        [
+                            {"amount_vnd": amount}
+                            for amount in self._receipt_amounts(obligation.id)
+                        ],
+                        disputed=key in disputes,
+                    ),
+                    disputed_reason=disputes.get(key),
+                )
+            )
+        return rows
 
     def get_receipt_target(self, obligation_id: uuid.UUID) -> ReceiptTarget | None:
         obligation = self.session.scalar(

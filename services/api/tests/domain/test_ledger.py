@@ -172,12 +172,43 @@ class DerivedStatus(unittest.TestCase):
     def test_sender_self_report_is_not_an_input(self):
         """Section 8.6: 'I transferred' never closes an obligation.
 
-        The signature accepts only recipient confirmations, so there is no way
-        to pass a sender's claim in even by mistake.
+        This used to pin the exact parameter list, which broke the moment a
+        legitimate parameter was added -- and a test that fails on any change
+        is a test people edit to match instead of reading. It now asserts the
+        thing it was protecting: nothing about a sender's own claim can reach
+        this function, whatever else the signature grows.
         """
         import inspect
+
         parameters = list(inspect.signature(obligation_status).parameters)
-        self.assertEqual(parameters, ["declared_amount_vnd", "receipt_confirmations"])
+        for forbidden in ("report", "payment", "sender", "claim", "self"):
+            assert not any(forbidden in name for name in parameters), (
+                f"a parameter mentioning {forbidden!r} appeared: {parameters}"
+            )
+        # The two positional inputs are the whole of the evidence: what was
+        # declared, and what the recipient confirmed.
+        signature = inspect.signature(obligation_status)
+        positional = [
+            name
+            for name, param in signature.parameters.items()
+            if param.kind is not inspect.Parameter.KEYWORD_ONLY
+        ]
+        self.assertEqual(positional, ["declared_amount_vnd", "receipt_confirmations"])
+
+    def test_a_dispute_stops_an_outstanding_obligation_but_not_a_paid_one(self):
+        """Section 8.2, and the precedence PostgreSQL made me state out loud."""
+        self.assertEqual(obligation_status(100, [], disputed=True), "disputed")
+        self.assertEqual(
+            obligation_status(100, [{"amount_vnd": 60}], disputed=True), "disputed"
+        )
+        # Money that already arrived outranks a late objection: there is no
+        # collection left to stop, and hiding a payment would be worse.
+        self.assertEqual(
+            obligation_status(100, [{"amount_vnd": 100}], disputed=True), "confirmed"
+        )
+        self.assertEqual(
+            obligation_status(100, [{"amount_vnd": 150}], disputed=True), "over_confirmed"
+        )
 
 
 class Balances(unittest.TestCase):

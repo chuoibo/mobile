@@ -26,6 +26,7 @@ from app.api.repository import (
     AllocationRow,
     BankRecipientRecord,
     BatchForPublish,
+    BatchObligationRow,
     BatchInputs,
     ConfirmationRecord,
     ConfirmedExpense,
@@ -271,6 +272,13 @@ class FakeRepository:
                 for item in obligations
             ],
         )
+        # Same derivation as SqlAlchemyApiRepository: a wrong-amount objection
+        # naming an obligation makes that obligation disputed, and nothing else.
+        disputed_ids = {
+            str(objection["obligation_id"])
+            for objection in self.objections
+            if objection["kind"] == "wrong_amount" and objection["obligation_id"]
+        }
         blocks = []
         for item in obligations:
             receipts = [
@@ -279,7 +287,9 @@ class FakeRepository:
                 if receipt.obligation_id == item.id
             ]
             status = obligation_status(
-                item.amount_vnd, [{"amount_vnd": amount} for amount in receipts]
+                item.amount_vnd,
+                [{"amount_vnd": amount} for amount in receipts],
+                disputed=str(item.id) in disputed_ids,
             )
             note = f"TT {item.id.hex[:8]}"
             payload = build_payload(
@@ -291,6 +301,7 @@ class FakeRepository:
             blocks.append(
                 {
                     "obligation_id": str(item.id),
+                    "disputed": status == "disputed",
                     "occasion_label": "bữa tối",
                     "amount_vnd": item.amount_vnd,
                     "recipient_display_name": "Nam",
@@ -404,6 +415,40 @@ class FakeRepository:
                 if receipt.obligation_id == report.obligation_id
             ),
         )
+
+    def list_batch_obligations(self, batch_id):
+        obligations = list(self.obligations.values())
+        if not obligations:
+            return None
+        disputes: dict[str, str | None] = {}
+        for objection in self.objections:
+            if objection["kind"] == "wrong_amount" and objection["obligation_id"]:
+                disputes.setdefault(
+                    str(objection["obligation_id"]), objection.get("reason")
+                )
+        rows = []
+        for item in sorted(obligations, key=lambda o: str(o.sender_id)):
+            receipts = [
+                receipt.amount_vnd
+                for receipt in self.receipts.values()
+                if receipt.obligation_id == item.id
+            ]
+            key = str(item.id)
+            rows.append(
+                BatchObligationRow(
+                    obligation_id=item.id,
+                    sender_id=item.sender_id,
+                    recipient_id=getattr(item, "recipient_id", item.sender_id),
+                    amount_vnd=item.amount_vnd,
+                    status=obligation_status(
+                        item.amount_vnd,
+                        [{"amount_vnd": amount} for amount in receipts],
+                        disputed=key in disputes,
+                    ),
+                    disputed_reason=disputes.get(key),
+                )
+            )
+        return rows
 
     def get_receipt_target(self, obligation_id):
         item = self.obligations.get(obligation_id)

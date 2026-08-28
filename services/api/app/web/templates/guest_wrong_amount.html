@@ -51,14 +51,20 @@
       <button class="btn btn--primary" type="submit" style="margin-top:1rem">Gửi thắc mắc</button>
     </form>
 
-    {# Nothing stops. The obligation stays outstanding and collectable; the
-       objection is an audit event that no surface reads back. Telling someone
-       the amount is on hold, and then chasing them for it, is worse than never
-       having offered the button. #}
+    {# This paragraph used to say the app did NOT stop anything, and that was
+       true: the objection was an audit event nothing read back. It is now
+       derived into the obligation's status and shown on the collection board,
+       so the sentence changed with the behaviour rather than ahead of it.
+
+       What it still must not claim is that anyone has been notified. Appearing
+       on a board is not the same as somebody having looked at it. #}
     <p class="note">
-      Thắc mắc được lưu lại kèm thời điểm. Ứng dụng chưa tự dừng khoản này và
-      chưa tự báo cho {{ view.recorded_by_display_name }}, nên nhắn trực tiếp
-      cho họ vẫn là cách nhanh nhất.
+      Thắc mắc được lưu lại kèm thời điểm, và khoản này chuyển sang trạng thái
+      đang thắc mắc. Ứng dụng dừng thu khoản này cho tới khi hai bên thống nhất.
+    </p>
+    <p class="note">
+      Ứng dụng <strong>chưa</strong> tự nhắn cho {{ view.recorded_by_display_name }};
+      khoản này chỉ hiện lên bảng thu của họ. Nhắn trực tiếp vẫn là cách nhanh nhất.
     </p>
     <p class="note">
       Các khoản bạn cần gửi cho người khác không bị ảnh hưởng.
