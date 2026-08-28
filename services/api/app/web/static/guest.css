@@ -217,15 +217,8 @@ body {
 
 .qr { margin: 0 0 1.25rem; text-align: center; }
 .qr img {
-  /* height must follow width, not stay pinned. `max-width: 100%` shrinks the
-     width on a narrow screen while a fixed `height: 200px` does not follow it,
-     so at a 320px viewport this rendered 173x200 -- a QR squashed 13.5% along
-     one axis. A banking app pointed at a non-square QR may simply refuse it,
-     and it would fail at the one moment that matters. Found by driving a real
-     browser across the state x viewport matrix; no unit test saw it. */
   width: 200px;
-  height: auto;
-  aspect-ratio: 1;
+  height: 200px;
   max-width: 100%;
   border-radius: var(--radius-sm);
   background: #fff;

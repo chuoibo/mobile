@@ -164,7 +164,7 @@ Nếu người dùng sửa trực tiếp tổng của một người khiến chi
 
 - Mọi bài đăng là một `SkillInvocation` hoặc câu trả lời cho một invocation đang mở.
 - **Không có primitive nhắn tin tự do.**
-- ~~Bot **không đọc thụ động cả luồng**.~~ **HẾT HIỆU LỰC 2026-08-27** — chủ sản phẩm lật ràng buộc này, xem `docs/decisions/ADR-0008-bot-doc-luong-nhom.md`. Bot đọc luồng nhóm khi được gọi. Bù lại, mỗi khoản chi trích ra **bắt buộc trỏ về tin nhắn nguồn**, và `context_manifest` phải khai khoảng đã đọc. Mỗi lần gọi vẫn có một *context snapshot* tường minh.
+- Bot **không đọc thụ động cả luồng**. Mỗi lần gọi có một *context snapshot* tường minh.
 - Không cần hiện diện realtime, trạng thái đang gõ, hay đã xem.
 - **Vẫn cần kiểm duyệt** — đây là bề mặt nội dung do người dùng tạo, dùng chung.
 - Trần token, số lần hỏi lại, thời gian, số tool call. **Không có bộ nhớ chung của nhóm theo mặc định.**

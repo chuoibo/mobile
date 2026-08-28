@@ -10,9 +10,6 @@
 | Leader | Chủ sản phẩm | Tuyển nhóm, chỉ định/đóng vai operator, thuê counsel, ngân sách và khuyến khích, giám sát tiền thật giữa participant, xử lý sự cố thực địa, **ký quyết định gate** |
 | Engineer | Claude | Giao thức đo, thiết kế thí nghiệm, chính sách dữ liệu, phân tích và gate packet |
 | Engineer | Codex | Study instrument, threat model, repo guard, OCR harness |
-| QA | agy | Kiểm thử sản phẩm: hình ảnh, thăm dò, API, hồi quy. **Nộp phát hiện, không nộp diff — không sở hữu file mã nguồn sản phẩm nào** *(ADR-0010)* |
-
-**Cả ba agent chạy hai luồng việc song song cùng lúc**: task của mình theo plan, và review/kiểm việc của người khác. Không tuần tự, không xếp hàng, không để việc pending trong lúc đang thảo luận.
 
 **Leader lane là đường găng thật.** Hai engineer chỉ sản xuất *công cụ* và *giao thức*. Không engineer nào bù được việc chưa tuyển được nhóm hoặc chưa có operator bằng cách viết thêm code.
 

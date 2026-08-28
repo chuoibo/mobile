@@ -4,68 +4,8 @@
     {
       "path": "docs/claude/2026-08-26/review-p0-w9a-repo-guard.md",
       "sha256": "7d2be32a51b6cbdab65f1222cfe492d6b0e56dc9da47a78298975351c04ab68e",
-      "rules": [
-        "vn-phone",
-        "long-number"
-      ],
+      "rules": ["vn-phone", "long-number"],
       "reason": "Synthetic attack fixtures documented by reviewer"
-    },
-    {
-      "path": "apps/mobile/package-lock.json",
-      "sha256": "92e647b044a4086821b0d81d32b79602fbe532ce60f1df402024af61f65789d2",
-      "rules": [
-        "aggregate-base64-fragments",
-        "long-number"
-      ],
-      "reason": "Generated npm dependency lockfile pinned by exact digest; any byte change requires fresh review"
-    },
-    {
-      "path": "apps/mobile/assets/android-icon-background.png",
-      "sha256": "fb139c2dee362ebf2070e23b96da6fc0d43f8492de38b8af1fd7223e19b5861d",
-      "rules": [
-        "controlled-artifact"
-      ],
-      "reason": "Expo template icon and splash shipped with create-expo-app. Pinned by digest, so replacing the file needs a fresh review rather than inheriting this approval."
-    },
-    {
-      "path": "apps/mobile/assets/android-icon-foreground.png",
-      "sha256": "9e3d0315a33c6799de601dd34cd8bf8cc3a8d16f3bf75592baec2ceb7240b391",
-      "rules": [
-        "controlled-artifact"
-      ],
-      "reason": "Expo template icon and splash shipped with create-expo-app. Pinned by digest, so replacing the file needs a fresh review rather than inheriting this approval."
-    },
-    {
-      "path": "apps/mobile/assets/android-icon-monochrome.png",
-      "sha256": "6371fc2c12e33ad2215a86c281db3d682a81bebe7c957a842c13b8bf00cceb83",
-      "rules": [
-        "controlled-artifact"
-      ],
-      "reason": "Expo template icon and splash shipped with create-expo-app. Pinned by digest, so replacing the file needs a fresh review rather than inheriting this approval."
-    },
-    {
-      "path": "apps/mobile/assets/favicon.png",
-      "sha256": "a4e030697a7571b3e95d31860e4da55d2f98e5e861e2b55e414f45a8556828ba",
-      "rules": [
-        "controlled-artifact"
-      ],
-      "reason": "Expo template icon and splash shipped with create-expo-app. Pinned by digest, so replacing the file needs a fresh review rather than inheriting this approval."
-    },
-    {
-      "path": "apps/mobile/assets/icon.png",
-      "sha256": "119462bb78eb240a65c869fc067ee599639b3cb5a41953f25c07b17d2a8c7e0f",
-      "rules": [
-        "controlled-artifact"
-      ],
-      "reason": "Expo template icon and splash shipped with create-expo-app. Pinned by digest, so replacing the file needs a fresh review rather than inheriting this approval."
-    },
-    {
-      "path": "apps/mobile/assets/splash-icon.png",
-      "sha256": "5f4c0a732b6325bf4071d9124d2ae67e037cb24fcc9c482ef82bea742109a3b8",
-      "rules": [
-        "controlled-artifact"
-      ],
-      "reason": "Expo template icon and splash shipped with create-expo-app. Pinned by digest, so replacing the file needs a fresh review rather than inheriting this approval."
     }
   ]
 }

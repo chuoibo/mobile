@@ -756,27 +756,6 @@ def upgrade() -> None:
     )
     op.create_index("ix_expense_discounts_expense_version_id", "expense_discounts", ["expense_version_id"])
 
-    # These material-fact tables were added after the first append-only trigger
-    # loop above. Leaving them out would make an ExpenseVersion nominally
-    # immutable while allowing its items, shares, surcharges, and discounts to
-    # be rewritten in place.
-    for table_name in (
-        "expense_items",
-        "expense_item_shares",
-        "expense_surcharges",
-        "expense_discounts",
-    ):
-        op.execute(
-            sa.text(
-                f"""
-                CREATE TRIGGER reject_{table_name}_mutation
-                BEFORE UPDATE OR DELETE ON {table_name}
-                FOR EACH ROW
-                EXECUTE FUNCTION reject_immutable_financial_row_change()
-                """
-            )
-        )
-
 
 def downgrade() -> None:
     op.execute(sa.text("DROP VIEW IF EXISTS collection_obligation_progress"))

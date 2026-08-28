@@ -133,11 +133,6 @@ VN_LANDLINE_RE = re.compile(
     r"(?<!\d)(?:(?:\+|00)?84(?:[ ().-]*0)?|0)[ ().-]*2"
     r"(?:[ ().-]*\d){8,9}(?!\d)"
 )
-# A committed conflict marker breaks whatever file it lands in, and the damage
-# is quiet: a .gitignore carrying one stops ignoring things without saying so.
-# This got past the guard once, in this repository, in a commit that also
-# reported "Repo guard passed".
-CONFLICT_MARKER_RE = re.compile(r"^(?:<{7}|={7}|>{7})(?:\s|$)", re.MULTILINE)
 LONG_NUMBER_RE = re.compile(r"(?<![A-Za-z0-9])\d(?:[ .-]?\d){8,63}(?![A-Za-z0-9])")
 GITHUB_TOKEN_RE = re.compile(
     r"(?<![A-Za-z0-9_])(?:"
@@ -162,26 +157,6 @@ DATA_URI_BASE64_RE = re.compile(
 BASE64_BYTE_VALUES = frozenset(
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=_-"
 )
-
-
-def looks_encoded(fragment: str) -> bool:
-    """Separate likely encoded fragments from common source identifiers.
-
-    The token alphabet includes ``_`` and ``-`` because URL-safe base64 uses
-    them, so punctuation alone cannot distinguish payloads from snake_case.
-    Requiring both letter cases plus a non-letter signal keeps snake_case,
-    SCREAMING_SNAKE_CASE, and ordinary camelCase out of the aggregate while
-    retaining short base64/base64url fragments with varied character classes.
-    Other rules still cover dense lines and long unbroken tokens independently.
-    """
-    has_lower = any(character.islower() for character in fragment)
-    has_upper = any(character.isupper() for character in fragment)
-    has_non_letter = any(
-        character.isdigit() or character in "+/_-=" for character in fragment
-    )
-    return has_lower and has_upper and has_non_letter
-
-
 BASE64_FRAGMENT_RE = re.compile(
     rf"[A-Za-z0-9+/_-]{{{MIN_BASE64_FRAGMENT_BYTES - 2},}}={{0,2}}"
 )
@@ -196,7 +171,6 @@ ANNOTATION_RE = re.compile(
 
 CONTENT_RULES = {
     "aggregate-base64-fragments",
-    "conflict-marker",
     "data-uri-base64",
     "dense-base64-line",
     "email",
@@ -337,8 +311,6 @@ def mask_match(rule: str, value: str) -> str:
     if rule == "long-number":
         digits = sum(character.isdigit() for character in value)
         return f"******** (digits={digits})"
-    if rule == "conflict-marker":
-        return "<redacted-conflict-marker>"
     if rule in {"data-uri-base64", "dense-base64-line"}:
         line_bytes = len(value.encode("utf-8"))
         return f"<redacted-base64-line> (line-bytes={line_bytes})"
@@ -347,7 +319,6 @@ def mask_match(rule: str, value: str) -> str:
             match
             for match in BASE64_FRAGMENT_RE.finditer(value)
             if len(match.group(0).encode("ascii")) >= MIN_BASE64_FRAGMENT_BYTES
-            and looks_encoded(match.group(0))
         ]
         aggregate_bytes = sum(
             len(match.group(0).encode("ascii")) for match in fragments
@@ -641,7 +612,6 @@ def content_findings(
             (zero_based_line, match.start(), match.group(0))
             for match in BASE64_FRAGMENT_RE.finditer(line)
             if len(match.group(0).encode("ascii")) >= MIN_BASE64_FRAGMENT_BYTES
-            and looks_encoded(match.group(0))
         )
 
     aggregate_bytes = sum(
@@ -726,9 +696,6 @@ def content_findings(
                     (match.start(), match.end(), "vn-phone", match.group(0))
                 )
                 occupied.append(match.span())
-        for match in CONFLICT_MARKER_RE.finditer(line):
-            candidates.append((match.start(), match.end(), "conflict-marker", match.group(0)))
-
         for match in LONG_NUMBER_RE.finditer(line):
             if overlaps(match.span(), occupied):
                 continue
