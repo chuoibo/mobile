@@ -28,6 +28,8 @@ export function Card({ children, style }: { children: React.ReactNode; style?: V
   const c = usePalette();
   return (
     <View style={[{
+      // `line`, not `lineStrong`. A card is a container, not a control, so
+      // WCAG 1.4.11 does not reach it and the soft mockup edge stays soft.
       backgroundColor: c.card, borderColor: c.line, borderWidth: 1,
       borderRadius: radius.base, padding: space.md, gap: space.sm,
     }, style]}>{children}</View>
@@ -41,7 +43,10 @@ export function Button({ label, onPress, tone = "primary", disabled }: {
   const skin: Record<string, ViewStyle> = {
     primary: { backgroundColor: c.accent, borderColor: c.accent },
     ghost: { backgroundColor: "transparent", borderColor: c.accent },
-    quiet: { backgroundColor: "transparent", borderColor: c.line },
+    // No fill, so this border is the whole affordance rather than trim.
+    // It was `line` at 1.21:1 on the page ground, which WCAG 1.4.11 asks
+    // 3:1 of; `lineStrong` is the token that carries a control edge.
+    quiet: { backgroundColor: "transparent", borderColor: c.lineStrong },
   };
   const ink = tone === "primary" ? c.accentInk : tone === "ghost" ? c.accent : c.inkSoft;
   return (
@@ -81,22 +86,20 @@ export function Field({ label, value, onChangeText, keyboardType, placeholder }:
         // "Tổng tiền" read as a filled one -- somebody presses "Chia tiền"
         // believing they entered a total.
         //
-        // Picked by measuring, not by eye. Two numbers pull against each other:
-        // contrast against the white field, and separation from entered text.
-        //
-        //   #8c9c96   2.87:1 on white   5.8x lighter than ink   too pale
-        //   #6f7f79   4.21:1 on white   4.0x lighter than ink   this one
-        //   #55665f   6.08:1 on white   2.8x lighter than ink   the old bug
-        //
-        // 4.21:1 is under the 4.5:1 that WCAG asks of text, and that is a
-        // deliberate call rather than an oversight: the placeholder is an
-        // example, and the label above it -- which never disappears -- is what
-        // carries the meaning. Going darker to reach 4.5 walks back toward the
-        // bug this replaced.
+        // The palette this note used to describe is gone. `inkFaint` was
+        // #6f7f79 at 4.21:1 on white, and the note argued that sitting under
+        // the 4.5:1 WCAG asks of text was an acceptable trade because the
+        // permanent label carries the meaning. The mockup-derived palette
+        // moved the token to #676e7b, which measures 5.13:1 on `card` and
+        // clears the text floor outright, so there is no trade left to
+        // defend. Separation from typed `ink` still holds: 5.13:1 against
+        // white versus 15.79:1 for entered text.
         placeholderTextColor={c.inkFaint}
         style={{
           ...type.body, color: c.ink, backgroundColor: c.card,
-          borderColor: c.line, borderWidth: 1, borderRadius: radius.base,
+          // `lineStrong`: an input is a control, and its box is what tells
+          // someone where to tap. At `line` that box was 1.37:1 on the card.
+          borderColor: c.lineStrong, borderWidth: 1, borderRadius: radius.base,
           paddingHorizontal: space.md, paddingVertical: 12,
         }}
       />
@@ -143,7 +146,9 @@ export function Choice({ label, options, value, onChange }: {
               style={({ pressed }) => ({
                 borderWidth: 1, borderRadius: radius.base,
                 paddingVertical: 10, paddingHorizontal: space.md,
-                borderColor: on ? c.accent : c.line,
+                // Unselected has no fill either, so the same rule as the
+                // quiet button applies: the edge has to reach 3:1 on its own.
+                borderColor: on ? c.accent : c.lineStrong,
                 backgroundColor: on ? c.accent : "transparent",
                 opacity: pressed ? 0.85 : 1,
               })}
