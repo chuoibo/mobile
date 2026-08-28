@@ -188,8 +188,9 @@ def test_the_database_itself_refuses_a_duplicate_row(postgres_engine: Engine):
 class _Client:
     """Direct ASGI transport; Starlette's sync TestClient deadlocks here."""
 
-    def __init__(self, app):
+    def __init__(self, app, connection):
         self.app = app
+        self.connection = connection
 
     def post(self, path, **kwargs):
         async def send():
@@ -201,35 +202,65 @@ class _Client:
 
         return anyio.run(send)
 
+    def count_expenses(self, context_id: uuid.UUID) -> int:
+        return self.connection.scalar(
+            text("select count(*) from expenses where context_id = :context_id"),
+            {"context_id": context_id},
+        )
+
 
 @pytest.fixture
 def live_client(postgres_engine: Engine, monkeypatch):
+    """The real ASGI stack over the real schema, on one throwaway transaction.
+
+    Every session below is bound to a single connection whose outer transaction
+    is rolled back at teardown, so these two tests leave the shared schema
+    exactly as they found it. `test_repository_postgres` asserts exact row
+    counts in `expenses`, and a test that quietly adds rows to another test's
+    table turns a real failure somewhere else into a mystery.
+
+    Rolling back does not weaken what is being proved here: both requests go
+    through the middleware, the SQL store and its `ON CONFLICT` for real, and
+    the row count is taken after both have run. That one reservation can be won
+    by only one caller across separate committed transactions is proved by the
+    store-level tests above, which do commit.
+    """
+
     async def run_sync_inline(function, *args, **kwargs):
         del kwargs
         return function(*args)
 
     monkeypatch.setattr(anyio.to_thread, "run_sync", run_sync_inline)
 
+    connection = postgres_engine.connect()
+    outer = connection.begin()
+
+    @contextmanager
+    def session_on_connection():
+        with Session(
+            bind=connection, join_transaction_mode="create_savepoint"
+        ) as session, session.begin():
+            yield session
+
+    @contextmanager
+    def store_factory():
+        with session_on_connection() as session:
+            yield SqlAlchemyIdempotencyStore(session)
+
     def repository_dependency():
-        with Session(postgres_engine) as session, session.begin():
+        with session_on_connection() as session:
             yield SqlAlchemyApiRepository(session)
 
-    app = create_app(idempotency_store_factory=lambda: _store(postgres_engine))
+    app = create_app(idempotency_store_factory=store_factory)
     app.dependency_overrides[get_repository] = repository_dependency
-    return _Client(app)
+    try:
+        yield _Client(app, connection)
+    finally:
+        outer.rollback()
+        connection.close()
 
 
-def _count_expenses(engine: Engine, context_id: uuid.UUID) -> int:
-    with Session(engine) as session:
-        return session.scalar(
-            text("select count(*) from expenses where context_id = :context_id"),
-            {"context_id": context_id},
-        )
-
-
-def test_posting_the_same_expense_twice_with_one_key_writes_one_row(
-    live_client, postgres_engine: Engine
-):
+def test_posting_the_same_expense_twice_with_one_key_writes_one_row(live_client):
     context_id = uuid.uuid4()
     payload = _expense_payload() | {"context_id": str(context_id)}
     headers = {IDEMPOTENCY_HEADER: str(uuid.uuid4())}
@@ -241,12 +272,10 @@ def test_posting_the_same_expense_twice_with_one_key_writes_one_row(
     assert second.status_code == 201, second.text
     assert second.json() == first.json()
     assert second.headers.get(REPLAY_HEADER) == "true"
-    assert _count_expenses(postgres_engine, context_id) == 1
+    assert live_client.count_expenses(context_id) == 1
 
 
-def test_reusing_a_key_with_another_payload_writes_nothing(
-    live_client, postgres_engine: Engine
-):
+def test_reusing_a_key_with_another_payload_writes_nothing(live_client):
     context_id = uuid.uuid4()
     headers = {IDEMPOTENCY_HEADER: str(uuid.uuid4())}
 
@@ -264,4 +293,4 @@ def test_reusing_a_key_with_another_payload_writes_nothing(
     assert first.status_code == 201, first.text
     assert second.status_code == 422, second.text
     assert second.json()["code"] == "idempotency_key_reuse"
-    assert _count_expenses(postgres_engine, context_id) == 1
+    assert live_client.count_expenses(context_id) == 1

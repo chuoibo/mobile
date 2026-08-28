@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import pathlib
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -10,6 +12,12 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.cors import install_cors
 from app.api.errors import ApiProblem
+from app.api.idempotency import (
+    IdempotencyMiddleware,
+    IdempotencyStore,
+    IdempotencyStoreFactory,
+    SqlAlchemyIdempotencyStore,
+)
 from app.api.routes import (
     bank_recipients,
     batches,
@@ -20,11 +28,28 @@ from app.api.routes import (
     people,
 )
 from app.api.schemas import ErrorResponse
+from app.db.session import get_session_factory
 
 WEB_ROOT = pathlib.Path(__file__).resolve().parents[1] / "web"
 
 
-def create_app() -> FastAPI:
+@contextmanager
+def sqlalchemy_store_factory() -> Iterator[IdempotencyStore]:
+    """One short transaction per idempotency operation.
+
+    Reservation has to be visible to other processes before the handler runs,
+    so it cannot ride along inside the request's own transaction. The engine is
+    built lazily, which keeps importing this module free of database access.
+    """
+
+    factory = get_session_factory()
+    with factory.begin() as session:
+        yield SqlAlchemyIdempotencyStore(session)
+
+
+def create_app(
+    *, idempotency_store_factory: IdempotencyStoreFactory | None = None
+) -> FastAPI:
     application = FastAPI(title="Group Expense API", version="0.1.0")
     # Outermost layer on purpose: an error response without the allow-origin
     # header reaches the browser as an opaque network failure, which hides the
@@ -42,6 +67,13 @@ def create_app() -> FastAPI:
     application.include_router(obligations.router)
     application.include_router(bank_recipients.router)
     application.include_router(people.router)
+
+    # Middleware, not a decorator on each route: a write route added later is
+    # covered the moment it is registered, with no list for anyone to forget.
+    application.add_middleware(
+        IdempotencyMiddleware,
+        store_factory=idempotency_store_factory or sqlalchemy_store_factory,
+    )
 
     @application.get("/healthz", include_in_schema=False)
     async def healthz() -> dict[str, str]:

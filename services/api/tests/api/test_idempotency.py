@@ -14,6 +14,7 @@ a dict cannot refuse a duplicate insert.
 
 from __future__ import annotations
 
+import re
 import uuid
 from contextlib import contextmanager
 
@@ -201,18 +202,24 @@ def test_every_write_route_consults_the_store(client, store):
     test fails if the middleware is ever narrowed to a hand-maintained set.
     """
 
+    placeholder = re.compile(r"\{[^}]+\}")
     write_routes = [
         (method, route.path)
         for route in client.app.routes
         for method in sorted(getattr(route, "methods", set()) & WRITE_METHODS)
-        if "{" not in route.path
     ]
-    assert write_routes, "no write routes found; the discovery below is broken"
+    assert len(write_routes) >= 8, f"route discovery looks broken: {write_routes}"
 
-    for method, path in write_routes:
+    for method, template in write_routes:
+        # The handler's own answer is irrelevant here -- most of these will 404
+        # or 422 on a placeholder id. The only question is whether the request
+        # reached the store at all.
+        path = placeholder.sub(str(uuid.uuid4()), template)
         store.reservations.clear()
-        client.request(method, path, json={}, headers=_key_headers(key=str(uuid.uuid4())))
-        assert store.reservations, f"{method} {path} bypassed the idempotency store"
+        client.request(
+            method, path, json={}, headers=_key_headers(key=str(uuid.uuid4()))
+        )
+        assert store.reservations, f"{method} {template} bypassed the idempotency store"
 
 
 def test_read_requests_never_touch_the_store(client, store):
