@@ -23,7 +23,6 @@
  */
 import React from "react";
 import { ScrollView, Text, View } from "react-native";
-import { FIXTURES } from "../api";
 import {
   addParticipant,
   advancer,
@@ -95,20 +94,6 @@ export function NhapKhoanChi({
     onForm({ ...form, roster: removeParticipant(roster, id) });
   }
 
-  /** Load a situation the offline demo actually has a precomputed answer for. */
-  function loadFixture(fixtureId: string) {
-    const fixture = FIXTURES.find((f) => f.id === fixtureId);
-    if (!fixture) return;
-    onForm({
-      occasion: fixture.occasion,
-      pending: "",
-      amount: String(fixture.totalVnd),
-      roster: {
-        participants: fixture.participants.map((p) => ({ id: p.id, name: p.name })),
-        advancerId: fixture.advancerId,
-      },
-    });
-  }
 
   const duplicated = duplicateNames(roster);
 
@@ -148,32 +133,7 @@ export function NhapKhoanChi({
         contentContainerStyle={{ gap: space.md }}
         keyboardShouldPersistTaps="handled"
       >
-        <Card>
-          <Text style={{ ...type.label, color: c.inkSoft }}>
-            Bản chạy thử này không tự tính tiền — nó phát lại đáp án đã tính sẵn
-            từ bộ vector kiểm thử. Chọn một tình huống để xem:
-          </Text>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
-            {FIXTURES.map((fixture) => (
-              <Button
-                key={fixture.id}
-                label={`${fixture.id} · ${formatVnd(fixture.totalVnd)}đ / ${fixture.participants.length}`}
-                tone="quiet"
-                onPress={() => loadFixture(fixture.id)}
-              />
-            ))}
-          </View>
-        </Card>
 
-        {onSeeProposal ? (
-          <Card>
-            <Text style={{ ...type.label, color: c.inkSoft }}>
-              Hoặc xem thứ bot đọc được từ một đoạn chat, kèm tin nhắn nó đọc ra
-              từng con số.
-            </Text>
-            <Button label="Xem thẻ đề xuất" tone="quiet" onPress={onSeeProposal} />
-          </Card>
-        ) : null}
 
         <Card>
           <Field

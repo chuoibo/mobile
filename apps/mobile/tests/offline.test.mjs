@@ -18,7 +18,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 
-import { FIXTURES, FixtureMissingError } from "../dist-test/api.js";
+import { canPublish, GateNotPassedError } from "../dist-test/api.js";
 import {
   addParticipant,
   advancer,
@@ -31,26 +31,8 @@ import {
 
 const source = readFileSync(new URL("../src/api.ts", import.meta.url), "utf8");
 
-test("the corpus is not empty, or every test below passes vacuously", () => {
-  assert.ok(FIXTURES.length >= 5, `only ${FIXTURES.length} fixtures`);
-});
 
-test("every fixture's parts add up to its total", () => {
-  // Money rule 2. A fixture that failed this would put a wrong number on
-  // screen carrying the authority of the golden corpus.
-  for (const fixture of FIXTURES) {
-    const sum = Object.values(fixture.allocations).reduce((a, b) => a + b, 0);
-    assert.equal(sum, fixture.totalVnd, `${fixture.id} sums to ${sum}`);
-  }
-});
 
-test("every allocation is an integer number of dong", () => {
-  for (const fixture of FIXTURES) {
-    for (const [id, amount] of Object.entries(fixture.allocations)) {
-      assert.ok(Number.isInteger(amount), `${fixture.id}/${id} is ${amount}`);
-    }
-  }
-});
 
 test("the client source contains no allocation arithmetic", () => {
   // Deliberately narrow: this asserts the specific shapes the removed splitter
@@ -63,38 +45,7 @@ test("the client source contains no allocation arithmetic", () => {
   }
 });
 
-test("a draft that matches a fixture replays it exactly", async () => {
-  const { proposeSplit } = await import("../dist-test/api.js");
-  const fixture = FIXTURES[0];
-  const proposal = await proposeSplit({
-    participants: fixture.participants,
-    totalVnd: fixture.totalVnd,
-    advancerId: fixture.advancerId,
-    occasion: fixture.occasion,
-  });
-  assert.deepEqual(proposal.allocations, fixture.allocations);
-  assert.deepEqual(proposal.roundingGainers, fixture.roundingGainers);
-});
 
-test("a draft with no fixture is refused, never invented", async () => {
-  const { proposeSplit } = await import("../dist-test/api.js");
-  // 777_777 over these three people is not in the corpus. The old code would
-  // have happily returned 259259/259259/259259 and hidden the remainder.
-  await assert.rejects(
-    () =>
-      proposeSplit({
-        participants: [
-          { id: "a", name: "Nam" },
-          { id: "b", name: "Hà" },
-          { id: "c", name: "Quyên" },
-        ],
-        totalVnd: 777_777,
-        advancerId: "a",
-        occasion: "không có trong corpus",
-      }),
-    FixtureMissingError,
-  );
-});
 
 test("adding someone never moves an existing choice", () => {
   const nextId = makeIdFactory();
@@ -179,56 +130,67 @@ test("renaming changes the label, not the person", () => {
   assert.equal(advancer(roster)?.name, "Nam A");
 });
 
-/* Spec section 8.3 -- the two gates before a collection round goes out.
+/* Spec section 8.3 -- the gates before a collection round goes out.
  *
  * The prototype went straight from "confirm the split" to "publish", which
  * teaches a flow where a round can go out under someone's name before they
- * agree, and leaves nowhere to set up or check the recipient.
+ * agree.
+ *
+ * There are two gates, and the app now models exactly one. Gate 2 -- there is
+ * a confirmed account for the money to land in -- is not reported by any
+ * endpoint, so the client had it hardcoded shut, which made publishing
+ * impossible, and then a button that opened it by tapping. These tests used to
+ * pin that arrangement: they asserted a shut gate 2 was refused, which was
+ * true, and said nothing about the fact that the only way through it was a
+ * person asserting it themselves. A test can pin a workaround as firmly as it
+ * pins a rule.
+ *
+ * Gate 2 now lives where the facts are. What this file still owns is gate 1
+ * and the shape of the refusal.
  */
-test("a new batch starts with both gates shut", async () => {
-  const { openBatch, canPublish } = await import("../dist-test/api.js");
-  const fixture = FIXTURES[0];
-  const batch = await openBatch({
-    participants: fixture.participants,
-    allocations: fixture.allocations,
-    roundingGainers: fixture.roundingGainers,
-    totalVnd: fixture.totalVnd,
-    advancerId: fixture.advancerId,
-    occasion: fixture.occasion,
-  });
-  assert.equal(batch.gates.payerAcknowledged, false);
-  assert.equal(batch.gates.recipientReady, false);
-  assert.equal(canPublish(batch.gates), false);
-  assert.ok(batch.obligations.length > 0, "no obligations to gate");
+
+test("publish is refused while the advancer has not acknowledged", async () => {
+  const { publishBatch, GateNotPassedError } = await import("../dist-test/api.js");
+  await assert.rejects(
+    () => publishBatch("some-batch", { payerAcknowledged: false }, "some-actor"),
+    GateNotPassedError,
+  );
 });
 
-test("publish is refused while either gate is shut", async () => {
-  const { publishBatch, GateNotPassedError } = await import("../dist-test/api.js");
-  const obligations = [
-    { id: "o1", senderId: "b", senderName: "Hà", recipient: "Nam", amountVnd: 100_000, status: "outstanding" },
-  ];
-  const shut = [
-    { payerAcknowledged: false, recipientReady: false, recipientProblem: null },
-    { payerAcknowledged: true, recipientReady: false, recipientProblem: null },
-    { payerAcknowledged: false, recipientReady: true, recipientProblem: null },
-  ];
-  for (const gates of shut) {
-    await assert.rejects(() => publishBatch(obligations, gates), GateNotPassedError);
+test("gate 1 is checked before any request is built", async () => {
+  // A shut gate must not become a network round trip that a flaky connection
+  // then hides. Proven by pointing the client at an address nothing answers:
+  // if a request were attempted the error would be `unreachable`, not the gate.
+  const { publishBatch, GateNotPassedError, ApiError } = await import("../dist-test/api.js");
+  try {
+    await publishBatch("some-batch", { payerAcknowledged: false }, "some-actor");
+    assert.fail("phat duoc trong khi cong 1 dang dong");
+  } catch (problem) {
+    assert.ok(problem instanceof GateNotPassedError, `nhan duoc ${problem?.name}`);
+    assert.ok(!(problem instanceof ApiError), "da goi mang truoc khi kiem cong");
   }
 });
 
-test("publish goes through once both gates pass", async () => {
-  const { publishBatch } = await import("../dist-test/api.js");
-  const obligations = [
-    { id: "o1", senderId: "b", senderName: "Hà", recipient: "Nam", amountVnd: 100_000, status: "outstanding" },
-  ];
-  const envelopes = await publishBatch(obligations, {
-    payerAcknowledged: true,
-    recipientReady: true,
-    recipientProblem: null,
-  });
-  assert.equal(envelopes.length, 1);
-  assert.equal(envelopes[0].amountVnd, 100_000);
+test("máy chủ từ chối phát thì người đọc được lý do, không đọc mã lỗi", async () => {
+  // Gate 2 refusals arrive as `recipient_setup_incomplete`. Untranslated, that
+  // string lands on screen next to somebody's name and somebody's money.
+  const { publishBatch, ApiError } = await import("../dist-test/api.js");
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({ code: "recipient_setup_incomplete", detail: "gate 2" }),
+      { status: 409, headers: { "Content-Type": "application/json" } },
+    );
+  try {
+    await publishBatch("b", { payerAcknowledged: true }, "a");
+    assert.fail("le ra phai bi tu choi");
+  } catch (problem) {
+    assert.ok(problem instanceof ApiError);
+    assert.equal(problem.code, "recipient_setup_incomplete", "mat ma loi thi het truy duoc");
+    assert.match(problem.message, /tài khoản nhận/, "khong dich ra tieng nguoi");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });
 
 /* Data loss on "Sửa lại" -- found by agy driving the real app.
@@ -318,4 +280,188 @@ test("numbering is display only — removing one does not move the other's ident
   // person under it is still the one that was chosen.
   assert.equal(labelFor(roster, second.id), "Nam");
   assert.equal(roster.advancerId, second.id);
+});
+
+/* Names, not ids -- found by agy driving the real app.
+ *
+ * The server answers in UUIDs, because ids are what it stores. The share
+ * screen turned that straight into "Gửi cho 6b4bda36-93e6-4a94-b7ca-…" and
+ * copied "Phần của 6b4bda36-…" to the clipboard. An organiser cannot tell
+ * which link belongs to whom, which is the only thing that screen does.
+ *
+ * These go through the client rather than through the screen, because the id
+ * reaches the screen already stamped into `senderName`. Fixing the screen
+ * would have hidden it one layer down.
+ */
+
+const HA_ID = "6b4bda36-93e6-4a94-b7ca-48757974f36d";
+const ROSTER = [
+  { id: HA_ID, name: "Hà" },
+  { id: "8c1e2f10-a1b1-4c22-8d33-e4f4a5b5c6d6", name: "Quyên" },
+];
+
+function respondWith(payload, status = 200) {
+  const real = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify(payload), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
+  return () => {
+    globalThis.fetch = real;
+  };
+}
+
+test("phong bì mang tên người, không mang UUID", async () => {
+  const { publishBatch } = await import("../dist-test/api.js");
+  const restore = respondWith({
+    guest_links: [
+      {
+        sender_id: HA_ID,
+        path: "/g/abc",
+        obligations: [{ obligation_id: "o1", amount_vnd: 100_000 }],
+      },
+    ],
+  });
+  try {
+    const envelopes = await publishBatch("b", { payerAcknowledged: true }, "a", ROSTER);
+    assert.equal(envelopes[0].senderName, "Hà");
+    assert.ok(!envelopes[0].senderName.includes("-"), "van con UUID tren man hinh");
+  } finally {
+    restore();
+  }
+});
+
+test("người không có trong danh sách vẫn hiện ra, bằng id, chứ không bị gộp", async () => {
+  // A missing name is a display problem. Falling back to a placeholder like
+  // "Người nhận" would make two different people look like one person on the
+  // exact screen whose job is telling them apart.
+  const { publishBatch } = await import("../dist-test/api.js");
+  const stranger = "f9e9d9c9-b9a9-4f99-8e99-d9c9b9a9f999";
+  const restore = respondWith({
+    guest_links: [
+      { sender_id: stranger, path: "/g/x", obligations: [{ obligation_id: "o", amount_vnd: 1 }] },
+    ],
+  });
+  try {
+    const envelopes = await publishBatch("b", { payerAcknowledged: true }, "a", ROSTER);
+    assert.equal(envelopes[0].senderName, stranger);
+  } finally {
+    restore();
+  }
+});
+
+/* loadBoard -- agy found it had no test touching it at all, and that deleting
+ * the whole function left every test green. It reads the collection board:
+ * who has paid, and what is being argued about.
+ */
+
+test("bảng đợt thu đọc được tên, số tiền và trạng thái", async () => {
+  const { loadBoard } = await import("../dist-test/api.js");
+  const restore = respondWith({
+    disputed_count: 1,
+    obligations: [
+      {
+        obligation_id: "o1",
+        sender_id: HA_ID,
+        recipient_id: ROSTER[1].id,
+        amount_vnd: 100_000,
+        obligation_status: "outstanding",
+        disputed: true,
+      },
+    ],
+  });
+  try {
+    const board = await loadBoard("b", "a", ROSTER);
+    assert.equal(board.disputedCount, 1);
+    assert.equal(board.obligations[0].senderName, "Hà");
+    assert.equal(board.obligations[0].recipient, "Quyên");
+    assert.equal(board.obligations[0].amountVnd, 100_000);
+  } finally {
+    restore();
+  }
+});
+
+test("tiền đã tới thì vẫn hiện là đã tới, kể cả khi có người thắc mắc", async () => {
+  // Payment status and dispute are separate facts on the wire and the board
+  // has one slot. Showing "disputed" over "outstanding" is safe; showing it
+  // over "confirmed" would hide money that actually arrived.
+  const { loadBoard } = await import("../dist-test/api.js");
+  const restore = respondWith({
+    disputed_count: 1,
+    obligations: [
+      {
+        obligation_id: "o1",
+        sender_id: HA_ID,
+        recipient_id: ROSTER[1].id,
+        amount_vnd: 100_000,
+        obligation_status: "confirmed",
+        disputed: true,
+      },
+    ],
+  });
+  try {
+    const board = await loadBoard("b", "a", ROSTER);
+    assert.equal(board.obligations[0].status, "confirmed", "che mat tien da toi");
+  } finally {
+    restore();
+  }
+});
+
+/* Confirming that money arrived.
+ *
+ * `receiver_confirmed` means one person pressed a button. It is not a bank
+ * telling anyone anything -- the product holds no money and reads no
+ * statement. These tests are about the client not making it look like more
+ * than that, and about not recording one arrival twice.
+ */
+
+test("báo tiền đã về gửi đúng số tiền của nghĩa vụ đó", async () => {
+  const { confirmReceipt } = await import("../dist-test/api.js");
+  const real = globalThis.fetch;
+  let sent = null;
+  globalThis.fetch = async (url, init) => {
+    sent = { url: String(url), body: JSON.parse(init.body), headers: init.headers };
+    return new Response(JSON.stringify({ obligation_status: "confirmed" }), {
+      status: 201,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+  try {
+    const result = await confirmReceipt("ob-1", 100_000, "actor-1", "key-1");
+    assert.equal(result.status, "confirmed");
+    assert.ok(sent.url.endsWith("/obligations/ob-1/confirm-receipt"));
+    assert.equal(sent.body.amount_vnd, 100_000);
+    assert.equal(sent.body.idempotency_key, "key-1");
+    // Only the person owed the money may say this, so the call has to carry
+    // who is saying it. A confirmation with no actor is one anybody could send.
+    assert.equal(sent.headers["X-Actor-ID"], "actor-1");
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+test("gửi lại cùng một khoá thì máy chủ vẫn chỉ thấy một lần báo", async () => {
+  // The case this exists for: the request arrives, the reply does not, and the
+  // person presses again. With a fresh key that second press is a second
+  // arrival and the obligation goes to `over_confirmed` -- it reads as
+  // somebody having paid more than they owed. The key is what stops that, so
+  // it is asserted to be the same one, not merely to be present.
+  const { confirmReceipt } = await import("../dist-test/api.js");
+  const real = globalThis.fetch;
+  const keys = [];
+  globalThis.fetch = async (_url, init) => {
+    keys.push(JSON.parse(init.body).idempotency_key);
+    return new Response(JSON.stringify({ obligation_status: "confirmed" }), {
+      status: 201,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+  try {
+    await confirmReceipt("ob-1", 100_000, "actor-1", "same-key");
+    await confirmReceipt("ob-1", 100_000, "actor-1", "same-key");
+    assert.deepEqual(keys, ["same-key", "same-key"], "khoa doi giua hai lan gui");
+  } finally {
+    globalThis.fetch = real;
+  }
 });

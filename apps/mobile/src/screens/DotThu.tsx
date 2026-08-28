@@ -34,15 +34,18 @@ const WORDING: Record<Obligation["status"], string> = {
 };
 
 export function DotThu({
-  obligations, published, gates, onPublish, onShare, onAcknowledge, onSetRecipient,
+  obligations, published, gates, onPublish, onShare, onRefresh, onConfirmReceipt, busy,
 }: {
   obligations: Obligation[];
   published: boolean;
   gates: PublishGates;
   onPublish: () => void;
   onShare: () => void;
-  onAcknowledge: () => void;
-  onSetRecipient: () => void;
+  /** Re-read the board from the server. Nothing here updates on its own. */
+  onRefresh: () => void;
+  /** Only the person owed the money may say it arrived. */
+  onConfirmReceipt: (obligation: Obligation) => void;
+  busy: boolean;
 }) {
   const c = usePalette();
   const ready = canPublish(gates);
@@ -58,13 +61,21 @@ export function DotThu({
       hint={published ? "Đã phát. Ai cũng xem được phần của mình." : "Chưa phát. Chưa ai bị nhắn gì."}
       footer={
         published ? (
-          <Button label="Chia sẻ cho từng người" onPress={onShare} />
+          <>
+            <Button label="Chia sẻ cho từng người" onPress={onShare} />
+            <Button
+              label={busy ? "Đang đọc lại…" : "Đọc lại từ máy chủ"}
+              tone="quiet"
+              disabled={busy}
+              onPress={onRefresh}
+            />
+          </>
         ) : (
           <>
             <Button label="Phát đợt thu" disabled={!ready} onPress={onPublish} />
             {!ready ? (
               <Text style={{ ...type.label, color: c.inkSoft }}>
-                Còn cổng chưa qua. Không ai bị nhắn gì cho tới khi cả hai xong.
+                Người ứng tiền chưa xác nhận. Không ai bị nhắn gì cho tới lúc đó.
               </Text>
             ) : null}
           </>
@@ -94,27 +105,25 @@ export function DotThu({
               {gates.payerAcknowledged ? "✓" : "○"} Người ứng tiền đã xác nhận
             </Text>
             {!gates.payerAcknowledged ? (
-              <>
-                <Text style={{ ...type.label, color: c.inkSoft }}>
-                  App không gửi gì dưới tên một người trước khi họ đồng ý.
-                </Text>
-                <Button label="Tôi là người ứng tiền, tôi xác nhận" tone="quiet" onPress={onAcknowledge} />
-              </>
+              <Text style={{ ...type.label, color: c.inkSoft }}>
+                App không gửi gì dưới tên một người trước khi họ đồng ý.
+              </Text>
             ) : null}
           </View>
 
+          {/* Gate 2 is not shown as a checkbox, because this screen cannot
+              know its state -- no endpoint reports it. It used to be drawn
+              unticked with a button that ticked it, which is a screen making
+              a claim nobody had checked. The honest version says who decides
+              and lets the refusal do the talking. */}
           <View style={{ gap: 2 }}>
-            <Text style={{ ...type.body, color: gates.recipientReady ? c.accent : c.ink }}>
-              {gates.recipientReady ? "✓" : "○"} Có tài khoản nhận
+            <Text style={{ ...type.body, color: c.ink }}>
+              Có tài khoản nhận
             </Text>
-            {!gates.recipientReady ? (
-              <>
-                <Text style={{ ...type.label, color: c.inkSoft }}>
-                  {gates.recipientProblem ?? "Chưa rõ chuyển tiền về đâu."}
-                </Text>
-                <Button label="Nhập tài khoản nhận" tone="quiet" onPress={onSetRecipient} />
-              </>
-            ) : null}
+            <Text style={{ ...type.label, color: c.inkSoft }}>
+              Máy chủ kiểm cái này lúc phát. Chưa có tài khoản nhận đã xác nhận
+              thì nó từ chối và nói rõ lý do.
+            </Text>
           </View>
         </Card>
       ) : null}
@@ -141,9 +150,23 @@ export function DotThu({
                   {WORDING[o.status]}
                 </Text>
               </View>
-              <Text style={{ ...type.amountSmall, color: settled ? c.accent : c.ink }}>
-                {formatVnd(o.amountVnd)}đ
-              </Text>
+              <View style={{ alignItems: "flex-end", gap: 4 }}>
+                <Text style={{ ...type.amountSmall, color: settled ? c.accent : c.ink }}>
+                  {formatVnd(o.amountVnd)}đ
+                </Text>
+                {/* Only offered once the round is out, and only while the money
+                    has not been recorded as arrived. Pressing this says one
+                    person saw it land -- it is not a bank telling anybody
+                    anything, and the wording keeps saying so. */}
+                {published && !settled ? (
+                  <Button
+                    label="Tiền đã về"
+                    tone="quiet"
+                    disabled={busy}
+                    onPress={() => onConfirmReceipt(o)}
+                  />
+                ) : null}
+              </View>
             </View>
           );
         })}
