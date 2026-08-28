@@ -38,8 +38,11 @@ ALLOWED_HEADERS = [
     "x-actor-contexts",
 ]
 
-# The methods the routers expose, plus the preflight itself.
-ALLOWED_METHODS = ["GET", "POST", "DELETE", "OPTIONS"]
+# The methods the routers expose, plus the preflight itself. Kept in sync with
+# the routers by a test that walks ``create_app().routes`` -- this list went
+# stale once already, when a PR that froze it and a PR that added a PUT route
+# merged forty seconds apart and neither diff was wrong on its own.
+ALLOWED_METHODS = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 
 PREFLIGHT_MAX_AGE_SECONDS = 600
 
