@@ -32,7 +32,9 @@ def main() -> int:
             failed += 1
             print(json.dumps(asdict(outcome), ensure_ascii=False, indent=2))
 
-    print(f"SUMMARY passed={len(outcomes) - failed} failed={failed} total={len(outcomes)}")
+    print(
+        f"SUMMARY passed={len(outcomes) - failed} failed={failed} total={len(outcomes)}"
+    )
     return int(failed > 0)
 
 

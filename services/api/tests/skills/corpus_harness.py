@@ -45,9 +45,7 @@ _PAID_MARKERS = ("tra roi", "vua tra", "tao tra", "tao ung")
 def _plain(text: str) -> str:
     decomposed = unicodedata.normalize("NFD", text.casefold())
     without_marks = "".join(
-        character
-        for character in decomposed
-        if unicodedata.category(character) != "Mn"
+        character for character in decomposed if unicodedata.category(character) != "Mn"
     )
     return re.sub(r"\s+", " ", without_marks.replace("đ", "d")).strip()
 
@@ -86,7 +84,9 @@ class DeterministicVietnameseBaseline:
                 continue
 
             if not amounts:
-                if label is not None and any(marker in text for marker in _PAID_MARKERS):
+                if label is not None and any(
+                    marker in text for marker in _PAID_MARKERS
+                ):
                     questions.append(_missing_amount_question(text, label))
                 continue
 
@@ -192,7 +192,9 @@ def compare_case_result(case: dict, actual: dict) -> CorpusOutcome:
     expected = case["expected"]
     required_questions = list(expected.get("must_ask", []))
     missing_questions = [
-        question for question in required_questions if question not in actual["questions"]
+        question
+        for question in required_questions
+        if question not in actual["questions"]
     ]
     failures = []
     if actual["expenses"] != expected["expenses"]:
