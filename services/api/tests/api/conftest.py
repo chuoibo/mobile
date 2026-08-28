@@ -274,16 +274,6 @@ class FakeRepository:
                 for item in obligations
             ],
         )
-        # Counted per obligation, same as SqlAlchemyApiRepository: three
-        # objections about one debt must not use up the right to say anything
-        # about a different debt on the same link.
-        objection_counts: dict[str, int] = {}
-        for objection in self.objections:
-            if objection["kind"] not in ("not_me", "wrong_amount"):
-                continue
-            key = str(objection["obligation_id"]) if objection["obligation_id"] else "*"
-            objection_counts[key] = objection_counts.get(key, 0) + 1
-
         # Same derivation as SqlAlchemyApiRepository: a wrong-amount objection
         # naming an obligation makes that obligation disputed, and nothing else.
         disputed_ids = {
@@ -312,8 +302,6 @@ class FakeRepository:
                 {
                     "obligation_id": str(item.id),
                     "disputed": str(item.id) in disputed_ids,
-                    "objections_used": objection_counts.get(str(item.id), 0),
-                    "objections_allowed": OBJECTION_LIMIT,
                     "occasion_label": "bữa tối",
                     "amount_vnd": item.amount_vnd,
                     "recipient_display_name": "Nam",

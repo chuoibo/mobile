@@ -586,14 +586,6 @@ class ApiService:
 
         envelope = self._objection_envelope(token)
 
-        # A revoked or expired link is not a channel. GET already refused on
-        # both, but POST did not, so submitting the form directly still filed
-        # an objection against a link the guest had themselves shut down by
-        # pressing "I am not this person". A capability that is over is over
-        # in both directions.
-        if envelope["link_state"] != "active":
-            raise ApiProblem(409, "link_not_active", "This link is no longer open")
-
         # The token is the capability, and it covers exactly the obligations in
         # this envelope. Without this check a guest holding a valid link could
         # post someone else's obligation_id and file an objection against a
@@ -616,24 +608,11 @@ class ApiService:
         # number was reached -- while the repository, and the comment next to
         # it, both said asking does not spend the quota. The page kept offering
         # the button; only the POST disagreed.
-        if kind in QUOTA_CONSUMING_OBJECTIONS:
-            # Per obligation. A link can carry debts to two different people,
-            # and arguing three times with one of them must not use up the
-            # right to say anything about the other.
-            block = next(
-                (
-                    item
-                    for item in envelope["obligations"]
-                    if item["obligation_id"] == str(obligation_id)
-                ),
-                None,
-            )
-            used = block["objections_used"] if block else envelope["objections_used"]
-            allowed = block["objections_allowed"] if block else envelope["objections_allowed"]
-            if used >= allowed:
-                raise ApiProblem(
-                    429, "objection_rate_limited", "Too many objections on this obligation"
-                )
+        if (
+            kind in QUOTA_CONSUMING_OBJECTIONS
+            and envelope["objections_used"] >= envelope["objections_allowed"]
+        ):
+            raise ApiProblem(429, "objection_rate_limited", "Too many objections on this link")
 
         self.repository.save_guest_objection(
             token_digest=token_digest(token),

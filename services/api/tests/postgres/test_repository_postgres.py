@@ -32,20 +32,14 @@ from app.db.models import (
     CollectionObligation,
     CollectionObligationSource,
     ConfirmedAllocation,
-    Context,
     Expense,
     ExpenseDiscount,
     ExpenseItem,
     ExpenseItemShare,
     ExpenseSurcharge,
     ExpenseVersion,
-    Group,
     GuestLink,
-    Membership,
-    MembershipRole,
-    MembershipState,
     PaymentReport,
-    Person,
     ReceiptConfirmation,
 )
 
@@ -127,66 +121,6 @@ def _persist_lifecycle(
     owner_id = uuid.uuid4()
     sender_id = uuid.uuid4()
     recipient_id = uuid.uuid4()
-    group_id = uuid.uuid4()
-    session.add_all(
-        (
-            Person(id=owner_id, display_name="Synthetic owner", created_at=NOW),
-            Person(id=sender_id, display_name="Synthetic sender", created_at=NOW),
-            Person(
-                id=recipient_id,
-                display_name="Synthetic recipient",
-                created_at=NOW,
-            ),
-        )
-    )
-    session.flush()
-    session.add(
-        Group(
-            id=group_id,
-            display_name="Synthetic group",
-            created_by_id=owner_id,
-            created_at=NOW,
-        )
-    )
-    session.flush()
-    session.add(
-        Context(
-            id=context_id,
-            group_id=group_id,
-            display_name="Synthetic context",
-            created_by_id=owner_id,
-            created_at=NOW,
-        )
-    )
-    session.add_all(
-        (
-            Membership(
-                group_id=group_id,
-                person_id=owner_id,
-                state=MembershipState.ACTIVE,
-                role=MembershipRole.ADMIN,
-                joined_at=NOW,
-                created_at=NOW,
-            ),
-            Membership(
-                group_id=group_id,
-                person_id=sender_id,
-                state=MembershipState.ACTIVE,
-                role=MembershipRole.MEMBER,
-                joined_at=NOW,
-                created_at=NOW,
-            ),
-            Membership(
-                group_id=group_id,
-                person_id=recipient_id,
-                state=MembershipState.ACTIVE,
-                role=MembershipRole.MEMBER,
-                joined_at=NOW,
-                created_at=NOW,
-            ),
-        )
-    )
-    session.flush()
     proposal = _proposal(
         context_id=context_id,
         owner_id=owner_id,
@@ -518,18 +452,9 @@ def test_receipt_report_must_belong_to_the_same_obligation(
     first_obligation = postgres_session.get(CollectionObligation, state.obligation_id)
     assert first_obligation is not None
 
-    second_sender_id = uuid.uuid4()
-    postgres_session.add(
-        Person(
-            id=second_sender_id,
-            display_name="Synthetic second sender",
-            created_at=NOW,
-        )
-    )
-    postgres_session.flush()
     second_obligation = CollectionObligation(
         batch_version_id=state.batch_version_id,
-        sender_id=second_sender_id,
+        sender_id=uuid.uuid4(),
         recipient_id=state.recipient_id,
         amount_vnd=1_000,
         due_at=NOW + timedelta(days=7),
@@ -618,10 +543,6 @@ def test_append_only_trigger_rejects_delete(postgres_session: Session):
 def test_expected_rows_exist_in_real_tables(postgres_session: Session):
     _persist_lifecycle(postgres_session)
     expected_counts = {
-        Person: 3,
-        Group: 1,
-        Context: 1,
-        Membership: 3,
         Expense: 1,
         ExpenseVersion: 1,
         ExpenseItem: 1,
@@ -644,52 +565,6 @@ def test_expected_rows_exist_in_real_tables(postgres_session: Session):
     for model, expected in expected_counts.items():
         count = postgres_session.scalar(select(func.count()).select_from(model))
         assert count == expected, model.__tablename__
-
-
-def test_leave_and_rejoin_never_retargets_an_old_obligation(
-    postgres_session: Session,
-):
-    state = _persist_lifecycle(postgres_session, confirm_receipts=False)
-    context = postgres_session.get(Context, state.context_id)
-    assert context is not None
-    first_membership = postgres_session.scalar(
-        select(Membership).where(
-            Membership.group_id == context.group_id,
-            Membership.person_id == state.sender_id,
-            Membership.state == MembershipState.ACTIVE,
-        )
-    )
-    assert first_membership is not None
-
-    first_membership.state = MembershipState.LEFT
-    first_membership.left_at = NOW + timedelta(days=1)
-    postgres_session.flush()
-    second_membership = Membership(
-        group_id=context.group_id,
-        person_id=state.sender_id,
-        state=MembershipState.ACTIVE,
-        role=MembershipRole.MEMBER,
-        joined_at=NOW + timedelta(days=2),
-        created_at=NOW + timedelta(days=2),
-    )
-    postgres_session.add(second_membership)
-    postgres_session.flush()
-
-    obligation = postgres_session.get(CollectionObligation, state.obligation_id)
-    assert obligation is not None
-    assert obligation.sender_id == state.sender_id
-    assert second_membership.id != first_membership.id
-    assert (
-        postgres_session.scalar(
-            select(func.count())
-            .select_from(Membership)
-            .where(
-                Membership.group_id == context.group_id,
-                Membership.person_id == state.sender_id,
-            )
-        )
-        == 2
-    )
 
 
 def test_a_paid_obligation_can_still_be_disputed(

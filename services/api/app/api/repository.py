@@ -934,24 +934,6 @@ class SqlAlchemyApiRepository:
             )
             if row.get("obligation_id")
         }
-        # Counted per obligation, not per link. A link can carry debts to two
-        # different people; spending three objections arguing with one of them
-        # used to leave nothing to say about the other, which made the quota a
-        # way to silence a debt by exhausting a neighbour's.
-        objection_counts: dict[str, int] = {}
-        for row in self.session.scalars(
-            select(AuditEvent.event_data).where(
-                AuditEvent.aggregate_type == "guest_link",
-                AuditEvent.aggregate_id == link.id,
-                AuditEvent.event_type.in_(
-                    ("guest_objection.not_me", "guest_objection.wrong_amount")
-                ),
-            )
-        ):
-            target = row.get("obligation_id")
-            key = str(target) if target else "*"
-            objection_counts[key] = objection_counts.get(key, 0) + 1
-
         blocks = []
         recorded_by_ids: set[uuid.UUID] = set()
         for obligation in obligations:
@@ -1025,8 +1007,6 @@ class SqlAlchemyApiRepository:
                     "already_reported": already_reported,
                     "evidence_requested": str(obligation.id) in evidence_asked,
                     "disputed": str(obligation.id) in disputed_ids,
-                    "objections_used": objection_counts.get(str(obligation.id), 0),
-                    "objections_allowed": OBJECTION_LIMIT,
                     "receiver_confirmed": derived_status
                     in {"confirmed", "over_confirmed"},
                 }
@@ -1194,19 +1174,12 @@ class SqlAlchemyApiRepository:
         )
         disputes: dict[str, str | None] = {}
         if link_ids:
-            # Ordered on purpose. `setdefault` below means "the first reason
-            # wins", and without an ORDER BY PostgreSQL is free to return rows
-            # in whatever order a scan produces -- so "first" would have meant
-            # whichever row the planner happened to reach first, and the reason
-            # shown on the board could change between two identical requests.
             for row in self.session.scalars(
-                select(AuditEvent.event_data)
-                .where(
+                select(AuditEvent.event_data).where(
                     AuditEvent.aggregate_type == "guest_link",
                     AuditEvent.aggregate_id.in_(link_ids),
                     AuditEvent.event_type == "guest_objection.wrong_amount",
                 )
-                .order_by(AuditEvent.occurred_at, AuditEvent.id)
             ):
                 target = row.get("obligation_id")
                 if target:

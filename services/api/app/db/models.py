@@ -97,10 +97,7 @@ class Expense(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     context_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("contexts.id", name="fk_expenses_context"),
-        nullable=False,
-        index=True,
+        UUID(as_uuid=True), nullable=False, index=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -151,16 +148,8 @@ class ExpenseVersion(Base):
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
     previous_version_number: Mapped[int | None] = mapped_column(Integer)
     description: Mapped[str | None] = mapped_column(Text)
-    recorded_by_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("people.id", name="fk_expense_versions_recorded_by"),
-        nullable=False,
-    )
-    paid_by_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("people.id", name="fk_expense_versions_paid_by"),
-        nullable=False,
-    )
+    recorded_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    paid_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     payer_acknowledgement: Mapped[PayerAcknowledgement] = mapped_column(
         _enum_type(PayerAcknowledgement, "payer_acknowledgement"),
         nullable=False,
@@ -188,9 +177,7 @@ class ExpenseVersion(Base):
         BigInteger, nullable=False, default=0, server_default="0"
     )
     total_amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    occurred_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -207,22 +194,15 @@ class ExpenseItem(Base):
 
     __tablename__ = "expense_items"
     __table_args__ = (
-        UniqueConstraint(
-            "expense_version_id", "item_key", name="uq_expense_items_version_key"
-        ),
+        UniqueConstraint("expense_version_id", "item_key", name="uq_expense_items_version_key"),
         # ADR-0004 rejects a zero-amount line item (ZERO_AMOUNT) even though a
         # zero-amount expense total is fine.
         CheckConstraint("amount_vnd > 0", name="amount_positive"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     expense_version_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("expense_versions.id"),
-        nullable=False,
-        index=True,
+        UUID(as_uuid=True), ForeignKey("expense_versions.id"), nullable=False, index=True
     )
     item_key: Mapped[str] = mapped_column(String(64), nullable=False)
     label: Mapped[str | None] = mapped_column(Text)
@@ -234,22 +214,14 @@ class ExpenseItemShare(Base):
 
     __tablename__ = "expense_item_shares"
     __table_args__ = (
-        UniqueConstraint(
-            "expense_item_id", "participant_id", name="uq_item_share_unique"
-        ),
+        UniqueConstraint("expense_item_id", "participant_id", name="uq_item_share_unique"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     expense_item_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("expense_items.id"), nullable=False, index=True
     )
-    participant_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("people.id", name="fk_expense_item_shares_participant"),
-        nullable=False,
-    )
+    participant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
 
 
 class ExpenseSurcharge(Base):
@@ -263,20 +235,13 @@ class ExpenseSurcharge(Base):
 
     __tablename__ = "expense_surcharges"
     __table_args__ = (
-        UniqueConstraint(
-            "expense_version_id", "surcharge_key", name="uq_surcharges_version_key"
-        ),
+        UniqueConstraint("expense_version_id", "surcharge_key", name="uq_surcharges_version_key"),
         CheckConstraint("amount_vnd > 0", name="amount_positive"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     expense_version_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("expense_versions.id"),
-        nullable=False,
-        index=True,
+        UUID(as_uuid=True), ForeignKey("expense_versions.id"), nullable=False, index=True
     )
     surcharge_key: Mapped[str] = mapped_column(String(64), nullable=False)
     kind: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -291,9 +256,7 @@ class ExpenseDiscount(Base):
 
     __tablename__ = "expense_discounts"
     __table_args__ = (
-        UniqueConstraint(
-            "expense_version_id", "discount_key", name="uq_discounts_version_key"
-        ),
+        UniqueConstraint("expense_version_id", "discount_key", name="uq_discounts_version_key"),
         CheckConstraint("amount_vnd > 0", name="amount_positive"),
         # ADR-0004 SCOPE_TARGET_MISMATCH: an item-scoped discount needs a
         # target and a global one must not carry one.
@@ -304,14 +267,9 @@ class ExpenseDiscount(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     expense_version_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("expense_versions.id"),
-        nullable=False,
-        index=True,
+        UUID(as_uuid=True), ForeignKey("expense_versions.id"), nullable=False, index=True
     )
     discount_key: Mapped[str] = mapped_column(String(64), nullable=False)
     amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
@@ -345,17 +303,9 @@ class ConfirmedAllocation(Base):
         nullable=False,
         index=True,
     )
-    participant_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("people.id", name="fk_confirmed_allocations_participant"),
-        nullable=False,
-    )
+    participant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    confirmed_by_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("people.id", name="fk_confirmed_allocations_confirmed_by"),
-        nullable=False,
-    )
+    confirmed_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     confirmed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -370,16 +320,9 @@ class CollectionBatch(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     context_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("contexts.id", name="fk_collection_batches_context"),
-        nullable=False,
-        index=True,
+        UUID(as_uuid=True), nullable=False, index=True
     )
-    owner_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("people.id", name="fk_collection_batches_owner"),
-        nullable=False,
-    )
+    owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     status: Mapped[CollectionBatchStatus] = mapped_column(
         _enum_type(CollectionBatchStatus, "collection_batch_status"),
         nullable=False,
@@ -405,10 +348,7 @@ class CollectionBatchVersion(Base):
         ),
         ForeignKeyConstraint(
             ["batch_id", "previous_version_number"],
-            [
-                "collection_batch_versions.batch_id",
-                "collection_batch_versions.version_number",
-            ],
+            ["collection_batch_versions.batch_id", "collection_batch_versions.version_number"],
             name="fk_batch_versions_previous_version",
         ),
         CheckConstraint(
@@ -429,11 +369,7 @@ class CollectionBatchVersion(Base):
     )
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
     previous_version_number: Mapped[int | None] = mapped_column(Integer)
-    created_by_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("people.id", name="fk_collection_batch_versions_created_by"),
-        nullable=False,
-    )
+    created_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -460,10 +396,7 @@ class BankRecipient(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     recipient_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("people.id", name="fk_bank_recipients_recipient"),
-        nullable=False,
-        index=True,
+        UUID(as_uuid=True), nullable=False, index=True
     )
     bank_bin: Mapped[str] = mapped_column(String(6), nullable=False)
     account_number: Mapped[str] = mapped_column(String(19), nullable=False)
@@ -508,11 +441,7 @@ class BankRecipientSnapshot(Base):
     bank_recipient_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("bank_recipients.id"), nullable=False
     )
-    recipient_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("people.id", name="fk_bank_recipient_snapshots_recipient"),
-        nullable=False,
-    )
+    recipient_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     bank_bin: Mapped[str] = mapped_column(String(6), nullable=False)
     account_number: Mapped[str] = mapped_column(String(19), nullable=False)
     account_name: Mapped[str | None] = mapped_column(String(255))
@@ -537,10 +466,7 @@ class CollectionObligation(Base):
         ),
         ForeignKeyConstraint(
             ["bank_recipient_snapshot_id", "batch_version_id"],
-            [
-                "bank_recipient_snapshots.id",
-                "bank_recipient_snapshots.batch_version_id",
-            ],
+            ["bank_recipient_snapshots.id", "bank_recipient_snapshots.batch_version_id"],
             name="fk_obligations_snapshot_same_batch_version",
         ),
         CheckConstraint("sender_id <> recipient_id", name="different_parties"),
@@ -556,16 +482,8 @@ class CollectionObligation(Base):
         nullable=False,
         index=True,
     )
-    sender_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("people.id", name="fk_collection_obligations_sender"),
-        nullable=False,
-    )
-    recipient_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("people.id", name="fk_collection_obligations_recipient"),
-        nullable=False,
-    )
+    sender_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    recipient_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
     due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     bank_recipient_snapshot_id: Mapped[uuid.UUID] = mapped_column(
@@ -620,11 +538,7 @@ class CollectionEnvelope(Base):
         nullable=False,
         index=True,
     )
-    sender_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("people.id", name="fk_collection_envelopes_sender"),
-        nullable=False,
-    )
+    sender_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -657,9 +571,7 @@ class GuestLink(Base):
         default=GuestLinkStatus.ACTIVE,
         server_default=GuestLinkStatus.ACTIVE.value,
     )
-    expires_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -696,10 +608,7 @@ class PaymentReport(Base):
     guest_link_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("guest_links.id")
     )
-    reported_by_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("people.id", name="fk_payment_reports_reported_by"),
-    )
+    reported_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
     idempotency_key: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False, unique=True
@@ -732,11 +641,7 @@ class ReceiptConfirmation(Base):
         index=True,
     )
     payment_report_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
-    confirmed_by_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("people.id", name="fk_receipt_confirmations_confirmed_by"),
-        nullable=False,
-    )
+    confirmed_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
     idempotency_key: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False, unique=True
@@ -754,10 +659,7 @@ class AuditEvent(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    actor_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("people.id", name="fk_audit_events_actor"),
-    )
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     event_type: Mapped[str] = mapped_column(String(100), nullable=False)
     aggregate_type: Mapped[str] = mapped_column(String(100), nullable=False)
     aggregate_id: Mapped[uuid.UUID] = mapped_column(
@@ -772,26 +674,39 @@ class AuditEvent(Base):
     )
 
 
+__all__ = [
+    "AuditEvent",
+    "BankRecipient",
+    "BankRecipientSnapshot",
+    "CollectionBatch",
+    "CollectionBatchStatus",
+    "CollectionBatchVersion",
+    "CollectionEnvelope",
+    "CollectionObligation",
+    "CollectionObligationSource",
+    "ConfirmedAllocation",
+    "Expense",
+    "ExpenseVersion",
+    "GuestLink",
+    "GuestLinkStatus",
+    "PayerAcknowledgement",
+    "PaymentReport",
+    "ReceiptConfirmation",
+    "VerificationScope",
+]
+
+
 class MembershipState(StrEnum):
-    """One membership episode's current lifecycle state.
+    """Where a person stands in a group.
 
     `INVITED` exists because being added to a group is something that happens
-    to a person, not consent from that person. `LEFT` and `REMOVED` are separate
-    terminal facts because voluntary departure and an admin action have
-    different audit meaning even though both revoke current group access.
+    to you. Section 9 treats membership as a permission boundary, and a
+    boundary somebody was placed inside without agreeing is not one.
     """
 
     INVITED = "invited"
     ACTIVE = "active"
     LEFT = "left"
-    REMOVED = "removed"
-
-
-class MembershipRole(StrEnum):
-    """Logistics authority inside a group, never financial authority."""
-
-    MEMBER = "member"
-    ADMIN = "admin"
 
 
 class Person(Base):
@@ -807,83 +722,38 @@ class Person(Base):
     """
 
     __tablename__ = "people"
-    __table_args__ = (
-        CheckConstraint(
-            "char_length(btrim(display_name)) BETWEEN 1 AND 120",
-            name="display_name_length",
-        ),
-    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     display_name: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-
-
-class Group(Base):
-    """A stable set of people across trips, occasions, and billing cycles.
-
-    A group is deliberately not a context. The product spec uses context for a
-    trip, occasion, or cycle; one stable group can own many of those contexts.
-    Keeping the concepts separate prevents a later trip from accidentally
-    inheriting the lifecycle or visibility interval of an earlier one.
-    """
-
-    __tablename__ = "groups"
-    __table_args__ = (
-        CheckConstraint(
-            "char_length(btrim(display_name)) BETWEEN 1 AND 120",
-            name="display_name_length",
-        ),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    display_name: Mapped[str] = mapped_column(Text, nullable=False)
-    created_by_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("people.id", name="fk_groups_created_by"),
-        nullable=True,
-    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
 
 class Context(Base):
-    """One trip, occasion, or cycle whose expenses share a ledger scope.
+    """A group of people who share expenses.
 
-    Existing expense and collection tables already carry `context_id`. Those
-    columns point here; group membership points to `groups` instead. This is the
-    boundary required by spec sections 6.1 and 11.2.
+    Called `context` because every table that already references one calls it
+    `context_id` -- and those columns were plain UUIDs pointing at nothing.
+    An id with no table behind it looks like a relationship and enforces
+    nothing: any UUID was a valid group, including one nobody belongs to.
+
+    Renaming to `group` would read better and would touch eighteen tables and
+    a migration for a word. The columns stay; what changes is that they now
+    point somewhere.
     """
 
     __tablename__ = "contexts"
-    __table_args__ = (
-        CheckConstraint(
-            "char_length(btrim(display_name)) BETWEEN 1 AND 120",
-            name="display_name_length",
-        ),
-    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    group_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("groups.id", name="fk_contexts_group"),
-        nullable=False,
-        index=True,
-    )
     display_name: Mapped[str] = mapped_column(Text, nullable=False)
-    created_by_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("people.id", name="fk_contexts_created_by"),
-        nullable=True,
+    created_by_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("people.id", name="fk_contexts_created_by"),
+        nullable=False,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -893,8 +763,10 @@ class Context(Base):
 class Membership(Base):
     """One person's standing in one group, over time.
 
-    Leaving or removal is recorded, never deleted. Financial rows point to the
-    stable person, so closing a membership cannot rewrite an old obligation.
+    Leaving is recorded, not deleted. A person who leaves still appears in the
+    obligations they were part of, and erasing the membership row would leave
+    those pointing at somebody who, as far as the database is concerned, was
+    never in the group. Money that was owed does not stop having been owed.
 
     Re-joining creates a NEW row rather than reviving the old one. The two
     stretches are different facts: what someone could see during the first is
@@ -908,37 +780,29 @@ class Membership(Base):
     __table_args__ = (
         Index(
             "uq_memberships_open_per_person",
-            "group_id",
+            "context_id",
             "person_id",
             unique=True,
-            postgresql_where=text("state IN ('invited', 'active')"),
+            postgresql_where=text("left_at IS NULL"),
         ),
-        Index(
-            "ix_memberships_person_open",
-            "person_id",
-            postgresql_where=text("state IN ('invited', 'active')"),
-        ),
+        Index("ix_memberships_person_open", "person_id", postgresql_where=text("left_at IS NULL")),
         CheckConstraint(
-            "(state = 'invited' AND joined_at IS NULL AND left_at IS NULL) OR "
-            "(state = 'active' AND joined_at IS NOT NULL AND left_at IS NULL) OR "
-            "(state IN ('left', 'removed') AND joined_at IS NOT NULL "
-            "AND left_at IS NOT NULL AND left_at >= joined_at)",
-            name="lifecycle_timestamps",
-        ),
-        CheckConstraint(
-            "state <> 'invited' OR invited_by_id IS NOT NULL",
-            name="invitation_has_inviter",
+            "(state = 'left') = (left_at IS NOT NULL)",
+            # The convention adds the `ck_<table>_` prefix; naming it here too
+            # produced `ck_memberships_ck_memberships_...`, which is how a
+            # constraint name creeps toward the 63-character limit that has
+            # already bitten this repo once.
+            name="left_state_matches_timestamp",
         ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    group_id: Mapped[uuid.UUID] = mapped_column(
+    context_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("groups.id", name="fk_memberships_group"),
+        ForeignKey("contexts.id", name="fk_memberships_context"),
         nullable=False,
-        index=True,
     )
     person_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -955,13 +819,6 @@ class Membership(Base):
         _enum_type(MembershipState, "membership_state"),
         nullable=False,
         default=MembershipState.INVITED,
-        server_default=MembershipState.INVITED.value,
-    )
-    role: Mapped[MembershipRole] = mapped_column(
-        _enum_type(MembershipRole, "membership_role"),
-        nullable=False,
-        default=MembershipRole.MEMBER,
-        server_default=MembershipRole.MEMBER.value,
     )
     invited_by_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
@@ -977,31 +834,3 @@ class Membership(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
-
-
-__all__ = [
-    "AuditEvent",
-    "BankRecipient",
-    "BankRecipientSnapshot",
-    "CollectionBatch",
-    "CollectionBatchStatus",
-    "CollectionBatchVersion",
-    "CollectionEnvelope",
-    "CollectionObligation",
-    "CollectionObligationSource",
-    "ConfirmedAllocation",
-    "Context",
-    "Expense",
-    "ExpenseVersion",
-    "Group",
-    "GuestLink",
-    "GuestLinkStatus",
-    "Membership",
-    "MembershipRole",
-    "MembershipState",
-    "PayerAcknowledgement",
-    "PaymentReport",
-    "Person",
-    "ReceiptConfirmation",
-    "VerificationScope",
-]

@@ -62,29 +62,10 @@
       <span class="amount__hint">chạm để chép</span>
     </button>
 
-    {# The page claimed collection had paused while giving no sign of it. A
-       promise that leaves no trace on the screen it was made on is not a
-       promise. #}
-    {% if block.disputed %}
-    <p class="note">
-      Bạn đang thắc mắc khoản này. Nó đã được đánh dấu trên bảng thu của
-      {{ view.recorded_by_display_name }} và sẽ không bị tính là còn nợ cho tới
-      khi hai bên thống nhất. Bạn vẫn chuyển được nếu muốn.
-    </p>
-    {% endif %}
-
     <div class="choices">
       <button class="btn btn--primary" type="button" data-reveal>Đúng, xem cách chuyển</button>
       <div class="choices__escape">
-        {# The obligation id is the whole point of this link. Without it the
-           route fell back to blocks[0], so on a link carrying two obligations
-           the button under the second card raised an objection against the
-           FIRST -- flagging a debt to one person because somebody disagreed
-           about a debt to another, while leaving the real one unobjectable. #}
-        {% if block.can_object %}
-        <a class="btn btn--quiet"
-           href="/g/{{ token }}/doi-so-tien?obligation_id={{ block.obligation_id }}">Số tiền không đúng</a>
-        {% endif %}
+        <a class="btn btn--quiet" href="/g/{{ token }}/doi-so-tien">Số tiền không đúng</a>
         <a class="btn btn--quiet" href="/g/{{ token }}/khong-phai-toi">Tôi không phải {{ view.claimed_person_display_name }}</a>
       </div>
     </div>
