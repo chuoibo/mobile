@@ -39,6 +39,7 @@ def envelope(**overrides):
             "recipient_display_name": "Nam",
             "bank_name": "Techcombank",
             "bank_bin": "970407",
+            # repo-guard: allow=long-number reason=synthetic-test-fixture-never-real-participant-data
             "account_number": "19036812345678",
             "account_holder_name": "NGUYEN VAN NAM",
             "transfer_note": "Bua lau",
@@ -96,6 +97,7 @@ class LinkLifecycle(unittest.TestCase):
                 view = build_guest_view(envelope(link_state=state))
                 html = render(view)
                 self.assertEqual(view["blocks"], [])
+                # repo-guard: allow=long-number reason=synthetic-test-fixture-never-real-participant-data
                 self.assertNotIn("19036812345678", html)
                 self.assertFalse(view["can_report_payment"])
 
@@ -213,6 +215,7 @@ class DesignDiscipline(unittest.TestCase):
 
     def test_the_rendered_account_number_is_present_without_running_script(self):
         """Server-rendered, so it is in the HTML the browser receives."""
+        # repo-guard: allow=long-number reason=synthetic-test-fixture-never-real-participant-data
         self.assertIn("19036812345678", self.html)
 
 

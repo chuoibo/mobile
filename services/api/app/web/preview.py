@@ -49,9 +49,11 @@ def _obligation(oid, occasion, amount, who, bank, bin_code, account, holder, not
 
 def fixture(state: str) -> dict:
     lau = _obligation("o1", "bữa lẩu tối thứ bảy", 82000, "Nam",
+                      # repo-guard: allow=long-number reason=synthetic-fixture-never-real-participant-data
                       "Techcombank", "970407", "19036812345678",
                       "NGUYEN VAN NAM", "Lau T7")
     xe = _obligation("o2", "tiền xe về Vũng Tàu", 145000, "Quyên",
+                     # repo-guard: allow=long-number reason=synthetic-fixture-never-real-participant-data
                      "Vietcombank", "970436", "1017339284",
                      "TRAN THI QUYEN", "Xe Vung Tau")
 

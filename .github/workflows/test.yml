@@ -50,15 +50,31 @@ jobs:
           print("migration renders")
           PY
 
+  # The two jobs below are skipped when their code is not on this branch.
+  # Written unconditionally at first, which made CI red on main the moment it
+  # merged: both targets live on a branch that has not landed yet. In a
+  # monorepo a job for a package that is not there is not a failure, it is an
+  # absence -- but it must be an absence the log states out loud, not a job
+  # that quietly never ran.
   shared:
     name: shared money format
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - id: present
+        run: |
+          if [ -f packages/shared/money.test.mjs ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::packages/shared is not on this branch, skipping"
+          fi
+      - if: steps.present.outputs.found == 'true'
+        uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - name: Both surfaces agree on the same golden cases
+      - if: steps.present.outputs.found == 'true'
+        name: Both surfaces agree on the same golden cases
         run: node packages/shared/money.test.mjs
 
   mobile:
@@ -66,12 +82,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - id: present
+        run: |
+          if [ -f apps/mobile/package-lock.json ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::apps/mobile is not on this branch, skipping"
+          fi
+      - if: steps.present.outputs.found == 'true'
+        uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: npm
           cache-dependency-path: apps/mobile/package-lock.json
-      - working-directory: apps/mobile
+      - if: steps.present.outputs.found == 'true'
+        working-directory: apps/mobile
         run: npm ci
-      - working-directory: apps/mobile
+      - if: steps.present.outputs.found == 'true'
+        working-directory: apps/mobile
         run: npx tsc --noEmit

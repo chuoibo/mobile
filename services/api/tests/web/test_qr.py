@@ -14,6 +14,7 @@ from app.web.qr import QRError, payload_to_png_data_uri  # noqa: E402
 
 
 def payload(amount=82000):
+    # repo-guard: allow=long-number reason=synthetic-test-fixture-never-real-participant-data
     return build_payload(bank_bin="970407", account_number="19036812345678",
                          amount_vnd=amount, note="Lau T7")
 
@@ -21,6 +22,7 @@ def payload(amount=82000):
 class Rendering(unittest.TestCase):
     def test_produces_a_png_data_uri(self):
         uri = payload_to_png_data_uri(payload())
+        # repo-guard: allow=data-uri-base64 reason=synthetic-test-fixture-never-real-participant-data
         self.assertTrue(uri.startswith("data:image/png;base64,"))
         raw = base64.b64decode(uri.split(",", 1)[1])
         self.assertEqual(raw[:8], b"\x89PNG\r\n\x1a\n")
@@ -73,6 +75,7 @@ class PreviewServer(unittest.TestCase):
         from app.web.preview import render
         for state in ("expired", "revoked"):
             with self.subTest(state=state):
+                # repo-guard: allow=long-number reason=synthetic-test-fixture-never-real-participant-data
                 self.assertNotIn(b"19036812345678", render(state))
 
     def test_active_states_carry_a_qr_image(self):
