@@ -30,6 +30,7 @@ from app.db.models import (
     CollectionObligation,
     CollectionObligationSource,
     ConfirmedAllocation,
+    Context,
     Expense,
     ExpenseDiscount,
     ExpenseItem,
@@ -38,6 +39,8 @@ from app.db.models import (
     ExpenseVersion,
     GuestLink,
     GuestLinkStatus,
+    Membership,
+    MembershipState,
     PayerAcknowledgement,
     PaymentReport,
     ReceiptConfirmation,
@@ -53,6 +56,26 @@ from app.web.qr import payload_to_png_data_uri
 class ExpenseIdentity:
     id: uuid.UUID
     context_id: uuid.UUID
+
+
+@dataclass(frozen=True, slots=True)
+class ContextRecord:
+    id: uuid.UUID
+    display_name: str
+    created_by_id: uuid.UUID
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class MembershipRecord:
+    id: uuid.UUID
+    context_id: uuid.UUID
+    person_id: uuid.UUID
+    state: str
+    invited_by_id: uuid.UUID | None
+    joined_at: datetime | None
+    left_at: datetime | None
+    created_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,6 +255,33 @@ class ReceiptRecord:
 
 
 class ApiRepository(Protocol):
+    def create_context(
+        self, display_name: str, created_by_id: uuid.UUID
+    ) -> ContextRecord: ...
+
+    def add_member(
+        self,
+        context_id: uuid.UUID,
+        person_id: uuid.UUID,
+        invited_by_id: uuid.UUID,
+    ) -> MembershipRecord: ...
+
+    def get_membership(
+        self, membership_id: uuid.UUID
+    ) -> MembershipRecord | None: ...
+
+    def accept_membership(
+        self, membership_id: uuid.UUID, now: datetime
+    ) -> MembershipRecord: ...
+
+    def leave_context(
+        self, context_id: uuid.UUID, person_id: uuid.UUID, now: datetime
+    ) -> MembershipRecord: ...
+
+    def list_members(self, context_id: uuid.UUID) -> list[MembershipRecord]: ...
+
+    def is_member(self, context_id: uuid.UUID, person_id: uuid.UUID) -> bool: ...
+
     def create_expense(self, context_id: uuid.UUID) -> ExpenseIdentity: ...
 
     def get_expense(self, expense_id: uuid.UUID) -> ExpenseIdentity | None: ...
@@ -346,6 +396,126 @@ class SqlAlchemyApiRepository:
 
     def __init__(self, session: Session):
         self.session = session
+
+    @staticmethod
+    def _context_record(context: Context) -> ContextRecord:
+        return ContextRecord(
+            id=context.id,
+            display_name=context.display_name,
+            created_by_id=context.created_by_id,
+            created_at=context.created_at,
+        )
+
+    @staticmethod
+    def _membership_record(membership: Membership) -> MembershipRecord:
+        return MembershipRecord(
+            id=membership.id,
+            context_id=membership.context_id,
+            person_id=membership.person_id,
+            state=membership.state.value,
+            invited_by_id=membership.invited_by_id,
+            joined_at=membership.joined_at,
+            left_at=membership.left_at,
+            created_at=membership.created_at,
+        )
+
+    def create_context(
+        self, display_name: str, created_by_id: uuid.UUID
+    ) -> ContextRecord:
+        context = Context(display_name=display_name, created_by_id=created_by_id)
+        self.session.add(context)
+        self.session.flush()
+        return self._context_record(context)
+
+    def add_member(
+        self,
+        context_id: uuid.UUID,
+        person_id: uuid.UUID,
+        invited_by_id: uuid.UUID,
+    ) -> MembershipRecord:
+        # Always insert. A closed membership is historical evidence; rejoining
+        # must never revive it or backdate the new authorization interval.
+        membership = Membership(
+            context_id=context_id,
+            person_id=person_id,
+            state=MembershipState.INVITED,
+            invited_by_id=invited_by_id,
+        )
+        self.session.add(membership)
+        self.session.flush()
+        return self._membership_record(membership)
+
+    def get_membership(
+        self, membership_id: uuid.UUID
+    ) -> MembershipRecord | None:
+        membership = self.session.get(Membership, membership_id)
+        if membership is None:
+            return None
+        return self._membership_record(membership)
+
+    def accept_membership(
+        self, membership_id: uuid.UUID, now: datetime
+    ) -> MembershipRecord:
+        membership = self.session.scalar(
+            select(Membership)
+            .where(
+                Membership.id == membership_id,
+                Membership.state == MembershipState.INVITED,
+                Membership.left_at.is_(None),
+            )
+            .with_for_update()
+        )
+        if membership is None:
+            raise RepositoryConflict("MEMBERSHIP_NOT_INVITED")
+        membership.state = MembershipState.ACTIVE
+        membership.joined_at = now
+        self.session.flush()
+        return self._membership_record(membership)
+
+    def leave_context(
+        self, context_id: uuid.UUID, person_id: uuid.UUID, now: datetime
+    ) -> MembershipRecord:
+        membership = self.session.scalar(
+            select(Membership)
+            .where(
+                Membership.context_id == context_id,
+                Membership.person_id == person_id,
+                Membership.state == MembershipState.ACTIVE,
+                Membership.left_at.is_(None),
+            )
+            .with_for_update()
+        )
+        if membership is None:
+            raise RepositoryConflict("ACTIVE_MEMBERSHIP_NOT_FOUND")
+
+        # The database check is bidirectional, so both values belong to one
+        # transition and one flush. Updating either field alone is invalid.
+        membership.state = MembershipState.LEFT
+        membership.left_at = now
+        self.session.flush()
+        return self._membership_record(membership)
+
+    def list_members(self, context_id: uuid.UUID) -> list[MembershipRecord]:
+        memberships = self.session.scalars(
+            select(Membership)
+            .where(
+                Membership.context_id == context_id,
+                Membership.left_at.is_(None),
+            )
+            .order_by(Membership.created_at, Membership.id)
+        )
+        return [self._membership_record(row) for row in memberships]
+
+    def is_member(self, context_id: uuid.UUID, person_id: uuid.UUID) -> bool:
+        membership_id = self.session.scalar(
+            select(Membership.id).where(
+                Membership.context_id == context_id,
+                Membership.person_id == person_id,
+                Membership.state == MembershipState.ACTIVE,
+                Membership.left_at.is_(None),
+            )
+        )
+        return membership_id is not None
 
     def create_expense(self, context_id: uuid.UUID) -> ExpenseIdentity:
         expense = Expense(context_id=context_id)
@@ -1340,11 +1510,13 @@ __all__ = [
     "BatchInputs",
     "ConfirmedExpense",
     "ConfirmationRecord",
+    "ContextRecord",
     "ExpenseIdentity",
     "FrozenBatch",
     "FrozenObligation",
     "GuestEnvelopeRecord",
     "GuestLinkDraft",
+    "MembershipRecord",
     "ObligationDraft",
     "PaymentReportRecord",
     "PaymentReportTarget",

@@ -685,12 +685,16 @@ __all__ = [
     "CollectionObligation",
     "CollectionObligationSource",
     "ConfirmedAllocation",
+    "Context",
     "Expense",
     "ExpenseVersion",
     "GuestLink",
     "GuestLinkStatus",
+    "Membership",
+    "MembershipState",
     "PayerAcknowledgement",
     "PaymentReport",
+    "Person",
     "ReceiptConfirmation",
     "VerificationScope",
 ]
@@ -785,7 +789,11 @@ class Membership(Base):
             unique=True,
             postgresql_where=text("left_at IS NULL"),
         ),
-        Index("ix_memberships_person_open", "person_id", postgresql_where=text("left_at IS NULL")),
+        Index(
+            "ix_memberships_person_open",
+            "person_id",
+            postgresql_where=text("left_at IS NULL"),
+        ),
         CheckConstraint(
             "(state = 'left') = (left_at IS NOT NULL)",
             # The convention adds the `ck_<table>_` prefix; naming it here too
