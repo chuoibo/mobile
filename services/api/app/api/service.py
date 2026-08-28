@@ -13,12 +13,15 @@ from app.api.errors import ApiProblem, RepositoryConflict
 from app.api.limits import OBJECTION_KINDS, QUOTA_CONSUMING_OBJECTIONS
 from app.api.repository import (
     ApiRepository,
+    BankRecipientRecord,
     GuestLinkDraft,
     MembershipRecord,
     ObligationDraft,
 )
 from app.api.schemas import (
     AllocationProposal,
+    BankRecipientRequest,
+    BankRecipientResponse,
     BatchCreateRequest,
     BatchCreateResponse,
     BatchObligationsResponse,
@@ -44,6 +47,7 @@ from app.api.schemas import (
 )
 from app.domain import permissions
 from app.domain.allocator import allocate
+from app.domain.bank_account import BankAccountError, normalise_destination
 from app.domain.capability import CapabilityScopeError, capability_scope
 from app.domain.collection import CollectionError, transition, unmet_publish_gates
 from app.domain.contract import AllocationError
@@ -54,6 +58,7 @@ from app.domain.ledger import (
     obligation_status,
     obligations_from_allocations,
 )
+from app.payments.banks import describe_bank
 from app.payments.vietqr import VietQRError, build_payload
 from app.web.guest_view import GuestViewError, build_guest_view
 from app.web.objection_view import (
@@ -118,6 +123,20 @@ def _require_permission(
     reason = permissions.denial_reason(action, facts)
     if reason is not None:
         raise ApiProblem(403, "permission_denied", reason)
+
+
+def _bank_recipient_response(record: BankRecipientRecord) -> BankRecipientResponse:
+    bank = describe_bank(record.bank_bin)
+    return BankRecipientResponse(
+        id=record.id,
+        recipient_id=record.recipient_id,
+        bank_bin=record.bank_bin,
+        bank_name=bank.name,
+        bank_recognised=bank.recognised,
+        account_number=record.account_number,
+        account_name=record.account_name,
+        confirmed_at=record.confirmed_at,
+    )
 
 
 def _allocator_input(proposal: ExpenseInput) -> dict:
@@ -823,6 +842,67 @@ class ApiService:
             amount_vnd=record.amount_vnd,
             obligation_status=status,
         )
+
+    def set_bank_recipient(
+        self, request: BankRecipientRequest, actor: Actor
+    ) -> tuple[BankRecipientResponse, bool]:
+        """Register where this person's money should land.
+
+        Returns the destination and whether it changed anything, because the
+        route answers 201 for a new or replaced destination and 200 for a retry
+        that re-sent the same digits.
+        """
+
+        # Section 9.2, and one of the few rules in the spec with no exception
+        # for an admin: nobody adds or changes another person's bank account.
+        # Getting this wrong redirects a whole collection round into whichever
+        # account the attacker named. Checked before validation, so a malformed
+        # body never tells an outsider anything about somebody else's setup.
+        _require_permission(
+            "set_bank_recipient",
+            actor,
+            {
+                "is_own_account": actor.id == request.recipient_id,
+                # A bearer token is a capability, not an identity. Section 9.2
+                # rules out using one for this action by name.
+                "is_authenticated_account": "guest" not in actor.roles,
+            },
+        )
+        try:
+            destination = normalise_destination(
+                {
+                    "bank_bin": request.bank_bin,
+                    "account_number": request.account_number,
+                    "account_name": request.account_name,
+                }
+            )
+        except BankAccountError as exc:
+            raise ApiProblem(422, exc.code, "Bank destination is malformed") from exc
+
+        record, created = self.repository.save_bank_recipient(
+            recipient_id=request.recipient_id,
+            bank_bin=destination["bank_bin"],
+            account_number=destination["account_number"],
+            account_name=destination["account_name"],
+            actor_id=actor.id,
+            now=_now(),
+        )
+        return _bank_recipient_response(record), created
+
+    def get_bank_recipient(
+        self, recipient_id: uuid.UUID, actor: Actor
+    ) -> BankRecipientResponse:
+        _require_permission(
+            "view_bank_recipient", actor, {"is_own_account": actor.id == recipient_id}
+        )
+        record = self.repository.get_active_bank_recipient(recipient_id)
+        if record is None:
+            raise ApiProblem(
+                404,
+                "bank_recipient_not_found",
+                "No bank destination is registered for this person",
+            )
+        return _bank_recipient_response(record)
 
     def confirm_receipt(
         self,

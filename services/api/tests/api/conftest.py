@@ -158,6 +158,41 @@ class FakeRepository:
             if recipient_id in self.bank_recipients
         }
 
+    def get_active_bank_recipient(self, recipient_id):
+        return self.bank_recipients.get(recipient_id)
+
+    def save_bank_recipient(
+        self,
+        *,
+        recipient_id,
+        bank_bin,
+        account_number,
+        account_name,
+        actor_id,
+        now,
+    ):
+        # No partial unique index here and no revoked rows: replacing the key is
+        # all a dict can do. "Changing an account leaves exactly one active row"
+        # is therefore proved in tests/postgres, not against this.
+        del actor_id
+        existing = self.bank_recipients.get(recipient_id)
+        if existing is not None and (
+            existing.bank_bin == bank_bin
+            and existing.account_number == account_number
+            and existing.account_name == account_name
+        ):
+            return existing, False
+        record = BankRecipientRecord(
+            id=uuid.uuid4(),
+            recipient_id=recipient_id,
+            bank_bin=bank_bin,
+            account_number=account_number,
+            account_name=account_name,
+            confirmed_at=now,
+        )
+        self.bank_recipients[recipient_id] = record
+        return record, True
+
     def save_frozen_batch(
         self,
         *,
