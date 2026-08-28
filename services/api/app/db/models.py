@@ -14,6 +14,7 @@ from typing import Any
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     Enum,
@@ -78,6 +79,13 @@ class DiscountScope(StrEnum):
     ITEM = "item"
 
 
+class BillShareSource(StrEnum):
+    """Whether a bill-item assignment is suggested or user-confirmed."""
+
+    AI_SUGGESTED = "ai_suggested"
+    CONFIRMED = "confirmed"
+
+
 def _enum_type(enum_class: type[StrEnum], name: str) -> Enum:
     return Enum(
         enum_class,
@@ -87,6 +95,100 @@ def _enum_type(enum_class: type[StrEnum], name: str) -> Enum:
         create_constraint=True,
         validate_strings=True,
     )
+
+
+class Bill(Base):
+    """A scanned bill draft that has not entered the ledger."""
+
+    __tablename__ = "bills"
+    __table_args__ = (
+        CheckConstraint("confidence BETWEEN 0 AND 100", name="confidence_range"),
+        CheckConstraint(
+            "printed_total_vnd IS NULL OR printed_total_vnd >= 0",
+            name="printed_total_nonnegative",
+        ),
+        CheckConstraint("items_total_vnd >= 0", name="items_total_nonnegative"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    context_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False, index=True
+    )
+    created_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    printed_total_vnd: Mapped[int | None] = mapped_column(BigInteger)
+    items_total_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    confidence: Mapped[int] = mapped_column(Integer, nullable=False)
+    needs_review: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class BillItem(Base):
+    """One line read from a scanned bill draft."""
+
+    __tablename__ = "bill_items"
+    __table_args__ = (
+        UniqueConstraint("bill_id", "item_key", name="uq_bill_items_bill_item_key"),
+        CheckConstraint("line_total_vnd > 0", name="line_total_positive"),
+        CheckConstraint("quantity > 0", name="quantity_positive"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    bill_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("bills.id", name="fk_bill_items_bill"),
+        nullable=False,
+        index=True,
+    )
+    item_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    unit_price_vnd: Mapped[int | None] = mapped_column(BigInteger)
+    line_total_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class BillItemShare(Base):
+    """One suggested or confirmed participant assignment for a bill item."""
+
+    __tablename__ = "bill_item_shares"
+    __table_args__ = (
+        UniqueConstraint(
+            "bill_item_id",
+            "participant_id",
+            name="uq_bill_item_shares_item_participant",
+        ),
+        CheckConstraint(
+            "(source = 'confirmed' AND decided_by_id IS NOT NULL AND "
+            "decided_at IS NOT NULL) OR "
+            "(source = 'ai_suggested' AND decided_by_id IS NULL AND "
+            "decided_at IS NULL)",
+            name="decision_matches_source",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    bill_item_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("bill_items.id", name="fk_bill_item_shares_item"),
+        nullable=False,
+        index=True,
+    )
+    participant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False
+    )
+    source: Mapped[BillShareSource] = mapped_column(
+        _enum_type(BillShareSource, "bill_share_source"), nullable=False
+    )
+    decided_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Expense(Base):
