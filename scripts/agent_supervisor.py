@@ -57,9 +57,19 @@ import subprocess
 import sys
 import time
 
-CODEX_COMPANION = pathlib.Path(
-    "/home/lakiet/.claude/plugins/cache/openai-codex/codex/1.0.6/scripts/codex-companion.mjs"
-)
+# `codex exec` directly, not the companion wrapper.
+#
+# The wrapper talks to a long-lived `app-server-broker` over a unix socket, and
+# that pair hangs: eleven minutes of zero CPU, no child processes, blocked in
+# `epoll_wait`, watching a working tree that never changed. Killing every stale
+# broker and starting a fresh one did not fix it -- the next run hung the same
+# way after six minutes.
+#
+# The test that settled it: `codex exec` in the same directory, on the same
+# account, answered in seconds. The agent works; the transport does not.
+# Nothing here needs the broker's session sharing, and a layer that can hang
+# silently is worse than no layer at all.
+CODEX = pathlib.Path("/home/lakiet/.npm-global/bin/codex")
 AGY = pathlib.Path("/home/lakiet/.local/bin/agy")
 
 # Signatures worth waking someone for. Each one is a failure that has actually
@@ -159,10 +169,15 @@ def run_once(agent: str, prompt: str, args: argparse.Namespace) -> tuple[int, st
     """Run the agent to completion. Returns (exit code, combined output)."""
     if agent == "codex":
         command = [
-            "node", str(CODEX_COMPANION), "task",
-            "--prompt-file", prompt,
-            "--cwd", args.cwd,
-            "--write",
+            str(CODEX), "exec",
+            "--cd", args.cwd,
+            "--skip-git-repo-check",
+            # `workspace-write`, not `--dangerously-bypass-approvals-and-sandbox`.
+            # Codex only ever needs to write inside its own checkout, and the
+            # bypass flag would also hand it the rest of the machine. The
+            # narrow option is available and does the job.
+            "--sandbox", "workspace-write",
+            pathlib.Path(prompt).read_text(encoding="utf-8"),
         ]
     else:
         # Foreground on purpose. Backgrounding is how run 2 disappeared: the
