@@ -651,6 +651,43 @@ class ReceiptConfirmation(Base):
     )
 
 
+class IdempotencyKey(Base):
+    """One row per write request the server has agreed to perform.
+
+    The unique constraint is the whole mechanism: reservation is a single
+    `INSERT ... ON CONFLICT DO NOTHING`, so exactly one caller can win the race
+    for a key no matter how many processes are serving requests. The recorded
+    response is kept as raw bytes and replayed verbatim, because re-serialising
+    it would let a later schema change silently answer an old request with a
+    different body.
+    """
+
+    __tablename__ = "idempotency_keys"
+    __table_args__ = (
+        UniqueConstraint("scope", "idempotency_key", name="uq_idempotency_keys_scope_key"),
+        CheckConstraint(
+            "(response_status IS NULL) = (completed_at IS NULL)",
+            name="completion_is_all_or_nothing",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    # Text rather than a UUID foreign key: an unauthenticated write has no
+    # actor, and a key must never be readable across people.
+    scope: Mapped[str] = mapped_column(Text, nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(Text, nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+    response_status: Mapped[int | None] = mapped_column(Integer)
+    response_body: Mapped[bytes | None] = mapped_column(LargeBinary)
+    response_media_type: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class AuditEvent(Base):
     """Append-only record of material actions and transitions."""
 
@@ -689,6 +726,7 @@ __all__ = [
     "ExpenseVersion",
     "GuestLink",
     "GuestLinkStatus",
+    "IdempotencyKey",
     "PayerAcknowledgement",
     "PaymentReport",
     "ReceiptConfirmation",
