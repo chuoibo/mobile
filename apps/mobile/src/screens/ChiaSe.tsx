@@ -5,6 +5,10 @@
  * still paste links into a group chat by hand, and the product neither helps
  * with that nor claims to detect it. What it can do is refuse to make it easy.
  */
+// QA PROBE: web-only module, resolves for web, missing for ios/android.
+const { shareTargetLabel } = require("./qa-share-target");
+void shareTargetLabel;
+
 import React, { useState } from "react";
 import { ScrollView, Share, Text, View } from "react-native";
 import { formatVnd } from "../../../../packages/shared/money.mjs";
