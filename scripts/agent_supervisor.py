@@ -59,7 +59,11 @@ FATAL_PATTERNS = re.compile(
     r"|needs an import attribute"
     r"|usage limit|quota exceeded|rate.?limit"
     r"|timeout waiting for response"
-    r"|\b(401|403)\b"
+    # Non-capturing on purpose. `re.findall` with a capture group returns the
+    # GROUP, so every match of a different alternative came back as an empty
+    # string and the alert read `chu ky loi: ''`. A watchdog that says nothing
+    # useful at the moment it fires is worse than one that stays quiet.
+    r"|\b(?:401|403)\b"
     r"|Traceback \(most recent call last\)"
     r"|panic:",
     re.IGNORECASE,
