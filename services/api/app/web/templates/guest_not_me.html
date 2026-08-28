@@ -1,0 +1,73 @@
+{#
+  "I am not the person named in this link."
+
+  The page shows LESS than the one before it, never more. Somebody who is not
+  the intended reader should leave knowing strictly less about this group than
+  when they arrived, so there is no amount here and no account details.
+
+  It also never asks who they are. The product cannot tell who holds a link and
+  says so plainly rather than performing a verification it cannot do.
+#}<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{ preview.title }}</title>
+<meta property="og:title" content="{{ preview.title }}">
+<meta property="og:description" content="{{ preview.description }}">
+<meta name="robots" content="noindex, nofollow">
+<link rel="stylesheet" href="/static/guest.css">
+</head>
+<body>
+<main class="sheet">
+  <section class="card">
+    {% if view.already_reported %}
+      <p class="eyebrow">Đã ghi nhận</p>
+      <h1 class="lede">Bạn đã báo rằng đây không phải link của mình.</h1>
+      {# Nothing notifies anyone. The objection is an append-only audit event
+         and no surface shows it to the person who recorded the expense. Saying
+         "họ đã được báo" would send this reader away relaxed while the debt
+         stays outstanding against them. #}
+      <p class="note">
+        Ghi nhận này được lưu lại kèm thời điểm, và link đã ngừng hiển thị số
+        tiền cùng số tài khoản.
+      </p>
+      <p class="note">
+        Ứng dụng chưa tự báo cho {{ view.recorded_by_display_name }}. Nhắn trực
+        tiếp cho {{ view.recorded_by_display_name }} là cách nhanh nhất để khoản
+        này được gửi đúng người.
+      </p>
+    {% else %}
+      <p class="eyebrow">Link này ghi tên {{ view.claimed_person_display_name }}</p>
+      <h1 class="lede">Nếu bạn không phải {{ view.claimed_person_display_name }}, bấm bên dưới.</h1>
+
+      {# No name field, no phone field, no "verify yourself". The product
+         cannot tell who is holding a link, and asking would collect a
+         stranger's details for a claim it could not check anyway. #}
+      <p class="note">
+        Không cần điền gì. Chúng tôi không biết ai đang cầm link, và cũng không hỏi.
+      </p>
+
+      {% if view.can_object %}
+      <form method="post" action="/g/{{ token }}/khong-phai-toi">
+        <button class="btn btn--primary" type="submit">Tôi không phải {{ view.claimed_person_display_name }}</button>
+      </form>
+      {% else %}
+        <p class="note">Bạn đã báo nhiều lần rồi. Nhắn trực tiếp cho {{ view.recorded_by_display_name }} sẽ nhanh hơn.</p>
+      {% endif %}
+
+      <p class="note">
+        Sau khi báo: link này ngừng hiển thị số tiền và số tài khoản, và ghi
+        nhận được lưu lại kèm thời điểm. Ứng dụng chưa tự báo cho
+        {{ view.recorded_by_display_name }}, nên nhắn trực tiếp vẫn là cách
+        nhanh nhất. Khoản chi vẫn còn nguyên, chỉ là không còn gắn với bạn.
+      </p>
+    {% endif %}
+  </section>
+
+  <p class="footer">
+    <a href="/g/{{ token }}" style="color:inherit">Quay lại</a>
+  </p>
+</main>
+</body>
+</html>

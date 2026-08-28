@@ -139,7 +139,10 @@ def confirmed_total(receipt_confirmations: list[dict]) -> int:
     return total
 
 
-def obligation_status(declared_amount_vnd: int, receipt_confirmations: list[dict]) -> str:
+def obligation_status(
+    declared_amount_vnd: int,
+    receipt_confirmations: list[dict],
+) -> str:
     """Derive status from confirmed amounts. Never stored as an enum.
 
     Spec section 8.2 is explicit that obligation state is derived from the sum
@@ -152,6 +155,26 @@ def obligation_status(declared_amount_vnd: int, receipt_confirmations: list[dict
     `over_confirmed` is not an error. A recipient can fat-finger the amount, or
     a sender can overpay, and the ledger must be able to show that rather than
     clamp it out of sight.
+
+    A dispute is deliberately NOT one of these values. It used to be, with
+    "money already arrived outranks a dispute" as the tie-break, and QA broke
+    that rule from both sides within an hour:
+
+    - the recipient could erase a guest's objection by confirming receipt,
+      which is a click available to exactly the party with an incentive to
+      make the objection disappear, and
+    - a guest who objected AFTER a mistaken confirmation could never be
+      shown as disputed at all.
+
+    The mistake was collapsing two independent questions into one field. "Has
+    the money arrived" and "is there an unresolved disagreement" are different
+    facts, they move for different reasons, and only one of them is settled by
+    a receipt. So this function answers the first, and `disputed` travels
+    beside it -- cleared by the person who raised it, never by the person being
+    objected to.
+
+    `receiver_confirmed` is not bank evidence. It should not be able to close
+    an argument either.
     """
     if declared_amount_vnd <= 0:
         raise LedgerError("NON_POSITIVE_OBLIGATION")

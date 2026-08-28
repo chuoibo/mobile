@@ -113,7 +113,9 @@ def _proposal(
     )
 
 
-def _persist_lifecycle(session: Session) -> LifecycleState:
+def _persist_lifecycle(
+    session: Session, *, confirm_receipts: bool = True
+) -> LifecycleState:
     repository = SqlAlchemyApiRepository(session)
     context_id = uuid.uuid4()
     owner_id = uuid.uuid4()
@@ -237,6 +239,23 @@ def _persist_lifecycle(session: Session) -> LifecycleState:
 
     receipt_target = repository.get_receipt_target(frozen.obligations[0].id)
     assert receipt_target is not None
+    if not confirm_receipts:
+        # An obligation nobody has confirmed yet -- the only state in which a
+        # dispute can still stop anything.
+        return LifecycleState(
+            context_id=context_id,
+            owner_id=owner_id,
+            sender_id=sender_id,
+            recipient_id=recipient_id,
+            expense_version_id=confirmation.expense_version_id,
+            batch_id=frozen.id,
+            batch_version_id=frozen.version_id,
+            obligation_id=frozen.obligations[0].id,
+            source_allocation_id=source.id,
+            token_digest=token_digest,
+            payment_report_id=report.id,
+            receipt_confirmation_ids=(),
+        )
     first_receipt_key = uuid.uuid4()
     first_receipt = repository.save_receipt_confirmation(
         target=receipt_target,
@@ -546,3 +565,126 @@ def test_expected_rows_exist_in_real_tables(postgres_session: Session):
     for model, expected in expected_counts.items():
         count = postgres_session.scalar(select(func.count()).select_from(model))
         assert count == expected, model.__tablename__
+
+
+def test_a_paid_obligation_can_still_be_disputed(
+    postgres_session: Session,
+):
+    """The rule this test used to assert has been withdrawn.
+
+    It said money already received outranked a dispute, so an objection on a
+    confirmed obligation left it `confirmed` and nothing else. QA showed that
+    handed the recipient an eraser: confirm receipt, and the guest's objection
+    stops appearing. Payment and disagreement are separate facts now, and a
+    receipt settles only the first.
+
+    The lifecycle fixture ends fully confirmed -- 15.000 plus 25.000 against
+    40.000 -- which makes it exactly the case that used to swallow the
+    objection.
+    """
+    state = _persist_lifecycle(postgres_session)
+    repository = SqlAlchemyApiRepository(postgres_session)
+
+    repository.save_guest_objection(
+        token_digest=state.token_digest,
+        kind="wrong_amount",
+        obligation_id=state.obligation_id,
+        reason="amount_too_high",
+        now=NOW + timedelta(minutes=12),
+    )
+    postgres_session.flush()
+
+    board = repository.list_batch_obligations(state.batch_id)
+    assert board is not None, "the collection board could not find the batch"
+    # The board carries the context that owns it, so the service can decide who
+    # may read it. It shipped without that and QA read a whole batch as a
+    # stranger.
+    assert board.context_id == state.context_id
+    target = [
+        row for row in board.obligations if row.obligation_id == state.obligation_id
+    ]
+    assert target, "the obligation vanished from the board"
+    assert target[0].status == "confirmed", "the money did arrive"
+    assert target[0].disputed is True, "a receipt swallowed the objection"
+    assert target[0].disputed_reason == "amount_too_high"
+
+
+def test_an_objection_disputes_an_outstanding_obligation_in_postgres(
+    postgres_session: Session,
+):
+    """The case that actually stops a collection round.
+
+    A wrong-amount objection is stored as an audit event and read back as a
+    derived status. Nothing about that is exercised by a dict-backed fake: it
+    depends on JSONB `event_data` round-tripping and on the query that filters
+    events by aggregate. Both are SQL, and SQL is what the fake cannot have.
+    """
+    state = _persist_lifecycle(postgres_session, confirm_receipts=False)
+    repository = SqlAlchemyApiRepository(postgres_session)
+
+    before = repository.list_batch_obligations(state.batch_id)
+    assert before is not None
+    assert [row.status for row in before.obligations] == ["outstanding"]
+    assert [row.disputed for row in before.obligations] == [False]
+
+    repository.save_guest_objection(
+        token_digest=state.token_digest,
+        kind="wrong_amount",
+        obligation_id=state.obligation_id,
+        reason="amount_too_high",
+        now=NOW + timedelta(minutes=12),
+    )
+    postgres_session.flush()
+
+    after = repository.list_batch_obligations(state.batch_id)
+    assert after is not None
+    target = [
+        row for row in after.obligations if row.obligation_id == state.obligation_id
+    ]
+    assert target and target[0].disputed is True
+    assert target[0].status == "outstanding", "objecting is not paying"
+    assert target[0].disputed_reason == "amount_too_high"
+
+    envelope = repository.get_guest_envelope(
+        state.token_digest, NOW + timedelta(minutes=13)
+    )
+    assert envelope is not None
+    block = [
+        item
+        for item in envelope.envelope["obligations"]
+        if item["obligation_id"] == str(state.obligation_id)
+    ][0]
+    assert block["disputed"] is True
+
+
+def test_asking_for_the_calculation_never_makes_an_obligation_disputed(
+    postgres_session: Session,
+):
+    """`evidence_request` is a question, not an objection. Storing both as
+    audit events makes it easy to widen one query by accident and turn asking
+    how a number was reached into a dispute -- which would teach a group not
+    to ask."""
+    state = _persist_lifecycle(postgres_session)
+    repository = SqlAlchemyApiRepository(postgres_session)
+
+    repository.save_guest_objection(
+        token_digest=state.token_digest,
+        kind="evidence_request",
+        obligation_id=state.obligation_id,
+        reason=None,
+        now=NOW + timedelta(minutes=2),
+    )
+    postgres_session.flush()
+
+    envelope = repository.get_guest_envelope(
+        state.token_digest, NOW + timedelta(minutes=3)
+    )
+    assert envelope is not None
+    block = [
+        item
+        for item in envelope.envelope["obligations"]
+        if item["obligation_id"] == str(state.obligation_id)
+    ][0]
+    assert block["disputed"] is False
+    assert block["evidence_requested"] is True
+    assert envelope.envelope["objections_used"] == 0

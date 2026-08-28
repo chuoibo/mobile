@@ -86,11 +86,17 @@ FATAL_PATTERNS = re.compile(
 # identical noise -- which is exactly what happened the first time a real usage
 # limit hit. A watchdog that keeps retrying an unretryable error is not
 # resilient, it is loud.
+# Deliberately NOT bare "401", "403" or "authentication". A QA agent's whole
+# job is to write about status codes, and the first time one filed a security
+# report the supervisor read its own agent's prose -- "Thiếu X-Actor-ID -> trả
+# về 401 Unauthorized" -- as proof the agent was locked out, and stopped it
+# mid-run. The signal has to be the provider refusing US, which is phrased in
+# ways a report about someone else's 401 is not.
 NO_RETRY_PATTERNS = re.compile(
-    r"usage limit|quota exceeded|insufficient.quota"
-    r"|\b(?:401|403)\b"
+    r"usage limit|quota exceeded|insufficient.quota|out of credits"
     r"|user denied permission"
-    r"|invalid.api.key|authentication",
+    r"|invalid[_ ]?api[_ ]?key|incorrect api key"
+    r"|authentication[_ ]?(?:failed|error)",
     re.IGNORECASE,
 )
 

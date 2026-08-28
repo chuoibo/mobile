@@ -172,12 +172,51 @@ class DerivedStatus(unittest.TestCase):
     def test_sender_self_report_is_not_an_input(self):
         """Section 8.6: 'I transferred' never closes an obligation.
 
-        The signature accepts only recipient confirmations, so there is no way
-        to pass a sender's claim in even by mistake.
+        This used to pin the exact parameter list, which broke the moment a
+        legitimate parameter was added -- and a test that fails on any change
+        is a test people edit to match instead of reading. It now asserts the
+        thing it was protecting: nothing about a sender's own claim can reach
+        this function, whatever else the signature grows.
         """
         import inspect
+
         parameters = list(inspect.signature(obligation_status).parameters)
-        self.assertEqual(parameters, ["declared_amount_vnd", "receipt_confirmations"])
+        for forbidden in ("report", "payment", "sender", "claim", "self"):
+            assert not any(forbidden in name for name in parameters), (
+                f"a parameter mentioning {forbidden!r} appeared: {parameters}"
+            )
+        # The two positional inputs are the whole of the evidence: what was
+        # declared, and what the recipient confirmed.
+        signature = inspect.signature(obligation_status)
+        positional = [
+            name
+            for name, param in signature.parameters.items()
+            if param.kind is not inspect.Parameter.KEYWORD_ONLY
+        ]
+        self.assertEqual(positional, ["declared_amount_vnd", "receipt_confirmations"])
+
+    def test_a_dispute_is_not_one_of_these_values(self):
+        """This function briefly took a `disputed` argument and could return
+        "disputed", with "money already arrived wins" as the tie-break. QA
+        broke that from both sides in an hour: a recipient could erase an
+        objection by confirming receipt, and a guest who objected after a
+        mistaken confirmation could never be shown as disputed at all.
+
+        Two facts had been collapsed into one field. Whether the money arrived
+        is settled by a receipt; whether anyone disagrees is not."""
+        import inspect
+
+        parameters = list(inspect.signature(obligation_status).parameters)
+        assert "disputed" not in parameters, (
+            "a dispute is a separate fact and does not belong in this signature"
+        )
+        for amounts, expected in (
+            ([], "outstanding"),
+            ([{"amount_vnd": 60}], "partially_confirmed"),
+            ([{"amount_vnd": 100}], "confirmed"),
+            ([{"amount_vnd": 150}], "over_confirmed"),
+        ):
+            self.assertEqual(obligation_status(100, amounts), expected)
 
 
 class Balances(unittest.TestCase):

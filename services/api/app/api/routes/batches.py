@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, status
 from app.api.deps import Actor, get_actor, get_repository
 from app.api.repository import ApiRepository
 from app.api.schemas import (
+    BatchObligationsResponse,
     BatchCreateRequest,
     BatchCreateResponse,
     BatchPublishRequest,
@@ -53,3 +54,21 @@ def publish_batch(
     repository: Annotated[ApiRepository, Depends(get_repository)],
 ) -> BatchPublishResponse:
     return ApiService(repository).publish_batch(batch_id, request, actor)
+
+
+@router.get(
+    "/batches/{batch_id}/obligations",
+    response_model=BatchObligationsResponse,
+    responses={404: {"model": ErrorResponse}},
+)
+def list_batch_obligations(
+    batch_id: UUID,
+    actor: Annotated[Actor, Depends(get_actor)],
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+) -> BatchObligationsResponse:
+    """The collection board. Read-only, and the only place a dispute shows up.
+
+    Section 8.2 stops collection on a disputed obligation. That guarantee is
+    worth nothing if the person collecting cannot see which one it is.
+    """
+    return ApiService(repository).list_batch_obligations(batch_id, actor)
