@@ -55,6 +55,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import threading
 import time
 
 CODEX_COMPANION = pathlib.Path(
@@ -155,9 +156,84 @@ def dir_progress(out_dir: pathlib.Path, since: float) -> tuple[str, int]:
     return f"{newest:.0f}", len(files)
 
 
+def clear_stale_codex_sessions() -> list[str]:
+    """Kill leftover brokers before starting Codex, and say which ones.
+
+    Codex talks to a long-lived `app-server-broker` over a unix socket, and
+    those brokers outlive the sessions that made them. Four were found alive at
+    once here: three pinned to directories that had since been deleted, and one
+    that had been up since the previous day with an empty log.
+
+    That last one is the shape that matters. It was the RIGHT broker, it held
+    an open connection, and it had burned two seconds of CPU across twelve
+    minutes -- so the companion sat in `epoll_wait` producing nothing while the
+    supervisor watched a working tree that never changed. Not a crash, not a
+    refusal. A conversation with something that had stopped answering.
+
+    A fresh broker per run costs a second of startup. A stale one costs the
+    hour nobody noticed.
+    """
+    killed = []
+    for pattern in ("codex-companion.mjs", "app-server-broker.mjs"):
+        found = subprocess.run(
+            ["pgrep", "-f", pattern], capture_output=True, text=True, check=False
+        )
+        for pid in found.stdout.split():
+            if pid == str(os.getpid()):
+                continue
+            subprocess.run(["kill", "-9", pid], check=False)
+            killed.append(f"{pattern}:{pid}")
+    if killed:
+        time.sleep(2)
+        subprocess.run("rm -rf /tmp/cxc-*", shell=True, check=False)
+    return killed
+
+
+def watch_for_silence(
+    agent: str, args: argparse.Namespace, out_dir: pathlib.Path, repo: pathlib.Path, stop
+) -> None:
+    """Say something while an agent goes quiet, not after it finishes.
+
+    A hung session exits cleanly and produces nothing, so waiting for the run
+    to end means learning about an hour of silence an hour late. This watches
+    the same signal the supervisor grades on -- did the world change -- and
+    reports the gap AS IT GROWS.
+
+    It never kills anything. Long thinking is legitimate; the point is that
+    somebody knows it is happening.
+    """
+    since = time.time()
+
+    def world() -> tuple[str, int]:
+        return codex_progress(repo) if agent == "codex" else dir_progress(out_dir, since)
+
+    last, last_change = world(), time.time()
+    warned_at = 0.0
+    while not stop.is_set():
+        stop.wait(30)
+        if stop.is_set():
+            return
+        now = world()
+        if now != last:
+            quiet = int(time.time() - last_change)
+            if quiet > args.heartbeat:
+                emit("INFO", f"{agent} noi lai sau {quiet}s im lang")
+            last, last_change, warned_at = now, time.time(), 0.0
+            continue
+        quiet = time.time() - last_change
+        # Warn once per heartbeat window rather than every poll: an alert that
+        # repeats every thirty seconds is an alert people mute.
+        if quiet >= args.heartbeat and quiet - warned_at >= args.heartbeat:
+            warned_at = quiet
+            emit("ALERT", f"{agent} im lang {int(quiet)}s — khong doi mot byte nao")
+
+
 def run_once(agent: str, prompt: str, args: argparse.Namespace) -> tuple[int, str]:
     """Run the agent to completion. Returns (exit code, combined output)."""
     if agent == "codex":
+        stale = clear_stale_codex_sessions()
+        if stale:
+            emit("INFO", f"don phien codex cu: {', '.join(stale)}")
         command = [
             "node", str(CODEX_COMPANION), "task",
             "--prompt-file", prompt,
@@ -191,7 +267,13 @@ def run_once(agent: str, prompt: str, args: argparse.Namespace) -> tuple[int, st
         code = 124
         emit("ALERT", f"{agent} vuot qua {args.timeout}s, da giet")
 
-    emit("INFO", f"{agent} ket thuc sau {int(time.time() - started)}s, exit={code}")
+    elapsed = int(time.time() - started)
+    # A hung session exits cleanly and says nothing. Both parts are needed:
+    # a fast quiet run is fine, a long quiet one is a conversation with
+    # something that stopped answering.
+    if code == 0 and elapsed > 300 and len(output.strip()) < 200:
+        emit("ALERT", f"{agent} chay {elapsed}s ma gan nhu khong noi gi — nghi treo phien")
+    emit("INFO", f"{agent} ket thuc sau {elapsed}s, exit={code}")
     return code, output
 
 
@@ -223,6 +305,15 @@ def main() -> int:
     parser.add_argument("--max-restarts", type=int, default=3)
     parser.add_argument(
         "--checkpoint", type=int, default=0, help="giay giua hai lan cham diem; 0 = tat"
+    )
+    parser.add_argument(
+        "--heartbeat",
+        type=int,
+        default=180,
+        help=(
+            "giay im lang toi da truoc khi bao dong. Mot phien treo thoat sach "
+            "va khong noi gi, nen cho toi luc no ket thuc moi biet la muon."
+        ),
     )
     parser.add_argument("--mirror", default=None, help="clone co mang, de day checkpoint di")
     parser.add_argument("--push", default=None, help="ten remote nhan checkpoint")
@@ -284,7 +375,21 @@ def main() -> int:
             )
             prompt_for_run = resumed
 
+        stop = threading.Event()
+        heartbeat = None
+        if args.heartbeat:
+            heartbeat = threading.Thread(
+                target=watch_for_silence,
+                args=(args.agent, args, out_dir, repo, stop),
+                daemon=True,
+            )
+            heartbeat.start()
+
         code, output = run_once(args.agent, str(prompt_for_run), args)
+
+        stop.set()
+        if heartbeat:
+            heartbeat.join(timeout=2)
 
         for hit in sorted(set(FATAL_PATTERNS.findall(output))):
             emit("ALERT", f"{args.agent} chu ky loi: {hit!r}")
