@@ -16,7 +16,14 @@ COMPOSE ?= docker compose
 WAIT_TIMEOUT ?= 300
 
 .DEFAULT_GOAL := help
-.PHONY: help up down clean logs ps migrate seed smoke
+.PHONY: help up down clean logs ps migrate seed demo smoke
+
+# `demo` phải gọi đúng bộ container mà `up` vừa dựng. Trên nhánh này biến đó là
+# $(COMPOSE); PR #60 (đang mở, cùng lane) đổi nó thành $(DC) = compose kèm
+# `-p <project>`. Viết như dưới thì dòng lệnh đúng ở cả hai nền, và khi #60 vào
+# main nó tự chuyển sang $(DC) — không ai phải nhớ quay lại sửa, và hai PR
+# không tranh nhau cùng một dòng.
+DEMO_COMPOSE = $(if $(DC),$(DC),$(COMPOSE))
 
 help: ## In danh sách lệnh
 	@echo "Lệnh có sẵn:"
@@ -52,6 +59,16 @@ seed: ## Chỉ seed dữ liệu mẫu — chạy lại là no-op, không nhân �
 	@# recreate luôn `api` vì phụ thuộc vừa đổi — tức là seed tự đá sập cái
 	@# API mà nó sắp gọi. Điều kiện "api đang chạy" đã kiểm ở trên rồi.
 	$(COMPOSE) run --rm --no-deps seed
+
+demo: ## Dựng hệ rồi nạp dữ liệu demo "Team Đà Lạt" — 7 người, 3 chuyến, còn nợ thật
+	@$(MAKE) --no-print-directory up
+	@# Gọi thẳng `up` chứ không tự dựng lại stack: hai đường khởi động là hai
+	@# đường để lệch nhau, và `up` là đường đã có người kiểm. Hệ quả phải nói
+	@# ra: `up` cũng chạy `make seed`, nên máy sẽ có thêm nhóm "Nhóm mẫu (dữ
+	@# liệu tổng hợp)" bên cạnh "Team Đà Lạt". Nó có nhãn rõ ràng, không phải
+	@# dữ liệu lẫn lộn — nhưng nó CÓ hiện trên màn danh sách nhóm.
+	@# --no-deps: xem ghi chú ở `seed`, cùng một cái bẫy.
+	$(DEMO_COMPOSE) run --rm --no-deps demo
 
 smoke: ## Gọi thật /healthz qua cổng đã publish và in địa chỉ ra
 	@addr="$$($(COMPOSE) port api 8000 2>/dev/null)"; \

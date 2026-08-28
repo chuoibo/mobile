@@ -100,7 +100,7 @@ services:
 
   # Không nằm trong `docker compose up`: seed là thao tác có chủ đích, không
   # phải thứ chạy lén mỗi lần ai đó khởi động lại hệ. `make seed` gọi nó.
-  seed:
+  seed: &seed-service
     <<: *api-image
     profiles: ["tools"]
     command: ["python", "/seed/seed_dev_data.py"]
@@ -114,6 +114,18 @@ services:
     depends_on:
       api:
         condition: service_healthy
+
+  # Cùng một cách chạy với `seed`, khác đúng cái script. Tách ra thành service
+  # riêng thay vì override command lúc gọi, để `docker compose config` đọc ra
+  # được là có hai fixture — thứ chỉ tồn tại trong một dòng Makefile thì không
+  # ai tìm thấy khi đi tìm.
+  #
+  # `seed` chứng minh hệ còn sống (3 người, 1 đợt). `demo` dựng bộ dữ liệu để
+  # trình diễn: 7 người, 3 chuyến, còn nợ thật. Chạy được cả hai trên cùng một
+  # database — chúng tạo hai nhóm khác nhau, không giẫm lên nhau.
+  demo:
+    <<: *seed-service
+    command: ["python", "/seed/seed_demo_data.py"]
 
 volumes:
   mobile-postgres-data:
