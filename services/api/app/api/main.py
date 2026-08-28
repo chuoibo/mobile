@@ -26,6 +26,7 @@ from app.api.routes import (
     guests,
     obligations,
     people,
+    receipts,
 )
 from app.api.schemas import ErrorResponse
 from app.db.session import get_session_factory
@@ -65,9 +66,14 @@ def create_app(
     application.include_router(obligations.router)
     application.include_router(bank_recipients.router)
     application.include_router(people.router)
+    application.include_router(receipts.router)
 
     # Middleware, not a decorator on each route: a write route added later is
     # covered the moment it is registered, with no list for anyone to forget.
+    # `/receipts/scan` is the first one to arrive after that was written, and it
+    # arrived covered without a line being added here -- which is the point, and
+    # also worth knowing before reading its tests: a scan carrying a key is a
+    # database-backed request, though the route itself still stores nothing.
     idempotency_options = {}
     if idempotency_in_flight_wait_seconds is not None:
         # Only tests pass this. They cannot afford to sit through the real wait

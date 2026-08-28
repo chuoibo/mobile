@@ -10,6 +10,7 @@ from uuid import UUID
 from fastapi import Header
 
 from app.api.errors import ApiProblem
+from app.api.receipt_skill import ReceiptReader
 from app.api.repository import ApiRepository, SqlAlchemyApiRepository
 from app.db.session import get_session_factory
 from app.domain.permissions import ROLES
@@ -69,3 +70,11 @@ def get_repository() -> Generator[ApiRepository]:
     factory = get_session_factory()
     with factory.begin() as session:
         yield SqlAlchemyApiRepository(session)
+
+
+def get_receipt_reader() -> ReceiptReader:
+    """Build the external reader lazily so importing the app needs no key."""
+
+    from app.api.vision_gemini import GeminiReceiptReader
+
+    return GeminiReceiptReader()
