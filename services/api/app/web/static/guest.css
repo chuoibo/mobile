@@ -21,6 +21,7 @@
   --ground: #feeee0;
   --card: #ffffff;
   --line: #e7dace;
+  --line-strong: #ac7f56;
   --ink: #1f2230;
   --ink-soft: #4e5563;
   --ink-faint: #676e7b;
@@ -53,6 +54,7 @@
     --ground: #17120f;
     --card: #221c18;
     --line: #413c38;
+    --line-strong: #716962;
     --ink: #f7efe7;
     --ink-soft: #c3b7ad;
     --ink-faint: #8b8290;
@@ -88,7 +90,9 @@ body {
   font: 400 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   caret-color: var(--split);
-  scrollbar-color: var(--line) var(--ground);
+  /* The thumb is a control, so it takes --line-strong. At --line it sat at
+     1.21:1 against its own track. */
+  scrollbar-color: var(--line-strong) var(--ground);
   padding: max(1rem, env(safe-area-inset-top)) 1rem
            max(2rem, env(safe-area-inset-bottom));
   /* A single centred column, said out loud. The default `row` put anything
@@ -149,7 +153,7 @@ body {
   width: 100%;
   margin: 1.25rem 0 1.5rem;
   padding: 1rem 0.75rem 0.75rem;
-  border: 1px dashed var(--line);
+  border: 1px dashed var(--line-strong);
   border-radius: var(--radius);
   background: transparent;
   color: inherit;
@@ -211,7 +215,7 @@ body {
  * readable contrast rather than a footnote link. */
 .btn--quiet {
   background: transparent;
-  border-color: var(--line);
+  border-color: var(--line-strong);
   color: var(--ink-soft);
   font-weight: 400;
   padding: 0.75rem 1rem;
@@ -249,7 +253,7 @@ body {
 .copy {
   flex: none;
   padding: 0.25rem 0.625rem;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--split);
