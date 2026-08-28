@@ -43,6 +43,10 @@ cam, dù cam mới là màu thương hiệu.
 46 cặp chữ trên nền mà hệ này thật sự dùng đều được đo. Thấp nhất **4.52:1**,
 cao nhất **16.33:1**, không cặp nào dưới ngưỡng AA 4.5:1.
 
+Bảng này chỉ đo **chữ**. Ranh giới của thành phần giao diện đi theo ngưỡng khác
+và nằm ở mục "Sàn phi-chữ 3:1" bên dưới. Đọc thiếu mục đó là cách lỗi viền nút
+1.21:1 đã lọt qua một lần.
+
 ### Chế độ sáng
 
 | Cặp | Vai trò | Tỉ lệ | Ngưỡng |
@@ -97,6 +101,55 @@ cao nhất **16.33:1**, không cặp nào dưới ngưỡng AA 4.5:1.
 | `ink` #f7efe7 trên `accentSoft` #3a0b00 | Chữ thân trên chip cam | **15.03:1** | AAA |
 | `ink` #f7efe7 trên `splitSoft` #002320 | Chữ thân trên chip teal | **14.63:1** | AAA |
 | `ink` #f7efe7 trên `aiSoft` #221046 | Chữ thân trên chip tím | **15.0:1** | AAA |
+## Sàn phi-chữ 3:1 (WCAG 1.4.11)
+
+Bảng 46 cặp bên trên chỉ đo **chữ trên nền**. Nó không đo một dòng nào cho
+token `line`, và đó là một lỗ thật chứ không phải thiếu sót hình thức: nút
+`quiet` không có nền (`backgroundColor: "transparent"`), nên **viền là thứ duy
+nhất cho biết nó là nút**. Viền đó vẽ bằng `line`, đo được **1.21:1** trên nền
+trang. Một cổng chỉ đo chữ báo xanh hoàn hảo trong khi cái nút gần như vô hình.
+
+WCAG 1.4.11 đòi **3:1** cho ranh giới của **thành phần giao diện**, tức thứ
+người ta bấm được. Nó **không** đòi gì ở cạnh trang trí của một container. Hai
+ngưỡng khác nhau thì cần hai token, nên `line` tách làm hai:
+
+| Token | Việc của nó | Sàn |
+|---|---|---|
+| `line` | Cạnh thẻ, đường kẻ chia, rãnh trích dẫn. Container, không phải control | không có sàn, cố ý giữ mềm theo mockup |
+| `lineStrong` | Ranh giới của thứ bấm được: nút quiet, ô nhập, chip chưa chọn, con trượt thanh cuộn | **3:1 trên mọi nền nó nằm lên** |
+
+### Chế độ sáng
+
+| Cặp | Vai trò | Tỉ lệ | Ngưỡng |
+|---|---|---|---|
+| `lineStrong` #ac7f56 trên `ground` #feeee0 | Viền control trên nền trang | **3.13:1** | 1.4.11 |
+| `lineStrong` #ac7f56 trên `card` #ffffff | Viền control trên thẻ | **3.54:1** | 1.4.11 |
+| `line` #e7dace trên `ground` #feeee0 | Cạnh thẻ trên nền trang | **1.21:1** | trang trí |
+| `line` #e7dace trên `card` #ffffff | Đường kẻ trong thẻ | **1.37:1** | trang trí |
+
+### Chế độ tối
+
+| Cặp | Vai trò | Tỉ lệ | Ngưỡng |
+|---|---|---|---|
+| `lineStrong` #716962 trên `ground` #17120f | Viền control trên nền trang | **3.45:1** | 1.4.11 |
+| `lineStrong` #716962 trên `card` #221c18 | Viền control trên thẻ | **3.13:1** | 1.4.11 |
+| `line` #413c38 trên `ground` #17120f | Cạnh thẻ trên nền trang | **1.71:1** | trang trí |
+| `line` #413c38 trên `card` #221c18 | Đường kẻ trong thẻ | **1.55:1** | trang trí |
+
+Số của `line` ghi ra ở đây **chính vì nó không đạt 3:1**. Người sau đọc bảng
+này phải thấy ngay nó đứng ở đâu, thay vì thấy một token không có số rồi dùng
+nó cho một cái nút.
+
+`lineStrong` được chọn bằng cách hạ lightness của `line` và **giữ nguyên sắc và
+độ bão hoà**, đúng cách `accent` và `split` đã làm, nên nó vẫn là đường ấm cùng
+họ với nền kem chứ không phải một đường xám lạc lõng.
+
+**Cổng giữ nó**: `services/api/tests/web/test_contrast_floor.py` không kiểm token
+trong bảng, nó **đọc token ra từ `Kit.tsx` và `guest.css` rồi mới đo**. Thêm một
+token đạt chuẩn mà không component nào dùng thì test vẫn đỏ, và một control lặng
+lẽ quay về `line` cũng đỏ. Chiều ngược lại cũng có cổng: đẩy cạnh thẻ lên
+`lineStrong` để cho dễ pass thì test cũng đỏ.
+
 ### Tầng thương hiệu, đo riêng và giới hạn riêng
 
 Bốn màu này giữ **nguyên số đo từ logo**, không chỉnh theo tương phản, vì chỉnh
@@ -202,6 +255,10 @@ imp detect --json http://localhost:8010/             # 59 rule, contrast tính t
 Thêm một cặp màu tông-trên-tông mới thì **phải đo lại**, đừng nhìn bằng mắt.
 Cặp `split` trên `splitSoft` trượt ở 4.46:1 đúng vì cả hai đều teal và không ai
 nghĩ tới việc kiểm nó.
+
+Thêm một **control mới** thì viền của nó phải dùng `lineStrong` và phải có một
+dòng trong `interactive_boundaries()` của `test_contrast_floor.py`. Một control
+không có dòng ở đó là một control không ai đo.
 
 ## Hai finding còn đứng, và vì sao không tắt
 

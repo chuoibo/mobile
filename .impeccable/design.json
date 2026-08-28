@@ -14,6 +14,7 @@
       "ground": "#feeee0",
       "card": "#ffffff",
       "line": "#e7dace",
+      "lineStrong": "#ac7f56",
       "ink": "#1f2230",
       "inkSoft": "#4e5563",
       "inkFaint": "#676e7b",
@@ -33,6 +34,7 @@
       "ground": "#17120f",
       "card": "#221c18",
       "line": "#413c38",
+      "lineStrong": "#716962",
       "ink": "#f7efe7",
       "inkSoft": "#c3b7ad",
       "inkFaint": "#8b8290",
@@ -466,7 +468,82 @@
         "bgHex": "#221046",
         "ratio": 15.0
       }
-    ]
+    ],
+    "nonText": {
+      "standard": "WCAG 2.2 SC 1.4.11 Non-text Contrast",
+      "floor": 3.0,
+      "appliesTo": "the visual boundary of a user interface component: quiet button, input, unselected chip, scrollbar thumb",
+      "exempt": "container edges and dividers (card, .card--quiet, .transfer, .standing rail) are decoration, not components",
+      "gate": "services/api/tests/web/test_contrast_floor.py reads the token out of Kit.tsx and guest.css, then measures it",
+      "light": [
+        {
+          "fg": "lineStrong",
+          "bg": "ground",
+          "fgHex": "#ac7f56",
+          "bgHex": "#feeee0",
+          "ratio": 3.13,
+          "role": "control boundary on the page ground"
+        },
+        {
+          "fg": "lineStrong",
+          "bg": "card",
+          "fgHex": "#ac7f56",
+          "bgHex": "#ffffff",
+          "ratio": 3.54,
+          "role": "control boundary on a card"
+        },
+        {
+          "fg": "line",
+          "bg": "ground",
+          "fgHex": "#e7dace",
+          "bgHex": "#feeee0",
+          "ratio": 1.21,
+          "role": "decorative card edge, below 3:1 on purpose"
+        },
+        {
+          "fg": "line",
+          "bg": "card",
+          "fgHex": "#e7dace",
+          "bgHex": "#ffffff",
+          "ratio": 1.37,
+          "role": "decorative divider, below 3:1 on purpose"
+        }
+      ],
+      "dark": [
+        {
+          "fg": "lineStrong",
+          "bg": "ground",
+          "fgHex": "#716962",
+          "bgHex": "#17120f",
+          "ratio": 3.45,
+          "role": "control boundary on the page ground"
+        },
+        {
+          "fg": "lineStrong",
+          "bg": "card",
+          "fgHex": "#716962",
+          "bgHex": "#221c18",
+          "ratio": 3.13,
+          "role": "control boundary on a card"
+        },
+        {
+          "fg": "line",
+          "bg": "ground",
+          "fgHex": "#413c38",
+          "bgHex": "#17120f",
+          "ratio": 1.71,
+          "role": "decorative card edge, below 3:1 on purpose"
+        },
+        {
+          "fg": "line",
+          "bg": "card",
+          "fgHex": "#413c38",
+          "bgHex": "#221c18",
+          "ratio": 1.55,
+          "role": "decorative divider, below 3:1 on purpose"
+        }
+      ]
+    }
   },
   "toneRule": "Ba tông mang nghĩa, không phải trang trí. accent (cam) = thương hiệu và hành động chính. split (teal) = chia bill, tiền, quyết toán. ai (tím) = thứ do máy sinh ra và người còn sửa được. Một màn hình chỉ có MỘT tông dẫn; hai tông dẫn cùng lúc là lỗi, không phải lựa chọn."
 }
