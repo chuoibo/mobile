@@ -6,10 +6,16 @@ be produced. Until that route lands, the end-to-end test seeds the row the
 route would have written -- data, not a faked API response. Every call the test
 makes still goes over real HTTP against the real service.
 """
-import sys, uuid, datetime, sqlalchemy as sa
+import os, sys, uuid, datetime, sqlalchemy as sa
 
 recipient_id = uuid.UUID(sys.argv[1])
-url = "postgresql+psycopg://mobile:mobile-dev-only@localhost:5432/mobile"
+# Same variable the API and Alembic read, so the seeder lands in whichever
+# database the server under test is actually using. Hardcoded, it wrote into the
+# shared dev database no matter where the server was pointed, which seeds a row
+# the test then cannot see.
+url = os.environ.get(
+    "MOBILE_DATABASE_URL", "postgresql+psycopg://mobile:mobile-dev-only@localhost:5432/mobile"
+)
 engine = sa.create_engine(url)
 now = datetime.datetime.now(datetime.timezone.utc)
 with engine.begin() as conn:

@@ -13,11 +13,12 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import test from "node:test";
 
 import {
+  attemptFor,
   BASE_URL,
+  newAttempt,
   confirmExpense,
   confirmReceipt,
   loadBoard,
@@ -71,7 +72,10 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
     occasion: "bữa lẩu tối thứ bảy",
   };
 
-  const proposal = await proposeSplit(draft);
+  // Filed the way App.tsx files them, so this exercises the client's real
+  // retry behaviour rather than a shape invented for the test.
+  const lanBam = {};
+  const proposal = await proposeSplit(draft, attemptFor(lanBam, "khoan-chi"));
 
   // Money rule 2, checked against what the server actually returned rather
   // than against anything computed here.
@@ -82,7 +86,7 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
     assert.ok(Number.isInteger(amount), `${amount} không phải số nguyên đồng`);
   }
 
-  const written = await confirmExpense(proposal);
+  const written = await confirmExpense(proposal, attemptFor(lanBam, "xac-nhan"));
   assert.ok(written.expenseVersionId, "confirm không trả về version");
   assert.equal(written.acknowledged, true, "người ứng tiền chưa được ghi nhận");
 
@@ -91,14 +95,23 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
   // out loud. Asserted rather than assumed -- if this ever stops refusing, a
   // batch can freeze with nowhere to send the money.
   await assert.rejects(
-    () => openBatch(proposal, written.expenseVersionId, written.acknowledged),
+    () => openBatch(proposal, written.expenseVersionId, written.acknowledged, attemptFor(lanBam, "mo-dot-thu")),
     (error) => error.code === "UNREADY_RECIPIENT_CHOICE_REQUIRED",
     "may chu phai doi hoi quyet dinh ve nguoi nhan chua san sang",
   );
 
   seedBankRecipient(NAM.id);
 
-  const batch = await openBatch(proposal, written.expenseVersionId, written.acknowledged);
+  // The same attempt as the refused call above, deliberately. The server
+  // releases a key when its handler errors, so the retry after seeding must be
+  // allowed to run -- and this is the app's own behaviour, since `attemptFor`
+  // returns one attempt per thing being written.
+  const batch = await openBatch(
+    proposal,
+    written.expenseVersionId,
+    written.acknowledged,
+    attemptFor(lanBam, "mo-dot-thu"),
+  );
   assert.ok(batch.batchId);
   // Two people owe the advancer; the advancer does not owe themselves.
   assert.equal(batch.obligations.length, 2);
@@ -108,7 +121,7 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
   // server's to enforce and is not modelled here at all.
   assert.equal(batch.gates.payerAcknowledged, true);
   await assert.rejects(
-    () => publishBatch(batch.batchId, { payerAcknowledged: false }, NAM.id),
+    () => publishBatch(batch.batchId, { payerAcknowledged: false }, NAM.id, attemptFor(lanBam, "phat")),
     (error) => error.name === "GateNotPassedError",
     "phat duoc trong khi nguoi ung tien chua xac nhan",
   );
@@ -117,6 +130,7 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
     batch.batchId,
     batch.gates,
     NAM.id,
+    attemptFor(lanBam, "phat"),
     draft.participants,
   );
   assert.equal(envelopes.length, 2);
@@ -160,7 +174,12 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
   );
 
   const owed = before.obligations[0];
-  const receipt = await confirmReceipt(owed.id, owed.amountVnd, NAM.id, randomUUID());
+  const receipt = await confirmReceipt(
+    owed.id,
+    owed.amountVnd,
+    NAM.id,
+    attemptFor(lanBam, `bao-tien-ve:${owed.id}`),
+  );
   assert.equal(receipt.status, "confirmed");
 
   // Read it back rather than trusting the reply: the board is what an
@@ -173,5 +192,46 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
     after.obligations.filter((o) => o.status === "outstanding").length,
     1,
     "xac nhan mot nghia vu lam doi trang thai nghia vu khac",
+  );
+});
+
+test("bấm hai lần chỉ ghi một khoản chi", async (t) => {
+  if (!(await serverIsUp())) {
+    t.skip(`khong co server tai ${BASE_URL} — chay uvicorn roi chay lai`);
+    return;
+  }
+
+  // The reported bug, end to end. Two identical `POST /expenses` with no
+  // `Idempotency-Key` left two rows in `expenses`; the client sent no such
+  // header on any route, so the server-side protection was installed and never
+  // engaged. Counted from the client here rather than from the database: two
+  // presses that return one `expense_id` are one row, and that is the fact an
+  // organiser's ledger depends on.
+  const draft = {
+    participants: [NAM, HA, QUYEN],
+    totalVnd: 420_000,
+    advancerId: NAM.id,
+    occasion: "bấm hai lần",
+  };
+
+  const lanBam = {};
+  const attempt = attemptFor(lanBam, "khoan-chi");
+  const first = await proposeSplit(draft, attempt);
+  const again = await proposeSplit(draft, attempt);
+
+  assert.equal(
+    again.expenseId,
+    first.expenseId,
+    "bam lai sinh ra khoan chi thu hai; mot bua an dang nam hai lan trong so",
+  );
+
+  // The control, and it is not optional: without it this test also passes on a
+  // server that returns the same id for everything. A genuinely different
+  // press has to write a genuinely different expense.
+  const khac = await proposeSplit(draft, newAttempt());
+  assert.notEqual(
+    khac.expenseId,
+    first.expenseId,
+    "hai lan bam that su khac nhau bi gop lam mot, mat mot khoan chi",
   );
 });
