@@ -25,7 +25,7 @@ help: ## In danh sách lệnh
 
 up: ## Dựng ảnh, chạy migration, bật API, seed dữ liệu mẫu, rồi tự kiểm
 	$(COMPOSE) up -d --build --wait --wait-timeout $(WAIT_TIMEOUT)
-	$(COMPOSE) run --rm seed
+	@$(MAKE) --no-print-directory seed
 	@$(MAKE) --no-print-directory smoke
 
 down: ## Tắt hệ, GIỮ dữ liệu trong volume
@@ -44,7 +44,13 @@ migrate: ## Chỉ chạy `alembic upgrade head` (up đã tự chạy rồi)
 	$(COMPOSE) run --rm migrate
 
 seed: ## Chỉ seed dữ liệu mẫu — chạy lại là no-op, không nhân đôi
-	$(COMPOSE) run --rm seed
+	@$(COMPOSE) ps --services --filter status=running | grep -qx api || { \
+	  echo "API chưa chạy. Chạy 'make up' trước." >&2; exit 1; }
+	@# --no-deps là bắt buộc, không phải tối ưu. `compose run` không có nó sẽ
+	@# chạy lại `migrate` (service đã exited thì nó coi là phải dựng lại) rồi
+	@# recreate luôn `api` vì phụ thuộc vừa đổi — tức là seed tự đá sập cái
+	@# API mà nó sắp gọi. Điều kiện "api đang chạy" đã kiểm ở trên rồi.
+	$(COMPOSE) run --rm --no-deps seed
 
 smoke: ## Gọi thật /healthz qua cổng đã publish và in địa chỉ ra
 	@addr="$$($(COMPOSE) port api 8000 2>/dev/null)"; \
