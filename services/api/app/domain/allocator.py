@@ -228,7 +228,7 @@ def _apportion(total_vnd: int, exact: dict[str, Fraction], advancer_id):
     def rank(participant: str):
         remainder = exact[participant] - floors[participant]
         is_advancer = advancer_id is not None and participant == advancer_id
-        return (-remainder, 0 if is_advancer else 1, participant.encode("utf-8"))
+        return (0 if is_advancer else 1, -remainder, participant.encode("utf-8"))
 
     # The advancer wins ties only. Remainder is the primary key, so a larger
     # remainder always beats the advancer -- "wins the tie-break" is not a
