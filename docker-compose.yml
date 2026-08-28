@@ -1,5 +1,24 @@
 name: mobile-local
 
+# Máy dev, không phải máy chủ. Mật khẩu ở đây là "mobile-dev-only" đúng nghĩa
+# đen để không ai nhầm nó với thứ được phép rời khỏi máy này.
+#
+# Cổng phía host lấy từ biến môi trường vì cổng 5432 và 8000 là hai cổng bận
+# nhất trên một máy dev. Người nào đã có Postgres riêng chỉ cần đặt
+# MOBILE_POSTGRES_PORT=5433 trong .env, không phải sửa file này rồi lỡ commit.
+
+x-api-image: &api-image
+  build:
+    context: ./services/api
+  # Cùng một tag cho ba service, nên ảnh chỉ dựng một lần; hai lần sau là
+  # cache hit. Nếu để mỗi service tự đặt tên ảnh thì `make up` dựng ba lần.
+  image: mobile-local/api:dev
+
+x-api-env: &api-env
+  # Tên host là `postgres` — tên service trong mạng compose. `localhost` ở đây
+  # trỏ vào chính container, đó là lỗi số một khi bê URL từ .env của máy sang.
+  MOBILE_DATABASE_URL: postgresql+psycopg://mobile:mobile-dev-only@postgres:5432/mobile
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -8,15 +27,84 @@ services:
       POSTGRES_USER: mobile
       POSTGRES_PASSWORD: mobile-dev-only
     ports:
-      - "5432:5432"
+      - "${MOBILE_POSTGRES_PORT:-5432}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mobile -d mobile"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+      # `-h 127.0.0.1` không phải thừa. Trong lúc initdb, Postgres chạy một
+      # server tạm chỉ nghe trên unix socket; `pg_isready` không có -h sẽ báo
+      # "sẵn sàng" trong khi cổng TCP vẫn đóng. Service nào đợi
+      # `service_healthy` lúc đó sẽ khởi động rồi chết vì connection refused.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U mobile -d mobile"]
+      interval: 3s
+      timeout: 3s
+      start_period: 5s
+      retries: 20
     volumes:
       - mobile-postgres-data:/var/lib/postgresql/data
 
+  # Chạy một lần rồi thoát. API đợi nó thoát mã 0, nên schema luôn có trước
+  # câu query đầu tiên — thay vì "API lên trước, sập, docker restart, may thì
+  # lần thứ ba trúng".
+  migrate:
+    <<: *api-image
+    command: ["alembic", "upgrade", "head"]
+    environment: *api-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *api-image
+    command:
+      ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment: *api-env
+    # Cố ý KHÔNG đặt MOBILE_PUBLIC_BASE_URL ở đây. `.env.example` có khai nó,
+    # nhưng `grep -rn MOBILE_PUBLIC_BASE_URL services/` không ra dòng code nào
+    # đọc: publish trả về `path` tương đối, người gửi tự ghép host. Đặt một
+    # biến không ai đọc chỉ tạo ảo giác là nó có tác dụng.
+    ports:
+      - "${MOBILE_API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      # Cùng một probe với HEALTHCHECK trong Dockerfile, chỉ dày nhịp hơn:
+      # 30s/lần là đúng cho máy chủ, nhưng bắt `make up` đứng chờ nửa phút.
+      # /healthz cố ý không chạm database (CLAUDE.md) — nó trả lời "tiến trình
+      # này có phục vụ không", không phải "Postgres có sống không".
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).status == 200 else 1)",
+        ]
+      interval: 2s
+      timeout: 3s
+      start_period: 3s
+      retries: 30
+    # Không mount source vào đây. Ảnh chạy phải là đúng ảnh đã dựng, nếu không
+    # thì "chạy được trên máy tôi" quay lại qua cửa sau: code chạy từ bind
+    # mount còn ảnh thì chưa ai chứng minh là dựng được.
+
+  # Không nằm trong `docker compose up`: seed là thao tác có chủ đích, không
+  # phải thứ chạy lén mỗi lần ai đó khởi động lại hệ. `make seed` gọi nó.
+  seed:
+    <<: *api-image
+    profiles: ["tools"]
+    command: ["python", "/seed/seed_dev_data.py"]
+    environment:
+      <<: *api-env
+      MOBILE_SEED_API_BASE_URL: http://api:8000
+    volumes:
+      # Script nằm ngoài build context của services/api nên phải mount. Chỉ
+      # đọc: một fixture dev không có việc gì phải ghi vào cây nguồn.
+      - ./scripts:/seed:ro
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   mobile-postgres-data:
-
