@@ -21,6 +21,20 @@
  * right there in the text either way. Only the artifact knows.
  *
  * `npm test` builds with SENTINEL set, so this costs no extra build.
+ *
+ * On "exactly one chunk": it used to assert that, and the assertion was wrong
+ * the moment a screen imported `expo-camera` -- on web that pulls a lazily
+ * loaded ZXing barcode-detector chunk, so one build legitimately emits two
+ * files. The count was never the property under test; it was a stand-in for
+ * "read the artifact this build produced". `build:check` passes `--output-dir`
+ * and Metro empties that directory on every run (verified by planting a file
+ * in it and watching the next build remove it), so every chunk present is from
+ * the current build and reading all of them needs no count.
+ *
+ * Reading all of them also makes the second test strictly stronger than the
+ * version that read one file: an unsubstituted env read stranded in a lazy
+ * chunk breaks a device exactly as badly as one in the entry chunk, and the
+ * single-file version could not see it.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -33,7 +47,8 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 /** Must match `build:check` in package.json. */
 const SENTINEL = "http://api.build-check.invalid";
 
-function builtBundle() {
+/** Every JS chunk the current build emitted, as `{ name, code }`. */
+function builtBundles() {
   const dir = join(ROOT, ".expo-build-check/_expo/static/js/web");
   let names;
   try {
@@ -44,15 +59,26 @@ function builtBundle() {
         "hoac chay `npm test` (no tu dung truoc khi test).",
     );
   }
-  assert.equal(names.length, 1, `mong doi dung 1 bundle, thay: ${names}`);
-  return readFileSync(join(dir, names[0]), "utf8");
+  // Not a count assertion -- one is the floor, not the expected number. An
+  // empty directory means the build wrote nothing and every `includes` below
+  // would vacuously agree with whatever the test wanted to hear.
+  assert.ok(
+    names.length > 0,
+    "thu muc ban dung rong: khong co chunk .js nao de doc. " +
+      "Chay `npm run build:check` truoc.",
+  );
+  return names.map((name) => ({
+    name,
+    code: readFileSync(join(dir, name), "utf8"),
+  }));
 }
 
 test("EXPO_PUBLIC_API_URL thật sự đi được vào bản dựng", () => {
-  const bundle = builtBundle();
+  const bundles = builtBundles();
   assert.ok(
-    bundle.includes(SENTINEL),
-    `dat EXPO_PUBLIC_API_URL=${SENTINEL} luc dung nhung ban dung khong he co no. ` +
+    bundles.some((bundle) => bundle.code.includes(SENTINEL)),
+    `dat EXPO_PUBLIC_API_URL=${SENTINEL} luc dung nhung khong chunk nao co no ` +
+      `(da doc: ${bundles.map((b) => b.name).join(", ")}). ` +
       "Expo chi thay the dung chuoi `process.env.EXPO_PUBLIC_API_URL`; " +
       "viet `process?.env?.` thi khong duoc thay the va app luon goi localhost.",
   );
@@ -66,10 +92,13 @@ test("không còn phép đọc biến môi trường nào sót lại lúc chạy
   // so a build that worked has no `EXPO_PUBLIC_API_URL` left anywhere; the
   // build that shipped broken still carried the name, waiting to read a
   // `process.env` that does not exist on a device.
-  const bundle = builtBundle();
-  assert.ok(
-    !bundle.includes("EXPO_PUBLIC_API_URL"),
-    "ban dung van con doc EXPO_PUBLIC_API_URL luc chay — Expo chua thay the, " +
-      "nghia la tren may that no se roi ve localhost",
+  const leaking = builtBundles()
+    .filter((bundle) => bundle.code.includes("EXPO_PUBLIC_API_URL"))
+    .map((bundle) => bundle.name);
+  assert.deepEqual(
+    leaking,
+    [],
+    `ban dung van con doc EXPO_PUBLIC_API_URL luc chay (${leaking.join(", ")}) ` +
+      "— Expo chua thay the, nghia la tren may that no se roi ve localhost",
   );
 });
