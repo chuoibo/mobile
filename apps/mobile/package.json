@@ -20,8 +20,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build:check && tsc -p tsconfig.test.json && node tools/fixup-esm.mjs && node --test tests/",
-    "test:e2e": "tsc -p tsconfig.test.json && node tools/fixup-esm.mjs && node --test tests/e2e/",
+    "test": "npm run build:check && tsc -p tsconfig.test.json && node tools/fixup-esm.mjs && node --test tests/*.test.mjs",
+    "test:e2e": "tsc -p tsconfig.test.json && node tools/fixup-esm.mjs && node --test tests/e2e/*.test.mjs",
     "build:check": "expo export --platform web --output-dir .expo-build-check --clear"
   },
   "private": true
