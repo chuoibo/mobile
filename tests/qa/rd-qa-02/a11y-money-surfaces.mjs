@@ -7,18 +7,29 @@
  *      guest opens to see what they owe;
  *   2. the amount is exposed to assistive tech as a number a person can act
  *      on, not as decoration;
- *   3. the copy-the-amount control is reachable and operable by keyboard,
- *      because "chạm để chép" is the only way to move the figure without
- *      retyping it.
+ *   3. the copy-the-amount control is reachable by keyboard and visibly focused
+ *      when it is, because "chạm để chép" is the only way to move the figure
+ *      without retyping it.
  *
  * A planted-defect check runs first. An axe pass that would pass on a blank
  * page proves nothing, so the harness scans a page it KNOWS is broken and
  * fails loudly if axe reports it clean.
  *
+ * Every line printed with a ✗ adds to `failures` and to the exit code. That is
+ * not decoration: (3) used to be two bare `console.log` calls that never
+ * touched the counter, so the script printed where Tab landed and exited 0 no
+ * matter where that was. `keyboard-money.selfcheck.mjs` plants pages that are
+ * known-broken and asserts this script exits non-zero on them.
+ *
  *     node a11y-money-surfaces.mjs <guest-url> [more urls...]
  */
 import { chromium } from "playwright";
 import AxeBuilder from "@axe-core/playwright";
+import {
+  probeCopyControlKeyboard,
+  gradeKeyboardProbe,
+  describeKeyboardProbe,
+} from "./keyboard-money.mjs";
 
 const urls = process.argv.slice(2);
 if (urls.length === 0) {
@@ -28,9 +39,15 @@ if (urls.length === 0) {
 
 const TAGS = ["wcag2a", "wcag2aa", "wcag22aa"];
 const browser = await chromium.launch();
-const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+// reducedMotion so the 0.15s border/background transitions in guest.css cannot
+// be sampled mid-flight and misread as a focus indicator that isn't there.
+const context = await browser.newContext({
+  viewport: { width: 390, height: 844 },
+  reducedMotion: "reduce",
+});
 const page = await context.newPage();
 let failures = 0;
+let scanned = 0; // urls that actually carried a money surface
 
 // --- Does axe actually see the DOM? -------------------------------------
 await page.setContent(
@@ -67,7 +84,15 @@ for (const url of urls) {
   // The amount must carry an accessible name that contains the figure. A
   // number announced only as "button" is a number nobody can check by ear.
   const amount = page.locator("[data-copy]").first();
-  if (await amount.count()) {
+  if ((await amount.count()) === 0) {
+    // Not a failure by itself: a revoked/expired link renders no amount at all
+    // (guest.html branches on `view.link_state`). But it is not a pass either --
+    // every check below just did not run. Say so loudly, and fail at the end if
+    // NO url in the run had a money surface, because then this scan proved
+    // nothing about money while still exiting 0.
+    console.log("  ⚠ CHƯA QUÉT: không có [data-copy] trên trang — không có bề mặt tiền để kiểm");
+  } else {
+    scanned += 1;
     const name = await amount.getAttribute("aria-label");
     const text = (await amount.innerText()).replace(/\s+/g, " ").trim();
     const copied = await amount.getAttribute("data-copy");
@@ -84,22 +109,27 @@ for (const url of urls) {
       failures += 1;
     }
 
-    // Keyboard: the copy control must be focusable and operable.
-    await page.keyboard.press("Tab");
-    const reachable = await page.evaluate(() => {
-      const active = document.activeElement;
-      return active ? active.tagName + ":" + (active.getAttribute("data-copy") ?? "") : "none";
-    });
-    console.log(`  phím Tab đầu tiên dừng ở: ${reachable}`);
-    const focusVisible = await amount.evaluate((el) => {
-      el.focus();
-      const s = getComputedStyle(el, ":focus-visible");
-      return { outline: s.outlineStyle, width: s.outlineWidth, shadow: s.boxShadow };
-    });
-    console.log(`  focus thấy được: outline=${focusVisible.outline} ${focusVisible.width}`);
+    // Keyboard: the copy control must be reachable AND visibly focused.
+    // These two used to be `console.log` only -- the script reported where Tab
+    // landed and then exited 0 no matter where that was. See
+    // keyboard-money.selfcheck.mjs for the mutants that pin them down.
+    const kb = await probeCopyControlKeyboard(page);
+    console.log(describeKeyboardProbe(kb));
+    for (const problem of gradeKeyboardProbe(kb).problems) {
+      console.log(`    ✗ ${problem}`);
+      failures += 1;
+    }
   }
 }
 
 await browser.close();
-console.log(`\n${failures} vấn đề chặn.`);
+
+if (scanned === 0) {
+  console.log(
+    `\n✗ ${urls.length} url nhưng KHÔNG url nào có bề mặt tiền — ` +
+      "lượt quét này không chứng minh gì về tiền.",
+  );
+  failures += 1;
+}
+console.log(`\nđã quét bề mặt tiền trên ${scanned}/${urls.length} url · ${failures} vấn đề chặn.`);
 process.exit(failures === 0 ? 0 : 1);

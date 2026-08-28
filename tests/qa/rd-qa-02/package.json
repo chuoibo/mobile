@@ -5,7 +5,7 @@
   "description": "QA harness for rd-qa-02: money correctness. Not shipped, not imported by the app.",
   "scripts": {
     "screen-vs-server": "node screen-vs-server.mjs",
-    "selfcheck": "node --test name-leak.selfcheck.mjs"
+    "selfcheck": "node --test name-leak.selfcheck.mjs keyboard-money.selfcheck.mjs"
   },
   "dependencies": {
     "@axe-core/playwright": "^4.13.0",

@@ -24,8 +24,9 @@ EXPO_PUBLIC_API_URL=http://127.0.0.1:8099 npx expo export --platform web \
 
 cd tests/qa/rd-qa-02 && npm ci     # playwright + @axe-core/playwright
 
-# 0. tự kiểm bộ dò tên — không cần DB, không cần server, chạy trước mọi thứ
+# 0. tự kiểm các bộ dò — không cần DB, không cần server, chạy trước mọi thứ
 node --test tests/qa/rd-qa-02/name-leak.selfcheck.mjs
+node --test tests/qa/rd-qa-02/keyboard-money.selfcheck.mjs   # cần playwright
 # 1. bất biến phía máy chủ
 EXPO_PUBLIC_API_URL=http://127.0.0.1:8099 node --test tests/qa/rd-qa-02/money-server-truth.mjs
 # 2. số màn hình vs số máy chủ
@@ -208,19 +209,90 @@ với `data-copy`).
 Quét bằng axe-core (`wcag2a`, `wcag2aa`, `wcag22aa`) trên **URL khách thật** do
 chính luồng sinh ra, 390×844:
 
+Mọi dòng dưới đây **cộng vào exit code**. Trước đó hai dòng cuối chỉ là
+`console.log` — xem [Hai phép đo chết](#hai-phép-đo-chết-trong-bảng-trợ-năng)
+bên dưới.
+
 | kiểm | kết quả |
 |---|---|
 | axe tự kiểm (trang cố tình hỏng) | 5 vi phạm (`button-name`, `color-contrast`, `document-title`, `html-has-lang`, `image-alt`) — axe **có** đọc DOM |
 | axe trên trang khách thật | **0 vi phạm**, 16 luật đạt |
 | số tiền có được đọc lên không | `aria-label="Sao chép số tiền 246.914 đồng"` — có, và chứa đúng con số đang in |
 | số in ra vs số chép đi | `246.914` vs `246914` — cùng một khoản tiền |
-| bàn phím | Tab đầu tiên dừng đúng ở nút chép số tiền |
+| bàn phím tới được nút chép (WCAG 2.1.1) | tới được, ở **lần Tab thứ 1** — đo bằng cách bấm Tab thật rồi so `document.activeElement` |
+| dấu hiệu focus thấy được (WCAG 2.4.7) | `:focus-visible=true`, `outlineStyle none→solid`, `outlineWidth →2px`, `outlineColor →rgb(0, 117, 107)` |
 
 **Cảnh báo cho ai chạy lại:** quét `python3 -m app.web.preview` sẽ ra 1 vi phạm
 `target-size` (7 nút, WCAG 2.2 AA 2.5.8). Bảy nút đó là thanh chuyển trạng thái
 do **chính preview** chèn (`app/web/preview.py:129-131`), không có trong template
 sản phẩm. Đó là lỗi của giàn giáo QA, **không phải lỗi sản phẩm** — dùng
 `make-guest-url.mjs` để quét markup thật.
+
+### Hai phép đo chết trong bảng trợ năng
+
+Bảng trên từng có dòng `| bàn phím | Tab đầu tiên dừng đúng ở nút chép số tiền |`
+kể như một phép kiểm **đã đạt**. Nó không phải phép kiểm. Trong
+`a11y-money-surfaces.mjs` hai phép đo cuối chỉ `console.log`, không cộng vào
+`failures`:
+
+```js
+await page.keyboard.press("Tab");
+const reachable = await page.evaluate(...);
+console.log(`  phím Tab đầu tiên dừng ở: ${reachable}`);   // <- không assert
+const focusVisible = await amount.evaluate(...);
+console.log(`  focus thấy được: outline=${focusVisible.outline} ...`); // <- không assert
+```
+
+Nên Tab dừng ở đâu cũng được, script vẫn in `0 vấn đề chặn` và exit 0.
+
+Phép đo thứ hai còn hỏng theo một kiểu nữa. `getComputedStyle(el, x)` nhận
+pseudo-**element** ở tham số hai; `:focus-visible` là pseudo-**class**, nên
+Chromium trả về một declaration rỗng. Nó trả **cùng một đáp án rỗng** cho trang
+CÓ vòng focus 2px và trang `outline: none` — nghĩa là kể cả có ai đó viết assert
+lên trên nó, assert đó vẫn không phân biệt được hai trang. Cách đo thay thế:
+bấm Tab thật (Chromium chỉ cấp `:focus-visible` cho focus từ bàn phím, nên
+`el.focus()` bằng script sẽ báo thiếu), rồi đọc computed style **thường** và so
+với style lúc chưa focus.
+
+#### Đối chứng đỏ/xanh
+
+Ba trang cắm lỗi, mỗi trang đổi đúng một thứ, đều sạch axe để phép kiểm bàn phím
+là thứ **duy nhất** có thể đỏ:
+
+| trang cắm lỗi | trước sửa | sau sửa |
+|---|---|---|
+| nút khác chen trước nút chép | `0 vấn đề chặn`, **exit 0** | `Tab đầu tiên dừng ở "button"…`, **exit 1** |
+| nút chép có `tabindex="-1"` | `0 vấn đề chặn`, **exit 0** | `KHÔNG tới được bằng bàn phím… WCAG 2.1.1`, **exit 1** |
+| focus không đổi gì trên màn hình | `0 vấn đề chặn`, **exit 0** | `không có dấu hiệu focus… WCAG 2.4.7`, **exit 1** |
+| trang không có `[data-copy]` nào | `0 vấn đề chặn`, **exit 0** | `⚠ CHƯA QUÉT… 0/1 url`, **exit 1** |
+| **URL khách THẬT** (đối chứng dương) | exit 0 | exit 0 — Tab #1, `:focus-visible=true`, `outline none→solid 2px` |
+
+Hàng cuối là hàng phải có: không có nó, một probe báo "hỏng" cho mọi trang cũng
+sẽ qua được cả bốn hàng trên.
+
+Hàng 4 là cùng một lỗi ở dòng ngay bên cạnh: `if (await amount.count())` bọc
+toàn bộ phần kiểm, nên một trang không có nút chép thì **mọi phép kiểm bên dưới
+lặng lẽ không chạy** và script vẫn exit 0 — không phân biệt được với "đã quét và
+sạch". Link bị thu hồi / hết hạn thì đúng là không có số tiền nào (`guest.html`
+rẽ theo `view.link_state`), nên đó không tự nó là lỗi; script giờ nói thẳng ô đó
+**chưa quét**, và chỉ đỏ khi cả lượt chạy không có url nào mang bề mặt tiền.
+
+#### Tự kiểm không cần môi trường
+
+`keyboard-money.selfcheck.mjs` chạy cả hai tầng — unit test cho phần chấm điểm
+(thuần, không cần trình duyệt) và **chạy chính CLI** rồi đọc exit code thật:
+
+| CLI | `node --test keyboard-money.selfcheck.mjs` |
+|---|---|
+| chỉ `console.log` (trước sửa) | 15 ca, **10 pass / 5 fail**, exit 1 |
+| có assert (sau sửa) | 15 ca, **15 pass / 0 fail**, exit 0 |
+
+Năm ca đỏ ở hàng 1 đúng là các ca chạy CLI trên trang cắm lỗi. Mười ca xanh
+chứng minh probe và phần chấm điểm đã đúng từ trước — cái thiếu chỉ là nối chúng
+vào exit code. Hàng 1 đo bằng `git stash` chính file CLI rồi chạy lại cùng một
+file test, không phải bằng cách nhớ lại. Chạy trong ~8s, không cần DB, không cần
+server — nên nó là bước 0 của quy trình chạy lại ở trên, cùng với bộ dò tên
+(`npm run selfcheck` chạy cả hai: **47 ca, 47 pass**).
 
 ## Phát hiện phải chuyển cho lane khác
 
