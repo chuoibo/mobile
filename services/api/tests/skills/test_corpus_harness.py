@@ -18,6 +18,7 @@ def test_baseline_reports_every_case_and_does_not_stop_at_first_failure():
 
     assert len(outcomes) == 12
     assert [outcome.case_id for outcome in outcomes if not outcome.passed] == [
+        "01-ro-rang",
         "02-so-tien-o-tin-nhan-sau",
         "05-loai-tru-nguoi",
         "07-sua-lai-so",
