@@ -28,7 +28,13 @@ from app.web.guest_view import (  # noqa: E402
 WEB = pathlib.Path(__file__).resolve().parents[2] / "app/web"
 
 
-def envelope(**overrides):
+def envelope(*, obligation_overrides=None, **overrides):
+    """`obligation_overrides` sets fields on the single obligation.
+
+    The objection budget moved onto each obligation: a link can carry debts to
+    two different people, and three objections about one of them must not use
+    up the right to say anything about the other.
+    """
     data = {
         "recorded_by_display_name": "Nam",
         "claimed_person_display_name": "Hà",
@@ -45,6 +51,9 @@ def envelope(**overrides):
             "account_holder_name": "NGUYEN VAN NAM",
             "transfer_note": "Bua lau",
             "qr_payload": "00020101",
+            "objections_used": 0,
+            "objections_allowed": OBJECTION_LIMIT,
+            **(obligation_overrides or {}),
         }],
         "reports_used": 0,
         "reports_allowed": REPORT_LIMIT,
@@ -120,10 +129,18 @@ class LinkLifecycle(unittest.TestCase):
 class RateLimits(unittest.TestCase):
     def test_report_and_objection_budgets_run_out(self):
         """Section 8.6 caps both so a leaked link cannot spam the recipient."""
-        view = build_guest_view(envelope(reports_used=3, reports_allowed=3,
-                                         objections_used=2, objections_allowed=2))
+        view = build_guest_view(
+            envelope(
+                reports_used=3,
+                reports_allowed=3,
+                obligation_overrides={"objections_used": 2, "objections_allowed": 2},
+            )
+        )
         self.assertFalse(view["can_report_payment"])
+        # Top level is "is there anything left to object to anywhere", derived
+        # from the blocks rather than counted separately.
         self.assertFalse(view["can_object"])
+        self.assertFalse(view["blocks"][0]["can_object"])
         html = render(view)
         self.assertNotIn("Tôi đã chuyển", html)
         self.assertIn("Nhắn trực tiếp", html)
