@@ -32,6 +32,7 @@ from app.api.idempotency import (
     IDEMPOTENCY_HEADER,
     REPLAY_HEADER,
     Conflict,
+    IdempotencyMiddleware,
     InFlight,
     Replay,
     Reserved,
@@ -273,6 +274,171 @@ def test_posting_the_same_expense_twice_with_one_key_writes_one_row(live_client)
     assert second.json() == first.json()
     assert second.headers.get(REPLAY_HEADER) == "true"
     assert live_client.count_expenses(context_id) == 1
+
+
+ANSWER = b'{"expense_id": "the-one-answer"}'
+
+
+class _Press:
+    """One request driven at the middleware, with the test owning `send`."""
+
+    def __init__(self, key: str):
+        self.scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/expenses",
+            "query_string": b"",
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"x-actor-id", SCOPE.encode("latin-1")),
+                (IDEMPOTENCY_HEADER.lower().encode("latin-1"), key.encode("latin-1")),
+            ],
+        }
+        self.messages: list[dict] = []
+
+    async def receive(self):
+        return {"type": "http.request", "body": b"{}", "more_body": False}
+
+    async def send(self, message):
+        self.messages.append(message)
+
+    @property
+    def status(self) -> int:
+        for message in self.messages:
+            if message["type"] == "http.response.start":
+                return message["status"]
+        raise AssertionError(f"no response was ever started: {self.messages}")
+
+    @property
+    def payload(self) -> bytes:
+        return b"".join(
+            message.get("body") or b""
+            for message in self.messages
+            if message["type"] == "http.response.body"
+        )
+
+
+def _completed_at(engine: Engine, key: str):
+    """Read the row on a separate connection: only committed work is visible."""
+
+    with engine.connect() as connection:
+        return connection.scalar(
+            text(
+                "select completed_at from idempotency_keys"
+                " where scope = :scope and idempotency_key = :key"
+            ),
+            {"scope": SCOPE, "key": key},
+        )
+
+
+async def _answer_201(scope, receive, send):
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 201,
+            "headers": [(b"content-type", b"application/json")],
+        }
+    )
+    await send({"type": "http.response.body", "body": ANSWER})
+
+
+def test_the_answer_is_released_only_after_the_completion_has_committed(
+    postgres_engine: Engine,
+):
+    """The claim the fake store cannot make, because a dict has no commit.
+
+    ``live_client`` runs every session on one connection, so a write is visible
+    to the next read the instant it happens and this ordering bug is invisible
+    there. A second connection sees committed rows and nothing else, which is
+    exactly what a second press arriving on its own connection sees.
+    """
+
+    key = str(uuid.uuid4())
+    press = _Press(key)
+    seen: dict[str, object] = {}
+
+    async def send(message):
+        if message["type"] == "http.response.body" and "completed_at" not in seen:
+            seen["completed_at"] = _completed_at(postgres_engine, key)
+        await press.send(message)
+
+    middleware = IdempotencyMiddleware(_answer_201, lambda: _store(postgres_engine))
+
+    async def scenario():
+        with anyio.fail_after(10):
+            await middleware(press.scope, press.receive, send)
+
+    anyio.run(scenario)
+
+    assert press.status == 201
+    assert seen["completed_at"] is not None, (
+        "the caller held the answer while the key still read as unfinished;"
+        " a second press on another connection would be told 409"
+    )
+
+
+def test_two_presses_racing_on_real_postgres_both_receive_the_one_answer(
+    postgres_engine: Engine,
+):
+    """The parallel case, on the unique index that actually decides it.
+
+    One caller wins the ``ON CONFLICT`` race and runs the handler. The other is
+    the same request, so it must be given the winner's answer -- not a 409 that
+    invites it to spend a fresh key on a second write of the same money.
+    """
+
+    key = str(uuid.uuid4())
+    handled: list[int] = []
+    saw_in_flight = None
+
+    class _Signalling:
+        """Real SQL store, plus a signal when a caller finds the key taken."""
+
+        def __init__(self, inner):
+            self.inner = inner
+
+        def reserve(self, **kwargs):
+            outcome = self.inner.reserve(**kwargs)
+            if isinstance(outcome, InFlight):
+                saw_in_flight.set()
+            return outcome
+
+        def complete(self, **kwargs):
+            self.inner.complete(**kwargs)
+
+        def release(self, **kwargs):
+            self.inner.release(**kwargs)
+
+    @contextmanager
+    def store_factory():
+        with _store(postgres_engine) as inner:
+            yield _Signalling(inner)
+
+    async def application(scope, receive, send):
+        handled.append(1)
+        # Hold the winner inside the handler until the loser has really found
+        # the key reserved, so the race is pinned rather than hoped for.
+        await saw_in_flight.wait()
+        await _answer_201(scope, receive, send)
+
+    middleware = IdempotencyMiddleware(application, store_factory)
+    presses = [_Press(key), _Press(key)]
+
+    async def scenario():
+        nonlocal saw_in_flight
+        saw_in_flight = anyio.Event()
+        with anyio.fail_after(15):
+            async with anyio.create_task_group() as tasks:
+                for press in presses:
+                    tasks.start_soon(middleware, press.scope, press.receive, press.send)
+
+    anyio.run(scenario)
+
+    assert [press.status for press in presses] == [201, 201], [
+        (press.status, press.payload) for press in presses
+    ]
+    assert {press.payload for press in presses} == {ANSWER}
+    assert handled == [1], "the handler must not run a second time"
 
 
 def test_reusing_a_key_with_another_payload_writes_nothing(live_client):

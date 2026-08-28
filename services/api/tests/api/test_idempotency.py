@@ -14,6 +14,7 @@ a dict cannot refuse a duplicate insert.
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from contextlib import contextmanager
@@ -32,6 +33,7 @@ from app.api.idempotency import (
     Replay,
     Reserved,
     StoredResponse,
+    request_fingerprint,
 )
 from app.api.main import create_app
 
@@ -91,7 +93,11 @@ def client(repository, store, monkeypatch):
     def factory():
         yield store
 
-    app = create_app(idempotency_store_factory=factory)
+    # A key nobody will finish is waited on before it is refused. The wait is
+    # trimmed here so the abandoned-reservation test stays a test and not a nap.
+    app = create_app(
+        idempotency_store_factory=factory, idempotency_in_flight_wait_seconds=0.05
+    )
     app.dependency_overrides[get_repository] = lambda: repository
     return ASGITestClient(app)
 
@@ -270,3 +276,220 @@ def test_a_replayed_response_keeps_the_original_status_and_body(store):
 
     assert isinstance(outcome, Replay)
     assert outcome.response == stored
+
+
+# --------------------------------------------------------------------------
+# Two presses of one button
+#
+# Everything above drives the middleware one request at a time, and the store
+# is a dict that completes instantly. Both of those hide the failure a person
+# actually hit: the second press does not politely wait for the bookkeeping of
+# the first. It arrives while the first answer is still on the wire, or on a
+# second connection at the very same instant.
+#
+# Measured against a real server on the code these tests were written for:
+#   back-to-back, gap 0s     -> 409 four times out of four
+#   back-to-back, gap 0.05s  -> 201, replayed correctly
+#   two at once, any gap     -> 409 four times out of four
+#
+# The 409 says "use a new key". A client that follows that advice writes the
+# money twice, which is the single thing this feature exists to prevent.
+# --------------------------------------------------------------------------
+
+BODY = b'{"total_amount_vnd": 82000}'
+ANSWER = b'{"expense_id": "the-one-answer"}'
+
+
+class _Press:
+    """One HTTP request driven straight at the middleware.
+
+    Deliberately not `ASGITestClient`: these tests are about *when* bytes reach
+    the caller relative to the store, so the test has to own `send` itself.
+    """
+
+    def __init__(self, key: str = KEY, body: bytes = BODY):
+        self.scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/expenses",
+            "query_string": b"",
+            "headers": [
+                (b"content-type", b"application/json"),
+                (IDEMPOTENCY_HEADER.lower().encode("latin-1"), key.encode("latin-1")),
+            ],
+        }
+        self.body = body
+        self.messages: list[dict] = []
+
+    async def receive(self):
+        return {"type": "http.request", "body": self.body, "more_body": False}
+
+    async def send(self, message):
+        self.messages.append(message)
+
+    @property
+    def status(self) -> int:
+        for message in self.messages:
+            if message["type"] == "http.response.start":
+                return message["status"]
+        raise AssertionError(f"no response was ever started: {self.messages}")
+
+    @property
+    def payload(self) -> bytes:
+        return b"".join(
+            message.get("body") or b""
+            for message in self.messages
+            if message["type"] == "http.response.body"
+        )
+
+
+def _factory(store):
+    @contextmanager
+    def factory():
+        yield store
+
+    return factory
+
+
+def test_the_answer_is_not_released_before_the_key_is_recorded_complete(store):
+    """Press 2 sent the instant press 1's bytes land must replay, not 409.
+
+    A sleep is not the contract, and "wait 50ms" is not something a phone can
+    promise. The contract is an order: nothing reaches the caller until the
+    completion has been recorded, so no window exists in which a second press
+    can read the key as unfinished.
+    """
+
+    handled: list[str] = []
+
+    async def application(scope, receive, send):
+        handled.append(scope["path"])
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 201,
+                "headers": [(b"content-type", b"application/json")],
+            }
+        )
+        await send({"type": "http.response.body", "body": ANSWER})
+
+    middleware = IdempotencyMiddleware(application, _factory(store))
+    first, second = _Press(), _Press()
+
+    async def send_first(message):
+        await first.send(message)
+        if message["type"] == "http.response.body":
+            # The caller is holding the answer now. Their thumb is faster than
+            # any bookkeeping this server has left to do.
+            await middleware(second.scope, second.receive, second.send)
+
+    async def scenario():
+        with anyio.fail_after(5):
+            await middleware(first.scope, first.receive, send_first)
+
+    anyio.run(scenario)
+
+    assert first.status == 201
+    assert second.status == 201, second.payload
+    assert second.payload == first.payload
+    assert second.messages[0]["headers"]
+    assert handled == ["/expenses"], "the handler must not run a second time"
+
+
+def test_two_presses_at_the_same_instant_both_receive_the_one_answer(store):
+    """React double-render, or a retry racing the original. Same key, same bytes.
+
+    The loser of the reservation race is not a client error. It is the same
+    request, and the only answer that is true for it is the one the winner
+    produced. Refusing it invites the caller to retry with a fresh key, which
+    is how one dinner becomes two debts.
+    """
+
+    handled: list[str] = []
+    saw_in_flight = None
+
+    class _Signalling:
+        """Wraps the store so the handler can be held open on purpose.
+
+        Without this the test would depend on a sleep being long enough, and a
+        test that depends on a sleep is a test that will lie on a loaded CI box.
+        """
+
+        def reserve(self, **kwargs):
+            outcome = store.reserve(**kwargs)
+            if isinstance(outcome, InFlight):
+                saw_in_flight.set()
+            return outcome
+
+        def complete(self, **kwargs):
+            store.complete(**kwargs)
+
+        def release(self, **kwargs):
+            store.release(**kwargs)
+
+    async def application(scope, receive, send):
+        handled.append(scope["path"])
+        # Hold the first request inside the handler until the second one has
+        # genuinely found the key reserved. That is the real race, pinned.
+        await saw_in_flight.wait()
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 201,
+                "headers": [(b"content-type", b"application/json")],
+            }
+        )
+        await send({"type": "http.response.body", "body": ANSWER})
+
+    middleware = IdempotencyMiddleware(application, _factory(_Signalling()))
+    presses = [_Press(), _Press()]
+
+    async def scenario():
+        nonlocal saw_in_flight
+        saw_in_flight = anyio.Event()
+        with anyio.fail_after(10):
+            async with anyio.create_task_group() as tasks:
+                for press in presses:
+                    tasks.start_soon(middleware, press.scope, press.receive, press.send)
+
+    anyio.run(scenario)
+
+    assert [press.status for press in presses] == [201, 201], [
+        (press.status, press.payload) for press in presses
+    ]
+    assert {press.payload for press in presses} == {ANSWER}
+    assert handled == ["/expenses"], "the handler must not run a second time"
+
+
+def test_a_reservation_nobody_will_ever_finish_still_gives_up(store):
+    """The wait is bounded, and it does not advise the caller into a double write.
+
+    A process that died holding a key leaves a row no one will ever complete.
+    Waiting forever would hang the caller; the honest answer is to stop. What
+    the answer must not do is tell them to spend a new key, because a new key
+    is exactly permission to write the money a second time.
+    """
+
+    async def application(scope, receive, send):  # pragma: no cover - never runs
+        raise AssertionError("the handler must not run for a reserved key")
+
+    store.rows[("anonymous", KEY)] = {
+        "fingerprint": request_fingerprint(
+            method="POST", path="/expenses", query=b"", body=BODY
+        ),
+        "response": None,
+    }
+    middleware = IdempotencyMiddleware(
+        application, _factory(store), in_flight_wait_seconds=0.05
+    )
+    press = _Press()
+
+    async def scenario():
+        with anyio.fail_after(5):
+            await middleware(press.scope, press.receive, press.send)
+
+    anyio.run(scenario)
+
+    assert press.status == 409
+    assert json.loads(press.payload)["code"] == "idempotency_request_in_flight"
+    assert "new key" not in json.loads(press.payload)["detail"].lower()
