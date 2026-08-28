@@ -73,12 +73,16 @@ export const DEFAULT_MESSAGES: Record<CameraAccessState, string> = {
   "chua-hoi":
     "Chụp ảnh bill để app đọc từng món. Ảnh chỉ gửi tới máy chủ của nhóm, không lưu vào thư viện máy.",
   "cho-phep": "Đưa bill vào trong khung, chụp khi chữ đã rõ.",
+  // Em-dashes removed, not restyled. The repo bans them in Vietnamese copy
+  // that reaches a screen, and both of these reached one: they were rendered
+  // in the viewfinder well on the web build, where the browser cannot open a
+  // camera and this is the only text a person sees.
   "tu-choi-hoi-lai-duoc":
-    "App chưa được dùng camera nên chưa chụp được bill. Bấm “Cho phép” để hỏi lại — chỉ dùng lúc chụp, app không mở camera nền.",
+    "App chưa được dùng camera nên chưa chụp được bill. Bấm “Cho phép” để hỏi lại. App chỉ mở camera lúc chụp, không chạy nền.",
   "tu-choi-phai-vao-cai-dat":
     "Quyền camera đang bị tắt trong Cài đặt, nên hỏi lại ở đây sẽ không hiện gì. Mở Cài đặt để bật lại, hoặc chọn một ảnh bill có sẵn.",
   "khong-co-camera":
-    "Trình duyệt không mở được camera trong app này. Chọn một ảnh bill có sẵn — các bước sau y hệt trên điện thoại.",
+    "Trình duyệt không mở được camera trong app này. Chọn một ảnh bill có sẵn, các bước sau y hệt trên điện thoại.",
 };
 
 /** Does this platform have a camera we can drive at all?

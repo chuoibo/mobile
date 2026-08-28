@@ -40,11 +40,18 @@ export function Card({ children, style }: { children: React.ReactNode; style?: V
 }
 
 export function Button({ label, onPress, tone = "primary", disabled }: {
-  label: string; onPress: () => void; tone?: "primary" | "ghost" | "quiet"; disabled?: boolean;
+  label: string; onPress: () => void;
+  tone?: "primary" | "split" | "ghost" | "quiet"; disabled?: boolean;
 }) {
   const c = usePalette();
   const skin: Record<string, ViewStyle> = {
     primary: { backgroundColor: c.accent, borderColor: c.accent },
+    // Teal, and it is not a second brand colour. DESIGN.md's tone rule gives
+    // each of the three a meaning, and `split` means money being divided or
+    // settled. The bill-reading screens are that flow, and the mockup draws
+    // their confirm button teal for the same reason; an orange one there
+    // would say "brand action" on a screen whose whole subject is the bill.
+    split: { backgroundColor: c.split, borderColor: c.split },
     ghost: { backgroundColor: "transparent", borderColor: c.accent },
     // No fill, so this border is the whole affordance rather than trim.
     // It was `line` at 1.21:1 on the page ground, which WCAG 1.4.11 asks
@@ -75,7 +82,10 @@ export function Button({ label, onPress, tone = "primary", disabled }: {
   const inert: ViewStyle = { backgroundColor: c.line, borderColor: c.line };
   const ink = disabled
     ? c.inkSoft
-    : tone === "primary" ? c.accentInk : tone === "ghost" ? c.accent : c.inkSoft;
+    : tone === "primary" ? c.accentInk
+    : tone === "split" ? c.splitInk
+    : tone === "ghost" ? c.accent
+    : c.inkSoft;
   return (
     <Pressable
       onPress={onPress}
