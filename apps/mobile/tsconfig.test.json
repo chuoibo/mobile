@@ -14,6 +14,7 @@
     "src/camera/access.ts",
     "src/camera/bill-photo.ts",
     "src/navigation/tabs.ts",
-    "src/navigation/nhom-demo.ts"
+    "src/navigation/nhom-demo.ts",
+    "src/screens/kham-pha/places.ts"
   ]
 }
