@@ -195,20 +195,28 @@ class DerivedStatus(unittest.TestCase):
         ]
         self.assertEqual(positional, ["declared_amount_vnd", "receipt_confirmations"])
 
-    def test_a_dispute_stops_an_outstanding_obligation_but_not_a_paid_one(self):
-        """Section 8.2, and the precedence PostgreSQL made me state out loud."""
-        self.assertEqual(obligation_status(100, [], disputed=True), "disputed")
-        self.assertEqual(
-            obligation_status(100, [{"amount_vnd": 60}], disputed=True), "disputed"
+    def test_a_dispute_is_not_one_of_these_values(self):
+        """This function briefly took a `disputed` argument and could return
+        "disputed", with "money already arrived wins" as the tie-break. QA
+        broke that from both sides in an hour: a recipient could erase an
+        objection by confirming receipt, and a guest who objected after a
+        mistaken confirmation could never be shown as disputed at all.
+
+        Two facts had been collapsed into one field. Whether the money arrived
+        is settled by a receipt; whether anyone disagrees is not."""
+        import inspect
+
+        parameters = list(inspect.signature(obligation_status).parameters)
+        assert "disputed" not in parameters, (
+            "a dispute is a separate fact and does not belong in this signature"
         )
-        # Money that already arrived outranks a late objection: there is no
-        # collection left to stop, and hiding a payment would be worse.
-        self.assertEqual(
-            obligation_status(100, [{"amount_vnd": 100}], disputed=True), "confirmed"
-        )
-        self.assertEqual(
-            obligation_status(100, [{"amount_vnd": 150}], disputed=True), "over_confirmed"
-        )
+        for amounts, expected in (
+            ([], "outstanding"),
+            ([{"amount_vnd": 60}], "partially_confirmed"),
+            ([{"amount_vnd": 100}], "confirmed"),
+            ([{"amount_vnd": 150}], "over_confirmed"),
+        ):
+            self.assertEqual(obligation_status(100, amounts), expected)
 
 
 class Balances(unittest.TestCase):

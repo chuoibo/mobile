@@ -157,7 +157,11 @@ class BatchObligationRow:
     sender_id: uuid.UUID
     recipient_id: uuid.UUID
     amount_vnd: int
+    #: Whether the money arrived. Says nothing about whether anyone agrees.
     status: str
+    #: Whether an objection is open. A receipt does not close one, because
+    #: the person confirming receipt is the person being objected to.
+    disputed: bool
     disputed_reason: str | None
 
 
@@ -967,7 +971,6 @@ class SqlAlchemyApiRepository:
             derived_status = obligation_status(
                 obligation.amount_vnd,
                 [{"amount_vnd": amount} for amount in receipt_amounts],
-                disputed=str(obligation.id) in disputed_ids,
             )
             already_reported = (
                 self.session.scalar(
@@ -1003,7 +1006,7 @@ class SqlAlchemyApiRepository:
                     "qr_image_data_uri": payload_to_png_data_uri(payload),
                     "already_reported": already_reported,
                     "evidence_requested": str(obligation.id) in evidence_asked,
-                    "disputed": derived_status == "disputed",
+                    "disputed": str(obligation.id) in disputed_ids,
                     "receiver_confirmed": derived_status
                     in {"confirmed", "over_confirmed"},
                 }
@@ -1199,8 +1202,8 @@ class SqlAlchemyApiRepository:
                             {"amount_vnd": amount}
                             for amount in self._receipt_amounts(obligation.id)
                         ],
-                        disputed=key in disputes,
                     ),
+                    disputed=key in disputes,
                     disputed_reason=disputes.get(key),
                 )
             )

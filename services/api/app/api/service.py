@@ -559,11 +559,12 @@ class ApiService:
                     recipient_id=row.recipient_id,
                     amount_vnd=row.amount_vnd,
                     obligation_status=row.status,
+                    disputed=row.disputed,
                     disputed_reason=row.disputed_reason,
                 )
                 for row in rows
             ],
-            disputed_count=sum(1 for row in rows if row.status == "disputed"),
+            disputed_count=sum(1 for row in rows if row.disputed),
         )
 
     def record_objection(
