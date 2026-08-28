@@ -117,7 +117,14 @@ def build_wrong_amount_view(envelope: dict, obligation_id: str) -> dict:
         "amount_display": obligation.get("amount_display")
         or format_vnd(obligation["amount_vnd"]),
         "obligation_id": obligation_id,
-        "can_object": envelope["objections_used"] < envelope["objections_allowed"],
+        # Per obligation, matching the home page. This still read the link-wide
+        # count after the quota moved onto each debt, so the two pages
+        # disagreed: the card offered the button and the page it led to locked
+        # the form, telling a guest they had used up a quota they had not
+        # touched. Inviting somebody to object and then refusing is worse than
+        # never offering.
+        "can_object": obligation.get("objections_used", envelope["objections_used"])
+        < obligation.get("objections_allowed", envelope["objections_allowed"]),
         "can_request_evidence": not bool(obligation.get("evidence_requested")),
         "evidence_requested": bool(obligation.get("evidence_requested")),
         "reasons": list(OBJECTION_REASONS),
