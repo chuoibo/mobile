@@ -209,6 +209,15 @@ class _Client:
             {"context_id": context_id},
         )
 
+    def count_expense_versions(self, expense_id: uuid.UUID) -> int:
+        return self.connection.scalar(
+            text(
+                "select count(*) from expense_versions"
+                " where expense_id = :expense_id"
+            ),
+            {"expense_id": expense_id},
+        )
+
 
 @pytest.fixture
 def live_client(postgres_engine: Engine, monkeypatch):
@@ -460,3 +469,92 @@ def test_reusing_a_key_with_another_payload_writes_nothing(live_client):
     assert second.status_code == 422, second.text
     assert second.json()["code"] == "idempotency_key_reuse"
     assert live_client.count_expenses(context_id) == 1
+
+
+def _actor_headers(context_id: uuid.UUID) -> dict[str, str]:
+    return {
+        "X-Actor-ID": str(ADVANCER_ID),
+        "X-Actor-Roles": "member,advancer",
+        "X-Actor-Contexts": str(context_id),
+    }
+
+
+def _confirm_body(proposed: dict) -> dict:
+    return {
+        "proposal": proposed["proposal"],
+        "expected_allocations": proposed["allocation"]["allocations"],
+        "acknowledge_as_advancer": True,
+    }
+
+
+def _propose(live_client, context_id: uuid.UUID) -> dict:
+    response = live_client.post(
+        "/expenses", json=_expense_payload() | {"context_id": str(context_id)}
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def test_confirming_the_same_expense_twice_with_one_key_writes_one_version(
+    live_client,
+):
+    """The second press of *Xác nhận*, which is where the money is written.
+
+    `/expenses` only drafts; this route is the one that puts rows in the ledger,
+    and a double tap here was writing a whole second version of the same meal.
+    Counted in `expense_versions` rather than compared through the response,
+    because the response could match while a row was written anyway.
+    """
+
+    context_id = uuid.uuid4()
+    proposed = _propose(live_client, context_id)
+    expense_id = uuid.UUID(proposed["expense_id"])
+    headers = _actor_headers(context_id) | {IDEMPOTENCY_HEADER: str(uuid.uuid4())}
+    body = _confirm_body(proposed)
+
+    first = live_client.post(
+        f"/expenses/{expense_id}/confirm", json=body, headers=headers
+    )
+    second = live_client.post(
+        f"/expenses/{expense_id}/confirm", json=body, headers=headers
+    )
+
+    assert first.status_code == 201, first.text
+    assert second.status_code == 201, second.text
+    assert second.json() == first.json()
+    assert second.headers.get(REPLAY_HEADER) == "true"
+    assert live_client.count_expense_versions(expense_id) == 1
+
+
+def test_a_second_confirmation_under_its_own_key_still_writes_its_own_version(
+    live_client,
+):
+    """The control, and it is not optional.
+
+    Without it the test above also passes on a server that refuses every second
+    confirmation, or answers every caller with the first version it ever made.
+    Editing an expense is supposed to produce a new version, so a genuinely
+    different press must still write one.
+    """
+
+    context_id = uuid.uuid4()
+    proposed = _propose(live_client, context_id)
+    expense_id = uuid.UUID(proposed["expense_id"])
+    body = _confirm_body(proposed)
+
+    first = live_client.post(
+        f"/expenses/{expense_id}/confirm",
+        json=body,
+        headers=_actor_headers(context_id) | {IDEMPOTENCY_HEADER: str(uuid.uuid4())},
+    )
+    second = live_client.post(
+        f"/expenses/{expense_id}/confirm",
+        json=body,
+        headers=_actor_headers(context_id) | {IDEMPOTENCY_HEADER: str(uuid.uuid4())},
+    )
+
+    assert first.status_code == 201, first.text
+    assert second.status_code == 201, second.text
+    assert second.json()["expense_version_id"] != first.json()["expense_version_id"]
+    assert second.json()["version_number"] == first.json()["version_number"] + 1
+    assert live_client.count_expense_versions(expense_id) == 2
