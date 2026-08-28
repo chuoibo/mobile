@@ -265,3 +265,9 @@ node_modules/
 **/node_modules/
 .expo/
 apps/*/dist/
+
+# Build output from `npm test` in apps/mobile. Ignored at the ROOT on purpose:
+# apps/mobile/.gitignore only exists on branches that carry apps/mobile, so
+# switching to a branch without it left the directory unignored and `git add -A`
+# swept nine compiled files onto main.
+dist-test/
