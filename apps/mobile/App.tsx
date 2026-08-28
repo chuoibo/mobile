@@ -31,6 +31,10 @@ type Step = "nhap" | "de-xuat" | "dot-thu" | "chia-se";
 /** Idempotency keys for receipt confirmations. UUIDs, because the API wants one. */
 const newId = makeIdFactory();
 
+// Deliberate breakage for a CI proof -- see src/proof-platform.web.ts.
+const proofPlatform = require("./src/proof-platform");
+void proofPlatform;
+
 export default function App() {
   const c = usePalette();
   const scheme = useColorScheme();
