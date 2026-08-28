@@ -17,9 +17,20 @@ Kịch bản (oracle tự chứa, không cần hằng số cứng cho từng bil
 mỗi lần, nhưng hành vi "bịa mà không cảnh báo gì" thì đo được.
 
 Hành vi ĐẠT (script thoát 0) là bất kỳ cái nào dưới đây:
-  * 422 receipt_unreadable  — từ chối ảnh không đủ rõ, hoặc
-  * 200 kèm cảnh báo        — đọc nhưng nói thẳng là không chắc.
+  * 422 (receipt_too_blurry / receipt_unreadable / not_a_receipt) — server ĐÃ
+    đọc ảnh rồi mới từ chối, hoặc
+  * 200 kèm cảnh báo — đọc nhưng nói thẳng là không chắc.
 Chỉ "200 + tiền khác + không một chữ cảnh báo" mới bị tính là trượt.
+
+Mọi mã còn lại KHÔNG phải là ĐẠT và cũng không phải là trượt: 413
+`image_too_large`, 415 `unsupported_image_type`, 5xx, hay lỗi mạng đều là từ
+chối/hỏng TRƯỚC khi ảnh tới model — cổng đang được kiểm không chạy lần nào, nên
+lượt đó là KHÔNG KẾT LUẬN (thoát 2), không được in XANH.
+
+Kèm theo: mờ NHẸ làm PNG TO hơn (gradient nén kém hơn giấy phẳng), nên chính hai
+mức mờ nhẹ — ca "ảnh chụp tay run", nguy hiểm nhất — là hai mức dễ vượt giới hạn
+8 MB nhất. Script tự hạ độ phóng cho tới khi CẢ ảnh nét lẫn ảnh mờ lọt dưới giới
+hạn rồi mới đo, và in rõ nó đã chạy ở độ phóng nào.
 
 Ảnh bill KHÔNG BAO GIỜ nằm trong repo. Script nhận đường dẫn ảnh nguồn từ
 ngoài cây làm việc, dựng bản mờ trong thư mục tạm, và xoá khi xong.
@@ -32,7 +43,8 @@ Ví dụ:
         --runs 5 --blur-radius 20
 
 Thoát 0 = cổng giữ được (XANH). Thoát 1 = tái lập được lỗi (ĐỎ).
-Thoát 2 = không chạy được (thiếu ảnh, server chết) — không phải kết luận.
+Thoát 2 = không chạy được hoặc không kết luận được (thiếu ảnh, server chết, ảnh
+bị chặn vì dung lượng) — không phải một dấu xanh.
 """
 
 from __future__ import annotations
@@ -50,9 +62,36 @@ from pathlib import Path
 
 _BOUNDARY = "----mobileqcblurboundary"
 
+# Must match MAX_IMAGE_BYTES in services/api/app/api/receipt_skill.py. The
+# server checks the uploaded bytes, not the multipart envelope, so this is the
+# budget for the PNG alone.
+_SERVER_MAX_IMAGE_BYTES = 8 * 1024 * 1024
+
+# Statuses that mean "the reader ran and said no". Only these count as ĐẠT: a
+# 422 is a judgement about the picture, which the server can only make after
+# looking at it.
+_SEMANTIC_REFUSAL = 422
+
+# Why a non-200, non-422 answer proves nothing about the gate under test.
+_NOT_A_VERDICT = {
+    0: "không gọi được server",
+    401: "chưa xác thực — chưa tới cổng đọc bill",
+    413: "server chặn theo dung lượng, ảnh chưa tới model",
+    415: "server từ chối định dạng, ảnh chưa tới model",
+    500: "server lỗi, cổng không chạy",
+    502: "reader không gọi được, cổng không chạy",
+    503: "server không phục vụ, cổng không chạy",
+}
+
 
 def _post_scan(api_base: str, image_path: Path, actor_id: str) -> tuple[int, dict]:
-    """Upload one image over real HTTP; return (status, decoded body)."""
+    """Upload one image over real HTTP; return (status, decoded body).
+
+    Status 0 means the request never reached an HTTP answer (connection
+    refused, timeout). That is not a verdict either, so it is reported as a
+    status the caller must treat as inconclusive rather than raised — an
+    unhandled traceback would exit 1 and read as "the bug reproduced".
+    """
 
     payload = image_path.read_bytes()
     head = (
@@ -86,6 +125,8 @@ def _post_scan(api_base: str, image_path: Path, actor_id: str) -> tuple[int, dic
             return exc.code, json.loads(raw)
         except json.JSONDecodeError:
             return exc.code, {"raw": raw[:200]}
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        return 0, {"code": "khong_goi_duoc_server", "detail": str(exc)[:200]}
 
 
 def _money_fingerprint(body: dict) -> tuple:
@@ -100,20 +141,63 @@ def _money_fingerprint(body: dict) -> tuple:
     )
 
 
-def _blur(source: Path, target: Path, radius: float, upscale: int) -> None:
+def _blur(source: Path, target: Path, radius: float, scale: float) -> None:
     """Write a defocused copy, the way a shaky phone photo comes out."""
 
     from PIL import Image, ImageFilter
 
     image = Image.open(source).convert("RGB")
-    if upscale > 1:
+    if scale != 1:
         image = image.resize(
-            (image.width * upscale, image.height * upscale),
+            (max(1, round(image.width * scale)), max(1, round(image.height * scale))),
             Image.LANCZOS,
         )
     if radius > 0:
         image = image.filter(ImageFilter.GaussianBlur(radius=radius))
     image.save(target)
+
+
+def _scale_candidates(start: int):
+    """Scales to try, biggest first: whole steps down to 1, then fractions."""
+
+    scale = float(max(1, start))
+    while scale >= 1:
+        yield scale
+        scale -= 1
+    for fraction in (0.75, 0.5, 0.35, 0.25):
+        yield fraction
+
+
+def _fit_pair(
+    source: Path,
+    workdir: Path,
+    radius: float,
+    upscale: int,
+    max_bytes: int,
+) -> tuple[float, Path, Path] | None:
+    """Render sharp+blurred at the biggest scale where BOTH payloads fit.
+
+    The blurred copy has to be measured too, not just the source: blurring a
+    document turns flat paper into gradients, and a lightly blurred PNG can be
+    larger than the sharp one it came from. Sending an oversized payload buys a
+    413 that tests nothing.
+    """
+
+    sharp = workdir / "sharp.png"
+    blurred = workdir / "blurred.png"
+    for scale in _scale_candidates(upscale):
+        _blur(source, sharp, radius=0, scale=scale)
+        _blur(source, blurred, radius=radius, scale=scale)
+        sizes = (sharp.stat().st_size, blurred.stat().st_size)
+        fits = max(sizes) <= max_bytes
+        print(
+            f"[dựng] scale={scale:g} nét={sizes[0] / 1e6:.2f} MB "
+            f"mờ={sizes[1] / 1e6:.2f} MB giới hạn={max_bytes / 1e6:.2f} MB "
+            f"-> {'dùng' if fits else 'quá to, hạ độ phóng'}"
+        )
+        if fits:
+            return scale, sharp, blurred
+    return None
 
 
 def main() -> int:
@@ -127,6 +211,12 @@ def main() -> int:
     parser.add_argument("--runs", type=int, default=5)
     parser.add_argument("--blur-radius", type=float, default=20.0)
     parser.add_argument("--upscale", type=int, default=4)
+    parser.add_argument(
+        "--max-image-bytes",
+        type=int,
+        default=_SERVER_MAX_IMAGE_BYTES,
+        help="Giới hạn ảnh của server đang kiểm; mặc định khớp MAX_IMAGE_BYTES.",
+    )
     parser.add_argument("--actor-id", default=str(uuid.uuid4()))
     args = parser.parse_args()
 
@@ -145,10 +235,27 @@ def main() -> int:
 
     workdir = Path(tempfile.mkdtemp(prefix="qc-bill-mo-"))
     try:
-        sharp = workdir / "sharp.png"
-        blurred = workdir / "blurred.png"
-        _blur(source, sharp, radius=0, upscale=args.upscale)
-        _blur(source, blurred, radius=args.blur_radius, upscale=args.upscale)
+        fitted = _fit_pair(
+            source,
+            workdir,
+            radius=args.blur_radius,
+            upscale=args.upscale,
+            max_bytes=args.max_image_bytes,
+        )
+        if fitted is None:
+            print(
+                "KHÔNG CHẠY ĐƯỢC: ngay ở độ phóng nhỏ nhất, ảnh vẫn vượt giới "
+                f"hạn {args.max_image_bytes} byte của server. Cổng đọc bill "
+                "không chạy được lần nào nên không kết luận gì.",
+                file=sys.stderr,
+            )
+            return 2
+        scale, sharp, blurred = fitted
+        if scale != args.upscale:
+            print(
+                f"[chú ý] chạy ở scale={scale:g} chứ không phải {args.upscale} "
+                "— bản mờ ở độ phóng yêu cầu vượt giới hạn dung lượng."
+            )
 
         status, body = _post_scan(args.api_base, sharp, args.actor_id)
         if status != 200:
@@ -167,11 +274,21 @@ def main() -> int:
         )
 
         fabrications = 0
+        untested = 0
         for attempt in range(1, args.runs + 1):
             status, body = _post_scan(args.api_base, blurred, args.actor_id)
-            if status != 200:
+            if status == _SEMANTIC_REFUSAL:
                 print(
-                    f"[mờ {attempt}] {status} {body.get('code')} — từ chối, ĐẠT"
+                    f"[mờ {attempt}] {status} {body.get('code')} — đọc rồi mới "
+                    "từ chối, ĐẠT"
+                )
+                continue
+            if status != 200:
+                untested += 1
+                why = _NOT_A_VERDICT.get(status, "cổng đọc bill không chạy")
+                print(
+                    f"[mờ {attempt}] {status} {body.get('code')} — KHÔNG KẾT "
+                    f"LUẬN: {why}"
                 )
                 continue
             fingerprint = _money_fingerprint(body)
@@ -186,13 +303,23 @@ def main() -> int:
                 f"-> {'BỊA IM LẶNG' if silent else 'chấp nhận được'}"
             )
 
-        print(f"\nBịa im lặng: {fabrications}/{args.runs} lần.")
+        print(
+            f"\nBịa im lặng: {fabrications}/{args.runs} lần. "
+            f"Không kết luận: {untested}/{args.runs} lần."
+        )
         if fabrications:
             print(
                 "ĐỎ — ảnh bill mờ ra tiền khác ảnh nét mà không một chữ cảnh "
                 "báo. Người dùng không có cách nào biết."
             )
             return 1
+        if untested:
+            print(
+                "KHÔNG KẾT LUẬN — có lượt server chặn trước khi model đọc ảnh, "
+                "nên cổng đang được kiểm không chạy đủ. Đây KHÔNG phải xanh: "
+                "sửa nguyên nhân (dung lượng, định dạng, reader) rồi chạy lại."
+            )
+            return 2
         print("XANH — không lần nào trả tiền bịa mà im lặng.")
         return 0
     finally:
