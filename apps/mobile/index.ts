@@ -1,3 +1,4 @@
+import "./src/__probe";
 import { registerRootComponent } from 'expo';
 
 import App from './App';
