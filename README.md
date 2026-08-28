@@ -17,16 +17,55 @@ docker compose up -d                        # Postgres
 cp .env.example .env
 pip install -r services/api/requirements-dev.txt
 cd services/api && alembic upgrade head
-uvicorn app.api.main:app --reload           # API
-
-cd apps/mobile && npx expo start            # app, quét bằng Expo Go
+uvicorn app.api.main:app --host 0.0.0.0 --port 8099   # API
 ```
+
+`--host 0.0.0.0` không phải trang trí: mặc định uvicorn chỉ nghe `127.0.0.1`,
+và điện thoại không tới được loopback của máy khác.
 
 Xem thử trang cho khách mà không cần database:
 
 ```bash
 cd services/api && python3 -m app.web.preview
 ```
+
+## Chạy trên điện thoại thật (Expo Go)
+
+Điện thoại và máy này phải **cùng một Wi-Fi**. Kiểm trước khi mở Expo Go:
+
+```bash
+scripts/phone_path.py check     # thoát 1 nếu đường chưa thông, kèm cách sửa
+scripts/phone_path.py up        # kiểm rồi phát QR trỏ vào địa chỉ LAN
+```
+
+Rồi mở **Expo Go** trên điện thoại và quét mã. `up` in sẵn hai dòng cho biết QR
+trỏ đi đâu và app sẽ gọi API ở đâu — đọc hai dòng đó trước khi quét.
+
+Ba lý do app không lên, không cái nào tự nói ra:
+
+| Triệu chứng trên điện thoại | Nguyên nhân | Cách sửa |
+|---|---|---|
+| Quét xong quay mãi rồi hết giờ | WSL2 chặn kết nối từ ngoài vào (`DefaultInboundAction = Block`) | `scripts/phone_path.py open-firewall` — cần quyền Administrator, mở đúng 2 cổng TCP cho riêng subnet Wi-Fi hiện tại |
+| App lên nhưng mọi màn báo lỗi mạng | `BASE_URL` còn là `localhost`, mà trên điện thoại `localhost` là chính nó | dùng `up`, nó tự đặt `EXPO_PUBLIC_API_URL` theo IP LAN |
+| Terminal xanh nhưng không có server | cổng 8081 bận; `expo start` hỏi đổi cổng, trong shell không tương tác nó in `Skipping dev server` rồi **thoát mã 0** | `--metro-port 8082` |
+
+Gỡ luật tường lửa khi không cần nữa:
+
+```powershell
+Remove-NetFirewallHyperVRule -Name 'RuDi-ExpoGo'
+```
+
+Đổi cổng, hoặc ép địa chỉ khi máy có nhiều card mạng:
+
+```bash
+scripts/phone_path.py --api-port 8000 --metro-port 8082 up
+scripts/phone_path.py up --host <ip-LAN-của-máy-này>
+eval "$(scripts/phone_path.py env)"   # chỉ lấy biến, tự chạy expo sau
+```
+
+Điện thoại không cùng Wi-Fi được (mạng khách chặn máy nói chuyện với nhau) thì
+`npx expo start --tunnel` vẫn nạp được app — nhưng tunnel chỉ đưa Metro ra
+ngoài, **không** đưa API, nên app lên rồi vẫn không gọi được server.
 
 ## Test
 
