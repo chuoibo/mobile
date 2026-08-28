@@ -15,7 +15,10 @@ export function Screen({ title, hint, children, footer }: {
   return (
     <View style={{ flex: 1, backgroundColor: c.ground, padding: space.md, gap: space.md }}>
       <View style={{ gap: space.xs }}>
-        <Text style={{ ...type.title, color: c.ink }}>{title}</Text>
+        {/* `h1`, the step DESIGN.md assigns to a screen title. `title` is
+            the card step and sat only 4px above body, so the heading and
+            the text under it read as the same size. */}
+        <Text style={{ ...type.h1, color: c.ink }}>{title}</Text>
         {hint ? <Text style={{ ...type.label, color: c.inkSoft }}>{hint}</Text> : null}
       </View>
       <View style={{ flex: 1, gap: space.md }}>{children}</View>
@@ -48,7 +51,31 @@ export function Button({ label, onPress, tone = "primary", disabled }: {
     // 3:1 of; `lineStrong` is the token that carries a control edge.
     quiet: { backgroundColor: "transparent", borderColor: c.lineStrong },
   };
-  const ink = tone === "primary" ? c.accentInk : tone === "ghost" ? c.accent : c.inkSoft;
+  // Disabled is a skin, not a wash.
+  //
+  // This used to be `opacity: 0.4` on the Pressable, which composites the
+  // fill and the label together toward whatever is behind them. Measured on
+  // the running app it left the label at 1.1:1 -- and both buttons on the
+  // first screen are disabled until something is typed, so the app opened
+  // on a primary action whose word nobody could read.
+  //
+  // WCAG 1.4.3 exempts inactive controls, so this was never a conformance
+  // failure; it was a product one, on the one button the whole flow starts
+  // from.
+  //
+  // Inert is carried by *form*, not by fading: a flat `line` fill with no
+  // edge of its own, against `quiet` enabled, which is unfilled with a
+  // crisp `lineStrong` outline, and `primary` enabled, which is saturated
+  // accent. Dropping only the edge was tried first and was too weak -- the
+  // two states of "Thêm" came out nearly identical side by side.
+  //
+  // The label stays `inkSoft` on that fill: computed 5.46:1 light and
+  // 5.55:1 dark. It reads in both states, which is the whole point; the
+  // button says whether it is pressable with its shape.
+  const inert: ViewStyle = { backgroundColor: c.line, borderColor: c.line };
+  const ink = disabled
+    ? c.inkSoft
+    : tone === "primary" ? c.accentInk : tone === "ghost" ? c.accent : c.inkSoft;
   return (
     <Pressable
       onPress={onPress}
@@ -58,8 +85,8 @@ export function Button({ label, onPress, tone = "primary", disabled }: {
         borderWidth: 1, borderRadius: radius.base,
         paddingVertical: 14, paddingHorizontal: space.md,
         alignItems: "center",
-        opacity: disabled ? 0.4 : pressed ? 0.85 : 1,
-      }, skin[tone]]}
+        opacity: pressed && !disabled ? 0.85 : 1,
+      }, disabled ? inert : skin[tone]]}
     >
       <Text style={{ ...type.body, fontWeight: "600", color: ink }}>{label}</Text>
     </Pressable>
