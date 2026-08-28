@@ -589,6 +589,9 @@ class ASGITestClient:
     def get(self, path, **kwargs):
         return self.request("GET", path, **kwargs)
 
+    def put(self, path, **kwargs):
+        return self.request("PUT", path, **kwargs)
+
 
 @pytest.fixture
 def repository():
