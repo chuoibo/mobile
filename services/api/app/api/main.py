@@ -48,7 +48,9 @@ def sqlalchemy_store_factory() -> Iterator[IdempotencyStore]:
 
 
 def create_app(
-    *, idempotency_store_factory: IdempotencyStoreFactory | None = None
+    *,
+    idempotency_store_factory: IdempotencyStoreFactory | None = None,
+    idempotency_in_flight_wait_seconds: float | None = None,
 ) -> FastAPI:
     application = FastAPI(title="Group Expense API", version="0.1.0")
     # Outermost layer on purpose: an error response without the allow-origin
@@ -70,9 +72,17 @@ def create_app(
 
     # Middleware, not a decorator on each route: a write route added later is
     # covered the moment it is registered, with no list for anyone to forget.
+    idempotency_options = {}
+    if idempotency_in_flight_wait_seconds is not None:
+        # Only tests pass this. They cannot afford to sit through the real wait
+        # for a key that, by construction, nobody is ever going to finish.
+        idempotency_options["in_flight_wait_seconds"] = (
+            idempotency_in_flight_wait_seconds
+        )
     application.add_middleware(
         IdempotencyMiddleware,
         store_factory=idempotency_store_factory or sqlalchemy_store_factory,
+        **idempotency_options,
     )
 
     @application.get("/healthz", include_in_schema=False)

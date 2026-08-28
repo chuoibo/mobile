@@ -20,12 +20,32 @@ has to remember to update. Requests that carry no key pass through completely
 untouched, original `receive` and `send`, so existing callers and the guest
 page's browser form posts behave exactly as before.
 
+A second press is not a second request
+--------------------------------------
+Two things decide whether the caller's *second* press is answered honestly, and
+both were learned from a real server rather than from a dict:
+
+*Order.* The answer is not handed to the caller until the completion has been
+recorded. Sending first and bookkeeping afterwards leaves a window in which the
+key reads as unfinished, and a thumb is faster than that window: pressing again
+the instant the first answer landed was refused four times out of four, while
+waiting 50ms was fine. "Be slower" is not something a phone can promise, so the
+window is closed by ordering instead.
+
+*Waiting.* Two presses can also arrive at the same instant -- a double render, a
+retry racing the original. Exactly one wins the reservation; the loser is the
+same request, and the only true answer for it is the winner's. So it waits for
+that answer, briefly and with a bounded budget, rather than being refused.
+
+Refusing either case is worse than it looks. It puts a 409 in front of somebody
+who did nothing wrong, and an error that invites a fresh key is an invitation to
+write the same money twice -- the one thing this file exists to prevent.
+
 The one gap, stated plainly
 ---------------------------
 The completion row is written *after* the request's own transaction has already
 committed. If the process dies inside that window, the money is written but the
-key stays reserved, and the retry gets 409 rather than a replay of the original
-answer.
+key stays reserved. A retry then waits out the budget and is told to stop.
 
 That direction is deliberate. The failure mode is "the caller is told to stop
 and ask a human", never "the money is written twice". Closing the window
@@ -43,6 +63,7 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from typing import Protocol
 
+import anyio
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
@@ -56,6 +77,14 @@ WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 ANONYMOUS_SCOPE = "anonymous"
 MAX_KEY_LENGTH = 255
+
+# How long a caller who lost the reservation race waits for the winner's answer
+# before being refused. Long enough to cover a write request that is merely
+# slow; short enough that a key abandoned by a dead process does not hold a
+# connection hostage.
+DEFAULT_IN_FLIGHT_WAIT_SECONDS = 5.0
+_FIRST_POLL_SECONDS = 0.02
+_MAX_POLL_SECONDS = 0.1
 
 _HEADER_BYTES = IDEMPOTENCY_HEADER.lower().encode("latin-1")
 _ACTOR_HEADER_BYTES = b"x-actor-id"
@@ -207,6 +236,9 @@ class _CapturedResponse:
     status_code: int = 0
     media_type: str | None = None
     chunks: list[bytes] = field(default_factory=list)
+    # The raw ASGI messages, kept so the caller can be answered with exactly
+    # what the route produced once the key has been settled.
+    messages: list[dict] = field(default_factory=list)
 
     def body(self) -> bytes:
         return b"".join(self.chunks)
@@ -229,9 +261,44 @@ class IdempotencyMiddleware:
     pass-through instead of a buffered copy.
     """
 
-    def __init__(self, app, store_factory: IdempotencyStoreFactory):
+    def __init__(
+        self,
+        app,
+        store_factory: IdempotencyStoreFactory,
+        in_flight_wait_seconds: float = DEFAULT_IN_FLIGHT_WAIT_SECONDS,
+    ):
         self.app = app
         self.store_factory = store_factory
+        self.in_flight_wait_seconds = in_flight_wait_seconds
+
+    async def _reserve(self, *, key_scope: str, key: str, fingerprint: str) -> Outcome:
+        """Reserve the key, waiting out a reservation somebody else is finishing.
+
+        A reserved-but-unfinished key means one of two things, and the store
+        cannot tell them apart: a request that is still running, or one whose
+        process died. Waiting distinguishes them by outcome instead of by
+        guesswork -- the live one completes and this caller replays its answer,
+        the dead one never does and the budget runs out.
+
+        Each attempt takes its own short transaction. Holding one open across
+        the wait would keep a connection busy doing nothing and, worse, would
+        pin a snapshot in which the winner's commit can never appear.
+        """
+
+        deadline = anyio.current_time() + self.in_flight_wait_seconds
+        delay = _FIRST_POLL_SECONDS
+        while True:
+            with self.store_factory() as store:
+                outcome = store.reserve(
+                    scope=key_scope, key=key, fingerprint=fingerprint
+                )
+            if not isinstance(outcome, InFlight):
+                return outcome
+            remaining = deadline - anyio.current_time()
+            if remaining <= 0:
+                return outcome
+            await anyio.sleep(min(delay, remaining))
+            delay = min(delay * 2, _MAX_POLL_SECONDS)
 
     async def __call__(self, scope, receive, send) -> None:
         if scope["type"] != "http" or scope["method"] not in WRITE_METHODS:
@@ -263,10 +330,9 @@ class IdempotencyMiddleware:
             body=body,
         )
 
-        with self.store_factory() as store:
-            outcome = store.reserve(
-                scope=key_scope, key=key, fingerprint=fingerprint
-            )
+        outcome = await self._reserve(
+            key_scope=key_scope, key=key, fingerprint=fingerprint
+        )
 
         if isinstance(outcome, Conflict):
             await _send_problem(
@@ -277,11 +343,16 @@ class IdempotencyMiddleware:
             )
             return
         if isinstance(outcome, InFlight):
+            # Deliberately does not suggest a fresh key. A fresh key is
+            # permission to write the same money a second time, which is the
+            # failure this whole file is here to make impossible. Retrying the
+            # same key is always safe: it either replays or refuses again.
             await _send_problem(
                 send,
                 409,
                 "idempotency_request_in_flight",
-                "An earlier request with this key never finished; use a new key",
+                "An earlier request with this key has not finished. Retry with"
+                " this same key; sending a different one would write it twice",
             )
             return
         if isinstance(outcome, Replay):
@@ -291,6 +362,10 @@ class IdempotencyMiddleware:
         captured = _CapturedResponse()
 
         async def capturing_send(message) -> None:
+            # Held, not forwarded. Handing the caller their answer here would
+            # leave the key reading as unfinished for as long as the completion
+            # takes to commit, and a second press inside that window is refused
+            # for something nobody did wrong.
             if message["type"] == "http.response.start":
                 captured.status_code = message["status"]
                 captured.media_type = _header(
@@ -300,7 +375,7 @@ class IdempotencyMiddleware:
                 chunk = message.get("body") or b""
                 if chunk:
                     captured.chunks.append(chunk)
-            await send(message)
+            captured.messages.append(message)
 
         try:
             await self.app(scope, _replaying(body), capturing_send)
@@ -308,6 +383,7 @@ class IdempotencyMiddleware:
             # Nothing committed: the repository dependency rolls its
             # transaction back on the way out. Free the key so the client's
             # retry is a real second attempt rather than a permanent 409.
+            # Nothing was forwarded either, so there is no half-sent answer.
             with self.store_factory() as store:
                 store.release(scope=key_scope, key=key)
             raise
@@ -323,10 +399,16 @@ class IdempotencyMiddleware:
                         media_type=captured.media_type,
                     ),
                 )
-            return
+        else:
+            with self.store_factory() as store:
+                store.release(scope=key_scope, key=key)
 
-        with self.store_factory() as store:
-            store.release(scope=key_scope, key=key)
+        # Only now, with the key settled either way, does the caller get to see
+        # anything. Messages go out verbatim and in order: rebuilding them here
+        # would let this middleware quietly answer in a different dialect from
+        # the route that produced them.
+        for message in captured.messages:
+            await send(message)
 
 
 async def _drain(receive) -> bytes:
