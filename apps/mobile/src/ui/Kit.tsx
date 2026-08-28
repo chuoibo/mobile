@@ -76,7 +76,24 @@ export function Field({ label, value, onChangeText, keyboardType, placeholder }:
         onChangeText={onChangeText}
         keyboardType={keyboardType ?? "default"}
         placeholder={placeholder}
-        placeholderTextColor={c.inkSoft}
+        // A tone of its own, not `inkSoft`. At `inkSoft` the example "480000"
+        // sat at almost the same weight as a typed number, so an empty
+        // "Tổng tiền" read as a filled one -- somebody presses "Chia tiền"
+        // believing they entered a total.
+        //
+        // Picked by measuring, not by eye. Two numbers pull against each other:
+        // contrast against the white field, and separation from entered text.
+        //
+        //   #8c9c96   2.87:1 on white   5.8x lighter than ink   too pale
+        //   #6f7f79   4.21:1 on white   4.0x lighter than ink   this one
+        //   #55665f   6.08:1 on white   2.8x lighter than ink   the old bug
+        //
+        // 4.21:1 is under the 4.5:1 that WCAG asks of text, and that is a
+        // deliberate call rather than an oversight: the placeholder is an
+        // example, and the label above it -- which never disappears -- is what
+        // carries the meaning. Going darker to reach 4.5 walks back toward the
+        // bug this replaced.
+        placeholderTextColor={c.inkFaint}
         style={{
           ...type.body, color: c.ink, backgroundColor: c.card,
           borderColor: c.line, borderWidth: 1, borderRadius: radius.base,

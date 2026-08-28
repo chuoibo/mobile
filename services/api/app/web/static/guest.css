@@ -22,6 +22,7 @@
   --line: #d3dcd9;
   --ink: #14201d;
   --ink-soft: #55665f;
+  --ink-faint: #6f7f79;
   --accent: #0f6e4f;
   --accent-ink: #ffffff;
   --warn: #a9451f;
@@ -43,6 +44,7 @@
     --line: #2a3733;
     --ink: #e6edea;
     --ink-soft: #9aaaa4;
+    --ink-faint: #6b7b75;
     --accent: #4fbf95;
     --accent-ink: #08120e;
     --warn: #e0855c;

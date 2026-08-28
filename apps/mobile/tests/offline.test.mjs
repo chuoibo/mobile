@@ -171,27 +171,14 @@ test("gate 1 is checked before any request is built", async () => {
   }
 });
 
-test("máy chủ từ chối phát thì người đọc được lý do, không đọc mã lỗi", async () => {
-  // Gate 2 refusals arrive as `recipient_setup_incomplete`. Untranslated, that
-  // string lands on screen next to somebody's name and somebody's money.
-  const { publishBatch, ApiError } = await import("../dist-test/api.js");
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = async () =>
-    new Response(
-      JSON.stringify({ code: "recipient_setup_incomplete", detail: "gate 2" }),
-      { status: 409, headers: { "Content-Type": "application/json" } },
-    );
-  try {
-    await publishBatch("b", { payerAcknowledged: true }, "a");
-    assert.fail("le ra phai bi tu choi");
-  } catch (problem) {
-    assert.ok(problem instanceof ApiError);
-    assert.equal(problem.code, "recipient_setup_incomplete", "mat ma loi thi het truy duoc");
-    assert.match(problem.message, /tài khoản nhận/, "khong dich ra tieng nguoi");
-  } finally {
-    globalThis.fetch = realFetch;
-  }
-});
+/* Publish refusals moved to `publish-refusals.test.mjs`.
+ *
+ * The test that stood here asserted `recipient_setup_incomplete` translates on
+ * publish. It does not: that code belongs to `POST /batches`, and publish
+ * never sends it. The test passed anyway because the app's table carried the
+ * same wrong key, so a mock returning it found a match. Codes are read from
+ * the server's source over there instead of being asserted from memory.
+ */
 
 /* Data loss on "Sửa lại" -- found by agy driving the real app.
  *
@@ -461,6 +448,100 @@ test("gửi lại cùng một khoá thì máy chủ vẫn chỉ thấy một l�
     await confirmReceipt("ob-1", 100_000, "actor-1", "same-key");
     await confirmReceipt("ob-1", 100_000, "actor-1", "same-key");
     assert.deepEqual(keys, ["same-key", "same-key"], "khoa doi giua hai lan gui");
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+/* The four-code publish-refusal loop that stood here has moved to
+ * `publish-refusals.test.mjs`, rewritten.
+ *
+ * It was green and it was proving nothing. It listed the codes itself, then
+ * mocked the server into returning exactly that list, so it measured the app's
+ * table against a copy of the app's table. Three of the four codes were not
+ * strings the server has ever sent. Mutating a key still turned it red, which
+ * is what made it look tested: test and table were written by one author and
+ * moved together.
+ *
+ * The replacement parses `unmet_publish_gates()` and `publish_batch()` out of
+ * the Python and fails when the two sides drift, in either direction.
+ */
+
+test("mở đợt thu bị từ chối thì đọc được, kể cả khi máy chủ viết CHỮ HOA", async () => {
+  // Found by walking the app: pressing "Đúng rồi, ghi vào sổ" put the words
+  // "Batch cannot be frozen" on screen -- the server's own English, under a
+  // Vietnamese heading, with nothing about what to do.
+  //
+  // The casing is the trap. Codes raised by a domain transition arrive
+  // upper-cased; codes raised by the API arrive lower-cased. A table written
+  // in one casing misses half the refusals, and a miss is indistinguishable
+  // from a code nobody thought about.
+  const { openBatch, ApiError } = await import("../dist-test/api.js");
+  const proposal = {
+    participants: ROSTER,
+    allocations: {},
+    roundingGainers: [],
+    totalVnd: 1,
+    advancerId: HA_ID,
+    occasion: "x",
+    expenseId: "e1",
+    serverProposal: {},
+  };
+  const real = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        code: "UNREADY_RECIPIENT_CHOICE_REQUIRED",
+        detail: "Batch cannot be frozen",
+      }),
+      { status: 409, headers: { "Content-Type": "application/json" } },
+    );
+  try {
+    await openBatch(proposal, "v1", true);
+    assert.fail("le ra phai bi tu choi");
+  } catch (problem) {
+    assert.ok(problem instanceof ApiError);
+    assert.equal(problem.code, "UNREADY_RECIPIENT_CHOICE_REQUIRED");
+    assert.match(problem.message, /tài khoản nhận/, "van con tieng Anh cua may chu");
+    assert.doesNotMatch(problem.message, /Batch cannot be frozen/);
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+test("ghi vào sổ bị từ chối vì số đã đổi thì nói rõ phải làm gì", async () => {
+  const { confirmExpense, ApiError } = await import("../dist-test/api.js");
+  const real = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({ code: "proposal_changed", detail: "Proposal changed" }),
+      { status: 409, headers: { "Content-Type": "application/json" } },
+    );
+  try {
+    await confirmExpense({ expenseId: "e1", serverProposal: {}, allocations: {}, advancerId: "a" });
+    assert.fail("le ra phai bi tu choi");
+  } catch (problem) {
+    assert.ok(problem instanceof ApiError);
+    assert.match(problem.message, /Quay lại xem con số mới/);
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+test("mã lạ giữ nguyên lời của máy chủ, không mượn câu tử tế nào", async () => {
+  const { publishBatch, ApiError } = await import("../dist-test/api.js");
+  const real = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({ code: "chua_tung_thay", detail: "máy chủ nói điều này" }),
+      { status: 409, headers: { "Content-Type": "application/json" } },
+    );
+  try {
+    await publishBatch("b", { payerAcknowledged: true }, "a");
+    assert.fail("le ra phai bi tu choi");
+  } catch (problem) {
+    assert.ok(problem instanceof ApiError);
+    assert.equal(problem.message, "máy chủ nói điều này");
   } finally {
     globalThis.fetch = real;
   }

@@ -271,3 +271,8 @@ apps/*/dist/
 # switching to a branch without it left the directory unignored and `git add -A`
 # swept nine compiled files onto main.
 dist-test/
+
+# Output of `npm run build:check` in apps/mobile. The check exists to prove
+# the app still bundles; keeping its output would put a build artifact in the
+# history for a test that runs in five seconds.
+.expo-build-check/

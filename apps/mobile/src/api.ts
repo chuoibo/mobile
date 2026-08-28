@@ -176,10 +176,10 @@ export async function proposeSplit(draft: Draft): Promise<PendingProposal> {
 export async function confirmExpense(
   proposal: PendingProposal,
 ): Promise<{ expenseVersionId: string; acknowledged: boolean }> {
-  const result = await call<{
+  const result = await translated<{
     expense_version_id: string;
     payer_acknowledgement: "pending" | "acknowledged";
-  }>(`/expenses/${proposal.expenseId}/confirm`, {
+  }>(CONFIRM_REFUSALS, `/expenses/${proposal.expenseId}/confirm`, {
     body: {
       proposal: proposal.serverProposal,
       expected_allocations: proposal.allocations,
@@ -225,20 +225,65 @@ export class GateNotPassedError extends Error {
 }
 
 /**
- * What the server's publish refusals mean, in words a person can act on.
+ * What the server's refusals to open a round mean.
  *
- * Left untranslated they reach the screen as `recipient_setup_incomplete`,
- * next to somebody's name and somebody's money. The map is deliberately
- * incomplete: an unrecognised code falls through to the server's own detail
- * rather than to a friendly sentence that might be wrong about what happened.
+ * Separate from `PUBLISH_REFUSALS` because they are different moments with
+ * different things to do about them, and one table covering both would invite
+ * a message that fits neither. Found by walking the app: pressing "Đúng rồi,
+ * ghi vào sổ" put the words "Batch cannot be frozen" on screen -- the server's
+ * own English, under a Vietnamese heading, with no hint of what to do.
  */
-const PUBLISH_REFUSALS: Record<string, string> = {
-  advancer_not_acknowledged:
-    "Người ứng tiền chưa xác nhận. App không gửi gì dưới tên một người trước khi họ đồng ý.",
+const CONFIRM_REFUSALS: Record<string, string> = {
+  proposal_changed:
+    "Khoản chi đã đổi kể từ lúc bạn nhìn. Quay lại xem con số mới trước khi ghi vào sổ.",
+  expense_not_found: "Không tìm thấy khoản chi này trên máy chủ.",
+};
+
+const OPEN_BATCH_REFUSALS: Record<string, string> = {
+  unready_recipient_choice_required:
+    "Người ứng tiền chưa có tài khoản nhận. Chưa biết chuyển tiền về đâu thì " +
+    "chưa mở đợt thu được.",
   recipient_setup_incomplete:
-    "Chưa có tài khoản nhận đã được xác nhận. Chưa biết chuyển tiền về đâu thì chưa phát được.",
-  bank_recipient_snapshot_invalid:
-    "Tài khoản nhận đã đổi sau khi đợt thu đóng băng. Mở đợt mới thay vì phát cái cũ.",
+    "Người ứng tiền chưa có tài khoản nhận đã được xác nhận.",
+  no_obligations: "Khoản này không ai nợ ai. Không có gì để thu.",
+};
+
+/**
+ * What the server's refusals to publish mean.
+ *
+ * The keys are the three gate codes returned by `unmet_publish_gates()` in
+ * `services/api/app/domain/collection.py`, plus the one code `publish_batch()`
+ * raises before it reaches the gates. They are not a guess: `tests/
+ * publish-refusals.test.mjs` parses those two Python functions and fails if a
+ * key here is not a code publish can send, or a code publish can send has no
+ * words here.
+ *
+ * That test exists because this table shipped wrong. It named
+ * `advancer_not_acknowledged` and `bank_recipient_snapshot_invalid`, neither
+ * of which appears anywhere in `services/api/app`, so all three gates fell
+ * through and put "A publish gate is not satisfied" on screen next to
+ * somebody's name and somebody's money. The old test was green throughout: it
+ * built its expectations from this object's own keys.
+ *
+ * Still deliberately incomplete. A code nobody listed falls through to the
+ * server's own detail rather than to a friendly sentence that might be wrong
+ * about what just happened, and that fallthrough is the more important half.
+ */
+export const PUBLISH_REFUSALS: Record<string, string> = {
+  advancer_acknowledgement_required:
+    "Người ứng tiền chưa xác nhận. App không gửi gì dưới tên một người trước khi họ đồng ý.",
+  // One code, two situations: the snapshot was never confirmed, or it was
+  // confirmed and then changed after the round froze. The server does not say
+  // which, so neither does this. Naming the wrong one would send somebody to
+  // fix a thing that is not broken.
+  valid_bank_recipient_snapshot_required:
+    "Tài khoản nhận đã đóng băng cùng đợt thu này không còn dùng được. Kiểm tra lại tài khoản nhận của người ứng tiền trước khi phát.",
+  // Unreachable from this app today, which is exactly why it is written down.
+  // `sendPublish` hard-codes `delivery_method: "personal_link"`, so reaching
+  // this line means the app stopped sending it, and a person should not have
+  // to read the server's English to find that out.
+  delivery_method_required:
+    "Chưa chọn cách gửi phong bì cho đợt thu này, nên chưa phát được.",
   batch_not_found: "Không tìm thấy đợt thu này trên máy chủ.",
 };
 
@@ -268,7 +313,7 @@ export async function openBatch(
   const nameOf = (id: string) =>
     proposal.participants.find((person: Participant) => person.id === id)?.name ?? id;
 
-  const result = await call<{
+  const result = await translated<{
     batch_id: string;
     obligations: {
       obligation_id: string;
@@ -276,7 +321,7 @@ export async function openBatch(
       recipient_id: string;
       amount_vnd: number;
     }[];
-  }>("/batches", {
+  }>(OPEN_BATCH_REFUSALS, "/batches", {
     body: {
       context_id: CONTEXT_ID,
       expense_version_ids: [expenseVersionId],
@@ -321,14 +366,35 @@ export async function publishBatch(
   if (!canPublish(gates)) {
     throw new GateNotPassedError(gates);
   }
+  // Gate 2 is the server's to enforce, so its refusal is the only true answer
+  // about it.
+  return sendPublish(batchId, actorId, roster);
+}
+
+/**
+ * Run a call and put its known refusals into Vietnamese.
+ *
+ * The lookup is case-insensitive, and that is not tidiness. The server mixes
+ * two conventions: codes raised by a domain transition arrive upper-cased
+ * (`UNREADY_RECIPIENT_CHOICE_REQUIRED`), codes raised directly by the API
+ * arrive lower-cased (`recipient_setup_incomplete`). A table written in one
+ * casing silently misses half the refusals, and a miss looks exactly like a
+ * code nobody thought about -- it falls through to the server's English.
+ *
+ * The code is preserved on the error. Only the sentence changes, so a bug
+ * report still names what actually happened.
+ */
+async function translated<T>(
+  table: Record<string, string>,
+  path: string,
+  options: { method?: string; body?: unknown; actorId?: string },
+): Promise<T> {
   try {
-    return await sendPublish(batchId, actorId, roster);
+    return await call<T>(path, options);
   } catch (problem) {
-    // Gate 2 is the server's to enforce, so its refusal is the only true
-    // answer about it. Translated, not swallowed -- the code stays on the
-    // error so a report can still name what happened.
-    if (problem instanceof ApiError && PUBLISH_REFUSALS[problem.code]) {
-      throw new ApiError(problem.status, problem.code, PUBLISH_REFUSALS[problem.code]);
+    if (problem instanceof ApiError) {
+      const said = table[problem.code.toLowerCase()];
+      if (said) throw new ApiError(problem.status, problem.code, said);
     }
     throw problem;
   }
@@ -346,7 +412,7 @@ async function sendPublish(
   actorId: string,
   roster: Participant[],
 ): Promise<Envelope[]> {
-  const result = await call<{
+  const result = await translated<{
     guest_links: {
       sender_id: string;
       path: string;
@@ -355,7 +421,7 @@ async function sendPublish(
       // per debt, and each debt carries its own VietQR string.
       obligations: { obligation_id: string; amount_vnd: number }[];
     }[];
-  }>(`/batches/${batchId}/publish`, {
+  }>(PUBLISH_REFUSALS, `/batches/${batchId}/publish`, {
     body: {
       delivery_method: "personal_link",
       guest_link_expires_at: new Date(
