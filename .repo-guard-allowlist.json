@@ -51,14 +51,12 @@
     },
     {
       "path": "apps/mobile/package-lock.json",
-      "sha256": "92e647b044a4086821b0d81d32b79602fbe532ce60f1df402024af61f65789d2",
+      "sha256": "00a99c2c49b88699767eeda382f82b0ef7a36e25fe2ac500383336cc6298bae4",
       "rules": [
         "aggregate-base64-fragments",
-        "long-number",
-        "dense-base64-line",
-        "long-base64-token"
+        "long-number"
       ],
-      "reason": "npm lockfile for apps/mobile. Integrity hashes are base64 and resolved versions are long digit runs, which is what the scanner sees. PR #19 replaced the name-based lockfile exemption with an exact path plus digest precisely so a file cannot claim this by being called package-lock.json; regenerating it needs a new review."
+      "reason": "npm lock file. The base64 the guard flags is npm's own `integrity` digests -- Subresource Integrity hashes of published tarballs -- and the long numbers are file sizes and registry timestamps. Both are structural to the format, not secrets, and a lock file without them cannot verify what it installs. Pinned by digest so that adding a dependency forces a fresh look at what entered the tree; that friction is the point, because a lock file is exactly where a supply-chain change would arrive quietly."
     },
     {
       "path": "docs/claude/2026-08-26/review-p0-w9a-repo-guard.md",
