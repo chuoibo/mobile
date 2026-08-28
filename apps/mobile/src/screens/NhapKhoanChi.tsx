@@ -58,10 +58,13 @@ export function NhapKhoanChi({
   form,
   onForm,
   onNext,
+  onSeeProposal,
 }: {
   form: DraftForm;
   onForm: (next: DraftForm) => void;
   onNext: (draft: Draft) => void;
+  /** Offline only: look at what the bot read out of a chat thread. */
+  onSeeProposal?: () => void;
 }) {
   const c = usePalette();
   const { occasion, pending, amount, roster } = form;
@@ -161,6 +164,16 @@ export function NhapKhoanChi({
             ))}
           </View>
         </Card>
+
+        {onSeeProposal ? (
+          <Card>
+            <Text style={{ ...type.label, color: c.inkSoft }}>
+              Hoặc xem thứ bot đọc được từ một đoạn chat, kèm tin nhắn nó đọc ra
+              từng con số.
+            </Text>
+            <Button label="Xem thẻ đề xuất" tone="quiet" onPress={onSeeProposal} />
+          </Card>
+        ) : null}
 
         <Card>
           <Field
