@@ -245,6 +245,23 @@ class BankRecipientRequest(ApiModel):
     account_name: StrictStr | None = None
 
 
+class PersonBankRecipientRequest(ApiModel):
+    """The same destination, for the route that names its subject in the path.
+
+    Deliberately without `recipient_id`. On `POST /bank-recipients` the subject
+    is a body field, so "change my account" and "change somebody else's" are one
+    request with one field different and the permission check is the only thing
+    between them. Here the subject is part of the address, so the narrower
+    request cannot be widened by a stray field -- and `extra="forbid"` means
+    sending one is a 422 rather than a silently ignored second opinion about who
+    this is for.
+    """
+
+    bank_bin: StrictStr
+    account_number: StrictStr
+    account_name: StrictStr | None = None
+
+
 class BankRecipientResponse(ApiModel):
     id: UUID
     recipient_id: UUID
