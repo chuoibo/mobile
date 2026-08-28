@@ -3,9 +3,18 @@ name: mobile-local
 # Máy dev, không phải máy chủ. Mật khẩu ở đây là "mobile-dev-only" đúng nghĩa
 # đen để không ai nhầm nó với thứ được phép rời khỏi máy này.
 #
-# Cổng phía host lấy từ biến môi trường vì cổng 5432 và 8000 là hai cổng bận
-# nhất trên một máy dev. Người nào đã có Postgres riêng chỉ cần đặt
-# MOBILE_POSTGRES_PORT=5433 trong .env, không phải sửa file này rồi lỡ commit.
+# Cổng phía host lấy từ biến môi trường vì 5432 là cổng bận nhất trên một máy
+# dev. Người nào đã có Postgres riêng chỉ cần đặt MOBILE_POSTGRES_PORT=5433
+# trong .env, không phải sửa file này rồi lỡ commit.
+#
+# API publish ra host ở **8099**, không phải 8000. Đó là con số duy nhất trong
+# repo này mà người ta gõ tay: `apps/mobile/src/api.ts` fallback về
+# `http://localhost:8099`, `scripts/phone_path.py` mặc định `--api-port 8099`,
+# README ghi 8099. Bên trong container thì uvicorn vẫn nghe 8000 — cổng đó
+# nằm trong mạng riêng của compose, không ai gõ nó, và giữ nguyên 8000 để
+# `docker run mobile-local/api:dev` một mình vẫn cư xử đúng như Dockerfile
+# khai (EXPOSE 8000, HEALTHCHECK 8000). Ánh xạ "8099:8000" đọc thẳng ra điều
+# đó; đừng "sửa" vế phải cho khớp vế trái.
 
 x-api-image: &api-image
   build:
@@ -63,7 +72,7 @@ services:
     # đọc: publish trả về `path` tương đối, người gửi tự ghép host. Đặt một
     # biến không ai đọc chỉ tạo ảo giác là nó có tác dụng.
     ports:
-      - "${MOBILE_API_PORT:-8000}:8000"
+      - "${MOBILE_API_PORT:-8099}:8000"
     depends_on:
       postgres:
         condition: service_healthy

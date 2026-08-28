@@ -3,7 +3,8 @@
 # Cần sẵn: docker (có compose v2), make, curl. Không cần Python trên máy —
 # API, migration và seed đều chạy trong ảnh đã dựng.
 #
-# Đổi cổng khi 5432 hoặc 8000 đã bận (rất hay xảy ra):
+# `make up` publish API ra http://127.0.0.1:8099 — cùng con số mà app và
+# scripts/phone_path.py mặc định dùng. Đổi khi 8099 hoặc 5432 đã bận:
 #   MOBILE_API_PORT=8100 MOBILE_POSTGRES_PORT=5433 make up
 # hoặc ghi hai dòng đó vào .env ở gốc repo — compose tự đọc, và .env đã bị
 # .gitignore chặn nên không lỡ tay commit.
