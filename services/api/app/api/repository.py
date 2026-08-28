@@ -14,10 +14,11 @@ from datetime import datetime
 from typing import Protocol
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.limits import OBJECTION_LIMIT, REPORT_LIMIT
 from app.api.errors import RepositoryConflict
+from app.api.limits import OBJECTION_LIMIT, REPORT_LIMIT
 from app.api.schemas import ExpenseInput
 from app.db.models import (
     AuditEvent,
@@ -30,6 +31,7 @@ from app.db.models import (
     CollectionObligation,
     CollectionObligationSource,
     ConfirmedAllocation,
+    Context,
     Expense,
     ExpenseDiscount,
     ExpenseItem,
@@ -38,6 +40,8 @@ from app.db.models import (
     ExpenseVersion,
     GuestLink,
     GuestLinkStatus,
+    Membership,
+    MembershipState,
     PayerAcknowledgement,
     PaymentReport,
     ReceiptConfirmation,
@@ -53,6 +57,26 @@ from app.web.qr import payload_to_png_data_uri
 class ExpenseIdentity:
     id: uuid.UUID
     context_id: uuid.UUID
+
+
+@dataclass(frozen=True, slots=True)
+class ContextRecord:
+    id: uuid.UUID
+    display_name: str
+    created_by_id: uuid.UUID
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class MembershipRecord:
+    id: uuid.UUID
+    context_id: uuid.UUID
+    person_id: uuid.UUID
+    state: str
+    invited_by_id: uuid.UUID | None
+    joined_at: datetime | None
+    left_at: datetime | None
+    created_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,6 +256,29 @@ class ReceiptRecord:
 
 
 class ApiRepository(Protocol):
+    def create_context(
+        self, display_name: str, created_by_id: uuid.UUID
+    ) -> ContextRecord: ...
+
+    def add_member(
+        self,
+        context_id: uuid.UUID,
+        person_id: uuid.UUID,
+        invited_by_id: uuid.UUID,
+    ) -> MembershipRecord: ...
+
+    def accept_membership(
+        self, membership_id: uuid.UUID, now: datetime
+    ) -> MembershipRecord | None: ...
+
+    def leave_context(
+        self, context_id: uuid.UUID, person_id: uuid.UUID, now: datetime
+    ) -> MembershipRecord | None: ...
+
+    def list_members(self, context_id: uuid.UUID) -> list[MembershipRecord]: ...
+
+    def is_member(self, context_id: uuid.UUID, person_id: uuid.UUID) -> bool: ...
+
     def create_expense(self, context_id: uuid.UUID) -> ExpenseIdentity: ...
 
     def get_expense(self, expense_id: uuid.UUID) -> ExpenseIdentity | None: ...
@@ -316,7 +363,6 @@ class ApiRepository(Protocol):
         """
         ...
 
-
     def list_batch_obligations(self, batch_id: uuid.UUID) -> BatchBoard | None: ...
 
     def get_receipt_target(self, obligation_id: uuid.UUID) -> ReceiptTarget | None: ...
@@ -336,16 +382,130 @@ class ApiRepository(Protocol):
 class SqlAlchemyApiRepository:
     """PostgreSQL implementation. One instance owns one request transaction."""
 
-
     # Section 8.6 caps objections so a leaked link cannot be used to bury
 
     # the recipient. Was hardcoded to zero while the two objection routes
 
     # did not exist, which made both buttons dead before they 404ed.
 
-
     def __init__(self, session: Session):
         self.session = session
+
+    @staticmethod
+    def _membership_record(membership: Membership) -> MembershipRecord:
+        return MembershipRecord(
+            id=membership.id,
+            context_id=membership.context_id,
+            person_id=membership.person_id,
+            state=membership.state.value,
+            invited_by_id=membership.invited_by_id,
+            joined_at=membership.joined_at,
+            left_at=membership.left_at,
+            created_at=membership.created_at,
+        )
+
+    def create_context(
+        self, display_name: str, created_by_id: uuid.UUID
+    ) -> ContextRecord:
+        context = Context(display_name=display_name, created_by_id=created_by_id)
+        self.session.add(context)
+        self.session.flush()
+        return ContextRecord(
+            id=context.id,
+            display_name=context.display_name,
+            created_by_id=context.created_by_id,
+            created_at=context.created_at,
+        )
+
+    def add_member(
+        self,
+        context_id: uuid.UUID,
+        person_id: uuid.UUID,
+        invited_by_id: uuid.UUID,
+    ) -> MembershipRecord:
+        # Always insert. Rejoining is a new membership period; reviving the old
+        # row would silently backdate what the person was allowed to see.
+        membership = Membership(
+            context_id=context_id,
+            person_id=person_id,
+            state=MembershipState.INVITED,
+            invited_by_id=invited_by_id,
+        )
+        try:
+            with self.session.begin_nested():
+                self.session.add(membership)
+                self.session.flush()
+        except IntegrityError as exc:
+            constraint = getattr(
+                getattr(exc.orig, "diag", None), "constraint_name", None
+            )
+            if constraint == "uq_memberships_open_per_person":
+                raise RepositoryConflict("MEMBERSHIP_ALREADY_OPEN") from exc
+            raise
+        return self._membership_record(membership)
+
+    def accept_membership(
+        self, membership_id: uuid.UUID, now: datetime
+    ) -> MembershipRecord | None:
+        membership = self.session.scalar(
+            select(Membership).where(Membership.id == membership_id).with_for_update()
+        )
+        if membership is None:
+            return None
+        if membership.state is not MembershipState.INVITED:
+            raise RepositoryConflict("MEMBERSHIP_NOT_INVITED")
+        membership.state = MembershipState.ACTIVE
+        membership.joined_at = now
+        self.session.flush()
+        return self._membership_record(membership)
+
+    def leave_context(
+        self, context_id: uuid.UUID, person_id: uuid.UUID, now: datetime
+    ) -> MembershipRecord | None:
+        membership = self.session.scalar(
+            select(Membership)
+            .where(
+                Membership.context_id == context_id,
+                Membership.person_id == person_id,
+                Membership.state == MembershipState.ACTIVE,
+                Membership.left_at.is_(None),
+            )
+            .with_for_update()
+        )
+        if membership is None:
+            return None
+        # The database check constraint requires these two facts to move
+        # together; neither an open LEFT row nor a dated ACTIVE row is valid.
+        membership.state = MembershipState.LEFT
+        membership.left_at = now
+        self.session.flush()
+        return self._membership_record(membership)
+
+    def list_members(self, context_id: uuid.UUID) -> list[MembershipRecord]:
+        memberships = self.session.scalars(
+            select(Membership)
+            .where(
+                Membership.context_id == context_id,
+                Membership.left_at.is_(None),
+            )
+            .order_by(Membership.created_at, Membership.id)
+        )
+        return [self._membership_record(membership) for membership in memberships]
+
+    def is_member(self, context_id: uuid.UUID, person_id: uuid.UUID) -> bool:
+        return (
+            self.session.scalar(
+                select(Membership.id)
+                .where(
+                    Membership.context_id == context_id,
+                    Membership.person_id == person_id,
+                    Membership.state == MembershipState.ACTIVE,
+                    Membership.left_at.is_(None),
+                )
+                .limit(1)
+            )
+            is not None
+        )
 
     def create_expense(self, context_id: uuid.UUID) -> ExpenseIdentity:
         expense = Expense(context_id=context_id)
@@ -1188,7 +1348,9 @@ class SqlAlchemyApiRepository:
         link_ids = list(
             self.session.scalars(
                 select(GuestLink.id)
-                .join(CollectionEnvelope, CollectionEnvelope.id == GuestLink.envelope_id)
+                .join(
+                    CollectionEnvelope, CollectionEnvelope.id == GuestLink.envelope_id
+                )
                 .where(CollectionEnvelope.batch_version_id == version.id)
             )
         )
@@ -1367,11 +1529,13 @@ __all__ = [
     "BatchInputs",
     "ConfirmedExpense",
     "ConfirmationRecord",
+    "ContextRecord",
     "ExpenseIdentity",
     "FrozenBatch",
     "FrozenObligation",
     "GuestEnvelopeRecord",
     "GuestLinkDraft",
+    "MembershipRecord",
     "ObligationDraft",
     "PaymentReportRecord",
     "PaymentReportTarget",

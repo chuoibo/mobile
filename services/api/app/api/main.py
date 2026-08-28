@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.errors import ApiProblem
-from app.api.routes import batches, expenses, guests, obligations
+from app.api.routes import batches, contexts, expenses, guests, obligations
 from app.api.schemas import ErrorResponse
 
 WEB_ROOT = pathlib.Path(__file__).resolve().parents[1] / "web"
@@ -23,6 +23,7 @@ def create_app() -> FastAPI:
         name="static",
     )
     application.include_router(expenses.router)
+    application.include_router(contexts.router)
     application.include_router(batches.router)
     application.include_router(guests.router)
     application.include_router(obligations.router)

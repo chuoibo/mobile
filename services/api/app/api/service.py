@@ -14,20 +14,26 @@ from app.api.limits import OBJECTION_KINDS, QUOTA_CONSUMING_OBJECTIONS
 from app.api.repository import (
     ApiRepository,
     GuestLinkDraft,
+    MembershipRecord,
     ObligationDraft,
 )
 from app.api.schemas import (
     AllocationProposal,
     BatchCreateRequest,
+    BatchCreateResponse,
     BatchObligationsResponse,
     BatchObligationView,
-    BatchCreateResponse,
     BatchPublishRequest,
     BatchPublishResponse,
+    ContextCreateRequest,
+    ContextResponse,
     ExpenseConfirmationRequest,
     ExpenseConfirmationResponse,
     ExpenseInput,
     ExpenseProposalResponse,
+    MembershipInviteRequest,
+    MembershipListResponse,
+    MembershipResponse,
     ObligationResponse,
     PaymentReportRequest,
     PaymentReportResponse,
@@ -75,11 +81,19 @@ def _guest_actor(token: str) -> Actor:
     names the bearer without pretending to know which person is holding it,
     which is exactly the claim the guest page is careful never to make.
     """
-    return Actor(id=f"capability:{token_digest(token).hex()[:16]}", roles=frozenset({"guest"}), context_ids=frozenset())
+    return Actor(
+        id=f"capability:{token_digest(token).hex()[:16]}",
+        roles=frozenset({"guest"}),
+        context_ids=frozenset(),
+    )
 
 
 def _require_permission(
-    action: str, actor: Actor, context: dict, *, extra_roles: frozenset[str] | set[str] = frozenset()
+    action: str,
+    actor: Actor,
+    context: dict,
+    *,
+    extra_roles: frozenset[str] | set[str] = frozenset(),
 ) -> None:
     """The one place a permission is decided.
 
@@ -155,9 +169,125 @@ def _wire_allocation(result: dict) -> AllocationProposal:
     )
 
 
+def _wire_membership(record: MembershipRecord) -> MembershipResponse:
+    return MembershipResponse(
+        id=record.id,
+        context_id=record.context_id,
+        person_id=record.person_id,
+        state=record.state,
+        invited_by_id=record.invited_by_id,
+        joined_at=record.joined_at,
+        left_at=record.left_at,
+        created_at=record.created_at,
+    )
+
+
 class ApiService:
     def __init__(self, repository: ApiRepository):
         self.repository = repository
+
+    def create_context(
+        self, request: ContextCreateRequest, actor: Actor
+    ) -> ContextResponse:
+        _require_permission("create_context", actor, {})
+        context = self.repository.create_context(request.display_name, actor.id)
+
+        # A context must not be born with nobody allowed to administer it.
+        # Bootstrap the creator through the same invited -> active transition
+        # used by every later member, inside the request transaction.
+        membership = self.repository.add_member(context.id, actor.id, actor.id)
+        accepted = self.repository.accept_membership(membership.id, _now())
+        if accepted is None:
+            raise ApiProblem(
+                409,
+                "creator_membership_missing",
+                "Creator membership disappeared during context creation",
+            )
+        return ContextResponse(
+            id=context.id,
+            display_name=context.display_name,
+            created_by_id=context.created_by_id,
+            created_at=context.created_at,
+        )
+
+    def invite_context_member(
+        self,
+        context_id: uuid.UUID,
+        request: MembershipInviteRequest,
+        actor: Actor,
+    ) -> MembershipResponse:
+        _require_permission(
+            "invite_context_member",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        try:
+            membership = self.repository.add_member(
+                context_id, request.person_id, actor.id
+            )
+        except RepositoryConflict as exc:
+            raise ApiProblem(
+                409, exc.code.lower(), "Membership invitation conflicted"
+            ) from exc
+        return _wire_membership(membership)
+
+    def accept_context_membership(
+        self, membership_id: uuid.UUID, actor: Actor
+    ) -> MembershipResponse:
+        try:
+            membership = self.repository.accept_membership(membership_id, _now())
+        except RepositoryConflict as exc:
+            raise ApiProblem(
+                409, exc.code.lower(), "Membership acceptance conflicted"
+            ) from exc
+        if membership is None:
+            raise ApiProblem(404, "membership_not_found", "Membership does not exist")
+
+        # The transition is flushed before this check because the requested
+        # repository contract exposes no separate membership lookup. A denial
+        # raises from the request transaction, so PostgreSQL rolls it back.
+        _require_permission(
+            "accept_context_membership",
+            actor,
+            {"is_invitee": membership.person_id == actor.id},
+        )
+        return _wire_membership(membership)
+
+    def leave_context(
+        self, context_id: uuid.UUID, person_id: uuid.UUID, actor: Actor
+    ) -> None:
+        _require_permission(
+            "leave_context",
+            actor,
+            {
+                "is_group_member": self.repository.is_member(context_id, actor.id),
+                "is_self": actor.id == person_id,
+            },
+        )
+        membership = self.repository.leave_context(context_id, person_id, _now())
+        if membership is None:
+            raise ApiProblem(
+                404, "membership_not_found", "Active membership does not exist"
+            )
+
+    def list_context_members(
+        self, context_id: uuid.UUID, actor: Actor
+    ) -> MembershipListResponse:
+        # Former members are denied. Historical obligations remain visible
+        # through their own scoped resources; the current roster is current
+        # group data and must not extend access after somebody leaves.
+        _require_permission(
+            "view_context_members",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        return MembershipListResponse(
+            context_id=context_id,
+            members=[
+                _wire_membership(member)
+                for member in self.repository.list_members(context_id)
+            ],
+        )
 
     def propose_expense(self, proposal: ExpenseInput) -> ExpenseProposalResponse:
         try:
@@ -520,7 +650,9 @@ class ApiService:
 
     def wrong_amount_view(self, token: str, obligation_id: str) -> dict:
         try:
-            return build_wrong_amount_view(self._objection_envelope(token), obligation_id)
+            return build_wrong_amount_view(
+                self._objection_envelope(token), obligation_id
+            )
         except ObjectionError as exc:
             raise ApiProblem(409, exc.code, "Objection page is not renderable") from exc
 
@@ -578,7 +710,9 @@ class ApiService:
         """
         if kind not in OBJECTION_KINDS:
             raise ApiProblem(422, "unknown_objection", "Unknown objection kind")
-        if reason is not None and reason not in {value for value, _ in OBJECTION_REASONS}:
+        if reason is not None and reason not in {
+            value for value, _ in OBJECTION_REASONS
+        }:
             # A closed list, because free text from a stranger is where the
             # group accidentally learns something, and where a bookkeeping
             # question arrives in a tone that starts an argument.
@@ -605,7 +739,9 @@ class ApiService:
                 for block in envelope["obligations"]
             )
             if not in_scope:
-                raise ApiProblem(404, "unknown_obligation", "No such obligation on this link")
+                raise ApiProblem(
+                    404, "unknown_obligation", "No such obligation on this link"
+                )
 
         # Indexed, not .get() with a default. The defaults scattered through
         # this codebase said 2 while the repository enforced 3, so the page
@@ -629,10 +765,14 @@ class ApiService:
                 None,
             )
             used = block["objections_used"] if block else envelope["objections_used"]
-            allowed = block["objections_allowed"] if block else envelope["objections_allowed"]
+            allowed = (
+                block["objections_allowed"] if block else envelope["objections_allowed"]
+            )
             if used >= allowed:
                 raise ApiProblem(
-                    429, "objection_rate_limited", "Too many objections on this obligation"
+                    429,
+                    "objection_rate_limited",
+                    "Too many objections on this obligation",
                 )
 
         self.repository.save_guest_objection(
