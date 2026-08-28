@@ -5,11 +5,20 @@
  * that comes out the other end -- through `src/api.ts`, not through hand-rolled
  * requests, so a client that drifts from the contract fails here.
  *
- * Needs a live server. Skips loudly when there is not one, because a skip is
- * not a pass and this file exists precisely to catch what the fakes cannot.
+ * Needs a live server. Skips when there is not one, because a developer with
+ * no Postgres should still be able to run the rest of the suite.
  *
  *     cd services/api && MOBILE_DATABASE_URL=... uvicorn app.api.main:app --port 8099
  *     cd apps/mobile && npm run test:e2e
+ *
+ * A skip is not a pass, and this file exists precisely to catch what the fakes
+ * cannot -- so the skip has to be refusable. `MOBILE_REQUIRE_E2E=1` turns a
+ * missing server into a failure, which is the form anyone claiming "the app
+ * runs against the real API" has to run. Same convention as the backend's
+ * `MOBILE_REQUIRE_POSTGRES_TESTS`, deliberately: one thing to remember rather
+ * than two. Without it, the honest report of this suite is "39 passed, 1
+ * skipped" -- and a skipped end-to-end reads exactly like a green one in a
+ * summary line, which is how the slice sat unproven for a week.
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -60,11 +69,36 @@ async function serverIsUp() {
   }
 }
 
-test("một khoản chi đi hết đường tới link của khách", async (t) => {
-  if (!(await serverIsUp())) {
-    t.skip(`khong co server tai ${BASE_URL} — chay uvicorn roi chay lai`);
-    return;
+/** Set to anything non-empty when a skip must be read as a failure. */
+const REQUIRED = Boolean(process.env.MOBILE_REQUIRE_E2E);
+
+/**
+ * Decide whether this test can run, honouring the refusal flag.
+ *
+ * Shared rather than inlined per test, because the flag is only worth having
+ * if it covers every test in the file. One ungated skip left here would let
+ * `MOBILE_REQUIRE_E2E=1` report success while quietly running nothing, which
+ * is the exact failure the flag exists to make impossible.
+ *
+ * @returns true when the caller should return early.
+ */
+async function skipWithoutServer(t) {
+  if (await serverIsUp()) return false;
+  if (REQUIRED) {
+    // Thrown rather than skipped: the caller said out loud that a run
+    // without a server is a failed run, and honouring that is the only way
+    // this file can back the claim it is cited for.
+    assert.fail(
+      `MOBILE_REQUIRE_E2E dat roi nhung khong co server tai ${BASE_URL}. ` +
+        `Chay uvicorn tren cong do roi chay lai.`,
+    );
   }
+  t.skip(`khong co server tai ${BASE_URL} — chay uvicorn roi chay lai`);
+  return true;
+}
+
+test("một khoản chi đi hết đường tới link của khách", async (t) => {
+  if (await skipWithoutServer(t)) return;
 
   const draft = {
     participants: [NAM, HA, QUYEN],
@@ -247,10 +281,7 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
 });
 
 test("bấm hai lần chỉ ghi một khoản chi", async (t) => {
-  if (!(await serverIsUp())) {
-    t.skip(`khong co server tai ${BASE_URL} — chay uvicorn roi chay lai`);
-    return;
-  }
+  if (await skipWithoutServer(t)) return;
 
   // The reported bug, end to end. Two identical `POST /expenses` with no
   // `Idempotency-Key` left two rows in `expenses`; the client sent no such
