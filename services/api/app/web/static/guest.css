@@ -61,8 +61,14 @@ body {
   -webkit-font-smoothing: antialiased;
   padding: max(1rem, env(safe-area-inset-top)) 1rem
            max(2rem, env(safe-area-inset-bottom));
+  /* A single centred column, said out loud. The default `row` put anything
+     added after <main> beside it instead of under it, and the preview's state
+     switcher did exactly that -- squashing the card to half the width of a
+     390px screen. The product page has no second element today, which is
+     precisely why the bug only appeared where a human looks at it. */
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
 }
 
 .sheet {

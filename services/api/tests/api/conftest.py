@@ -289,9 +289,7 @@ class FakeRepository:
                 if receipt.obligation_id == item.id
             ]
             status = obligation_status(
-                item.amount_vnd,
-                [{"amount_vnd": amount} for amount in receipts],
-                disputed=str(item.id) in disputed_ids,
+                item.amount_vnd, [{"amount_vnd": amount} for amount in receipts]
             )
             note = f"TT {item.id.hex[:8]}"
             payload = build_payload(
@@ -303,7 +301,7 @@ class FakeRepository:
             blocks.append(
                 {
                     "obligation_id": str(item.id),
-                    "disputed": status == "disputed",
+                    "disputed": str(item.id) in disputed_ids,
                     "occasion_label": "bữa tối",
                     "amount_vnd": item.amount_vnd,
                     "recipient_display_name": "Nam",
@@ -443,10 +441,9 @@ class FakeRepository:
                     recipient_id=getattr(item, "recipient_id", item.sender_id),
                     amount_vnd=item.amount_vnd,
                     status=obligation_status(
-                        item.amount_vnd,
-                        [{"amount_vnd": amount} for amount in receipts],
-                        disputed=key in disputes,
+                        item.amount_vnd, [{"amount_vnd": amount} for amount in receipts]
                     ),
+                    disputed=key in disputes,
                     disputed_reason=disputes.get(key),
                 )
             )

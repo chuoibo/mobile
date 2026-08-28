@@ -142,8 +142,6 @@ def confirmed_total(receipt_confirmations: list[dict]) -> int:
 def obligation_status(
     declared_amount_vnd: int,
     receipt_confirmations: list[dict],
-    *,
-    disputed: bool = False,
 ) -> str:
     """Derive status from confirmed amounts. Never stored as an enum.
 
@@ -158,23 +156,29 @@ def obligation_status(
     a sender can overpay, and the ledger must be able to show that rather than
     clamp it out of sight.
 
-    `disputed` is section 8.2: someone has said this amount is wrong, and
-    collection on THIS obligation stops until that is settled -- while every
-    other obligation in the same batch carries on untouched. It is passed in
-    rather than derived here because the evidence for it lives in the event
-    log, and this module does not read storage.
+    A dispute is deliberately NOT one of these values. It used to be, with
+    "money already arrived outranks a dispute" as the tie-break, and QA broke
+    that rule from both sides within an hour:
 
-    Money that already arrived outranks a dispute. Once an obligation is
-    `confirmed` or `over_confirmed` there is nothing left to collect, so
-    marking it disputed would stop a collection that already ended and hide a
-    payment that already happened. A disagreement after the fact is a
-    conversation, not a collection state.
+    - the recipient could erase a guest's objection by confirming receipt,
+      which is a click available to exactly the party with an incentive to
+      make the objection disappear, and
+    - a guest who objected AFTER a mistaken confirmation could never be
+      shown as disputed at all.
+
+    The mistake was collapsing two independent questions into one field. "Has
+    the money arrived" and "is there an unresolved disagreement" are different
+    facts, they move for different reasons, and only one of them is settled by
+    a receipt. So this function answers the first, and `disputed` travels
+    beside it -- cleared by the person who raised it, never by the person being
+    objected to.
+
+    `receiver_confirmed` is not bank evidence. It should not be able to close
+    an argument either.
     """
     if declared_amount_vnd <= 0:
         raise LedgerError("NON_POSITIVE_OBLIGATION")
     confirmed = confirmed_total(receipt_confirmations)
-    if disputed and confirmed < declared_amount_vnd:
-        return "disputed"
     if confirmed == 0:
         return "outstanding"
     if confirmed < declared_amount_vnd:

@@ -182,9 +182,11 @@ class ReceiptConfirmationResponse(ApiModel):
 class BatchObligationView(ApiModel):
     """One obligation on the collection board.
 
-    `disputed` is a status, not a flag beside one: an obligation somebody has
-    objected to is not outstanding, and showing it as outstanding is what let
-    a collection round keep running over an open objection.
+    Two independent facts, deliberately kept apart. `obligation_status` says
+    whether the money arrived; `disputed` says whether anybody disagrees. They
+    were one field once, and that let the recipient close an argument by
+    confirming receipt -- a click belonging to exactly the party the objection
+    was against.
     """
 
     obligation_id: UUID
@@ -192,8 +194,9 @@ class BatchObligationView(ApiModel):
     recipient_id: UUID
     amount_vnd: PositiveMoneyVnd
     obligation_status: Literal[
-        "outstanding", "partially_confirmed", "confirmed", "over_confirmed", "disputed"
+        "outstanding", "partially_confirmed", "confirmed", "over_confirmed"
     ]
+    disputed: bool = False
     disputed_reason: StrictStr | None = None
 
 
@@ -201,7 +204,9 @@ class BatchObligationsResponse(ApiModel):
     batch_id: UUID
     obligations: list[BatchObligationView]
     # Counted here so the board does not have to, and so "how many need a
-    # human" is one number rather than a filter someone might forget.
+    # human" is one number rather than a filter someone might forget. It
+    # counts OPEN objections at any payment status: an obligation that was
+    # paid and is still argued about still needs a person.
     disputed_count: int
 
 

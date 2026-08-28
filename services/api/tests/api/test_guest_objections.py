@@ -327,9 +327,12 @@ class TestADisputeStopsExactlyOneObligation:
 
         after = self._board(client, batch["batch_id"])
         rows = {row["obligation_id"]: row for row in after["obligations"]}
-        assert rows[target]["obligation_status"] == "disputed"
+        assert rows[target]["disputed"] is True
         assert rows[target]["disputed_reason"] == "amount_too_high"
         assert after["disputed_count"] == 1
+        # The payment status is a separate fact and is unchanged: nobody has
+        # sent or received anything by objecting.
+        assert rows[target]["obligation_status"] == "outstanding"
 
     def test_every_other_obligation_is_untouched(self, client, repository):
         # Three participants, so two people owe the advancer and the batch has
@@ -357,9 +360,9 @@ class TestADisputeStopsExactlyOneObligation:
             row["obligation_id"]: row
             for row in self._board(client, batch["batch_id"])["obligations"]
         }
-        assert rows[target]["obligation_status"] == "disputed"
+        assert rows[target]["disputed"] is True
         for other in others:
-            assert rows[other]["obligation_status"] != "disputed", (
+            assert rows[other]["disputed"] is False, (
                 "one objection stopped a different person's obligation"
             )
 
@@ -458,3 +461,93 @@ class TestTheCollectionBoardIsNotPublic:
         batch_id = self._batch(client, repository)
         response = client.get(f"/batches/{batch_id}/obligations")
         assert response.status_code == 401, response.text
+
+
+class TestAReceiptCannotCloseAnArgument:
+    """Both of these were found by QA attacking a rule I wrote myself.
+
+    The rule was "money that already arrived outranks a dispute", with
+    `disputed` folded into `obligation_status`. It broke from both directions
+    within an hour, and both breaks had the same shape: the person a guest is
+    objecting to could make the objection disappear, or prevent it existing,
+    with a click that belongs to them.
+    """
+
+    @staticmethod
+    def _board(client, batch_id):
+        response = client.get(
+            f"/batches/{batch_id}/obligations", headers=actor_headers()
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    @staticmethod
+    def _published(client, repository):
+        propose_and_confirm(client)
+        batch = create_batch(client, repository)
+        published = publish_batch(client, batch["batch_id"])
+        return batch["batch_id"], published["guest_links"][0]["path"]
+
+    def _confirm_full_receipt(self, client, obligation_id, amount_vnd):
+        return client.post(
+            f"/obligations/{obligation_id}/confirm-receipt",
+            headers=actor_headers(),
+            json={"amount_vnd": amount_vnd, "idempotency_key": str(uuid.uuid4())},
+        )
+
+    def test_the_recipient_cannot_erase_a_dispute_by_confirming_receipt(
+        self, client, repository
+    ):
+        """QA finding 2. The recipient is the party being objected to, and
+        confirming receipt is their click. If it cleared the objection, an
+        argument would end whenever the person on the other side of it said so.
+        """
+        batch_id, path = self._published(client, repository)
+        row = self._board(client, batch_id)["obligations"][0]
+
+        client.post(
+            f"{path}/doi-so-tien",
+            data={"obligation_id": row["obligation_id"], "reason": "amount_too_high"},
+            follow_redirects=False,
+        )
+        assert self._board(client, batch_id)["disputed_count"] == 1
+
+        self._confirm_full_receipt(client, row["obligation_id"], row["amount_vnd"])
+
+        after = self._board(client, batch_id)
+        target = [
+            item
+            for item in after["obligations"]
+            if item["obligation_id"] == row["obligation_id"]
+        ][0]
+        assert target["obligation_status"] == "confirmed", "the money did arrive"
+        assert target["disputed"] is True, "confirming receipt erased the objection"
+        assert after["disputed_count"] == 1
+
+    def test_a_guest_can_still_object_after_a_mistaken_confirmation(
+        self, client, repository
+    ):
+        """QA finding 3. A recipient can confirm the wrong obligation. If that
+        locked the guest out of objecting, the only person who could report the
+        mistake would be the person who made it."""
+        batch_id, path = self._published(client, repository)
+        row = self._board(client, batch_id)["obligations"][0]
+
+        self._confirm_full_receipt(client, row["obligation_id"], row["amount_vnd"])
+        assert self._board(client, batch_id)["disputed_count"] == 0
+
+        client.post(
+            f"{path}/doi-so-tien",
+            data={"obligation_id": row["obligation_id"], "reason": "already_paid"},
+            follow_redirects=False,
+        )
+
+        after = self._board(client, batch_id)
+        target = [
+            item
+            for item in after["obligations"]
+            if item["obligation_id"] == row["obligation_id"]
+        ][0]
+        assert target["disputed"] is True, "a guest was locked out of objecting"
+        assert target["disputed_reason"] == "already_paid"
+        assert after["disputed_count"] == 1

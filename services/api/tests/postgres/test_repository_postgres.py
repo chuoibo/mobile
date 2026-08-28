@@ -567,20 +567,20 @@ def test_expected_rows_exist_in_real_tables(postgres_session: Session):
         assert count == expected, model.__tablename__
 
 
-def test_money_that_already_arrived_outranks_a_late_objection(
+def test_a_paid_obligation_can_still_be_disputed(
     postgres_session: Session,
 ):
-    """PR11-03, and a rule the real database made me state out loud.
+    """The rule this test used to assert has been withdrawn.
 
-    The lifecycle fixture ends with the obligation fully confirmed: 15.000 plus
-    25.000 against a 40.000 obligation. I first asserted that an objection here
-    flips it to `disputed`, and PostgreSQL said no -- correctly. Once an
-    obligation is confirmed there is nothing left to collect, so marking it
-    disputed would stop a collection that already ended and hide a payment that
-    already happened. A disagreement after the fact is a conversation, not a
-    collection state.
+    It said money already received outranked a dispute, so an objection on a
+    confirmed obligation left it `confirmed` and nothing else. QA showed that
+    handed the recipient an eraser: confirm receipt, and the guest's objection
+    stops appearing. Payment and disagreement are separate facts now, and a
+    receipt settles only the first.
 
-    The fake let the wrong expectation through. This is the layer that did not.
+    The lifecycle fixture ends fully confirmed -- 15.000 plus 25.000 against
+    40.000 -- which makes it exactly the case that used to swallow the
+    objection.
     """
     state = _persist_lifecycle(postgres_session)
     repository = SqlAlchemyApiRepository(postgres_session)
@@ -604,9 +604,8 @@ def test_money_that_already_arrived_outranks_a_late_objection(
         row for row in board.obligations if row.obligation_id == state.obligation_id
     ]
     assert target, "the obligation vanished from the board"
-    assert target[0].status == "confirmed"
-    # The objection is not lost -- it is recorded and readable, it just does
-    # not reopen a settled obligation.
+    assert target[0].status == "confirmed", "the money did arrive"
+    assert target[0].disputed is True, "a receipt swallowed the objection"
     assert target[0].disputed_reason == "amount_too_high"
 
 
@@ -626,6 +625,7 @@ def test_an_objection_disputes_an_outstanding_obligation_in_postgres(
     before = repository.list_batch_obligations(state.batch_id)
     assert before is not None
     assert [row.status for row in before.obligations] == ["outstanding"]
+    assert [row.disputed for row in before.obligations] == [False]
 
     repository.save_guest_objection(
         token_digest=state.token_digest,
@@ -641,7 +641,8 @@ def test_an_objection_disputes_an_outstanding_obligation_in_postgres(
     target = [
         row for row in after.obligations if row.obligation_id == state.obligation_id
     ]
-    assert target and target[0].status == "disputed"
+    assert target and target[0].disputed is True
+    assert target[0].status == "outstanding", "objecting is not paying"
     assert target[0].disputed_reason == "amount_too_high"
 
     envelope = repository.get_guest_envelope(
