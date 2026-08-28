@@ -694,3 +694,143 @@ __all__ = [
     "ReceiptConfirmation",
     "VerificationScope",
 ]
+
+
+class MembershipState(StrEnum):
+    """Where a person stands in a group.
+
+    `INVITED` exists because being added to a group is something that happens
+    to you. Section 9 treats membership as a permission boundary, and a
+    boundary somebody was placed inside without agreeing is not one.
+    """
+
+    INVITED = "invited"
+    ACTIVE = "active"
+    LEFT = "left"
+
+
+class Person(Base):
+    """One human being, stable across groups and across display names.
+
+    Identity is an id, never a name. Two friends called Nam are two people, and
+    anything keyed by name collapses them into one -- which in this product
+    means one of them silently stops owing money. The mobile client learned the
+    same lesson the same way.
+
+    `display_name` is what a person is shown as. It can change, it can repeat
+    inside one group, and nothing may be derived from it.
+    """
+
+    __tablename__ = "people"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class Context(Base):
+    """A group of people who share expenses.
+
+    Called `context` because every table that already references one calls it
+    `context_id` -- and those columns were plain UUIDs pointing at nothing.
+    An id with no table behind it looks like a relationship and enforces
+    nothing: any UUID was a valid group, including one nobody belongs to.
+
+    Renaming to `group` would read better and would touch eighteen tables and
+    a migration for a word. The columns stay; what changes is that they now
+    point somewhere.
+    """
+
+    __tablename__ = "contexts"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("people.id", name="fk_contexts_created_by"),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class Membership(Base):
+    """One person's standing in one group, over time.
+
+    Leaving is recorded, not deleted. A person who leaves still appears in the
+    obligations they were part of, and erasing the membership row would leave
+    those pointing at somebody who, as far as the database is concerned, was
+    never in the group. Money that was owed does not stop having been owed.
+
+    Re-joining creates a NEW row rather than reviving the old one. The two
+    stretches are different facts: what someone could see during the first is
+    not what they may see during the second, and one row cannot answer both.
+    The partial unique index below is what makes that safe -- at most one
+    membership that has not ended, per person per group. It cannot be expressed
+    in a dict-backed fake, which is exactly why the PostgreSQL tests exist.
+    """
+
+    __tablename__ = "memberships"
+    __table_args__ = (
+        Index(
+            "uq_memberships_open_per_person",
+            "context_id",
+            "person_id",
+            unique=True,
+            postgresql_where=text("left_at IS NULL"),
+        ),
+        Index("ix_memberships_person_open", "person_id", postgresql_where=text("left_at IS NULL")),
+        CheckConstraint(
+            "(state = 'left') = (left_at IS NOT NULL)",
+            # The convention adds the `ck_<table>_` prefix; naming it here too
+            # produced `ck_memberships_ck_memberships_...`, which is how a
+            # constraint name creeps toward the 63-character limit that has
+            # already bitten this repo once.
+            name="left_state_matches_timestamp",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    context_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("contexts.id", name="fk_memberships_context"),
+        nullable=False,
+    )
+    person_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_memberships_person"),
+        nullable=False,
+    )
+    state: Mapped[MembershipState] = mapped_column(
+        # `_enum_type`, not a fresh `Enum(...)`. The helper passes
+        # `values_callable`, which stores the enum VALUE. Declaring it by
+        # hand stored the NAME instead -- `LEFT` where the check constraint
+        # below looks for `left` -- so the constraint could never match and
+        # leaving a group failed outright. PostgreSQL caught it; a fake
+        # holding Python objects never would have.
+        _enum_type(MembershipState, "membership_state"),
+        nullable=False,
+        default=MembershipState.INVITED,
+    )
+    invited_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_memberships_invited_by"),
+        nullable=True,
+    )
+    joined_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    left_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
