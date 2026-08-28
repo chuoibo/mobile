@@ -594,9 +594,15 @@ def test_money_that_already_arrived_outranks_a_late_objection(
     )
     postgres_session.flush()
 
-    rows = repository.list_batch_obligations(state.batch_id)
-    assert rows is not None, "the collection board could not find the batch"
-    target = [row for row in rows if row.obligation_id == state.obligation_id]
+    board = repository.list_batch_obligations(state.batch_id)
+    assert board is not None, "the collection board could not find the batch"
+    # The board carries the context that owns it, so the service can decide who
+    # may read it. It shipped without that and QA read a whole batch as a
+    # stranger.
+    assert board.context_id == state.context_id
+    target = [
+        row for row in board.obligations if row.obligation_id == state.obligation_id
+    ]
     assert target, "the obligation vanished from the board"
     assert target[0].status == "confirmed"
     # The objection is not lost -- it is recorded and readable, it just does
@@ -619,7 +625,7 @@ def test_an_objection_disputes_an_outstanding_obligation_in_postgres(
 
     before = repository.list_batch_obligations(state.batch_id)
     assert before is not None
-    assert [row.status for row in before] == ["outstanding"]
+    assert [row.status for row in before.obligations] == ["outstanding"]
 
     repository.save_guest_objection(
         token_digest=state.token_digest,
@@ -632,7 +638,9 @@ def test_an_objection_disputes_an_outstanding_obligation_in_postgres(
 
     after = repository.list_batch_obligations(state.batch_id)
     assert after is not None
-    target = [row for row in after if row.obligation_id == state.obligation_id]
+    target = [
+        row for row in after.obligations if row.obligation_id == state.obligation_id
+    ]
     assert target and target[0].status == "disputed"
     assert target[0].disputed_reason == "amount_too_high"
 

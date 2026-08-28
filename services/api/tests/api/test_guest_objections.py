@@ -404,3 +404,57 @@ class TestAskingHowANumberWasReachedIsNotAnObjection:
         )
 
         assert response.status_code != 429, response.text
+
+
+class TestTheCollectionBoardIsNotPublic:
+    """QA called this endpoint as a stranger and read the whole batch.
+
+    The service took an `actor` argument and never looked at it, so any valid
+    actor header plus a batch id returned every sender, every recipient, every
+    amount, and the private reason a guest gave for objecting. The parameter
+    being there is what made it look checked.
+    """
+
+    @staticmethod
+    def _batch(client, repository):
+        propose_and_confirm(client)
+        batch = create_batch(client, repository)
+        publish_batch(client, batch["batch_id"])
+        return batch["batch_id"]
+
+    def test_a_member_of_the_group_can_read_it(self, client, repository):
+        batch_id = self._batch(client, repository)
+        response = client.get(
+            f"/batches/{batch_id}/obligations", headers=actor_headers()
+        )
+        assert response.status_code == 200, response.text
+
+    def test_somebody_from_another_group_cannot(self, client, repository):
+        batch_id = self._batch(client, repository)
+        outsider = {
+            "X-Actor-ID": str(uuid.uuid4()),
+            "X-Actor-Roles": "member",
+            "X-Actor-Contexts": str(uuid.uuid4()),
+        }
+
+        response = client.get(f"/batches/{batch_id}/obligations", headers=outsider)
+
+        assert response.status_code == 403, response.text
+        # And nothing leaks in the refusal itself.
+        for leaked in ("amount_vnd", "sender_id", "disputed_reason"):
+            assert leaked not in response.text
+
+    def test_an_actor_with_no_context_at_all_cannot(self, client, repository):
+        batch_id = self._batch(client, repository)
+        response = client.get(
+            f"/batches/{batch_id}/obligations",
+            headers={"X-Actor-ID": str(uuid.uuid4()), "X-Actor-Roles": "member"},
+        )
+        assert response.status_code == 403, response.text
+
+    def test_no_actor_header_is_refused_before_anything_is_read(
+        self, client, repository
+    ):
+        batch_id = self._batch(client, repository)
+        response = client.get(f"/batches/{batch_id}/obligations")
+        assert response.status_code == 401, response.text
