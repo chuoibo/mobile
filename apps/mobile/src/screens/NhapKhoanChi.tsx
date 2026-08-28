@@ -117,9 +117,13 @@ export function NhapKhoanChi({
         <>
           {duplicated.length > 0 ? (
             <Text style={{ ...type.label, color: c.warn }}>
-              Có hai người tên {duplicated.join(", ")}. Chia tiền vẫn đúng vì mỗi
-              người có mã riêng, nhưng thêm gì đó để phân biệt sẽ dễ đọc hơn —
-              ví dụ Nam A và Nam B.
+              {/* Said "hai người" whatever the count, so three people called
+                  Nam read as two, and two duplicated names read as one pair.
+                  QA caught it with three Nams on screen and a banner
+                  insisting there were two. */}
+              Có người trùng tên: {duplicated.join(", ")}. Chia tiền vẫn đúng vì
+              mỗi người có mã riêng, và danh sách đã đánh số để phân biệt — thêm
+              gì đó vào tên sẽ dễ đọc hơn.
             </Text>
           ) : null}
           <Button

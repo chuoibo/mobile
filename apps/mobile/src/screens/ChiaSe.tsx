@@ -17,20 +17,44 @@ export function ChiaSe({ envelopes, onDone }: { envelopes: Envelope[]; onDone: (
   const c = usePalette();
   const [shared, setShared] = useState<Record<string, boolean>>({});
 
+  const [problem, setProblem] = useState<string | null>(null);
+
   async function shareOne(envelope: Envelope) {
     // One capability, one person, one share sheet. The warning goes in the
     // message body so it travels with the link.
-    await Share.share({
-      message: `Phần của ${envelope.senderName}: ${formatVnd(envelope.amountVnd)}đ\n${envelope.url}\n\nLink này dành cho ${envelope.senderName}; ai có link đều xem được phần của ${envelope.senderName}.`,
-    });
-    setShared((s) => ({ ...s, [envelope.senderId]: true }));
+    const message =
+      `Phần của ${envelope.senderName}: ${formatVnd(envelope.amountVnd)}đ\n${envelope.url}\n\n` +
+      `Link này dành cho ${envelope.senderName}; ai có link đều xem được phần của ${envelope.senderName}.`;
+    try {
+      const result = await Share.share({ message });
+      // A person can open the sheet and back out. That is not sending, and
+      // marking it sent would tell the organiser a lie about who has been
+      // contacted -- the one thing this screen exists to keep track of.
+      if (result.action === Share.dismissedAction) return;
+      setShared((current) => ({ ...current, [envelope.senderId]: true }));
+      setProblem(null);
+    } catch {
+      // There is no share sheet in a desktop browser, and the rejection used
+      // to escape as an unhandled promise. Say what to do instead of dying:
+      // the link is the deliverable, and it can be copied by hand.
+      setProblem(
+        `Máy này không mở được khay chia sẻ. Chép link của ${envelope.senderName} rồi gửi tay: ${envelope.url}`,
+      );
+    }
   }
 
   return (
     <Screen
       title="Chia sẻ"
       hint="Mỗi người một link riêng. Gửi riêng cho từng người."
-      footer={<Button label="Xong" tone="quiet" onPress={onDone} />}
+      footer={
+        <>
+          {problem ? (
+            <Text style={{ ...type.label, color: c.warn }}>{problem}</Text>
+          ) : null}
+          <Button label="Xong" tone="quiet" onPress={onDone} />
+        </>
+      }
     >
       <Card>
         <Text style={{ ...type.label, color: c.inkSoft }}>
