@@ -276,3 +276,7 @@ dist-test/
 # the app still bundles; keeping its output would put a build artifact in the
 # history for a test that runs in five seconds.
 .expo-build-check/
+
+# Impeccable: ảnh chụp để review, là bằng chứng của một lần chạy chứ không phải
+# nguồn. Repo guard fail closed với binary nên chúng không được vào Git.
+.impeccable/review/
