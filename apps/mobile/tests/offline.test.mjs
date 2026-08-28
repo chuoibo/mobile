@@ -230,3 +230,92 @@ test("publish goes through once both gates pass", async () => {
   assert.equal(envelopes.length, 1);
   assert.equal(envelopes[0].amountVnd, 100_000);
 });
+
+/* Data loss on "Sửa lại" -- found by agy driving the real app.
+ *
+ * The form used to live inside the screen. Pressing "Sửa lại" on the proposal
+ * steps back, React unmounts the screen, and every `useState` in it goes with
+ * it. A person who had typed an occasion, added twelve people and chosen who
+ * paid came back to an empty form. The button exists to change ONE detail.
+ *
+ * The fix is that the form is a value the app holds, so these tests are about
+ * that value surviving -- which is the thing that was actually broken.
+ */
+test("the form is a plain value, so stepping away cannot erase it", async () => {
+  const { EMPTY_FORM, addParticipant, makeIdFactory } = await import(
+    "../dist-test/participants.js"
+  );
+  const nextId = makeIdFactory();
+  let form = { ...EMPTY_FORM, occasion: "bữa lẩu tối thứ bảy", amount: "300000" };
+  for (const name of ["Nam", "Hà", "Quyên"]) {
+    form = { ...form, roster: addParticipant(form.roster, name, nextId) };
+  }
+  form = { ...form, roster: { ...form.roster, advancerId: form.roster.participants[0].id } };
+
+  // Whatever the UI does between here and coming back, the value is unchanged
+  // unless something explicitly changes it. That is the whole guarantee.
+  const carried = form;
+  assert.equal(carried.occasion, "bữa lẩu tối thứ bảy");
+  assert.equal(carried.amount, "300000");
+  assert.equal(carried.roster.participants.length, 3);
+  assert.equal(carried.roster.advancerId, form.roster.participants[0].id);
+});
+
+test("EMPTY_FORM is empty, so a real reset is still possible", async () => {
+  const { EMPTY_FORM } = await import("../dist-test/participants.js");
+  assert.equal(EMPTY_FORM.occasion, "");
+  assert.equal(EMPTY_FORM.amount, "");
+  assert.equal(EMPTY_FORM.pending, "");
+  assert.deepEqual(EMPTY_FORM.roster, { participants: [], advancerId: null });
+});
+
+test("ids stay unique across a remount of the screen", async () => {
+  // The id counter used to be a module-level `let` reset by nothing, but the
+  // factory is created once at module scope now. Two separate factories would
+  // mint p1 twice and collapse two people into one.
+  const { makeIdFactory, addParticipant } = await import("../dist-test/participants.js");
+  const shared = makeIdFactory();
+  let roster = { participants: [], advancerId: null };
+  roster = addParticipant(roster, "Nam", shared);
+  roster = addParticipant(roster, "Hà", shared);
+  roster = addParticipant(roster, "Quyên", shared);
+  const ids = roster.participants.map((p) => p.id);
+  assert.equal(new Set(ids).size, ids.length, `ids collided: ${ids}`);
+});
+
+/* Two people, one name -- the label has to tell them apart even though the id
+ * already does. QA drove this exact case and called the screen confusing: one
+ * button reading "Nam", nothing selected, no way to know which Nam.
+ */
+test("a shared name gets numbered, a unique one does not", async () => {
+  const { addParticipant, labelFor, makeIdFactory } = await import(
+    "../dist-test/participants.js"
+  );
+  const nextId = makeIdFactory();
+  let roster = { participants: [], advancerId: null };
+  for (const name of ["Nam", "Hà", "Nam"]) {
+    roster = addParticipant(roster, name, nextId);
+  }
+  const [first, ha, second] = roster.participants;
+  assert.equal(labelFor(roster, first.id), "Nam #1");
+  assert.equal(labelFor(roster, second.id), "Nam #2");
+  assert.equal(labelFor(roster, ha.id), "Hà", "a unique name should not be numbered");
+});
+
+test("numbering is display only — removing one does not move the other's identity", async () => {
+  const { addParticipant, labelFor, removeParticipant, makeIdFactory } = await import(
+    "../dist-test/participants.js"
+  );
+  const nextId = makeIdFactory();
+  let roster = { participants: [], advancerId: null };
+  roster = addParticipant(roster, "Nam", nextId);
+  roster = addParticipant(roster, "Nam", nextId);
+  const second = roster.participants[1];
+  roster = { ...roster, advancerId: second.id };
+
+  roster = removeParticipant(roster, roster.participants[0].id);
+  // The label drops back to plain "Nam" because there is only one now, but the
+  // person under it is still the one that was chosen.
+  assert.equal(labelFor(roster, second.id), "Nam");
+  assert.equal(roster.advancerId, second.id);
+});

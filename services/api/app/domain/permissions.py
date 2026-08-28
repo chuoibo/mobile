@@ -47,6 +47,15 @@ _TABLE: dict[str, dict] = {
         "roles": {"advancer"},
         "requires": ("is_named_advancer",),
     },
+    # --- collection board ----------------------------------------------
+    # Reading who owes what, to whom, how much, and why somebody objected. The
+    # endpoint shipped without this entry and without the check that uses it:
+    # the service accepted an `actor` argument and never read it, so any valid
+    # actor header plus a batch id returned every sender, every amount, and the
+    # private reason a guest gave for disputing. Section 10 says visibility is
+    # fail-closed; an unused parameter is the most convincing way to look like
+    # it is while it is not.
+    "view_collection_board": {"roles": {"member"}, "requires": ("is_group_member",)},
     # --- bank recipient ------------------------------------------------
     # Section 9.2: an admin may not add or change someone else's bank account,
     # and an AdvancerApprovalCapability explicitly may not be used for this.

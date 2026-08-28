@@ -77,3 +77,49 @@ export function duplicateNames(roster: Roster): string[] {
   const names = roster.participants.map((p) => p.name);
   return [...new Set(names.filter((name, i) => names.indexOf(name) !== i))];
 }
+
+/**
+ * A label that tells two people apart when they share a name.
+ *
+ * QA drove the app with two people both called Nam, chose the second, removed
+ * the first, and reported the screen as confusing: one button reading "Nam"
+ * with nothing selected, and no way to tell whether that was the Nam they had
+ * picked. The ids were right the whole time -- the labels were not.
+ *
+ * Numbering is by position in the list, which is what a person sees, and it is
+ * only for reading. Nothing keys off it: identity stays with the id.
+ */
+export function labelFor(roster: Roster, id: string): string {
+  const person = roster.participants.find((p) => p.id === id);
+  if (!person) return id;
+  const sameName = roster.participants.filter((p) => p.name === person.name);
+  if (sameName.length < 2) return person.name;
+  return `${person.name} #${sameName.indexOf(person) + 1}`;
+}
+
+/** Everything the "new expense" screen is holding while a person fills it in.
+ *
+ * This lives outside the screen because the screen unmounts. Pressing "Sửa lại"
+ * on the proposal moves the app back a step, React tears the screen down, and
+ * every `useState` inside it goes with it -- so a person who had typed an
+ * occasion, added twelve people and chosen who paid came back to an empty form.
+ * The button exists to change one detail; it was erasing everything instead.
+ *
+ * Holding the form here, and letting the screen render it rather than own it,
+ * makes losing it impossible rather than unlikely.
+ */
+export type DraftForm = {
+  occasion: string;
+  /** The name half-typed in the "add someone" box, kept so it is not lost either. */
+  pending: string;
+  /** What the person typed for the amount, before parsing. Their text, not our number. */
+  amount: string;
+  roster: Roster;
+};
+
+export const EMPTY_FORM: DraftForm = {
+  occasion: "",
+  pending: "",
+  amount: "",
+  roster: { participants: [], advancerId: null },
+};

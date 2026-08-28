@@ -16,6 +16,7 @@ from typing import Protocol
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.api.limits import OBJECTION_LIMIT, REPORT_LIMIT
 from app.api.errors import RepositoryConflict
 from app.api.schemas import ExpenseInput
 from app.db.models import (
@@ -144,6 +145,41 @@ class BatchForPublish:
 
 
 @dataclass(frozen=True, slots=True)
+class BatchObligationRow:
+    """One obligation as the person collecting sees it.
+
+    Status is derived, never stored -- including `disputed`, which is read
+    back from the objection events rather than kept in a column that could
+    drift from them.
+    """
+
+    obligation_id: uuid.UUID
+    sender_id: uuid.UUID
+    recipient_id: uuid.UUID
+    amount_vnd: int
+    #: Whether the money arrived. Says nothing about whether anyone agrees.
+    status: str
+    #: Whether an objection is open. A receipt does not close one, because
+    #: the person confirming receipt is the person being objected to.
+    disputed: bool
+    disputed_reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class BatchBoard:
+    """The collection board plus the context that owns it.
+
+    `context_id` travels with the rows because the service cannot decide who
+    may read them without it, and looking it up separately is how a caller
+    forgets. Shipping the rows without it is exactly the mistake this type
+    exists to make impossible.
+    """
+
+    context_id: uuid.UUID
+    obligations: tuple[BatchObligationRow, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class GuestLinkDraft:
     sender_id: uuid.UUID
     token_digest: bytes
@@ -262,6 +298,27 @@ class ApiRepository(Protocol):
         now: datetime,
     ) -> PaymentReportRecord: ...
 
+    def save_guest_objection(
+        self,
+        *,
+        token_digest: bytes,
+        kind: str,
+        obligation_id: uuid.UUID | None,
+        reason: str | None,
+        now: datetime,
+    ) -> None:
+        """Record that a guest disagreed, and revoke the link for `not_me`.
+
+        Stored as an audit event rather than a new table. An objection IS an
+        audited fact -- who said what, about which obligation, when -- and the
+        append-only guarantee is exactly what it needs. A dedicated table would
+        have added a status column that could drift from the events.
+        """
+        ...
+
+
+    def list_batch_obligations(self, batch_id: uuid.UUID) -> BatchBoard | None: ...
+
     def get_receipt_target(self, obligation_id: uuid.UUID) -> ReceiptTarget | None: ...
 
     def save_receipt_confirmation(
@@ -279,7 +336,13 @@ class ApiRepository(Protocol):
 class SqlAlchemyApiRepository:
     """PostgreSQL implementation. One instance owns one request transaction."""
 
-    REPORT_LIMIT = 3
+
+    # Section 8.6 caps objections so a leaked link cannot be used to bury
+
+    # the recipient. Was hardcoded to zero while the two objection routes
+
+    # did not exist, which made both buttons dead before they 404ed.
+
 
     def __init__(self, session: Session):
         self.session = session
@@ -841,6 +904,36 @@ class SqlAlchemyApiRepository:
             ],
         )
 
+        # Asking for the calculation is stored as an audit event, same as an
+        # objection. Without reading it back the page offered the button
+        # forever and never acknowledged the ask.
+        evidence_asked = {
+            str(row["obligation_id"])
+            for row in self.session.scalars(
+                select(AuditEvent.event_data).where(
+                    AuditEvent.aggregate_type == "guest_link",
+                    AuditEvent.aggregate_id == link.id,
+                    AuditEvent.event_type == "guest_objection.evidence_request",
+                )
+            )
+            if row.get("obligation_id")
+        }
+        # Section 8.2. "This amount is wrong" stops collection on THAT
+        # obligation and nothing else. It was only ever written to the audit
+        # log, so the page could tell a guest their objection was recorded
+        # while every collection path carried on as if nothing had happened.
+        # Reading it back here is what turns a stored event into a state.
+        disputed_ids = {
+            str(row["obligation_id"])
+            for row in self.session.scalars(
+                select(AuditEvent.event_data).where(
+                    AuditEvent.aggregate_type == "guest_link",
+                    AuditEvent.aggregate_id == link.id,
+                    AuditEvent.event_type == "guest_objection.wrong_amount",
+                )
+            )
+            if row.get("obligation_id")
+        }
         blocks = []
         recorded_by_ids: set[uuid.UUID] = set()
         for obligation in obligations:
@@ -912,6 +1005,8 @@ class SqlAlchemyApiRepository:
                     "qr_payload": payload,
                     "qr_image_data_uri": payload_to_png_data_uri(payload),
                     "already_reported": already_reported,
+                    "evidence_requested": str(obligation.id) in evidence_asked,
+                    "disputed": str(obligation.id) in disputed_ids,
                     "receiver_confirmed": derived_status
                     in {"confirmed", "over_confirmed"},
                 }
@@ -919,6 +1014,15 @@ class SqlAlchemyApiRepository:
         report_count = self.session.scalar(
             select(func.count(PaymentReport.id)).where(
                 PaymentReport.guest_link_id == link.id
+            )
+        )
+        objection_count = self.session.scalar(
+            select(func.count(AuditEvent.id)).where(
+                AuditEvent.aggregate_type == "guest_link",
+                AuditEvent.aggregate_id == link.id,
+                AuditEvent.event_type.in_(
+                    ("guest_objection.not_me", "guest_objection.wrong_amount")
+                ),
             )
         )
         recorded_by = (
@@ -932,10 +1036,14 @@ class SqlAlchemyApiRepository:
             "link_state": state,
             "obligations": blocks,
             "reports_used": report_count,
-            "reports_allowed": self.REPORT_LIMIT,
-            # The current 18-table schema has no Dispute table yet.
-            "objections_used": 0,
-            "objections_allowed": 0,
+            "reports_allowed": REPORT_LIMIT,
+            # Objections are stored as audit events by save_guest_objection,
+            # so they can be counted without a Dispute table. Asking for the
+            # calculation is not an objection and does not spend the quota --
+            # charging someone for asking how a number was reached is how a
+            # group learns not to ask.
+            "objections_used": objection_count,
+            "objections_allowed": OBJECTION_LIMIT,
         }
         return GuestEnvelopeRecord(link_id=link.id, envelope=raw_envelope)
 
@@ -1027,6 +1135,80 @@ class SqlAlchemyApiRepository:
             receipt_amounts_vnd=self._receipt_amounts(report.obligation_id),
         )
 
+    def list_batch_obligations(self, batch_id: uuid.UUID) -> BatchBoard | None:
+        """What the person collecting needs to see, disputes included.
+
+        Without this there was no surface at all on which a "this amount is
+        wrong" could be noticed. A guest could file one, be told truthfully
+        that it had been recorded, and the collection round would carry on --
+        because nobody on the other side had anywhere to read it.
+        """
+        batch = self.session.get(CollectionBatch, batch_id)
+        if batch is None:
+            return None
+        version = self.session.scalar(
+            select(CollectionBatchVersion)
+            .where(CollectionBatchVersion.batch_id == batch_id)
+            .order_by(CollectionBatchVersion.version_number.desc())
+            .limit(1)
+        )
+        if version is None:
+            return None
+
+        obligations = list(
+            self.session.scalars(
+                select(CollectionObligation)
+                .where(CollectionObligation.batch_version_id == version.id)
+                .order_by(CollectionObligation.sender_id)
+            )
+        )
+
+        # One query for every dispute in this batch rather than one per
+        # obligation. The link ids are the aggregate the events hang off.
+        link_ids = list(
+            self.session.scalars(
+                select(GuestLink.id)
+                .join(CollectionEnvelope, CollectionEnvelope.id == GuestLink.envelope_id)
+                .where(CollectionEnvelope.batch_version_id == version.id)
+            )
+        )
+        disputes: dict[str, str | None] = {}
+        if link_ids:
+            for row in self.session.scalars(
+                select(AuditEvent.event_data).where(
+                    AuditEvent.aggregate_type == "guest_link",
+                    AuditEvent.aggregate_id.in_(link_ids),
+                    AuditEvent.event_type == "guest_objection.wrong_amount",
+                )
+            ):
+                target = row.get("obligation_id")
+                if target:
+                    # First reason wins: a second objection on the same
+                    # obligation does not overwrite why it was first raised.
+                    disputes.setdefault(str(target), row.get("reason"))
+
+        rows = []
+        for obligation in obligations:
+            key = str(obligation.id)
+            rows.append(
+                BatchObligationRow(
+                    obligation_id=obligation.id,
+                    sender_id=obligation.sender_id,
+                    recipient_id=obligation.recipient_id,
+                    amount_vnd=obligation.amount_vnd,
+                    status=obligation_status(
+                        obligation.amount_vnd,
+                        [
+                            {"amount_vnd": amount}
+                            for amount in self._receipt_amounts(obligation.id)
+                        ],
+                    ),
+                    disputed=key in disputes,
+                    disputed_reason=disputes.get(key),
+                )
+            )
+        return BatchBoard(context_id=batch.context_id, obligations=tuple(rows))
+
     def get_receipt_target(self, obligation_id: uuid.UUID) -> ReceiptTarget | None:
         obligation = self.session.scalar(
             select(CollectionObligation)
@@ -1110,6 +1292,44 @@ class SqlAlchemyApiRepository:
                 .order_by(ReceiptConfirmation.confirmed_at, ReceiptConfirmation.id)
             )
         )
+
+    def save_guest_objection(
+        self,
+        *,
+        token_digest: bytes,
+        kind: str,
+        obligation_id: uuid.UUID | None,
+        reason: str | None,
+        now: datetime,
+    ) -> None:
+        link = self.session.scalar(
+            select(GuestLink).where(GuestLink.token_digest == token_digest)
+        )
+        if link is None:
+            return
+
+        self.session.add(
+            AuditEvent(
+                actor_id=None,  # a guest has no account; the capability is the subject
+                event_type=f"guest_objection.{kind}",
+                aggregate_type="guest_link",
+                aggregate_id=link.id,
+                event_data={
+                    "kind": kind,
+                    "obligation_id": str(obligation_id) if obligation_id else None,
+                    "reason": reason,
+                },
+                occurred_at=now,
+            )
+        )
+
+        if kind == "not_me":
+            # The reader says this link is not theirs, so it stops showing an
+            # amount and an account number immediately. The obligation itself
+            # survives: section 8.2 is explicit that a dead link does not make
+            # a debt disappear.
+            link.status = GuestLinkStatus.REVOKED
+            link.revoked_at = now
 
 
 __all__ = [

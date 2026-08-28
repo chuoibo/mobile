@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 
 from app.api.deps import Actor
 from app.api.errors import ApiProblem, RepositoryConflict
+from app.api.limits import OBJECTION_KINDS, QUOTA_CONSUMING_OBJECTIONS
 from app.api.repository import (
     ApiRepository,
     GuestLinkDraft,
@@ -18,6 +19,8 @@ from app.api.repository import (
 from app.api.schemas import (
     AllocationProposal,
     BatchCreateRequest,
+    BatchObligationsResponse,
+    BatchObligationView,
     BatchCreateResponse,
     BatchPublishRequest,
     BatchPublishResponse,
@@ -47,6 +50,12 @@ from app.domain.ledger import (
 )
 from app.payments.vietqr import VietQRError, build_payload
 from app.web.guest_view import GuestViewError, build_guest_view
+from app.web.objection_view import (
+    OBJECTION_REASONS,
+    ObjectionError,
+    build_not_me_view,
+    build_wrong_amount_view,
+)
 
 
 def _now() -> datetime:
@@ -493,6 +502,125 @@ class ApiService:
             return build_guest_view(record.envelope)
         except GuestViewError as exc:
             raise ApiProblem(409, exc.code, "Guest envelope is not renderable") from exc
+
+    def _objection_envelope(self, token: str) -> dict:
+        record = self.repository.get_guest_envelope(token_digest(token), _now())
+        if record is None:
+            raise ApiProblem(404, "guest_link_not_found", "Guest link does not exist")
+        _require_permission(
+            "view_guest_envelope", _guest_actor(token), {"is_own_capability": True}
+        )
+        return record.envelope
+
+    def not_me_view(self, token: str) -> dict:
+        try:
+            return build_not_me_view(self._objection_envelope(token))
+        except ObjectionError as exc:
+            raise ApiProblem(409, exc.code, "Objection page is not renderable") from exc
+
+    def wrong_amount_view(self, token: str, obligation_id: str) -> dict:
+        try:
+            return build_wrong_amount_view(self._objection_envelope(token), obligation_id)
+        except ObjectionError as exc:
+            raise ApiProblem(409, exc.code, "Objection page is not renderable") from exc
+
+    def list_batch_obligations(
+        self, batch_id: uuid.UUID, actor: Actor
+    ) -> BatchObligationsResponse:
+        """The collection board, disputes and all.
+
+        Section 8.2 says an objection stops collection on that obligation.
+        That is only true if somebody on the collecting side can see it, and
+        until now there was nowhere for them to look.
+        """
+        board = self.repository.list_batch_obligations(batch_id)
+        if board is None:
+            raise ApiProblem(404, "unknown_batch", "No such batch")
+
+        # This check was missing when the endpoint shipped, and QA found it by
+        # calling it as a stranger. The parameter was accepted and never read,
+        # so any valid actor header let anyone with a batch id read every
+        # sender, every recipient, every amount, and the private reason a guest
+        # gave for objecting. Section 10: visibility is fail-closed, and an
+        # unused `actor` argument is the most convincing way to look otherwise.
+        _require_permission(
+            "view_collection_board",
+            actor,
+            {"is_group_member": board.context_id in actor.context_ids},
+        )
+
+        rows = board.obligations
+        return BatchObligationsResponse(
+            batch_id=batch_id,
+            obligations=[
+                BatchObligationView(
+                    obligation_id=row.obligation_id,
+                    sender_id=row.sender_id,
+                    recipient_id=row.recipient_id,
+                    amount_vnd=row.amount_vnd,
+                    obligation_status=row.status,
+                    disputed=row.disputed,
+                    disputed_reason=row.disputed_reason,
+                )
+                for row in rows
+            ],
+            disputed_count=sum(1 for row in rows if row.disputed),
+        )
+
+    def record_objection(
+        self, token: str, kind: str, obligation_id: uuid.UUID | None, reason: str | None
+    ) -> None:
+        """Spec section 8.6 treats both objections as first-class outcomes.
+
+        They were links to routes that did not exist, so a guest who pressed
+        either one got a 404: the page invited an objection and then behaved as
+        though objecting had broken something.
+        """
+        if kind not in OBJECTION_KINDS:
+            raise ApiProblem(422, "unknown_objection", "Unknown objection kind")
+        if reason is not None and reason not in {value for value, _ in OBJECTION_REASONS}:
+            # A closed list, because free text from a stranger is where the
+            # group accidentally learns something, and where a bookkeeping
+            # question arrives in a tone that starts an argument.
+            raise ApiProblem(422, "unknown_reason", "Unknown objection reason")
+
+        envelope = self._objection_envelope(token)
+
+        # The token is the capability, and it covers exactly the obligations in
+        # this envelope. Without this check a guest holding a valid link could
+        # post someone else's obligation_id and file an objection against a
+        # debt that was never shown to them. The sibling route report_payment
+        # already 404s on the same forgery; this one did not.
+        if obligation_id is not None:
+            in_scope = any(
+                block["obligation_id"] == str(obligation_id)
+                for block in envelope["obligations"]
+            )
+            if not in_scope:
+                raise ApiProblem(404, "unknown_obligation", "No such obligation on this link")
+
+        # Indexed, not .get() with a default. The defaults scattered through
+        # this codebase said 2 while the repository enforced 3, so the page
+        # promised a quota the server did not honour.
+        #
+        # And the check is gated on the KIND. It used to run for every kind,
+        # so someone who had objected three times got 429 for asking how a
+        # number was reached -- while the repository, and the comment next to
+        # it, both said asking does not spend the quota. The page kept offering
+        # the button; only the POST disagreed.
+        if (
+            kind in QUOTA_CONSUMING_OBJECTIONS
+            and envelope["objections_used"] >= envelope["objections_allowed"]
+        ):
+            raise ApiProblem(429, "objection_rate_limited", "Too many objections on this link")
+
+        self.repository.save_guest_objection(
+            token_digest=token_digest(token),
+            kind=kind,
+            obligation_id=obligation_id,
+            reason=reason,
+            now=_now(),
+        )
 
     def report_payment(
         self, token: str, request: PaymentReportRequest

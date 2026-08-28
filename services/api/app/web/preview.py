@@ -24,11 +24,17 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 from jinja2 import Environment, FileSystemLoader, select_autoescape  # noqa: E402
 
 from app.payments.vietqr import build_payload  # noqa: E402
+from app.api.limits import OBJECTION_LIMIT, REPORT_LIMIT
 from app.web.guest_view import NEUTRAL_PREVIEW, build_guest_view  # noqa: E402
+from app.web.objection_view import (  # noqa: E402
+    build_not_me_view,
+    build_wrong_amount_view,
+)
 from app.web.qr import payload_to_png_data_uri  # noqa: E402
 
 WEB = pathlib.Path(__file__).resolve().parent
-STATES = ("one", "two", "expired", "revoked", "limited", "reported", "confirmed")
+STATES = ("one", "two", "expired", "revoked", "limited", "reported", "confirmed",
+          "not-me", "not-me-done", "wrong-amount", "evidence-asked")
 
 
 def _obligation(oid, occasion, amount, who, bank, bin_code, account, holder, note):
@@ -62,13 +68,17 @@ def fixture(state: str) -> dict:
         "claimed_person_display_name": "Hà",
         "link_state": "active",
         "obligations": [lau],
+        "reports_used": 0,
+        "reports_allowed": REPORT_LIMIT,
+        "objections_used": 0,
+        "objections_allowed": OBJECTION_LIMIT,
     }
     if state == "two":
         envelope["obligations"] = [lau, xe]
     elif state in ("expired", "revoked"):
         envelope["link_state"] = state
     elif state == "limited":
-        envelope.update(reports_used=3, reports_allowed=3, objections_used=2, objections_allowed=2)
+        envelope.update(reports_used=REPORT_LIMIT, objections_used=OBJECTION_LIMIT)
     elif state == "reported":
         envelope["obligations"] = [{**lau, "already_reported": True}]
     elif state == "confirmed":
@@ -76,7 +86,33 @@ def fixture(state: str) -> dict:
     return envelope
 
 
+OBJECTION_TEMPLATES = {
+    "not-me": "guest_not_me.html",
+    "not-me-done": "guest_not_me.html",
+    "wrong-amount": "guest_wrong_amount.html",
+    "evidence-asked": "guest_wrong_amount.html",
+}
+
+
 def render(state: str) -> bytes:
+    if state in OBJECTION_TEMPLATES:
+        envelope = fixture("one")
+        if state == "not-me-done":
+            envelope["not_me_reported"] = True
+        if state == "evidence-asked":
+            envelope["obligations"][0]["evidence_requested"] = True
+        view = (
+            build_not_me_view(envelope)
+            if state.startswith("not-me")
+            else build_wrong_amount_view(envelope, envelope["obligations"][0]["obligation_id"])
+        )
+        env = Environment(loader=FileSystemLoader(str(WEB / "templates")),
+                          autoescape=select_autoescape(["html"]))
+        html = env.get_template(OBJECTION_TEMPLATES[state]).render(
+            view=view, preview=NEUTRAL_PREVIEW, token="xem-thu"
+        )
+        return _with_switcher(html)
+
     view = build_guest_view(fixture(state))
     for block in view["blocks"]:
         block["qr_image_data_uri"] = payload_to_png_data_uri(block["qr_payload"])
@@ -85,6 +121,10 @@ def render(state: str) -> bytes:
     html = env.get_template("guest.html").render(
         view=view, preview=NEUTRAL_PREVIEW, token="xem-thu"
     )
+    return _with_switcher(html)
+
+
+def _with_switcher(html: str) -> bytes:
     switcher = (
         '<nav style="max-width:26rem;margin:1.5rem auto 0;text-align:center;'
         'font:400 13px system-ui;opacity:.65">'

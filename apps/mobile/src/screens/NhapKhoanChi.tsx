@@ -21,9 +21,18 @@
  *    by every surface -- and refuses out-of-range input rather than quietly
  *    changing it.
  */
-import React, { useState } from "react";
+import React from "react";
 import { ScrollView, Text, View } from "react-native";
 import { FIXTURES } from "../api";
+import {
+  addParticipant,
+  advancer,
+  duplicateNames,
+  labelFor,
+  makeIdFactory,
+  removeParticipant,
+  type DraftForm,
+} from "../participants";
 import {
   MAX_AMOUNT_VND,
   formatVnd,
@@ -41,58 +50,64 @@ export type Draft = {
   occasion: string;
 };
 
-/** Monotonic, never reused, never derived from anything the user can reorder. */
-let nextParticipantSeq = 1;
-function newParticipantId(): string {
-  return `p${nextParticipantSeq++}`;
-}
+/** Monotonic, never reused, never derived from anything the user can reorder.
+ *  Module-level so ids stay unique across remounts of the screen. */
+const nextParticipantId = makeIdFactory();
 
-export function NhapKhoanChi({ onNext }: { onNext: (draft: Draft) => void }) {
+export function NhapKhoanChi({
+  form,
+  onForm,
+  onNext,
+}: {
+  form: DraftForm;
+  onForm: (next: DraftForm) => void;
+  onNext: (draft: Draft) => void;
+}) {
   const c = usePalette();
-  const [occasion, setOccasion] = useState("");
-  const [participants, setParticipants] = useState<Participant[]>([]);
-  const [pending, setPending] = useState("");
-  const [amount, setAmount] = useState("");
-  const [advancerId, setAdvancerId] = useState<string | null>(null);
+  const { occasion, pending, amount, roster } = form;
+  const participants = roster.participants;
+  const advancerId = roster.advancerId;
+
+  const setOccasion = (value: string) => onForm({ ...form, occasion: value });
+  const setPending = (value: string) => onForm({ ...form, pending: value });
+  const setAmount = (value: string) => onForm({ ...form, amount: value });
+  const setAdvancerId = (id: string | null) =>
+    onForm({ ...form, roster: { ...roster, advancerId: id } });
 
   const parsed = parseAmountVnd(amount);
   const totalVnd = parsed.ok ? parsed.value : 0;
   const amountProblem = !parsed.ok && amount.trim() !== "" ? parsed.reason : null;
 
-  const chosen = participants.some((p) => p.id === advancerId);
+  const chosen = advancer(roster) !== null;
   const ready = participants.length > 0 && totalVnd > 0 && chosen;
 
-  function addParticipant() {
-    const name = pending.trim();
-    if (!name) return;
-    setParticipants((current) => [...current, { id: newParticipantId(), name }]);
-    setPending("");
+  function addPending() {
+    if (!pending.trim()) return;
+    onForm({ ...form, pending: "", roster: addParticipant(roster, pending, nextParticipantId) });
   }
 
-  function removeParticipant(id: string) {
-    setParticipants((current) => current.filter((p) => p.id !== id));
+  function dropPerson(id: string) {
     // Removing anyone can only ever clear a selection, never move it: the id
     // stays attached to the person it was minted for.
-    if (advancerId === id) setAdvancerId(null);
+    onForm({ ...form, roster: removeParticipant(roster, id) });
   }
 
   /** Load a situation the offline demo actually has a precomputed answer for. */
   function loadFixture(fixtureId: string) {
     const fixture = FIXTURES.find((f) => f.id === fixtureId);
     if (!fixture) return;
-    setParticipants(fixture.participants.map((p) => ({ id: p.id, name: p.name })));
-    setAmount(String(fixture.totalVnd));
-    setAdvancerId(fixture.advancerId);
-    setOccasion(fixture.occasion);
+    onForm({
+      occasion: fixture.occasion,
+      pending: "",
+      amount: String(fixture.totalVnd),
+      roster: {
+        participants: fixture.participants.map((p) => ({ id: p.id, name: p.name })),
+        advancerId: fixture.advancerId,
+      },
+    });
   }
 
-  const duplicated = [
-    ...new Set(
-      participants
-        .map((p) => p.name)
-        .filter((name, i, all) => all.indexOf(name) !== i),
-    ),
-  ];
+  const duplicated = duplicateNames(roster);
 
   return (
     <Screen
@@ -102,9 +117,13 @@ export function NhapKhoanChi({ onNext }: { onNext: (draft: Draft) => void }) {
         <>
           {duplicated.length > 0 ? (
             <Text style={{ ...type.label, color: c.warn }}>
-              Có hai người tên {duplicated.join(", ")}. Chia tiền vẫn đúng vì mỗi
-              người có mã riêng, nhưng thêm gì đó để phân biệt sẽ dễ đọc hơn —
-              ví dụ Nam A và Nam B.
+              {/* Said "hai người" whatever the count, so three people called
+                  Nam read as two, and two duplicated names read as one pair.
+                  QA caught it with three Nams on screen and a banner
+                  insisting there were two. */}
+              Có người trùng tên: {duplicated.join(", ")}. Chia tiền vẫn đúng vì
+              mỗi người có mã riêng, và danh sách đã đánh số để phân biệt — thêm
+              gì đó vào tên sẽ dễ đọc hơn.
             </Text>
           ) : null}
           <Button
@@ -159,7 +178,7 @@ export function NhapKhoanChi({ onNext }: { onNext: (draft: Draft) => void }) {
             onChangeText={setPending}
             placeholder="Hà"
           />
-          <Button label="Thêm" tone="quiet" disabled={!pending.trim()} onPress={addParticipant} />
+          <Button label="Thêm" tone="quiet" disabled={!pending.trim()} onPress={addPending} />
           {participants.length === 0 ? (
             <Text style={{ ...type.label, color: c.inkSoft }}>Chưa có ai.</Text>
           ) : (
@@ -168,11 +187,13 @@ export function NhapKhoanChi({ onNext }: { onNext: (draft: Draft) => void }) {
                 key={person.id}
                 style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}
               >
-                <Text style={{ ...type.body, color: c.ink, flex: 1 }}>{person.name}</Text>
+                <Text style={{ ...type.body, color: c.ink, flex: 1 }}>
+                  {labelFor(roster, person.id)}
+                </Text>
                 <Button
                   label="Bỏ"
                   tone="quiet"
-                  onPress={() => removeParticipant(person.id)}
+                  onPress={() => dropPerson(person.id)}
                 />
               </View>
             ))
@@ -209,7 +230,7 @@ export function NhapKhoanChi({ onNext }: { onNext: (draft: Draft) => void }) {
         <Card>
           <Choice
             label="Ai trả trước"
-            options={participants.map((p) => ({ id: p.id, label: p.name }))}
+            options={participants.map((p) => ({ id: p.id, label: labelFor(roster, p.id) }))}
             value={advancerId}
             onChange={setAdvancerId}
           />
