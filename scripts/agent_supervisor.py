@@ -127,16 +127,25 @@ def agy_dirs(out_dir: pathlib.Path) -> list[pathlib.Path]:
 
 
 def recent_files(out_dir: pathlib.Path, since: float) -> list[pathlib.Path]:
-    """Files this run touched. The scratch directory is shared across every
-    project on the machine, so counting all of it would report thousands of
-    files of somebody else's work as this agent's progress."""
+    """Files this run touched, not counting the ones we wrote ourselves.
+
+    Two exclusions, both learned the hard way. The scratch directory is shared
+    across every project on the machine, so counting all of it reported
+    thousands of files of somebody else's work as this agent's progress. And
+    the resume prompt is written BY THIS SUPERVISOR before a retry -- counting
+    it meant a run that produced nothing came back as "OK, and it made
+    something", because the something was ours.
+    """
     found: list[pathlib.Path] = []
     for directory in agy_dirs(out_dir):
         if not directory.exists():
             continue
         for path in directory.rglob("*"):
-            if path.is_file() and path.stat().st_mtime >= since:
-                found.append(path)
+            if not path.is_file() or path.stat().st_mtime < since:
+                continue
+            if path.name.startswith(".resume-"):
+                continue
+            found.append(path)
     return found
 
 
@@ -159,13 +168,26 @@ def run_once(agent: str, prompt: str, args: argparse.Namespace) -> tuple[int, st
             "--write",
         ]
     else:
+        # The output directory is stated as an ABSOLUTE path, every run.
+        # agy resolves relative paths against its trusted workspace rather
+        # than the cwd it is given, so "write to the current directory" put a
+        # file in the product repository -- the one directory the prompt had
+        # forbidden it to touch. Saying where, exactly, removes the ambiguity
+        # instead of relying on the agent to guess the same way twice.
+        body = (
+            f"THU MUC LAM VIEC CUA BAN: {pathlib.Path(args.out_dir).resolve()}\n"
+            "Moi file ban tao phai ghi bang DUONG DAN TUYET DOI bat dau bang thu\n"
+            "muc do. Dung ghi vao thu muc hien tai, dung ghi vao scratch cua\n"
+            "chinh ban, va tuyet doi khong ghi vao /home/lakiet/mobile.\n\n"
+            + pathlib.Path(prompt).read_text(encoding="utf-8")
+        )
         # Foreground on purpose. Backgrounding is how run 2 disappeared: the
         # job left the registry and its status could no longer be asked for.
         command = [
             str(AGY), "--output-format", "text",
             "--print-timeout", args.print_timeout,
             "--dangerously-skip-permissions",
-            f"-p={pathlib.Path(prompt).read_text(encoding='utf-8')}",
+            f"-p={body}",
         ]
 
     started = time.time()
@@ -187,6 +209,27 @@ def run_once(agent: str, prompt: str, args: argparse.Namespace) -> tuple[int, st
 
     emit("INFO", f"{agent} ket thuc sau {int(time.time() - started)}s, exit={code}")
     return code, output
+
+
+PRODUCT_REPO = pathlib.Path("/home/lakiet/mobile")
+
+
+def repo_strays(args: argparse.Namespace) -> list[str]:
+    """Untracked files an agent left in the product repository.
+
+    Only meaningful for agents that are not supposed to be working there. For
+    codex, whose whole job is editing a checkout, this is noise -- so it is
+    skipped.
+    """
+    if args.agent == "codex":
+        return []
+    dirty = git(PRODUCT_REPO, "status", "--porcelain", "--untracked-files=normal")
+    names = [
+        line[3:]
+        for line in dirty.splitlines()
+        if line.startswith("??") and not line[3:].startswith("apps/")
+    ]
+    return names[:5]
 
 
 def existing_work(
@@ -297,6 +340,12 @@ def main() -> int:
             if checkpointer:
                 checkpointer.terminate()
             return 2
+
+        strays = repo_strays(args)
+        if strays:
+            # The prompt forbids it, and a prompt is not an enforcement
+            # mechanism. Saying so out loud beats discovering it in a diff.
+            emit("ALERT", f"{args.agent} da ghi vao repo san pham: {strays}")
 
         after = snapshot()
         progressed = after != before
