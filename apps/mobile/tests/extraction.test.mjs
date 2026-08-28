@@ -60,16 +60,21 @@ test("a citation pointing at a message that is not in the thread is refused too"
   assert.equal(ungrounded.length, 1);
 });
 
-test("a partly-dangling citation keeps only the messages that exist", () => {
-  const { grounded } = review(
+test("a partly-dangling citation is refused, not quietly trimmed", () => {
+  // This test asserted the opposite until QA read the function and pointed out
+  // what the opposite meant: the surviving citation carried the expense, so
+  // ["m1", "m99"] displayed as fully sourced. If m99 held the number, the
+  // person is told the reverse of the truth.
+  //
+  // Third time today a test has pinned a gap rather than a promise. The shape
+  // is always the same -- it describes what the code does, so it passes, and
+  // the fact that what the code does is wrong never comes up.
+  const { grounded, ungrounded } = review(
     { expenses: [expense({ sourceMessageIds: ["m1", "m99"] })], questions: [] },
     THREAD,
   );
-  assert.equal(grounded.length, 1);
-  assert.deepEqual(
-    grounded[0].sources.map((m) => m.id),
-    ["m1"],
-  );
+  assert.equal(grounded.length, 0);
+  assert.equal(ungrounded.length, 1);
 });
 
 test("an open question blocks acceptance even when every expense is grounded", () => {
@@ -118,4 +123,82 @@ test("two expenses from two messages stay separate", () => {
   // No total anywhere: the split belongs to the server's allocator, and adding
   // these here would be a second implementation of money.
   assert.equal(typeof review, "function");
+});
+
+/* Three ways a citation can be worthless, all found by QA reading `review()`.
+ *
+ * ADR-0008 let the bot read the whole thread in exchange for citing its
+ * sources. A citation nobody checks is not a citation, and these are the three
+ * ways the check was not happening.
+ */
+test("a dangling id poisons the whole expense, even beside a real one", async () => {
+  const { review } = await import("../dist-test/extraction.js");
+  // The surviving citation used to carry the expense. If the missing message
+  // held the number, the person is told the opposite of the truth.
+  const { grounded, ungrounded, blocked } = review(
+    {
+      expenses: [expense({ sourceMessageIds: ["m1", "m_khong_ton_tai"] })],
+      questions: [],
+    },
+    THREAD,
+  );
+  assert.equal(grounded.length, 0);
+  assert.equal(ungrounded.length, 1);
+  assert.equal(blocked, true);
+});
+
+test("a citation to a message that never mentions the amount is refused", async () => {
+  const { review } = await import("../dist-test/extraction.js");
+  const chat = [{ id: "m1", author: "Nam", text: "chào cả nhà" }];
+  const { grounded, ungrounded } = review(
+    {
+      expenses: [
+        { totalVnd: 500_000, paidBy: "Nam", label: "ăn trưa", sourceMessageIds: ["m1"] },
+      ],
+      questions: [],
+    },
+    chat,
+  );
+  // Otherwise the screen prints a greeting under "Đọc từ tin nhắn này" and
+  // calls it evidence.
+  assert.equal(grounded.length, 0);
+  assert.equal(ungrounded.length, 1);
+});
+
+test("the amounts people actually type are recognised", async () => {
+  const { messageMentionsAmount } = await import("../dist-test/extraction.js");
+  const yes = [
+    ["tao trả 800000 rồi", 800_000],
+    ["tao trả 800.000 rồi", 800_000],
+    ["tao trả 800,000 rồi", 800_000],
+    ["hết 800k nhé", 800_000],
+    ["hết 85 nghìn", 85_000],
+    ["hết 85 ngàn thôi", 85_000],
+    ["khách sạn 1tr2", 1_200_000],
+    ["khách sạn 2tr350", 2_350_000],
+    ["hết 3 triệu", 3_000_000],
+  ];
+  for (const [text, amount] of yes) {
+    assert.equal(messageMentionsAmount(text, amount), true, `${text} -> ${amount}`);
+  }
+
+  const no = [
+    ["chào cả nhà", 500_000],
+    ["hết 800k nhé", 900_000],
+    ["khách sạn 1tr2", 1_000_000],
+    ["mai đi chơi nhé", 82_000],
+  ];
+  for (const [text, amount] of no) {
+    assert.equal(messageMentionsAmount(text, amount), false, `${text} -/-> ${amount}`);
+  }
+});
+
+test("a real citation that does mention the amount still passes", async () => {
+  const { review } = await import("../dist-test/extraction.js");
+  const { grounded, blocked } = review(
+    { expenses: [expense()], questions: [] },
+    THREAD,
+  );
+  assert.equal(grounded.length, 1, "the honest case must not be caught by the guard");
+  assert.equal(blocked, false);
 });
