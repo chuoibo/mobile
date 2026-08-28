@@ -78,6 +78,25 @@ export function duplicateNames(roster: Roster): string[] {
   return [...new Set(names.filter((name, i) => names.indexOf(name) !== i))];
 }
 
+/**
+ * A label that tells two people apart when they share a name.
+ *
+ * QA drove the app with two people both called Nam, chose the second, removed
+ * the first, and reported the screen as confusing: one button reading "Nam"
+ * with nothing selected, and no way to tell whether that was the Nam they had
+ * picked. The ids were right the whole time -- the labels were not.
+ *
+ * Numbering is by position in the list, which is what a person sees, and it is
+ * only for reading. Nothing keys off it: identity stays with the id.
+ */
+export function labelFor(roster: Roster, id: string): string {
+  const person = roster.participants.find((p) => p.id === id);
+  if (!person) return id;
+  const sameName = roster.participants.filter((p) => p.name === person.name);
+  if (sameName.length < 2) return person.name;
+  return `${person.name} #${sameName.indexOf(person) + 1}`;
+}
+
 /** Everything the "new expense" screen is holding while a person fills it in.
  *
  * This lives outside the screen because the screen unmounts. Pressing "Sửa lại"

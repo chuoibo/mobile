@@ -282,3 +282,40 @@ test("ids stay unique across a remount of the screen", async () => {
   const ids = roster.participants.map((p) => p.id);
   assert.equal(new Set(ids).size, ids.length, `ids collided: ${ids}`);
 });
+
+/* Two people, one name -- the label has to tell them apart even though the id
+ * already does. QA drove this exact case and called the screen confusing: one
+ * button reading "Nam", nothing selected, no way to know which Nam.
+ */
+test("a shared name gets numbered, a unique one does not", async () => {
+  const { addParticipant, labelFor, makeIdFactory } = await import(
+    "../dist-test/participants.js"
+  );
+  const nextId = makeIdFactory();
+  let roster = { participants: [], advancerId: null };
+  for (const name of ["Nam", "Hà", "Nam"]) {
+    roster = addParticipant(roster, name, nextId);
+  }
+  const [first, ha, second] = roster.participants;
+  assert.equal(labelFor(roster, first.id), "Nam #1");
+  assert.equal(labelFor(roster, second.id), "Nam #2");
+  assert.equal(labelFor(roster, ha.id), "Hà", "a unique name should not be numbered");
+});
+
+test("numbering is display only — removing one does not move the other's identity", async () => {
+  const { addParticipant, labelFor, removeParticipant, makeIdFactory } = await import(
+    "../dist-test/participants.js"
+  );
+  const nextId = makeIdFactory();
+  let roster = { participants: [], advancerId: null };
+  roster = addParticipant(roster, "Nam", nextId);
+  roster = addParticipant(roster, "Nam", nextId);
+  const second = roster.participants[1];
+  roster = { ...roster, advancerId: second.id };
+
+  roster = removeParticipant(roster, roster.participants[0].id);
+  // The label drops back to plain "Nam" because there is only one now, but the
+  // person under it is still the one that was chosen.
+  assert.equal(labelFor(roster, second.id), "Nam");
+  assert.equal(roster.advancerId, second.id);
+});

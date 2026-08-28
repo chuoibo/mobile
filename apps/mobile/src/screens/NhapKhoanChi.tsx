@@ -28,6 +28,7 @@ import {
   addParticipant,
   advancer,
   duplicateNames,
+  labelFor,
   makeIdFactory,
   removeParticipant,
   type DraftForm,
@@ -182,7 +183,9 @@ export function NhapKhoanChi({
                 key={person.id}
                 style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}
               >
-                <Text style={{ ...type.body, color: c.ink, flex: 1 }}>{person.name}</Text>
+                <Text style={{ ...type.body, color: c.ink, flex: 1 }}>
+                  {labelFor(roster, person.id)}
+                </Text>
                 <Button
                   label="Bỏ"
                   tone="quiet"
@@ -223,7 +226,7 @@ export function NhapKhoanChi({
         <Card>
           <Choice
             label="Ai trả trước"
-            options={participants.map((p) => ({ id: p.id, label: p.name }))}
+            options={participants.map((p) => ({ id: p.id, label: labelFor(roster, p.id) }))}
             value={advancerId}
             onChange={setAdvancerId}
           />
