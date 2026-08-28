@@ -14,7 +14,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-__all__ = ["ACTIONS", "ROLES", "AuthorizationFacts", "can", "denial_reason", "PermissionError_"]
+__all__ = [
+    "ACTIONS",
+    "ROLES",
+    "AuthorizationFacts",
+    "can",
+    "denial_reason",
+    "PermissionError_",
+]
 
 ROLES = (
     "group_admin",
@@ -136,6 +143,23 @@ _TABLE: dict[str, dict] = {
     # does -- because in a group dispute the attacker is a group member.
     "adjudicate_person_stub_claim": {"roles": {"platform_moderator"}, "requires": ()},
     # --- group logistics ------------------------------------------------
+    "create_context": {"roles": {"group_admin", "member"}, "requires": ()},
+    "invite_context_member": {
+        "roles": {"group_admin"},
+        "requires": ("is_group_member",),
+    },
+    "accept_context_membership": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_invitee",),
+    },
+    "leave_context": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member", "is_self"),
+    },
+    "view_context_members": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
     "manage_members_and_invites": {"roles": {"group_admin"}, "requires": ()},
     "remove_member_from_group": {"roles": {"group_admin"}, "requires": ()},
     "transfer_group_admin": {"roles": {"group_admin"}, "requires": ()},

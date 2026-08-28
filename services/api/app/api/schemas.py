@@ -99,6 +99,37 @@ class ExpenseConfirmationResponse(ApiModel):
     allocations: dict[UUID, MoneyVnd]
 
 
+class ContextCreateRequest(ApiModel):
+    display_name: Annotated[StrictStr, Field(min_length=1, max_length=200)]
+
+
+class ContextResponse(ApiModel):
+    id: UUID
+    display_name: StrictStr
+    created_by_id: UUID
+    created_at: datetime
+
+
+class MembershipInviteRequest(ApiModel):
+    person_id: UUID
+
+
+class MembershipResponse(ApiModel):
+    id: UUID
+    context_id: UUID
+    person_id: UUID
+    state: Literal["invited", "active", "left"]
+    invited_by_id: UUID | None
+    joined_at: datetime | None
+    left_at: datetime | None
+    created_at: datetime
+
+
+class MembershipListResponse(ApiModel):
+    context_id: UUID
+    members: list[MembershipResponse]
+
+
 class BatchCreateRequest(ApiModel):
     context_id: UUID
     expense_version_ids: list[UUID] | None = None
