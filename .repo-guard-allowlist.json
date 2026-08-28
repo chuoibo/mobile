@@ -51,14 +51,14 @@
     },
     {
       "path": "apps/mobile/package-lock.json",
-      "sha256": "92e647b044a4086821b0d81d32b79602fbe532ce60f1df402024af61f65789d2",
+      "sha256": "00a99c2c49b88699767eeda382f82b0ef7a36e25fe2ac500383336cc6298bae4",
       "rules": [
         "aggregate-base64-fragments",
         "long-number",
         "dense-base64-line",
         "long-base64-token"
       ],
-      "reason": "npm lockfile for apps/mobile. Integrity hashes are base64 and resolved versions are long digit runs, which is what the scanner sees. PR #19 replaced the name-based lockfile exemption with an exact path plus digest precisely so a file cannot claim this by being called package-lock.json; regenerating it needs a new review."
+      "reason": "npm lockfile for apps/mobile. Integrity hashes are base64 and resolved versions are long digit runs, which is what the scanner sees. PR #19 replaced the name-based lockfile exemption with an exact path plus digest precisely so a file cannot claim this by being called package-lock.json; regenerating it needs a new review. Repinned in PR #50 after adding expo-camera, expo-file-system, expo-image-manipulator and expo-image-picker for the bill camera; the four findings the guard raised were integrity hashes and npm version strings in the added entries, no participant data. `npm install --package-lock-only` reproduces these exact bytes."
     },
     {
       "path": "docs/claude/2026-08-26/review-p0-w9a-repo-guard.md",

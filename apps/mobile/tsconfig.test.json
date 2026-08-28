@@ -10,6 +10,8 @@
   "include": [
     "src/api.ts",
     "src/participants.ts",
-    "src/extraction.ts"
+    "src/extraction.ts",
+    "src/camera/access.ts",
+    "src/camera/bill-photo.ts"
   ]
 }
