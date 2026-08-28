@@ -20,9 +20,11 @@ import { DeXuat, type Proposal } from "./src/screens/DeXuat";
 import { DotThu, type Obligation } from "./src/screens/DotThu";
 import { Draft, NhapKhoanChi } from "./src/screens/NhapKhoanChi";
 import { EMPTY_FORM, type DraftForm } from "./src/participants";
+import { TheDeXuat } from "./src/screens/TheDeXuat";
+import { DEMO_THREADS } from "./src/fixtures/threads";
 import { space, type, usePalette } from "./src/theme";
 
-type Step = "nhap" | "de-xuat" | "dot-thu" | "chia-se";
+type Step = "nhap" | "the-de-xuat" | "de-xuat" | "dot-thu" | "chia-se";
 
 export default function App() {
   const c = usePalette();
@@ -33,6 +35,9 @@ export default function App() {
   // form owned by the screen goes with it -- which erased everything a
   // person had typed the moment they tried to change one number.
   const [form, setForm] = useState<DraftForm>(EMPTY_FORM);
+  // Which corpus case the proposal card is showing. Offline only: the
+  // real thing arrives when money_skill runs against a live thread.
+  const [threadIndex, setThreadIndex] = useState(0);
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [obligations, setObligations] = useState<Obligation[]>([]);
   const [envelopes, setEnvelopes] = useState<Envelope[]>([]);
@@ -64,10 +69,28 @@ export default function App() {
     <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
       <StatusBar style={scheme === "dark" ? "light" : "dark"} />
 
+      {step === "the-de-xuat" && (
+        <TheDeXuat
+          extraction={DEMO_THREADS[threadIndex].extraction}
+          thread={DEMO_THREADS[threadIndex].messages}
+          onAccept={() => {
+            // Accepting a reading is not the same as splitting it. The next
+            // step is the ordinary entry form, prefilled, so a person still
+            // sees and confirms what goes into the ledger.
+            setStep("nhap");
+          }}
+          onEdit={() => setStep("nhap")}
+          onDismiss={() => {
+            setThreadIndex((current) => (current + 1) % DEMO_THREADS.length);
+          }}
+        />
+      )}
+
       {step === "nhap" && (
         <NhapKhoanChi
           form={form}
           onForm={setForm}
+          onSeeProposal={OFFLINE ? () => setStep("the-de-xuat") : undefined}
           onNext={(d) => guard(async () => {
             setDraft(d);
             setProposal(await proposeSplit(d));
