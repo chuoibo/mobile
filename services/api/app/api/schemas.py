@@ -214,6 +214,23 @@ class PaymentReportResponse(ApiModel):
     ]
 
 
+class ReceiptItem(ApiModel):
+    name: StrictStr
+    quantity: Annotated[int, Field(strict=True, gt=0)]
+    unit_price_vnd: MoneyVnd | None = None
+    line_total_vnd: MoneyVnd
+
+
+class ReceiptScanResponse(ApiModel):
+    items: list[ReceiptItem]
+    items_total_vnd: MoneyVnd
+    total_vnd: MoneyVnd | None = None
+    totals_agree: StrictBool | None = None
+    total_difference_vnd: MoneyVnd | None = None
+    confidence: Annotated[int, Field(strict=True, ge=0, le=100)]
+    warnings: list[StrictStr] = Field(default_factory=list)
+
+
 class ReceiptConfirmationRequest(ApiModel):
     amount_vnd: PositiveMoneyVnd
     idempotency_key: UUID
