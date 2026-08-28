@@ -36,7 +36,7 @@ from app.api.idempotency import (
 from app.api.main import create_app
 
 from .conftest import ASGITestClient
-from .helpers import actor_headers, expense_payload
+from .helpers import ADVANCER_ID, actor_headers, expense_payload
 
 KEY = "1de11111-aaaa-4aaa-8aaa-0000a0000001"
 
@@ -193,6 +193,38 @@ def test_the_middleware_is_installed_on_the_application():
     app = create_app()
     installed = [entry.cls for entry in app.user_middleware]
     assert IdempotencyMiddleware in installed
+
+
+def test_registering_a_bank_account_twice_writes_once(client):
+    """The seam between this middleware and `POST /bank-recipients`.
+
+    Both branches edited the same lines of `main.py`. Resolving that by keeping
+    only one side fails silently: the router still answers, the header is simply
+    ignored, and a retried registration re-runs against where somebody's money
+    lands.
+
+    The status code is the discriminator, not the header alone. A replay returns
+    the first answer verbatim, so it stays 201. A handler that genuinely ran a
+    second time answers 200 -- the route's own "you re-sent digits that were
+    already there" code -- so dropping either the router or the middleware turns
+    this red.
+    """
+
+    body = {
+        "recipient_id": str(ADVANCER_ID),
+        "bank_bin": "970418",
+        "account_number": "0000000000TEST",
+        "account_name": "NGUYEN VAN NAM",
+    }
+    headers = _key_headers(**actor_headers())
+
+    first = client.post("/bank-recipients", json=body, headers=headers)
+    second = client.post("/bank-recipients", json=body, headers=headers)
+
+    assert first.status_code == 201, first.text
+    assert second.status_code == 201, second.text
+    assert second.headers.get(REPLAY_HEADER) == "true"
+    assert second.json() == first.json()
 
 
 def test_every_write_route_consults_the_store(client, store):
