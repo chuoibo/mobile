@@ -176,10 +176,10 @@ export async function proposeSplit(draft: Draft): Promise<PendingProposal> {
 export async function confirmExpense(
   proposal: PendingProposal,
 ): Promise<{ expenseVersionId: string; acknowledged: boolean }> {
-  const result = await call<{
+  const result = await translated<{
     expense_version_id: string;
     payer_acknowledgement: "pending" | "acknowledged";
-  }>(`/expenses/${proposal.expenseId}/confirm`, {
+  }>(CONFIRM_REFUSALS, `/expenses/${proposal.expenseId}/confirm`, {
     body: {
       proposal: proposal.serverProposal,
       expected_allocations: proposal.allocations,
@@ -232,6 +232,30 @@ export class GateNotPassedError extends Error {
  * incomplete: an unrecognised code falls through to the server's own detail
  * rather than to a friendly sentence that might be wrong about what happened.
  */
+/**
+ * What the server's refusals to open a round mean.
+ *
+ * Separate from `PUBLISH_REFUSALS` because they are different moments with
+ * different things to do about them, and one table covering both would invite
+ * a message that fits neither. Found by walking the app: pressing "Đúng rồi,
+ * ghi vào sổ" put the words "Batch cannot be frozen" on screen -- the server's
+ * own English, under a Vietnamese heading, with no hint of what to do.
+ */
+const CONFIRM_REFUSALS: Record<string, string> = {
+  proposal_changed:
+    "Khoản chi đã đổi kể từ lúc bạn nhìn. Quay lại xem con số mới trước khi ghi vào sổ.",
+  expense_not_found: "Không tìm thấy khoản chi này trên máy chủ.",
+};
+
+const OPEN_BATCH_REFUSALS: Record<string, string> = {
+  unready_recipient_choice_required:
+    "Người ứng tiền chưa có tài khoản nhận. Chưa biết chuyển tiền về đâu thì " +
+    "chưa mở đợt thu được.",
+  recipient_setup_incomplete:
+    "Người ứng tiền chưa có tài khoản nhận đã được xác nhận.",
+  no_obligations: "Khoản này không ai nợ ai. Không có gì để thu.",
+};
+
 const PUBLISH_REFUSALS: Record<string, string> = {
   advancer_not_acknowledged:
     "Người ứng tiền chưa xác nhận. App không gửi gì dưới tên một người trước khi họ đồng ý.",
@@ -268,7 +292,7 @@ export async function openBatch(
   const nameOf = (id: string) =>
     proposal.participants.find((person: Participant) => person.id === id)?.name ?? id;
 
-  const result = await call<{
+  const result = await translated<{
     batch_id: string;
     obligations: {
       obligation_id: string;
@@ -276,7 +300,7 @@ export async function openBatch(
       recipient_id: string;
       amount_vnd: number;
     }[];
-  }>("/batches", {
+  }>(OPEN_BATCH_REFUSALS, "/batches", {
     body: {
       context_id: CONTEXT_ID,
       expense_version_ids: [expenseVersionId],
@@ -321,14 +345,35 @@ export async function publishBatch(
   if (!canPublish(gates)) {
     throw new GateNotPassedError(gates);
   }
+  // Gate 2 is the server's to enforce, so its refusal is the only true answer
+  // about it.
+  return sendPublish(batchId, actorId, roster);
+}
+
+/**
+ * Run a call and put its known refusals into Vietnamese.
+ *
+ * The lookup is case-insensitive, and that is not tidiness. The server mixes
+ * two conventions: codes raised by a domain transition arrive upper-cased
+ * (`UNREADY_RECIPIENT_CHOICE_REQUIRED`), codes raised directly by the API
+ * arrive lower-cased (`recipient_setup_incomplete`). A table written in one
+ * casing silently misses half the refusals, and a miss looks exactly like a
+ * code nobody thought about -- it falls through to the server's English.
+ *
+ * The code is preserved on the error. Only the sentence changes, so a bug
+ * report still names what actually happened.
+ */
+async function translated<T>(
+  table: Record<string, string>,
+  path: string,
+  options: { method?: string; body?: unknown; actorId?: string },
+): Promise<T> {
   try {
-    return await sendPublish(batchId, actorId, roster);
+    return await call<T>(path, options);
   } catch (problem) {
-    // Gate 2 is the server's to enforce, so its refusal is the only true
-    // answer about it. Translated, not swallowed -- the code stays on the
-    // error so a report can still name what happened.
-    if (problem instanceof ApiError && PUBLISH_REFUSALS[problem.code]) {
-      throw new ApiError(problem.status, problem.code, PUBLISH_REFUSALS[problem.code]);
+    if (problem instanceof ApiError) {
+      const said = table[problem.code.toLowerCase()];
+      if (said) throw new ApiError(problem.status, problem.code, said);
     }
     throw problem;
   }
@@ -346,7 +391,7 @@ async function sendPublish(
   actorId: string,
   roster: Participant[],
 ): Promise<Envelope[]> {
-  const result = await call<{
+  const result = await translated<{
     guest_links: {
       sender_id: string;
       path: string;
@@ -355,7 +400,7 @@ async function sendPublish(
       // per debt, and each debt carries its own VietQR string.
       obligations: { obligation_id: string; amount_vnd: number }[];
     }[];
-  }>(`/batches/${batchId}/publish`, {
+  }>(PUBLISH_REFUSALS, `/batches/${batchId}/publish`, {
     body: {
       delivery_method: "personal_link",
       guest_link_expires_at: new Date(

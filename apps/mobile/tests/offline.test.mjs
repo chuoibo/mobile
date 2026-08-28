@@ -509,6 +509,67 @@ test("mọi mã từ chối phát đều dịch được ra tiếng người", a
   }
 });
 
+test("mở đợt thu bị từ chối thì đọc được, kể cả khi máy chủ viết CHỮ HOA", async () => {
+  // Found by walking the app: pressing "Đúng rồi, ghi vào sổ" put the words
+  // "Batch cannot be frozen" on screen -- the server's own English, under a
+  // Vietnamese heading, with nothing about what to do.
+  //
+  // The casing is the trap. Codes raised by a domain transition arrive
+  // upper-cased; codes raised by the API arrive lower-cased. A table written
+  // in one casing misses half the refusals, and a miss is indistinguishable
+  // from a code nobody thought about.
+  const { openBatch, ApiError } = await import("../dist-test/api.js");
+  const proposal = {
+    participants: ROSTER,
+    allocations: {},
+    roundingGainers: [],
+    totalVnd: 1,
+    advancerId: HA_ID,
+    occasion: "x",
+    expenseId: "e1",
+    serverProposal: {},
+  };
+  const real = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        code: "UNREADY_RECIPIENT_CHOICE_REQUIRED",
+        detail: "Batch cannot be frozen",
+      }),
+      { status: 409, headers: { "Content-Type": "application/json" } },
+    );
+  try {
+    await openBatch(proposal, "v1", true);
+    assert.fail("le ra phai bi tu choi");
+  } catch (problem) {
+    assert.ok(problem instanceof ApiError);
+    assert.equal(problem.code, "UNREADY_RECIPIENT_CHOICE_REQUIRED");
+    assert.match(problem.message, /tài khoản nhận/, "van con tieng Anh cua may chu");
+    assert.doesNotMatch(problem.message, /Batch cannot be frozen/);
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+test("ghi vào sổ bị từ chối vì số đã đổi thì nói rõ phải làm gì", async () => {
+  const { confirmExpense, ApiError } = await import("../dist-test/api.js");
+  const real = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({ code: "proposal_changed", detail: "Proposal changed" }),
+      { status: 409, headers: { "Content-Type": "application/json" } },
+    );
+  try {
+    await confirmExpense({ expenseId: "e1", serverProposal: {}, allocations: {}, advancerId: "a" });
+    assert.fail("le ra phai bi tu choi");
+  } catch (problem) {
+    assert.ok(problem instanceof ApiError);
+    assert.match(problem.message, /Quay lại xem con số mới/);
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
 test("mã lạ giữ nguyên lời của máy chủ, không mượn câu tử tế nào", async () => {
   const { publishBatch, ApiError } = await import("../dist-test/api.js");
   const real = globalThis.fetch;
