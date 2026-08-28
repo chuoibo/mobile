@@ -56,7 +56,7 @@
         "aggregate-base64-fragments",
         "long-number"
       ],
-      "reason": "npm lock file. The base64 the guard flags is npm's own `integrity` digests -- Subresource Integrity hashes of published tarballs -- and the long numbers are file sizes and registry timestamps. Both are structural to the format, not secrets, and a lock file without them cannot verify what it installs. Pinned by digest so that adding a dependency forces a fresh look at what entered the tree; that friction is the point, because a lock file is exactly where a supply-chain change would arrive quietly."
+      "reason": "npm lock file. The base64 is npm's own integrity digests, and the long numbers are package version strings whose numeric parts run past the guard's threshold. Both are structural to the format; a lock file without them cannot verify what it installs.\n\nPinned by exact digest rather than exempted by filename. A name-based exemption is the attack this guard's own tests already reject: anyone could name a file package-lock.json and smuggle a payload through. The consequence is that any change to the lock file must update this digest in the same commit, and that friction is the point -- a lock file is exactly where a supply-chain change would arrive quietly."
     },
     {
       "path": "docs/claude/2026-08-26/review-p0-w9a-repo-guard.md",
