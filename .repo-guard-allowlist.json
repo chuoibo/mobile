@@ -11,6 +11,15 @@
       "reason": "Synthetic attack fixtures documented by reviewer"
     },
     {
+      "path": "apps/mobile/package-lock.json",
+      "sha256": "92e647b044a4086821b0d81d32b79602fbe532ce60f1df402024af61f65789d2",
+      "rules": [
+        "aggregate-base64-fragments",
+        "long-number"
+      ],
+      "reason": "Generated npm dependency lockfile pinned by exact digest; any byte change requires fresh review"
+    },
+    {
       "path": "apps/mobile/assets/android-icon-background.png",
       "sha256": "fb139c2dee362ebf2070e23b96da6fc0d43f8492de38b8af1fd7223e19b5861d",
       "rules": [

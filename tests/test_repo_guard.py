@@ -680,17 +680,14 @@ class GitIntegrationTests(unittest.TestCase):
         self.assertIn("rule=email", output)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
-class LockfileExemptionTests(ScanHelper):
-    """A filename is not evidence.
+class LockfileDigestAllowanceTests(ScanHelper):
+    """Neither a lockfile name nor a format marker is evidence.
 
     The first version of the generated-lockfile exemption keyed off the name
     alone. Codex proved that was a complete backdoor: a base64 bill plus a bank
     account number, in any file called package-lock.json anywhere in the tree,
-    produced zero findings; the same bytes named notes.json produced four.
+    produced zero findings. A format marker did not close that bypass because
+    unexpected fields could still be pasted into an otherwise valid lockfile.
     """
 
     def _bill_and_account(self) -> str:
@@ -707,14 +704,18 @@ class LockfileExemptionTests(ScanHelper):
                 self.assertIn("long-number", rules)
                 self.assertIn("aggregate-base64-fragments", rules)
 
-    def test_the_exemption_still_applies_to_a_real_lockfile(self):
+    def test_a_valid_marker_does_not_exempt_unexpected_content(self):
         payload = base64.b64encode(bytes(range(256)) * 88).decode("ascii")
-        line = '{"name":"x","lockfileVersion":3,"packages":{"":{"integrity":"' + payload + '"}}}'
+        line = (
+            '{"name":"x","lockfileVersion":3,"packages":{"":{"integrity":"'
+            + payload
+            + '","unexpectedIdentifier":"19036812345678"}}}'
+        )
 
         rules = {item.rule for item in self.scan_text(line, path="package-lock.json")}
 
-        self.assertNotIn("aggregate-base64-fragments", rules)
-        self.assertNotIn("long-number", rules)
+        self.assertIn("aggregate-base64-fragments", rules)
+        self.assertIn("long-number", rules)
 
     def test_a_format_marker_buried_past_the_head_does_not_earn_the_exemption(self):
         # Otherwise an attacker appends `"lockfileVersion": 3` after the payload.
@@ -723,3 +724,51 @@ class LockfileExemptionTests(ScanHelper):
         rules = {item.rule for item in self.scan_text(line, path="package-lock.json")}
 
         self.assertIn("long-number", rules)
+
+    def test_exact_path_and_digest_can_allow_a_reviewed_lockfile(self):
+        fragment = "Aa0_____"
+        payload = {
+            "name": "synthetic-lockfile",
+            "lockfileVersion": 3,
+            "packages": {},
+            "generatedFragments": [fragment] * 3_000,
+            "generatedIdentifier": "19036812345678",
+        }
+        raw = json.dumps(payload, indent=2).encode("utf-8")
+        path = "apps/mobile/package-lock.json"
+        digest = hashlib.sha256(raw).hexdigest()
+        config = repo_guard.GuardConfig(
+            artifacts=(
+                repo_guard.ArtifactAllowance(
+                    path=path,
+                    sha256=digest,
+                    rules=frozenset(
+                        {"aggregate-base64-fragments", "long-number"}
+                    ),
+                ),
+            )
+        )
+
+        allowed = repo_guard.content_findings(
+            path, raw, 1, config, digest, None, None
+        )
+        changed = repo_guard.content_findings(
+            path,
+            raw + b" ",
+            1,
+            config,
+            hashlib.sha256(raw + b" ").hexdigest(),
+            None,
+            None,
+        )
+
+        self.assertEqual(allowed, [])
+        self.assertIn(
+            "aggregate-base64-fragments",
+            {item.rule for item in changed},
+        )
+        self.assertIn("long-number", {item.rule for item in changed})
+
+
+if __name__ == "__main__":
+    unittest.main()
