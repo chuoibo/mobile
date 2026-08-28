@@ -62,12 +62,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: present
+        # Absent and broken are different answers. A missing directory is an
+        # absence and skipping is right; a directory that is there but has lost
+        # the file this job runs is a defect, and skipping it would turn the
+        # job green for the one reason it must never be green.
         run: |
-          if [ -f packages/shared/money.test.mjs ]; then
-            echo "found=true" >> "$GITHUB_OUTPUT"
-          else
+          if [ ! -d packages/shared ]; then
             echo "found=false" >> "$GITHUB_OUTPUT"
             echo "::notice::packages/shared is not on this branch, skipping"
+          elif [ -f packages/shared/money.test.mjs ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::packages/shared exists but money.test.mjs is missing -- refusing to skip"
+            exit 1
           fi
       - if: steps.present.outputs.found == 'true'
         uses: actions/setup-node@v4
@@ -78,17 +85,24 @@ jobs:
         run: node packages/shared/money.test.mjs
 
   mobile:
-    name: mobile typecheck
+    name: mobile bundle and tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - id: present
+        # Same rule as the job above: skip an absence, fail a defect. The old
+        # condition keyed on package-lock.json alone, so deleting the lockfile
+        # would have silently turned every step below into a no-op and left
+        # this job reporting green for an app nobody built.
         run: |
-          if [ -f apps/mobile/package-lock.json ]; then
-            echo "found=true" >> "$GITHUB_OUTPUT"
-          else
+          if [ ! -d apps/mobile ]; then
             echo "found=false" >> "$GITHUB_OUTPUT"
             echo "::notice::apps/mobile is not on this branch, skipping"
+          elif [ -f apps/mobile/package-lock.json ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::apps/mobile exists but package-lock.json is missing -- refusing to skip"
+            exit 1
           fi
       - if: steps.present.outputs.found == 'true'
         uses: actions/setup-node@v4
@@ -116,3 +130,23 @@ jobs:
         name: App bundles, client never computes money
         working-directory: apps/mobile
         run: npm test
+
+      - if: steps.present.outputs.found == 'true'
+        # The step that makes the three above mean something. A typecheck proves
+        # the types agree with each other; it does not prove the app can be
+        # built. Metro resolves modules and assets at bundle time and refuses
+        # paths outside its project root -- paths tsc accepts without a word.
+        #
+        # This job was green through a stretch where apps/mobile could not
+        # bundle at all: the screens import ../../../../packages/shared/money.mjs,
+        # Metro would not look above apps/mobile, and nothing here noticed,
+        # because tsconfig.test.json compiles three logic files and not one
+        # screen. Green tests and a clean typecheck are not an app that starts.
+        #
+        # Export for every platform, into RUNNER_TEMP so no artifact lands in
+        # the checkout.
+        name: The app actually bundles
+        working-directory: apps/mobile
+        env:
+          EXPO_NO_TELEMETRY: "1"
+        run: npx expo export --platform all --output-dir "$RUNNER_TEMP/expo-export"
