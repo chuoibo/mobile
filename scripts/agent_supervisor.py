@@ -81,6 +81,19 @@ FATAL_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
+# Failures another attempt cannot fix. Retrying a quota wall burns three more
+# launches against the same wall and buries the one line that mattered under
+# identical noise -- which is exactly what happened the first time a real usage
+# limit hit. A watchdog that keeps retrying an unretryable error is not
+# resilient, it is loud.
+NO_RETRY_PATTERNS = re.compile(
+    r"usage limit|quota exceeded|insufficient.quota"
+    r"|\b(?:401|403)\b"
+    r"|user denied permission"
+    r"|invalid.api.key|authentication",
+    re.IGNORECASE,
+)
+
 
 def emit(kind: str, message: str) -> None:
     """One line per event. ALERT lines are what a watcher should surface."""
@@ -247,7 +260,12 @@ def main() -> int:
             # Resuming. Naming the files that already exist is the whole point:
             # "you were interrupted" tells an agent nothing it can act on, while
             # "these 27 files are already on disk" tells it where to carry on.
-            resumed = out_dir / f".resume-{args.agent}-{attempt}.md"
+            # Absolute. codex-companion resolves --prompt-file against the
+            # agent's own --cwd rather than the supervisor's, so a relative
+            # path here became ENOENT inside the agent repo -- and every
+            # restart then failed instantly for a reason unrelated to the
+            # original death.
+            resumed = (out_dir / f".resume-{args.agent}-{attempt}.md").resolve()
             resumed.write_text(
                 "LUU Y: lan chay truoc cua ban bi ngat giua chung.\n\n"
                 "Cong viec da lam VAN CON TREN DIA:\n\n"
@@ -264,6 +282,21 @@ def main() -> int:
 
         for hit in sorted(set(FATAL_PATTERNS.findall(output))):
             emit("ALERT", f"{args.agent} chu ky loi: {hit!r}")
+
+        blocked = NO_RETRY_PATTERNS.search(output)
+        if blocked:
+            # Report the whole line, not the matched fragment: a quota message
+            # carries the time it resets, and that is the only part a person can
+            # actually act on.
+            line = next(
+                (l.strip() for l in output.splitlines() if blocked.group(0).lower() in l.lower()),
+                blocked.group(0),
+            )
+            emit("ALERT", f"{args.agent} KHONG THE THU LAI: {line}")
+            emit("ALERT", f"{args.agent} dung han, khong dot them lan chay nao")
+            if checkpointer:
+                checkpointer.terminate()
+            return 2
 
         after = snapshot()
         progressed = after != before
