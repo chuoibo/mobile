@@ -67,9 +67,7 @@ def test_repository_membership_lifecycle_creates_a_new_row_on_rejoin(
     repository = SqlAlchemyApiRepository(postgres_session)
 
     context = repository.create_context("Synthetic context", owner.id)
-    owner_membership = _open_membership(
-        repository, context.id, owner.id, owner.id
-    )
+    owner_membership = _open_membership(repository, context.id, owner.id, owner.id)
     invitation = repository.add_member(context.id, friend.id, owner.id)
 
     assert invitation.state == "invited"
@@ -146,8 +144,7 @@ def test_check_constraint_refuses_half_of_the_leave_transition(
             )
 
     assert (
-        _constraint_name(caught.value)
-        == "ck_memberships_left_state_matches_timestamp"
+        _constraint_name(caught.value) == "ck_memberships_left_state_matches_timestamp"
     )
 
 
@@ -203,9 +200,7 @@ def test_identity_routes_enforce_actor_membership_on_real_rows(
             # belongs to another context and must not read the target roster.
             outsider_list = await client.get(
                 f"/contexts/{context_id}/members",
-                headers=_actor_headers(
-                    outsider.id, claimed_context_id=context_id
-                ),
+                headers=_actor_headers(outsider.id, claimed_context_id=context_id),
             )
             assert outsider_list.status_code == 403, outsider_list.text
 
@@ -245,9 +240,7 @@ def test_identity_routes_enforce_actor_membership_on_real_rows(
             # upstream header still claims the context.
             former_list = await client.get(
                 f"/contexts/{context_id}/members",
-                headers=_actor_headers(
-                    friend.id, claimed_context_id=context_id
-                ),
+                headers=_actor_headers(friend.id, claimed_context_id=context_id),
             )
             assert former_list.status_code == 403, former_list.text
 
