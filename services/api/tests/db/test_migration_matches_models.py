@@ -40,22 +40,33 @@ def tables_declared_in_migrations() -> dict[str, set[str]]:
             if not isinstance(node, ast.Call):
                 continue
             func = node.func
-            if not (isinstance(func, ast.Attribute) and func.attr == "create_table"):
+            if not isinstance(func, ast.Attribute):
                 continue
             if not node.args or not isinstance(node.args[0], ast.Constant):
                 continue
             table = node.args[0].value
-            columns = set()
-            for argument in node.args[1:]:
-                if (
-                    isinstance(argument, ast.Call)
-                    and isinstance(argument.func, ast.Attribute)
-                    and argument.func.attr == "Column"
-                    and argument.args
-                    and isinstance(argument.args[0], ast.Constant)
-                ):
-                    columns.add(argument.args[0].value)
-            declared[table] = columns
+            if func.attr == "create_table":
+                columns = set()
+                for argument in node.args[1:]:
+                    if (
+                        isinstance(argument, ast.Call)
+                        and isinstance(argument.func, ast.Attribute)
+                        and argument.func.attr == "Column"
+                        and argument.args
+                        and isinstance(argument.args[0], ast.Constant)
+                    ):
+                        columns.add(argument.args[0].value)
+                declared.setdefault(table, set()).update(columns)
+            elif (
+                func.attr == "add_column"
+                and len(node.args) >= 2
+                and isinstance(node.args[1], ast.Call)
+                and isinstance(node.args[1].func, ast.Attribute)
+                and node.args[1].func.attr == "Column"
+                and node.args[1].args
+                and isinstance(node.args[1].args[0], ast.Constant)
+            ):
+                declared.setdefault(table, set()).add(node.args[1].args[0].value)
     return declared
 
 

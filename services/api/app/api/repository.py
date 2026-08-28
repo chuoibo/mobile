@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -41,7 +41,10 @@ from app.db.models import (
     GuestLink,
     GuestLinkStatus,
     Membership,
+    MembershipRole,
     MembershipState,
+    Message,
+    MessageKind,
     PayerAcknowledgement,
     PaymentReport,
     Person,
@@ -81,10 +84,29 @@ class MembershipRecord:
     context_id: uuid.UUID
     person_id: uuid.UUID
     state: str
+    role: str
     invited_by_id: uuid.UUID | None
     joined_at: datetime | None
     left_at: datetime | None
     created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class MessageRecord:
+    id: uuid.UUID
+    context_id: uuid.UUID
+    author_id: uuid.UUID | None
+    kind: str
+    body: str | None
+    image_url: str | None
+    card: dict | None
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class MessagePage:
+    messages: tuple[MessageRecord, ...]
+    has_more: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -283,6 +305,8 @@ class ApiRepository(Protocol):
         context_id: uuid.UUID,
         person_id: uuid.UUID,
         invited_by_id: uuid.UUID,
+        *,
+        role: str = "member",
     ) -> MembershipRecord: ...
 
     def accept_membership(
@@ -296,6 +320,35 @@ class ApiRepository(Protocol):
     def list_members(self, context_id: uuid.UUID) -> list[MembershipRecord]: ...
 
     def is_member(self, context_id: uuid.UUID, person_id: uuid.UUID) -> bool: ...
+
+    def membership_role(
+        self, context_id: uuid.UUID, person_id: uuid.UUID
+    ) -> str | None: ...
+
+    def set_membership_role(
+        self, context_id: uuid.UUID, person_id: uuid.UUID, role: str
+    ) -> MembershipRecord | None: ...
+
+    def create_message(
+        self,
+        *,
+        context_id: uuid.UUID,
+        author_id: uuid.UUID | None,
+        kind: str,
+        body: str | None,
+        image_url: str | None,
+        card: dict | None,
+        now: datetime,
+    ) -> MessageRecord: ...
+
+    def list_messages(
+        self,
+        context_id: uuid.UUID,
+        *,
+        limit: int,
+        before: tuple[datetime, uuid.UUID] | None = None,
+        after: tuple[datetime, uuid.UUID] | None = None,
+    ) -> MessagePage: ...
 
     def create_expense(self, context_id: uuid.UUID) -> ExpenseIdentity: ...
 
@@ -442,10 +495,24 @@ class SqlAlchemyApiRepository:
             context_id=membership.context_id,
             person_id=membership.person_id,
             state=membership.state.value,
+            role=membership.role.value,
             invited_by_id=membership.invited_by_id,
             joined_at=membership.joined_at,
             left_at=membership.left_at,
             created_at=membership.created_at,
+        )
+
+    @staticmethod
+    def _message_record(message: Message) -> MessageRecord:
+        return MessageRecord(
+            id=message.id,
+            context_id=message.context_id,
+            author_id=message.author_id,
+            kind=message.kind.value,
+            body=message.body,
+            image_url=message.image_url,
+            card=message.card,
+            created_at=message.created_at,
         )
 
     @staticmethod
@@ -527,6 +594,8 @@ class SqlAlchemyApiRepository:
         context_id: uuid.UUID,
         person_id: uuid.UUID,
         invited_by_id: uuid.UUID,
+        *,
+        role: str = "member",
     ) -> MembershipRecord:
         # Always insert. Rejoining is a new membership period; reviving the old
         # row would silently backdate what the person was allowed to see.
@@ -534,6 +603,7 @@ class SqlAlchemyApiRepository:
             context_id=context_id,
             person_id=person_id,
             state=MembershipState.INVITED,
+            role=MembershipRole(role),
             invited_by_id=invited_by_id,
         )
         try:
@@ -610,6 +680,93 @@ class SqlAlchemyApiRepository:
                 .limit(1)
             )
             is not None
+        )
+
+    def membership_role(
+        self, context_id: uuid.UUID, person_id: uuid.UUID
+    ) -> str | None:
+        role = self.session.scalar(
+            select(Membership.role)
+            .where(
+                Membership.context_id == context_id,
+                Membership.person_id == person_id,
+                Membership.state == MembershipState.ACTIVE,
+                Membership.left_at.is_(None),
+            )
+            .limit(1)
+        )
+        return None if role is None else role.value
+
+    def set_membership_role(
+        self, context_id: uuid.UUID, person_id: uuid.UUID, role: str
+    ) -> MembershipRecord | None:
+        membership = self.session.scalar(
+            select(Membership)
+            .where(
+                Membership.context_id == context_id,
+                Membership.person_id == person_id,
+                Membership.state == MembershipState.ACTIVE,
+                Membership.left_at.is_(None),
+            )
+            .with_for_update()
+        )
+        if membership is None:
+            return None
+        membership.role = MembershipRole(role)
+        self.session.flush()
+        return self._membership_record(membership)
+
+    def create_message(
+        self,
+        *,
+        context_id: uuid.UUID,
+        author_id: uuid.UUID | None,
+        kind: str,
+        body: str | None,
+        image_url: str | None,
+        card: dict | None,
+        now: datetime,
+    ) -> MessageRecord:
+        message = Message(
+            context_id=context_id,
+            author_id=author_id,
+            kind=MessageKind(kind),
+            body=body,
+            image_url=image_url,
+            card=card,
+            created_at=now,
+        )
+        self.session.add(message)
+        self.session.flush()
+        return self._message_record(message)
+
+    def list_messages(
+        self,
+        context_id: uuid.UUID,
+        *,
+        limit: int,
+        before: tuple[datetime, uuid.UUID] | None = None,
+        after: tuple[datetime, uuid.UUID] | None = None,
+    ) -> MessagePage:
+        statement = select(Message).where(Message.context_id == context_id)
+        if before is not None:
+            statement = statement.where(
+                tuple_(Message.created_at, Message.id) < tuple_(*before)
+            ).order_by(Message.created_at.desc(), Message.id.desc())
+        elif after is not None:
+            statement = statement.where(
+                tuple_(Message.created_at, Message.id) > tuple_(*after)
+            ).order_by(Message.created_at.asc(), Message.id.asc())
+        else:
+            statement = statement.order_by(
+                Message.created_at.desc(), Message.id.desc()
+            )
+
+        rows = list(self.session.scalars(statement.limit(limit + 1)))
+        has_more = len(rows) > limit
+        return MessagePage(
+            messages=tuple(self._message_record(row) for row in rows[:limit]),
+            has_more=has_more,
         )
 
     def create_expense(self, context_id: uuid.UUID) -> ExpenseIdentity:
@@ -1730,6 +1887,8 @@ __all__ = [
     "GuestEnvelopeRecord",
     "GuestLinkDraft",
     "MembershipRecord",
+    "MessagePage",
+    "MessageRecord",
     "ObligationDraft",
     "PaymentReportRecord",
     "PaymentReportTarget",

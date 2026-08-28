@@ -8,6 +8,7 @@ import uuid
 from collections import defaultdict
 from datetime import UTC, datetime
 
+from app.api.cursors import CursorError, decode_cursor, encode_cursor
 from app.api.deps import Actor
 from app.api.errors import ApiProblem, RepositoryConflict
 from app.api.limits import OBJECTION_KINDS, QUOTA_CONSUMING_OBJECTIONS
@@ -16,6 +17,7 @@ from app.api.repository import (
     BankRecipientRecord,
     GuestLinkDraft,
     MembershipRecord,
+    MessageRecord,
     ObligationDraft,
     PersonRecord,
 )
@@ -35,9 +37,14 @@ from app.api.schemas import (
     ExpenseConfirmationResponse,
     ExpenseInput,
     ExpenseProposalResponse,
+    MemberRoleRequest,
     MembershipInviteRequest,
     MembershipListResponse,
     MembershipResponse,
+    MessageCreateRequest,
+    MessageListResponse,
+    MessageQuery,
+    MessageResponse,
     ObligationResponse,
     PaymentReportRequest,
     PaymentReportResponse,
@@ -195,10 +202,25 @@ def _wire_membership(record: MembershipRecord) -> MembershipResponse:
         context_id=record.context_id,
         person_id=record.person_id,
         state=record.state,
+        role=record.role,
         invited_by_id=record.invited_by_id,
         joined_at=record.joined_at,
         left_at=record.left_at,
         created_at=record.created_at,
+    )
+
+
+def _wire_message(record: MessageRecord) -> MessageResponse:
+    return MessageResponse(
+        id=record.id,
+        context_id=record.context_id,
+        author_id=record.author_id,
+        kind=record.kind,
+        body=record.body,
+        image_url=record.image_url,
+        card=record.card,
+        created_at=record.created_at,
+        cursor=encode_cursor(record.created_at, record.id),
     )
 
 
@@ -269,7 +291,9 @@ class ApiService:
         # A context must not be born with nobody allowed to administer it.
         # Bootstrap the creator through the same invited -> active transition
         # used by every later member, inside the request transaction.
-        membership = self.repository.add_member(context.id, actor.id, actor.id)
+        membership = self.repository.add_member(
+            context.id, actor.id, actor.id, role="admin"
+        )
         accepted = self.repository.accept_membership(membership.id, _now())
         if accepted is None:
             raise ApiProblem(
@@ -363,6 +387,117 @@ class ApiService:
                 for member in self.repository.list_members(context_id)
             ],
         )
+
+    def post_context_message(
+        self,
+        context_id: uuid.UUID,
+        request: MessageCreateRequest,
+        actor: Actor,
+    ) -> MessageResponse:
+        _require_permission(
+            "post_group_message",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+
+        payload_is_valid = (
+            request.kind == "text"
+            and request.body is not None
+            and request.image_url is None
+            and request.card is None
+        ) or (
+            request.kind == "image"
+            and request.image_url is not None
+            and request.card is None
+        ) or (
+            request.kind == "ai_card"
+            and request.card is not None
+            and request.image_url is None
+            and request.body is None
+        )
+        if not payload_is_valid:
+            raise ApiProblem(
+                422,
+                "message_payload_invalid",
+                "Message payload does not match its kind",
+            )
+
+        record = self.repository.create_message(
+            context_id=context_id,
+            author_id=actor.id,
+            kind=request.kind,
+            body=request.body,
+            image_url=request.image_url,
+            card=request.card,
+            now=_now(),
+        )
+        return _wire_message(record)
+
+    def list_context_messages(
+        self,
+        context_id: uuid.UUID,
+        query: MessageQuery,
+        actor: Actor,
+    ) -> MessageListResponse:
+        _require_permission(
+            "view_group_messages",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        if query.before is not None and query.after is not None:
+            raise ApiProblem(
+                422,
+                "cursor_direction_ambiguous",
+                "Use either before or after, not both",
+            )
+
+        try:
+            before = decode_cursor(query.before) if query.before is not None else None
+            after = decode_cursor(query.after) if query.after is not None else None
+        except CursorError as exc:
+            raise ApiProblem(422, "invalid_cursor", "Message cursor is invalid") from exc
+
+        page = self.repository.list_messages(
+            context_id,
+            limit=query.limit,
+            before=before,
+            after=after,
+        )
+        messages = [_wire_message(record) for record in page.messages]
+        return MessageListResponse(
+            context_id=context_id,
+            messages=messages,
+            next_cursor=messages[-1].cursor if messages else None,
+            has_more=page.has_more,
+        )
+
+    def set_context_member_role(
+        self,
+        context_id: uuid.UUID,
+        person_id: uuid.UUID,
+        request: MemberRoleRequest,
+        actor: Actor,
+    ) -> MembershipResponse:
+        _require_permission(
+            "set_member_role",
+            actor,
+            {
+                "is_group_admin": self.repository.membership_role(
+                    context_id, actor.id
+                )
+                == "admin"
+            },
+        )
+        membership = self.repository.set_membership_role(
+            context_id, person_id, request.role
+        )
+        if membership is None:
+            raise ApiProblem(
+                404,
+                "membership_not_found",
+                "Active membership does not exist",
+            )
+        return _wire_membership(membership)
 
     def propose_expense(self, proposal: ExpenseInput) -> ExpenseProposalResponse:
         try:

@@ -24,7 +24,7 @@ from app.api.errors import ApiProblem
 from app.api.repository import SqlAlchemyApiRepository
 from app.api.schemas import ContextCreateRequest, MemberRoleRequest
 from app.api.service import ApiService
-from app.db.models import Membership, MembershipState, Person
+from app.db.models import Membership, MembershipRole, MembershipState, Person
 
 NOW = datetime(2030, 8, 29, 9, 0, tzinfo=UTC)
 ROLES = frozenset({"member", "group_admin"})
@@ -49,7 +49,15 @@ def _service(session: Session) -> ApiService:
     return ApiService(SqlAlchemyApiRepository(session))
 
 
-def _join(session: Session, context_id, person_id, role: str = "member") -> Membership:
+def _join(
+    session: Session,
+    context_id,
+    person_id,
+    role: MembershipRole = MembershipRole.MEMBER,
+) -> Membership:
+    # The enum member, not the bare string, for the same reason `state` uses
+    # one: an attribute assigned a plain string stays a plain string until the
+    # row is reloaded, and the repository reads `.value` off it.
     membership = Membership(
         id=uuid.uuid4(),
         context_id=context_id,
@@ -222,7 +230,9 @@ def test_leaving_and_rejoining_starts_from_a_plain_membership(
     context = service.create_context(
         ContextCreateRequest(display_name="Nhóm mới"), _actor(owner.id)
     )
-    membership = _join(postgres_session, context.id, friend.id, role="admin")
+    membership = _join(
+        postgres_session, context.id, friend.id, role=MembershipRole.ADMIN
+    )
 
     service.leave_context(context.id, friend.id, _actor(friend.id, context.id))
     postgres_session.flush()
