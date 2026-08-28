@@ -20,6 +20,7 @@ import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
+from app.api.cors import ALLOWED_METHODS  # noqa: E402
 from app.api.deps import get_repository  # noqa: E402
 from app.api.main import create_app  # noqa: E402
 
@@ -88,6 +89,52 @@ def test_preflight_from_the_web_build_is_allowed(client_factory):
         "x-actor-contexts",
     } <= allowed
     assert "POST" in response.headers["access-control-allow-methods"]
+
+
+def test_preflight_for_renaming_a_person_is_allowed(client_factory):
+    """The exact request the web build sends before ``PUT /people/{id}``.
+
+    ``registerPerson`` in the client uses PUT. When PUT was missing from the
+    allowlist the browser never sent the request at all, the name never reached
+    the server, and the guest page kept printing "Phần của <uuid>" -- a bug that
+    only the web build could see, because the native build sends no ``Origin``.
+    """
+    response = preflight(
+        client_factory(),
+        WEB_BUILD_ORIGIN,
+        path=f"/people/{uuid.uuid4()}",
+        method="PUT",
+    )
+
+    assert response.status_code == 204
+    assert response.headers["access-control-allow-origin"] == WEB_BUILD_ORIGIN
+    assert "PUT" in response.headers["access-control-allow-methods"]
+
+
+def test_allowed_methods_covers_every_method_the_routers_expose(client_factory):
+    """The allowlist is derived from the routers, not remembered by hand.
+
+    ``PUT`` went missing because two pull requests merged forty seconds apart:
+    one froze the method list, the next added a PUT route. Neither diff was
+    wrong on its own. This case fails on the *combination*, so the next route
+    that arrives with a new verb cannot slip through the same gap.
+    """
+    application = create_app()
+
+    exposed = {
+        method.upper()
+        for route in application.routes
+        for method in getattr(route, "methods", None) or ()
+        # HEAD is synthesised by Starlette for every GET route and is on the
+        # CORS-safelisted list, so a browser never preflights it.
+        if method.upper() != "HEAD"
+    }
+    missing = exposed - set(ALLOWED_METHODS)
+
+    assert not missing, (
+        f"Router expose method {sorted(missing)} nhưng ALLOWED_METHODS không có; "
+        "preflight của web build sẽ bị từ chối."
+    )
 
 
 def test_refused_authentication_still_carries_the_allow_origin_header(client_factory):
