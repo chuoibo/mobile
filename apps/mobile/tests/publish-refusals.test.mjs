@@ -28,6 +28,10 @@ import test from "node:test";
 
 import { publishApiCodes, publishGateCodes } from "./server-codes.mjs";
 
+/** A fixed attempt, so these tests stay about refusals and names, not keys. */
+const LAN_BAM = { key: "K-test", at: 1_700_000_000_000 };
+
+
 /** Anything with a Vietnamese-only letter in it. */
 const VIETNAMESE = /[ăâêôơưđàáảãạằắẳẵặầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộờớởỡợùúủũụừứửữựỳýỷỹỵ]/i;
 
@@ -73,7 +77,7 @@ test("chạy thật từng mã cổng: người dùng thấy tiếng Việt, kh�
         });
 
       await assert.rejects(
-        () => publishBatch("b", { payerAcknowledged: true }, "a"),
+        () => publishBatch("b", { payerAcknowledged: true }, "a", LAN_BAM),
         (problem) => {
           assert.ok(problem instanceof ApiError, `${code}: sai kieu loi`);
           // The code survives translation, otherwise a bug report cannot name
@@ -104,7 +108,7 @@ test("đợt thu không tồn tại cũng đọc được", async () => {
     });
   try {
     await assert.rejects(
-      () => publishBatch("b", { payerAcknowledged: true }, "a"),
+      () => publishBatch("b", { payerAcknowledged: true }, "a", LAN_BAM),
       (problem) => {
         assert.ok(problem instanceof ApiError);
         assert.match(problem.message, /Không tìm thấy/);

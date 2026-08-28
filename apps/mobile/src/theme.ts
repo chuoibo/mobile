@@ -9,27 +9,57 @@ import tokens from "../../../packages/shared/tokens.json";
 
 export type Palette = typeof tokens.color.light;
 
-export const radius = tokens.radius;
+const { _: _radiusDoc, ...radiusScale } = tokens.radius;
+export const radius = radiusScale;
 
 export function usePalette(): Palette {
   return useColorScheme() === "dark" ? tokens.color.dark : tokens.color.light;
 }
 
-/** Spacing scale. Four steps, no more, so screens stay on one rhythm. */
-export const space = { xs: 6, sm: 10, md: 16, lg: 24, xl: 36 } as const;
+/** Spacing scale, read from tokens.json rather than retyped here.
+ *
+ * It was a second hand-maintained copy of the same six numbers, which is the
+ * exact drift this file's header warns about: the web scale could move and the
+ * app would keep its own. `space.xxl` now exists because the shared scale has
+ * it, not because a screen asked for it. */
+const { _: _spaceDoc, ...spaceScale } = tokens.space;
+export const space = spaceScale;
 
 // Typed as TextStyle rather than `as const`. The const assertion made
 // `fontVariant` a readonly tuple, which React Native's TextStyle does not
 // accept, so every <Text style={type.amount}> was a type error. Caught the
 // first time this app was ever typechecked.
+//
+// Sizes and weights come from tokens.json so the app and the guest page cannot
+// drift apart. The app's names are its own: `amount` is what a money screen
+// calls the display step, and `amountSmall` is an app-only step with no web
+// counterpart, so it stays a literal rather than being forced onto a token
+// that does not mean the same thing.
+const t = tokens.type;
+const w = (weight: string) => weight as TextStyle["fontWeight"];
+
 export const type: Record<
-  "amount" | "amountSmall" | "title" | "body" | "label",
+  "amount" | "amountSmall" | "title" | "body" | "label" | "micro",
   TextStyle
 > = {
   /** Tabular figures matter anywhere a column of money is read down. */
-  amount: { fontSize: 34, fontWeight: "700", letterSpacing: -1, fontVariant: ["tabular-nums"] },
+  amount: {
+    fontSize: t.display.size,
+    fontWeight: w(t.display.weight),
+    letterSpacing: t.display.tracking,
+    fontVariant: ["tabular-nums"],
+  },
   amountSmall: { fontSize: 17, fontWeight: "600", fontVariant: ["tabular-nums"] },
-  title: { fontSize: 20, fontWeight: "600", letterSpacing: -0.3 },
-  body: { fontSize: 16, fontWeight: "400" },
-  label: { fontSize: 13, fontWeight: "400" },
+  title: {
+    fontSize: t.title.size,
+    fontWeight: w(t.title.weight),
+    letterSpacing: t.title.tracking,
+  },
+  body: { fontSize: t.body.size, fontWeight: w(t.body.weight) },
+  label: { fontSize: t.label.size, fontWeight: w(t.label.weight) },
+  micro: {
+    fontSize: t.micro.size,
+    fontWeight: w(t.micro.weight),
+    letterSpacing: t.micro.tracking,
+  },
 };

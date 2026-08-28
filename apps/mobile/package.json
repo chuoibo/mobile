@@ -4,6 +4,10 @@
   "main": "index.ts",
   "dependencies": {
     "expo": "~57.0.17",
+    "expo-camera": "~57.0.4",
+    "expo-file-system": "~57.0.6",
+    "expo-image-manipulator": "~57.0.14",
+    "expo-image-picker": "~57.0.14",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
@@ -20,8 +24,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build:check && tsc -p tsconfig.test.json && node tools/fixup-esm.mjs && node --test tests/",
-    "test:e2e": "tsc -p tsconfig.test.json && node tools/fixup-esm.mjs && node --test tests/e2e/",
+    "test": "npm run build:check && tsc -p tsconfig.test.json && node tools/fixup-esm.mjs && node --test tests/*.test.mjs",
+    "test:e2e": "tsc -p tsconfig.test.json && node tools/fixup-esm.mjs && node --test tests/e2e/*.test.mjs",
     "build:check": "expo export --platform web --output-dir .expo-build-check --clear"
   },
   "private": true

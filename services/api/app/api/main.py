@@ -3,12 +3,21 @@
 from __future__ import annotations
 
 import pathlib
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.api.cors import install_cors
 from app.api.errors import ApiProblem
+from app.api.idempotency import (
+    IdempotencyMiddleware,
+    IdempotencyStore,
+    IdempotencyStoreFactory,
+    SqlAlchemyIdempotencyStore,
+)
 from app.api.routes import (
     bank_recipients,
     batches,
@@ -16,13 +25,33 @@ from app.api.routes import (
     expenses,
     guests,
     obligations,
+    people,
 )
 from app.api.schemas import ErrorResponse
+from app.db.session import get_session_factory
 
 WEB_ROOT = pathlib.Path(__file__).resolve().parents[1] / "web"
 
 
-def create_app() -> FastAPI:
+@contextmanager
+def sqlalchemy_store_factory() -> Iterator[IdempotencyStore]:
+    """One short transaction per idempotency operation.
+
+    Reservation has to be visible to other processes before the handler runs,
+    so it cannot ride along inside the request's own transaction. The engine is
+    built lazily, which keeps importing this module free of database access.
+    """
+
+    factory = get_session_factory()
+    with factory.begin() as session:
+        yield SqlAlchemyIdempotencyStore(session)
+
+
+def create_app(
+    *,
+    idempotency_store_factory: IdempotencyStoreFactory | None = None,
+    idempotency_in_flight_wait_seconds: float | None = None,
+) -> FastAPI:
     application = FastAPI(title="Group Expense API", version="0.1.0")
     application.mount(
         "/static",
@@ -35,6 +64,33 @@ def create_app() -> FastAPI:
     application.include_router(guests.router)
     application.include_router(obligations.router)
     application.include_router(bank_recipients.router)
+    application.include_router(people.router)
+
+    # Middleware, not a decorator on each route: a write route added later is
+    # covered the moment it is registered, with no list for anyone to forget.
+    idempotency_options = {}
+    if idempotency_in_flight_wait_seconds is not None:
+        # Only tests pass this. They cannot afford to sit through the real wait
+        # for a key that, by construction, nobody is ever going to finish.
+        idempotency_options["in_flight_wait_seconds"] = (
+            idempotency_in_flight_wait_seconds
+        )
+    application.add_middleware(
+        IdempotencyMiddleware,
+        store_factory=idempotency_store_factory or sqlalchemy_store_factory,
+        **idempotency_options,
+    )
+
+    # Installed last, which is what puts it outermost: `add_middleware`
+    # prepends, and the first entry wraps everything after it.
+    #
+    # Outermost on purpose, and the order matters more than it looks. The
+    # idempotency layer answers three refusals entirely on its own, before any
+    # route is reached. Inside the CORS layer those answers go out with no
+    # allow-origin header, the browser discards them, and the web build sees an
+    # opaque network failure instead of the code it needs in order to say
+    # anything useful to the person standing over their own money.
+    install_cors(application)
 
     @application.get("/healthz", include_in_schema=False)
     async def healthz() -> dict[str, str]:

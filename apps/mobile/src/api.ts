@@ -30,16 +30,28 @@ import type { Proposal } from "./screens/DeXuat";
 import type { Obligation } from "./screens/DotThu";
 import type { Envelope } from "./screens/ChiaSe";
 import type { Draft, Participant } from "./screens/NhapKhoanChi";
+import { makeIdFactory } from "./participants";
 
 /** Where the API lives. Overridable so a phone can reach a laptop. */
-// Read through a guard rather than `process.env` directly: this module is
-// compiled for the node test runner as well as for Metro, and `process` does
-// not exist in every target. Expo inlines `EXPO_PUBLIC_*` at build time.
-declare const process: { env?: Record<string, string | undefined> } | undefined;
+// Written as a plain `process.env.EXPO_PUBLIC_API_URL` on purpose, and it has
+// to stay that way. Expo substitutes this at build time by pattern-matching
+// the syntax tree, and its guard
+// (babel-preset-expo/build/plugins/inline-env-vars.js) accepts the read only
+// when the object being read from is a plain member expression. A defensive
+// `process?.env?.EXPO_PUBLIC_API_URL` does not match: `process?.env` is an
+// OptionalMemberExpression, the guard returns false, and the whole expression
+// survives into the bundle unreplaced -- so every build fell through to the
+// default below and the phone was pinned to the laptop's own localhost.
+//
+// The guard that used to wrap this was protecting against a target where
+// `process` is undefined. There is no such target here. Metro replaces this
+// read before the browser ever sees it (with the literal in a production
+// build, with an import from `expo/virtual/env` in development), and the node
+// test runner has `process` as a global. The guard bought nothing and cost the
+// substitution. `tests/env-inlining.test.mjs` fails if the syntax drifts back.
+declare const process: { env: Record<string, string | undefined> };
 
-export const BASE_URL =
-  (typeof process !== "undefined" ? process?.env?.EXPO_PUBLIC_API_URL : undefined) ??
-  "http://localhost:8099";
+export const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8099";
 
 /**
  * The group this app acts inside.
@@ -62,6 +74,73 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * One press of one button: a key, and the clock reading its body is built from.
+ *
+ * The server enforces `Idempotency-Key` on every write route, and enforces it
+ * by fingerprinting method + path + body. That makes the unit of protection an
+ * *attempt*, not a call: retrying the same press must send the same key **and
+ * the same bytes**, or the server sees a used key on a different request and
+ * answers 422 `idempotency_key_reuse`.
+ *
+ * The clock is what made that non-obvious. Three bodies here stamp a time
+ * (`occurred_at`, `due_at`, `guest_link_expires_at`). Read from `Date.now()` at
+ * call time, pressing again a minute later changed the body under an unchanged
+ * key -- so sending the header alone would have swapped a double write for a
+ * refusal aimed at somebody who did nothing wrong. Reading it from the attempt
+ * makes a retry byte-identical by construction rather than by care.
+ */
+export type Attempt = { readonly key: string; readonly at: number };
+
+const newKey = makeIdFactory();
+
+/** Mint an attempt. Call this on the press, never inside a retry. */
+export function newAttempt(): Attempt {
+  return { key: newKey(), at: Date.now() };
+}
+
+/**
+ * The attempt for one thing being written, minted once and then kept.
+ *
+ * `name` is what is being written -- an expense id, a batch id, an obligation
+ * id -- so the map does the arithmetic the server's rule demands: the same
+ * target keeps its key across retries, a different target gets its own. Callers
+ * hold the book in a ref, because a re-render between the press and the reply
+ * must not be able to lose the key and turn a retry into a second write.
+ */
+export function attemptFor(book: Record<string, Attempt>, name: string): Attempt {
+  return (book[name] ??= newAttempt());
+}
+
+/**
+ * What the idempotency middleware's own refusals mean.
+ *
+ * Applied in `call` rather than per route, matching how the protection is
+ * installed: the middleware covers a write route the moment it is registered,
+ * so the words for its refusals cannot depend on somebody remembering to add a
+ * route to a list. Reaching any of these puts a sentence in front of a person
+ * standing over their own money, and "Idempotency-Key was already used for a
+ * different request" is not a sentence.
+ */
+const IDEMPOTENCY_REFUSALS: Record<string, string> = {
+  // 409. The honest answer is that nobody knows yet whether it was written,
+  // and the client is the one party that cannot find out. Telling somebody to
+  // press again here is how one payment becomes two.
+  idempotency_request_in_flight:
+    "Lần bấm trước chưa chạy xong nên chưa biết máy chủ đã ghi hay chưa. " +
+    "Chờ một chút rồi mở lại màn hình để xem, đừng bấm lại ngay.",
+  // 422. Same key, different bytes. With attempts threaded properly this is
+  // unreachable, which is why it says the app is at fault instead of asking a
+  // person to fix something on their side.
+  idempotency_key_reuse:
+    "Nội dung gửi đi đã khác so với lần bấm trước, nên máy chủ không phát lại " +
+    "kết quả cũ. Mở lại màn hình để xem máy chủ đang giữ gì trước khi gửi lại.",
+  // 422. Only reachable if the app sends a malformed key, so it says so rather
+  // than sending somebody to look for a mistake they did not make.
+  invalid_idempotency_key:
+    "App gửi một khoá không hợp lệ nên lệnh này chưa được ghi. Đây là lỗi của app.",
+};
+
 function actorHeaders(actorId: string): Record<string, string> {
   return {
     "Content-Type": "application/json",
@@ -75,15 +154,35 @@ function actorHeaders(actorId: string): Record<string, string> {
   };
 }
 
-async function call<T>(
-  path: string,
-  { method = "POST", body, actorId }: { method?: string; body?: unknown; actorId?: string },
-): Promise<T> {
+type CallOptions = {
+  method?: string;
+  body?: unknown;
+  actorId?: string;
+  /** Required for writes. A write without one is unprotected against retries. */
+  attempt?: Attempt;
+};
+
+async function call<T>(path: string, { method = "POST", body, actorId, attempt }: CallOptions): Promise<T> {
+  const headers: Record<string, string> = actorId
+    ? actorHeaders(actorId)
+    : { "Content-Type": "application/json" };
+  // The header the server's middleware keys off. Without it the middleware
+  // passes the request straight through -- which is what this app did on every
+  // route, so the protection was installed and switched off. Measured against a
+  // real server: two identical `POST /expenses` with no header left two rows in
+  // `expenses`, and the same two with a header left one.
+  //
+  // Keys are scoped by `X-Actor-ID` server-side, falling back to a shared
+  // anonymous scope when the app does not send one (`/expenses` today). UUIDs
+  // do not collide across that shared scope, so this is safe, but it is the
+  // reason a key must stay a UUID rather than becoming anything readable.
+  if (attempt) headers["Idempotency-Key"] = attempt.key;
+
   let response: Response;
   try {
     response = await fetch(BASE_URL + path, {
       method,
-      headers: actorId ? actorHeaders(actorId) : { "Content-Type": "application/json" },
+      headers,
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
@@ -108,7 +207,7 @@ async function call<T>(
     } catch {
       /* not JSON; the status-based message is the honest one */
     }
-    throw new ApiError(response.status, code, detail);
+    throw new ApiError(response.status, code, IDEMPOTENCY_REFUSALS[code.toLowerCase()] ?? detail);
   }
   return (await response.json()) as T;
 }
@@ -133,14 +232,15 @@ export type PendingProposal = Proposal & {
   serverProposal: ExpenseInput;
 };
 
-export async function proposeSplit(draft: Draft): Promise<PendingProposal> {
+export async function proposeSplit(draft: Draft, attempt: Attempt): Promise<PendingProposal> {
   const body: ExpenseInput = {
     context_id: CONTEXT_ID,
     description: draft.occasion,
     recorded_by_id: draft.advancerId,
     paid_by_id: draft.advancerId,
     verification_scope: "totals_only",
-    occurred_at: new Date().toISOString(),
+    // From the attempt, not the clock: a retry has to send the same bytes.
+    occurred_at: new Date(attempt.at).toISOString(),
     participants: draft.participants.map((person: Participant) => person.id),
     total_amount_vnd: draft.totalVnd,
     items: [],
@@ -151,7 +251,7 @@ export async function proposeSplit(draft: Draft): Promise<PendingProposal> {
     expense_id: string;
     proposal: ExpenseInput;
     allocation: { allocations: Record<string, number>; rounding_gainers: string[] };
-  }>("/expenses", { body });
+  }>("/expenses", { body, attempt });
 
   return {
     participants: draft.participants,
@@ -175,6 +275,7 @@ export async function proposeSplit(draft: Draft): Promise<PendingProposal> {
  */
 export async function confirmExpense(
   proposal: PendingProposal,
+  attempt: Attempt,
 ): Promise<{ expenseVersionId: string; acknowledged: boolean }> {
   const result = await translated<{
     expense_version_id: string;
@@ -186,6 +287,7 @@ export async function confirmExpense(
       acknowledge_as_advancer: true,
     },
     actorId: proposal.advancerId,
+    attempt,
   });
   return {
     expenseVersionId: result.expense_version_id,
@@ -309,6 +411,7 @@ export async function openBatch(
   proposal: PendingProposal,
   expenseVersionId: string,
   acknowledged: boolean,
+  attempt: Attempt,
 ): Promise<OpenedBatch> {
   const nameOf = (id: string) =>
     proposal.participants.find((person: Participant) => person.id === id)?.name ?? id;
@@ -325,9 +428,12 @@ export async function openBatch(
     body: {
       context_id: CONTEXT_ID,
       expense_version_ids: [expenseVersionId],
-      due_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      // Counted from the attempt, so a retry asks for the same due date rather
+      // than one seven days from whenever the connection came back.
+      due_at: new Date(attempt.at + 7 * 24 * 60 * 60 * 1000).toISOString(),
     },
     actorId: proposal.advancerId,
+    attempt,
   });
 
   return {
@@ -359,6 +465,7 @@ export async function publishBatch(
   batchId: string,
   gates: PublishGates,
   actorId: string,
+  attempt: Attempt,
   roster: Participant[] = [],
 ): Promise<Envelope[]> {
   // Checked here as well as by the disabled button. A disabled button is a
@@ -368,7 +475,7 @@ export async function publishBatch(
   }
   // Gate 2 is the server's to enforce, so its refusal is the only true answer
   // about it.
-  return sendPublish(batchId, actorId, roster);
+  return sendPublish(batchId, actorId, attempt, roster);
 }
 
 /**
@@ -387,7 +494,7 @@ export async function publishBatch(
 async function translated<T>(
   table: Record<string, string>,
   path: string,
-  options: { method?: string; body?: unknown; actorId?: string },
+  options: CallOptions,
 ): Promise<T> {
   try {
     return await call<T>(path, options);
@@ -410,6 +517,7 @@ function nameFrom(roster: Participant[], id: string): string {
 async function sendPublish(
   batchId: string,
   actorId: string,
+  attempt: Attempt,
   roster: Participant[],
 ): Promise<Envelope[]> {
   const result = await translated<{
@@ -424,11 +532,15 @@ async function sendPublish(
   }>(PUBLISH_REFUSALS, `/batches/${batchId}/publish`, {
     body: {
       delivery_method: "personal_link",
+      // Also counted from the attempt. A retry that moved this would hand the
+      // same guests links with a different lifetime depending on how long the
+      // network was down.
       guest_link_expires_at: new Date(
-        Date.now() + 14 * 24 * 60 * 60 * 1000,
+        attempt.at + 14 * 24 * 60 * 60 * 1000,
       ).toISOString(),
     },
     actorId,
+    attempt,
   });
 
   // `link.amount_vnd` was read here for a while. No such field is sent, so the
@@ -488,22 +600,25 @@ export async function loadBoard(
  * statement. `receiver_confirmed` means one person pressed a button. The whole
  * design rests on that being visible rather than dressed up as settlement.
  *
- * `idempotency_key` is generated per attempt and reused on retry, because a
- * flaky connection must not turn one arrival into two. Confirming twice would
- * push an obligation to `over_confirmed`, which reads as somebody having paid
- * more than they owed.
+ * The attempt's key goes out twice, and the two are not redundant. In the body
+ * it is the route's own field, which stops a second confirmation from pushing
+ * an obligation to `over_confirmed` -- a state that reads as somebody having
+ * paid more than they owed. In the header it is what the middleware keys off,
+ * so the retry gets the first reply replayed rather than re-running the
+ * handler. Same value, because they are protecting the same press.
  */
 export async function confirmReceipt(
   obligationId: string,
   amountVnd: number,
   actorId: string,
-  idempotencyKey: string,
+  attempt: Attempt,
 ): Promise<{ status: Obligation["status"] }> {
   const result = await call<{
     obligation_status: Obligation["status"];
   }>(`/obligations/${obligationId}/confirm-receipt`, {
-    body: { amount_vnd: amountVnd, idempotency_key: idempotencyKey },
+    body: { amount_vnd: amountVnd, idempotency_key: attempt.key },
     actorId,
+    attempt,
   });
   return { status: result.obligation_status };
 }

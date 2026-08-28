@@ -99,6 +99,25 @@ class ExpenseConfirmationResponse(ApiModel):
     allocations: dict[UUID, MoneyVnd]
 
 
+class PersonRegistrationRequest(ApiModel):
+    """A name asserted for one person id, by whoever is asking.
+
+    The id is not in the body: it is the path, because the caller already holds
+    it. Participant ids are minted client-side and then used in expenses,
+    obligations and envelopes long before anybody types a name, so this route
+    names an id that already exists in the caller's world rather than handing
+    out a new one.
+    """
+
+    display_name: Annotated[StrictStr, Field(min_length=1, max_length=200)]
+
+
+class PersonResponse(ApiModel):
+    id: UUID
+    display_name: StrictStr
+    created_at: datetime
+
+
 class ContextCreateRequest(ApiModel):
     display_name: Annotated[StrictStr, Field(min_length=1, max_length=200)]
 

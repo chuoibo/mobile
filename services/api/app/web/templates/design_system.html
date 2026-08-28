@@ -1,0 +1,530 @@
+{#
+  Design-system board plus a 390px settlement mock. Dev preview only.
+  Sample names and amounts are injected from design_preview.fixture().
+#}
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hệ thiết kế Rủ Đi</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="stylesheet" href="/static/guest.css">
+<link rel="stylesheet" href="/static/design_system.css">
+</head>
+<body class="ds-page">
+<!--
+THESIS: Trang khách là mặt quyết toán tiền trên giấy kem, không phải poster thương hiệu. Một tông dẫn: teal (split). Cam chỉ xuất hiện ở bảng token và dải logo/hero.
+OWN-WORLD: Nền kem, thẻ trắng, bóng ấm rất mềm, bo 20/14/10, system-ui. Ba tông mang nghĩa: cam thương hiệu, teal tiền, tím AI.
+STORY: Người tổ chức đã chia xong. Màn này cho biết tổng, phần mỗi người, ba lệnh chuyển tối thiểu, và VietQR để trả.
+FIRST VIEWPORT: Bảng token, rồi khung 390px. Trong khung, số tổng đọc trước, rồi số teal từng người.
+FORM: Operate. Không webfont. Không em-dash. Mọi đích 44px. Trạng thái luôn kèm chữ.
+FINISH: tokens.json khoá. Detector và pytest web là cổng.
+-->
+
+<main class="ds">
+
+  <header class="ds-intro">
+    <h1>Hệ thiết kế Rủ Đi</h1>
+    <p>
+      Màu, chữ, khoảng cách và bo góc rút từ mockup đã chốt. Trang khách là mặt
+      quyết toán, nên hành động chính dùng tông teal (chia bill), không dùng tông cam.
+    </p>
+  </header>
+
+  <section class="ds-section" aria-labelledby="mau">
+    <h2 id="mau">Màu</h2>
+    <p class="note">Mỗi ô ghi mã màu sáng và mã màu tối. 46 cặp chữ trên nền mà hệ này thật sự dùng đều đã đo bằng script: thấp nhất 4.52:1, cao nhất 16.33:1, không cặp nào dưới ngưỡng AA 4.5:1. Bốn màu thương hiệu đo riêng và chỉ dùng cho mảng lớn, không đặt chữ nhỏ lên. Số đo đầy đủ nằm trong DESIGN.md.</p>
+    <ul class="swatches">
+      <li>
+        <figure class="swatch swatch--ground">
+          <dl>
+            <dt>ground</dt>
+            <dd><span class="hex-light">#feeee0</span><span class="hex-dark">#17120f</span></dd>
+          </dl>
+        </figure>
+      </li>
+      <li>
+        <figure class="swatch swatch--card">
+          <dl>
+            <dt>card</dt>
+            <dd><span class="hex-light">#ffffff</span><span class="hex-dark">#221c18</span></dd>
+          </dl>
+        </figure>
+      </li>
+      <li>
+        <figure class="swatch swatch--line">
+          <dl>
+            <dt>line</dt>
+            <dd><span class="hex-light">#e7dace</span><span class="hex-dark">#413c38</span></dd>
+          </dl>
+        </figure>
+      </li>
+      <li>
+        <figure class="swatch swatch--ink">
+          <dl>
+            <dt>ink</dt>
+            <dd>
+              <span class="hex-light">#1f2230</span><span class="hex-dark">#f7efe7</span>
+              <span class="contrast">15.79 trên card · 13.93 trên ground</span>
+            </dd>
+          </dl>
+        </figure>
+      </li>
+      <li>
+        <figure class="swatch swatch--ink-soft">
+          <dl>
+            <dt>ink-soft</dt>
+            <dd>
+              <span class="hex-light">#4e5563</span><span class="hex-dark">#c3b7ad</span>
+              <span class="contrast">7.49 trên card · 6.61 trên ground</span>
+            </dd>
+          </dl>
+        </figure>
+      </li>
+      <li>
+        <figure class="swatch swatch--ink-faint">
+          <dl>
+            <dt>ink-faint</dt>
+            <dd>
+              <span class="hex-light">#676e7b</span><span class="hex-dark">#8b8290</span>
+              <span class="contrast">5.13 trên card · 4.52 trên ground</span>
+            </dd>
+          </dl>
+        </figure>
+      </li>
+      <li>
+        <figure class="swatch swatch--accent">
+          <dl>
+            <dt>accent</dt>
+            <dd>
+              <span class="hex-light">#c93900</span><span class="hex-dark">#fb693e</span>
+              <span class="contrast">5.16 trên card · 4.55 trên ground. Thương hiệu, hành động chính trong app.</span>
+            </dd>
+          </dl>
+        </figure>
+      </li>
+      <li>
+        <figure class="swatch swatch--accent-end">
+          <dl>
+            <dt>accent-end</dt>
+            <dd>
+              <span class="hex-light">#c9344a</span><span class="hex-dark">#e75262</span>
+              <span class="contrast">5.16 trên card</span>
+            </dd>
+          </dl>
+        </figure>
+      </li>
+      <li>
+        <figure class="swatch swatch--accent-ink">
+          <dl>
+            <dt>accent-ink</dt>
+            <dd>
+              <span class="hex-light">#ffffff</span><span class="hex-dark">#1c0d06</span>
+              <span class="contrast">5.16 trên accent</span>
+            </dd>
+          </dl>
+        </figure>
+      </li>
+      <li>
+        <figure class="swatch swatch--accent-soft">
+          <dl>
+            <dt>accent-soft</dt>
+            <dd><span class="hex-light">#fff0ea</span><span class="hex-dark">#3a0b00</span></dd>
+          </dl>
+        </figure>
+      </li>
+      <li>
+        <figure class="swatch swatch--split">
+          <dl>
+            <dt>split</dt>
+            <dd>
+              <span class="hex-light">#00756b</span><span class="hex-dark">#02a498</span>
+              <span class="contrast">5.16 trên card · 4.55 trên ground. Chia bill, tiền, quyết toán.</span>
+            </dd>
+          </dl>
+        </figure>
+      </li>
+      <li>
+        <figure class="swatch swatch--split-ink">
+          <dl>
+            <dt>split-ink</dt>
+            <dd>
+              <span class="hex-light">#ffffff</span><span class="hex-dark">#04201d</span>
+              <span class="contrast">5.16 trên split</span>
+            </dd>
+          </dl>
+        </figure>
+      </li>
+      <li>
+        <figure class="swatch swatch--split-soft">
+          <dl>
+            <dt>split-soft</dt>
+            <dd><span class="hex-light">#d5f5f0</span><span class="hex-dark">#002320</span></dd>
+          </dl>
+        </figure>
+      </li>
+      <li>
+        <figure class="swatch swatch--ai">
+          <dl>
+            <dt>ai</dt>
+            <dd>
+              <span class="hex-light">#7d49ef</span><span class="hex-dark">#9667ff</span>
+              <span class="contrast">5.16 trên card · 4.55 trên ground. Thứ do AI sinh ra, người vẫn sửa được.</span>
+            </dd>
+          </dl>
+        </figure>
+      </li>
+      <li>
+        <figure class="swatch swatch--ai-ink">
+          <dl>
+            <dt>ai-ink</dt>
+            <dd>
+              <span class="hex-light">#ffffff</span><span class="hex-dark">#150a30</span>
+              <span class="contrast">5.16 trên ai</span>
+            </dd>
+          </dl>
+        </figure>
+      </li>
+      <li>
+        <figure class="swatch swatch--ai-soft">
+          <dl>
+            <dt>ai-soft</dt>
+            <dd><span class="hex-light">#f5f1ff</span><span class="hex-dark">#221046</span></dd>
+          </dl>
+        </figure>
+      </li>
+      <li>
+        <figure class="swatch swatch--warn">
+          <dl>
+            <dt>warn</dt>
+            <dd>
+              <span class="hex-light">#c2410c</span><span class="hex-dark">#df5c2f</span>
+              <span class="contrast">5.18 trên card · 4.57 trên ground. Lối thoát và cảnh báo.</span>
+            </dd>
+          </dl>
+        </figure>
+      </li>
+    </ul>
+  </section>
+
+  <section class="ds-section" aria-labelledby="chu">
+    <h2 id="chu">Chữ</h2>
+    <dl class="type-scale">
+      <div class="type-row">
+        <dt>display 34</dt>
+        <dd class="type--display">1.125.000đ</dd>
+      </div>
+      <div class="type-row">
+        <dt>h1 28</dt>
+        <dd class="type--h1">Kết quả thanh toán</dd>
+      </div>
+      <div class="type-row">
+        <dt>title 20</dt>
+        <dd class="type--title">Số tiền mỗi người phải trả</dd>
+      </div>
+      <div class="type-row">
+        <dt>body 16</dt>
+        <dd class="type--body">AI đã chia theo món, bạn vẫn sửa được trước khi chốt.</dd>
+      </div>
+      <div class="type-row">
+        <dt>label 13</dt>
+        <dd class="type--label">8 món · 4 người</dd>
+      </div>
+      <div class="type-row">
+        <dt>micro 11</dt>
+        <dd class="type--micro">Quét để thanh toán</dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="ds-section" aria-labelledby="nhip">
+    <h2 id="nhip">Khoảng cách, bo góc, bóng</h2>
+    <ul class="meters">
+      <li class="meter">
+        <dl>
+          <dt>xs 6</dt>
+          <dd><div class="space-bar space-bar--xs" aria-hidden="true"></div></dd>
+        </dl>
+      </li>
+      <li class="meter">
+        <dl>
+          <dt>sm 10</dt>
+          <dd><div class="space-bar space-bar--sm" aria-hidden="true"></div></dd>
+        </dl>
+      </li>
+      <li class="meter">
+        <dl>
+          <dt>md 16</dt>
+          <dd><div class="space-bar space-bar--md" aria-hidden="true"></div></dd>
+        </dl>
+      </li>
+      <li class="meter">
+        <dl>
+          <dt>lg 24</dt>
+          <dd><div class="space-bar space-bar--lg" aria-hidden="true"></div></dd>
+        </dl>
+      </li>
+      <li class="meter">
+        <dl>
+          <dt>xl 36</dt>
+          <dd><div class="space-bar space-bar--xl" aria-hidden="true"></div></dd>
+        </dl>
+      </li>
+      <li class="meter">
+        <dl>
+          <dt>xxl 48</dt>
+          <dd><div class="space-bar space-bar--xxl" aria-hidden="true"></div></dd>
+        </dl>
+      </li>
+      <li class="meter">
+        <dl>
+          <dt>radius 20</dt>
+          <dd><div class="radius-demo radius-demo--base" aria-hidden="true"></div></dd>
+        </dl>
+      </li>
+      <li class="meter">
+        <dl>
+          <dt>control 14</dt>
+          <dd><div class="radius-demo radius-demo--control" aria-hidden="true"></div></dd>
+        </dl>
+      </li>
+      <li class="meter">
+        <dl>
+          <dt>small 10</dt>
+          <dd><div class="radius-demo radius-demo--sm" aria-hidden="true"></div></dd>
+        </dl>
+      </li>
+      <li class="meter">
+        <dl>
+          <dt>shadow card</dt>
+          <dd><div class="shadow-demo shadow-demo--card" aria-hidden="true"></div></dd>
+        </dl>
+      </li>
+      <li class="meter">
+        <dl>
+          <dt>shadow raised</dt>
+          <dd><div class="shadow-demo shadow-demo--raised" aria-hidden="true"></div></dd>
+        </dl>
+      </li>
+    </ul>
+  </section>
+
+  <section class="ds-section" aria-labelledby="gradient">
+    <h2 id="gradient">Gradient thương hiệu</h2>
+    <div class="grads">
+      <figure class="grad">
+        <div class="grad-bar grad-bar--logo" role="img" aria-label="Gradient logo, cam sang hồng"></div>
+        <figcaption>
+          Logo <code>#fc7b37</code> tới <code>#e75262</code>.
+          Chỉ dùng cho mảng lớn. Cấm đặt chữ nhỏ lên dải này.
+          Cam gốc <code>#fb693e</code> với chữ trắng chỉ đạt 2.92:1.
+        </figcaption>
+      </figure>
+      <figure class="grad">
+        <div class="grad-bar grad-bar--hero" role="img" aria-label="Gradient hero, cam sang hồng sang tím"></div>
+        <figcaption>
+          Hero <code>#fc7b37</code> tới <code>#e75262</code> tới <code>#8350f6</code>.
+          Chỉ dùng cho mảng lớn. Cấm đặt chữ nhỏ lên dải này.
+        </figcaption>
+      </figure>
+      <figure class="grad">
+        <div class="grad-bar grad-bar--action" role="img" aria-label="Gradient hành động, cam đậm sang hồng đậm"></div>
+        <figcaption>
+          Action <code>#c93900</code> tới <code>#c9344a</code>.
+          Hai đầu đã qua ngưỡng tương phản, dùng khi cần chữ trên cam.
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="ds-section ds-screen-wrap" aria-labelledby="mau-man">
+    <h2 id="mau-man">Màn mẫu</h2>
+
+    <div class="phone">
+      <div class="phone-nav">
+        <button class="phone-back" type="button" aria-label="Quay lại">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M15 5 L8 12 L15 19"/>
+          </svg>
+        </button>
+        <p class="phone-title">{{ sample.nav_title }}</p>
+        <span aria-hidden="true"></span>
+      </div>
+
+      <section class="card">
+        <p class="total-label">{{ sample.bill_label }}</p>
+        <p class="total-amount">{{ sample.bill_amount }}<span class="amount__unit">đ</span></p>
+        <p class="total-meta">{{ sample.bill_meta }}</p>
+      </section>
+
+      <section class="card">
+        <h3>{{ sample.people_heading }}</h3>
+        <ul class="person-list">
+          {% for person in sample.people %}
+          <li class="person">
+            <span class="avatar" aria-hidden="true">{{ person.initial }}</span>
+            <span class="person-name">{{ person.name }}</span>
+            <span class="amount-teal">{{ person.amount }}đ</span>
+          </li>
+          {% endfor %}
+        </ul>
+      </section>
+
+      <section class="card">
+        <h3>{{ sample.transfer_heading }}</h3>
+        <ul class="settle-list">
+          {% for row in sample.transfers %}
+          <li class="settle">
+            <span class="settle-copy">{{ row.payer }} trả cho {{ row.payee }}</span>
+            <span class="amount-teal">{{ row.amount }}đ</span>
+          </li>
+          {% endfor %}
+        </ul>
+      </section>
+
+      <section class="card">
+        <div class="qr-slot" role="img" aria-label="Mã QR mẫu, không quét được">
+          {# Decorative stand-in. Not a real VietQR payload. #}
+          <svg viewBox="0 0 25 25" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <rect width="25" height="25" fill="var(--card)"/>
+            <g fill="var(--ink)">
+              <rect x="0" y="0" width="7" height="7"/>
+              <rect x="1" y="1" width="5" height="5" fill="var(--card)"/>
+              <rect x="2" y="2" width="3" height="3"/>
+              <rect x="18" y="0" width="7" height="7"/>
+              <rect x="19" y="1" width="5" height="5" fill="var(--card)"/>
+              <rect x="20" y="2" width="3" height="3"/>
+              <rect x="0" y="18" width="7" height="7"/>
+              <rect x="1" y="19" width="5" height="5" fill="var(--card)"/>
+              <rect x="2" y="20" width="3" height="3"/>
+              <rect x="9" y="0" width="1" height="1"/>
+              <rect x="11" y="0" width="2" height="1"/>
+              <rect x="14" y="0" width="1" height="1"/>
+              <rect x="16" y="0" width="1" height="1"/>
+              <rect x="8" y="2" width="1" height="1"/>
+              <rect x="10" y="2" width="1" height="1"/>
+              <rect x="12" y="2" width="3" height="1"/>
+              <rect x="9" y="3" width="2" height="1"/>
+              <rect x="13" y="3" width="1" height="1"/>
+              <rect x="16" y="3" width="1" height="1"/>
+              <rect x="8" y="4" width="1" height="1"/>
+              <rect x="11" y="4" width="1" height="1"/>
+              <rect x="14" y="5" width="2" height="1"/>
+              <rect x="9" y="6" width="1" height="1"/>
+              <rect x="12" y="6" width="1" height="1"/>
+              <rect x="15" y="6" width="2" height="1"/>
+              <rect x="8" y="8" width="2" height="1"/>
+              <rect x="12" y="8" width="1" height="1"/>
+              <rect x="15" y="8" width="1" height="1"/>
+              <rect x="18" y="8" width="2" height="1"/>
+              <rect x="22" y="8" width="1" height="1"/>
+              <rect x="0" y="9" width="1" height="1"/>
+              <rect x="3" y="9" width="2" height="1"/>
+              <rect x="7" y="9" width="1" height="1"/>
+              <rect x="10" y="9" width="3" height="1"/>
+              <rect x="16" y="9" width="1" height="1"/>
+              <rect x="20" y="9" width="3" height="1"/>
+              <rect x="1" y="10" width="1" height="1"/>
+              <rect x="5" y="10" width="1" height="1"/>
+              <rect x="8" y="10" width="2" height="1"/>
+              <rect x="13" y="10" width="1" height="1"/>
+              <rect x="17" y="10" width="2" height="1"/>
+              <rect x="21" y="10" width="1" height="1"/>
+              <rect x="0" y="11" width="3" height="1"/>
+              <rect x="6" y="11" width="1" height="1"/>
+              <rect x="9" y="11" width="1" height="1"/>
+              <rect x="11" y="11" width="2" height="1"/>
+              <rect x="15" y="11" width="1" height="1"/>
+              <rect x="18" y="11" width="1" height="1"/>
+              <rect x="23" y="11" width="2" height="1"/>
+              <rect x="2" y="12" width="1" height="1"/>
+              <rect x="4" y="12" width="2" height="1"/>
+              <rect x="8" y="12" width="1" height="1"/>
+              <rect x="12" y="12" width="3" height="1"/>
+              <rect x="19" y="12" width="1" height="1"/>
+              <rect x="22" y="12" width="1" height="1"/>
+              <rect x="0" y="13" width="1" height="1"/>
+              <rect x="3" y="13" width="1" height="1"/>
+              <rect x="7" y="13" width="2" height="1"/>
+              <rect x="11" y="13" width="1" height="1"/>
+              <rect x="14" y="13" width="2" height="1"/>
+              <rect x="18" y="13" width="3" height="1"/>
+              <rect x="1" y="14" width="2" height="1"/>
+              <rect x="5" y="14" width="1" height="1"/>
+              <rect x="9" y="14" width="1" height="1"/>
+              <rect x="12" y="14" width="1" height="1"/>
+              <rect x="16" y="14" width="1" height="1"/>
+              <rect x="20" y="14" width="2" height="1"/>
+              <rect x="24" y="14" width="1" height="1"/>
+              <rect x="0" y="15" width="1" height="1"/>
+              <rect x="4" y="15" width="3" height="1"/>
+              <rect x="10" y="15" width="2" height="1"/>
+              <rect x="15" y="15" width="1" height="1"/>
+              <rect x="17" y="15" width="2" height="1"/>
+              <rect x="21" y="15" width="1" height="1"/>
+              <rect x="8" y="16" width="1" height="1"/>
+              <rect x="11" y="16" width="1" height="1"/>
+              <rect x="13" y="16" width="2" height="1"/>
+              <rect x="18" y="16" width="1" height="1"/>
+              <rect x="22" y="16" width="2" height="1"/>
+              <rect x="9" y="17" width="2" height="1"/>
+              <rect x="14" y="17" width="1" height="1"/>
+              <rect x="16" y="17" width="1" height="1"/>
+              <rect x="19" y="17" width="1" height="1"/>
+              <rect x="23" y="17" width="1" height="1"/>
+              <rect x="8" y="18" width="1" height="1"/>
+              <rect x="11" y="18" width="1" height="1"/>
+              <rect x="15" y="18" width="2" height="1"/>
+              <rect x="20" y="18" width="1" height="1"/>
+              <rect x="9" y="19" width="1" height="1"/>
+              <rect x="12" y="19" width="3" height="1"/>
+              <rect x="17" y="19" width="1" height="1"/>
+              <rect x="21" y="19" width="2" height="1"/>
+              <rect x="8" y="20" width="2" height="1"/>
+              <rect x="13" y="20" width="1" height="1"/>
+              <rect x="16" y="20" width="1" height="1"/>
+              <rect x="19" y="20" width="1" height="1"/>
+              <rect x="24" y="20" width="1" height="1"/>
+              <rect x="10" y="21" width="1" height="1"/>
+              <rect x="14" y="21" width="2" height="1"/>
+              <rect x="18" y="21" width="3" height="1"/>
+              <rect x="8" y="22" width="1" height="1"/>
+              <rect x="11" y="22" width="1" height="1"/>
+              <rect x="15" y="22" width="1" height="1"/>
+              <rect x="17" y="22" width="1" height="1"/>
+              <rect x="22" y="22" width="1" height="1"/>
+              <rect x="9" y="23" width="2" height="1"/>
+              <rect x="13" y="23" width="1" height="1"/>
+              <rect x="16" y="23" width="2" height="1"/>
+              <rect x="20" y="23" width="1" height="1"/>
+              <rect x="24" y="23" width="1" height="1"/>
+              <rect x="8" y="24" width="1" height="1"/>
+              <rect x="11" y="24" width="3" height="1"/>
+              <rect x="18" y="24" width="1" height="1"/>
+              <rect x="21" y="24" width="2" height="1"/>
+            </g>
+          </svg>
+        </div>
+        <p class="qr-caption">{{ sample.qr_caption }}</p>
+        <p class="qr-payee">{{ sample.qr_name }} · {{ sample.qr_bank }}</p>
+      </section>
+
+      <p class="ai-banner">
+        <span class="ai-mark">AI</span>{{ sample.ai_note }}
+      </p>
+
+      <div class="phone-actions">
+        <button class="btn btn--quiet" type="button">{{ sample.share_label }}</button>
+        <button class="btn btn--primary" type="button">{{ sample.done_label }}</button>
+      </div>
+    </div>
+
+    <p class="sample-note">{{ sample.sample_notice }}</p>
+  </section>
+
+</main>
+
+<p class="dev-flag">Xem thử hệ thiết kế. Không phải trang khách thật.</p>
+</body>
+</html>

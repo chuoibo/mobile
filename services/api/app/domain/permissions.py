@@ -143,6 +143,19 @@ _TABLE: dict[str, dict] = {
     },
     "share_evidence": {"roles": {"member"}, "requires": ("is_uploader",)},
     # --- identity ------------------------------------------------------
+    # Naming somebody who has no row yet is how a name enters this product at
+    # all: nobody signs up before a friend adds them to a dinner, so the
+    # organiser types "Quyên" on their own phone. Section 7.2 calls the result
+    # a PersonStub -- a name a member asserted, never proof of who that is.
+    "register_person_identity": {"roles": {"group_admin", "member"}, "requires": ()},
+    # Changing a name that already exists is a different act, and only the
+    # person themselves may do it. A display name is what a stranger reads on
+    # a guest page while deciding whether to send money; letting any member
+    # rewrite it lets one member change who the page appears to be from.
+    "rename_person_identity": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_self",),
+    },
     "invite_person_stub_claim": {"roles": {"member"}, "requires": ()},
     "challenge_person_stub_claim": {"roles": {"member"}, "requires": ()},
     # Section 9.2: an admin does not adjudicate identity. Only the platform

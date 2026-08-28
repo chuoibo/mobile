@@ -9,12 +9,14 @@ import { StatusBar } from "expo-status-bar";
 import React, { useRef, useState } from "react";
 import { SafeAreaView, Text, View, useColorScheme } from "react-native";
 import {
+  attemptFor,
   confirmExpense,
   confirmReceipt,
   loadBoard,
   openBatch,
   proposeSplit,
   publishBatch,
+  type Attempt,
   type PendingProposal,
   BASE_URL,
   type PublishGates,
@@ -23,13 +25,25 @@ import { ChiaSe, type Envelope } from "./src/screens/ChiaSe";
 import { DeXuat, type Proposal } from "./src/screens/DeXuat";
 import { DotThu, type Obligation } from "./src/screens/DotThu";
 import { Draft, NhapKhoanChi } from "./src/screens/NhapKhoanChi";
-import { EMPTY_FORM, makeIdFactory, type DraftForm } from "./src/participants";
+import { EMPTY_FORM, type DraftForm } from "./src/participants";
 import { space, type, usePalette } from "./src/theme";
 
 type Step = "nhap" | "de-xuat" | "dot-thu" | "chia-se";
 
-/** Idempotency keys for receipt confirmations. UUIDs, because the API wants one. */
-const newId = makeIdFactory();
+/**
+ * What a press is trying to write, as a string.
+ *
+ * This is the name an attempt is filed under, so it decides when a key is
+ * reused and when a fresh one is minted -- and the server's rule is that a key
+ * may be reused only while the bytes stay identical. Every field the expense
+ * body carries is in here for that reason: change the total, the occasion, who
+ * paid or who is in, and this is a different write that must not replay the
+ * answer to the previous one.
+ */
+function expenseIntent(d: Draft): string {
+  const who = d.participants.map((person) => person.id).join(",");
+  return `khoan-chi:${d.advancerId}:${d.totalVnd}:${d.occasion}:${who}`;
+}
 
 export default function App() {
   const c = usePalette();
@@ -58,15 +72,22 @@ export default function App() {
   const [gates, setGates] = useState<PublishGates>({ payerAcknowledged: false });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  // One key per obligation, minted on the first press and kept.
+  // One attempt per thing being written, minted on the first press and kept.
   //
   // A fresh key on every press is the obvious version and it is wrong in the
   // one case that matters: the request reached the server, the reply did not
-  // reach us, the person presses again. A new key makes that a second arrival,
-  // and the obligation goes to `over_confirmed` -- which reads as somebody
-  // having paid more than they owed. Kept in a ref rather than state so a
-  // re-render between the press and the reply cannot lose it.
-  const receiptKeys = useRef<Record<string, string>>({});
+  // reach us, the person presses again. A new key makes that a second arrival
+  // -- a second expense in the ledger, or an obligation pushed to
+  // `over_confirmed`, which reads as somebody having paid more than they owed.
+  //
+  // This covers every write, not just receipts. It used to hold receipt keys
+  // alone, which was the only route whose key the server ever saw, because no
+  // route sent the header at all.
+  //
+  // Kept in a ref rather than state so a re-render between the press and the
+  // reply cannot lose it. State would be restored asynchronously, and the gap
+  // is exactly when a person presses again.
+  const attempts = useRef<Record<string, Attempt>>({});
 
   /**
    * Re-read the board from the server.
@@ -114,7 +135,13 @@ export default function App() {
             // A new proposal makes any previously written version stale: it
             // belongs to the numbers on the last screen, not these.
             setWritten(null);
-            setProposal(await proposeSplit(d));
+            // Pressing again after a failed send reuses the key, so the server
+            // replays rather than writing a second expense. Editing a number
+            // first changes the intent, so it mints a new one instead of
+            // colliding with the old body and earning a 422.
+            setProposal(
+              await proposeSplit(d, attemptFor(attempts.current, expenseIntent(d))),
+            );
             setStep("de-xuat");
           })}
         />
@@ -130,12 +157,18 @@ export default function App() {
             // rather than assuming it. Written once: if opening the batch
             // fails, pressing the button again reuses the version already in
             // the ledger instead of writing another one beside it.
-            const ledger = written ?? (await confirmExpense(proposal));
+            const ledger =
+              written ??
+              (await confirmExpense(
+                proposal,
+                attemptFor(attempts.current, `xac-nhan:${proposal.expenseId}`),
+              ));
             setWritten(ledger);
             const batch = await openBatch(
               proposal,
               ledger.expenseVersionId,
               ledger.acknowledged,
+              attemptFor(attempts.current, `mo-dot-thu:${ledger.expenseVersionId}`),
             );
             setBatchId(batch.batchId);
             setObligations(batch.obligations);
@@ -157,6 +190,7 @@ export default function App() {
                 batchId!,
                 gates,
                 proposal!.advancerId,
+                attemptFor(attempts.current, `phat:${batchId}`),
                 proposal!.participants,
               ),
             );
@@ -166,8 +200,12 @@ export default function App() {
           busy={busy}
           onRefresh={() => guard(refreshBoard)}
           onConfirmReceipt={(o) => guard(async () => {
-            const key = (receiptKeys.current[o.id] ??= newId());
-            await confirmReceipt(o.id, o.amountVnd, proposal!.advancerId, key);
+            await confirmReceipt(
+              o.id,
+              o.amountVnd,
+              proposal!.advancerId,
+              attemptFor(attempts.current, `bao-tien-ve:${o.id}`),
+            );
             await refreshBoard();
           })}
         />

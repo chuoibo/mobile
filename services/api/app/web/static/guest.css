@@ -11,48 +11,74 @@
  * diacritics for nothing. Personality comes from the amount treatment and the
  * palette instead.
  *
- * Palette: sage ground with the deep green Vietnamese banking apps use for a
- * completed transfer, so the accent already means "done" to this reader.
- * Locked to one accent and one radius across the page.
+ * Palette: cream ground, white cards, three meaning-bearing hues. accent
+ * (cam) is brand and in-app primary actions. split (teal) is bill-split,
+ * money, settlement. ai (purple) is machine-made and still editable. This
+ * page IS a settlement surface, so its lead actions use split, not accent.
  */
 
 :root {
-  --ground: #e8edec;
+  --ground: #feeee0;
   --card: #ffffff;
-  --line: #d3dcd9;
-  --ink: #14201d;
-  --ink-soft: #55665f;
-  --ink-faint: #6f7f79;
-  --accent: #0f6e4f;
+  --line: #e7dace;
+  --ink: #1f2230;
+  --ink-soft: #4e5563;
+  --ink-faint: #676e7b;
+  --accent: #c93900;
+  --accent-end: #c9344a;
   --accent-ink: #ffffff;
-  --warn: #a9451f;
+  --accent-soft: #fff0ea;
+  --split: #00756b;
+  --split-ink: #ffffff;
+  --split-soft: #d5f5f0;
+  --ai: #7d49ef;
+  --ai-ink: #ffffff;
+  --ai-soft: #f5f1ff;
+  --warn: #c2410c;
 
-  /* Shape lock, two documented steps and no third:
-   *   --radius     cards, buttons, the amount, the toast
-   *   --radius-sm  inline chips and images sitting inside a card
+  /* Shape lock, three documented steps:
+   *   --radius          cards, the amount, the toast
+   *   --radius-control  buttons
+   *   --radius-sm       inline chips and images sitting inside a card
    * A chip with the same radius as the card it sits in reads as a seam. */
-  --radius: 14px;
-  --radius-sm: 8px;
+  --radius: 20px;
+  --radius-sm: 10px;
+  --radius-control: 14px;
   --gap: 1rem;
-  --shadow: 0 1px 2px rgb(20 32 29 / 0.05), 0 8px 24px -12px rgb(20 32 29 / 0.18);
+  --shadow: 0 1px 2px rgb(90 48 20 / 0.05), 0 10px 30px -14px rgb(90 48 20 / 0.22);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --ground: #101614;
-    --card: #18211e;
-    --line: #2a3733;
-    --ink: #e6edea;
-    --ink-soft: #9aaaa4;
-    --ink-faint: #6b7b75;
-    --accent: #4fbf95;
-    --accent-ink: #08120e;
-    --warn: #e0855c;
-    --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px -12px rgb(0 0 0 / 0.6);
+    --ground: #17120f;
+    --card: #221c18;
+    --line: #413c38;
+    --ink: #f7efe7;
+    --ink-soft: #c3b7ad;
+    --ink-faint: #8b8290;
+    --accent: #fb693e;
+    --accent-end: #e75262;
+    --accent-ink: #1c0d06;
+    --accent-soft: #3a0b00;
+    --split: #02a498;
+    --split-ink: #04201d;
+    --split-soft: #002320;
+    --ai: #9667ff;
+    --ai-ink: #150a30;
+    --ai-soft: #221046;
+    --warn: #df5c2f;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.45), 0 10px 30px -14px rgb(0 0 0 / 0.65);
   }
 }
 
 *, *::before, *::after { box-sizing: border-box; }
+
+html { color-scheme: light dark; }
+
+::selection {
+  background: var(--split-soft);
+  color: var(--ink);
+}
 
 body {
   margin: 0;
@@ -61,6 +87,8 @@ body {
   color: var(--ink);
   font: 400 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
+  caret-color: var(--split);
+  scrollbar-color: var(--line) var(--ground);
   padding: max(1rem, env(safe-area-inset-top)) 1rem
            max(2rem, env(safe-area-inset-bottom));
   /* A single centred column, said out loud. The default `row` put anything
@@ -81,14 +109,21 @@ body {
   gap: var(--gap);
 }
 
+/* Separation comes from the shadow OR the border, never both. The mockup
+ * lifts white cards off the cream ground with a soft warm shadow and no
+ * hairline; a 1px line under a 30px blur reads as a seam the shadow already
+ * made redundant. --card--quiet has no shadow, so there the border is the
+ * only thing holding the edge and it stays. */
 .card {
   background: var(--card);
-  border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 1.5rem 1.25rem;
   box-shadow: var(--shadow);
 }
-.card--quiet { box-shadow: none; }
+.card--quiet {
+  box-shadow: none;
+  border: 1px solid var(--line);
+}
 
 .eyebrow {
   margin: 0 0 0.25rem;
@@ -123,7 +158,7 @@ body {
   cursor: pointer;
   transition: border-color 0.15s, background-color 0.15s, transform 0.1s;
 }
-.amount:hover { border-color: var(--accent); }
+.amount:hover { border-color: var(--split); }
 .amount:active { transform: scale(0.985); }
 .amount__figure {
   font-size: clamp(2.5rem, 14vw, 3.5rem);
@@ -153,8 +188,9 @@ body {
   display: block;
   width: 100%;
   padding: 0.875rem 1rem;
+  min-height: 44px;
   border: 1px solid transparent;
-  border-radius: var(--radius);
+  border-radius: var(--radius-control);
   font: inherit;
   font-weight: 550;
   text-align: center;
@@ -164,11 +200,11 @@ body {
 }
 .btn:active { transform: translateY(1px); }
 
-.btn--primary { background: var(--accent); color: var(--accent-ink); }
+.btn--primary { background: var(--split); color: var(--split-ink); }
 .btn--ghost {
   background: transparent;
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--split);
+  color: var(--split);
 }
 /* The two escape hatches must be findable, not buried. Section 8.6 treats
  * "I am not Ha" as a first-class outcome, so it gets a real target size and
@@ -216,12 +252,12 @@ body {
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--accent);
+  color: var(--split);
   font: inherit;
   font-size: 0.8125rem;
   cursor: pointer;
 }
-.copy:hover { border-color: var(--accent); }
+.copy:hover { border-color: var(--split); }
 
 .qr { margin: 0 0 1.25rem; text-align: center; }
 .qr img {
@@ -246,7 +282,7 @@ body {
 }
 
 .status { margin: 0; font-weight: 550; }
-.status--done { color: var(--accent); }
+.status--done { color: var(--split); }
 
 /* Where this person stands, stated before they touch anything.
    Set apart with a rule rather than a filled block: this is the answer to
@@ -261,8 +297,8 @@ body {
   color: var(--ink-soft);
 }
 .standing--done {
-  border-left-color: var(--accent);
-  color: var(--accent);
+  border-left-color: var(--split);
+  color: var(--split);
   font-weight: 550;
 }
 
@@ -295,7 +331,7 @@ body {
 .toast[hidden] { display: none; }
 
 :where(button, a, [tabindex]):focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--split);
   outline-offset: 2px;
 }
 

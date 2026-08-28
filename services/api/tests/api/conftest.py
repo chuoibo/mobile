@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import UTC, datetime
 
 import anyio
 import httpx
@@ -39,6 +39,7 @@ from app.api.repository import (
     ObligationDraft,
     PaymentReportRecord,
     PaymentReportTarget,
+    PersonRecord,
     PublishObligation,
     ReceiptRecord,
     ReceiptTarget,
@@ -94,7 +95,34 @@ class FakeRepository:
         self.reports: dict[uuid.UUID, FakeReport] = {}
         self.objections: list[dict] = []
         self.receipts: dict[uuid.UUID, FakeReceipt] = {}
+        self.people: dict[uuid.UUID, PersonRecord] = {}
         self.leak_guest_input = False
+
+    def get_person(self, person_id):
+        return self.people.get(person_id)
+
+    def create_person(self, person_id, display_name):
+        # No primary key here, so the double-insert conflict the real table
+        # raises cannot happen. That case is covered in tests/postgres.
+        record = PersonRecord(
+            id=person_id,
+            display_name=display_name,
+            created_at=datetime(2030, 8, 27, 12, tzinfo=UTC),
+        )
+        self.people[person_id] = record
+        return record
+
+    def rename_person(self, person_id, display_name):
+        existing = self.people.get(person_id)
+        if existing is None:
+            return None
+        renamed = PersonRecord(
+            id=existing.id,
+            display_name=display_name,
+            created_at=existing.created_at,
+        )
+        self.people[person_id] = renamed
+        return renamed
 
     def create_expense(self, context_id):
         record = ExpenseIdentity(id=uuid.uuid4(), context_id=context_id)
