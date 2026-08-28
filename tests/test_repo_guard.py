@@ -706,10 +706,20 @@ class LockfileDigestAllowanceTests(ScanHelper):
 
     def test_a_valid_marker_does_not_exempt_unexpected_content(self):
         payload = base64.b64encode(bytes(range(256)) * 88).decode("ascii")
-        line = (
-            '{"name":"x","lockfileVersion":3,"packages":{"":{"integrity":"'
-            + payload
-            + '","unexpectedIdentifier":"19036812345678"}}}'
+        # repo-guard: allow=long-number reason=synthetic-lockfile-identifier
+        synthetic_identifier = "19036812345678"
+        line = json.dumps(
+            {
+                "name": "x",
+                "lockfileVersion": 3,
+                "packages": {
+                    "": {
+                        "integrity": payload,
+                        "unexpectedIdentifier": synthetic_identifier,
+                    }
+                },
+            },
+            separators=(",", ":"),
         )
 
         rules = {item.rule for item in self.scan_text(line, path="package-lock.json")}
@@ -727,12 +737,14 @@ class LockfileDigestAllowanceTests(ScanHelper):
 
     def test_exact_path_and_digest_can_allow_a_reviewed_lockfile(self):
         fragment = "Aa0_____"
+        # repo-guard: allow=long-number reason=synthetic-lockfile-identifier
+        synthetic_identifier = "19036812345678"
         payload = {
             "name": "synthetic-lockfile",
             "lockfileVersion": 3,
             "packages": {},
             "generatedFragments": [fragment] * 3_000,
-            "generatedIdentifier": "19036812345678",
+            "generatedIdentifier": synthetic_identifier,
         }
         raw = json.dumps(payload, indent=2).encode("utf-8")
         path = "apps/mobile/package-lock.json"
