@@ -86,6 +86,7 @@ class FakeRepository:
         self.version_to_expense: dict[uuid.UUID, uuid.UUID] = {}
         self.version_numbers: dict[uuid.UUID, int] = {}
         self.bank_recipients: dict[uuid.UUID, BankRecipientRecord] = {}
+        self.revoked_bank_recipients: list[BankRecipientRecord] = []
         self.batched_versions: set[uuid.UUID] = set()
         self.batches: dict[uuid.UUID, BatchForPublish] = {}
         self.obligations: dict[uuid.UUID, PublishObligation] = {}
@@ -157,6 +158,30 @@ class FakeRepository:
             for recipient_id in recipient_ids
             if recipient_id in self.bank_recipients
         }
+
+    def get_active_bank_recipient(self, recipient_id):
+        return self.bank_recipients.get(recipient_id)
+
+    def save_bank_recipient(
+        self, *, recipient_id, bank_bin, account_number, account_name, now
+    ):
+        # The real adapter revokes the previous row and inserts a new one; the
+        # partial unique index is what actually enforces "one live destination
+        # per person". This dict keyed by recipient can only imitate the
+        # visible outcome. ``tests/postgres`` proves the revoke-then-insert.
+        previous = self.bank_recipients.get(recipient_id)
+        record = BankRecipientRecord(
+            id=uuid.uuid4(),
+            recipient_id=recipient_id,
+            bank_bin=bank_bin,
+            account_number=account_number,
+            account_name=account_name,
+            confirmed_at=now,
+        )
+        if previous is not None:
+            self.revoked_bank_recipients.append(previous)
+        self.bank_recipients[recipient_id] = record
+        return record
 
     def save_frozen_batch(
         self,
@@ -552,6 +577,9 @@ class ASGITestClient:
 
     def get(self, path, **kwargs):
         return self.request("GET", path, **kwargs)
+
+    def put(self, path, **kwargs):
+        return self.request("PUT", path, **kwargs)
 
 
 @pytest.fixture

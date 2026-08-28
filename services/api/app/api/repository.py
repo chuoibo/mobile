@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -305,6 +305,20 @@ class ApiRepository(Protocol):
     def load_bank_recipients(
         self, recipient_ids: frozenset[uuid.UUID]
     ) -> dict[uuid.UUID, BankRecipientRecord]: ...
+
+    def get_active_bank_recipient(
+        self, recipient_id: uuid.UUID
+    ) -> BankRecipientRecord | None: ...
+
+    def save_bank_recipient(
+        self,
+        *,
+        recipient_id: uuid.UUID,
+        bank_bin: str,
+        account_number: str,
+        account_name: str | None,
+        now: datetime,
+    ) -> BankRecipientRecord: ...
 
     def save_frozen_batch(
         self,
@@ -758,6 +772,59 @@ class SqlAlchemyApiRepository:
             )
             for row in recipients
         }
+
+    def get_active_bank_recipient(
+        self, recipient_id: uuid.UUID
+    ) -> BankRecipientRecord | None:
+        return self.load_bank_recipients(frozenset({recipient_id})).get(recipient_id)
+
+    def save_bank_recipient(
+        self,
+        *,
+        recipient_id: uuid.UUID,
+        bank_bin: str,
+        account_number: str,
+        account_name: str | None,
+        now: datetime,
+    ) -> BankRecipientRecord:
+        """Replace this person's destination by revoking, then inserting.
+
+        Never an UPDATE. A published envelope points at the snapshot taken when
+        its batch froze, and the history of "which account was live when" is
+        what answers a later argument about where money went. Editing the row
+        in place would silently rewrite that answer.
+
+        The revoke runs first because `uq_bank_recipients_active_recipient` is a
+        partial unique index over `revoked_at IS NULL`: at most one destination
+        per person may be live, and the database enforces it rather than
+        trusting this method to have got the order right.
+        """
+        self.session.execute(
+            update(BankRecipient)
+            .where(
+                BankRecipient.recipient_id == recipient_id,
+                BankRecipient.revoked_at.is_(None),
+            )
+            .values(revoked_at=now)
+        )
+        self.session.flush()
+        record = BankRecipient(
+            recipient_id=recipient_id,
+            bank_bin=bank_bin,
+            account_number=account_number,
+            account_name=account_name,
+            confirmed_by_recipient_at=now,
+        )
+        self.session.add(record)
+        self.session.flush()
+        return BankRecipientRecord(
+            id=record.id,
+            recipient_id=record.recipient_id,
+            bank_bin=record.bank_bin,
+            account_number=record.account_number,
+            account_name=record.account_name,
+            confirmed_at=record.confirmed_by_recipient_at,
+        )
 
     def save_frozen_batch(
         self,

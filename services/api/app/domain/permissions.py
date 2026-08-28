@@ -70,6 +70,14 @@ _TABLE: dict[str, dict] = {
         "roles": {"member"},
         "requires": ("is_own_account", "is_authenticated_account"),
     },
+    # Reading is narrower than writing, not wider. The screen that asks "where
+    # does my money land?" needs an answer, but an account number is the one
+    # field a group member has no business reading off a peer, so the same
+    # is_own_account predicate gates the read.
+    "view_bank_recipient": {
+        "roles": {"member"},
+        "requires": ("is_own_account", "is_authenticated_account"),
+    },
     # --- batch ---------------------------------------------------------
     "create_batch": {"roles": {"member"}, "requires": ("is_group_member",)},
     "freeze_batch": {"roles": {"batch_owner"}, "requires": ("owns_batch",)},

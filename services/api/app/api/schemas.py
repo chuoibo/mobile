@@ -241,6 +241,43 @@ class BatchObligationsResponse(ApiModel):
     disputed_count: int
 
 
+class BankRecipientRequest(ApiModel):
+    """Where one person wants their money to land.
+
+    The two patterns mirror the database CHECK constraints exactly, so a
+    malformed account is a 422 naming the field rather than a 500 from an
+    IntegrityError. They are copies on purpose: the database is the last line,
+    not the only one, and a caller deserves to be told which field is wrong.
+
+    There is no `confirmed_at` field. Only the account holder may call this
+    endpoint, so the call itself is the confirmation and the server stamps the
+    time. A client-supplied confirmation timestamp would be a claim, not a
+    fact.
+    """
+
+    bank_bin: Annotated[StrictStr, Field(pattern=r"^[0-9]{6}$")]
+    account_number: Annotated[StrictStr, Field(pattern=r"^[A-Za-z0-9]{1,19}$")]
+    account_name: Annotated[StrictStr, Field(min_length=1, max_length=255)] | None = (
+        None
+    )
+
+
+class BankRecipientResponse(ApiModel):
+    """Echoed back to the account holder, and to nobody else.
+
+    `confirmed_at` is when this person said "send it here". It is not evidence
+    that the account exists, that the name matches, or that any bank agreed to
+    anything.
+    """
+
+    id: UUID
+    recipient_id: UUID
+    bank_bin: StrictStr
+    account_number: StrictStr
+    account_name: StrictStr | None
+    confirmed_at: datetime
+
+
 class ErrorResponse(ApiModel):
     code: StrictStr
     detail: StrictStr

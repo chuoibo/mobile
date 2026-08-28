@@ -13,12 +13,15 @@ from app.api.errors import ApiProblem, RepositoryConflict
 from app.api.limits import OBJECTION_KINDS, QUOTA_CONSUMING_OBJECTIONS
 from app.api.repository import (
     ApiRepository,
+    BankRecipientRecord,
     GuestLinkDraft,
     MembershipRecord,
     ObligationDraft,
 )
 from app.api.schemas import (
     AllocationProposal,
+    BankRecipientRequest,
+    BankRecipientResponse,
     BatchCreateRequest,
     BatchCreateResponse,
     BatchObligationsResponse,
@@ -182,6 +185,17 @@ def _wire_membership(record: MembershipRecord) -> MembershipResponse:
     )
 
 
+def _wire_bank_recipient(record: BankRecipientRecord) -> BankRecipientResponse:
+    return BankRecipientResponse(
+        id=record.id,
+        recipient_id=record.recipient_id,
+        bank_bin=record.bank_bin,
+        account_number=record.account_number,
+        account_name=record.account_name,
+        confirmed_at=record.confirmed_at,
+    )
+
+
 class ApiService:
     def __init__(self, repository: ApiRepository):
         self.repository = repository
@@ -288,6 +302,50 @@ class ApiService:
                 for member in self.repository.list_members(context_id)
             ],
         )
+
+    def _bank_recipient_facts(self, person_id: uuid.UUID, actor: Actor) -> dict:
+        """Both predicates for the bank-account actions, decided in one place.
+
+        `is_own_account` compares the path subject with the actor the gateway
+        asserted; nothing from the request body participates. `guest` is
+        excluded because a guest actor is a bearer capability minted from a
+        link, and a link that can redirect where money lands is a different and
+        much worse product than a link that can view one envelope.
+        """
+        return {
+            "is_own_account": person_id == actor.id,
+            "is_authenticated_account": "guest" not in actor.roles,
+        }
+
+    def set_bank_recipient(
+        self, person_id: uuid.UUID, request: BankRecipientRequest, actor: Actor
+    ) -> BankRecipientResponse:
+        _require_permission(
+            "set_bank_recipient", actor, self._bank_recipient_facts(person_id, actor)
+        )
+        record = self.repository.save_bank_recipient(
+            recipient_id=person_id,
+            bank_bin=request.bank_bin,
+            account_number=request.account_number,
+            account_name=request.account_name,
+            now=_now(),
+        )
+        return _wire_bank_recipient(record)
+
+    def get_bank_recipient(
+        self, person_id: uuid.UUID, actor: Actor
+    ) -> BankRecipientResponse:
+        _require_permission(
+            "view_bank_recipient", actor, self._bank_recipient_facts(person_id, actor)
+        )
+        record = self.repository.get_active_bank_recipient(person_id)
+        if record is None:
+            raise ApiProblem(
+                404,
+                "bank_recipient_not_found",
+                "This person has not said where their money should land",
+            )
+        return _wire_bank_recipient(record)
 
     def propose_expense(self, proposal: ExpenseInput) -> ExpenseProposalResponse:
         try:
