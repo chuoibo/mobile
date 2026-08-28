@@ -136,6 +136,23 @@ _TABLE: dict[str, dict] = {
     # does -- because in a group dispute the attacker is a group member.
     "adjudicate_person_stub_claim": {"roles": {"platform_moderator"}, "requires": ()},
     # --- group logistics ------------------------------------------------
+    "create_context": {"roles": {"member", "former_member"}, "requires": ()},
+    "invite_context_member": {
+        "roles": {"member"},
+        "requires": ("is_group_member",),
+    },
+    "accept_context_membership": {
+        "roles": {"member", "former_member"},
+        "requires": ("is_invited_person",),
+    },
+    "leave_context": {
+        "roles": {"member"},
+        "requires": ("is_group_member", "is_self"),
+    },
+    "list_context_members": {
+        "roles": {"member"},
+        "requires": ("is_group_member",),
+    },
     "manage_members_and_invites": {"roles": {"group_admin"}, "requires": ()},
     "remove_member_from_group": {"roles": {"group_admin"}, "requires": ()},
     "transfer_group_admin": {"roles": {"group_admin"}, "requires": ()},

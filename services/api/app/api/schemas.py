@@ -34,6 +34,35 @@ def _require_timezone(value: datetime) -> datetime:
     return value
 
 
+DisplayName = Annotated[StrictStr, Field(min_length=1, max_length=120)]
+
+
+class ContextCreateRequest(ApiModel):
+    display_name: DisplayName
+
+
+class ContextResponse(ApiModel):
+    id: UUID
+    display_name: StrictStr
+    created_by_id: UUID
+    created_at: datetime
+
+
+class MembershipCreateRequest(ApiModel):
+    person_id: UUID
+
+
+class MembershipResponse(ApiModel):
+    id: UUID
+    context_id: UUID
+    person_id: UUID
+    state: Literal["invited", "active", "left"]
+    invited_by_id: UUID | None
+    joined_at: datetime | None
+    left_at: datetime | None
+    created_at: datetime
+
+
 class ExpenseItemInput(ApiModel):
     item_id: StrictStr
     label: StrictStr | None = None

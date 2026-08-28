@@ -13,21 +13,27 @@ from app.api.errors import ApiProblem, RepositoryConflict
 from app.api.limits import OBJECTION_KINDS, QUOTA_CONSUMING_OBJECTIONS
 from app.api.repository import (
     ApiRepository,
+    ContextRecord,
     GuestLinkDraft,
+    MembershipRecord,
     ObligationDraft,
 )
 from app.api.schemas import (
     AllocationProposal,
     BatchCreateRequest,
+    BatchCreateResponse,
     BatchObligationsResponse,
     BatchObligationView,
-    BatchCreateResponse,
     BatchPublishRequest,
     BatchPublishResponse,
+    ContextCreateRequest,
+    ContextResponse,
     ExpenseConfirmationRequest,
     ExpenseConfirmationResponse,
     ExpenseInput,
     ExpenseProposalResponse,
+    MembershipCreateRequest,
+    MembershipResponse,
     ObligationResponse,
     PaymentReportRequest,
     PaymentReportResponse,
@@ -155,9 +161,133 @@ def _wire_allocation(result: dict) -> AllocationProposal:
     )
 
 
+def _wire_context(record: ContextRecord) -> ContextResponse:
+    return ContextResponse(
+        id=record.id,
+        display_name=record.display_name,
+        created_by_id=record.created_by_id,
+        created_at=record.created_at,
+    )
+
+
+def _wire_membership(record: MembershipRecord) -> MembershipResponse:
+    return MembershipResponse(
+        id=record.id,
+        context_id=record.context_id,
+        person_id=record.person_id,
+        state=record.state,
+        invited_by_id=record.invited_by_id,
+        joined_at=record.joined_at,
+        left_at=record.left_at,
+        created_at=record.created_at,
+    )
+
+
 class ApiService:
     def __init__(self, repository: ApiRepository):
         self.repository = repository
+
+    def create_context(
+        self, request: ContextCreateRequest, actor: Actor
+    ) -> ContextResponse:
+        _require_permission("create_context", actor, {})
+        context = self.repository.create_context(request.display_name, actor.id)
+
+        # Context creation and the creator's active membership share the request
+        # transaction. A context must never be committed with nobody authorized
+        # to invite its first member.
+        invitation = self.repository.add_member(context.id, actor.id, actor.id)
+        self.repository.accept_membership(invitation.id, _now())
+        return _wire_context(context)
+
+    def invite_context_member(
+        self,
+        context_id: uuid.UUID,
+        request: MembershipCreateRequest,
+        actor: Actor,
+    ) -> MembershipResponse:
+        _require_permission(
+            "invite_context_member",
+            actor,
+            {
+                "resource_id": str(context_id),
+                "is_group_member": self.repository.is_member(context_id, actor.id),
+            },
+        )
+        if any(
+            member.person_id == request.person_id
+            for member in self.repository.list_members(context_id)
+        ):
+            raise ApiProblem(
+                409,
+                "membership_already_open",
+                "Person already has an open membership in this context",
+            )
+        return _wire_membership(
+            self.repository.add_member(context_id, request.person_id, actor.id)
+        )
+
+    def accept_context_membership(
+        self, membership_id: uuid.UUID, actor: Actor
+    ) -> MembershipResponse:
+        membership = self.repository.get_membership(membership_id)
+        if membership is None:
+            raise ApiProblem(
+                404, "membership_not_found", "Membership does not exist"
+            )
+        _require_permission(
+            "accept_context_membership",
+            actor,
+            {
+                "resource_id": str(membership.context_id),
+                "is_invited_person": membership.person_id == actor.id,
+            },
+        )
+        try:
+            accepted = self.repository.accept_membership(membership_id, _now())
+        except RepositoryConflict as exc:
+            raise ApiProblem(
+                409, exc.code.lower(), "Membership cannot be accepted"
+            ) from exc
+        return _wire_membership(accepted)
+
+    def leave_context(
+        self, context_id: uuid.UUID, person_id: uuid.UUID, actor: Actor
+    ) -> None:
+        _require_permission(
+            "leave_context",
+            actor,
+            {
+                "resource_id": str(context_id),
+                "is_group_member": self.repository.is_member(context_id, actor.id),
+                "is_self": actor.id == person_id,
+            },
+        )
+        try:
+            self.repository.leave_context(context_id, person_id, _now())
+        except RepositoryConflict as exc:
+            raise ApiProblem(
+                409, exc.code.lower(), "Membership cannot be closed"
+            ) from exc
+
+    def list_context_members(
+        self, context_id: uuid.UUID, actor: Actor
+    ) -> list[MembershipResponse]:
+        _require_permission(
+            "list_context_members",
+            actor,
+            {
+                "resource_id": str(context_id),
+                "is_group_member": self.repository.is_member(context_id, actor.id),
+            },
+        )
+        # Historical membership remains for ledger reconstruction, not current
+        # roster visibility. Once the authorization interval closes, a former
+        # member cannot read who is currently in or invited to the context.
+        return [
+            _wire_membership(record)
+            for record in self.repository.list_members(context_id)
+        ]
 
     def propose_expense(self, proposal: ExpenseInput) -> ExpenseProposalResponse:
         try:
