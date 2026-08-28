@@ -19,6 +19,7 @@ import { ChiaSe, type Envelope } from "./src/screens/ChiaSe";
 import { DeXuat, type Proposal } from "./src/screens/DeXuat";
 import { DotThu, type Obligation } from "./src/screens/DotThu";
 import { Draft, NhapKhoanChi } from "./src/screens/NhapKhoanChi";
+import { EMPTY_FORM, type DraftForm } from "./src/participants";
 import { space, type, usePalette } from "./src/theme";
 
 type Step = "nhap" | "de-xuat" | "dot-thu" | "chia-se";
@@ -28,6 +29,10 @@ export default function App() {
   const scheme = useColorScheme();
   const [step, setStep] = useState<Step>("nhap");
   const [draft, setDraft] = useState<Draft | null>(null);
+  // Held here, not inside the screen. "Sửa lại" unmounts the screen, and a
+  // form owned by the screen goes with it -- which erased everything a
+  // person had typed the moment they tried to change one number.
+  const [form, setForm] = useState<DraftForm>(EMPTY_FORM);
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [obligations, setObligations] = useState<Obligation[]>([]);
   const [envelopes, setEnvelopes] = useState<Envelope[]>([]);
@@ -61,6 +66,8 @@ export default function App() {
 
       {step === "nhap" && (
         <NhapKhoanChi
+          form={form}
+          onForm={setForm}
           onNext={(d) => guard(async () => {
             setDraft(d);
             setProposal(await proposeSplit(d));

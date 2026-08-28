@@ -77,3 +77,30 @@ export function duplicateNames(roster: Roster): string[] {
   const names = roster.participants.map((p) => p.name);
   return [...new Set(names.filter((name, i) => names.indexOf(name) !== i))];
 }
+
+/** Everything the "new expense" screen is holding while a person fills it in.
+ *
+ * This lives outside the screen because the screen unmounts. Pressing "Sửa lại"
+ * on the proposal moves the app back a step, React tears the screen down, and
+ * every `useState` inside it goes with it -- so a person who had typed an
+ * occasion, added twelve people and chosen who paid came back to an empty form.
+ * The button exists to change one detail; it was erasing everything instead.
+ *
+ * Holding the form here, and letting the screen render it rather than own it,
+ * makes losing it impossible rather than unlikely.
+ */
+export type DraftForm = {
+  occasion: string;
+  /** The name half-typed in the "add someone" box, kept so it is not lost either. */
+  pending: string;
+  /** What the person typed for the amount, before parsing. Their text, not our number. */
+  amount: string;
+  roster: Roster;
+};
+
+export const EMPTY_FORM: DraftForm = {
+  occasion: "",
+  pending: "",
+  amount: "",
+  roster: { participants: [], advancerId: null },
+};
