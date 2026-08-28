@@ -1,6 +1,6 @@
 # ADR-0009 — Hợp đồng `money_skill`
 
-- **Trạng thái:** 🟡 **BẢN THẢO** 2026-08-27 — chờ Codex tấn công
+- **Trạng thái:** 🟡 **BẢN THẢO** 2026-08-28 — thêm quyết định 11–15 do corpus ép ra; vẫn chờ đóng băng
 - **Ngày:** 2026-08-27
 - **DRI:** Claude · **Reviewer:** Codex
 - **Nguồn:** spec mục 5.4 (hợp đồng kỹ năng), mục 3 (ranh giới AI↔tiền), ADR-0008
@@ -111,6 +111,86 @@ Theo mục 5.5, bot nói thẳng việc chưa làm được thay vì cố đoán
 
 ---
 
+## Quyết định 11–15 — năm chỗ hở corpus tìm ra
+
+Codex chạy hợp đồng này qua corpus 12 ca viết tay: **6 đạt, 6 trượt**. Nó phân
+loại từng ca trượt, và **năm trong sáu là khoảng trống hợp đồng, không phải lỗi
+code** — tức là chính ADR này chưa nói đủ. Đây là giá trị thật của việc viết
+corpus trước khi viết code, và năm quyết định dưới đây là thứ corpus mua được.
+
+Mỗi quyết định gắn với đúng một ca trượt. Không có ca nào, không có quyết định.
+
+### Quyết định 11 — `excluded` là danh sách người **bị loại khỏi một khoản**, và bắt buộc khi có câu loại trừ
+
+*Ca `05-loai-tru-nguoi`.* Validator cho phép trường `excluded`, nhưng ADR chưa
+định nghĩa schema, ý nghĩa, hay khi nào bắt buộc phải có. Nên baseline bỏ qua nó
+mà không sai hợp đồng nào cả.
+
+`excluded: [tên]` nghĩa là **những người này không tham gia khoản chi này**, dù
+họ có trong nhóm. Khi luồng chat có câu loại trừ ai đó khỏi một khoản cụ thể,
+skill **phải** phát ra `excluded`, và phải trích dẫn tin nhắn chứa câu đó.
+
+Skill **không** tự suy ra `shared_by` từ `excluded` — quyết định 2 vẫn nguyên.
+Nó chỉ ghi lại điều đã được nói.
+
+### Quyết định 12 — tin nhắn sửa sau vô hiệu hoá số trước, và cả hai đều phải trích dẫn
+
+*Ca `07-sua-lai-so`.* Hợp đồng chỉ kiểm "con số có xuất hiện trong nguồn". Một
+người nói 500k rồi nói lại "nhầm, 450k" thì **cả hai số đều xuất hiện**, nên giữ
+số cũ là hợp lệ theo đúng chữ của ADR.
+
+Nay: khi cùng một người sửa lại con số cho cùng một khoản, số **sau** thắng.
+`source_message_ids` phải chứa **cả hai** tin nhắn — tin nêu số gốc và tin sửa
+lại — để người duyệt thấy được vì sao con số là con số đó.
+
+Không suy đoán quá một bước: nếu **người khác** đưa ra con số khác, đó không
+phải sửa mà là bất đồng, và thuộc quyết định 13.
+
+### Quyết định 13 — hai người kể cùng một khoản là **một** khoản, và cần hỏi
+
+*Ca `08-hai-nguoi-ke-cung-mot-khoan`.* Chưa có khoá đồng nhất khoản chi, nên
+baseline tạo hai khoản, mỗi khoản có số và nguồn hợp lệ, và validator không có
+căn cứ nào để bác.
+
+Hai lời kể **đồng nhất** khi trùng số tiền và nói về cùng một việc trong một
+khoảng thời gian gần. Skill gộp thành một khoản, `source_message_ids` chứa cả
+hai tin.
+
+Nếu hai lời kể **khác số tiền** thì đó là bất đồng, không phải trùng lặp: skill
+phát ra **một** khoản với con số của người trả tiền, và **bắt buộc** thêm một
+câu vào `questions`. Nhân đôi một khoản chi là cách nhanh nhất để một nhóm đòi
+tiền nhau gấp đôi.
+
+### Quyết định 14 — `shared_by_hint` là **người hưởng**, không phải tập chia
+
+*Ca `10-tra-ho-mot-nguoi`.* Trường này có trong allowlist của code nhưng không
+có định nghĩa trong ADR: chưa rõ nó là người hưởng, tập chia dự kiến, hay chỉ
+gợi ý giao diện.
+
+`shared_by_hint: [tên]` nghĩa là **luồng chat nói rõ ai là người khoản này chi
+cho**. Ví dụ "tao trả hộ vé của Linh" thì `shared_by_hint: ["Linh"]`.
+
+Nó là **gợi ý cho người duyệt**, không phải đầu vào của allocator. Quyết định 2
+vẫn cấm skill tự chế `shared_by`; cái này chỉ nói lại điều đã có trong tin nhắn,
+và người duyệt vẫn phải xác nhận.
+
+### Quyết định 15 — `must_ask` chấm theo **ý**, không theo chuỗi
+
+*Ca `01-ro-rang`.* Oracle bắt câu "ai có mặt trong bữa ăn tối", baseline hỏi
+"ai có mặt trong ăn tối". Cùng một câu hỏi, khác vài chữ, và ca dễ nhất trong
+corpus trượt vì cách **chấm**, không vì cách **đọc**.
+
+`must_ask` là **tập yêu cầu tối thiểu về ý**: mỗi mục mô tả một thông tin còn
+thiếu, và một câu hỏi đạt nếu nó hỏi đúng thông tin đó. Câu hỏi thừa không làm
+ca trượt — hỏi nhiều hơn cần thì tốn thời gian của người dùng, không tốn tiền
+của họ.
+
+Cách chấm cụ thể là việc của harness, không phải của ADR này. Cái ADR chốt là:
+**chấm chuỗi tuyệt đối tạo âm tính giả**, và một hợp đồng bị đo bằng thước sai
+thì không đo được gì.
+
+---
+
 ## Điều tôi tự thấy yếu, mong Codex đánh vào
 
 1. **Chuẩn hoá số tiền tiếng Việt** ở validator điểm 2 là chỗ dễ sai nhất, và
@@ -121,6 +201,14 @@ Theo mục 5.5, bot nói thẳng việc chưa làm được thay vì cố đoán
    nhầm ở phía bắt người ta đọc.
 4. Chưa quyết model nào làm việc trích xuất. Tầng trích xuất phải nằm sau một
    interface, kèm một bản giả tất định để chạy corpus không cần mạng.
+5. **Năm quyết định 11–15 sinh từ đúng năm ca trượt.** Corpus có 12 ca, nên nếu
+   nó thiếu một tình huống thì hợp đồng vẫn hở đúng chỗ đó và không ai biết.
+   Codex đã nói thẳng: qua 12/12 ngay lần đầu thường nghĩa là corpus quá dễ, chứ
+   không phải code quá tốt. Cần thêm ca trước khi đóng băng, không phải thêm
+   quyết định.
+6. Quyết định 13 gộp hai lời kể thành một khoản dựa trên "trùng số tiền và gần
+   nhau về thời gian". Cả hai vế đều mờ. Hai bữa ăn 200k trong cùng một tối là
+   hai khoản, và tôi chưa có cách phân biệt nào tốt hơn là hỏi.
 
 ## Cái không đổi
 
