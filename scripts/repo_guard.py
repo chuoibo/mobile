@@ -162,6 +162,26 @@ DATA_URI_BASE64_RE = re.compile(
 BASE64_BYTE_VALUES = frozenset(
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=_-"
 )
+
+
+def looks_encoded(fragment: str) -> bool:
+    """Separate likely encoded fragments from common source identifiers.
+
+    The token alphabet includes ``_`` and ``-`` because URL-safe base64 uses
+    them, so punctuation alone cannot distinguish payloads from snake_case.
+    Requiring both letter cases plus a non-letter signal keeps snake_case,
+    SCREAMING_SNAKE_CASE, and ordinary camelCase out of the aggregate while
+    retaining short base64/base64url fragments with varied character classes.
+    Other rules still cover dense lines and long unbroken tokens independently.
+    """
+    has_lower = any(character.islower() for character in fragment)
+    has_upper = any(character.isupper() for character in fragment)
+    has_non_letter = any(
+        character.isdigit() or character in "+/_-=" for character in fragment
+    )
+    return has_lower and has_upper and has_non_letter
+
+
 BASE64_FRAGMENT_RE = re.compile(
     rf"[A-Za-z0-9+/_-]{{{MIN_BASE64_FRAGMENT_BYTES - 2},}}={{0,2}}"
 )
@@ -379,6 +399,7 @@ def mask_match(rule: str, value: str) -> str:
             match
             for match in BASE64_FRAGMENT_RE.finditer(value)
             if len(match.group(0).encode("ascii")) >= MIN_BASE64_FRAGMENT_BYTES
+            and looks_encoded(match.group(0))
         ]
         aggregate_bytes = sum(
             len(match.group(0).encode("ascii")) for match in fragments
@@ -672,6 +693,7 @@ def content_findings(
             (zero_based_line, match.start(), match.group(0))
             for match in BASE64_FRAGMENT_RE.finditer(line)
             if len(match.group(0).encode("ascii")) >= MIN_BASE64_FRAGMENT_BYTES
+            and looks_encoded(match.group(0))
         )
 
     aggregate_bytes = sum(

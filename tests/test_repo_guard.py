@@ -188,9 +188,44 @@ class PatternScannerTests(ScanHelper):
                 self.assertEqual(len(matches), 1)
                 rendered = matches[0].render()
                 self.assertIn("<redacted-base64-fragments>", rendered)
-                self.assertIn(f"aggregate-bytes={len(payload)}", rendered)
+                counted = int(
+                    rendered.split("aggregate-bytes=", 1)[1].split(",", 1)[0]
+                )
+                self.assertGreater(
+                    counted,
+                    repo_guard.MAX_AGGREGATE_BASE64_BYTES,
+                )
                 self.assertNotIn(payload[:76], rendered)
                 self.assertNotIn("notes/synthetic-bill.txt", rendered)
+
+    def test_short_urlsafe_fragments_with_underscores_are_aggregated(self):
+        fragment = "Aa0_____"
+        base64.urlsafe_b64decode(fragment)
+        payload = "\n".join(" ".join([fragment] * 100) for _ in range(30))
+        self.assertEqual(len(payload.encode("ascii")), 26_999)
+
+        findings = self.scan_text(payload, path="notes/synthetic-url-safe.txt")
+        matches = [
+            item for item in findings if item.rule == "aggregate-base64-fragments"
+        ]
+
+        self.assertEqual(len(matches), 1)
+        rendered = matches[0].render()
+        self.assertIn("aggregate-bytes=24000", rendered)
+        self.assertNotIn(fragment, rendered)
+        self.assertNotIn("notes/synthetic-url-safe.txt", rendered)
+
+    def test_long_source_identifiers_do_not_aggregate_into_a_payload(self):
+        line = (
+            "const getGuestEnvelope = save_guest_objection("
+            "SCREAMING_SNAKE_CASE, obligation_id, token_digest);"
+        )
+        source = "\n".join(line for _ in range(400))
+        self.assertGreater(len(source.encode("utf-8")), 32 * 1024)
+
+        rules = {item.rule for item in self.scan_text(source, path="app/source.tsx")}
+
+        self.assertNotIn("aggregate-base64-fragments", rules)
 
     def test_long_base64_token_is_blocked_in_json_and_plain_text(self):
         encoded = base64.b64encode(bytes(range(256)) * 20).decode("ascii")
@@ -232,17 +267,15 @@ class PatternScannerTests(ScanHelper):
             repo_guard.MAX_AGGREGATE_BASE64_BYTES
             // repo_guard.MIN_BASE64_FRAGMENT_BYTES
         )
+        fragment = "Aa0_____"
+        self.assertEqual(len(fragment), repo_guard.MIN_BASE64_FRAGMENT_BYTES)
         aggregate_at_threshold = "\n".join(
-            "A" * repo_guard.MIN_BASE64_FRAGMENT_BYTES
-            for _index in range(fragment_count)
+            fragment for _index in range(fragment_count)
         )
         aggregate_over_threshold = "\n".join(
             [
-                *(
-                    "A" * repo_guard.MIN_BASE64_FRAGMENT_BYTES
-                    for _index in range(fragment_count - 1)
-                ),
-                "A" * (repo_guard.MIN_BASE64_FRAGMENT_BYTES + 1),
+                *(fragment for _index in range(fragment_count - 1)),
+                fragment + "_",
             ]
         )
         token_at_threshold = "A" * repo_guard.MAX_BASE64_TOKEN_BYTES
