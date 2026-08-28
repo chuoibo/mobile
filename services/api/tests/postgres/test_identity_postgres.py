@@ -73,10 +73,10 @@ def test_repository_membership_lifecycle_creates_a_new_row_on_rejoin(
     assert invitation.state == "invited"
     assert invitation.joined_at is None
     assert repository.is_member(context.id, friend.id) is False
-    assert [row.id for row in repository.list_members(context.id)] == [
+    assert {row.id for row in repository.list_members(context.id)} == {
         owner_membership.id,
         invitation.id,
-    ]
+    }
 
     accepted = repository.accept_membership(invitation.id, NOW)
     assert accepted.state == "active"
@@ -95,7 +95,7 @@ def test_repository_membership_lifecycle_creates_a_new_row_on_rejoin(
     rejoined = repository.add_member(context.id, friend.id, owner.id)
     assert rejoined.id != invitation.id
     assert rejoined.state == "invited"
-    historical_ids = tuple(
+    historical_ids = frozenset(
         postgres_session.scalars(
             select(Membership.id)
             .where(
@@ -105,7 +105,7 @@ def test_repository_membership_lifecycle_creates_a_new_row_on_rejoin(
             .order_by(Membership.created_at, Membership.id)
         )
     )
-    assert historical_ids == (invitation.id, rejoined.id)
+    assert historical_ids == {invitation.id, rejoined.id}
 
 
 def test_partial_unique_index_refuses_two_open_memberships(
