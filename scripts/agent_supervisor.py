@@ -26,8 +26,13 @@ Lines starting with ALERT are the ones a person needs to see.
     scripts/agent_supervisor.py codex --prompt-file p.md --cwd /home/lakiet/codex-repo
     scripts/agent_supervisor.py agy   --prompt-file p.md --out-dir /tmp/agy-run
 
-Restarts on death, up to --max-restarts, and tells the agent it is resuming so
-it does not begin again from nothing.
+Restarts on death, up to --max-restarts. A restart is only useful if the agent
+knows what it already did, so `--checkpoint` pairs this with
+`agent_checkpoint.py`: work is snapshotted into a git ref every minute, and the
+resume prompt carries the list of files that snapshot holds. Without that, a
+restarted agent begins from nothing and redoes work sitting on disk -- exactly
+what happened to agy, which re-drove a browser through a matrix it had already
+finished and ran out of time again before writing anything down.
 """
 
 from __future__ import annotations
@@ -128,6 +133,21 @@ def run_once(agent: str, prompt: str, args: argparse.Namespace) -> tuple[int, st
     return code, output
 
 
+def existing_work(args: argparse.Namespace, out_dir: pathlib.Path, repo: pathlib.Path) -> str:
+    """A concrete list, not a reassurance. The agent has to be able to act on it."""
+    if args.agent == "codex":
+        dirty = git(repo, "status", "--porcelain")
+        names = [line[3:] for line in dirty.splitlines() if line.strip()]
+        head = git(repo, "log", "--oneline", "-1")
+        shown = "\n".join(f"  {name}" for name in names[:40]) or "  (khong co gi)"
+        more = f"\n  ... va {len(names) - 40} file nua" if len(names) > 40 else ""
+        return f"HEAD: {head}\nFile da tao/sua nhung CHUA COMMIT:\n{shown}{more}"
+    names = sorted(p.name for p in out_dir.rglob("*") if p.is_file())
+    shown = "\n".join(f"  {name}" for name in names[:40]) or "  (khong co gi)"
+    more = f"\n  ... va {len(names) - 40} file nua" if len(names) > 40 else ""
+    return f"File ban da tao trong thu muc lam viec:\n{shown}{more}"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("agent", choices=["codex", "agy"])
@@ -137,6 +157,11 @@ def main() -> int:
     parser.add_argument("--timeout", type=int, default=2400, help="hard kill, seconds")
     parser.add_argument("--print-timeout", default="30m", help="agy only")
     parser.add_argument("--max-restarts", type=int, default=3)
+    parser.add_argument(
+        "--checkpoint", type=int, default=0, help="giay giua hai lan cham diem; 0 = tat"
+    )
+    parser.add_argument("--mirror", default=None, help="clone co mang, de day checkpoint di")
+    parser.add_argument("--push", default=None, help="ten remote nhan checkpoint")
     args = parser.parse_args()
 
     out_dir = pathlib.Path(args.out_dir)
@@ -149,6 +174,22 @@ def main() -> int:
     prompt_path = pathlib.Path(args.prompt_file)
     base_prompt = prompt_path.read_text(encoding="utf-8")
 
+    checkpointer = None
+    if args.checkpoint:
+        watch = [
+            sys.executable,
+            str(pathlib.Path(__file__).with_name("agent_checkpoint.py")),
+            "watch", args.agent, "--interval", str(args.checkpoint),
+        ]
+        if args.agent == "codex":
+            watch += ["--repo", args.cwd]
+            if args.mirror and args.push:
+                watch += ["--mirror", args.mirror, "--push", args.push]
+        else:
+            watch += ["--out-dir", str(out_dir)]
+        checkpointer = subprocess.Popen(watch, stdout=sys.stdout, stderr=subprocess.STDOUT)
+        emit("INFO", f"cham diem moi {args.checkpoint}s, pid={checkpointer.pid}")
+
     attempt = 0
     while attempt <= args.max_restarts:
         before = snapshot()
@@ -156,13 +197,18 @@ def main() -> int:
 
         prompt_for_run = prompt_path
         if attempt:
-            # Resuming: say so, or the agent starts from nothing and the work
-            # already on disk is done a second time.
+            # Resuming. Naming the files that already exist is the whole point:
+            # "you were interrupted" tells an agent nothing it can act on, while
+            # "these 27 files are already on disk" tells it where to carry on.
             resumed = out_dir / f".resume-{args.agent}-{attempt}.md"
             resumed.write_text(
-                "LUU Y: lan chay truoc cua ban bi ngat giua chung. Cong viec da lam "
-                "van con tren dia — kiem tra truoc, tiep tuc tu do, dung lam lai tu dau. "
-                "Uu tien VIET KET QUA ra file truoc khi lam them viec moi.\n\n" + base_prompt,
+                "LUU Y: lan chay truoc cua ban bi ngat giua chung.\n\n"
+                "Cong viec da lam VAN CON TREN DIA:\n\n"
+                f"{existing_work(args, out_dir, repo)}\n\n"
+                "Kiem tra chung truoc, tiep tuc tu do, DUNG LAM LAI TU DAU.\n"
+                "Uu tien VIET KET QUA ra file truoc khi lam them viec moi — lan truoc "
+                "ban het gio dung luc sap ket luan va mat toan bo ket luan.\n\n"
+                + base_prompt,
                 encoding="utf-8",
             )
             prompt_for_run = resumed
@@ -199,6 +245,10 @@ def main() -> int:
             time.sleep(10)
 
     emit("ALERT", f"{args.agent} CHET HAN sau {args.max_restarts + 1} lan. Can nguoi vao xem.")
+    if args.checkpoint:
+        emit("INFO", "viec cua no KHONG mat: agent_checkpoint.py restore " + args.agent + " --to <dir>")
+    if checkpointer:
+        checkpointer.terminate()
     return 1
 
 
