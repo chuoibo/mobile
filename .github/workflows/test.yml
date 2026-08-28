@@ -147,12 +147,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: present
+        # Absent and broken are different answers. A missing directory is an
+        # absence and skipping is right; a directory that is there but has lost
+        # the file this job runs is a defect, and skipping it would turn the
+        # job green for the one reason it must never be green.
         run: |
-          if [ -f packages/shared/money.test.mjs ]; then
-            echo "found=true" >> "$GITHUB_OUTPUT"
-          else
+          if [ ! -d packages/shared ]; then
             echo "found=false" >> "$GITHUB_OUTPUT"
             echo "::notice::packages/shared is not on this branch, skipping"
+          elif [ -f packages/shared/money.test.mjs ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::packages/shared exists but money.test.mjs is missing -- refusing to skip"
+            exit 1
           fi
       - if: steps.present.outputs.found == 'true'
         uses: actions/setup-node@v4
@@ -163,17 +170,24 @@ jobs:
         run: node packages/shared/money.test.mjs
 
   mobile:
-    name: mobile typecheck
+    name: mobile bundle and tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - id: present
+        # Same rule as the job above: skip an absence, fail a defect. The old
+        # condition keyed on package-lock.json alone, so deleting the lockfile
+        # would have silently turned every step below into a no-op and left
+        # this job reporting green for an app nobody built.
         run: |
-          if [ -f apps/mobile/package-lock.json ]; then
-            echo "found=true" >> "$GITHUB_OUTPUT"
-          else
+          if [ ! -d apps/mobile ]; then
             echo "found=false" >> "$GITHUB_OUTPUT"
             echo "::notice::apps/mobile is not on this branch, skipping"
+          elif [ -f apps/mobile/package-lock.json ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::apps/mobile exists but package-lock.json is missing -- refusing to skip"
+            exit 1
           fi
       - if: steps.present.outputs.found == 'true'
         uses: actions/setup-node@v4
@@ -201,3 +215,34 @@ jobs:
         name: App bundles, client never computes money
         working-directory: apps/mobile
         run: npm test
+
+      - if: steps.present.outputs.found == 'true'
+        # The step above bundles, but only for web: `npm test` starts with
+        # `build:check`, which is `expo export --platform web`. Web is the
+        # smallest of the three targets and the least like what ships: on this
+        # commit web comes to roughly 200 modules against roughly 590 for each
+        # of iOS and Android, about a third of the native graph. Treat those as
+        # magnitudes, not constants -- the exact count moves with Metro's cache
+        # and with the runner, so a number quoted here is stale the week after.
+        # The gap is the durable part. A native-only break -- a react-native
+        # module with no web counterpart, an asset resolved per-platform --
+        # leaves the web export perfectly green.
+        #
+        # This job was green through a stretch where apps/mobile could not
+        # bundle at all: the screens imported ../../../../packages/shared/money.mjs,
+        # Metro would not look above apps/mobile, and nothing here noticed,
+        # because tsconfig.test.json compiles three logic files and not one
+        # screen. Green tests and a clean typecheck are not an app that starts.
+        #
+        # The other half of why this lives here and not in package.json: the
+        # gate above is one line of `scripts.test`, so editing that line takes
+        # the gate away and leaves CI green. A workflow step cannot be removed
+        # without showing up in this file's diff.
+        #
+        # Export for every platform, into RUNNER_TEMP so no artifact lands in
+        # the checkout.
+        name: The app bundles for native too, not just web
+        working-directory: apps/mobile
+        env:
+          EXPO_NO_TELEMETRY: "1"
+        run: npx expo export --platform all --output-dir "$RUNNER_TEMP/expo-export"
