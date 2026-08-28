@@ -228,6 +228,7 @@ class ReceiptScanResponse(ApiModel):
     totals_agree: StrictBool | None = None
     total_difference_vnd: MoneyVnd | None = None
     confidence: Annotated[int, Field(strict=True, ge=0, le=100)]
+    needs_review: StrictBool
     warnings: list[StrictStr] = Field(default_factory=list)
 
 

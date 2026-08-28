@@ -288,12 +288,26 @@ class RefusedReadings(unittest.TestCase):
 
 
 class ConfidenceIsHonest(unittest.TestCase):
-    def test_a_low_reading_stays_low(self):
-        """No floor is applied. A 20% read must not be dressed up as 92%."""
-        self.assertEqual(read_receipt(raw(confidence=0.2))["confidence"], 20)
+    def test_a_low_reading_is_refused_not_returned(self):
+        """A 20% read is refused now, not merely passed through honestly.
 
-    def test_zero_confidence_is_preserved(self):
-        self.assertEqual(read_receipt(raw(confidence=0.0))["confidence"], 0)
+        Once a caller receives items, it cannot tell an invented list from one
+        actually read from the receipt.
+        """
+        with self.assertRaises(ReceiptError) as caught:
+            read_receipt(raw(confidence=0.2))
+        self.assertEqual(caught.exception.code, "RECEIPT_TOO_BLURRY")
+
+    def test_zero_confidence_is_refused(self):
+        with self.assertRaises(ReceiptError) as caught:
+            read_receipt(raw(confidence=0.0))
+        self.assertEqual(caught.exception.code, "RECEIPT_TOO_BLURRY")
+
+    def test_an_above_floor_reading_is_reported_verbatim(self):
+        """A 75% read must not be dressed up as the 90% review threshold."""
+        result = read_receipt(raw(confidence=0.75))
+        self.assertEqual(result["confidence"], 75)
+        self.assertIs(result["needs_review"], True)
 
     def test_rounding_is_deterministic(self):
         self.assertEqual(read_receipt(raw(confidence=0.925))["confidence"], 92)

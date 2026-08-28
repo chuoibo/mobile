@@ -17,6 +17,7 @@ router = APIRouter(tags=["receipts"])
 _UNSUPPORTED_IMAGE_DETAIL = "Định dạng ảnh không được hỗ trợ."
 _IMAGE_TOO_LARGE_DETAIL = "Ảnh bill vượt quá giới hạn 8 MB."
 _RECEIPT_UNREADABLE_DETAIL = "Không đọc được bill. Vui lòng kiểm tra ảnh và thử lại."
+_RECEIPT_TOO_BLURRY_DETAIL = "Ảnh bill quá mờ. Vui lòng chụp lại ảnh rõ hơn."
 _READER_UNAVAILABLE_DETAIL = "Không đọc được bill lúc này, thử lại sau."
 
 
@@ -56,6 +57,12 @@ def scan_receipt(
             ) from None
         if exc.code == "IMAGE_TOO_LARGE":
             raise ApiProblem(413, "image_too_large", _IMAGE_TOO_LARGE_DETAIL) from None
+        if exc.code == "RECEIPT_TOO_BLURRY":
+            raise ApiProblem(
+                422,
+                "receipt_too_blurry",
+                _RECEIPT_TOO_BLURRY_DETAIL,
+            ) from None
         raise ApiProblem(
             422,
             "receipt_unreadable",

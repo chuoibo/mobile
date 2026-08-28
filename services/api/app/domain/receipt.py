@@ -12,7 +12,17 @@ import re
 
 from .contract import MAX_AMOUNT_VND
 
-__all__ = ["ReceiptError", "normalize_vnd", "read_receipt"]
+__all__ = [
+    "CONFIDENCE_FLOOR",
+    "CONFIDENCE_REVIEW",
+    "ReceiptError",
+    "normalize_vnd",
+    "read_receipt",
+]
+
+
+CONFIDENCE_FLOOR = 50
+CONFIDENCE_REVIEW = 90
 
 
 _CURRENCY_MARKER = r"(?:VND|VNĐ|đ|₫|d)"
@@ -157,14 +167,21 @@ def read_receipt(raw: dict) -> dict:
         raise ReceiptError("INVALID_RECEIPT")
     if "items" not in raw or not isinstance(raw["items"], list):
         raise ReceiptError("INVALID_RECEIPT")
+
+    confidence = _read_confidence(raw)
+    if confidence < CONFIDENCE_FLOOR:
+        raise ReceiptError("RECEIPT_TOO_BLURRY")
     if not raw["items"]:
         raise ReceiptError("NO_ITEMS_READ")
     if "total_text" not in raw:
         raise ReceiptError("INVALID_RECEIPT")
 
-    confidence = _read_confidence(raw)
     items: list[dict] = []
     warnings: list[str] = []
+    if confidence < CONFIDENCE_REVIEW:
+        warnings.append(
+            "Ảnh bill chưa đủ rõ; hãy kiểm tra từng món và số tiền trước khi xác nhận."
+        )
 
     for raw_item in raw["items"]:
         if not isinstance(raw_item, dict):
@@ -205,6 +222,9 @@ def read_receipt(raw: dict) -> dict:
         total_vnd = None
         totals_agree = None
         total_difference_vnd = None
+        warnings.append(
+            "Không đọc thấy tổng in trên bill để đối chiếu với tổng các dòng."
+        )
     else:
         total_vnd = normalize_vnd(total_text)
         total_difference_vnd = total_vnd - items_total_vnd
@@ -223,5 +243,6 @@ def read_receipt(raw: dict) -> dict:
         "totals_agree": totals_agree,
         "total_difference_vnd": total_difference_vnd,
         "confidence": confidence,
+        "needs_review": confidence < CONFIDENCE_REVIEW or total_vnd is None,
         "warnings": warnings,
     }

@@ -235,8 +235,12 @@ class TestBackendFailure:
 
         monkeypatch.setattr(anyio.to_thread, "run_sync", run_sync_inline)
         app = create_app()
+        # Confidence stays above CONFIDENCE_FLOOR on purpose: this test is
+        # about an empty item list reaching the client as 422 rather than 500.
+        # Drop it below the floor and the blur gate answers first, which is a
+        # different path with a different code.
         app.dependency_overrides[get_receipt_reader] = lambda: FakeReader(
-            reading={"items": [], "confidence": 0.1}
+            reading={"items": [], "confidence": 0.92}
         )
         response = scan(ASGITestClient(app))
         assert response.status_code == 422
