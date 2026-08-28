@@ -170,6 +170,49 @@ test("nén hỏng thì ảnh gốc vẫn bị xoá", async () => {
   assert.deepEqual(backend.calls.discarded, ["file:///cache/gốc.jpg"]);
 });
 
+test("ảnh nén BỊ TỪ CHỐI vì quá lớn thì chính nó cũng phải bị xoá", async () => {
+  // The gap the other cleanup tests leave open: `compress` here SUCCEEDS -- the
+  // file is on disk -- and only then does the size tripwire reject it. The
+  // rejected file is by definition the big one, so leaking it leaks the whole
+  // full-resolution bill. This is the case the oversize guard exists for.
+  const backend = fakeBackend({
+    async compress(source, maxEdge) {
+      const fit = fitLongestEdge(source.width, source.height, maxEdge);
+      return {
+        uri: "file:///cache/nén.jpg",
+        width: fit?.width ?? source.width,
+        height: fit?.height ?? source.height,
+        bytes: 5 * 1024 * 1024,
+      };
+    },
+  });
+  await assert.rejects(
+    withBillPhoto(backend, "camera", async () => "không bao giờ tới đây"),
+    (error) => error instanceof BillPhotoError && error.code === "qua-lon",
+  );
+  assert.deepEqual(
+    backend.calls.discarded.sort(),
+    ["file:///cache/gốc.jpg", "file:///cache/nén.jpg"],
+    "ảnh nén bị từ chối vẫn nằm lại trong cache",
+  );
+});
+
+test("ảnh nén không đọc được (0 byte) thì cũng không được nằm lại", async () => {
+  const backend = fakeBackend({
+    async compress() {
+      return { uri: "file:///cache/nén.jpg", width: 1600, height: 1200, bytes: 0 };
+    },
+  });
+  await assert.rejects(
+    withBillPhoto(backend, "camera", async () => "không bao giờ tới đây"),
+    (error) => error instanceof BillPhotoError && error.code === "khong-doc-duoc",
+  );
+  assert.deepEqual(backend.calls.discarded.sort(), [
+    "file:///cache/gốc.jpg",
+    "file:///cache/nén.jpg",
+  ]);
+});
+
 test("một lần xoá thất bại không được kéo theo các file còn lại", async () => {
   const discarded = [];
   const backend = fakeBackend({

@@ -130,23 +130,49 @@ export async function withBillPhoto<T>(
   }
 }
 
-/** Shrink and strip, then refuse the result if it did not actually shrink. */
+/** Shrink and strip, then refuse the result if it did not actually shrink.
+ *
+ * When the result is refused, the refused file is deleted here rather than left
+ * for the caller. By that point `compress` has already written it to disk, so
+ * there is a real file that no one else has a uri for: `withBillPhoto` only
+ * learns the compressed uri from a successful return, so anything thrown past
+ * it would leak. And the file leaked this way is the worst one to leak -- the
+ * size tripwire fires precisely when compression did NOT shrink the capture, so
+ * what stays behind is the full-resolution bill.
+ */
 export async function compressForReading(
   backend: PhotoBackend,
   captured: TempPhoto,
 ): Promise<BillPhoto> {
   const photo = await backend.compress(captured, MAX_EDGE, QUALITY);
 
+  const refuse = async (error: BillPhotoError): Promise<never> => {
+    // Same guard as the cleanup in `withBillPhoto`: failing to unlink must not
+    // replace the real complaint with a confusing one.
+    if (photo.uri !== captured.uri) {
+      try {
+        await backend.discard(photo.uri);
+      } catch {
+        // `discard` is contractually allowed to find it already gone.
+      }
+    }
+    throw error;
+  };
+
   if (!Number.isFinite(photo.bytes) || photo.bytes <= 0) {
-    throw new BillPhotoError(
-      "khong-doc-duoc",
-      "Không đọc được ảnh vừa chụp. Chụp lại giúp mình một lần nữa.",
+    return refuse(
+      new BillPhotoError(
+        "khong-doc-duoc",
+        "Không đọc được ảnh vừa chụp. Chụp lại giúp mình một lần nữa.",
+      ),
     );
   }
   if (photo.bytes > MAX_BYTES) {
-    throw new BillPhotoError(
-      "qua-lon",
-      "Ảnh bill quá lớn để gửi đi. Chụp lại gần hơn một chút.",
+    return refuse(
+      new BillPhotoError(
+        "qua-lon",
+        "Ảnh bill quá lớn để gửi đi. Chụp lại gần hơn một chút.",
+      ),
     );
   }
   return photo;
