@@ -163,6 +163,31 @@ def test_leaving_then_rejoining_creates_a_second_row(postgres_session: Session):
     assert second.left_at is None
 
 
+def test_closed_membership_intervals_cannot_overlap(postgres_session: Session):
+    owner = _person(postgres_session, "Nam")
+    group = _group(postgres_session, owner)
+    first = _join(postgres_session, group, owner)
+    first.state = MembershipState.LEFT
+    first.left_at = NOW + timedelta(days=10)
+    postgres_session.flush()
+
+    overlapping = Membership(
+        id=uuid.uuid4(),
+        group_id=group.id,
+        person_id=owner.id,
+        state=MembershipState.LEFT,
+        role=MembershipRole.MEMBER,
+        joined_at=NOW + timedelta(days=2),
+        left_at=NOW + timedelta(days=3),
+        created_at=NOW + timedelta(days=2),
+    )
+    postgres_session.add(overlapping)
+
+    with pytest.raises(IntegrityError) as caught:
+        postgres_session.flush()
+    assert caught.value.orig.diag.constraint_name == "ex_memberships_no_overlap"
+
+
 @pytest.mark.parametrize(
     "terminal_state", [MembershipState.LEFT, MembershipState.REMOVED]
 )
