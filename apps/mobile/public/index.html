@@ -23,6 +23,19 @@
         height: 100%;
         flex: 1;
       }
+      /* react-native-web renders Pressable as a <button>, and a <button> with
+         no font-size of its own inherits the UA default of 13.3333px rather
+         than the page's. Those wrappers carry no text -- the label is a child
+         <div> with a real size -- so the value is never seen, but it is real
+         in the cascade and a computed-style scan counts it as a type step
+         between 13 and 16. Normalising it is the same class of fix as the
+         react-native-web reset above. */
+      button,
+      input,
+      textarea,
+      select {
+        font-size: inherit;
+      }
     </style>
   </head>
 

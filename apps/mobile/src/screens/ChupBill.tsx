@@ -216,9 +216,22 @@ export function ChupBill(props: {
         <View style={{ minWidth: HIT, minHeight: HIT }} />
       </View>
 
+      {/* `type.label`, not `type.micro`.
+          Measured, not preferred: with a 12pt step on this screen the rendered
+          scale was 12 / 13 / 13.3 / 16 / 20, and 12 to 13 is a 1.08 step that
+          does no work. It really does none -- what separates this line from
+          the instruction above it is weight and a dimmer white, not one point
+          of size -- so dropping it leaves 13 / 16 / 20.
+          What that did and did not buy, because the difference matters: the
+          rendered scan reports `flat-type-hierarchy` before and after, one
+          finding either way. The scale underneath it went from five sizes to
+          three. The finding survives because this screen's largest text is
+          20px, and it is not fixable from here without contradicting the
+          mockup, which gives the screen a compact nav title and puts the
+          hierarchy in the viewfinder and the shutter rather than in type. */}
       <Text
         style={{
-          ...type.micro,
+          ...type.label,
           color: WHITE_FAINT,
           textAlign: "center",
           paddingBottom: space.md,
