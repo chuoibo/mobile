@@ -737,39 +737,26 @@ class AuditEvent(Base):
     )
 
 
-__all__ = [
-    "AuditEvent",
-    "BankRecipient",
-    "BankRecipientSnapshot",
-    "CollectionBatch",
-    "CollectionBatchStatus",
-    "CollectionBatchVersion",
-    "CollectionEnvelope",
-    "CollectionObligation",
-    "CollectionObligationSource",
-    "ConfirmedAllocation",
-    "Expense",
-    "ExpenseVersion",
-    "GuestLink",
-    "GuestLinkStatus",
-    "PayerAcknowledgement",
-    "PaymentReport",
-    "ReceiptConfirmation",
-    "VerificationScope",
-]
-
-
 class MembershipState(StrEnum):
-    """Where a person stands in a group.
+    """One membership episode's current lifecycle state.
 
     `INVITED` exists because being added to a group is something that happens
-    to you. Section 9 treats membership as a permission boundary, and a
-    boundary somebody was placed inside without agreeing is not one.
+    to a person, not consent from that person. `LEFT` and `REMOVED` are separate
+    terminal facts because voluntary departure and an admin action have
+    different audit meaning even though both revoke current group access.
     """
 
     INVITED = "invited"
     ACTIVE = "active"
     LEFT = "left"
+    REMOVED = "removed"
+
+
+class MembershipRole(StrEnum):
+    """Logistics authority inside a group, never financial authority."""
+
+    MEMBER = "member"
+    ADMIN = "admin"
 
 
 class Person(Base):
@@ -785,6 +772,12 @@ class Person(Base):
     """
 
     __tablename__ = "people"
+    __table_args__ = (
+        CheckConstraint(
+            "char_length(btrim(display_name)) BETWEEN 1 AND 120",
+            name="display_name_length",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -795,28 +788,67 @@ class Person(Base):
     )
 
 
-class Context(Base):
-    """A group of people who share expenses.
+class Group(Base):
+    """A stable set of people across trips, occasions, and billing cycles.
 
-    Called `context` because every table that already references one calls it
-    `context_id` -- and those columns were plain UUIDs pointing at nothing.
-    An id with no table behind it looks like a relationship and enforces
-    nothing: any UUID was a valid group, including one nobody belongs to.
-
-    Renaming to `group` would read better and would touch eighteen tables and
-    a migration for a word. The columns stay; what changes is that they now
-    point somewhere.
+    A group is deliberately not a context. The product spec uses context for a
+    trip, occasion, or cycle; one stable group can own many of those contexts.
+    Keeping the concepts separate prevents a later trip from accidentally
+    inheriting the lifecycle or visibility interval of an earlier one.
     """
 
-    __tablename__ = "contexts"
+    __tablename__ = "groups"
+    __table_args__ = (
+        CheckConstraint(
+            "char_length(btrim(display_name)) BETWEEN 1 AND 120",
+            name="display_name_length",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     display_name: Mapped[str] = mapped_column(Text, nullable=False)
-    created_by_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("people.id", name="fk_contexts_created_by"),
+    created_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_groups_created_by"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class Context(Base):
+    """One trip, occasion, or cycle whose expenses share a ledger scope.
+
+    Existing expense and collection tables already carry `context_id`. Those
+    columns point here; group membership points to `groups` instead. This is the
+    boundary required by spec sections 6.1 and 11.2.
+    """
+
+    __tablename__ = "contexts"
+    __table_args__ = (
+        CheckConstraint(
+            "char_length(btrim(display_name)) BETWEEN 1 AND 120",
+            name="display_name_length",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    group_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("groups.id", name="fk_contexts_group"),
         nullable=False,
+        index=True,
+    )
+    display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_contexts_created_by"),
+        nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -826,10 +858,8 @@ class Context(Base):
 class Membership(Base):
     """One person's standing in one group, over time.
 
-    Leaving is recorded, not deleted. A person who leaves still appears in the
-    obligations they were part of, and erasing the membership row would leave
-    those pointing at somebody who, as far as the database is concerned, was
-    never in the group. Money that was owed does not stop having been owed.
+    Leaving or removal is recorded, never deleted. Financial rows point to the
+    stable person, so closing a membership cannot rewrite an old obligation.
 
     Re-joining creates a NEW row rather than reviving the old one. The two
     stretches are different facts: what someone could see during the first is
@@ -843,29 +873,37 @@ class Membership(Base):
     __table_args__ = (
         Index(
             "uq_memberships_open_per_person",
-            "context_id",
+            "group_id",
             "person_id",
             unique=True,
-            postgresql_where=text("left_at IS NULL"),
+            postgresql_where=text("state IN ('invited', 'active')"),
         ),
-        Index("ix_memberships_person_open", "person_id", postgresql_where=text("left_at IS NULL")),
+        Index(
+            "ix_memberships_person_open",
+            "person_id",
+            postgresql_where=text("state IN ('invited', 'active')"),
+        ),
         CheckConstraint(
-            "(state = 'left') = (left_at IS NOT NULL)",
-            # The convention adds the `ck_<table>_` prefix; naming it here too
-            # produced `ck_memberships_ck_memberships_...`, which is how a
-            # constraint name creeps toward the 63-character limit that has
-            # already bitten this repo once.
-            name="left_state_matches_timestamp",
+            "(state = 'invited' AND joined_at IS NULL AND left_at IS NULL) OR "
+            "(state = 'active' AND joined_at IS NOT NULL AND left_at IS NULL) OR "
+            "(state IN ('left', 'removed') AND joined_at IS NOT NULL "
+            "AND left_at IS NOT NULL AND left_at >= joined_at)",
+            name="lifecycle_timestamps",
+        ),
+        CheckConstraint(
+            "state <> 'invited' OR invited_by_id IS NOT NULL",
+            name="invitation_has_inviter",
         ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    context_id: Mapped[uuid.UUID] = mapped_column(
+    group_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("contexts.id", name="fk_memberships_context"),
+        ForeignKey("groups.id", name="fk_memberships_group"),
         nullable=False,
+        index=True,
     )
     person_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -882,6 +920,13 @@ class Membership(Base):
         _enum_type(MembershipState, "membership_state"),
         nullable=False,
         default=MembershipState.INVITED,
+        server_default=MembershipState.INVITED.value,
+    )
+    role: Mapped[MembershipRole] = mapped_column(
+        _enum_type(MembershipRole, "membership_role"),
+        nullable=False,
+        default=MembershipRole.MEMBER,
+        server_default=MembershipRole.MEMBER.value,
     )
     invited_by_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
@@ -897,3 +942,31 @@ class Membership(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+__all__ = [
+    "AuditEvent",
+    "BankRecipient",
+    "BankRecipientSnapshot",
+    "CollectionBatch",
+    "CollectionBatchStatus",
+    "CollectionBatchVersion",
+    "CollectionEnvelope",
+    "CollectionObligation",
+    "CollectionObligationSource",
+    "ConfirmedAllocation",
+    "Context",
+    "Expense",
+    "ExpenseVersion",
+    "Group",
+    "GuestLink",
+    "GuestLinkStatus",
+    "Membership",
+    "MembershipRole",
+    "MembershipState",
+    "PayerAcknowledgement",
+    "PaymentReport",
+    "Person",
+    "ReceiptConfirmation",
+    "VerificationScope",
+]
