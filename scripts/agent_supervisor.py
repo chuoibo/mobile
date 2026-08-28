@@ -86,11 +86,38 @@ def codex_progress(repo: pathlib.Path) -> tuple[str, int]:
     return head, len([line for line in dirty.splitlines() if line.strip()])
 
 
-def dir_progress(out_dir: pathlib.Path) -> tuple[str, int]:
-    if not out_dir.exists():
-        return "", 0
-    files = [p for p in out_dir.rglob("*") if p.is_file()]
-    return "", len(files)
+# agy does not always write where you point it. Told to write into the current
+# directory it may divert everything into its own scratch instead, which is how
+# a run that produced a 16 KB report and 128 screenshots was measured as having
+# produced nothing at all. Watch both, and count the union.
+AGY_SCRATCH = pathlib.Path.home() / ".gemini/antigravity-cli/scratch"
+
+
+def agy_dirs(out_dir: pathlib.Path) -> list[pathlib.Path]:
+    return [out_dir, AGY_SCRATCH]
+
+
+def recent_files(out_dir: pathlib.Path, since: float) -> list[pathlib.Path]:
+    """Files this run touched. The scratch directory is shared across every
+    project on the machine, so counting all of it would report thousands of
+    files of somebody else's work as this agent's progress."""
+    found: list[pathlib.Path] = []
+    for directory in agy_dirs(out_dir):
+        if not directory.exists():
+            continue
+        for path in directory.rglob("*"):
+            if path.is_file() and path.stat().st_mtime >= since:
+                found.append(path)
+    return found
+
+
+def dir_progress(out_dir: pathlib.Path, since: float) -> tuple[str, int]:
+    files = recent_files(out_dir, since)
+    newest = max((p.stat().st_mtime for p in files), default=0.0)
+    # The count alone is not enough. A file being rewritten -- the report grown
+    # by another section -- moves the clock without moving the count, and that
+    # is still progress.
+    return f"{newest:.0f}", len(files)
 
 
 def run_once(agent: str, prompt: str, args: argparse.Namespace) -> tuple[int, str]:
@@ -133,7 +160,9 @@ def run_once(agent: str, prompt: str, args: argparse.Namespace) -> tuple[int, st
     return code, output
 
 
-def existing_work(args: argparse.Namespace, out_dir: pathlib.Path, repo: pathlib.Path) -> str:
+def existing_work(
+    args: argparse.Namespace, out_dir: pathlib.Path, repo: pathlib.Path, since: float
+) -> str:
     """A concrete list, not a reassurance. The agent has to be able to act on it."""
     if args.agent == "codex":
         dirty = git(repo, "status", "--porcelain")
@@ -142,10 +171,10 @@ def existing_work(args: argparse.Namespace, out_dir: pathlib.Path, repo: pathlib
         shown = "\n".join(f"  {name}" for name in names[:40]) or "  (khong co gi)"
         more = f"\n  ... va {len(names) - 40} file nua" if len(names) > 40 else ""
         return f"HEAD: {head}\nFile da tao/sua nhung CHUA COMMIT:\n{shown}{more}"
-    names = sorted(p.name for p in out_dir.rglob("*") if p.is_file())
-    shown = "\n".join(f"  {name}" for name in names[:40]) or "  (khong co gi)"
-    more = f"\n  ... va {len(names) - 40} file nua" if len(names) > 40 else ""
-    return f"File ban da tao trong thu muc lam viec:\n{shown}{more}"
+    named = sorted(str(p) for p in recent_files(out_dir, since))
+    shown = "\n".join(f"  {name}" for name in named[:40]) or "  (khong co gi)"
+    more = f"\n  ... va {len(named) - 40} file nua" if len(named) > 40 else ""
+    return f"File ban da tao (KE CA trong scratch cua chinh ban):\n{shown}{more}"
 
 
 def main() -> int:
@@ -168,8 +197,10 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     repo = pathlib.Path(args.cwd)
 
+    since = time.time()
+
     def snapshot() -> tuple[str, int]:
-        return codex_progress(repo) if args.agent == "codex" else dir_progress(out_dir)
+        return codex_progress(repo) if args.agent == "codex" else dir_progress(out_dir, since)
 
     prompt_path = pathlib.Path(args.prompt_file)
     base_prompt = prompt_path.read_text(encoding="utf-8")
@@ -204,7 +235,7 @@ def main() -> int:
             resumed.write_text(
                 "LUU Y: lan chay truoc cua ban bi ngat giua chung.\n\n"
                 "Cong viec da lam VAN CON TREN DIA:\n\n"
-                f"{existing_work(args, out_dir, repo)}\n\n"
+                f"{existing_work(args, out_dir, repo, since)}\n\n"
                 "Kiem tra chung truoc, tiep tuc tu do, DUNG LAM LAI TU DAU.\n"
                 "Uu tien VIET KET QUA ra file truoc khi lam them viec moi — lan truoc "
                 "ban het gio dung luc sap ket luan va mat toan bo ket luan.\n\n"
