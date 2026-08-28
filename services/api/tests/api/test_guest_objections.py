@@ -95,22 +95,31 @@ class TestWrongAmount:
         body = client.get(f"{path}/doi-so-tien").text
         assert "không bị ảnh hưởng" in body
 
-    def test_it_says_collection_stops_because_it_now_does(self, client, repository):
-        """This assertion has been inverted twice, and both moves were right.
+    def test_it_describes_what_actually_happens_to_the_obligation(
+        self, client, repository
+    ):
+        """This assertion has now been rewritten three times, each time
+        following the behaviour rather than leading it.
 
-        It first claimed collection stopped, when nothing stopped it. It was
-        then changed to assert the page admits nothing stops -- honest, but it
-        pinned the missing behaviour in place, which is how a test stops
-        guarding a promise and starts guarding a gap.
+        It first claimed collection stopped, when nothing stopped it. It then
+        asserted the page admits nothing stops -- honest, but that pinned the
+        missing behaviour in place, which is how a test stops guarding a
+        promise and starts guarding a gap. It then said "dừng thu", which was
+        true while a dispute was one of the payment statuses.
 
-        The behaviour exists now: the objection is derived into the
-        obligation's status and shown on the collection board. So the sentence
-        changes with the behaviour, not ahead of it."""
+        Payment and disagreement are separate facts now, so "dừng thu" is the
+        wrong sentence: on a debt already paid there is nothing to stop, and
+        saying so anyway is a promise nobody kept. What is true in every case
+        is that the obligation is marked, and stops counting as owed."""
         path = _published_flow(client, repository)
 
-        body = client.get(f"{path}/doi-so-tien").text
+        # Whitespace-normalised: the template wraps its prose, so a phrase can
+        # be split across lines. Asserting on the raw HTML would make this a
+        # test about line breaks rather than about what the page says.
+        body = " ".join(client.get(f"{path}/doi-so-tien").text.split())
 
-        assert "dừng thu khoản này" in body
+        assert "đang thắc mắc" in body
+        assert "không bị tính là còn nợ" in body
         assert "không bị ảnh hưởng" in body
 
     def test_it_still_never_claims_anyone_was_notified(self, client, repository):
@@ -551,3 +560,103 @@ class TestAReceiptCannotCloseAnArgument:
         assert target["disputed"] is True, "a guest was locked out of objecting"
         assert target["disputed_reason"] == "already_paid"
         assert after["disputed_count"] == 1
+
+
+class TestObjectingOnALinkWithTwoDebts:
+    """QA found the third way to break this, and it was the worst one.
+
+    The "wrong amount" link carried no obligation id, so the route fell back
+    to the first block. On a link with two debts, pressing the button under
+    the second card raised an objection against the FIRST -- flagging money
+    owed to one person because somebody disagreed about money owed to another,
+    while leaving the real one unobjectable.
+    """
+
+    @staticmethod
+    def _two_debt_link(client, repository):
+        propose_and_confirm(
+            client, total=90_000, participants=[SENDER_ID, OTHER_ID, ADVANCER_ID]
+        )
+        batch = create_batch(client, repository)
+        published = publish_batch(client, batch["batch_id"])
+        return batch["batch_id"], published["guest_links"]
+
+    def test_every_objection_link_names_its_own_obligation(self, client, repository):
+        _, links = self._two_debt_link(client, repository)
+        body = client.get(links[0]["path"]).text
+
+        # One link per obligation on the page, each carrying its own id.
+        assert "doi-so-tien?obligation_id=" in body, (
+            "the objection link does not say which debt it is about"
+        )
+        assert body.count("/doi-so-tien\"") == 0, (
+            "an objection link with no obligation id would fall back to the first"
+        )
+
+    def test_objecting_from_the_second_card_does_not_flag_the_first(
+        self, client, repository
+    ):
+        batch_id, links = self._two_debt_link(client, repository)
+        board = client.get(
+            f"/batches/{batch_id}/obligations", headers=actor_headers()
+        ).json()
+        if len(board["obligations"]) < 2:
+            raise AssertionError("fixture stopped producing two obligations")
+
+        # Object about the SECOND obligation, naming it explicitly.
+        second = board["obligations"][1]["obligation_id"]
+        first = board["obligations"][0]["obligation_id"]
+        target_link = next(
+            link
+            for link in links
+            if second in client.get(link["path"]).text
+        )
+        client.post(
+            f"{target_link['path']}/doi-so-tien",
+            data={"obligation_id": second, "reason": "amount_too_high"},
+            follow_redirects=False,
+        )
+
+        after = {
+            row["obligation_id"]: row
+            for row in client.get(
+                f"/batches/{batch_id}/obligations", headers=actor_headers()
+            ).json()["obligations"]
+        }
+        assert after[second]["disputed"] is True
+        assert after[first]["disputed"] is False, (
+            "objecting about one debt flagged a different person's debt"
+        )
+
+
+class TestAClosedLinkIsClosedInBothDirections:
+    """QA finding 3. GET refused on a revoked link; POST did not.
+
+    So a guest who had shut their own link down by pressing "I am not this
+    person" could still file objections by submitting the form directly.
+    """
+
+    def test_posting_to_a_revoked_link_is_refused(self, client, repository):
+        propose_and_confirm(client)
+        batch = create_batch(client, repository)
+        published = publish_batch(client, batch["batch_id"])
+        path = published["guest_links"][0]["path"]
+        board = client.get(
+            f"/batches/{batch['batch_id']}/obligations", headers=actor_headers()
+        ).json()
+        target = board["obligations"][0]["obligation_id"]
+
+        # "Tôi không phải người này" revokes the link.
+        client.post(f"{path}/khong-phai-toi", data={}, follow_redirects=False)
+
+        response = client.post(
+            f"{path}/doi-so-tien",
+            data={"obligation_id": target, "reason": "amount_too_high"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 409, response.text
+
+        after = client.get(
+            f"/batches/{batch['batch_id']}/obligations", headers=actor_headers()
+        ).json()
+        assert after["disputed_count"] == 0, "a closed link still filed an objection"

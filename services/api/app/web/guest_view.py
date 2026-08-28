@@ -46,6 +46,8 @@ ALLOWED_BLOCK = frozenset({
     "qr_payload",
     "qr_image_data_uri",
     "already_reported",
+    "disputed",
+    "can_object",
     "receiver_confirmed",
 })
 
@@ -132,6 +134,14 @@ def build_guest_view(envelope: dict) -> dict:
             # Only the recipient can set this, and even then it is a person
             # pressing a button -- not bank evidence (spec section 15).
             "receiver_confirmed": bool(obligation.get("receiver_confirmed")),
+            # Section 8.2. Shown so the page can stop claiming collection has
+            # paused while giving no sign of it, which is what it did.
+            "disputed": bool(obligation.get("disputed")),
+            # Per obligation. A link can carry debts to two different people,
+            # and arguing three times with one of them must not take away the
+            # right to say anything about the other.
+            "can_object": obligation.get("objections_used", 0)
+            < obligation.get("objections_allowed", 3),
         })
         extra = set(blocks[-1]) - ALLOWED_BLOCK
         if extra:
@@ -145,7 +155,9 @@ def build_guest_view(envelope: dict) -> dict:
         # Section 8.6 caps how often a guest may report or object, so a leaked
         # link cannot be used to spam the recipient.
         "can_report_payment": envelope.get("reports_used", 0) < envelope.get("reports_allowed", 3),
-        "can_object": envelope["objections_used"] < envelope["objections_allowed"],
+        # Kept for the pages that are about the link as a whole rather than
+        # one debt on it. The per-obligation answer lives on each block.
+        "can_object": any(block["can_object"] for block in blocks) if blocks else False,
     }
     extra = set(view) - ALLOWED_TOP_LEVEL
     if extra:
