@@ -26,6 +26,18 @@ Lines starting with ALERT are the ones a person needs to see.
     scripts/agent_supervisor.py codex --prompt-file p.md --cwd /home/lakiet/codex-repo
     scripts/agent_supervisor.py agy   --prompt-file p.md --out-dir /tmp/agy-run
 
+**Install a copy outside any working tree before relying on it.** This script
+lives in the repository, and the repository is a place branches get switched.
+Doing that deletes the file from disk for every branch that does not carry it --
+which killed a launch mid-command, twice, with `No such file or directory`. The
+same switch also took `packages/shared/money.mjs` out from under a running dev
+server and left an agent testing a 500. A supervisor that stops existing when
+somebody checks out a branch is not supervising anything:
+
+    mkdir -p ~/agent-harness
+    git show <branch>:scripts/agent_supervisor.py > ~/agent-harness/agent_supervisor.py
+    git show <branch>:scripts/agent_checkpoint.py > ~/agent-harness/agent_checkpoint.py
+
 Restarts on death, up to --max-restarts. A restart is only useful if the agent
 knows what it already did, so `--checkpoint` pairs this with
 `agent_checkpoint.py`: work is snapshotted into a git ref every minute, and the
