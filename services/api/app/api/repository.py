@@ -16,8 +16,8 @@ from typing import Protocol
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.limits import OBJECTION_LIMIT, REPORT_LIMIT
 from app.api.errors import RepositoryConflict
+from app.api.limits import OBJECTION_LIMIT, REPORT_LIMIT
 from app.api.schemas import ExpenseInput
 from app.db.models import (
     AuditEvent,
