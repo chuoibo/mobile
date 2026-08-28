@@ -31,6 +31,10 @@ import {
 
 const source = readFileSync(new URL("../src/api.ts", import.meta.url), "utf8");
 
+/** A fixed attempt, so these tests stay about refusals and names, not keys. */
+const LAN_BAM = { key: "K-test", at: 1_700_000_000_000 };
+
+
 
 
 
@@ -152,7 +156,7 @@ test("renaming changes the label, not the person", () => {
 test("publish is refused while the advancer has not acknowledged", async () => {
   const { publishBatch, GateNotPassedError } = await import("../dist-test/api.js");
   await assert.rejects(
-    () => publishBatch("some-batch", { payerAcknowledged: false }, "some-actor"),
+    () => publishBatch("some-batch", { payerAcknowledged: false }, "some-actor", LAN_BAM),
     GateNotPassedError,
   );
 });
@@ -163,7 +167,7 @@ test("gate 1 is checked before any request is built", async () => {
   // if a request were attempted the error would be `unreachable`, not the gate.
   const { publishBatch, GateNotPassedError, ApiError } = await import("../dist-test/api.js");
   try {
-    await publishBatch("some-batch", { payerAcknowledged: false }, "some-actor");
+    await publishBatch("some-batch", { payerAcknowledged: false }, "some-actor", LAN_BAM);
     assert.fail("phat duoc trong khi cong 1 dang dong");
   } catch (problem) {
     assert.ok(problem instanceof GateNotPassedError, `nhan duoc ${problem?.name}`);
@@ -311,7 +315,7 @@ test("phong bì mang tên người, không mang UUID", async () => {
     ],
   });
   try {
-    const envelopes = await publishBatch("b", { payerAcknowledged: true }, "a", ROSTER);
+    const envelopes = await publishBatch("b", { payerAcknowledged: true }, "a", LAN_BAM, ROSTER);
     assert.equal(envelopes[0].senderName, "Hà");
     assert.ok(!envelopes[0].senderName.includes("-"), "van con UUID tren man hinh");
   } finally {
@@ -331,7 +335,7 @@ test("người không có trong danh sách vẫn hiện ra, bằng id, chứ kh�
     ],
   });
   try {
-    const envelopes = await publishBatch("b", { payerAcknowledged: true }, "a", ROSTER);
+    const envelopes = await publishBatch("b", { payerAcknowledged: true }, "a", LAN_BAM, ROSTER);
     assert.equal(envelopes[0].senderName, stranger);
   } finally {
     restore();
@@ -415,7 +419,7 @@ test("báo tiền đã về gửi đúng số tiền của nghĩa vụ đó", as
     });
   };
   try {
-    const result = await confirmReceipt("ob-1", 100_000, "actor-1", "key-1");
+    const result = await confirmReceipt("ob-1", 100_000, "actor-1", { key: "key-1", at: LAN_BAM.at });
     assert.equal(result.status, "confirmed");
     assert.ok(sent.url.endsWith("/obligations/ob-1/confirm-receipt"));
     assert.equal(sent.body.amount_vnd, 100_000);
@@ -434,20 +438,33 @@ test("gửi lại cùng một khoá thì máy chủ vẫn chỉ thấy một l�
   // arrival and the obligation goes to `over_confirmed` -- it reads as
   // somebody having paid more than they owed. The key is what stops that, so
   // it is asserted to be the same one, not merely to be present.
+  //
+  // The key travels twice and both halves are checked here. In the body it is
+  // the route's own field. In the header it is what the server's middleware
+  // reads, and for a long time this test passed while that header was never
+  // sent at all -- so it proved the route field and nothing about the
+  // protection the server had actually installed.
   const { confirmReceipt } = await import("../dist-test/api.js");
   const real = globalThis.fetch;
   const keys = [];
+  const headerKeys = [];
   globalThis.fetch = async (_url, init) => {
     keys.push(JSON.parse(init.body).idempotency_key);
+    headerKeys.push(init.headers["Idempotency-Key"]);
     return new Response(JSON.stringify({ obligation_status: "confirmed" }), {
       status: 201,
       headers: { "Content-Type": "application/json" },
     });
   };
   try {
-    await confirmReceipt("ob-1", 100_000, "actor-1", "same-key");
-    await confirmReceipt("ob-1", 100_000, "actor-1", "same-key");
+    await confirmReceipt("ob-1", 100_000, "actor-1", { key: "same-key", at: LAN_BAM.at });
+    await confirmReceipt("ob-1", 100_000, "actor-1", { key: "same-key", at: LAN_BAM.at });
     assert.deepEqual(keys, ["same-key", "same-key"], "khoa doi giua hai lan gui");
+    assert.deepEqual(
+      headerKeys,
+      ["same-key", "same-key"],
+      "header Idempotency-Key khong di theo, may chu se coi day la hai lan bao",
+    );
   } finally {
     globalThis.fetch = real;
   }
@@ -497,7 +514,7 @@ test("mở đợt thu bị từ chối thì đọc được, kể cả khi máy 
       { status: 409, headers: { "Content-Type": "application/json" } },
     );
   try {
-    await openBatch(proposal, "v1", true);
+    await openBatch(proposal, "v1", true, LAN_BAM);
     assert.fail("le ra phai bi tu choi");
   } catch (problem) {
     assert.ok(problem instanceof ApiError);
@@ -518,7 +535,10 @@ test("ghi vào sổ bị từ chối vì số đã đổi thì nói rõ phải l
       { status: 409, headers: { "Content-Type": "application/json" } },
     );
   try {
-    await confirmExpense({ expenseId: "e1", serverProposal: {}, allocations: {}, advancerId: "a" });
+    await confirmExpense(
+      { expenseId: "e1", serverProposal: {}, allocations: {}, advancerId: "a" },
+      LAN_BAM,
+    );
     assert.fail("le ra phai bi tu choi");
   } catch (problem) {
     assert.ok(problem instanceof ApiError);
@@ -537,7 +557,7 @@ test("mã lạ giữ nguyên lời của máy chủ, không mượn câu tử t�
       { status: 409, headers: { "Content-Type": "application/json" } },
     );
   try {
-    await publishBatch("b", { payerAcknowledged: true }, "a");
+    await publishBatch("b", { payerAcknowledged: true }, "a", LAN_BAM);
     assert.fail("le ra phai bi tu choi");
   } catch (problem) {
     assert.ok(problem instanceof ApiError);
