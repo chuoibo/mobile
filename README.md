@@ -29,6 +29,16 @@ Xem thử trang cho khách mà không cần database:
 cd services/api && python3 -m app.web.preview
 ```
 
+Dựng ảnh API:
+
+```bash
+cd services/api && docker build -t mobile-api .
+```
+
+Build context là `services/api/`, **không phải** gốc repo. Docker chỉ đọc
+`.dockerignore` ở gốc build context, nên file đó phải nằm trong `services/api/`;
+đặt ở gốc repo là không có tác dụng.
+
 ## Chạy trên điện thoại thật (Expo Go)
 
 Điện thoại và máy này phải **cùng một Wi-Fi**. Kiểm trước khi mở Expo Go:

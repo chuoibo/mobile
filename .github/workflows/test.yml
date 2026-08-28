@@ -50,6 +50,91 @@ jobs:
           print("migration renders")
           PY
 
+  docker:
+    name: api image builds and serves
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Base images are pinned by digest
+        # A tag is mutable: `python:3.12-slim` gets re-pushed upstream and the
+        # same commit then builds a different runtime. Checked before the build
+        # so the failure names the cause instead of surfacing later as an
+        # unexplained behaviour change.
+        run: scripts/check_dockerfile_pinning.sh services/api/Dockerfile
+
+      - name: Build
+        # Unconditional on purpose: services/api/Dockerfile is on main, so its
+        # absence is a defect, not the branch-dependent absence that the two
+        # jobs below skip for.
+        working-directory: services/api
+        run: docker build -t mobile-api:ci .
+
+      - name: Runs as a non-root user
+        run: |
+          uid=$(docker run --rm --entrypoint id mobile-api:ci -u)
+          echo "container uid = $uid"
+          if [ "$uid" = "0" ]; then
+            echo "::error::image runs as root"
+            exit 1
+          fi
+
+      - name: No test tooling in the runtime image
+        # The runtime venv is built from pyproject's dependency list, not from
+        # requirements-dev.txt. This is the check that the split held.
+        run: |
+          if docker run --rm --entrypoint sh mobile-api:ci -c "ls /venv/bin" | grep -qE '^(pytest|ruff)$'; then
+            echo "::error::pytest or ruff shipped in the runtime image"
+            exit 1
+          fi
+          echo "runtime venv carries no dev tooling"
+
+      - name: The container actually serves /healthz
+        # A built image is not a running one. `docker build` succeeding says
+        # nothing about whether the process starts.
+        #
+        # No published host port on purpose. The first version of this step ran
+        # `-p 8000:8000` and curled the host, which passes whenever *anything*
+        # answers on that port -- it reported a healthy API on a machine where
+        # the container had failed to start and an unrelated process held 8000.
+        # Polling the container's own HEALTHCHECK cannot be satisfied by a
+        # stranger, and it exercises the HEALTHCHECK instruction at the same
+        # time.
+        run: |
+          docker run -d --name api mobile-api:ci
+          for i in $(seq 1 60); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' api)
+            case "$status" in
+              healthy)
+                echo "container reported healthy after ${i}s"
+                docker rm -f api >/dev/null
+                exit 0
+                ;;
+              unhealthy)
+                echo "::error::container went unhealthy"
+                docker logs api
+                docker rm -f api >/dev/null
+                exit 1
+                ;;
+            esac
+            if [ "$(docker inspect --format '{{.State.Running}}' api)" != "true" ]; then
+              echo "::error::container exited before becoming healthy"
+              docker logs api
+              docker rm -f api >/dev/null
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "::error::container never became healthy"
+          docker logs api
+          docker rm -f api >/dev/null
+          exit 1
+
+      - name: Image size
+        run: |
+          size=$(docker image inspect mobile-api:ci --format '{{.Size}}')
+          echo "::notice::api image size = $((size / 1024 / 1024)) MiB"
+
   # The two jobs below are skipped when their code is not on this branch.
   # Written unconditionally at first, which made CI red on main the moment it
   # merged: both targets live on a branch that has not landed yet. In a

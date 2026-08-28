@@ -210,6 +210,35 @@ class ReceiptConfirmationResponse(ApiModel):
     ]
 
 
+class BankRecipientRequest(ApiModel):
+    """Where a recipient wants their money to land.
+
+    The three destination fields are plain strings on purpose. Shape is decided
+    by `app.domain.bank_account`, so a malformed bank code comes back as a 422
+    carrying `INVALID_BANK_BIN` -- a code the caller can branch on. Encoding the
+    same rules as pydantic constraints would answer with FastAPI's generic
+    validation body instead, which has no such code in it.
+    """
+
+    recipient_id: UUID
+    bank_bin: StrictStr
+    account_number: StrictStr
+    account_name: StrictStr | None = None
+
+
+class BankRecipientResponse(ApiModel):
+    id: UUID
+    recipient_id: UUID
+    bank_bin: StrictStr
+    # A routing code nobody can act on, plus the name they will actually look
+    # for in their banking app, plus whether we recognised it at all.
+    bank_name: StrictStr
+    bank_recognised: StrictBool
+    account_number: StrictStr
+    account_name: StrictStr | None
+    confirmed_at: datetime
+
+
 class BatchObligationView(ApiModel):
     """One obligation on the collection board.
 
