@@ -9,10 +9,12 @@ import { StatusBar } from "expo-status-bar";
 import React, { useState } from "react";
 import { SafeAreaView, Text, View, useColorScheme } from "react-native";
 import {
+  confirmExpense,
   openBatch,
   proposeSplit,
   publishBatch,
-  OFFLINE,
+  type PendingProposal,
+  BASE_URL,
   type PublishGates,
 } from "./src/api";
 import { ChiaSe, type Envelope } from "./src/screens/ChiaSe";
@@ -20,11 +22,9 @@ import { DeXuat, type Proposal } from "./src/screens/DeXuat";
 import { DotThu, type Obligation } from "./src/screens/DotThu";
 import { Draft, NhapKhoanChi } from "./src/screens/NhapKhoanChi";
 import { EMPTY_FORM, type DraftForm } from "./src/participants";
-import { TheDeXuat } from "./src/screens/TheDeXuat";
-import { DEMO_THREADS } from "./src/fixtures/threads";
 import { space, type, usePalette } from "./src/theme";
 
-type Step = "nhap" | "the-de-xuat" | "de-xuat" | "dot-thu" | "chia-se";
+type Step = "nhap" | "de-xuat" | "dot-thu" | "chia-se";
 
 export default function App() {
   const c = usePalette();
@@ -35,10 +35,8 @@ export default function App() {
   // form owned by the screen goes with it -- which erased everything a
   // person had typed the moment they tried to change one number.
   const [form, setForm] = useState<DraftForm>(EMPTY_FORM);
-  // Which corpus case the proposal card is showing. Offline only: the
-  // real thing arrives when money_skill runs against a live thread.
-  const [threadIndex, setThreadIndex] = useState(0);
-  const [proposal, setProposal] = useState<Proposal | null>(null);
+  const [proposal, setProposal] = useState<PendingProposal | null>(null);
+  const [batchId, setBatchId] = useState<string | null>(null);
   const [obligations, setObligations] = useState<Obligation[]>([]);
   const [envelopes, setEnvelopes] = useState<Envelope[]>([]);
   const [published, setPublished] = useState(false);
@@ -69,28 +67,11 @@ export default function App() {
     <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
       <StatusBar style={scheme === "dark" ? "light" : "dark"} />
 
-      {step === "the-de-xuat" && (
-        <TheDeXuat
-          extraction={DEMO_THREADS[threadIndex].extraction}
-          thread={DEMO_THREADS[threadIndex].messages}
-          onAccept={() => {
-            // Accepting a reading is not the same as splitting it. The next
-            // step is the ordinary entry form, prefilled, so a person still
-            // sees and confirms what goes into the ledger.
-            setStep("nhap");
-          }}
-          onEdit={() => setStep("nhap")}
-          onDismiss={() => {
-            setThreadIndex((current) => (current + 1) % DEMO_THREADS.length);
-          }}
-        />
-      )}
 
       {step === "nhap" && (
         <NhapKhoanChi
           form={form}
           onForm={setForm}
-          onSeeProposal={OFFLINE ? () => setStep("the-de-xuat") : undefined}
           onNext={(d) => guard(async () => {
             setDraft(d);
             setProposal(await proposeSplit(d));
@@ -104,7 +85,16 @@ export default function App() {
           proposal={proposal}
           onBack={() => setStep("nhap")}
           onConfirm={() => guard(async () => {
-            const batch = await openBatch(proposal);
+            // Confirm writes the split into the ledger and tells us whether
+            // the advancer acknowledged; the batch gate reads that answer
+            // rather than assuming it.
+            const written = await confirmExpense(proposal);
+            const batch = await openBatch(
+              proposal,
+              written.expenseVersionId,
+              written.acknowledged,
+            );
+            setBatchId(batch.batchId);
             setObligations(batch.obligations);
             setGates(batch.gates);
             setPublished(false);
@@ -119,7 +109,7 @@ export default function App() {
           published={published}
           gates={gates}
           onPublish={() => guard(async () => {
-            setEnvelopes(await publishBatch(obligations, gates));
+            setEnvelopes(await publishBatch(batchId!, gates, proposal!.advancerId));
             setPublished(true);
           })}
           onShare={() => setStep("chia-se")}
@@ -144,13 +134,15 @@ export default function App() {
         </View>
       )}
 
-      {OFFLINE && (
-        <View style={{ paddingHorizontal: space.md, paddingBottom: space.sm }}>
-          <Text style={{ ...type.label, color: c.inkSoft, textAlign: "center" }}>
-            Dữ liệu giả. API chưa nối.
-          </Text>
-        </View>
-      )}
+      {/* The address is on screen at all times, and that is the point. The
+          banner used to read "dữ liệu giả, API chưa nối" -- true then, and the
+          kind of line that stays after it stops being true. Naming the server
+          cannot go stale: either the app is talking to it or it is not. */}
+      <View style={{ paddingHorizontal: space.md, paddingBottom: space.sm }}>
+        <Text style={{ ...type.label, color: c.inkSoft, textAlign: "center" }}>
+          Máy chủ: {BASE_URL}
+        </Text>
+      </View>
     </SafeAreaView>
   );
 }

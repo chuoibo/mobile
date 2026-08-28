@@ -18,7 +18,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 
-import { FIXTURES, FixtureMissingError } from "../dist-test/api.js";
+import { canPublish, GateNotPassedError } from "../dist-test/api.js";
 import {
   addParticipant,
   advancer,
@@ -31,26 +31,8 @@ import {
 
 const source = readFileSync(new URL("../src/api.ts", import.meta.url), "utf8");
 
-test("the corpus is not empty, or every test below passes vacuously", () => {
-  assert.ok(FIXTURES.length >= 5, `only ${FIXTURES.length} fixtures`);
-});
 
-test("every fixture's parts add up to its total", () => {
-  // Money rule 2. A fixture that failed this would put a wrong number on
-  // screen carrying the authority of the golden corpus.
-  for (const fixture of FIXTURES) {
-    const sum = Object.values(fixture.allocations).reduce((a, b) => a + b, 0);
-    assert.equal(sum, fixture.totalVnd, `${fixture.id} sums to ${sum}`);
-  }
-});
 
-test("every allocation is an integer number of dong", () => {
-  for (const fixture of FIXTURES) {
-    for (const [id, amount] of Object.entries(fixture.allocations)) {
-      assert.ok(Number.isInteger(amount), `${fixture.id}/${id} is ${amount}`);
-    }
-  }
-});
 
 test("the client source contains no allocation arithmetic", () => {
   // Deliberately narrow: this asserts the specific shapes the removed splitter
@@ -63,38 +45,7 @@ test("the client source contains no allocation arithmetic", () => {
   }
 });
 
-test("a draft that matches a fixture replays it exactly", async () => {
-  const { proposeSplit } = await import("../dist-test/api.js");
-  const fixture = FIXTURES[0];
-  const proposal = await proposeSplit({
-    participants: fixture.participants,
-    totalVnd: fixture.totalVnd,
-    advancerId: fixture.advancerId,
-    occasion: fixture.occasion,
-  });
-  assert.deepEqual(proposal.allocations, fixture.allocations);
-  assert.deepEqual(proposal.roundingGainers, fixture.roundingGainers);
-});
 
-test("a draft with no fixture is refused, never invented", async () => {
-  const { proposeSplit } = await import("../dist-test/api.js");
-  // 777_777 over these three people is not in the corpus. The old code would
-  // have happily returned 259259/259259/259259 and hidden the remainder.
-  await assert.rejects(
-    () =>
-      proposeSplit({
-        participants: [
-          { id: "a", name: "Nam" },
-          { id: "b", name: "Hà" },
-          { id: "c", name: "Quyên" },
-        ],
-        totalVnd: 777_777,
-        advancerId: "a",
-        occasion: "không có trong corpus",
-      }),
-    FixtureMissingError,
-  );
-});
 
 test("adding someone never moves an existing choice", () => {
   const nextId = makeIdFactory();
@@ -185,22 +136,6 @@ test("renaming changes the label, not the person", () => {
  * teaches a flow where a round can go out under someone's name before they
  * agree, and leaves nowhere to set up or check the recipient.
  */
-test("a new batch starts with both gates shut", async () => {
-  const { openBatch, canPublish } = await import("../dist-test/api.js");
-  const fixture = FIXTURES[0];
-  const batch = await openBatch({
-    participants: fixture.participants,
-    allocations: fixture.allocations,
-    roundingGainers: fixture.roundingGainers,
-    totalVnd: fixture.totalVnd,
-    advancerId: fixture.advancerId,
-    occasion: fixture.occasion,
-  });
-  assert.equal(batch.gates.payerAcknowledged, false);
-  assert.equal(batch.gates.recipientReady, false);
-  assert.equal(canPublish(batch.gates), false);
-  assert.ok(batch.obligations.length > 0, "no obligations to gate");
-});
 
 test("publish is refused while either gate is shut", async () => {
   const { publishBatch, GateNotPassedError } = await import("../dist-test/api.js");
@@ -217,18 +152,21 @@ test("publish is refused while either gate is shut", async () => {
   }
 });
 
-test("publish goes through once both gates pass", async () => {
-  const { publishBatch } = await import("../dist-test/api.js");
-  const obligations = [
-    { id: "o1", senderId: "b", senderName: "Hà", recipient: "Nam", amountVnd: 100_000, status: "outstanding" },
-  ];
-  const envelopes = await publishBatch(obligations, {
-    payerAcknowledged: true,
-    recipientReady: true,
-    recipientProblem: null,
-  });
-  assert.equal(envelopes.length, 1);
-  assert.equal(envelopes[0].amountVnd, 100_000);
+test("publish refuses to build a request until both gates pass", async () => {
+  // The happy path now needs a live server, so it is covered end to end in
+  // `tests/e2e` rather than here. What this file still owns is the refusal:
+  // the gate check runs BEFORE any request is built, so a shut gate cannot be
+  // turned into a network round trip that a flaky connection then hides.
+  const { publishBatch, GateNotPassedError } = await import("../dist-test/api.js");
+  await assert.rejects(
+    () =>
+      publishBatch("some-batch", {
+        payerAcknowledged: true,
+        recipientReady: false,
+        recipientProblem: null,
+      }, "some-actor"),
+    GateNotPassedError,
+  );
 });
 
 /* Data loss on "Sửa lại" -- found by agy driving the real app.

@@ -21,10 +21,29 @@ export type Roster = {
   advancerId: string | null;
 };
 
-/** Monotonic, never reused. Callers may pass their own for deterministic tests. */
-export function makeIdFactory(prefix = "p"): () => string {
-  let seq = 0;
-  return () => `${prefix}${++seq}`;
+/**
+ * A fresh id per person. UUIDs, because the API only accepts UUIDs.
+ *
+ * These were `p1`, `p2` -- readable, stable, and rejected by every endpoint.
+ * Tests pass their own factory so ids stay predictable there; nothing else may
+ * derive an id from a name or a position.
+ */
+export function makeIdFactory(prefix?: string): () => string {
+  if (prefix !== undefined) {
+    let seq = 0;
+    return () => `${prefix}${++seq}`;
+  }
+  return () => {
+    // `crypto.randomUUID` exists in Hermes and in every browser this runs in.
+    // The fallback is for older runtimes and produces the same shape; it is
+    // not a security boundary, only an identity that must not collide.
+    const c = globalThis.crypto as { randomUUID?: () => string } | undefined;
+    if (c?.randomUUID) return c.randomUUID();
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (ch) => {
+      const r = (Math.random() * 16) | 0;
+      return (ch === "x" ? r : (r & 0x3) | 0x8).toString(16);
+    });
+  };
 }
 
 export function addParticipant(
