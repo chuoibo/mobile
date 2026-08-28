@@ -53,10 +53,6 @@ def create_app(
     idempotency_in_flight_wait_seconds: float | None = None,
 ) -> FastAPI:
     application = FastAPI(title="Group Expense API", version="0.1.0")
-    # Outermost layer on purpose: an error response without the allow-origin
-    # header reaches the browser as an opaque network failure, which hides the
-    # status the client needed to read.
-    install_cors(application)
     application.mount(
         "/static",
         StaticFiles(directory=str(WEB_ROOT / "static")),
@@ -84,6 +80,17 @@ def create_app(
         store_factory=idempotency_store_factory or sqlalchemy_store_factory,
         **idempotency_options,
     )
+
+    # Installed last, which is what puts it outermost: `add_middleware`
+    # prepends, and the first entry wraps everything after it.
+    #
+    # Outermost on purpose, and the order matters more than it looks. The
+    # idempotency layer answers three refusals entirely on its own, before any
+    # route is reached. Inside the CORS layer those answers go out with no
+    # allow-origin header, the browser discards them, and the web build sees an
+    # opaque network failure instead of the code it needs in order to say
+    # anything useful to the person standing over their own money.
+    install_cors(application)
 
     @application.get("/healthz", include_in_schema=False)
     async def healthz() -> dict[str, str]:

@@ -461,6 +461,36 @@ def test_two_presses_at_the_same_instant_both_receive_the_one_answer(store):
     assert handled == ["/expenses"], "the handler must not run a second time"
 
 
+def test_a_refusal_from_this_middleware_still_reaches_a_browser(monkeypatch):
+    """The seam between this middleware and the CORS layer from #48.
+
+    Adding the header adds three refusals the web build can now reach. Every one
+    of them is answered by this middleware before the request ever reaches a
+    route, so if it sits outside the CORS layer the answer goes out with no
+    allow-origin header. The browser then discards it and the app sees an opaque
+    network failure -- the app cannot even read the code it needs to turn into a
+    Vietnamese sentence, which is the whole job of the mapping in `api.ts`.
+
+    An empty key is used because it is refused by the middleware alone: no
+    store, no router, no database. If this test ever needs one, the middleware
+    has stopped answering on its own and this seam has moved.
+    """
+
+    origin = "http://localhost:8080"
+    monkeypatch.setenv("MOBILE_CORS_ALLOW_ORIGINS", origin)
+    client = ASGITestClient(create_app())
+
+    refused = client.post(
+        "/expenses",
+        json={},
+        headers={"Origin": origin, IDEMPOTENCY_HEADER: ""},
+    )
+
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["code"] == "invalid_idempotency_key"
+    assert refused.headers.get("access-control-allow-origin") == origin
+
+
 def test_a_reservation_nobody_will_ever_finish_still_gives_up(store):
     """The wait is bounded, and it does not advise the caller into a double write.
 
