@@ -97,7 +97,10 @@ class Expense(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     context_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("contexts.id", name="fk_expenses_context"),
+        nullable=False,
+        index=True,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -148,8 +151,16 @@ class ExpenseVersion(Base):
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
     previous_version_number: Mapped[int | None] = mapped_column(Integer)
     description: Mapped[str | None] = mapped_column(Text)
-    recorded_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    paid_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    recorded_by_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_expense_versions_recorded_by"),
+        nullable=False,
+    )
+    paid_by_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_expense_versions_paid_by"),
+        nullable=False,
+    )
     payer_acknowledgement: Mapped[PayerAcknowledgement] = mapped_column(
         _enum_type(PayerAcknowledgement, "payer_acknowledgement"),
         nullable=False,
@@ -221,7 +232,11 @@ class ExpenseItemShare(Base):
     expense_item_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("expense_items.id"), nullable=False, index=True
     )
-    participant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    participant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_expense_item_shares_participant"),
+        nullable=False,
+    )
 
 
 class ExpenseSurcharge(Base):
@@ -303,9 +318,17 @@ class ConfirmedAllocation(Base):
         nullable=False,
         index=True,
     )
-    participant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    participant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_confirmed_allocations_participant"),
+        nullable=False,
+    )
     amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    confirmed_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    confirmed_by_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_confirmed_allocations_confirmed_by"),
+        nullable=False,
+    )
     confirmed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -320,9 +343,16 @@ class CollectionBatch(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     context_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("contexts.id", name="fk_collection_batches_context"),
+        nullable=False,
+        index=True,
     )
-    owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_collection_batches_owner"),
+        nullable=False,
+    )
     status: Mapped[CollectionBatchStatus] = mapped_column(
         _enum_type(CollectionBatchStatus, "collection_batch_status"),
         nullable=False,
@@ -369,7 +399,11 @@ class CollectionBatchVersion(Base):
     )
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
     previous_version_number: Mapped[int | None] = mapped_column(Integer)
-    created_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    created_by_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_collection_batch_versions_created_by"),
+        nullable=False,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -396,7 +430,10 @@ class BankRecipient(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     recipient_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_bank_recipients_recipient"),
+        nullable=False,
+        index=True,
     )
     bank_bin: Mapped[str] = mapped_column(String(6), nullable=False)
     account_number: Mapped[str] = mapped_column(String(19), nullable=False)
@@ -441,7 +478,11 @@ class BankRecipientSnapshot(Base):
     bank_recipient_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("bank_recipients.id"), nullable=False
     )
-    recipient_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    recipient_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_bank_recipient_snapshots_recipient"),
+        nullable=False,
+    )
     bank_bin: Mapped[str] = mapped_column(String(6), nullable=False)
     account_number: Mapped[str] = mapped_column(String(19), nullable=False)
     account_name: Mapped[str | None] = mapped_column(String(255))
@@ -482,8 +523,16 @@ class CollectionObligation(Base):
         nullable=False,
         index=True,
     )
-    sender_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    recipient_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    sender_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_collection_obligations_sender"),
+        nullable=False,
+    )
+    recipient_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_collection_obligations_recipient"),
+        nullable=False,
+    )
     amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
     due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     bank_recipient_snapshot_id: Mapped[uuid.UUID] = mapped_column(
@@ -538,7 +587,11 @@ class CollectionEnvelope(Base):
         nullable=False,
         index=True,
     )
-    sender_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    sender_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_collection_envelopes_sender"),
+        nullable=False,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -608,7 +661,10 @@ class PaymentReport(Base):
     guest_link_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("guest_links.id")
     )
-    reported_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    reported_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_payment_reports_reported_by"),
+    )
     amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
     idempotency_key: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False, unique=True
@@ -641,7 +697,11 @@ class ReceiptConfirmation(Base):
         index=True,
     )
     payment_report_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
-    confirmed_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    confirmed_by_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_receipt_confirmations_confirmed_by"),
+        nullable=False,
+    )
     amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
     idempotency_key: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False, unique=True
@@ -659,7 +719,10 @@ class AuditEvent(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    actor_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_audit_events_actor"),
+    )
     event_type: Mapped[str] = mapped_column(String(100), nullable=False)
     aggregate_type: Mapped[str] = mapped_column(String(100), nullable=False)
     aggregate_id: Mapped[uuid.UUID] = mapped_column(
