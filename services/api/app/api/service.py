@@ -17,6 +17,7 @@ from app.api.repository import (
     GuestLinkDraft,
     MembershipRecord,
     ObligationDraft,
+    PersonRecord,
 )
 from app.api.schemas import (
     AllocationProposal,
@@ -205,10 +206,64 @@ class ApiService:
     def __init__(self, repository: ApiRepository):
         self.repository = repository
 
+    def register_person(
+        self, person_id: uuid.UUID, display_name: str, actor: Actor
+    ) -> tuple[PersonRecord, bool]:
+        """Say who an id belongs to. Returns the record and whether it is new.
+
+        Creating and renaming are two different acts with two different rules,
+        so they are two entries in the permission table rather than one. A
+        member may name somebody who has no row -- that is the only way a name
+        ever enters this product, since nobody signs up before a friend adds
+        them to a dinner. Changing a name that already exists is the person's
+        own business: a display name is what a stranger reads on a guest page
+        while deciding whether to send money.
+        """
+        existing = self.repository.get_person(person_id)
+        if existing is None:
+            _require_permission("register_person_identity", actor, {})
+            try:
+                return self.repository.create_person(person_id, display_name), True
+            except RepositoryConflict as exc:
+                raise ApiProblem(
+                    409, exc.code.lower(), "Person identity conflicted"
+                ) from exc
+        if existing.display_name == display_name:
+            # A retry is not an attempt to change anything, and answering 403
+            # to a client's own retry makes a dropped response look like an
+            # attack. Checked before the rename permission for that reason.
+            return existing, False
+        _require_permission(
+            "rename_person_identity", actor, {"is_self": actor.id == person_id}
+        )
+        renamed = self.repository.rename_person(person_id, display_name)
+        if renamed is None:
+            raise ApiProblem(
+                404, "person_not_found", "Person disappeared during rename"
+            )
+        return renamed, False
+
+    def _require_registered_person(self, person_id: uuid.UUID) -> None:
+        """Refuse before the foreign key does.
+
+        `contexts.created_by_id` and `memberships.person_id` both point at
+        `people`, and nothing wrote that table until `PUT /people/{id}` existed.
+        Every call reached PostgreSQL and came back as `ForeignKeyViolation` on
+        `fk_contexts_created_by` -- HTTP 500, no code, and nothing telling the
+        caller that the fix is one request away.
+        """
+        if self.repository.get_person(person_id) is None:
+            raise ApiProblem(
+                409,
+                "person_not_registered",
+                "Register this person with PUT /people/{person_id} first",
+            )
+
     def create_context(
         self, request: ContextCreateRequest, actor: Actor
     ) -> ContextResponse:
         _require_permission("create_context", actor, {})
+        self._require_registered_person(actor.id)
         context = self.repository.create_context(request.display_name, actor.id)
 
         # A context must not be born with nobody allowed to administer it.
@@ -240,6 +295,7 @@ class ApiService:
             actor,
             {"is_group_member": self.repository.is_member(context_id, actor.id)},
         )
+        self._require_registered_person(request.person_id)
         try:
             membership = self.repository.add_member(
                 context_id, request.person_id, actor.id
