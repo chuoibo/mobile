@@ -274,6 +274,51 @@ def upgrade() -> None:
         unique=True,
         postgresql_where=sa.text("state IN ('invited', 'active')"),
     )
+    op.execute(
+        """
+        CREATE FUNCTION reject_overlapping_membership_intervals()
+        RETURNS trigger
+        LANGUAGE plpgsql
+        AS $function$
+        BEGIN
+            IF NEW.joined_at IS NULL THEN
+                RETURN NEW;
+            END IF;
+
+            PERFORM pg_advisory_xact_lock(
+                hashtextextended(
+                    NEW.group_id::text || ':' || NEW.person_id::text,
+                    0
+                )
+            );
+            IF EXISTS (
+                SELECT 1
+                FROM memberships AS existing
+                WHERE existing.group_id = NEW.group_id
+                  AND existing.person_id = NEW.person_id
+                  AND existing.id <> NEW.id
+                  AND existing.joined_at IS NOT NULL
+                  AND tstzrange(existing.joined_at, existing.left_at, '[)')
+                      && tstzrange(NEW.joined_at, NEW.left_at, '[)')
+            ) THEN
+                RAISE EXCEPTION 'membership intervals overlap'
+                    USING ERRCODE = '23P01',
+                          CONSTRAINT = 'ex_memberships_no_overlap';
+            END IF;
+            RETURN NEW;
+        END;
+        $function$
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_memberships_no_overlapping_intervals
+        BEFORE INSERT OR UPDATE OF group_id, person_id, state, joined_at, left_at
+        ON memberships
+        FOR EACH ROW
+        EXECUTE FUNCTION reject_overlapping_membership_intervals()
+        """
+    )
 
     op.create_foreign_key(
         "fk_expenses_context", "expenses", "contexts", ["context_id"], ["id"]
@@ -305,6 +350,8 @@ def downgrade() -> None:
     )
     op.drop_constraint("fk_expenses_context", "expenses", type_="foreignkey")
 
+    op.execute("DROP TRIGGER trg_memberships_no_overlapping_intervals ON memberships")
+    op.execute("DROP FUNCTION reject_overlapping_membership_intervals()")
     op.drop_index(
         "uq_memberships_open_per_person",
         table_name="memberships",
