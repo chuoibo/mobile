@@ -228,5 +228,185 @@ class EnvironmentHandoff(unittest.TestCase):
             self.assertNotIn("127.0.0.1", line)
 
 
+def node(version: str, bin_dir: str | None = None, source: str = "nvm"):
+    return phone_path.NodeCandidate(phone_path.parse_version(version), bin_dir, source)
+
+
+# The range react-native 0.86.3 and metro 0.84.5 actually declare, copied off
+# their installed package.json rather than invented, because the point of these
+# tests is that we read a real one correctly.
+RN_RANGE = "^20.19.4 || ^22.13.0 || ^24.3.0 || >= 25.0.0"
+
+
+class NodeRange(unittest.TestCase):
+    """Whether an interpreter can run Metro.
+
+    The failure being prevented: Node 18 is what Debian and Ubuntu install as
+    `nodejs`, and under it `expo start` prints one "outdated" line and then dies
+    with `configs.toReversed is not a function` -- an error that points at the
+    app instead of at the interpreter, and costs an afternoon.
+    """
+
+    def test_accepts_the_versions_this_machine_has(self):
+        self.assertIs(phone_path.version_satisfies((20, 20, 2), RN_RANGE), True)
+        self.assertIs(phone_path.version_satisfies((22, 23, 2), RN_RANGE), True)
+
+    def test_rejects_the_node_debian_ships(self):
+        self.assertIs(phone_path.version_satisfies((18, 19, 1), RN_RANGE), False)
+
+    def test_caret_does_not_leak_past_its_major(self):
+        """`^20.19.4` must not accept 21.x, and must not accept 20.19.3 either.
+
+        Getting this wrong in the permissive direction is the dangerous one: it
+        reports a green check and then Metro dies anyway.
+        """
+        self.assertIs(phone_path.version_satisfies((21, 0, 0), "^20.19.4"), False)
+        self.assertIs(phone_path.version_satisfies((20, 19, 3), "^20.19.4"), False)
+        self.assertIs(phone_path.version_satisfies((20, 19, 4), "^20.19.4"), True)
+
+    def test_open_ended_alternative_is_honoured(self):
+        self.assertIs(phone_path.version_satisfies((26, 1, 0), RN_RANGE), True)
+
+    def test_and_within_one_alternative(self):
+        self.assertIs(phone_path.version_satisfies((20, 5, 0), ">=20.0.0 <21.0.0"), True)
+        self.assertIs(phone_path.version_satisfies((21, 5, 0), ">=20.0.0 <21.0.0"), False)
+
+    def test_unreadable_range_is_unknown_not_unsupported(self):
+        """A range we cannot parse must not harden into "your Node is wrong".
+
+        npm ranges have shapes this does not model (`x` wildcards, hyphen
+        ranges). Answering False there would block a machine that is fine, and
+        the person would have no way to tell the two apart.
+        """
+        self.assertIsNone(phone_path.version_satisfies((20, 20, 2), "20.x || 22.x"))
+        self.assertIsNone(phone_path.version_satisfies((20, 20, 2), "18.0.0 - 22.0.0"))
+
+    def test_prerelease_style_suffix_still_parses(self):
+        self.assertEqual(phone_path.parse_version("v25.0.0-nightly"), (25, 0, 0))
+        self.assertIsNone(phone_path.parse_version("not a version"))
+
+
+class NodeSelection(unittest.TestCase):
+    """Choosing an interpreter when the one on PATH cannot run Metro."""
+
+    def test_picks_the_newest_that_fits_and_ignores_the_rest(self):
+        chosen = phone_path.choose_node(
+            [node("v18.19.1"), node("v20.20.2"), node("v22.23.2"), node("v19.9.0")],
+            RN_RANGE,
+        )
+        self.assertEqual(chosen.version, (22, 23, 2))
+
+    def test_returns_none_when_nothing_installed_fits(self):
+        self.assertIsNone(phone_path.choose_node([node("v18.19.1"), node("v16.20.2")], RN_RANGE))
+
+    def test_no_substitute_is_looked_for_when_path_node_is_already_fine(self):
+        """A plan that swapped interpreters on a healthy machine would be a bug:
+        it would silently run Metro under a Node the person never chose."""
+        plan = phone_path.NodePlan(RN_RANGE, "react-native", node("v22.23.2", source="PATH"))
+        self.assertIsNone(plan.substitute)
+        self.assertEqual(plan.chosen.version, (22, 23, 2))
+
+    def test_node_plan_itself_leaves_a_working_path_node_alone(self):
+        """The assertion above builds the plan by hand, so it cannot see the
+        guard inside `node_plan` -- and with that guard deleted every test here
+        still passed. This one calls `node_plan` for real.
+
+        What it protects: on a machine whose PATH Node is fine but which also
+        has newer versions installed, an unguarded plan swaps the interpreter
+        anyway. Metro then runs under a Node the developer never selected, and
+        the only trace is one line of output nobody reads twice.
+        """
+        import json
+        import tempfile
+
+        on_path = phone_path.node_on_path()
+        if on_path is None:
+            self.skipTest("không có node trên PATH")
+        # A range the PATH interpreter certainly satisfies.
+        spec = f">={on_path.version[0]}.0.0"
+        if not phone_path.choose_node(phone_path.installed_nodes(), spec):
+            self.skipTest("không có bản cài sẵn nào để nhầm sang — không kiểm được")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = Path(tmp) / "node_modules" / "react-native"
+            pkg.mkdir(parents=True)
+            (pkg / "package.json").write_text(json.dumps({"engines": {"node": spec}}))
+            plan = phone_path.node_plan(Path(tmp))
+
+        self.assertIsNone(
+            plan.substitute,
+            f"đã đổi sang {plan.substitute and plan.substitute.text} dù "
+            f"{on_path.text} trên PATH đã thoả {spec}",
+        )
+        self.assertEqual(plan.chosen.version, on_path.version)
+
+
+class NodeReport(unittest.TestCase):
+    """What `check` says about Node. The wording carries the diagnosis."""
+
+    def test_old_path_node_with_a_way_out_is_a_warning_naming_the_substitute(self):
+        plan = phone_path.NodePlan(
+            RN_RANGE, "react-native", node("v18.19.1", source="PATH"), node("v20.20.2")
+        )
+        finding = phone_path.node_finding(plan)
+        self.assertEqual(finding.status, phone_path.WARN)
+        self.assertIn("v20.20.2", finding.detail)
+
+    def test_old_path_node_with_no_way_out_fails_and_names_the_real_error(self):
+        """`configs.toReversed` is the string a person will paste into a search
+        box. Putting it in the remedy is what connects the two."""
+        plan = phone_path.NodePlan(RN_RANGE, "react-native", node("v18.19.1", source="PATH"))
+        finding = phone_path.node_finding(plan)
+        self.assertEqual(finding.status, phone_path.FAIL)
+        self.assertIn("toReversed", finding.remedy)
+
+    def test_supported_path_node_passes(self):
+        plan = phone_path.NodePlan(RN_RANGE, "react-native", node("v22.23.2", source="PATH"))
+        self.assertEqual(phone_path.node_finding(plan).status, phone_path.OK)
+
+    def test_missing_node_modules_warns_rather_than_blaming_the_version(self):
+        plan = phone_path.NodePlan(None, "", node("v22.23.2", source="PATH"))
+        finding = phone_path.node_finding(plan)
+        self.assertEqual(finding.status, phone_path.WARN)
+        self.assertIn("npm ci", finding.remedy)
+
+
+class NodeRangeFromDisk(unittest.TestCase):
+    """The requirement is read from the installed toolchain, not hardcoded here.
+
+    Hardcoding would keep reporting a green Node check against a range that
+    stopped existing the day someone upgraded React Native.
+    """
+
+    def test_reads_engines_from_react_native(self):
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = Path(tmp) / "node_modules" / "react-native"
+            pkg.mkdir(parents=True)
+            (pkg / "package.json").write_text(json.dumps({"engines": {"node": ">=20.19.4"}}))
+            spec, source = phone_path.node_engine_range(Path(tmp))
+        self.assertEqual((spec, source), (">=20.19.4", "react-native"))
+
+    def test_absent_node_modules_reports_nothing_rather_than_a_guess(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(phone_path.node_engine_range(Path(tmp)), (None, ""))
+
+    def test_the_installed_tree_declares_a_range_we_can_read(self):
+        """Guards the seam between the two halves: a real range off this repo's
+        node_modules must produce a definite verdict, not `unknown`."""
+        spec, source = phone_path.node_engine_range()
+        if spec is None:
+            self.skipTest("apps/mobile/node_modules chưa cài")
+        self.assertIn(source, ("react-native", "metro"))
+        self.assertIsNotNone(
+            phone_path.version_satisfies((20, 20, 2), spec),
+            f"không đọc được dải thật {spec!r} — version_satisfies cần hiểu thêm cú pháp",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

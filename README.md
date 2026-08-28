@@ -48,6 +48,12 @@ Ba lý do app không lên, không cái nào tự nói ra:
 | Quét xong quay mãi rồi hết giờ | WSL2 chặn kết nối từ ngoài vào (`DefaultInboundAction = Block`) | `scripts/phone_path.py open-firewall` — cần quyền Administrator, mở đúng 2 cổng TCP cho riêng subnet Wi-Fi hiện tại |
 | App lên nhưng mọi màn báo lỗi mạng | `BASE_URL` còn là `localhost`, mà trên điện thoại `localhost` là chính nó | dùng `up`, nó tự đặt `EXPO_PUBLIC_API_URL` theo IP LAN |
 | Terminal xanh nhưng không có server | cổng 8081 bận; `expo start` hỏi đổi cổng, trong shell không tương tác nó in `Skipping dev server` rồi **thoát mã 0** | `--metro-port 8082` |
+| Metro chết ngay khi khởi động: `configs.toReversed is not a function` | `node` trên PATH quá cũ (Debian/Ubuntu cài sẵn 18.x; React Native 0.86 cần `^20.19.4 \|\| ^22.13.0 \|\| ^24.3.0 \|\| >= 25`) | không phải lỗi app. `up` tự dùng bản hợp lệ đã cài (nvm/fnm) và in ra nó đã đổi; nếu máy không có bản nào: `nvm install 20` |
+
+Không cần tự nhớ mình đang ở Node nào — `check` đọc dải phiên bản từ chính
+`apps/mobile/node_modules` và nói ra, và `up` chạy Metro dưới bản hợp lệ dù PATH
+của bạn trỏ vào đâu. Việc đổi chỉ áp dụng cho tiến trình `up` sinh ra; `npm`/`npx`
+bạn gõ tay vẫn là bản trên PATH.
 
 Gỡ luật tường lửa khi không cần nữa:
 

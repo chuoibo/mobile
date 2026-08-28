@@ -16,6 +16,11 @@ it is all environment, and every piece of it fails *quietly*:
     inside the VM, while the Hyper-V firewall drops that same connection when it
     arrives from the LAN. Every probe run on this machine passes. The phone still
     times out.
+  * The `node` a developer happens to have on PATH decides whether Metro starts
+    at all. React Native 0.86 wants `^20.19.4 || ^22.13.0 || ^24.3.0 || >= 25`;
+    on the 18.x that ships with Debian/Ubuntu it prints one "outdated" line and
+    then dies inside metro-config with `configs.toReversed is not a function` --
+    which reads like a bug in the app, not like a wrong interpreter.
 
 That last one is why this file exists. It cannot be found by testing from here --
 the loopback path works -- so it is read out of the firewall configuration
@@ -50,6 +55,8 @@ from typing import Sequence
 # adding one.
 WSL_VM_CREATOR_ID = "{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}"
 
+MOBILE_DIR = Path(__file__).resolve().parent.parent / "apps" / "mobile"
+
 DEFAULT_METRO_PORT = 8081
 # Matches the fallback compiled into apps/mobile/src/api.ts. Keeping the two the
 # same means a developer who ignores this script entirely still lands somewhere
@@ -77,6 +84,38 @@ class Interface:
     @property
     def ip(self) -> ipaddress.IPv4Address:
         return ipaddress.ip_address(self.address)
+
+
+@dataclass
+class NodeCandidate:
+    """One Node interpreter this machine can run. `bin_dir` is None for PATH."""
+
+    version: tuple[int, int, int]
+    bin_dir: str | None
+    source: str
+
+    @property
+    def text(self) -> str:
+        return "v" + ".".join(str(n) for n in self.version)
+
+
+@dataclass
+class NodePlan:
+    """Which interpreter `up` will run Metro under, and why.
+
+    `substitute` is set only when the interpreter on PATH cannot run Metro and
+    another installed one can. Keeping the decision in one object means `check`
+    and `up` cannot describe it differently.
+    """
+
+    spec: str | None
+    spec_source: str
+    on_path: NodeCandidate | None
+    substitute: NodeCandidate | None = None
+
+    @property
+    def chosen(self) -> NodeCandidate | None:
+        return self.substitute or self.on_path
 
 
 @dataclass
@@ -157,6 +196,84 @@ def parse_default_iface(output: str) -> str | None:
     return match.group(1) if match else None
 
 
+_VERSION_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)")
+
+
+def parse_version(text: str) -> tuple[int, int, int] | None:
+    """Parse `v20.19.4` or `20.19.4`. None when it is not a version at all."""
+    match = _VERSION_RE.match(text.strip())
+    return (int(match.group(1)), int(match.group(2)), int(match.group(3))) if match else None
+
+
+def _comparator(version: tuple[int, int, int], part: str) -> bool | None:
+    """Evaluate one comparator such as `^20.19.4` or `>=24.3.0`.
+
+    None means "this syntax is not modelled here" -- see version_satisfies for
+    why that is deliberately not the same answer as False.
+    """
+    part = part.strip()
+    if not part:
+        return True
+    for op in (">=", "<=", ">", "<", "=", "^", "~"):
+        if not part.startswith(op):
+            continue
+        target = parse_version(part[len(op) :])
+        if target is None:
+            return None
+        if op == ">=":
+            return version >= target
+        if op == "<=":
+            return version <= target
+        if op == ">":
+            return version > target
+        if op == "<":
+            return version < target
+        if op == "=":
+            return version == target
+        if op == "~":
+            return target <= version < (target[0], target[1] + 1, 0)
+        # `^`: up to the next non-zero left-most component.
+        if target[0]:
+            upper = (target[0] + 1, 0, 0)
+        elif target[1]:
+            upper = (0, target[1] + 1, 0)
+        else:
+            upper = (0, 0, target[2] + 1)
+        return target <= version < upper
+    target = parse_version(part)
+    return None if target is None else version == target
+
+
+def version_satisfies(version: tuple[int, int, int], spec: str) -> bool | None:
+    """Does `version` satisfy an npm `engines.node` range?
+
+    Handles the shapes npm actually writes: `||` between alternatives, spaces
+    for AND inside one alternative. Returns None -- not False -- when a range
+    uses syntax this does not model. A range we cannot read must never harden
+    into "your Node is wrong" on a machine where it is fine; unknown is its own
+    answer and is reported as such.
+    """
+    unknown = False
+    for clause in spec.split("||"):
+        # `>= 20.19.4` and `>=20.19.4` are the same range; glue the operator to
+        # its version before splitting on whitespace for the AND parts.
+        clause = re.sub(r"([<>=~^]+)\s+", r"\1", clause).strip()
+        if not clause:
+            continue
+        results = [_comparator(version, part) for part in clause.split()]
+        if any(result is None for result in results):
+            unknown = True
+        elif all(results):
+            return True
+    return None if unknown else False
+
+
+def choose_node(candidates: Sequence[NodeCandidate], spec: str) -> NodeCandidate | None:
+    """The newest installed interpreter that satisfies `spec`, or None."""
+    fit = [c for c in candidates if version_satisfies(c.version, spec) is True]
+    return max(fit, key=lambda c: c.version) if fit else None
+
+
 def ports_allowed_by(rules: Sequence[dict], ports: Sequence[int]) -> set[int]:
     """Which of `ports` an inbound-allow rule already covers.
 
@@ -228,6 +345,67 @@ def http_status(url: str, timeout: float = 4.0) -> int | str:
         return f"không tới được ({exc.__class__.__name__})"
 
 
+def node_engine_range(mobile: Path = MOBILE_DIR) -> tuple[str | None, str]:
+    """The Node range the *installed* toolchain declares, and which package said it.
+
+    Read out of node_modules instead of being written down here. The requirement
+    moves when the app upgrades React Native, and a constant in this file would
+    go stale while still looking authoritative -- reporting "your Node is fine"
+    against a range that no longer exists.
+    """
+    for package in ("react-native", "metro"):
+        try:
+            data = json.loads((mobile / "node_modules" / package / "package.json").read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        spec = (data.get("engines") or {}).get("node")
+        if spec:
+            return str(spec), package
+    return None, ""
+
+
+def node_on_path() -> NodeCandidate | None:
+    if not shutil.which("node"):
+        return None
+    code, output = run(["node", "--version"], timeout=10)
+    version = parse_version(output) if code == 0 else None
+    return NodeCandidate(version, None, "PATH") if version else None
+
+
+def installed_nodes() -> list[NodeCandidate]:
+    """Interpreters a version manager has on disk but has not put on PATH.
+
+    These are the way out when PATH points at a Node too old to run Metro: the
+    person already has a usable one, it is just not selected.
+    """
+    found: list[NodeCandidate] = []
+    roots = (
+        (Path.home() / ".nvm" / "versions" / "node", "bin", "nvm"),
+        (Path.home() / ".fnm" / "node-versions", "installation/bin", "fnm"),
+    )
+    for root, suffix, source in roots:
+        try:
+            entries = sorted(root.iterdir())
+        except OSError:
+            continue
+        for entry in entries:
+            version = parse_version(entry.name)
+            bin_dir = entry / suffix
+            if version and (bin_dir / "node").exists():
+                found.append(NodeCandidate(version, str(bin_dir), source))
+    return found
+
+
+def node_plan(mobile: Path = MOBILE_DIR) -> NodePlan:
+    """Decide once which interpreter runs Metro, so check and up agree."""
+    spec, spec_source = node_engine_range(mobile)
+    plan = NodePlan(spec=spec, spec_source=spec_source, on_path=node_on_path())
+    if not spec or (plan.on_path and version_satisfies(plan.on_path.version, spec) is not False):
+        return plan
+    plan.substitute = choose_node(installed_nodes(), spec)
+    return plan
+
+
 def hyperv_inbound(ports: Sequence[int]) -> dict | None:
     """Read the WSL VM's inbound firewall posture from Windows.
 
@@ -291,8 +469,57 @@ def open_firewall_command(address: str, ports: Sequence[int]) -> str:
     )
 
 
+def node_finding(plan: NodePlan) -> Finding:
+    """Report which Node runs Metro, before the run rather than after it fails."""
+    if plan.spec is None:
+        return Finding(
+            "Node cho Expo",
+            WARN,
+            "chưa đọc được yêu cầu (apps/mobile/node_modules trống?)",
+            "Chạy `npm ci` trong apps/mobile. Chưa cài thì `expo start` cũng "
+            "chưa chạy được, và lý do sẽ không phải phiên bản Node.",
+        )
+    required = f"{plan.spec} (theo {plan.spec_source})"
+    if plan.on_path is None:
+        return Finding(
+            "Node cho Expo",
+            FAIL,
+            f"không có `node` trên PATH; cần {required}",
+            "Cài Node LTS: https://nodejs.org — hoặc `nvm install 20`.",
+        )
+    verdict = version_satisfies(plan.on_path.version, plan.spec)
+    if verdict is True:
+        return Finding("Node cho Expo", OK, f"{plan.on_path.text} hợp lệ; cần {required}")
+    if verdict is None:
+        return Finding(
+            "Node cho Expo",
+            WARN,
+            f"{plan.on_path.text}; không đọc được dải {required}",
+            "Không đọc được nghĩa là CHƯA BIẾT. Nếu Metro chết ngay khi khởi "
+            "động, phiên bản Node là chỗ đáng nghi đầu tiên.",
+        )
+    if plan.substitute:
+        # Not a FAIL: the run is going to work, because `up` swaps the
+        # interpreter for the child process. Say so, and say what it swapped to.
+        return Finding(
+            "Node cho Expo",
+            WARN,
+            f"PATH đang là {plan.on_path.text}, quá cũ; `up` sẽ dùng "
+            f"{plan.substitute.text} ({plan.substitute.source})",
+            f"Chỉ áp dụng cho tiến trình `up` chạy ra. Lệnh npm/npx bạn gõ tay "
+            f"vẫn là {plan.on_path.text}; cần {required}.",
+        )
+    return Finding(
+        "Node cho Expo",
+        FAIL,
+        f"{plan.on_path.text} quá cũ, và máy không có bản nào khác; cần {required}",
+        "Metro sẽ chết bằng `configs.toReversed is not a function` — đó là Node "
+        "cũ, không phải lỗi app. Cài bản mới: `nvm install 20 && nvm use 20`.",
+    )
+
+
 def gather(metro_port: int, api_port: int) -> tuple[list[Finding], Interface | None]:
-    findings: list[Finding] = []
+    findings: list[Finding] = [node_finding(node_plan())]
 
     _, addr_out = run(["ip", "-4", "-o", "addr", "show"])
     _, route_out = run(["ip", "route", "show", "default"])
@@ -456,11 +683,24 @@ def cmd_up(args: argparse.Namespace) -> int:
         key, _, value = line[len("export ") :].partition("=")
         env[key] = value
 
+    # Pin the interpreter for the child process. Which `node` is on PATH is an
+    # accident of how each person set their machine up, and on the 18.x Debian
+    # ships it decides whether Metro starts at all -- so the path to a phone
+    # must not inherit that accident. Announced, never silent: the swap applies
+    # to this process only, and anyone debugging needs to know it happened.
+    plan = node_plan()
+    if plan.substitute:
+        env["PATH"] = plan.substitute.bin_dir + os.pathsep + env.get("PATH", "")
+        print(
+            f"  Node: dùng {plan.substitute.text} ({plan.substitute.source}) thay cho "
+            f"{plan.on_path.text} trên PATH — Expo cần {plan.spec}"
+        )
+
     print(f"  QR sẽ trỏ tới  exp://{address}:{args.metro_port}")
     print(f"  App sẽ gọi API http://{address}:{args.api_port}")
     print("  Mở Expo Go trên điện thoại (cùng Wi-Fi) và quét mã.\n")
 
-    mobile = Path(__file__).resolve().parent.parent / "apps" / "mobile"
+    mobile = MOBILE_DIR
     # --lan rather than the default: the default is --lan already, but stating it
     # means a stray EXPO_TUNNEL/offline setting in someone's shell cannot quietly
     # switch the transport out from under the address just verified.
