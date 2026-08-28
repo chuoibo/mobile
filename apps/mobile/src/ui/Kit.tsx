@@ -8,8 +8,17 @@ import React from "react";
 import { Pressable, Text, TextInput, View, ViewStyle } from "react-native";
 import { Palette, radius, space, type, usePalette } from "../theme";
 
-export function Screen({ title, hint, children, footer }: {
+export function Screen({ title, hint, children, footer, gap = space.md }: {
   title: string; hint?: string; children: React.ReactNode; footer?: React.ReactNode;
+  /** Distance between top-level blocks in the body.
+   *
+   * `space.md` is also the page gutter and the padding inside a `Card`, so a
+   * screen whose blocks are separate sections rather than one continuous list
+   * reads as flat: the step between two sections is the same as the step
+   * inside one card, and the eye cannot find where a section starts. Those
+   * screens pass `space.lg`. Defaulted so every screen that was tuned against
+   * the old value renders byte-identically. */
+  gap?: number;
 }) {
   const c = usePalette();
   return (
@@ -21,7 +30,7 @@ export function Screen({ title, hint, children, footer }: {
         <Text style={{ ...type.h1, color: c.ink }}>{title}</Text>
         {hint ? <Text style={{ ...type.label, color: c.inkSoft }}>{hint}</Text> : null}
       </View>
-      <View style={{ flex: 1, gap: space.md }}>{children}</View>
+      <View style={{ flex: 1, gap }}>{children}</View>
       {footer ? <View style={{ gap: space.sm }}>{footer}</View> : null}
     </View>
   );

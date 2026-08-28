@@ -47,6 +47,10 @@ export function ChiaSe({ envelopes, onDone }: { envelopes: Envelope[]; onDone: (
     <Screen
       title="Chia sẻ"
       hint="Mỗi người một link riêng. Gửi riêng cho từng người."
+      // The caveat and the list of people are two sections, not two items in
+      // one list. At the default step they sat exactly as far apart as the
+      // padding inside either of them, so the list had no visible beginning.
+      gap={space.lg}
       footer={
         <>
           {problem ? (
@@ -76,15 +80,20 @@ export function ChiaSe({ envelopes, onDone }: { envelopes: Envelope[]; onDone: (
               <Text style={{ ...type.body, color: c.ink }}>{e.senderName}</Text>
               <Text style={{ ...type.amountSmall, color: c.ink }}>{formatVnd(e.amountVnd)}đ</Text>
             </View>
-            <Button
-              label={shared[e.senderId] ? `Gửi lại cho ${e.senderName}` : `Gửi cho ${e.senderName}`}
-              tone={shared[e.senderId] ? "quiet" : "ghost"}
-              onPress={() => shareOne(e)}
-            />
-            {/* Section 8.5 has no "delivered" state, only observable moments. */}
-            <Text style={{ ...type.label, color: e.opened ? c.accent : c.inkSoft }}>
-              {e.opened ? "Đã mở link" : shared[e.senderId] ? "Đã mở khay chia sẻ, chưa rõ đã mở link chưa" : "Chưa chia sẻ"}
-            </Text>
+            {/* The button and the line under it are one unit: an action and
+                what is known about it. Spaced like siblings of the name row,
+                the status read as a third, unrelated fact about the person. */}
+            <View style={{ gap: space.xs }}>
+              <Button
+                label={shared[e.senderId] ? `Gửi lại cho ${e.senderName}` : `Gửi cho ${e.senderName}`}
+                tone={shared[e.senderId] ? "quiet" : "ghost"}
+                onPress={() => shareOne(e)}
+              />
+              {/* Section 8.5 has no "delivered" state, only observable moments. */}
+              <Text style={{ ...type.label, color: e.opened ? c.accent : c.inkSoft }}>
+                {e.opened ? "Đã mở link" : shared[e.senderId] ? "Đã mở khay chia sẻ, chưa rõ đã mở link chưa" : "Chưa chia sẻ"}
+              </Text>
+            </View>
           </View>
         ))}
       </ScrollView>

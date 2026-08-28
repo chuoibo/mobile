@@ -277,6 +277,11 @@ dist-test/
 # history for a test that runs in five seconds.
 .expo-build-check/
 
+# Output of `apps/mobile/tools/screen-snapshots.mjs`. Sáu file HTML dựng lại từ
+# một lần chạy trình duyệt, để detector quét — bằng chứng của một lần chạy chứ
+# không phải nguồn, và dựng lại được bất cứ lúc nào bằng một lệnh.
+.screen-snapshots/
+
 # Impeccable: ảnh chụp để review, là bằng chứng của một lần chạy chứ không phải
 # nguồn. Repo guard fail closed với binary nên chúng không được vào Git.
 .impeccable/review/
