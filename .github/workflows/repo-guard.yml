@@ -35,11 +35,33 @@ jobs:
           python3 scripts/repo_guard.py range
           "$REPO_GUARD_BASE_SHA" "$REPO_GUARD_HEAD_SHA"
 
+      # Pushing a brand-new branch reports an all-zero "before", and passing
+      # that to `range` walks the ENTIRE history -- including commits that are
+      # already on main, already reviewed, and can never be changed now. Every
+      # new branch therefore failed on the same pre-existing findings, which
+      # made this step a gate nobody could pass and everybody learned to skip.
+      # Compare against the merge base instead: the commits this branch adds.
       - name: Scan every commit introduced by the push
         if: github.event_name == 'push'
         env:
           REPO_GUARD_BASE_SHA: ${{ github.event.before }}
           REPO_GUARD_HEAD_SHA: ${{ github.sha }}
-        run: >-
-          python3 scripts/repo_guard.py range
-          "$REPO_GUARD_BASE_SHA" "$REPO_GUARD_HEAD_SHA"
+        run: |
+          set -euo pipefail
+          base="$REPO_GUARD_BASE_SHA"
+          # "All zeros" without writing forty zeros: the guard rightly reads a
+          # 40-digit literal as a long number, and stripping the zeros is a
+          # clearer test anyway -- it also catches an empty value.
+          if [ -z "${base//0/}" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            git fetch --no-tags --quiet origin main:refs/remotes/origin/main || true
+            base="$(git merge-base refs/remotes/origin/main "$REPO_GUARD_HEAD_SHA" || true)"
+          fi
+          if [ -z "$base" ]; then
+            # No shared ancestor to compare against -- the first push of an
+            # unrelated history. Fall back to the tree, never to skipping.
+            echo "::notice::no merge base, scanning the tree instead"
+            python3 scripts/repo_guard.py tree "$REPO_GUARD_HEAD_SHA"
+          else
+            echo "scanning $base..$REPO_GUARD_HEAD_SHA"
+            python3 scripts/repo_guard.py range "$base" "$REPO_GUARD_HEAD_SHA"
+          fi
