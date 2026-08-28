@@ -32,14 +32,25 @@ import type { Envelope } from "./screens/ChiaSe";
 import type { Draft, Participant } from "./screens/NhapKhoanChi";
 
 /** Where the API lives. Overridable so a phone can reach a laptop. */
-// Read through a guard rather than `process.env` directly: this module is
-// compiled for the node test runner as well as for Metro, and `process` does
-// not exist in every target. Expo inlines `EXPO_PUBLIC_*` at build time.
-declare const process: { env?: Record<string, string | undefined> } | undefined;
+// Written as a plain `process.env.EXPO_PUBLIC_API_URL` on purpose, and it has
+// to stay that way. Expo substitutes this at build time by pattern-matching
+// the syntax tree, and its guard
+// (babel-preset-expo/build/plugins/inline-env-vars.js) accepts the read only
+// when the object being read from is a plain member expression. A defensive
+// `process?.env?.EXPO_PUBLIC_API_URL` does not match: `process?.env` is an
+// OptionalMemberExpression, the guard returns false, and the whole expression
+// survives into the bundle unreplaced -- so every build fell through to the
+// default below and the phone was pinned to the laptop's own localhost.
+//
+// The guard that used to wrap this was protecting against a target where
+// `process` is undefined. There is no such target here. Metro replaces this
+// read before the browser ever sees it (with the literal in a production
+// build, with an import from `expo/virtual/env` in development), and the node
+// test runner has `process` as a global. The guard bought nothing and cost the
+// substitution. `tests/env-inlining.test.mjs` fails if the syntax drifts back.
+declare const process: { env: Record<string, string | undefined> };
 
-export const BASE_URL =
-  (typeof process !== "undefined" ? process?.env?.EXPO_PUBLIC_API_URL : undefined) ??
-  "http://localhost:8099";
+export const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8099";
 
 /**
  * The group this app acts inside.
