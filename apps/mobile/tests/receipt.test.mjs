@@ -229,13 +229,11 @@ test("câu chữ hiện ra màn hình không dùng em-dash", () => {
 
 /* The direction contract.
  *
- * Impeccable wants this in emitted markup so a reviewer can audit the build
- * against what it promised. An Expo app emits no HTML of its own -- the web
- * export generates its shell from a template and ignores a `public/index.html`
- * (tried, and the comment did not survive the build), while the native build
- * has no markup at all. So the contract lives in source, and this is what
- * makes it auditable instead of decorative: a block that goes missing fails a
- * test rather than quietly ceasing to describe anything.
+ * The web build emits it into `dist/index.html` through `public/index.html`,
+ * which is where a reviewer of the artifact reads it. The native build emits no
+ * HTML at all, so this source copy is the one the screens are written against,
+ * and this test is what keeps it from quietly ceasing to describe anything: a
+ * block that goes missing fails rather than just stops being true.
  */
 import { DIRECTION_CONTRACT } from "../dist-test/ui/direction.js";
 
