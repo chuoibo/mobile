@@ -222,12 +222,22 @@ class ReceiptItem(ApiModel):
 
 
 class ReceiptScanResponse(ApiModel):
+    """What a scan is allowed to tell the client.
+
+    No ``confidence``. ADR-0009 decision 4 refuses a confidence score on the
+    grounds that a percentage invites an interface to auto-accept above a
+    threshold, and rd-qa-03 measured the reason live: the number tracked how
+    legible the print was, not whether the money was right, so a menu scored
+    95-100 and a reading that got four lines wrong scored 70-75. The signal the
+    client is meant to branch on is ``needs_review``; the rest is words a person
+    reads. The number still exists server-side, where it gates.
+    """
+
     items: list[ReceiptItem]
     items_total_vnd: MoneyVnd
     total_vnd: MoneyVnd | None = None
     totals_agree: StrictBool | None = None
     total_difference_vnd: MoneyVnd | None = None
-    confidence: Annotated[int, Field(strict=True, ge=0, le=100)]
     needs_review: StrictBool
     warnings: list[StrictStr] = Field(default_factory=list)
 

@@ -207,5 +207,101 @@ class TheGateDoesNotTouchTheMoney(unittest.TestCase):
         self.assertIs(result["needs_review"], True)
 
 
+class TheMismatchWarningSaysWhoMightBeWrong(unittest.TestCase):
+    """Two different failures were arriving as one identical sentence.
+
+    rd-qa-03 at Gaussian blur r=8: the model read the PRINTED total correctly
+    and got four of eight item lines wrong, one of them by 40.000 dong. The
+    item sum therefore disagreed with the printed total -- and the warning it
+    produced was word-for-word the warning a perfectly good reading produces
+    when the paper itself does not add up (the rd-qa-03 mockup bill does not).
+
+    So the person is told "the total is off by X" in both cases, when the two
+    cases need opposite actions: trust the reading and query the restaurant, or
+    distrust the reading and check every line against the paper.
+
+    Confidence cannot say which numbers are wrong, but it can say whether the
+    reading was clear enough for the difference to be worth believing. That is
+    the distinction these cases pin. Neither warning is allowed to change a
+    single dong -- law 2 is asserted alongside.
+    """
+
+    MISREAD_HINT = "đọc sai"
+
+    def _mismatch_warning(self, confidence: float) -> str:
+        result = read_receipt(raw(total_text="400.000", confidence=confidence))
+        self.assertIs(result["totals_agree"], False)
+        matching = [w for w in result["warnings"] if "chênh" in w]
+        self.assertEqual(len(matching), 1, f"expected one mismatch line: {result}")
+        return matching[0]
+
+    def test_an_uncertain_reading_admits_the_gap_may_be_a_misreading(self):
+        """The r=8 case: right total, wrong lines, difference is ours."""
+        self.assertIn(self.MISREAD_HINT, self._mismatch_warning(0.75))
+
+    def test_a_clear_reading_does_not_blame_itself(self):
+        """Above the review bar the difference is most likely on the paper."""
+        self.assertNotIn(self.MISREAD_HINT, self._mismatch_warning(0.98))
+
+    def test_the_two_cases_do_not_produce_the_same_sentence(self):
+        """The whole finding: one sentence for two opposite situations."""
+        self.assertNotEqual(
+            self._mismatch_warning(0.75), self._mismatch_warning(0.98)
+        )
+
+    def test_both_wordings_still_state_the_exact_difference(self):
+        """Softening the claim may not soften the number."""
+        for confidence in (0.75, 0.98):
+            with self.subTest(confidence=confidence):
+                self.assertIn("+32000", self._mismatch_warning(confidence))
+
+    def test_the_amounts_are_identical_in_both_cases(self):
+        uncertain = read_receipt(raw(total_text="400.000", confidence=0.75))
+        clear = read_receipt(raw(total_text="400.000", confidence=0.98))
+        for field in ("items", "items_total_vnd", "total_vnd", "total_difference_vnd"):
+            with self.subTest(field=field):
+                self.assertEqual(uncertain[field], clear[field])
+
+    def test_a_disagreeing_total_asks_for_review_even_at_full_confidence(self):
+        """Found by running the live probe, not by reading the code.
+
+        The rd-qa-03 mockup bill came back from the real model at confidence
+        0.98: eight lines summing to 974.000 against 1.125.000 printed at the
+        bottom. The warning fired -- and ``needs_review`` was False, because it
+        only ever looked at confidence and at whether a total was present.
+
+        ``needs_review`` is the one field the app branches on to demand
+        per-item confirmation. A warning the app has no reason to show is the
+        same silent failure rd-qa-03 reported, one layer up: 151.000 dong
+        unaccounted for, and nothing asking anybody to look.
+        """
+        result = read_receipt(raw(total_text="400.000", confidence=0.98))
+
+        self.assertIs(result["totals_agree"], False)
+        self.assertIs(result["needs_review"], True)
+
+    def test_no_warning_may_ship_without_the_flag_that_surfaces_it(self):
+        """The general rule behind the case above."""
+        readings = (
+            raw(confidence=0.98),
+            raw(confidence=0.75),
+            raw(total_text=None, confidence=0.98),
+            raw(total_text="400.000", confidence=0.98),
+            raw(total_text="400.000", confidence=0.75),
+        )
+        for reading in readings:
+            with self.subTest(reading=reading["total_text"]):
+                result = read_receipt(reading)
+                if result["warnings"]:
+                    self.assertIs(result["needs_review"], True)
+
+    def test_agreeing_totals_produce_no_mismatch_warning_at_either_level(self):
+        for confidence in (0.75, 0.98):
+            with self.subTest(confidence=confidence):
+                result = read_receipt(raw(confidence=confidence))
+                self.assertIs(result["totals_agree"], True)
+                self.assertFalse([w for w in result["warnings"] if "chênh" in w])
+
+
 if __name__ == "__main__":
     unittest.main()

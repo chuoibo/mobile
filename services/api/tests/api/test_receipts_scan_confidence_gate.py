@@ -30,6 +30,7 @@ HEADERS = {"X-Actor-ID": str(ADVANCER_ID)}
 
 def reading(confidence: float, total_text: str | None = "368.000") -> dict:
     return {
+        "document_type": "receipt",
         "items": [
             {"name": "Sườn nướng Mỹ", "quantity_text": "1", "line_total_text": "219.000"},
             {"name": "Ba chỉ heo", "quantity_text": "1", "line_total_text": "149.000"},
@@ -91,6 +92,7 @@ class TestABlurryPhotoIsRefused:
     def test_a_self_agreeing_fabrication_is_still_refused(self, client_for):
         """Totals agree and nothing warns; only confidence gives it away."""
         fabricated = {
+            "document_type": "receipt",
             "items": [
                 {"name": "Món 1", "quantity_text": "1", "line_total_text": "330.000"},
                 {"name": "Món 2", "quantity_text": "1", "line_total_text": "330.000"},

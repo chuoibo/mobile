@@ -15,14 +15,25 @@ from .contract import MAX_AMOUNT_VND
 __all__ = [
     "CONFIDENCE_FLOOR",
     "CONFIDENCE_REVIEW",
+    "DOCUMENT_TYPE_OTHER",
+    "DOCUMENT_TYPE_PRICE_LIST",
+    "DOCUMENT_TYPE_RECEIPT",
     "ReceiptError",
     "normalize_vnd",
     "read_receipt",
+    "read_scanned_document",
 ]
 
 
 CONFIDENCE_FLOOR = 50
 CONFIDENCE_REVIEW = 90
+
+# What the reader is asked to decide before it transcribes anything. Only the
+# first value is admissible; the other two exist so the reader has somewhere to
+# put a photograph that is not a bill, instead of being forced to describe one.
+DOCUMENT_TYPE_RECEIPT = "receipt"
+DOCUMENT_TYPE_PRICE_LIST = "price_list"
+DOCUMENT_TYPE_OTHER = "other"
 
 
 _CURRENCY_MARKER = r"(?:VND|VNĐ|đ|₫|d)"
@@ -160,6 +171,43 @@ def _read_confidence(raw: dict) -> int:
     return int(confidence * 100)
 
 
+def read_scanned_document(raw: dict) -> dict:
+    """Admit only a legible receipt, then normalize it.
+
+    Kept separate from ``read_receipt`` because the two answer different
+    questions. This one asks whether the photograph may be turned into money at
+    all; ``read_receipt`` asks what the transcribed strings mean. Splitting them
+    also leaves the normalizer callable on its own, which the rd-qa-03
+    regression file does.
+
+    The order of the two refusals is the whole design. Legibility first: under
+    ``CONFIDENCE_FLOOR`` the document type is exactly as untrustworthy as the
+    amounts, and a real bill photographed too badly to read comes back labelled
+    "other" because the model could not see it either. "Chụp lại" is the true
+    instruction there; "this is not a receipt" would send that person looking
+    for a different piece of paper.
+
+    Then the type, fail-closed: only the exact string ``receipt`` opens the
+    gate. A reading with no ``document_type``, or one this module does not
+    recognise, is refused -- a backend that did not answer the question has
+    established nothing, and the default it would fall back to is the very
+    assumption that produced 340.000 dong from a menu.
+    """
+
+    if not isinstance(raw, dict):
+        raise ReceiptError("INVALID_RECEIPT")
+
+    if _read_confidence(raw) < CONFIDENCE_FLOOR:
+        raise ReceiptError("RECEIPT_TOO_BLURRY")
+
+    document_type = raw.get("document_type")
+    if document_type == DOCUMENT_TYPE_RECEIPT:
+        return read_receipt(raw)
+    if document_type == DOCUMENT_TYPE_PRICE_LIST:
+        raise ReceiptError("NOT_A_RECEIPT_PRICE_LIST")
+    raise ReceiptError("NOT_A_RECEIPT")
+
+
 def read_receipt(raw: dict) -> dict:
     """Normalize one raw reading without reconciling independent amounts."""
 
@@ -230,11 +278,27 @@ def read_receipt(raw: dict) -> dict:
         total_difference_vnd = total_vnd - items_total_vnd
         totals_agree = total_difference_vnd == 0
         if not totals_agree:
-            warnings.append(
-                "Tổng in trên bill chênh "
-                f"{total_difference_vnd:+d} đồng so với tổng các dòng; "
-                "giữ nguyên cả hai số."
-            )
+            # Two different failures used to arrive as one identical sentence.
+            # A bill that does not add up and a reading that misread four lines
+            # both produce a difference, but they need opposite actions: query
+            # the restaurant, or re-check every line against the paper. The
+            # amount is stated identically either way; only the attribution
+            # changes, because confidence can say whether the reading was clear
+            # enough for the difference to be worth believing.
+            if confidence < CONFIDENCE_REVIEW:
+                warnings.append(
+                    "Tổng in trên bill chênh "
+                    f"{total_difference_vnd:+d} đồng so với tổng các dòng, "
+                    "nhưng ảnh chưa đủ rõ nên chênh lệch này có thể do đọc sai "
+                    "dòng chứ không phải do bill; đối chiếu từng dòng với tờ "
+                    "giấy trước khi xác nhận."
+                )
+            else:
+                warnings.append(
+                    "Tổng in trên bill chênh "
+                    f"{total_difference_vnd:+d} đồng so với tổng các dòng; "
+                    "giữ nguyên cả hai số."
+                )
 
     return {
         "items": items,
@@ -243,6 +307,13 @@ def read_receipt(raw: dict) -> dict:
         "totals_agree": totals_agree,
         "total_difference_vnd": total_difference_vnd,
         "confidence": confidence,
-        "needs_review": confidence < CONFIDENCE_REVIEW or total_vnd is None,
+        # Derived from the warnings rather than listed alongside them. This is
+        # the only field the app branches on to demand per-item confirmation,
+        # so a warning that ships without it is a warning nothing surfaces --
+        # which is the rd-qa-03 complaint one layer up. Found live: the mockup
+        # bill read at confidence 0.98 with 151.000 dong unaccounted for
+        # between the lines and the printed total, warned about it, and asked
+        # nobody to look.
+        "needs_review": bool(warnings),
         "warnings": warnings,
     }

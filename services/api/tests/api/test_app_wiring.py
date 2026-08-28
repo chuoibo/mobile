@@ -80,6 +80,7 @@ class StubReader:
         del image, mime_type
         self.calls += 1
         return {
+            "document_type": "receipt",
             "items": [
                 {"name": "Pepsi", "quantity_text": "2", "line_total_text": "28.000"}
             ],

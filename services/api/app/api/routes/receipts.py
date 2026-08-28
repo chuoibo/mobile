@@ -18,6 +18,18 @@ _UNSUPPORTED_IMAGE_DETAIL = "Định dạng ảnh không được hỗ trợ."
 _IMAGE_TOO_LARGE_DETAIL = "Ảnh bill vượt quá giới hạn 8 MB."
 _RECEIPT_UNREADABLE_DETAIL = "Không đọc được bill. Vui lòng kiểm tra ảnh và thử lại."
 _RECEIPT_TOO_BLURRY_DETAIL = "Ảnh bill quá mờ. Vui lòng chụp lại ảnh rõ hơn."
+# One wire code, two sentences. The app branches once; the person gets told
+# which mistake they actually made. The price-list wording exists because that
+# is the mistake a real table produces: the menu lies next to the bill.
+_PRICE_LIST_DETAIL = (
+    "Đây là thực đơn hoặc bảng giá, không phải hoá đơn. Bảng giá chỉ nói món "
+    "bao nhiêu tiền, không nói ai đã gọi gì, nên không chia tiền được. "
+    "Hãy chụp tờ bill có dòng tổng tiền."
+)
+_NOT_A_RECEIPT_DETAIL = (
+    "Ảnh này không phải hoá đơn. Hãy chụp tờ bill có danh sách món và dòng "
+    "tổng tiền."
+)
 _READER_UNAVAILABLE_DETAIL = "Không đọc được bill lúc này, thử lại sau."
 
 
@@ -62,6 +74,14 @@ def scan_receipt(
                 422,
                 "receipt_too_blurry",
                 _RECEIPT_TOO_BLURRY_DETAIL,
+            ) from None
+        if exc.code in {"NOT_A_RECEIPT", "NOT_A_RECEIPT_PRICE_LIST"}:
+            raise ApiProblem(
+                422,
+                "not_a_receipt",
+                _PRICE_LIST_DETAIL
+                if exc.code == "NOT_A_RECEIPT_PRICE_LIST"
+                else _NOT_A_RECEIPT_DETAIL,
             ) from None
         raise ApiProblem(
             422,

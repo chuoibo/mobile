@@ -34,6 +34,7 @@ HEADERS = {"X-Actor-ID": str(ADVANCER_ID)}
 # the bottom. It is used here because a reading whose numbers already agree
 # cannot fail the test that matters.
 MOCKUP_READING = {
+    "document_type": "receipt",
     "items": [
         {"name": "Sườn nướng Mỹ", "quantity_text": "1", "line_total_text": "219.000"},
         {"name": "Ba chỉ heo", "quantity_text": "1", "line_total_text": "149.000"},
@@ -93,7 +94,11 @@ def scan(client, *, content=PNG, filename="bill.png", content_type="image/png", 
 
 
 class TestScanShape:
-    """The schema the task names: items[], total_vnd, confidence."""
+    """The schema the task names: items[], total_vnd, and a review flag.
+
+    ``confidence`` was on this list until rd-qa-03 measured what the number
+    actually tracked. It is now server-side only; see the case below.
+    """
 
     def test_ok(self, scan_client):
         assert scan(scan_client).status_code == 200
@@ -114,8 +119,22 @@ class TestScanShape:
     def test_printed_total_is_reported(self, scan_client):
         assert scan(scan_client).json()["total_vnd"] == 1125000
 
-    def test_confidence_is_reported(self, scan_client):
-        assert scan(scan_client).json()["confidence"] == 92
+    def test_confidence_is_not_reported(self, scan_client):
+        """ADR-0009 decision 4: no confidence score reaches the client.
+
+        This case used to assert the opposite. It was written when confidence
+        looked like a quality measure. rd-qa-03 then read a menu at 95-100 and
+        misread four lines of a real bill at 70-75, which is the same finding
+        ADR-0009 predicted: a percentage invites "accept anything above 90",
+        and the percentage does not measure the thing that rule assumes. The
+        number still gates server-side; ``needs_review`` is what ships.
+        """
+        body = scan(scan_client).json()
+        assert "confidence" not in body
+        # The replacement signal is a flag, not a number. It is True here
+        # because this reading's lines do not add up to its printed total, not
+        # because of anything about legibility.
+        assert body["needs_review"] is True
 
     def test_money_crosses_the_wire_as_json_integers(self, scan_client):
         body = scan(scan_client).json()
@@ -240,7 +259,7 @@ class TestBackendFailure:
         # Drop it below the floor and the blur gate answers first, which is a
         # different path with a different code.
         app.dependency_overrides[get_receipt_reader] = lambda: FakeReader(
-            reading={"items": [], "confidence": 0.92}
+            reading={"document_type": "receipt", "items": [], "confidence": 0.92}
         )
         response = scan(ASGITestClient(app))
         assert response.status_code == 422
