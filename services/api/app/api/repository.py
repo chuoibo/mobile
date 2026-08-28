@@ -306,6 +306,21 @@ class ApiRepository(Protocol):
         self, recipient_ids: frozenset[uuid.UUID]
     ) -> dict[uuid.UUID, BankRecipientRecord]: ...
 
+    def get_active_bank_recipient(
+        self, recipient_id: uuid.UUID
+    ) -> BankRecipientRecord | None: ...
+
+    def save_bank_recipient(
+        self,
+        *,
+        recipient_id: uuid.UUID,
+        bank_bin: str,
+        account_number: str,
+        account_name: str | None,
+        actor_id: uuid.UUID,
+        now: datetime,
+    ) -> tuple[BankRecipientRecord, bool]: ...
+
     def save_frozen_batch(
         self,
         *,
@@ -377,6 +392,17 @@ class ApiRepository(Protocol):
         idempotency_key: uuid.UUID,
         now: datetime,
     ) -> ReceiptRecord: ...
+
+
+def _bank_recipient(row: BankRecipient) -> BankRecipientRecord:
+    return BankRecipientRecord(
+        id=row.id,
+        recipient_id=row.recipient_id,
+        bank_bin=row.bank_bin,
+        account_number=row.account_number,
+        account_name=row.account_name,
+        confirmed_at=row.confirmed_by_recipient_at,
+    )
 
 
 class SqlAlchemyApiRepository:
@@ -747,17 +773,101 @@ class SqlAlchemyApiRepository:
             )
             .with_for_update()
         )
-        return {
-            row.recipient_id: BankRecipientRecord(
-                id=row.id,
-                recipient_id=row.recipient_id,
-                bank_bin=row.bank_bin,
-                account_number=row.account_number,
-                account_name=row.account_name,
-                confirmed_at=row.confirmed_by_recipient_at,
+        return {row.recipient_id: _bank_recipient(row) for row in recipients}
+
+    def get_active_bank_recipient(
+        self, recipient_id: uuid.UUID
+    ) -> BankRecipientRecord | None:
+        row = self._active_bank_recipient(recipient_id)
+        return None if row is None else _bank_recipient(row)
+
+    def save_bank_recipient(
+        self,
+        *,
+        recipient_id: uuid.UUID,
+        bank_bin: str,
+        account_number: str,
+        account_name: str | None,
+        actor_id: uuid.UUID,
+        now: datetime,
+    ) -> tuple[BankRecipientRecord, bool]:
+        """Register a destination, returning it and whether anything changed.
+
+        The flag is not a convenience. Section 8.5 makes adding or changing a
+        destination a material event that has to be audited and told to the
+        affected parties; a retry that re-sends the same digits changed nothing
+        and must not fire that.
+        """
+
+        current = self._active_bank_recipient(recipient_id)
+        if current is not None and (
+            current.bank_bin == bank_bin
+            and current.account_number == account_number
+            and current.account_name == account_name
+        ):
+            return _bank_recipient(current), False
+
+        if current is not None:
+            # `uq_bank_recipients_active_recipient` is a partial unique index
+            # over `revoked_at IS NULL`, so the revocation has to reach the
+            # table before the replacement row does; inserting first raises
+            # UniqueViolation and loses the whole request.
+            #
+            # SQLAlchemy's unit of work happens to emit this UPDATE before the
+            # INSERT below even without the explicit flush -- verified by
+            # removing it and watching the PostgreSQL tests stay green. The
+            # flush stays anyway: that ordering is an internal detail of the
+            # unit of work, and a money invariant should not rest on one.
+            #
+            # Revoked, not deleted. This row is what an already published
+            # envelope was frozen from, and the audit has to be able to explain
+            # that envelope long after the account behind it changed.
+            current.revoked_at = now
+            self.session.flush()
+
+        row = BankRecipient(
+            recipient_id=recipient_id,
+            bank_bin=bank_bin,
+            account_number=account_number,
+            account_name=account_name,
+            confirmed_by_recipient_at=now,
+            created_at=now,
+        )
+        self.session.add(row)
+        self.session.flush()
+        self.session.add(
+            AuditEvent(
+                actor_id=actor_id,
+                event_type="bank_recipient_confirmed_by_recipient",
+                aggregate_type="bank_recipient",
+                aggregate_id=row.id,
+                event_data={
+                    # Deliberately no account number and no holder name. An
+                    # audit row is read far more widely than the table it
+                    # describes; the number already lives in `bank_recipients`,
+                    # and copying it into a JSONB blob that every audit query
+                    # scans spreads it for nothing.
+                    "recipient_id": str(recipient_id),
+                    "bank_bin": bank_bin,
+                    "replaced_bank_recipient_id": (
+                        str(current.id) if current is not None else None
+                    ),
+                },
+                occurred_at=now,
             )
-            for row in recipients
-        }
+        )
+        self.session.flush()
+        return _bank_recipient(row), True
+
+    def _active_bank_recipient(self, recipient_id: uuid.UUID) -> BankRecipient | None:
+        return self.session.scalar(
+            select(BankRecipient)
+            .where(
+                BankRecipient.recipient_id == recipient_id,
+                BankRecipient.revoked_at.is_(None),
+            )
+            .with_for_update()
+        )
 
     def save_frozen_batch(
         self,
