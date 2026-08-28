@@ -18,6 +18,7 @@ import anyio
 import httpx
 import pytest
 
+from app.api.limits import OBJECTION_LIMIT, REPORT_LIMIT
 from app.api.deps import get_repository
 from app.api.errors import RepositoryConflict
 from app.api.main import create_app
@@ -25,6 +26,7 @@ from app.api.repository import (
     AllocationRow,
     BankRecipientRecord,
     BatchForPublish,
+    BatchObligationRow,
     BatchInputs,
     ConfirmationRecord,
     ConfirmedExpense,
@@ -75,7 +77,6 @@ class FakeReceipt:
 
 
 class FakeRepository:
-    REPORT_LIMIT = 3
 
     def __init__(self):
         self.expenses: dict[uuid.UUID, ExpenseIdentity] = {}
@@ -88,6 +89,7 @@ class FakeRepository:
         self.obligations: dict[uuid.UUID, PublishObligation] = {}
         self.links: dict[bytes, FakeLink] = {}
         self.reports: dict[uuid.UUID, FakeReport] = {}
+        self.objections: list[dict] = []
         self.receipts: dict[uuid.UUID, FakeReceipt] = {}
         self.leak_guest_input = False
 
@@ -270,6 +272,13 @@ class FakeRepository:
                 for item in obligations
             ],
         )
+        # Same derivation as SqlAlchemyApiRepository: a wrong-amount objection
+        # naming an obligation makes that obligation disputed, and nothing else.
+        disputed_ids = {
+            str(objection["obligation_id"])
+            for objection in self.objections
+            if objection["kind"] == "wrong_amount" and objection["obligation_id"]
+        }
         blocks = []
         for item in obligations:
             receipts = [
@@ -278,7 +287,9 @@ class FakeRepository:
                 if receipt.obligation_id == item.id
             ]
             status = obligation_status(
-                item.amount_vnd, [{"amount_vnd": amount} for amount in receipts]
+                item.amount_vnd,
+                [{"amount_vnd": amount} for amount in receipts],
+                disputed=str(item.id) in disputed_ids,
             )
             note = f"TT {item.id.hex[:8]}"
             payload = build_payload(
@@ -290,6 +301,7 @@ class FakeRepository:
             blocks.append(
                 {
                     "obligation_id": str(item.id),
+                    "disputed": status == "disputed",
                     "occasion_label": "bữa tối",
                     "amount_vnd": item.amount_vnd,
                     "recipient_display_name": "Nam",
@@ -300,6 +312,11 @@ class FakeRepository:
                     "transfer_note": note,
                     "qr_payload": payload,
                     "qr_image_data_uri": None,
+                    "evidence_requested": any(
+                        objection["kind"] == "evidence_request"
+                        and objection["obligation_id"] == item.id
+                        for objection in self.objections
+                    ),
                     "already_reported": any(
                         report.link_id == link.id and report.obligation_id == item.id
                         for report in self.reports.values()
@@ -316,9 +333,15 @@ class FakeRepository:
             "reports_used": sum(
                 report.link_id == link.id for report in self.reports.values()
             ),
-            "reports_allowed": self.REPORT_LIMIT,
-            "objections_used": 0,
-            "objections_allowed": 0,
+            "reports_allowed": REPORT_LIMIT,
+            # Counted, not assumed. This double said zero forever, so a test
+            # could not have caught the quota never being reached.
+            "objections_used": sum(
+                objection["token_digest"] == token_digest
+                and objection["kind"] in ("not_me", "wrong_amount")
+                for objection in self.objections
+            ),
+            "objections_allowed": OBJECTION_LIMIT,
         }
         if self.leak_guest_input:
             envelope["group_balance"] = {"someone_else": 123}
@@ -344,6 +367,17 @@ class FakeRepository:
                 report.link_id == link.id for report in self.reports.values()
             ),
         )
+
+    def save_guest_objection(self, *, token_digest, kind, obligation_id, reason, now):
+        del now
+        self.objections.append(
+            {"token_digest": token_digest, "kind": kind,
+             "obligation_id": obligation_id, "reason": reason}
+        )
+        if kind == "not_me":
+            link = self.links.get(token_digest)
+            if link is not None:
+                link.status = "revoked"
 
     def save_payment_report(self, *, target, idempotency_key, now):
         del now
@@ -381,6 +415,40 @@ class FakeRepository:
                 if receipt.obligation_id == report.obligation_id
             ),
         )
+
+    def list_batch_obligations(self, batch_id):
+        obligations = list(self.obligations.values())
+        if not obligations:
+            return None
+        disputes: dict[str, str | None] = {}
+        for objection in self.objections:
+            if objection["kind"] == "wrong_amount" and objection["obligation_id"]:
+                disputes.setdefault(
+                    str(objection["obligation_id"]), objection.get("reason")
+                )
+        rows = []
+        for item in sorted(obligations, key=lambda o: str(o.sender_id)):
+            receipts = [
+                receipt.amount_vnd
+                for receipt in self.receipts.values()
+                if receipt.obligation_id == item.id
+            ]
+            key = str(item.id)
+            rows.append(
+                BatchObligationRow(
+                    obligation_id=item.id,
+                    sender_id=item.sender_id,
+                    recipient_id=getattr(item, "recipient_id", item.sender_id),
+                    amount_vnd=item.amount_vnd,
+                    status=obligation_status(
+                        item.amount_vnd,
+                        [{"amount_vnd": amount} for amount in receipts],
+                        disputed=key in disputes,
+                    ),
+                    disputed_reason=disputes.get(key),
+                )
+            )
+        return rows
 
     def get_receipt_target(self, obligation_id):
         item = self.obligations.get(obligation_id)
