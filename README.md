@@ -55,13 +55,18 @@ Gỡ luật tường lửa khi không cần nữa:
 Remove-NetFirewallHyperVRule -Name 'RuDi-ExpoGo'
 ```
 
-Đổi cổng, hoặc ép địa chỉ khi máy có nhiều card mạng:
+Mặc định là **API 8099**, Metro 8081 — 8099 là con số app tự fallback về khi
+không có `EXPO_PUBLIC_API_URL` (`apps/mobile/src/api.ts`), nên đừng đổi nó chỉ
+vì quen tay gõ 8000. Khi cổng bận thật, hoặc khi máy có nhiều card mạng:
 
 ```bash
-scripts/phone_path.py --api-port 8000 --metro-port 8082 up
+scripts/phone_path.py --api-port 8100 --metro-port 8082 up
 scripts/phone_path.py up --host <ip-LAN-của-máy-này>
 eval "$(scripts/phone_path.py env)"   # chỉ lấy biến, tự chạy expo sau
 ```
+
+Đổi `--api-port` thì phải bật `uvicorn` ở đúng cổng đó — script chỉ nói cho app
+biết gọi đi đâu, nó không dựng server hộ bạn.
 
 Điện thoại không cùng Wi-Fi được (mạng khách chặn máy nói chuyện với nhau) thì
 `npx expo start --tunnel` vẫn nạp được app — nhưng tunnel chỉ đưa Metro ra
