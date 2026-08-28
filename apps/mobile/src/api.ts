@@ -30,6 +30,7 @@ import type { Proposal } from "./screens/DeXuat";
 import type { Obligation } from "./screens/DotThu";
 import type { Envelope } from "./screens/ChiaSe";
 import type { Draft, Participant } from "./screens/NhapKhoanChi";
+import type { ReceiptScanWire } from "./receipt";
 import { makeIdFactory } from "./participants";
 
 /** Where the API lives. Overridable so a phone can reach a laptop. */
@@ -707,3 +708,92 @@ export async function confirmReceipt(
   });
   return { status: result.obligation_status };
 }
+
+/* ------------------------------------------------------- reading a bill */
+
+/**
+ * Send one bill photo to be read, and get back what the reader saw.
+ *
+ * `POST /receipts/scan` is multipart, not JSON, so it cannot go through
+ * `call`. Three differences, each of which broke this once:
+ *
+ *  - **No `Content-Type` header.** `actorHeaders` sets `application/json`, and
+ *    a multipart body sent under that header arrives as an unparseable blob.
+ *    The boundary has to be chosen by whatever assembles the `FormData`, and
+ *    setting the header by hand is what stops it being written.
+ *  - **No `Idempotency-Key`.** Reading is not a write. Nothing is stored, no
+ *    ledger row appears, and pressing the shutter twice is a person asking to
+ *    be read twice -- replaying the first answer would hide a retry that was
+ *    meant to fix a blurry frame.
+ *  - **Two ways to put a file in a `FormData`.** On a phone, React Native
+ *    accepts `{uri, name, type}` and streams the file itself. On the web the
+ *    manipulator hands back a `blob:` url, and that object appends as the
+ *    string "[object Object]" -- a 422 with no clue why. The web path has to
+ *    fetch its own blob first.
+ *
+ * The photo is not logged, not cached and not kept. `withBillPhoto` in
+ * `src/camera/` deletes the file once this resolves, including when it throws.
+ */
+export async function scanReceipt(
+  photo: { uri: string; bytes: number },
+  actorId: string,
+): Promise<ReceiptScanWire> {
+  const form = new FormData();
+  if (photo.uri.startsWith("blob:") || photo.uri.startsWith("data:")) {
+    const blob = await fetch(photo.uri).then((r) => r.blob());
+    form.append("image", blob, "bill.jpg");
+  } else {
+    // React Native's own FormData understands this shape and nothing else.
+    form.append("image", { uri: photo.uri, name: "bill.jpg", type: "image/jpeg" } as never);
+  }
+
+  const { "Content-Type": _dropped, ...headers } = actorHeaders(actorId);
+
+  let response: Response;
+  try {
+    response = await fetch(BASE_URL + "/receipts/scan", { method: "POST", headers, body: form });
+  } catch {
+    throw new ApiError(
+      0,
+      "unreachable",
+      `Không nối được ${BASE_URL}. Máy chủ có đang chạy không?`,
+    );
+  }
+
+  if (!response.ok) {
+    let code = `http_${response.status}`;
+    let detail = `Máy chủ trả về ${response.status} khi đang đọc bill.`;
+    try {
+      const problem = await response.json();
+      if (problem?.code) code = problem.code;
+      if (problem?.detail) detail = problem.detail;
+    } catch {
+      /* not JSON; the status-based sentence is the honest one */
+    }
+    throw new ApiError(response.status, code, SCAN_REFUSALS[code.toLowerCase()] ?? detail);
+  }
+  return (await response.json()) as ReceiptScanWire;
+}
+
+/**
+ * What a refusal to read a bill means to the person holding the phone.
+ *
+ * The server's own sentences are already Vietnamese and already correct, so
+ * these only replace the ones that describe the machine rather than the next
+ * move. "Không đọc được bill" tells somebody nothing they cannot see; what
+ * they need is which of the three fixable things to try.
+ *
+ * `receipt_reader_unavailable` is 502 and deliberately says nothing about the
+ * upstream. The route is built so a credential or a quota error cannot reach
+ * a screen, and repeating an upstream message here would undo that.
+ */
+const SCAN_REFUSALS: Record<string, string> = {
+  receipt_unreadable:
+    "Chưa đọc được bill này. Thường là do ảnh mờ, thiếu sáng, hoặc bill bị gập che mất cột tiền. " +
+    "Chụp lại gần hơn một chút, để cả tờ bill nằm trong khung.",
+  unsupported_image_type: "Tệp này không phải ảnh mà app đọc được. Chọn một ảnh JPG hoặc PNG.",
+  image_too_large: "Ảnh nặng quá 8 MB nên máy chủ từ chối. Chụp lại bằng camera trong app để ảnh được nén sẵn.",
+  receipt_reader_unavailable:
+    "Bộ đọc bill đang không trả lời. Thử lại sau một chút, hoặc nhập tay các món ở bước sau.",
+  permission_denied: "Tài khoản này chưa được phép đọc bill trong nhóm.",
+};

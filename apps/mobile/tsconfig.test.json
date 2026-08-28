@@ -10,8 +10,10 @@
   "include": [
     "src/api.ts",
     "src/participants.ts",
+    "src/receipt.ts",
     "src/extraction.ts",
     "src/camera/access.ts",
-    "src/camera/bill-photo.ts"
+    "src/camera/bill-photo.ts",
+    "src/ui/direction.ts"
   ]
 }

@@ -15,7 +15,13 @@ function walk(dir) {
     else if (path.endsWith(".js")) {
       const fixed = readFileSync(path, "utf8").replace(
         /from "(\.[^"]*?)"/g,
-        (whole, spec) => (spec.endsWith(".js") ? whole : `from "${spec}.js"`),
+        // Any specifier that already carries an extension is left alone, not
+        // just `.js`. `packages/shared/money.mjs` is imported by its real
+        // filename because it is hand-written ESM rather than tsc output, and
+        // the old `.endsWith(".js")` test did not match it -- so the rewrite
+        // produced `money.mjs.js` and the loader failed on a file that was
+        // sitting right there.
+        (whole, spec) => (/\.(js|mjs|cjs|json)$/.test(spec) ? whole : `from "${spec}.js"`),
       );
       writeFileSync(path, fixed);
     }
