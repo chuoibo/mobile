@@ -118,7 +118,11 @@
   font-weight: 400;
   letter-spacing: 0;
   line-height: 1.35;
-  opacity: 0.9;
+  /* No opacity here. Opacity blends the text toward its ground before paint, so
+     the measured token pair is not what reaches the screen: the 5.16:1 pairs land
+     at 4.45:1 at this 12px size, under AA. The caption is already de-emphasised by
+     weight 400 against the 600 on dt/dd. */
+  opacity: 1;
 }
 
 .hex-dark { display: none; }
