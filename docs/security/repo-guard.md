@@ -90,7 +90,13 @@ Scanner hiện có các rule:
 - `aws-secret-access-key`: secret 40 ký tự đứng sau tên field `secret_access_key`/`aws_secret_access_key`;
 - `data-uri-base64`: marker `data:<mime>;base64,` trên dòng được quét, không phụ thuộc đuôi file;
 - `dense-base64-line`: dòng dài hơn 4 KiB có ít nhất 98% byte thuộc bảng chữ cái base64/base64url.
-- `aggregate-base64-fragments`: trên các dòng thuộc phạm vi quét của một file, cộng tổng số byte của mọi token dài ít nhất 8 byte chỉ gồm bảng chữ cái base64/base64url; chặn khi tổng lớn hơn 16 KiB. Vị trí token, số dòng trống hay số dòng văn xuôi nằm giữa các token không tham gia quyết định;
+- `aggregate-base64-fragments`: trên các dòng thuộc phạm vi quét của một file,
+  cộng tổng số byte của token dài ít nhất 8 byte chỉ gồm bảng chữ cái
+  base64/base64url và có đồng thời chữ thường, chữ hoa cùng ít nhất một chữ số
+  hoặc ký tự `+/_-=`; chặn khi tổng lớn hơn 16 KiB. Dấu hiệu lớp ký tự loại
+  `snake_case`, `SCREAMING_SNAKE_CASE` và camelCase thông thường khỏi phép cộng,
+  nhưng vẫn giữ fragment base64 URL-safe có `_`. Vị trí token, số dòng trống hay
+  số dòng văn xuôi nằm giữa các token không tham gia quyết định;
 - `long-base64-token`: một token liên tục dài hơn 2 KiB chỉ gồm bảng chữ cái base64/base64url và tối đa hai dấu padding `=`.
 
 Ở mode `staged`, các content rule chỉ xét các dòng được thêm/thay trong index; detector cộng dồn base64 cộng trên toàn bộ các dòng đó của từng file, không chia theo hunk và không phụ thuộc khoảng cách giữa các dòng. Ở mode `tree`, `range` và `history`, scanner xét toàn bộ dòng của từng snapshot được quét. File text lớn hơn 2 MiB hoặc binary bị chặn ở cấp `controlled-artifact` trước khi content scanner đọc dòng.
@@ -129,6 +135,17 @@ Email TỔNG HỢP GIẢ: nguoi-gia@du-lieu.invalid
 `reason` là token ASCII ít nhất 8 ký tự. Annotation phải cụ thể theo rule và nằm ngay cạnh match để reviewer thấy. Với `aggregate-base64-fragments`, annotation chỉ loại các token trên đúng dòng được annotation hoặc dòng ngay sau nó khỏi tổng; nó không miễn toàn file hay các token ở xa. Không dùng annotation cho dữ liệu thật. Nếu cùng một file cần nhiều miễn trừ, từng vị trí phải có annotation riêng.
 
 Một SHA-256 dài 64 ký tự, chữ ký base64 ngắn và chuỗi lặp 300 ký tự vẫn thấp hơn ngưỡng tổng 16 KiB. Golden-vector JSON hiện tại có field và dấu phân cách nên tổng token đủ dài cũng nằm dưới ngưỡng. Tuy nhiên, một danh sách rất dài gồm các hash thuần trên nhiều dòng có thể bị detector cộng dồn chặn; khi đó phải format lại để thể hiện cấu trúc, dùng annotation hẹp cho từng vị trí sau review, hoặc pin artifact bằng path và digest. Việc wrap một blob dài thành dòng ngắn hay xen bao nhiêu dòng trống/văn xuôi giữa các đoạn đều không làm giảm tổng. `data:` URI và các rule base64 khác vẫn phải được miễn riêng nếu cùng lúc khớp nhiều rule.
+
+### Lockfile sinh máy
+
+Tên như `package-lock.json` hoặc marker như `"lockfileVersion"` không tạo miễn
+trừ tự động. Một lockfile hợp lệ vẫn có thể nhận field lạ do paste nhầm, merge
+lỗi hoặc tool lỗi; miễn toàn file sẽ che cả số dài và payload base64 đó.
+
+Lockfile gây false positive chỉ được allowlist bằng đúng `path`, SHA-256 và từng
+`rule`. Mỗi lần dependency làm đổi một byte, digest cũ mất hiệu lực và artifact
+phải được kiểm lại trước khi cập nhật allowlist. Đây là chủ ý: marker chứng minh
+định dạng, không chứng minh toàn bộ nội dung an toàn.
 
 ### Allowlist cho artifact/export hợp lệ
 
