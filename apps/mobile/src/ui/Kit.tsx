@@ -76,7 +76,12 @@ export function Field({ label, value, onChangeText, keyboardType, placeholder }:
         onChangeText={onChangeText}
         keyboardType={keyboardType ?? "default"}
         placeholder={placeholder}
-        placeholderTextColor={c.inkSoft}
+        // A tone of its own, not `inkSoft`. At `inkSoft` the example "480000"
+        // sat at almost the same weight as a typed number, so an empty
+        // "Tổng tiền" read as a filled one -- somebody presses "Chia tiền"
+        // believing they entered a total. Going this faint is affordable only
+        // because the label above the field never disappears.
+        placeholderTextColor={c.inkFaint}
         style={{
           ...type.body, color: c.ink, backgroundColor: c.card,
           borderColor: c.line, borderWidth: 1, borderRadius: radius.base,

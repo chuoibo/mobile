@@ -465,3 +465,65 @@ test("gửi lại cùng một khoá thì máy chủ vẫn chỉ thấy một l�
     globalThis.fetch = real;
   }
 });
+
+/* Every publish refusal the server can send, in words a person can act on.
+ *
+ * agy pointed out only one of the four codes had a test. The other three were
+ * a table nobody had read back: a typo in a key, or a code the server renamed,
+ * would surface as `bank_recipient_snapshot_invalid` on screen next to
+ * somebody's name and somebody's money, and no test would notice.
+ *
+ * The fallthrough is tested too, and it is the more important half. An
+ * unrecognised code must keep the server's own words rather than borrow a
+ * friendly sentence that might be wrong about what happened.
+ */
+
+test("mọi mã từ chối phát đều dịch được ra tiếng người", async () => {
+  const { publishBatch, ApiError } = await import("../dist-test/api.js");
+  const expected = {
+    advancer_not_acknowledged: /chưa xác nhận/,
+    recipient_setup_incomplete: /tài khoản nhận/,
+    bank_recipient_snapshot_invalid: /đã đổi/,
+    batch_not_found: /Không tìm thấy/,
+  };
+  const real = globalThis.fetch;
+  try {
+    for (const [code, pattern] of Object.entries(expected)) {
+      globalThis.fetch = async () =>
+        new Response(JSON.stringify({ code, detail: "raw server words" }), {
+          status: 409,
+          headers: { "Content-Type": "application/json" },
+        });
+      await assert.rejects(
+        () => publishBatch("b", { payerAcknowledged: true }, "a"),
+        (problem) => {
+          assert.ok(problem instanceof ApiError, `${code}: sai kieu loi`);
+          assert.equal(problem.code, code, "mat ma loi thi het truy duoc");
+          assert.match(problem.message, pattern, `${code} chua duoc dich`);
+          return true;
+        },
+      );
+    }
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+test("mã lạ giữ nguyên lời của máy chủ, không mượn câu tử tế nào", async () => {
+  const { publishBatch, ApiError } = await import("../dist-test/api.js");
+  const real = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({ code: "chua_tung_thay", detail: "máy chủ nói điều này" }),
+      { status: 409, headers: { "Content-Type": "application/json" } },
+    );
+  try {
+    await publishBatch("b", { payerAcknowledged: true }, "a");
+    assert.fail("le ra phai bi tu choi");
+  } catch (problem) {
+    assert.ok(problem instanceof ApiError);
+    assert.equal(problem.message, "máy chủ nói điều này");
+  } finally {
+    globalThis.fetch = real;
+  }
+});
