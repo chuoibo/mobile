@@ -32,6 +32,29 @@ from app.db.base import Base  # noqa: E402
 MIGRATIONS = pathlib.Path(__file__).resolve().parents[2] / "app/db/migrations/versions"
 
 
+def render_upgrade_ddl() -> str:
+    """Compile every upgrade through Alembic's PostgreSQL dialect."""
+    import contextlib
+    import io
+    import os
+
+    from alembic import command
+    from alembic.config import Config
+
+    api_root = pathlib.Path(__file__).resolve().parents[2]
+    previous = os.getcwd()
+    os.chdir(api_root)
+    try:
+        config = Config(str(api_root / "alembic.ini"))
+        config.set_main_option("sqlalchemy.url", "postgresql+psycopg://offline/offline")
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            command.upgrade(config, "head", sql=True)
+    finally:
+        os.chdir(previous)
+    return buffer.getvalue()
+
+
 def tables_declared_in_migrations() -> dict[str, set[str]]:
     declared: dict[str, set[str]] = {}
     for path in sorted(MIGRATIONS.glob("*.py")):
@@ -85,40 +108,24 @@ class MigrationMatchesModels(unittest.TestCase):
         reject, a type that does not exist, or a constraint referencing a table
         declared later. Rendering can.
         """
-        import contextlib
-        import io
-        import os
-
-        from alembic import command
-        from alembic.config import Config
-
-        api_root = pathlib.Path(__file__).resolve().parents[2]
-        previous = os.getcwd()
-        os.chdir(api_root)
-        try:
-            config = Config(str(api_root / "alembic.ini"))
-            config.set_main_option("sqlalchemy.url", "postgresql+psycopg://offline/offline")
-            buffer = io.StringIO()
-            with contextlib.redirect_stdout(buffer):
-                command.upgrade(config, "head", sql=True)
-        finally:
-            os.chdir(previous)
-        self.assertGreaterEqual(buffer.getvalue().count("CREATE TABLE"), len(self.modelled))
+        ddl = render_upgrade_ddl()
+        self.assertGreaterEqual(ddl.count("CREATE TABLE"), len(self.modelled))
 
     def test_no_identifier_exceeds_the_postgres_limit(self):
         """PostgreSQL truncates identifiers at 63 characters, and a truncated
         name can silently collide with another one."""
         import re
-        source = "\n".join(path.read_text(encoding="utf-8") for path in sorted(MIGRATIONS.glob("*.py")))
-        source = re.sub(
-            r'name=\(\s*((?:"[^"]*"\s*)+)\)',
-            lambda m: 'name="' + "".join(re.findall(r'"([^"]*)"', m.group(1))) + '"',
-            source,
+
+        ddl = render_upgrade_ddl()
+        names = re.findall(
+            r"\b(?:CONSTRAINT|INDEX)\s+\"?([a-z0-9_]+)\"?",
+            ddl,
         )
-        names = re.findall(r'name="([a-z0-9_]+)"', source)
-        self.assertGreater(len(names), 20, "expected the migration to name its constraints")
-        self.assertEqual(sorted({n for n in names if len(n) > 63}), [])
-        self.assertEqual(sorted({n for n in names if names.count(n) > 1}), [])
+        self.assertGreater(
+            len(names), 40, "expected rendered DDL to name its schema objects"
+        )
+        self.assertEqual(sorted({name for name in names if len(name) > 63}), [])
+        self.assertEqual(sorted({name for name in names if names.count(name) > 1}), [])
 
     def test_no_money_column_uses_a_lossy_type(self):
         """Spec section 4, invariant 2: integer dong, never a float.

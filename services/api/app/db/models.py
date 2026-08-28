@@ -188,7 +188,9 @@ class ExpenseVersion(Base):
         BigInteger, nullable=False, default=0, server_default="0"
     )
     total_amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -205,15 +207,22 @@ class ExpenseItem(Base):
 
     __tablename__ = "expense_items"
     __table_args__ = (
-        UniqueConstraint("expense_version_id", "item_key", name="uq_expense_items_version_key"),
+        UniqueConstraint(
+            "expense_version_id", "item_key", name="uq_expense_items_version_key"
+        ),
         # ADR-0004 rejects a zero-amount line item (ZERO_AMOUNT) even though a
         # zero-amount expense total is fine.
         CheckConstraint("amount_vnd > 0", name="amount_positive"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
     expense_version_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("expense_versions.id"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("expense_versions.id"),
+        nullable=False,
+        index=True,
     )
     item_key: Mapped[str] = mapped_column(String(64), nullable=False)
     label: Mapped[str | None] = mapped_column(Text)
@@ -225,10 +234,14 @@ class ExpenseItemShare(Base):
 
     __tablename__ = "expense_item_shares"
     __table_args__ = (
-        UniqueConstraint("expense_item_id", "participant_id", name="uq_item_share_unique"),
+        UniqueConstraint(
+            "expense_item_id", "participant_id", name="uq_item_share_unique"
+        ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
     expense_item_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("expense_items.id"), nullable=False, index=True
     )
@@ -250,13 +263,20 @@ class ExpenseSurcharge(Base):
 
     __tablename__ = "expense_surcharges"
     __table_args__ = (
-        UniqueConstraint("expense_version_id", "surcharge_key", name="uq_surcharges_version_key"),
+        UniqueConstraint(
+            "expense_version_id", "surcharge_key", name="uq_surcharges_version_key"
+        ),
         CheckConstraint("amount_vnd > 0", name="amount_positive"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
     expense_version_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("expense_versions.id"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("expense_versions.id"),
+        nullable=False,
+        index=True,
     )
     surcharge_key: Mapped[str] = mapped_column(String(64), nullable=False)
     kind: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -271,7 +291,9 @@ class ExpenseDiscount(Base):
 
     __tablename__ = "expense_discounts"
     __table_args__ = (
-        UniqueConstraint("expense_version_id", "discount_key", name="uq_discounts_version_key"),
+        UniqueConstraint(
+            "expense_version_id", "discount_key", name="uq_discounts_version_key"
+        ),
         CheckConstraint("amount_vnd > 0", name="amount_positive"),
         # ADR-0004 SCOPE_TARGET_MISMATCH: an item-scoped discount needs a
         # target and a global one must not carry one.
@@ -282,9 +304,14 @@ class ExpenseDiscount(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
     expense_version_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("expense_versions.id"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("expense_versions.id"),
+        nullable=False,
+        index=True,
     )
     discount_key: Mapped[str] = mapped_column(String(64), nullable=False)
     amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
@@ -378,7 +405,10 @@ class CollectionBatchVersion(Base):
         ),
         ForeignKeyConstraint(
             ["batch_id", "previous_version_number"],
-            ["collection_batch_versions.batch_id", "collection_batch_versions.version_number"],
+            [
+                "collection_batch_versions.batch_id",
+                "collection_batch_versions.version_number",
+            ],
             name="fk_batch_versions_previous_version",
         ),
         CheckConstraint(
@@ -507,7 +537,10 @@ class CollectionObligation(Base):
         ),
         ForeignKeyConstraint(
             ["bank_recipient_snapshot_id", "batch_version_id"],
-            ["bank_recipient_snapshots.id", "bank_recipient_snapshots.batch_version_id"],
+            [
+                "bank_recipient_snapshots.id",
+                "bank_recipient_snapshots.batch_version_id",
+            ],
             name="fk_obligations_snapshot_same_batch_version",
         ),
         CheckConstraint("sender_id <> recipient_id", name="different_parties"),
@@ -624,7 +657,9 @@ class GuestLink(Base):
         default=GuestLinkStatus.ACTIVE,
         server_default=GuestLinkStatus.ACTIVE.value,
     )
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
