@@ -23,6 +23,11 @@
 set -uo pipefail
 
 PR="${1:?can nhap so PR}"
+# Optional second argument: things only true of this PR that the generic
+# instructions cannot know -- "the API is already running on 8099", "this one
+# needs Postgres". Without it agy skips whatever needs a live service and the
+# skip reads as a pass, which is exactly what the gate exists to prevent.
+EXTRA="${2:-}"
 HARNESS="${AGENT_HARNESS:-$HOME/agent-harness}/agent_supervisor.py"
 WORK="${AGY_PR_WORK:-/tmp/agy-pr-$PR}"
 REPO_ROOT="$(git rev-parse --show-toplevel)"
@@ -80,6 +85,10 @@ Hom nay da co hai lan dung kieu nay lot qua:
 - mot tham so \`actor\` duoc nhan roi khong bao gio doc
 - mot khoi kiem quyen co that nhung xoa di van 275 test xanh
 
+${EXTRA:+# Rieng PR nay
+
+$EXTRA
+}
 # Viec 3 — co tinh lam vo tinh nang moi
 
 Doc diff de biet PR nay them gi, roi tan cong dung cho do. Neu no dung toi
@@ -87,12 +96,18 @@ tien, quyen rieng tu, hay danh tinh nguoi dung thi uu tien cao nhat.
 
 # BAO CAO — bat buoc
 
-Ghi ra $OUT/verdict.md, DONG DAU TIEN phai la dung mot trong hai:
+Ghi ra $OUT/verdict.md theo dung thu tu nay:
 
-    PASS
-    FAIL
+    DONG 1: dung mot chu -- PASS hoac FAIL
+    DONG 2: MOT CAU noi ro VI SAO. Neu FAIL thi day chinh la cai chan merge.
+    Tu dong 3 tro di: chi tiet.
 
-Roi:
+GHI HAI DONG DAU **TRUOC**, ngay khi ban biet ket luan, roi moi viet chi
+tiet. Lan truoc bao cao bi cat giua chung: dong FAIL con do, ly do thi mat,
+va mot PR bi chan ma khong ai biet vi sao. Hai dong dau ton mot giay va
+song sot duoc moi kieu chet giua chung.
+
+Chi tiet gom:
   - So test da chay va ket qua nguyen van
   - Cho nao trong diff KHONG duoc test cham toi
   - Loi tim duoc (neu co), kem chuoi thao tac tai hien
@@ -116,14 +131,18 @@ if [[ ! -f "$VERDICT" ]]; then
 fi
 
 FIRST="$(head -1 "$VERDICT" | tr -d '[:space:]')"
+# Line 2 is the reason, and it is printed on its own before the detail. A
+# verdict whose reason scrolled off the end of a truncated report blocks a PR
+# without saying what is wrong, which is what happened on the first run.
+REASON="$(sed -n '2p' "$VERDICT")"
 echo "--- $VERDICT ---"
 head -40 "$VERDICT"
 
 if [[ "$FIRST" == "PASS" ]]; then
   echo
-  echo "PASS — PR #$PR co xac nhan cua agy"
+  echo "PASS — PR #$PR co xac nhan cua agy: ${REASON:-(khong ghi ly do)}"
   exit 0
 fi
 echo
-echo "FAIL — PR #$PR chua duoc merge" >&2
+echo "FAIL — PR #$PR chua duoc merge: ${REASON:-(agy KHONG ghi ly do — hoi lai truoc khi tin)}" >&2
 exit 1
