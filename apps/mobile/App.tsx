@@ -4,10 +4,17 @@
  * build a Home screen or a tab shell before the actions are known, and this
  * flow is a line, not a graph. A router can arrive when there is a second
  * entry point to route to.
+ *
+ * That second entry point has now arrived. The flow below is unchanged and
+ * still a line; what changed is that it is no longer the whole app. It is
+ * reached from the shell's [+] menu as "Tạo khoản chi", and it is handed the
+ * way back out as `onExit` rather than reaching for the shell itself -- the
+ * shell knows about this flow, this flow does not know about the shell.
  */
 import { StatusBar } from "expo-status-bar";
 import React, { useRef, useState } from "react";
-import { SafeAreaView, Text, View, useColorScheme } from "react-native";
+import { Pressable, SafeAreaView, Text, View, useColorScheme } from "react-native";
+import { AppRoot } from "./src/navigation/AppRoot";
 import {
   attemptFor,
   confirmExpense,
@@ -46,7 +53,7 @@ function expenseIntent(d: Draft): string {
   return `khoan-chi:${d.advancerId}:${d.totalVnd}:${d.occasion}:${who}`;
 }
 
-export default function App() {
+function LuongKhoanChi({ onExit }: { onExit: () => void }) {
   const c = usePalette();
   const scheme = useColorScheme();
   const [step, setStep] = useState<Step>("nhap");
@@ -126,6 +133,25 @@ export default function App() {
     <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
       <StatusBar style={scheme === "dark" ? "light" : "dark"} />
 
+      {/* The way back to the tabs. The flow keeps its own "Sửa lại" for moving
+          between steps; this is the separate question of leaving entirely, so
+          it sits above the steps rather than inside any one of them. */}
+      <View style={{ paddingHorizontal: space.md, paddingTop: space.sm }}>
+        <Pressable
+          onPress={onExit}
+          accessibilityRole="button"
+          accessibilityLabel="Đóng khoản chi, quay lại các tab"
+          style={({ pressed }) => ({
+            alignSelf: "flex-start",
+            minHeight: 44,
+            justifyContent: "center",
+            paddingRight: space.sm,
+            opacity: pressed ? 0.6 : 1,
+          })}
+        >
+          <Text style={{ ...type.body, color: c.accent }}>← Đóng</Text>
+        </Pressable>
+      </View>
 
       {step === "nhap" && (
         <NhapKhoanChi
@@ -240,4 +266,15 @@ export default function App() {
       </View>
     </SafeAreaView>
   );
+}
+
+/**
+ * The app root: the opening screen, then the five-tab shell.
+ *
+ * The flow above is passed down rather than imported by the shell, so the
+ * import graph stays one-directional (`App` → `navigation`, never back) and
+ * this file remains the only place that knows both halves exist.
+ */
+export default function App() {
+  return <AppRoot renderKhoanChi={(onExit) => <LuongKhoanChi onExit={onExit} />} />;
 }

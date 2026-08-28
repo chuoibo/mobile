@@ -12,6 +12,8 @@
     "src/participants.ts",
     "src/extraction.ts",
     "src/camera/access.ts",
-    "src/camera/bill-photo.ts"
+    "src/camera/bill-photo.ts",
+    "src/navigation/tabs.ts",
+    "src/navigation/nhom-demo.ts"
   ]
 }
