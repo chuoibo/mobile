@@ -101,18 +101,31 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
   assert.equal(batch.obligations.length, 2);
   assert.ok(!batch.obligations.some((o) => o.senderId === NAM.id));
 
-  // Gate 1 came from the server. Gate 2 is not readable yet, so it is shut --
-  // and publish must refuse while it is.
+  // Gate 1 is the server's answer, carried through confirm. Gate 2 is the
+  // server's to enforce and is not modelled here at all.
   assert.equal(batch.gates.payerAcknowledged, true);
-  assert.equal(batch.gates.recipientReady, false);
-  await assert.rejects(() => publishBatch(batch.batchId, batch.gates, NAM.id));
+  await assert.rejects(
+    () => publishBatch(batch.batchId, { payerAcknowledged: false }, NAM.id),
+    (error) => error.name === "GateNotPassedError",
+    "phat duoc trong khi nguoi ung tien chua xac nhan",
+  );
 
   const envelopes = await publishBatch(
     batch.batchId,
-    { ...batch.gates, recipientReady: true, recipientProblem: null },
+    batch.gates,
     NAM.id,
+    draft.participants,
   );
   assert.equal(envelopes.length, 2);
+
+  // The organiser has to be able to tell which link goes to whom. Against a
+  // real server this is where ids leak in, because ids are all it sends back.
+  for (const envelope of envelopes) {
+    assert.ok(
+      ["Hà", "Quyên"].includes(envelope.senderName),
+      `phong bi ghi "${envelope.senderName}" thay vi ten nguoi`,
+    );
+  }
 
   // The link is the product. If it does not render, nothing else mattered.
   const page = await fetch(envelopes[0].url);

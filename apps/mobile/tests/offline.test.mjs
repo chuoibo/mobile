@@ -130,43 +130,67 @@ test("renaming changes the label, not the person", () => {
   assert.equal(advancer(roster)?.name, "Nam A");
 });
 
-/* Spec section 8.3 -- the two gates before a collection round goes out.
+/* Spec section 8.3 -- the gates before a collection round goes out.
  *
  * The prototype went straight from "confirm the split" to "publish", which
  * teaches a flow where a round can go out under someone's name before they
- * agree, and leaves nowhere to set up or check the recipient.
+ * agree.
+ *
+ * There are two gates, and the app now models exactly one. Gate 2 -- there is
+ * a confirmed account for the money to land in -- is not reported by any
+ * endpoint, so the client had it hardcoded shut, which made publishing
+ * impossible, and then a button that opened it by tapping. These tests used to
+ * pin that arrangement: they asserted a shut gate 2 was refused, which was
+ * true, and said nothing about the fact that the only way through it was a
+ * person asserting it themselves. A test can pin a workaround as firmly as it
+ * pins a rule.
+ *
+ * Gate 2 now lives where the facts are. What this file still owns is gate 1
+ * and the shape of the refusal.
  */
 
-test("publish is refused while either gate is shut", async () => {
+test("publish is refused while the advancer has not acknowledged", async () => {
   const { publishBatch, GateNotPassedError } = await import("../dist-test/api.js");
-  const obligations = [
-    { id: "o1", senderId: "b", senderName: "Hà", recipient: "Nam", amountVnd: 100_000, status: "outstanding" },
-  ];
-  const shut = [
-    { payerAcknowledged: false, recipientReady: false, recipientProblem: null },
-    { payerAcknowledged: true, recipientReady: false, recipientProblem: null },
-    { payerAcknowledged: false, recipientReady: true, recipientProblem: null },
-  ];
-  for (const gates of shut) {
-    await assert.rejects(() => publishBatch(obligations, gates), GateNotPassedError);
+  await assert.rejects(
+    () => publishBatch("some-batch", { payerAcknowledged: false }, "some-actor"),
+    GateNotPassedError,
+  );
+});
+
+test("gate 1 is checked before any request is built", async () => {
+  // A shut gate must not become a network round trip that a flaky connection
+  // then hides. Proven by pointing the client at an address nothing answers:
+  // if a request were attempted the error would be `unreachable`, not the gate.
+  const { publishBatch, GateNotPassedError, ApiError } = await import("../dist-test/api.js");
+  try {
+    await publishBatch("some-batch", { payerAcknowledged: false }, "some-actor");
+    assert.fail("phat duoc trong khi cong 1 dang dong");
+  } catch (problem) {
+    assert.ok(problem instanceof GateNotPassedError, `nhan duoc ${problem?.name}`);
+    assert.ok(!(problem instanceof ApiError), "da goi mang truoc khi kiem cong");
   }
 });
 
-test("publish refuses to build a request until both gates pass", async () => {
-  // The happy path now needs a live server, so it is covered end to end in
-  // `tests/e2e` rather than here. What this file still owns is the refusal:
-  // the gate check runs BEFORE any request is built, so a shut gate cannot be
-  // turned into a network round trip that a flaky connection then hides.
-  const { publishBatch, GateNotPassedError } = await import("../dist-test/api.js");
-  await assert.rejects(
-    () =>
-      publishBatch("some-batch", {
-        payerAcknowledged: true,
-        recipientReady: false,
-        recipientProblem: null,
-      }, "some-actor"),
-    GateNotPassedError,
-  );
+test("máy chủ từ chối phát thì người đọc được lý do, không đọc mã lỗi", async () => {
+  // Gate 2 refusals arrive as `recipient_setup_incomplete`. Untranslated, that
+  // string lands on screen next to somebody's name and somebody's money.
+  const { publishBatch, ApiError } = await import("../dist-test/api.js");
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({ code: "recipient_setup_incomplete", detail: "gate 2" }),
+      { status: 409, headers: { "Content-Type": "application/json" } },
+    );
+  try {
+    await publishBatch("b", { payerAcknowledged: true }, "a");
+    assert.fail("le ra phai bi tu choi");
+  } catch (problem) {
+    assert.ok(problem instanceof ApiError);
+    assert.equal(problem.code, "recipient_setup_incomplete", "mat ma loi thi het truy duoc");
+    assert.match(problem.message, /tài khoản nhận/, "khong dich ra tieng nguoi");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });
 
 /* Data loss on "Sửa lại" -- found by agy driving the real app.
@@ -256,4 +280,130 @@ test("numbering is display only — removing one does not move the other's ident
   // person under it is still the one that was chosen.
   assert.equal(labelFor(roster, second.id), "Nam");
   assert.equal(roster.advancerId, second.id);
+});
+
+/* Names, not ids -- found by agy driving the real app.
+ *
+ * The server answers in UUIDs, because ids are what it stores. The share
+ * screen turned that straight into "Gửi cho 6b4bda36-93e6-4a94-b7ca-…" and
+ * copied "Phần của 6b4bda36-…" to the clipboard. An organiser cannot tell
+ * which link belongs to whom, which is the only thing that screen does.
+ *
+ * These go through the client rather than through the screen, because the id
+ * reaches the screen already stamped into `senderName`. Fixing the screen
+ * would have hidden it one layer down.
+ */
+
+const HA_ID = "6b4bda36-93e6-4a94-b7ca-48757974f36d";
+const ROSTER = [
+  { id: HA_ID, name: "Hà" },
+  { id: "8c1e2f10-a1b1-4c22-8d33-e4f4a5b5c6d6", name: "Quyên" },
+];
+
+function respondWith(payload, status = 200) {
+  const real = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify(payload), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
+  return () => {
+    globalThis.fetch = real;
+  };
+}
+
+test("phong bì mang tên người, không mang UUID", async () => {
+  const { publishBatch } = await import("../dist-test/api.js");
+  const restore = respondWith({
+    guest_links: [
+      {
+        sender_id: HA_ID,
+        path: "/g/abc",
+        obligations: [{ obligation_id: "o1", amount_vnd: 100_000 }],
+      },
+    ],
+  });
+  try {
+    const envelopes = await publishBatch("b", { payerAcknowledged: true }, "a", ROSTER);
+    assert.equal(envelopes[0].senderName, "Hà");
+    assert.ok(!envelopes[0].senderName.includes("-"), "van con UUID tren man hinh");
+  } finally {
+    restore();
+  }
+});
+
+test("người không có trong danh sách vẫn hiện ra, bằng id, chứ không bị gộp", async () => {
+  // A missing name is a display problem. Falling back to a placeholder like
+  // "Người nhận" would make two different people look like one person on the
+  // exact screen whose job is telling them apart.
+  const { publishBatch } = await import("../dist-test/api.js");
+  const stranger = "f9e9d9c9-b9a9-4f99-8e99-d9c9b9a9f999";
+  const restore = respondWith({
+    guest_links: [
+      { sender_id: stranger, path: "/g/x", obligations: [{ obligation_id: "o", amount_vnd: 1 }] },
+    ],
+  });
+  try {
+    const envelopes = await publishBatch("b", { payerAcknowledged: true }, "a", ROSTER);
+    assert.equal(envelopes[0].senderName, stranger);
+  } finally {
+    restore();
+  }
+});
+
+/* loadBoard -- agy found it had no test touching it at all, and that deleting
+ * the whole function left every test green. It reads the collection board:
+ * who has paid, and what is being argued about.
+ */
+
+test("bảng đợt thu đọc được tên, số tiền và trạng thái", async () => {
+  const { loadBoard } = await import("../dist-test/api.js");
+  const restore = respondWith({
+    disputed_count: 1,
+    obligations: [
+      {
+        obligation_id: "o1",
+        sender_id: HA_ID,
+        recipient_id: ROSTER[1].id,
+        amount_vnd: 100_000,
+        obligation_status: "outstanding",
+        disputed: true,
+      },
+    ],
+  });
+  try {
+    const board = await loadBoard("b", "a", ROSTER);
+    assert.equal(board.disputedCount, 1);
+    assert.equal(board.obligations[0].senderName, "Hà");
+    assert.equal(board.obligations[0].recipient, "Quyên");
+    assert.equal(board.obligations[0].amountVnd, 100_000);
+  } finally {
+    restore();
+  }
+});
+
+test("tiền đã tới thì vẫn hiện là đã tới, kể cả khi có người thắc mắc", async () => {
+  // Payment status and dispute are separate facts on the wire and the board
+  // has one slot. Showing "disputed" over "outstanding" is safe; showing it
+  // over "confirmed" would hide money that actually arrived.
+  const { loadBoard } = await import("../dist-test/api.js");
+  const restore = respondWith({
+    disputed_count: 1,
+    obligations: [
+      {
+        obligation_id: "o1",
+        sender_id: HA_ID,
+        recipient_id: ROSTER[1].id,
+        amount_vnd: 100_000,
+        obligation_status: "confirmed",
+        disputed: true,
+      },
+    ],
+  });
+  try {
+    const board = await loadBoard("b", "a", ROSTER);
+    assert.equal(board.obligations[0].status, "confirmed", "che mat tien da toi");
+  } finally {
+    restore();
+  }
 });

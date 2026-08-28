@@ -36,16 +36,21 @@ export default function App() {
   // person had typed the moment they tried to change one number.
   const [form, setForm] = useState<DraftForm>(EMPTY_FORM);
   const [proposal, setProposal] = useState<PendingProposal | null>(null);
+  // Held across attempts on purpose. Confirming writes a new expense version
+  // every time it is called, and opening the batch right after it can fail --
+  // it does today, when nobody owed money has a bank account on file. Without
+  // this, pressing "Xác nhận" again wrote a second version of the same expense
+  // into the ledger, and a third, each one indistinguishable from a real edit.
+  const [written, setWritten] = useState<{
+    expenseVersionId: string;
+    acknowledged: boolean;
+  } | null>(null);
   const [batchId, setBatchId] = useState<string | null>(null);
   const [obligations, setObligations] = useState<Obligation[]>([]);
   const [envelopes, setEnvelopes] = useState<Envelope[]>([]);
   const [published, setPublished] = useState(false);
   // Spec section 8.3. Reported by the batch, never assumed by the screen.
-  const [gates, setGates] = useState<PublishGates>({
-    payerAcknowledged: false,
-    recipientReady: false,
-    recipientProblem: null,
-  });
+  const [gates, setGates] = useState<PublishGates>({ payerAcknowledged: false });
   const [error, setError] = useState<string | null>(null);
 
   async function guard(work: () => Promise<void>) {
@@ -55,11 +60,11 @@ export default function App() {
     } catch (problem) {
       // Say what failed and what to do. "Something went wrong" is not an
       // error message, it is an apology.
-      setError(
-        problem instanceof Error && problem.message.includes("fetch")
-          ? "Không nối được với máy chủ. Kiểm tra services/api có đang chạy không."
-          : String(problem instanceof Error ? problem.message : problem)
-      );
+      // `api.ts` already turns an unreachable server into an ApiError whose
+      // message names the address it tried, so there is nothing to add here.
+      // The branch that used to sit here looked for "fetch" in the message and
+      // could never match -- a fallback that reads as careful and never runs.
+      setError(problem instanceof Error ? problem.message : String(problem));
     }
   }
 
@@ -74,6 +79,9 @@ export default function App() {
           onForm={setForm}
           onNext={(d) => guard(async () => {
             setDraft(d);
+            // A new proposal makes any previously written version stale: it
+            // belongs to the numbers on the last screen, not these.
+            setWritten(null);
             setProposal(await proposeSplit(d));
             setStep("de-xuat");
           })}
@@ -87,12 +95,15 @@ export default function App() {
           onConfirm={() => guard(async () => {
             // Confirm writes the split into the ledger and tells us whether
             // the advancer acknowledged; the batch gate reads that answer
-            // rather than assuming it.
-            const written = await confirmExpense(proposal);
+            // rather than assuming it. Written once: if opening the batch
+            // fails, pressing the button again reuses the version already in
+            // the ledger instead of writing another one beside it.
+            const ledger = written ?? (await confirmExpense(proposal));
+            setWritten(ledger);
             const batch = await openBatch(
               proposal,
-              written.expenseVersionId,
-              written.acknowledged,
+              ledger.expenseVersionId,
+              ledger.acknowledged,
             );
             setBatchId(batch.batchId);
             setObligations(batch.obligations);
@@ -109,18 +120,17 @@ export default function App() {
           published={published}
           gates={gates}
           onPublish={() => guard(async () => {
-            setEnvelopes(await publishBatch(batchId!, gates, proposal!.advancerId));
+            setEnvelopes(
+              await publishBatch(
+                batchId!,
+                gates,
+                proposal!.advancerId,
+                proposal!.participants,
+              ),
+            );
             setPublished(true);
           })}
           onShare={() => setStep("chia-se")}
-          // Offline, these stand in for actions the API will own: the advancer
-          // acknowledging in their own session, and a recipient being set up
-          // and confirmed. Local state is honest about being a stand-in --
-          // what it must not do is let publish happen without them.
-          onAcknowledge={() => setGates((g) => ({ ...g, payerAcknowledged: true }))}
-          onSetRecipient={() =>
-            setGates((g) => ({ ...g, recipientReady: true, recipientProblem: null }))
-          }
         />
       )}
 

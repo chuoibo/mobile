@@ -193,27 +193,54 @@ export async function confirmExpense(
   };
 }
 
-/** Spec section 8.3: two gates before anything goes out in someone's name. */
+/**
+ * Spec section 8.3 has two gates. The app models exactly one of them.
+ *
+ * Gate 1 -- the advancer agreed -- is knowable here: `confirmExpense` returns
+ * the server's answer.
+ *
+ * Gate 2 -- there is a confirmed account for the money to land in -- is not.
+ * No endpoint reports it. So the client hardcoded it shut, which made
+ * publishing impossible, and then a button was added that opened it by being
+ * tapped. A gate whose only control is a button that opens it is not a gate,
+ * and worse, it put a claim on screen that nobody had checked.
+ *
+ * Both are gone. Gate 2 lives on the server, which decides it from its own
+ * stored facts and refuses with a reason. The app asks and reports the answer
+ * instead of holding an opinion it has no way to form.
+ */
 export type PublishGates = {
   payerAcknowledged: boolean;
-  recipientReady: boolean;
-  recipientProblem: string | null;
 };
 
 export function canPublish(gates: PublishGates): boolean {
-  return gates.payerAcknowledged && gates.recipientReady;
+  return gates.payerAcknowledged;
 }
 
 export class GateNotPassedError extends Error {
-  constructor(gates: PublishGates) {
-    const missing = [
-      gates.payerAcknowledged ? null : "người ứng tiền chưa xác nhận",
-      gates.recipientReady ? null : "chưa có tài khoản nhận",
-    ].filter(Boolean);
-    super(`Chưa phát được: ${missing.join(" và ")}. Spec mục 8.3.`);
+  constructor(_gates: PublishGates) {
+    super("Chưa phát được: người ứng tiền chưa xác nhận. Spec mục 8.3.");
     this.name = "GateNotPassedError";
   }
 }
+
+/**
+ * What the server's publish refusals mean, in words a person can act on.
+ *
+ * Left untranslated they reach the screen as `recipient_setup_incomplete`,
+ * next to somebody's name and somebody's money. The map is deliberately
+ * incomplete: an unrecognised code falls through to the server's own detail
+ * rather than to a friendly sentence that might be wrong about what happened.
+ */
+const PUBLISH_REFUSALS: Record<string, string> = {
+  advancer_not_acknowledged:
+    "Người ứng tiền chưa xác nhận. App không gửi gì dưới tên một người trước khi họ đồng ý.",
+  recipient_setup_incomplete:
+    "Chưa có tài khoản nhận đã được xác nhận. Chưa biết chuyển tiền về đâu thì chưa phát được.",
+  bank_recipient_snapshot_invalid:
+    "Tài khoản nhận đã đổi sau khi đợt thu đóng băng. Mở đợt mới thay vì phát cái cũ.",
+  batch_not_found: "Không tìm thấy đợt thu này trên máy chủ.",
+};
 
 export type OpenedBatch = {
   batchId: string;
@@ -224,19 +251,19 @@ export type OpenedBatch = {
 /**
  * Open a collection round.
  *
- * `unreadyRecipientChoice` exists because the server refuses to freeze a batch
- * when somebody who is owed money has no bank account on file. It will not pick
- * for you, and it is right not to: "wait" and "split the blocked ones out" have
- * different consequences for the people involved, and neither is a default.
+ * The server refuses to freeze a batch when somebody who is owed money has no
+ * bank account on file, and it is right not to pick for you: "wait" and "split
+ * the blocked ones out" have different consequences for the people involved.
  *
- * The app passes nothing by default, so the refusal reaches the screen instead
- * of being silently resolved here.
+ * A parameter for that choice used to sit here. Nothing called it and no test
+ * exercised it, so it was a promise the app could not keep -- and an untaken
+ * branch on the money path is worse than an absent one, because it reads as
+ * handled. The refusal reaches the screen instead, with the reason attached.
  */
 export async function openBatch(
   proposal: PendingProposal,
   expenseVersionId: string,
   acknowledged: boolean,
-  unreadyRecipientChoice?: "wait" | "split_to_blocked_batch",
 ): Promise<OpenedBatch> {
   const nameOf = (id: string) =>
     proposal.participants.find((person: Participant) => person.id === id)?.name ?? id;
@@ -254,7 +281,6 @@ export async function openBatch(
       context_id: CONTEXT_ID,
       expense_version_ids: [expenseVersionId],
       due_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-      unready_recipient_choice: unreadyRecipientChoice ?? null,
     },
     actorId: proposal.advancerId,
   });
@@ -269,27 +295,57 @@ export async function openBatch(
       amountVnd: row.amount_vnd,
       status: "outstanding" as const,
     })),
-    gates: {
-      // A real answer from the server, not a guess.
-      payerAcknowledged: acknowledged,
-      // The recipient gate is not readable from this endpoint yet, so it stays
-      // shut. A gate that opens because nobody checked is not a gate.
-      recipientReady: false,
-      recipientProblem: `Chưa đọc được tài khoản nhận của ${nameOf(proposal.advancerId)}.`,
-    },
+    // A real answer from the server, not a guess. Gate 2 is deliberately
+    // absent from this type -- see PublishGates.
+    gates: { payerAcknowledged: acknowledged },
   };
 }
 
+/**
+ * Publish, and put people's names on what comes out.
+ *
+ * The roster is a parameter because the server answers in ids: `guest_links`
+ * carries `sender_id` and nothing else about who that is. Without it the share
+ * screen read "Gửi cho 6b4bda36-93e6-4a94-b7ca-48757974f36d", and the message
+ * copied to the clipboard said "Phần của 6b4bda36-…" -- an organiser cannot
+ * tell which link belongs to whom, which is the one job that screen has.
+ */
 export async function publishBatch(
   batchId: string,
   gates: PublishGates,
   actorId: string,
+  roster: Participant[] = [],
 ): Promise<Envelope[]> {
   // Checked here as well as by the disabled button. A disabled button is a
   // courtesy; this is what holds when the function is called directly.
   if (!canPublish(gates)) {
     throw new GateNotPassedError(gates);
   }
+  try {
+    return await sendPublish(batchId, actorId, roster);
+  } catch (problem) {
+    // Gate 2 is the server's to enforce, so its refusal is the only true
+    // answer about it. Translated, not swallowed -- the code stays on the
+    // error so a report can still name what happened.
+    if (problem instanceof ApiError && PUBLISH_REFUSALS[problem.code]) {
+      throw new ApiError(problem.status, problem.code, PUBLISH_REFUSALS[problem.code]);
+    }
+    throw problem;
+  }
+}
+
+function nameFrom(roster: Participant[], id: string): string {
+  // Falling back to the id is deliberate: a missing name is a display problem,
+  // and hiding it behind "Người nhận" would make two different people look
+  // like the same one on a screen whose whole purpose is telling them apart.
+  return roster.find((person) => person.id === id)?.name ?? id;
+}
+
+async function sendPublish(
+  batchId: string,
+  actorId: string,
+  roster: Participant[],
+): Promise<Envelope[]> {
   const result = await call<{
     guest_links: {
       sender_id: string;
@@ -314,7 +370,7 @@ export async function publishBatch(
   // test passed, because none of them had ever published against a real server.
   return result.guest_links.map((link) => ({
     senderId: link.sender_id,
-    senderName: link.sender_id,
+    senderName: nameFrom(roster, link.sender_id),
     amountVnd: link.obligations.reduce((sum, row) => sum + row.amount_vnd, 0),
     url: BASE_URL + link.path,
     opened: false,
@@ -325,6 +381,7 @@ export async function publishBatch(
 export async function loadBoard(
   batchId: string,
   actorId: string,
+  roster: Participant[] = [],
 ): Promise<{ obligations: Obligation[]; disputedCount: number }> {
   const result = await call<{
     disputed_count: number;
@@ -343,8 +400,8 @@ export async function loadBoard(
     obligations: result.obligations.map((row) => ({
       id: row.obligation_id,
       senderId: row.sender_id,
-      senderName: row.sender_id,
-      recipient: row.recipient_id,
+      senderName: nameFrom(roster, row.sender_id),
+      recipient: nameFrom(roster, row.recipient_id),
       amountVnd: row.amount_vnd,
       // Payment status and dispute are separate facts on the wire, and the
       // board has one slot. Showing "disputed" over "outstanding" is safe;
