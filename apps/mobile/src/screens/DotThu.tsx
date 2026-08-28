@@ -34,13 +34,18 @@ const WORDING: Record<Obligation["status"], string> = {
 };
 
 export function DotThu({
-  obligations, published, gates, onPublish, onShare,
+  obligations, published, gates, onPublish, onShare, onRefresh, onConfirmReceipt, busy,
 }: {
   obligations: Obligation[];
   published: boolean;
   gates: PublishGates;
   onPublish: () => void;
   onShare: () => void;
+  /** Re-read the board from the server. Nothing here updates on its own. */
+  onRefresh: () => void;
+  /** Only the person owed the money may say it arrived. */
+  onConfirmReceipt: (obligation: Obligation) => void;
+  busy: boolean;
 }) {
   const c = usePalette();
   const ready = canPublish(gates);
@@ -56,7 +61,15 @@ export function DotThu({
       hint={published ? "Đã phát. Ai cũng xem được phần của mình." : "Chưa phát. Chưa ai bị nhắn gì."}
       footer={
         published ? (
-          <Button label="Chia sẻ cho từng người" onPress={onShare} />
+          <>
+            <Button label="Chia sẻ cho từng người" onPress={onShare} />
+            <Button
+              label={busy ? "Đang đọc lại…" : "Đọc lại từ máy chủ"}
+              tone="quiet"
+              disabled={busy}
+              onPress={onRefresh}
+            />
+          </>
         ) : (
           <>
             <Button label="Phát đợt thu" disabled={!ready} onPress={onPublish} />
@@ -137,9 +150,23 @@ export function DotThu({
                   {WORDING[o.status]}
                 </Text>
               </View>
-              <Text style={{ ...type.amountSmall, color: settled ? c.accent : c.ink }}>
-                {formatVnd(o.amountVnd)}đ
-              </Text>
+              <View style={{ alignItems: "flex-end", gap: 4 }}>
+                <Text style={{ ...type.amountSmall, color: settled ? c.accent : c.ink }}>
+                  {formatVnd(o.amountVnd)}đ
+                </Text>
+                {/* Only offered once the round is out, and only while the money
+                    has not been recorded as arrived. Pressing this says one
+                    person saw it land -- it is not a bank telling anybody
+                    anything, and the wording keeps saying so. */}
+                {published && !settled ? (
+                  <Button
+                    label="Tiền đã về"
+                    tone="quiet"
+                    disabled={busy}
+                    onPress={() => onConfirmReceipt(o)}
+                  />
+                ) : null}
+              </View>
             </View>
           );
         })}

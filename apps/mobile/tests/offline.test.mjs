@@ -407,3 +407,61 @@ test("tiền đã tới thì vẫn hiện là đã tới, kể cả khi có ngư
     restore();
   }
 });
+
+/* Confirming that money arrived.
+ *
+ * `receiver_confirmed` means one person pressed a button. It is not a bank
+ * telling anyone anything -- the product holds no money and reads no
+ * statement. These tests are about the client not making it look like more
+ * than that, and about not recording one arrival twice.
+ */
+
+test("báo tiền đã về gửi đúng số tiền của nghĩa vụ đó", async () => {
+  const { confirmReceipt } = await import("../dist-test/api.js");
+  const real = globalThis.fetch;
+  let sent = null;
+  globalThis.fetch = async (url, init) => {
+    sent = { url: String(url), body: JSON.parse(init.body), headers: init.headers };
+    return new Response(JSON.stringify({ obligation_status: "confirmed" }), {
+      status: 201,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+  try {
+    const result = await confirmReceipt("ob-1", 100_000, "actor-1", "key-1");
+    assert.equal(result.status, "confirmed");
+    assert.ok(sent.url.endsWith("/obligations/ob-1/confirm-receipt"));
+    assert.equal(sent.body.amount_vnd, 100_000);
+    assert.equal(sent.body.idempotency_key, "key-1");
+    // Only the person owed the money may say this, so the call has to carry
+    // who is saying it. A confirmation with no actor is one anybody could send.
+    assert.equal(sent.headers["X-Actor-ID"], "actor-1");
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+test("gửi lại cùng một khoá thì máy chủ vẫn chỉ thấy một lần báo", async () => {
+  // The case this exists for: the request arrives, the reply does not, and the
+  // person presses again. With a fresh key that second press is a second
+  // arrival and the obligation goes to `over_confirmed` -- it reads as
+  // somebody having paid more than they owed. The key is what stops that, so
+  // it is asserted to be the same one, not merely to be present.
+  const { confirmReceipt } = await import("../dist-test/api.js");
+  const real = globalThis.fetch;
+  const keys = [];
+  globalThis.fetch = async (_url, init) => {
+    keys.push(JSON.parse(init.body).idempotency_key);
+    return new Response(JSON.stringify({ obligation_status: "confirmed" }), {
+      status: 201,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+  try {
+    await confirmReceipt("ob-1", 100_000, "actor-1", "same-key");
+    await confirmReceipt("ob-1", 100_000, "actor-1", "same-key");
+    assert.deepEqual(keys, ["same-key", "same-key"], "khoa doi giua hai lan gui");
+  } finally {
+    globalThis.fetch = real;
+  }
+});

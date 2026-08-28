@@ -413,3 +413,31 @@ export async function loadBoard(
     })),
   };
 }
+
+/**
+ * Record that the money arrived.
+ *
+ * Only the person owed it may say this, and saying it is not the same as a
+ * bank telling anyone anything -- the product holds no money and sees no
+ * statement. `receiver_confirmed` means one person pressed a button. The whole
+ * design rests on that being visible rather than dressed up as settlement.
+ *
+ * `idempotency_key` is generated per attempt and reused on retry, because a
+ * flaky connection must not turn one arrival into two. Confirming twice would
+ * push an obligation to `over_confirmed`, which reads as somebody having paid
+ * more than they owed.
+ */
+export async function confirmReceipt(
+  obligationId: string,
+  amountVnd: number,
+  actorId: string,
+  idempotencyKey: string,
+): Promise<{ status: Obligation["status"] }> {
+  const result = await call<{
+    obligation_status: Obligation["status"];
+  }>(`/obligations/${obligationId}/confirm-receipt`, {
+    body: { amount_vnd: amountVnd, idempotency_key: idempotencyKey },
+    actorId,
+  });
+  return { status: result.obligation_status };
+}

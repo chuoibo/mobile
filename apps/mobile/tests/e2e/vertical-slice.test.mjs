@@ -13,11 +13,14 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import test from "node:test";
 
 import {
   BASE_URL,
   confirmExpense,
+  confirmReceipt,
+  loadBoard,
   openBatch,
   proposeSplit,
   publishBatch,
@@ -141,4 +144,34 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
   const share = envelopes[0].amountVnd.toLocaleString("vi-VN").replace(/,/g, ".");
   assert.ok(html.includes(share), `trang khách không hiện ${share}`);
   assert.ok(!html.includes("300.000"), "trang khách để lộ tổng của cả nhóm");
+
+  // The other half of the round, which the app had no way to reach until now:
+  // the money comes back. Publishing is not the end of anything -- an
+  // organiser still has to see who paid and say it arrived.
+  const before = await loadBoard(batch.batchId, NAM.id, draft.participants);
+  assert.equal(before.obligations.length, 2);
+  assert.ok(
+    before.obligations.every((o) => o.status === "outstanding"),
+    "co nghia vu da xong truoc khi ai tra tien",
+  );
+  assert.ok(
+    before.obligations.every((o) => ["Hà", "Quyên"].includes(o.senderName)),
+    "bang doc ra id thay vi ten",
+  );
+
+  const owed = before.obligations[0];
+  const receipt = await confirmReceipt(owed.id, owed.amountVnd, NAM.id, randomUUID());
+  assert.equal(receipt.status, "confirmed");
+
+  // Read it back rather than trusting the reply: the board is what an
+  // organiser looks at, and it derives status from the ledger rather than
+  // storing it. If those two ever disagree, this is where it shows.
+  const after = await loadBoard(batch.batchId, NAM.id, draft.participants);
+  const settled = after.obligations.find((o) => o.id === owed.id);
+  assert.equal(settled.status, "confirmed", "bang khong thay tien da ve");
+  assert.equal(
+    after.obligations.filter((o) => o.status === "outstanding").length,
+    1,
+    "xac nhan mot nghia vu lam doi trang thai nghia vu khac",
+  );
 });

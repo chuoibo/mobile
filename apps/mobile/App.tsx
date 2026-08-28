@@ -6,10 +6,12 @@
  * entry point to route to.
  */
 import { StatusBar } from "expo-status-bar";
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { SafeAreaView, Text, View, useColorScheme } from "react-native";
 import {
   confirmExpense,
+  confirmReceipt,
+  loadBoard,
   openBatch,
   proposeSplit,
   publishBatch,
@@ -21,10 +23,13 @@ import { ChiaSe, type Envelope } from "./src/screens/ChiaSe";
 import { DeXuat, type Proposal } from "./src/screens/DeXuat";
 import { DotThu, type Obligation } from "./src/screens/DotThu";
 import { Draft, NhapKhoanChi } from "./src/screens/NhapKhoanChi";
-import { EMPTY_FORM, type DraftForm } from "./src/participants";
+import { EMPTY_FORM, makeIdFactory, type DraftForm } from "./src/participants";
 import { space, type, usePalette } from "./src/theme";
 
 type Step = "nhap" | "de-xuat" | "dot-thu" | "chia-se";
+
+/** Idempotency keys for receipt confirmations. UUIDs, because the API wants one. */
+const newId = makeIdFactory();
 
 export default function App() {
   const c = usePalette();
@@ -52,9 +57,34 @@ export default function App() {
   // Spec section 8.3. Reported by the batch, never assumed by the screen.
   const [gates, setGates] = useState<PublishGates>({ payerAcknowledged: false });
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  // One key per obligation, minted on the first press and kept.
+  //
+  // A fresh key on every press is the obvious version and it is wrong in the
+  // one case that matters: the request reached the server, the reply did not
+  // reach us, the person presses again. A new key makes that a second arrival,
+  // and the obligation goes to `over_confirmed` -- which reads as somebody
+  // having paid more than they owed. Kept in a ref rather than state so a
+  // re-render between the press and the reply cannot lose it.
+  const receiptKeys = useRef<Record<string, string>>({});
+
+  /**
+   * Re-read the board from the server.
+   *
+   * Nothing here polls. A guest reporting a transfer changes the server, not
+   * this screen, and a screen that quietly went stale would show an organiser
+   * "chưa chuyển" next to money that arrived an hour ago. The button says out
+   * loud that looking is an action.
+   */
+  async function refreshBoard() {
+    if (!batchId || !proposal) return;
+    const board = await loadBoard(batchId, proposal.advancerId, proposal.participants);
+    setObligations(board.obligations);
+  }
 
   async function guard(work: () => Promise<void>) {
     setError(null);
+    setBusy(true);
     try {
       await work();
     } catch (problem) {
@@ -65,6 +95,8 @@ export default function App() {
       // The branch that used to sit here looked for "fetch" in the message and
       // could never match -- a fallback that reads as careful and never runs.
       setError(problem instanceof Error ? problem.message : String(problem));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -131,6 +163,13 @@ export default function App() {
             setPublished(true);
           })}
           onShare={() => setStep("chia-se")}
+          busy={busy}
+          onRefresh={() => guard(refreshBoard)}
+          onConfirmReceipt={(o) => guard(async () => {
+            const key = (receiptKeys.current[o.id] ??= newId());
+            await confirmReceipt(o.id, o.amountVnd, proposal!.advancerId, key);
+            await refreshBoard();
+          })}
         />
       )}
 
