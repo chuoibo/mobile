@@ -40,6 +40,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
+import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -59,94 +60,80 @@ function everyTestFile(dir = join(ROOT, "tests")) {
 }
 
 /**
- * The arguments the gate hands to `node --test`.
+ * The argument text the gate hands to `node --test`, before the shell sees it.
  *
  * Read out of the script string rather than hardcoded, because a copy of the
  * patterns here would pass while the real script pointed somewhere else -- the
  * failure mode this whole file is about.
  */
-function runnerPatterns(script) {
+function runnerArgumentText(script) {
   const marker = "node --test ";
   const at = script.lastIndexOf(marker);
   assert.notEqual(at, -1, `khong tim thay "node --test" trong: ${script}`);
-  return script
-    .slice(at + marker.length)
-    .split("&&")[0]
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
+  return script.slice(at + marker.length).split("&&")[0].trim();
 }
 
 /**
- * Expand one shell glob against the tree.
+ * What `node --test` actually receives, expanded by the shell that will expand
+ * it for real.
  *
- * `sh` is what actually expands these, so this mirrors it rather than calling
- * out to a matcher with different rules: `*` matches within one path segment
- * and never crosses a `/`. Written out because `fs.globSync` landed in Node 22
- * and CI still runs Node 20 -- a helper that only works on the newer runtime
- * would make this test pass locally and vanish where it is needed.
+ * An earlier version of this file reimplemented `sh` glob expansion by hand.
+ * That was wrong in a way worth recording, because it looked right: a model of
+ * the shell only understands the constructs its author thought of. It knew `*`
+ * and nothing else, so the moment the gate moved to
+ * `$(find tests -name '*.test.mjs')` the model read `$(find` as a filename,
+ * matched nothing, and reported a broken gate that was in fact fine. A checker
+ * that fails on correct input is not a stricter checker, it is a wrong one, and
+ * it would have blocked the very repair it exists to protect.
+ *
+ * So the shell is asked instead of imitated. `printf` re-emits each expanded
+ * word on its own line, which is exactly the argument vector `node --test`
+ * would get: globs, command substitution, and quoting all handled by the thing
+ * that defines them. This also means the assertions below stay true for a form
+ * nobody has written yet, which is the whole point of not asserting spelling.
  */
-function expand(pattern) {
-  let level = [""];
-  for (const segment of pattern.split("/")) {
-    const next = [];
-    for (const base of level) {
-      const here = join(ROOT, base);
-      if (!segment.includes("*")) {
-        try {
-          statSync(join(here, segment));
-          next.push(base ? `${base}/${segment}` : segment);
-        } catch {
-          /* a literal segment that is not there expands to nothing, as in sh */
-        }
-        continue;
-      }
-      const rule = new RegExp(
-        `^${segment.split("*").map((s) => s.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join("[^/]*")}$`,
-      );
-      let entries;
-      try {
-        entries = readdirSync(here);
-      } catch {
-        continue;
-      }
-      for (const name of entries.sort()) {
-        if (rule.test(name)) next.push(base ? `${base}/${name}` : name);
-      }
-    }
-    level = next;
-  }
-  return level;
+function expandArguments(argumentText) {
+  const printed = execFileSync("sh", ["-c", `printf '%s\\n' ${argumentText}`], {
+    cwd: ROOT,
+    encoding: "utf8",
+  });
+  return printed.split("\n").filter(Boolean);
+}
+
+/** The expanded argument vector for one gate, by script name. */
+function runnerFiles(gate) {
+  return expandArguments(runnerArgumentText(manifest.scripts[gate]));
 }
 
 /** The two scripts that invoke `node --test`, by name. */
 const GATES = ["test", "test:e2e"];
 
-test("mỗi mẫu trong hai lệnh test đều trỏ tới file có thật", () => {
+test("mỗi đối số hai lệnh test đưa cho node --test đều là file test có thật", () => {
   for (const gate of GATES) {
-    for (const pattern of runnerPatterns(manifest.scripts[gate])) {
-      const matched = expand(pattern);
-      assert.ok(
-        matched.length > 0,
-        `"${pattern}" trong "${gate}" khong khop file nao — node --test se bao MODULE_NOT_FOUND`,
-      );
-      for (const hit of matched) {
-        assert.ok(
-          statSync(join(ROOT, hit)).isFile(),
-          `"${pattern}" khop thu muc ${hit}, khong phai file test`,
+    const files = runnerFiles(gate);
+    assert.ok(
+      files.length > 0,
+      `"${gate}" khong khop file nao — node --test se chay 0 test roi thoat 0`,
+    );
+    for (const hit of files) {
+      // An unmatched glob survives expansion literally in sh, so a pattern that
+      // matches nothing arrives here as a path that is not on disk.
+      let stat;
+      try {
+        stat = statSync(join(ROOT, hit));
+      } catch {
+        assert.fail(
+          `"${hit}" trong "${gate}" khong ton tai — node --test se bao MODULE_NOT_FOUND`,
         );
-        assert.ok(hit.endsWith(".test.mjs"), `${hit} khong phai file test`);
       }
+      assert.ok(stat.isFile(), `"${gate}" dua thu muc ${hit} cho node --test, khong phai file`);
+      assert.ok(hit.endsWith(".test.mjs"), `${hit} khong phai file test`);
     }
   }
 });
 
 test("mọi file test đều có ít nhất một cổng chạy tới", () => {
-  const reached = new Set(
-    GATES.flatMap((gate) =>
-      runnerPatterns(manifest.scripts[gate]).flatMap((pattern) => expand(pattern)),
-    ),
-  );
+  const reached = new Set(GATES.flatMap((gate) => runnerFiles(gate)));
   const missed = everyTestFile().filter((file) => !reached.has(file));
   assert.deepEqual(missed, [], `co file test khong cong nao chay toi: ${missed}`);
 });
@@ -154,9 +141,7 @@ test("mọi file test đều có ít nhất một cổng chạy tới", () => {
 test("test:e2e chạy đúng bài end-to-end", () => {
   // The narrower gate has to reach the slice, or `npm run test:e2e` becomes a
   // command that reports success without going near the API.
-  const reached = new Set(
-    runnerPatterns(manifest.scripts["test:e2e"]).flatMap((pattern) => expand(pattern)),
-  );
+  const reached = new Set(runnerFiles("test:e2e"));
   assert.ok(
     reached.has("tests/e2e/vertical-slice.test.mjs"),
     `test:e2e khong cham toi bai end-to-end, chi thay: ${[...reached]}`,
