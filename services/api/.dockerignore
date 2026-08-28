@@ -1,0 +1,19 @@
+# Docker only reads .dockerignore from the *build context root*. The build
+# context for this image is services/api/, so this is the only .dockerignore
+# that can affect it. A repo-root one used to exist; it never applied to any
+# build and was deleted rather than left looking like a safeguard.
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+**/.venv
+
+# Test suite: the runtime image must not contain it, and it has no business
+# being transferred as context either.
+tests
+
+# Local scratch and secrets. .env must never reach an image layer.
+.env
+.env.*
+.resume-*.md
+tools
