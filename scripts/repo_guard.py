@@ -133,6 +133,11 @@ VN_LANDLINE_RE = re.compile(
     r"(?<!\d)(?:(?:\+|00)?84(?:[ ().-]*0)?|0)[ ().-]*2"
     r"(?:[ ().-]*\d){8,9}(?!\d)"
 )
+# A committed conflict marker breaks whatever file it lands in, and the damage
+# is quiet: a .gitignore carrying one stops ignoring things without saying so.
+# This got past the guard once, in this repository, in a commit that also
+# reported "Repo guard passed".
+CONFLICT_MARKER_RE = re.compile(r"^(?:<{7}|={7}|>{7})(?:\s|$)", re.MULTILINE)
 LONG_NUMBER_RE = re.compile(r"(?<![A-Za-z0-9])\d(?:[ .-]?\d){8,63}(?![A-Za-z0-9])")
 GITHUB_TOKEN_RE = re.compile(
     r"(?<![A-Za-z0-9_])(?:"
@@ -169,8 +174,61 @@ ANNOTATION_RE = re.compile(
     r"\s+reason=([A-Za-z0-9][A-Za-z0-9._-]{7,})"
 )
 
+# Machine-generated dependency manifests are full of base64 integrity hashes
+# and long registry numbers. Every JavaScript project trips the base64 rules on
+# its lockfile, and a guard that fires on a file nobody edits by hand is a
+# guard people learn to ignore -- the exact failure I warned about when
+# reviewing this scanner's first version.
+#
+# The exemption is narrow on purpose: only these rules, only these filenames.
+# Email, phone, forbidden paths and controlled artifacts still apply, so a bill
+# pasted into a lockfile is still caught by everything that would catch it
+# anywhere else.
+GENERATED_LOCKFILES = frozenset({
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    "poetry.lock",
+    "Cargo.lock",
+})
+LOCKFILE_EXEMPT_RULES = frozenset({
+    "aggregate-base64-fragments",
+    "dense-base64-line",
+    "long-base64-token",
+    "long-number",
+})
+
+
+# A filename is not evidence. Codex proved the first version was a complete
+# backdoor: a 22 KB base64 bill plus a bank account number, in any file called
+# package-lock.json anywhere in the tree, produced zero findings. The same
+# bytes named notes.json produced four.
+#
+# So the exemption now needs the content to actually be that kind of file. A
+# real npm lockfile declares lockfileVersion; a real Cargo.lock has [[package]]
+# sections. Something merely wearing the name does not qualify.
+LOCKFILE_SIGNATURES = {
+    "package-lock.json": (b'"lockfileVersion"',),
+    "yarn.lock": (b"# yarn lockfile", b"__metadata:"),
+    "pnpm-lock.yaml": (b"lockfileVersion:",),
+    "poetry.lock": (b"[[package]]",),
+    "Cargo.lock": (b"[[package]]",),
+}
+
+
+def is_generated_lockfile(path: str, raw: bytes = b"") -> bool:
+    signatures = LOCKFILE_SIGNATURES.get(PurePosixPath(path).name)
+    if signatures is None:
+        return False
+    # Only look at the head: a real lockfile declares its format up front, and
+    # scanning megabytes to find a marker would let one be buried at the end.
+    head = raw[:8192]
+    return any(marker in head for marker in signatures)
+
+
 CONTENT_RULES = {
     "aggregate-base64-fragments",
+    "conflict-marker",
     "data-uri-base64",
     "dense-base64-line",
     "email",
@@ -311,6 +369,8 @@ def mask_match(rule: str, value: str) -> str:
     if rule == "long-number":
         digits = sum(character.isdigit() for character in value)
         return f"******** (digits={digits})"
+    if rule == "conflict-marker":
+        return "<redacted-conflict-marker>"
     if rule in {"data-uri-base64", "dense-base64-line"}:
         line_bytes = len(value.encode("utf-8"))
         return f"<redacted-base64-line> (line-bytes={line_bytes})"
@@ -618,8 +678,13 @@ def content_findings(
         len(fragment.encode("ascii"))
         for _line, _column, fragment in aggregate_fragments
     )
-    if aggregate_bytes > MAX_AGGREGATE_BASE64_BYTES and not config.permits(
-        path, digest, aggregate_rule
+    if (
+        aggregate_bytes > MAX_AGGREGATE_BASE64_BYTES
+        # A lockfile is thousands of integrity hashes by construction. Pinning
+        # it by digest would need re-approving on every dependency bump, which
+        # is how an allowlist turns into a rubber stamp.
+        and not is_generated_lockfile(path, raw)
+        and not config.permits(path, digest, aggregate_rule)
     ):
         first_line, first_column, _first_fragment = aggregate_fragments[0]
         aggregate_text = "\n".join(
@@ -696,6 +761,9 @@ def content_findings(
                     (match.start(), match.end(), "vn-phone", match.group(0))
                 )
                 occupied.append(match.span())
+        for match in CONFLICT_MARKER_RE.finditer(line):
+            candidates.append((match.start(), match.end(), "conflict-marker", match.group(0)))
+
         for match in LONG_NUMBER_RE.finditer(line):
             if overlaps(match.span(), occupied):
                 continue
@@ -704,6 +772,9 @@ def content_findings(
             candidates.append(
                 (match.start(), match.end(), "long-number", match.group(0))
             )
+
+        if is_generated_lockfile(path, raw):
+            candidates = [c for c in candidates if c[2] not in LOCKFILE_EXEMPT_RULES]
 
         for start, _end, rule, value in sorted(candidates):
             if config.permits(path, digest, rule) or inline_allows(

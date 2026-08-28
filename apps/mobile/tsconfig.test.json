@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "allowJs": false,
+    "outDir": "dist-test",
+    "rootDir": "src",
+    "target": "es2022"
+  },
+  "include": [
+    "src/api.ts",
+    "src/participants.ts"
+  ]
+}

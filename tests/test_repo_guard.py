@@ -20,7 +20,9 @@ sys.modules[SPEC.name] = repo_guard
 SPEC.loader.exec_module(repo_guard)
 
 
-class PatternScannerTests(unittest.TestCase):
+class ScanHelper(unittest.TestCase):
+    """Just the helper. Inheriting a suite would re-run every one of its tests."""
+
     def scan_text(self, text: str, path: str = "safe-note.txt"):
         raw = text.encode("utf-8")
         return repo_guard.content_findings(
@@ -33,6 +35,8 @@ class PatternScannerTests(unittest.TestCase):
             commit=None,
         )
 
+
+class PatternScannerTests(ScanHelper):
     def test_email_phone_and_long_number_are_masked(self):
         fake_email = "an.kiemthu" + "@" + "example.invalid"
         fake_phone = "+84" + " 912 345" + " 678"
@@ -645,3 +649,44 @@ class GitIntegrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LockfileExemptionTests(ScanHelper):
+    """A filename is not evidence.
+
+    The first version of the generated-lockfile exemption keyed off the name
+    alone. Codex proved that was a complete backdoor: a base64 bill plus a bank
+    account number, in any file called package-lock.json anywhere in the tree,
+    produced zero findings; the same bytes named notes.json produced four.
+    """
+
+    def _bill_and_account(self) -> str:
+        payload = base64.b64encode(bytes(range(256)) * 88).decode("ascii")
+        # repo-guard: allow=long-number reason=synthetic-account-number-this-test-must-contain-one
+        return '{"anh":"' + payload + '","stk":"19036812345678"}'
+
+    def test_a_file_merely_named_like_a_lockfile_gets_no_exemption(self):
+        line = self._bill_and_account()
+
+        for path in ("package-lock.json", "nested/deep/package-lock.json"):
+            with self.subTest(path=path):
+                rules = {item.rule for item in self.scan_text(line, path=path)}
+                self.assertIn("long-number", rules)
+                self.assertIn("aggregate-base64-fragments", rules)
+
+    def test_the_exemption_still_applies_to_a_real_lockfile(self):
+        payload = base64.b64encode(bytes(range(256)) * 88).decode("ascii")
+        line = '{"name":"x","lockfileVersion":3,"packages":{"":{"integrity":"' + payload + '"}}}'
+
+        rules = {item.rule for item in self.scan_text(line, path="package-lock.json")}
+
+        self.assertNotIn("aggregate-base64-fragments", rules)
+        self.assertNotIn("long-number", rules)
+
+    def test_a_format_marker_buried_past_the_head_does_not_earn_the_exemption(self):
+        # Otherwise an attacker appends `"lockfileVersion": 3` after the payload.
+        line = self._bill_and_account() + ',{"lockfileVersion":3}'
+
+        rules = {item.rule for item in self.scan_text(line, path="package-lock.json")}
+
+        self.assertIn("long-number", rules)
