@@ -133,6 +133,11 @@ VN_LANDLINE_RE = re.compile(
     r"(?<!\d)(?:(?:\+|00)?84(?:[ ().-]*0)?|0)[ ().-]*2"
     r"(?:[ ().-]*\d){8,9}(?!\d)"
 )
+# A committed conflict marker breaks whatever file it lands in, and the damage
+# is quiet: a .gitignore carrying one stops ignoring things without saying so.
+# This got past the guard once, in this repository, in a commit that also
+# reported "Repo guard passed".
+CONFLICT_MARKER_RE = re.compile(r"^(?:<{7}|={7}|>{7})(?:\s|$)", re.MULTILINE)
 LONG_NUMBER_RE = re.compile(r"(?<![A-Za-z0-9])\d(?:[ .-]?\d){8,63}(?![A-Za-z0-9])")
 GITHUB_TOKEN_RE = re.compile(
     r"(?<![A-Za-z0-9_])(?:"
@@ -157,28 +162,24 @@ DATA_URI_BASE64_RE = re.compile(
 BASE64_BYTE_VALUES = frozenset(
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=_-"
 )
+
+
 def looks_encoded(fragment: str) -> bool:
-    """Tell an encoded payload fragment from an ordinary identifier.
+    """Separate likely encoded fragments from common source identifiers.
 
-    The fragment alphabet has to include `_` and `-` to cover URL-safe base64,
-    which means every snake_case name of eight characters or more matched:
-    obligation_id, token_digest, save_guest_objection. The aggregate rule was
-    therefore scoring source code by length. repository.py crossed the 16 KB
-    threshold at 1199 lines with 1236 "fragments" -- almost exactly one per
-    line -- and the only remedy would have been annotating an entire source
-    file, which then blinds the rule to a real payload hidden in it.
-
-    Base64 of arbitrary bytes carries lower case, upper case and digits within
-    any long run. snake_case has no upper case; CamelCase rarely has digits.
-    Requiring all three keeps the rule pointed at encoded data. Long unbroken
-    runs are still covered by dense-base64-line and long-base64-token, so a
-    payload cannot hide by dodging this one test alone.
+    The token alphabet includes ``_`` and ``-`` because URL-safe base64 uses
+    them, so punctuation alone cannot distinguish payloads from snake_case.
+    Requiring both letter cases plus a non-letter signal keeps snake_case,
+    SCREAMING_SNAKE_CASE, and ordinary camelCase out of the aggregate while
+    retaining short base64/base64url fragments with varied character classes.
+    Other rules still cover dense lines and long unbroken tokens independently.
     """
-    if "_" in fragment:
-        return False
-    return any(character.isupper() for character in fragment) or any(
-        character.isdigit() for character in fragment
+    has_lower = any(character.islower() for character in fragment)
+    has_upper = any(character.isupper() for character in fragment)
+    has_non_letter = any(
+        character.isdigit() or character in "+/_-=" for character in fragment
     )
+    return has_lower and has_upper and has_non_letter
 
 
 BASE64_FRAGMENT_RE = re.compile(
@@ -195,6 +196,7 @@ ANNOTATION_RE = re.compile(
 
 CONTENT_RULES = {
     "aggregate-base64-fragments",
+    "conflict-marker",
     "data-uri-base64",
     "dense-base64-line",
     "email",
@@ -335,6 +337,8 @@ def mask_match(rule: str, value: str) -> str:
     if rule == "long-number":
         digits = sum(character.isdigit() for character in value)
         return f"******** (digits={digits})"
+    if rule == "conflict-marker":
+        return "<redacted-conflict-marker>"
     if rule in {"data-uri-base64", "dense-base64-line"}:
         line_bytes = len(value.encode("utf-8"))
         return f"<redacted-base64-line> (line-bytes={line_bytes})"
@@ -722,6 +726,9 @@ def content_findings(
                     (match.start(), match.end(), "vn-phone", match.group(0))
                 )
                 occupied.append(match.span())
+        for match in CONFLICT_MARKER_RE.finditer(line):
+            candidates.append((match.start(), match.end(), "conflict-marker", match.group(0)))
+
         for match in LONG_NUMBER_RE.finditer(line):
             if overlaps(match.span(), occupied):
                 continue

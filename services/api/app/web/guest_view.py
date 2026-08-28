@@ -16,6 +16,8 @@ Pure functions over plain dicts. No I/O, no ORM, no framework.
 
 from __future__ import annotations
 
+from app.web.banks import bank_display_name
+
 __all__ = ["GuestViewError", "build_guest_view", "ALLOWED_TOP_LEVEL", "ALLOWED_BLOCK"]
 
 # Whitelists, not blacklists. A blacklist grows a hole the first time somebody
@@ -114,7 +116,9 @@ def build_guest_view(envelope: dict) -> dict:
             "amount_vnd": obligation["amount_vnd"],
             "amount_display": format_vnd(obligation["amount_vnd"]),
             "recipient_display_name": obligation["recipient_display_name"],
-            "bank_name": obligation["bank_name"],
+            # A BIN is a routing code, not something a person can act on.
+            "bank_name": obligation.get("bank_name")
+            or bank_display_name(obligation["bank_bin"]),
             "bank_bin": obligation["bank_bin"],
             "account_number": obligation["account_number"],
             "account_holder_name": obligation["account_holder_name"],

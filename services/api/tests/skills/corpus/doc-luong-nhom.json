@@ -1,0 +1,180 @@
+{
+  "corpus_id": "doc-luong-nhom",
+  "version": 1,
+  "vi_sao": "Bo eval viet tay, TRUOC khi viet code trich xuat. ADR-0004 co nam sua doi hop dong, ca nam do viec tinh golden vector bang tay loi ra. Doc chat tieng Viet noi chuyen phiem kho hon nhieu so voi doc mot cau nguoi ta co y viet cho bot, nen cho mo ho o day se nhieu hon chu khong it hon.",
+  "nguyen_tac": [
+    "Voi tien, doan bay la te hon hoi. Ca nao khong du chac chan thi ky vong dung la must_ask, khong phai mot con so.",
+    "Moi khoan chi trich ra phai tro ve tin nhan nguon. Khong co trich dan thi nguoi duyet chi co the bam dong y.",
+    "Model chi trich xuat. Allocator tinh. Khong ca nao trong bo nay kiem tra phep chia."
+  ],
+  "cases": [
+    {
+      "case_id": "01-ro-rang",
+      "vi_sao": "Ca de nhat. Neu ca nay sai thi khong can xet tiep.",
+      "messages": [
+        {"id": "m1", "author": "Nam", "text": "tao vua tra tien an toi 800k nhe"},
+        {"id": "m2", "author": "Ha", "text": "ok"}
+      ],
+      "expected": {
+        "expenses": [
+          {"total_vnd": 800000, "paid_by": "Nam", "label": "an toi", "source_message_ids": ["m1"]}
+        ],
+        "must_ask": ["ai co mat trong bua an toi"]
+      }
+    },
+    {
+      "case_id": "02-so-tien-o-tin-nhan-sau",
+      "vi_sao": "So tien va nguoi tra nam o hai tin nhan. Trich dan phai gom ca hai.",
+      "messages": [
+        {"id": "m1", "author": "Quyen", "text": "tao tra tien khach san roi"},
+        {"id": "m2", "author": "Nam", "text": "bao nhieu?"},
+        {"id": "m3", "author": "Quyen", "text": "1tr2"}
+      ],
+      "expected": {
+        "expenses": [
+          {"total_vnd": 1200000, "paid_by": "Quyen", "label": "khach san", "source_message_ids": ["m1", "m3"]}
+        ]
+      }
+    },
+    {
+      "case_id": "03-cac-cach-viet-so",
+      "vi_sao": "Nguoi Viet viet tien bang rat nhieu kieu. Sai mot cai la sai tien.",
+      "messages": [
+        {"id": "m1", "author": "Nam", "text": "xe 300k"},
+        {"id": "m2", "author": "Ha", "text": "an sang 85 nghin"},
+        {"id": "m3", "author": "Quyen", "text": "ve may bay 2tr350"},
+        {"id": "m4", "author": "Linh", "text": "ca phe 120.000"}
+      ],
+      "expected": {
+        "expenses": [
+          {"total_vnd": 300000, "paid_by": "Nam", "label": "xe", "source_message_ids": ["m1"]},
+          {"total_vnd": 85000, "paid_by": "Ha", "label": "an sang", "source_message_ids": ["m2"]},
+          {"total_vnd": 2350000, "paid_by": "Quyen", "label": "ve may bay", "source_message_ids": ["m3"]},
+          {"total_vnd": 120000, "paid_by": "Linh", "label": "ca phe", "source_message_ids": ["m4"]}
+        ]
+      }
+    },
+    {
+      "case_id": "04-noi-dua-khong-phai-khoan-chi",
+      "vi_sao": "Nhom ban noi dua ve tien suot. Trich mot cau dua thanh no la loi nang nhat trong bo nay.",
+      "messages": [
+        {"id": "m1", "author": "Nam", "text": "tao no may ca ty roi day"},
+        {"id": "m2", "author": "Ha", "text": "haha tra dan"},
+        {"id": "m3", "author": "Quyen", "text": "tien nuoc 60k tao ung nhe"}
+      ],
+      "expected": {
+        "expenses": [
+          {"total_vnd": 60000, "paid_by": "Quyen", "label": "tien nuoc", "source_message_ids": ["m3"]}
+        ],
+        "must_not_extract": ["ca ty tu m1 khong phai khoan chi"]
+      }
+    },
+    {
+      "case_id": "05-loai-tru-nguoi",
+      "vi_sao": "shared_by khong phai lúc nao cung la ca nhom. Bo qua cau nay la bat mot nguoi tra cho bua ho khong an.",
+      "messages": [
+        {"id": "m1", "author": "Nam", "text": "bua lau toi qua 1tr"},
+        {"id": "m2", "author": "Ha", "text": "hom do Linh khong di dau nhe"}
+      ],
+      "expected": {
+        "expenses": [
+          {"total_vnd": 1000000, "paid_by": "Nam", "label": "bua lau", "excluded": ["Linh"], "source_message_ids": ["m1", "m2"]}
+        ]
+      }
+    },
+    {
+      "case_id": "06-them-muon",
+      "vi_sao": "Khoan bi nho ra sau, cach xa tin nhan goc.",
+      "messages": [
+        {"id": "m1", "author": "Nam", "text": "an trua 450k"},
+        {"id": "m2", "author": "Ha", "text": "chieu di dau tiep"},
+        {"id": "m3", "author": "Quyen", "text": "ra bien di"},
+        {"id": "m4", "author": "Nam", "text": "a quen con tien gui xe 50k nua"}
+      ],
+      "expected": {
+        "expenses": [
+          {"total_vnd": 450000, "paid_by": "Nam", "label": "an trua", "source_message_ids": ["m1"]},
+          {"total_vnd": 50000, "paid_by": "Nam", "label": "gui xe", "source_message_ids": ["m4"]}
+        ]
+      }
+    },
+    {
+      "case_id": "07-sua-lai-so",
+      "vi_sao": "Nguoi ta go nham roi sua. Lay con so dau la sai tien.",
+      "messages": [
+        {"id": "m1", "author": "Quyen", "text": "khach san 1tr5"},
+        {"id": "m2", "author": "Quyen", "text": "a nham 1tr8 moi dung"}
+      ],
+      "expected": {
+        "expenses": [
+          {"total_vnd": 1800000, "paid_by": "Quyen", "label": "khach san", "source_message_ids": ["m1", "m2"]}
+        ],
+        "must_not_extract": ["khong duoc tao hai khoan tu m1 va m2"]
+      }
+    },
+    {
+      "case_id": "08-hai-nguoi-ke-cung-mot-khoan",
+      "vi_sao": "Trung lap. Cong ca hai la thu gap doi tien cua nhom.",
+      "messages": [
+        {"id": "m1", "author": "Nam", "text": "tao tra tien taxi 200k"},
+        {"id": "m2", "author": "Ha", "text": "Nam vua tra taxi 200k do nhe moi nguoi"}
+      ],
+      "expected": {
+        "expenses": [
+          {"total_vnd": 200000, "paid_by": "Nam", "label": "taxi", "source_message_ids": ["m1", "m2"]}
+        ]
+      }
+    },
+    {
+      "case_id": "09-du-dinh-khong-phai-da-chi",
+      "vi_sao": "Thi tuong lai. Chua ai tra dong nao.",
+      "messages": [
+        {"id": "m1", "author": "Linh", "text": "mai chac tien ve khoang 500k moi dua"},
+        {"id": "m2", "author": "Nam", "text": "de tinh sau"}
+      ],
+      "expected": {
+        "expenses": [],
+        "must_not_extract": ["500k o m1 la du tinh, chua chi"]
+      }
+    },
+    {
+      "case_id": "10-tra-ho-mot-nguoi",
+      "vi_sao": "Khong phai khoan chung. Chia deu ca nhom la sai.",
+      "messages": [
+        {"id": "m1", "author": "Nam", "text": "tao ung ho Linh tien ve 320k, Linh tra rieng tao nhe"}
+      ],
+      "expected": {
+        "expenses": [
+          {"total_vnd": 320000, "paid_by": "Nam", "shared_by_hint": ["Linh"], "label": "ve cua Linh", "source_message_ids": ["m1"]}
+        ]
+      }
+    },
+    {
+      "case_id": "11-khong-du-chac-chan",
+      "vi_sao": "Ky vong dung la HOI, khong phai doan. Voi tien, doan bay te hon hoi.",
+      "messages": [
+        {"id": "m1", "author": "Ha", "text": "tien an hom qua tao tra roi day"},
+        {"id": "m2", "author": "Nam", "text": "uh"}
+      ],
+      "expected": {
+        "expenses": [],
+        "must_ask": ["bua an hom qua het bao nhieu tien"]
+      }
+    },
+    {
+      "case_id": "12-nguoi-trung-ten",
+      "vi_sao": "Hai nguoi ten Nam. Ten khong phai danh tinh. Loi nay app di dong da mac mot lan roi.",
+      "messages": [
+        {"id": "m1", "author": "Nam A", "text": "tao tra tien an 600k"},
+        {"id": "m2", "author": "Ha", "text": "Nam tra roi ha"},
+        {"id": "m3", "author": "Nam B", "text": "khong phai tao"}
+      ],
+      "expected": {
+        "expenses": [
+          {"total_vnd": 600000, "paid_by": "Nam A", "label": "an", "source_message_ids": ["m1"]}
+        ],
+        "must_not_extract": ["khong duoc gan khoan nay cho Nam B"]
+      }
+    }
+  ]
+}

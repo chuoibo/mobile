@@ -20,7 +20,9 @@ sys.modules[SPEC.name] = repo_guard
 SPEC.loader.exec_module(repo_guard)
 
 
-class PatternScannerTests(unittest.TestCase):
+class ScanHelper(unittest.TestCase):
+    """Just the helper. Inheriting a suite would re-run every one of its tests."""
+
     def scan_text(self, text: str, path: str = "safe-note.txt"):
         raw = text.encode("utf-8")
         return repo_guard.content_findings(
@@ -33,6 +35,8 @@ class PatternScannerTests(unittest.TestCase):
             commit=None,
         )
 
+
+class PatternScannerTests(ScanHelper):
     def test_email_phone_and_long_number_are_masked(self):
         fake_email = "an.kiemthu" + "@" + "example.invalid"
         fake_phone = "+84" + " 912 345" + " 678"
@@ -184,32 +188,42 @@ class PatternScannerTests(unittest.TestCase):
                 self.assertEqual(len(matches), 1)
                 rendered = matches[0].render()
                 self.assertIn("<redacted-base64-fragments>", rendered)
-                # Not an exact byte total. Fragments that could be ordinary
-                # identifiers no longer count, so a few all-lowercase chunks
-                # drop out at narrow wrap widths. Pinning the exact figure
-                # would pin the false-positive behaviour: counting every word
-                # in a source file is what pushed repository.py over this
-                # threshold at 1199 lines. What matters is that essentially
-                # all of the payload is still accounted for.
-                counted = int(rendered.split("aggregate-bytes=", 1)[1].split(",", 1)[0])
-                self.assertGreater(counted, len(payload) * 0.95)
+                counted = int(
+                    rendered.split("aggregate-bytes=", 1)[1].split(",", 1)[0]
+                )
+                self.assertGreater(
+                    counted,
+                    repo_guard.MAX_AGGREGATE_BASE64_BYTES,
+                )
                 self.assertNotIn(payload[:76], rendered)
                 self.assertNotIn("notes/synthetic-bill.txt", rendered)
 
-    def test_ordinary_source_does_not_aggregate_into_a_payload(self):
-        """The fragment alphabet includes `_` for URL-safe base64, so every
-        snake_case name of eight characters or more used to count. The rule was
-        scoring source files by length: repository.py crossed the 16 KB
-        threshold at 1199 lines with 1236 fragments, roughly one per line."""
+    def test_short_urlsafe_fragments_with_underscores_are_aggregated(self):
+        fragment = "Aa0_____"
+        base64.urlsafe_b64decode(fragment)
+        payload = "\n".join(" ".join([fragment] * 100) for _ in range(30))
+        self.assertEqual(len(payload.encode("ascii")), 26_999)
+
+        findings = self.scan_text(payload, path="notes/synthetic-url-safe.txt")
+        matches = [
+            item for item in findings if item.rule == "aggregate-base64-fragments"
+        ]
+
+        self.assertEqual(len(matches), 1)
+        rendered = matches[0].render()
+        self.assertIn("aggregate-bytes=24000", rendered)
+        self.assertNotIn(fragment, rendered)
+        self.assertNotIn("notes/synthetic-url-safe.txt", rendered)
+
+    def test_long_source_identifiers_do_not_aggregate_into_a_payload(self):
         line = (
-            "        self.session.add(AuditEvent("
-            "aggregate_type=aggregate_type, obligation_id=obligation_id, "
-            "token_digest=token_digest, save_guest_objection=confirmed_by_id))"
+            "const getGuestEnvelope = save_guest_objection("
+            "SCREAMING_SNAKE_CASE, obligation_id, token_digest);"
         )
         source = "\n".join(line for _ in range(400))
         self.assertGreater(len(source.encode("utf-8")), 32 * 1024)
 
-        rules = {item.rule for item in self.scan_text(source, path="app/repo.py")}
+        rules = {item.rule for item in self.scan_text(source, path="app/source.tsx")}
 
         self.assertNotIn("aggregate-base64-fragments", rules)
 
@@ -253,17 +267,15 @@ class PatternScannerTests(unittest.TestCase):
             repo_guard.MAX_AGGREGATE_BASE64_BYTES
             // repo_guard.MIN_BASE64_FRAGMENT_BYTES
         )
+        fragment = "Aa0_____"
+        self.assertEqual(len(fragment), repo_guard.MIN_BASE64_FRAGMENT_BYTES)
         aggregate_at_threshold = "\n".join(
-            "A" * repo_guard.MIN_BASE64_FRAGMENT_BYTES
-            for _index in range(fragment_count)
+            fragment for _index in range(fragment_count)
         )
         aggregate_over_threshold = "\n".join(
             [
-                *(
-                    "A" * repo_guard.MIN_BASE64_FRAGMENT_BYTES
-                    for _index in range(fragment_count - 1)
-                ),
-                "A" * (repo_guard.MIN_BASE64_FRAGMENT_BYTES + 1),
+                *(fragment for _index in range(fragment_count - 1)),
+                fragment + "_",
             ]
         )
         token_at_threshold = "A" * repo_guard.MAX_BASE64_TOKEN_BYTES
@@ -666,6 +678,108 @@ class GitIntegrationTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 1, output)
         self.assertNotIn(fake_email, output)
         self.assertIn("rule=email", output)
+
+
+class LockfileDigestAllowanceTests(ScanHelper):
+    """Neither a lockfile name nor a format marker is evidence.
+
+    The first version of the generated-lockfile exemption keyed off the name
+    alone. Codex proved that was a complete backdoor: a base64 bill plus a bank
+    account number, in any file called package-lock.json anywhere in the tree,
+    produced zero findings. A format marker did not close that bypass because
+    unexpected fields could still be pasted into an otherwise valid lockfile.
+    """
+
+    def _bill_and_account(self) -> str:
+        payload = base64.b64encode(bytes(range(256)) * 88).decode("ascii")
+        # repo-guard: allow=long-number reason=synthetic-account-number-this-test-must-contain-one
+        return '{"anh":"' + payload + '","stk":"19036812345678"}'
+
+    def test_a_file_merely_named_like_a_lockfile_gets_no_exemption(self):
+        line = self._bill_and_account()
+
+        for path in ("package-lock.json", "nested/deep/package-lock.json"):
+            with self.subTest(path=path):
+                rules = {item.rule for item in self.scan_text(line, path=path)}
+                self.assertIn("long-number", rules)
+                self.assertIn("aggregate-base64-fragments", rules)
+
+    def test_a_valid_marker_does_not_exempt_unexpected_content(self):
+        payload = base64.b64encode(bytes(range(256)) * 88).decode("ascii")
+        # repo-guard: allow=long-number reason=synthetic-lockfile-identifier
+        synthetic_identifier = "19036812345678"
+        line = json.dumps(
+            {
+                "name": "x",
+                "lockfileVersion": 3,
+                "packages": {
+                    "": {
+                        "integrity": payload,
+                        "unexpectedIdentifier": synthetic_identifier,
+                    }
+                },
+            },
+            separators=(",", ":"),
+        )
+
+        rules = {item.rule for item in self.scan_text(line, path="package-lock.json")}
+
+        self.assertIn("aggregate-base64-fragments", rules)
+        self.assertIn("long-number", rules)
+
+    def test_a_format_marker_buried_past_the_head_does_not_earn_the_exemption(self):
+        # Otherwise an attacker appends `"lockfileVersion": 3` after the payload.
+        line = self._bill_and_account() + ',{"lockfileVersion":3}'
+
+        rules = {item.rule for item in self.scan_text(line, path="package-lock.json")}
+
+        self.assertIn("long-number", rules)
+
+    def test_exact_path_and_digest_can_allow_a_reviewed_lockfile(self):
+        fragment = "Aa0_____"
+        # repo-guard: allow=long-number reason=synthetic-lockfile-identifier
+        synthetic_identifier = "19036812345678"
+        payload = {
+            "name": "synthetic-lockfile",
+            "lockfileVersion": 3,
+            "packages": {},
+            "generatedFragments": [fragment] * 3_000,
+            "generatedIdentifier": synthetic_identifier,
+        }
+        raw = json.dumps(payload, indent=2).encode("utf-8")
+        path = "apps/mobile/package-lock.json"
+        digest = hashlib.sha256(raw).hexdigest()
+        config = repo_guard.GuardConfig(
+            artifacts=(
+                repo_guard.ArtifactAllowance(
+                    path=path,
+                    sha256=digest,
+                    rules=frozenset(
+                        {"aggregate-base64-fragments", "long-number"}
+                    ),
+                ),
+            )
+        )
+
+        allowed = repo_guard.content_findings(
+            path, raw, 1, config, digest, None, None
+        )
+        changed = repo_guard.content_findings(
+            path,
+            raw + b" ",
+            1,
+            config,
+            hashlib.sha256(raw + b" ").hexdigest(),
+            None,
+            None,
+        )
+
+        self.assertEqual(allowed, [])
+        self.assertIn(
+            "aggregate-base64-fragments",
+            {item.rule for item in changed},
+        )
+        self.assertIn("long-number", {item.rule for item in changed})
 
 
 if __name__ == "__main__":
