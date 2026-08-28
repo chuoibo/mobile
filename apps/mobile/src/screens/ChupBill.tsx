@@ -87,6 +87,25 @@ export function ChupBill(props: {
           gap: space.md,
         }}
       >
+        {/* The second line is the mockup's, verbatim, and half of it is not
+            true of this build: nothing auto-captures. A person presses the
+            shutter. The reading afterwards is real -- `POST /receipts/scan`
+            against Gemini -- so "nhận diện" holds and "tự động chụp" does not.
+            Kept verbatim because the copy is a specified deliverable and
+            rewriting a spec line is not this lane's call, but flagged here and
+            to the lead rather than left to be discovered in a demo. Auto-capture
+            is a real feature (frame-stability detection); if it is not going to
+            be built, this line should become "AI sẽ nhận diện từng món ngay sau
+            khi chụp". */}
+        <View style={{ alignItems: "center", gap: 4, paddingHorizontal: space.md }}>
+          <Text style={{ ...type.body, color: WHITE, fontWeight: "600", textAlign: "center" }}>
+            Đưa bill vào khung hình
+          </Text>
+          <Text style={{ ...type.label, color: WHITE_SOFT, textAlign: "center" }}>
+            AI sẽ tự động chụp và nhận diện
+          </Text>
+        </View>
+
         <View
           style={{
             width: "100%",
@@ -113,24 +132,6 @@ export function ChupBill(props: {
           <CornerMarks />
         </View>
 
-        {/* The second line is the mockup's, verbatim, and half of it is not
-            true of this build: nothing auto-captures. A person presses the
-            shutter. The reading afterwards is real -- `POST /receipts/scan`
-            against Gemini -- so "nhận diện" holds and "tự động chụp" does not.
-            Kept verbatim because the copy is a specified deliverable and
-            rewriting a spec line is not this lane's call, but flagged here and
-            to the lead rather than left to be discovered in a demo. Auto-capture
-            is a real feature (frame-stability detection); if it is not going to
-            be built, this line should become "AI sẽ nhận diện từng món ngay sau
-            khi chụp". */}
-        <View style={{ alignItems: "center", gap: 4, paddingHorizontal: space.md }}>
-          <Text style={{ ...type.body, color: WHITE, fontWeight: "600", textAlign: "center" }}>
-            Đưa bill vào khung hình
-          </Text>
-          <Text style={{ ...type.label, color: WHITE_SOFT, textAlign: "center" }}>
-            AI sẽ tự động chụp và nhận diện
-          </Text>
-        </View>
 
         {error !== null ? (
           <View
