@@ -9,6 +9,7 @@
   },
   "include": [
     "src/api.ts",
-    "src/participants.ts"
+    "src/participants.ts",
+    "src/extraction.ts"
   ]
 }
