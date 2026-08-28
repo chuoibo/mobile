@@ -225,14 +225,6 @@ export class GateNotPassedError extends Error {
 }
 
 /**
- * What the server's publish refusals mean, in words a person can act on.
- *
- * Left untranslated they reach the screen as `recipient_setup_incomplete`,
- * next to somebody's name and somebody's money. The map is deliberately
- * incomplete: an unrecognised code falls through to the server's own detail
- * rather than to a friendly sentence that might be wrong about what happened.
- */
-/**
  * What the server's refusals to open a round mean.
  *
  * Separate from `PUBLISH_REFUSALS` because they are different moments with
@@ -256,13 +248,42 @@ const OPEN_BATCH_REFUSALS: Record<string, string> = {
   no_obligations: "Khoản này không ai nợ ai. Không có gì để thu.",
 };
 
-const PUBLISH_REFUSALS: Record<string, string> = {
-  advancer_not_acknowledged:
+/**
+ * What the server's refusals to publish mean.
+ *
+ * The keys are the three gate codes returned by `unmet_publish_gates()` in
+ * `services/api/app/domain/collection.py`, plus the one code `publish_batch()`
+ * raises before it reaches the gates. They are not a guess: `tests/
+ * publish-refusals.test.mjs` parses those two Python functions and fails if a
+ * key here is not a code publish can send, or a code publish can send has no
+ * words here.
+ *
+ * That test exists because this table shipped wrong. It named
+ * `advancer_not_acknowledged` and `bank_recipient_snapshot_invalid`, neither
+ * of which appears anywhere in `services/api/app`, so all three gates fell
+ * through and put "A publish gate is not satisfied" on screen next to
+ * somebody's name and somebody's money. The old test was green throughout: it
+ * built its expectations from this object's own keys.
+ *
+ * Still deliberately incomplete. A code nobody listed falls through to the
+ * server's own detail rather than to a friendly sentence that might be wrong
+ * about what just happened, and that fallthrough is the more important half.
+ */
+export const PUBLISH_REFUSALS: Record<string, string> = {
+  advancer_acknowledgement_required:
     "Người ứng tiền chưa xác nhận. App không gửi gì dưới tên một người trước khi họ đồng ý.",
-  recipient_setup_incomplete:
-    "Chưa có tài khoản nhận đã được xác nhận. Chưa biết chuyển tiền về đâu thì chưa phát được.",
-  bank_recipient_snapshot_invalid:
-    "Tài khoản nhận đã đổi sau khi đợt thu đóng băng. Mở đợt mới thay vì phát cái cũ.",
+  // One code, two situations: the snapshot was never confirmed, or it was
+  // confirmed and then changed after the round froze. The server does not say
+  // which, so neither does this. Naming the wrong one would send somebody to
+  // fix a thing that is not broken.
+  valid_bank_recipient_snapshot_required:
+    "Tài khoản nhận đã đóng băng cùng đợt thu này không còn dùng được. Kiểm tra lại tài khoản nhận của người ứng tiền trước khi phát.",
+  // Unreachable from this app today, which is exactly why it is written down.
+  // `sendPublish` hard-codes `delivery_method: "personal_link"`, so reaching
+  // this line means the app stopped sending it, and a person should not have
+  // to read the server's English to find that out.
+  delivery_method_required:
+    "Chưa chọn cách gửi phong bì cho đợt thu này, nên chưa phát được.",
   batch_not_found: "Không tìm thấy đợt thu này trên máy chủ.",
 };
 
