@@ -243,3 +243,66 @@ class DesignDiscipline(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StandingIsVisibleWithoutPressingAnything(unittest.TestCase):
+    """Where a person stands, on the face they land on.
+
+    This state used to live inside the transfer panel, which only opens when
+    the "Đúng, xem cách chuyển" button is pressed. So somebody who transferred
+    yesterday reopened their link and saw the untouched first screen: same
+    amount, same "Đúng, xem cách chuyển", no sign they had already reported
+    anything. The obvious thing to do from that screen is pay again.
+
+    Splitting the page at the reveal is what makes these tests worth having:
+    asserting the words are *somewhere in the HTML* would pass in the broken
+    version too, because they were there all along -- just behind a button.
+    """
+
+    def first_face(self, state: str) -> str:
+        """The part of the page shown before anything is pressed."""
+        from app.web.preview import render
+
+        html = render(state).decode()
+        # The transfer panel is everything from `data-transfer` onward. What
+        # comes before it is what a person actually sees on arrival.
+        head, _, _ = html.partition("data-transfer")
+        # Collapsed, because a sentence in the template wraps across lines and
+        # a reader does not see the break. Without this the tests would fail
+        # when somebody rewraps a paragraph, which is not a thing to fail on.
+        return " ".join(head.split())
+
+    def test_someone_who_reported_is_told_so_before_pressing_anything(self):
+        face = self.first_face("reported")
+        self.assertIn("đã báo là đã chuyển", face)
+        self.assertIn("không cần chuyển lại", face)
+
+    def test_someone_whose_money_arrived_is_told_so_before_pressing_anything(self):
+        face = self.first_face("confirmed")
+        self.assertIn("đã xác nhận nhận được", face)
+        self.assertIn("không cần làm gì thêm", face)
+
+    def test_a_fresh_link_makes_no_claim_about_having_paid(self):
+        # The other direction, and the one a careless fix breaks: somebody who
+        # has done nothing must not be told they have.
+        face = self.first_face("one")
+        self.assertNotIn("đã báo là đã chuyển", face)
+        self.assertNotIn("đã xác nhận nhận được", face)
+
+    def test_the_button_stops_instructing_people_who_already_did_it(self):
+        for state in ("reported", "confirmed"):
+            with self.subTest(state=state):
+                self.assertIn("Xem lại cách chuyển", self.first_face(state))
+        self.assertIn("Đúng, xem cách chuyển", self.first_face("one"))
+
+    def test_nothing_shouts_once_the_money_is_confirmed(self):
+        # A finished task should not leave the loudest control on the page
+        # pointing at itself.
+        self.assertNotIn("btn--primary", self.first_face("confirmed"))
+        self.assertIn("btn--primary", self.first_face("one"))
+
+    def test_objecting_stays_possible_after_the_money_arrived(self):
+        # Disagreeing about an amount is independent of whether it was paid,
+        # so confirmation must not quietly remove the way to say so.
+        face = self.first_face("confirmed")
+        self.assertIn("Số tiền không đúng", face)

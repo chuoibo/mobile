@@ -73,8 +73,41 @@
     </p>
     {% endif %}
 
+    {# Where this person stands, on the face they land on.
+       This used to live inside the transfer panel, which only opens when the
+       "Đúng, xem cách chuyển" button is pressed. So somebody who transferred
+       yesterday reopened the link and saw the untouched first screen: the same
+       amount, the same "Đúng, xem cách chuyển", no sign they had already
+       reported anything. The obvious thing to do from that screen is pay
+       again. State that is only visible after an action is not state a person
+       can act on. #}
+    {% if block.receiver_confirmed %}
+    <p class="standing standing--done">
+      {{ block.recipient_display_name }} đã xác nhận nhận được. Bạn không cần
+      làm gì thêm.
+    </p>
+    {% elif block.already_reported %}
+    <p class="standing">
+      Bạn đã báo là đã chuyển. Đang chờ {{ block.recipient_display_name }}
+      xác nhận. Bạn không cần chuyển lại.
+    </p>
+    {% endif %}
+
     <div class="choices">
-      <button class="btn btn--primary" type="button" data-reveal>Đúng, xem cách chuyển</button>
+      {# The label changes with the standing above it. "Đúng, xem cách chuyển"
+         reads as an instruction to somebody who has already done it. #}
+      {# Demoted once the money is confirmed. Nothing is left to do, and the
+         loudest thing on the page should not be an instruction for a task
+         that is finished. The objection routes stay: disagreeing about an
+         amount is independent of whether it was paid. #}
+      <button class="btn {% if block.receiver_confirmed %}btn--quiet{% else %}btn--primary{% endif %}"
+              type="button" data-reveal>
+        {%- if block.receiver_confirmed or block.already_reported -%}
+        Xem lại cách chuyển
+        {%- else -%}
+        Đúng, xem cách chuyển
+        {%- endif -%}
+      </button>
       <div class="choices__escape">
         {# The obligation id is the whole point of this link. Without it the
            route fell back to blocks[0], so on a link carrying two obligations
