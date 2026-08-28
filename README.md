@@ -31,10 +31,13 @@ cd services/api && python3 -m app.web.preview
 ## Test
 
 ```bash
-python3 -m pytest services/api/tests tests -q   # 219 test, 4214 subtest
+python3 -m pytest services/api/tests tests -q   # unit/domain + API fake repository
 node packages/shared/money.test.mjs             # hai bề mặt cùng một bộ golden
 scripts/setup-hooks.sh                          # bật repo guard trước khi commit
 ```
+
+Repository production có một tầng riêng chạy trên PostgreSQL thật; xem
+[`docs/testing/postgres-repository.md`](docs/testing/postgres-repository.md).
 
 ## Bố cục
 
