@@ -51,6 +51,27 @@ TASKS = [
         "check": "cd services/api && python -m pytest tests -q -k bank_recipient_route",
     },
     {
+        "id": "cho-trinh-duyet-goi-duoc",
+        "lane": "codex",
+        "title": "CORS — trình duyệt gọi được API",
+        "why": (
+            "Không có CORS middleware nào. Preflight `OPTIONS /expenses` trả "
+            "405, nên trình duyệt chặn mọi request từ app web trước khi nó rời "
+            "máy. Bật app lên ở `localhost:8090`, điền form, bấm 'Chia tiền' → "
+            "'Không nối được http://localhost:8099'. Trên điện thoại thật thì "
+            "không sao vì `fetch` của native không bị CORS, nhưng demo trên "
+            "trình duyệt thì chết hẳn, và đó là đường dễ nhất để cho khách xem."
+        ),
+        "brief": (
+            "Thêm CORS cho các origin phát triển. Đừng để `*`: header "
+            "`X-Actor-ID` hiện là toàn bộ danh tính, và một origin bất kỳ gọi "
+            "được kèm credentials là một lỗ hổng chứ không phải một tiện nghi.\n\n"
+            "Danh sách origin đọc từ biến môi trường, mặc định chỉ localhost. "
+            "Ghi rõ trong code vì sao không dùng `*`."
+        ),
+        "check": "cd services/api && python -m pytest tests -q -k cors_preflight",
+    },
+    {
         "id": "auth-khong-tin-header",
         "lane": "codex",
         "title": "`X-Actor-*` mặc định KHÔNG được tin",
