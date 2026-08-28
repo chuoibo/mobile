@@ -22,9 +22,11 @@ from app.api.limits import OBJECTION_LIMIT, REPORT_LIMIT
 from app.api.deps import get_repository
 from app.api.errors import RepositoryConflict
 from app.api.main import create_app
+from .helpers import CONTEXT_ID
 from app.api.repository import (
     AllocationRow,
     BankRecipientRecord,
+    BatchBoard,
     BatchForPublish,
     BatchObligationRow,
     BatchInputs,
@@ -448,7 +450,7 @@ class FakeRepository:
                     disputed_reason=disputes.get(key),
                 )
             )
-        return rows
+        return BatchBoard(context_id=CONTEXT_ID, obligations=tuple(rows))
 
     def get_receipt_target(self, obligation_id):
         item = self.obligations.get(obligation_id)

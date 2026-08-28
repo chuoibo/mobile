@@ -162,6 +162,20 @@ class BatchObligationRow:
 
 
 @dataclass(frozen=True, slots=True)
+class BatchBoard:
+    """The collection board plus the context that owns it.
+
+    `context_id` travels with the rows because the service cannot decide who
+    may read them without it, and looking it up separately is how a caller
+    forgets. Shipping the rows without it is exactly the mistake this type
+    exists to make impossible.
+    """
+
+    context_id: uuid.UUID
+    obligations: tuple[BatchObligationRow, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class GuestLinkDraft:
     sender_id: uuid.UUID
     token_digest: bytes
@@ -299,9 +313,7 @@ class ApiRepository(Protocol):
         ...
 
 
-    def list_batch_obligations(
-        self, batch_id: uuid.UUID
-    ) -> list[BatchObligationRow] | None: ...
+    def list_batch_obligations(self, batch_id: uuid.UUID) -> BatchBoard | None: ...
 
     def get_receipt_target(self, obligation_id: uuid.UUID) -> ReceiptTarget | None: ...
 
@@ -1120,9 +1132,7 @@ class SqlAlchemyApiRepository:
             receipt_amounts_vnd=self._receipt_amounts(report.obligation_id),
         )
 
-    def list_batch_obligations(
-        self, batch_id: uuid.UUID
-    ) -> list[BatchObligationRow] | None:
+    def list_batch_obligations(self, batch_id: uuid.UUID) -> BatchBoard | None:
         """What the person collecting needs to see, disputes included.
 
         Without this there was no surface at all on which a "this amount is
@@ -1130,6 +1140,9 @@ class SqlAlchemyApiRepository:
         that it had been recorded, and the collection round would carry on --
         because nobody on the other side had anywhere to read it.
         """
+        batch = self.session.get(CollectionBatch, batch_id)
+        if batch is None:
+            return None
         version = self.session.scalar(
             select(CollectionBatchVersion)
             .where(CollectionBatchVersion.batch_id == batch_id)
@@ -1191,7 +1204,7 @@ class SqlAlchemyApiRepository:
                     disputed_reason=disputes.get(key),
                 )
             )
-        return rows
+        return BatchBoard(context_id=batch.context_id, obligations=tuple(rows))
 
     def get_receipt_target(self, obligation_id: uuid.UUID) -> ReceiptTarget | None:
         obligation = self.session.scalar(

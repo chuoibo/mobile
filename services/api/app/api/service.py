@@ -533,9 +533,23 @@ class ApiService:
         That is only true if somebody on the collecting side can see it, and
         until now there was nowhere for them to look.
         """
-        rows = self.repository.list_batch_obligations(batch_id)
-        if rows is None:
+        board = self.repository.list_batch_obligations(batch_id)
+        if board is None:
             raise ApiProblem(404, "unknown_batch", "No such batch")
+
+        # This check was missing when the endpoint shipped, and QA found it by
+        # calling it as a stranger. The parameter was accepted and never read,
+        # so any valid actor header let anyone with a batch id read every
+        # sender, every recipient, every amount, and the private reason a guest
+        # gave for objecting. Section 10: visibility is fail-closed, and an
+        # unused `actor` argument is the most convincing way to look otherwise.
+        _require_permission(
+            "view_collection_board",
+            actor,
+            {"is_group_member": board.context_id in actor.context_ids},
+        )
+
+        rows = board.obligations
         return BatchObligationsResponse(
             batch_id=batch_id,
             obligations=[
