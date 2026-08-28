@@ -1,0 +1,25 @@
+{
+  "_": "Cấu hình Impeccable cho Rủ Đi. buildPath là 'code' vì preflight báo image gen: none, và init.md nói rõ: không có sinh ảnh thì code-first là đường duy nhất, không phải một lựa chọn bị bỏ qua.",
+  "enabled": true,
+  "buildPath": "code",
+  "designSystem": "packages/shared/tokens.json",
+  "extensions": [".html", ".css", ".tsx", ".ts", ".jsx", ".js"],
+  "ignoreFiles": [
+    "apps/mobile/node_modules/**",
+    "apps/mobile/dist/**",
+    "apps/mobile/dist-test/**",
+    "apps/mobile/.expo/**",
+    "apps/mobile/.expo-build-check/**",
+    "phase0/**",
+    "docs/protocol/v1/**"
+  ],
+  "ignoreRules": [],
+  "ignoreValues": [],
+  "quiet": false,
+  "auditLog": true,
+  "notes": {
+    "ownership": "Lane frontend giữ services/api/app/web/, apps/mobile/, packages/shared/. Detector chỉ được chạy để sửa file trong ba thư mục đó; finding rơi vào db/api/payments/domain thì báo Codex, không tự sửa.",
+    "frozen": "phase0/ và docs/protocol/v1/ đóng băng theo CLAUDE.md, nên nằm trong ignoreFiles để detector không đề nghị sửa thứ không được phép sửa.",
+    "tokens": "Nguồn sự thật màu là packages/shared/tokens.json. guest.css và apps/mobile/src/theme.ts đọc lại từ đó, và services/api/tests/web/test_shared_tokens.py buộc guest.css khớp từng token một."
+  }
+}
