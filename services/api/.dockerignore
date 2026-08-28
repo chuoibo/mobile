@@ -1,7 +1,7 @@
 # Docker only reads .dockerignore from the *build context root*. The build
-# context for this image is services/api/, so the repo-root .dockerignore never
-# applied to it — tests/ and scratch files were being shipped into the context.
-# This file is the one that actually takes effect.
+# context for this image is services/api/, so this is the only .dockerignore
+# that can affect it. A repo-root one used to exist; it never applied to any
+# build and was deleted rather than left looking like a safeguard.
 **/__pycache__
 **/*.pyc
 **/.pytest_cache

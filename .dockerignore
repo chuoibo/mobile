@@ -1,9 +1,0 @@
-**/node_modules
-**/__pycache__
-**/.pytest_cache
-**/.ruff_cache
-**/.venv
-**/tests
-.git
-docs
-apps
