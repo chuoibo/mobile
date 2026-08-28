@@ -212,6 +212,91 @@ async function call<T>(path: string, { method = "POST", body, actorId, attempt }
   return (await response.json()) as T;
 }
 
+/**
+ * The intent key for naming one person.
+ *
+ * The name is part of the key, not just the id. `attemptFor` hands back the
+ * same key for the same intent, and the server fingerprints method + path +
+ * body; keying on the id alone would send a changed `display_name` under an
+ * already-used key and earn a 422 aimed at somebody who only corrected a typo.
+ * Renaming is a different intent, so it mints a different key. Same shape as
+ * `expenseIntent` in App.tsx, for the same reason.
+ */
+function nameIntent(person: Participant): string {
+  return `dat-ten:${person.id}:${person.name}`;
+}
+
+/**
+ * What the server's refusals to name somebody mean.
+ *
+ * Built per person rather than declared as a constant so the sentence can say
+ * which of them it is about. A group of six produces six of these calls, and
+ * "không đổi được tên" without a name tells the organiser to go and check all
+ * six.
+ *
+ * `permission_denied` here is always the rename rule: the server lets any
+ * member name an id that has no row, and only the person themselves change a
+ * name that already exists. Reaching it means this id was named something else
+ * before, which on one phone means the organiser edited a name after a first
+ * send.
+ */
+function nameRefusals(person: Participant): Record<string, string> {
+  return {
+    permission_denied:
+      `Người này đã được đặt tên khác trước đó, và chỉ chính họ mới đổi được. ` +
+      `Giữ nguyên tên cũ, hoặc xoá "${person.name}" khỏi danh sách rồi thêm lại như một người mới.`,
+    person_not_registered: `Máy chủ chưa nhận ra ${person.name}. Thử gửi lại một lần nữa.`,
+  };
+}
+
+/**
+ * Tell the server who an id belongs to.
+ *
+ * Participant ids are minted on this phone and then used in expenses,
+ * obligations and envelopes. Until this call exists for each of them, the
+ * server holds ids and no names, so `get_guest_envelope` has nothing to join
+ * and the guest page says "Phần của a5b2c277-9b99-4699-a875-ed324e886237" to a
+ * stranger being asked for money.
+ *
+ * That is not hypothetical: `PUT /people/{id}` shipped as the only way a name
+ * enters this product, and nothing called it. The route was green, the client
+ * was green, and the one screen an outsider ever sees still printed a UUID,
+ * because the half that was missing was this one.
+ */
+export async function registerPerson(
+  person: Participant,
+  actorId: string,
+  attempt: Attempt,
+): Promise<void> {
+  await translated<{ id: string; display_name: string }>(
+    nameRefusals(person),
+    `/people/${person.id}`,
+    { method: "PUT", body: { display_name: person.name }, actorId, attempt },
+  );
+}
+
+/**
+ * Name everybody in the roster, before anything refers to them.
+ *
+ * Sequential rather than `Promise.all`. The calls are independent, so parallel
+ * would be faster, but a failure part-way through has to be able to say which
+ * person it was about, and a rejected `Promise.all` reports one failure while
+ * the rest keep running against a server that has already refused once.
+ *
+ * Failure is not swallowed. A name that silently does not arrive puts a machine
+ * id back on the guest page, which is exactly the bug this exists to close, and
+ * it would do it while every screen in the app still showed the typed name.
+ */
+export async function registerPeople(
+  people: Participant[],
+  actorId: string,
+  book: Record<string, Attempt>,
+): Promise<void> {
+  for (const person of people) {
+    await registerPerson(person, actorId, attemptFor(book, nameIntent(person)));
+  }
+}
+
 type ExpenseInput = {
   context_id: string;
   description: string;

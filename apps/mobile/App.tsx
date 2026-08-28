@@ -16,6 +16,7 @@ import {
   openBatch,
   proposeSplit,
   publishBatch,
+  registerPeople,
   type Attempt,
   type PendingProposal,
   BASE_URL,
@@ -135,6 +136,13 @@ export default function App() {
             // A new proposal makes any previously written version stale: it
             // belongs to the numbers on the last screen, not these.
             setWritten(null);
+            // Names first, and before anything refers to these ids. The server
+            // stores participants as ids; the only place a name ever reaches it
+            // is this call. Skip it and every screen here still reads correctly
+            // off `form.roster`, while the guest page -- the one screen someone
+            // outside the group sees, asking them for money -- prints a UUID
+            // where the person should be.
+            await registerPeople(d.participants, d.advancerId, attempts.current);
             // Pressing again after a failed send reuses the key, so the server
             // replays rather than writing a second expense. Editing a number
             // first changes the intent, so it mints a new one instead of

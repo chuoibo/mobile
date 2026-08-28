@@ -25,6 +25,7 @@ import {
   openBatch,
   proposeSplit,
   publishBatch,
+  registerPeople,
 } from "../../dist-test/api.js";
 import { makeIdFactory } from "../../dist-test/participants.js";
 
@@ -75,6 +76,16 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
   // Filed the way App.tsx files them, so this exercises the client's real
   // retry behaviour rather than a shape invented for the test.
   const lanBam = {};
+
+  // Names before anything refers to the ids, which is the order App.tsx uses.
+  // `PUT /people/{id}` is the only way a name enters this product, and it
+  // shipped as a route with no caller: the server had it, the client never
+  // called it, and the guest page went on printing UUIDs while every screen in
+  // the app still showed the typed name. Asserted at the bottom of this test
+  // against the rendered page rather than here, because a 201 from this call
+  // proves the request was accepted, not that a reader ever sees the name.
+  await registerPeople(draft.participants, NAM.id, lanBam);
+
   const proposal = await proposeSplit(draft, attemptFor(lanBam, "khoan-chi"));
 
   // Money rule 2, checked against what the server actually returned rather
@@ -149,6 +160,46 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
   assert.equal(page.status, 200, `link khách trả về ${page.status}`);
   const html = await page.text();
   assert.ok(html.includes("Phần của"), "trang khách không hiện phần của ai");
+
+  // ...and it has to name a person, which the line above never checked. It
+  // asserts the words "Phần của" are on the page; it stayed green for the
+  // entire life of this file while the sentence underneath read "Phần của
+  // a5b2c277-9b99-4699-a875-ed324e886237". The words were there. The person
+  // was not.
+  //
+  // The guest page is the one screen somebody outside the group ever sees, and
+  // it is asking them for money. A machine id in that sentence tells the reader
+  // neither who is asking nor which of their own debts this is, so the two
+  // things the page exists to say are exactly the two it fails to say. Checked
+  // against the rendered page rather than against the view model, because the
+  // ids reach the reader through the template and nothing in between was
+  // looking.
+  const quyen = envelopes.find((envelope) => envelope.senderId === QUYEN.id);
+  assert.ok(quyen, "khong tim thay phong bi cua Quyên");
+  const guestHtml = await (await fetch(quyen.url)).text();
+  // Script and style bodies survive tag-stripping and are not read by anyone,
+  // so they are removed first; what is left is what a person actually sees.
+  const visible = guestHtml
+    .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ");
+
+  const strayId = visible.match(
+    /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i,
+  );
+  assert.equal(
+    strayId?.[0] ?? null,
+    null,
+    `trang khách hiện mã máy "${strayId?.[0]}" ở chỗ đáng lẽ là tên người`,
+  );
+  assert.ok(
+    visible.includes(`Phần của ${QUYEN.name}`),
+    `trang khách không nói phần này của ai — không thấy "Phần của ${QUYEN.name}"`,
+  );
+  assert.ok(
+    visible.includes(`${NAM.name} đã ghi`),
+    `trang khách không nói ai ghi khoản chi — không thấy "${NAM.name} đã ghi"`,
+  );
 
   // The share is asserted present before the total is asserted absent, and the
   // order matters. "300.000 is not on the page" passes trivially if the page
