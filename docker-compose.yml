@@ -1,4 +1,19 @@
-name: mobile-local
+# Một tên project cho cả máy là CỐ Ý, không phải sơ suất. Máy này có năm
+# worktree cùng trỏ vào một repo; nếu mỗi worktree tự sinh project riêng thì
+# `make up` ở đây và `make up` ở kia tranh nhau cổng 8099, và cái link trang
+# khách lane này in ra sẽ 404 ở lane kia vì nó nằm trong một database khác.
+#
+# Cái giá của lựa chọn đó: `docker compose down -v` từ BẤT KỲ thư mục nào cũng
+# xoá volume của cả đội. Đó là lý do `make clean` bắt gõ đúng tên project ra
+# mới chịu chạy — xem Makefile.
+#
+# Muốn một bộ container riêng (QA soi một PR, thử một migration bẩn) thì đặt
+# MOBILE_PROJECT, đừng sửa dòng dưới:
+#   MOBILE_PROJECT=qa47 MOBILE_API_PORT=8199 MOBILE_POSTGRES_PORT=5434 make up
+# COMPOSE_PROJECT_NAME của compose vẫn đè lên được như thường lệ; MOBILE_PROJECT
+# có mặt ở đây để `make` biết nó đang thao tác lên cái gì mà nói ra cho người
+# dùng, thay vì đoán.
+name: ${MOBILE_PROJECT:-mobile-local}
 
 # Máy dev, không phải máy chủ. Mật khẩu ở đây là "mobile-dev-only" đúng nghĩa
 # đen để không ai nhầm nó với thứ được phép rời khỏi máy này.

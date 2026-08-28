@@ -8,8 +8,27 @@
 #   MOBILE_API_PORT=8100 MOBILE_POSTGRES_PORT=5433 make up
 # hoặc ghi hai dòng đó vào .env ở gốc repo — compose tự đọc, và .env đã bị
 # .gitignore chặn nên không lỡ tay commit.
+#
+# PHẠM VI: mọi lệnh ở đây thao tác lên MỘT bộ container dùng chung cho cả máy,
+# không phải bộ riêng của thư mục bạn đang đứng. Máy này có nhiều worktree của
+# cùng một repo, và chúng cố ý chia nhau một Postgres, một API — link trang
+# khách in ra ở worktree này phải mở được ở worktree kia. Hệ quả phải nhớ:
+# `make down` tắt API mà lane khác đang gọi, và `make clean` xoá database của
+# họ. Muốn một bộ riêng thì đặt MOBILE_PROJECT (xem `make help`).
 
 COMPOSE ?= docker compose
+
+# Tên project mà compose sẽ dùng. Thứ tự này khớp đúng thứ tự ưu tiên của
+# compose (COMPOSE_PROJECT_NAME đè lên `name:` trong file), nên con số `make`
+# in ra và con số docker thật sự dùng không bao giờ lệch nhau.
+MOBILE_PROJECT ?= mobile-local
+PROJECT := $(if $(COMPOSE_PROJECT_NAME),$(COMPOSE_PROJECT_NAME),$(MOBILE_PROJECT))
+export MOBILE_PROJECT
+
+# `-p` truyền thẳng, không dựa vào việc compose đọc được biến môi trường. Một
+# lệnh xoá dữ liệu thì cái tên nó in ra và cái tên nó xoá phải là một, bằng
+# cấu tạo chứ không bằng may mắn.
+DC = $(COMPOSE) -p $(PROJECT)
 
 # --wait đứng chờ tới khi postgres "healthy" và migrate thoát mã 0. Có giới
 # hạn vì một lệnh treo vô hạn tệ hơn một lệnh báo đỏ.
@@ -23,38 +42,74 @@ help: ## In danh sách lệnh
 	@grep -E '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
 	  | sed -E 's/^([a-z-]+):.*## (.*)/  make \1|\2/' \
 	  | column -t -s '|'
+	@echo
+	@echo "Project compose hiện tại: $(PROJECT)"
+	@echo "Một project cho cả máy, dùng chung giữa mọi worktree. Nên:"
+	@echo "  - make down  tắt API mà worktree khác đang gọi."
+	@echo "  - make clean XOÁ database của mọi worktree, không riêng thư mục này."
+	@echo "    Vì vậy nó bắt gõ ra:  make clean CONFIRM=$(PROJECT)"
+	@echo
+	@echo "Muốn một bộ riêng, không đụng ai (QA soi một PR, thử migration bẩn):"
+	@echo "  MOBILE_PROJECT=qa47 MOBILE_API_PORT=8199 MOBILE_POSTGRES_PORT=5434 make up"
+	@echo "  MOBILE_PROJECT=qa47 make clean CONFIRM=qa47      # dọn đúng bộ đó thôi"
 
 up: ## Dựng ảnh, chạy migration, bật API, seed dữ liệu mẫu, rồi tự kiểm
-	$(COMPOSE) up -d --build --wait --wait-timeout $(WAIT_TIMEOUT)
+	@echo "Project compose: $(PROJECT) (dùng chung cho mọi worktree trên máy này)"
+	@$(DC) up -d --build --wait --wait-timeout $(WAIT_TIMEOUT) || { \
+	  echo >&2; \
+	  echo "make up thất bại — dòng lỗi của docker nằm ngay phía trên." >&2; \
+	  echo "Hay gặp nhất là cổng đã có người giữ: 'address already in use' hoặc" >&2; \
+	  echo "'port is already allocated'. Đổi cổng, không phải sửa file:" >&2; \
+	  echo "    MOBILE_API_PORT=8199 MOBILE_POSTGRES_PORT=5434 make up" >&2; \
+	  echo "Nếu người giữ cổng là bộ container của chính repo này thì 'make ps'" >&2; \
+	  echo "sẽ thấy nó, và bạn không cần dựng lại." >&2; \
+	  exit 1; }
 	@$(MAKE) --no-print-directory seed
 	@$(MAKE) --no-print-directory smoke
 
 down: ## Tắt hệ, GIỮ dữ liệu trong volume
-	$(COMPOSE) down
+	@echo "Tắt project '$(PROJECT)' — dùng chung, nên worktree khác cũng mất API."
+	$(DC) down
 
-clean: ## Tắt hệ và XOÁ volume Postgres — mất sạch dữ liệu local
-	$(COMPOSE) down -v
+clean: ## Tắt hệ và XOÁ volume Postgres của cả máy — cần CONFIRM=<tên project>
+	@if [ "$(CONFIRM)" != "$(PROJECT)" ]; then \
+	  echo "Từ chối: make clean xoá volume Postgres của project '$(PROJECT)'." >&2; \
+	  echo >&2; \
+	  echo "Project đó KHÔNG thuộc riêng thư mục này. Mọi worktree trên máy" >&2; \
+	  echo "dùng chung nó, nên dữ liệu mất là mất của cả đội — kể cả đợt thu" >&2; \
+	  echo "mà lane khác đang mở dở trên trình duyệt." >&2; \
+	  echo >&2; \
+	  echo "Sẽ bị xoá: volume $(PROJECT)_mobile-postgres-data ('make ps' xem container)." >&2; \
+	  echo >&2; \
+	  echo "Chắc thì gõ đúng tên project ra:" >&2; \
+	  echo "    make clean CONFIRM=$(PROJECT)" >&2; \
+	  echo "Chỉ muốn tắt mà giữ dữ liệu:   make down" >&2; \
+	  echo "Muốn một bộ riêng để phá:      MOBILE_PROJECT=thu-nghiem make up" >&2; \
+	  exit 1; \
+	fi
+	$(DC) down -v
 
 logs: ## Bám log API và Postgres
-	$(COMPOSE) logs -f api postgres
+	$(DC) logs -f api postgres
 
 ps: ## Trạng thái các service
-	$(COMPOSE) ps
+	@echo "Project compose: $(PROJECT)"
+	$(DC) ps
 
 migrate: ## Chỉ chạy `alembic upgrade head` (up đã tự chạy rồi)
-	$(COMPOSE) run --rm migrate
+	$(DC) run --rm migrate
 
 seed: ## Chỉ seed dữ liệu mẫu — chạy lại là no-op, không nhân đôi
-	@$(COMPOSE) ps --services --filter status=running | grep -qx api || { \
+	@$(DC) ps --services --filter status=running | grep -qx api || { \
 	  echo "API chưa chạy. Chạy 'make up' trước." >&2; exit 1; }
 	@# --no-deps là bắt buộc, không phải tối ưu. `compose run` không có nó sẽ
 	@# chạy lại `migrate` (service đã exited thì nó coi là phải dựng lại) rồi
 	@# recreate luôn `api` vì phụ thuộc vừa đổi — tức là seed tự đá sập cái
 	@# API mà nó sắp gọi. Điều kiện "api đang chạy" đã kiểm ở trên rồi.
-	$(COMPOSE) run --rm --no-deps seed
+	$(DC) run --rm --no-deps seed
 
 smoke: ## Gọi thật /healthz qua cổng đã publish và in địa chỉ ra
-	@addr="$$($(COMPOSE) port api 8000 2>/dev/null)"; \
+	@addr="$$($(DC) port api 8000 2>/dev/null)"; \
 	if [ -z "$$addr" ]; then \
 	  echo "API chưa chạy. Chạy 'make up' trước." >&2; exit 1; \
 	fi; \
