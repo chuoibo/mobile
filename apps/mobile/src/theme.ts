@@ -39,7 +39,7 @@ const t = tokens.type;
 const w = (weight: string) => weight as TextStyle["fontWeight"];
 
 export const type: Record<
-  "amount" | "amountSmall" | "title" | "body" | "label" | "micro",
+  "amount" | "amountSmall" | "h1" | "title" | "body" | "label" | "micro",
   TextStyle
 > = {
   /** Tabular figures matter anywhere a column of money is read down. */
@@ -50,6 +50,17 @@ export const type: Record<
     fontVariant: ["tabular-nums"],
   },
   amountSmall: { fontSize: 17, fontWeight: "600", fontVariant: ["tabular-nums"] },
+  /** Screen title. DESIGN.md gives `h1` to "tiêu đề màn" and `title` to
+   *  "tiêu đề thẻ"; this map only ever exported `title`, so every screen
+   *  heading was rendering at the card step. The scale on screen ran
+   *  13 / 16 / 20, a 1.5:1 spread that reads as one size in three weights.
+   *  The steps were in tokens.json the whole time -- nothing here is new,
+   *  the app was just using two thirds of the system it already had. */
+  h1: {
+    fontSize: t.h1.size,
+    fontWeight: w(t.h1.weight),
+    letterSpacing: t.h1.tracking,
+  },
   title: {
     fontSize: t.title.size,
     fontWeight: w(t.title.weight),
