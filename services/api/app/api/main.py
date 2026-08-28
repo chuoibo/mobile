@@ -17,6 +17,7 @@ from app.api.routes import (
     expenses,
     guests,
     obligations,
+    people,
 )
 from app.api.schemas import ErrorResponse
 
@@ -40,6 +41,7 @@ def create_app() -> FastAPI:
     application.include_router(guests.router)
     application.include_router(obligations.router)
     application.include_router(bank_recipients.router)
+    application.include_router(people.router)
 
     @application.get("/healthz", include_in_schema=False)
     async def healthz() -> dict[str, str]:

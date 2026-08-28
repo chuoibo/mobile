@@ -44,6 +44,7 @@ from app.db.models import (
     MembershipState,
     PayerAcknowledgement,
     PaymentReport,
+    Person,
     ReceiptConfirmation,
     VerificationScope,
 )
@@ -57,6 +58,13 @@ from app.web.qr import payload_to_png_data_uri
 class ExpenseIdentity:
     id: uuid.UUID
     context_id: uuid.UUID
+
+
+@dataclass(frozen=True, slots=True)
+class PersonRecord:
+    id: uuid.UUID
+    display_name: str
+    created_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -256,6 +264,16 @@ class ReceiptRecord:
 
 
 class ApiRepository(Protocol):
+    def get_person(self, person_id: uuid.UUID) -> PersonRecord | None: ...
+
+    def create_person(
+        self, person_id: uuid.UUID, display_name: str
+    ) -> PersonRecord: ...
+
+    def rename_person(
+        self, person_id: uuid.UUID, display_name: str
+    ) -> PersonRecord | None: ...
+
     def create_context(
         self, display_name: str, created_by_id: uuid.UUID
     ) -> ContextRecord: ...
@@ -429,6 +447,67 @@ class SqlAlchemyApiRepository:
             left_at=membership.left_at,
             created_at=membership.created_at,
         )
+
+    @staticmethod
+    def _person_record(person: Person) -> PersonRecord:
+        return PersonRecord(
+            id=person.id,
+            display_name=person.display_name,
+            created_at=person.created_at,
+        )
+
+    def get_person(self, person_id: uuid.UUID) -> PersonRecord | None:
+        person = self.session.get(Person, person_id)
+        return None if person is None else self._person_record(person)
+
+    def _display_names(self, person_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
+        """Names for these ids, falling back to the id itself.
+
+        The fallback is deliberately still an id and deliberately not a
+        friendly placeholder. "Thành viên" would make two different unnamed
+        people read as one person, on the single screen whose job is telling
+        them apart -- and it would do it silently, which is worse than ugly.
+        """
+        if not person_ids:
+            return {}
+        found = {
+            person_id: display_name
+            for person_id, display_name in self.session.execute(
+                select(Person.id, Person.display_name).where(
+                    Person.id.in_(person_ids)
+                )
+            )
+        }
+        return {
+            person_id: found.get(person_id) or str(person_id)
+            for person_id in person_ids
+        }
+
+    def create_person(self, person_id: uuid.UUID, display_name: str) -> PersonRecord:
+        # The id comes from the caller because the rest of the system already
+        # uses it: participants, obligations and envelopes all carry ids minted
+        # before anybody typed a name. Minting a second id here would leave the
+        # name attached to a person no expense refers to.
+        person = Person(id=person_id, display_name=display_name)
+        try:
+            with self.session.begin_nested():
+                self.session.add(person)
+                self.session.flush()
+        except IntegrityError as exc:
+            # Two devices naming the same friend at once. The loser is told so
+            # rather than overwriting a name it never read.
+            raise RepositoryConflict("PERSON_ALREADY_EXISTS") from exc
+        return self._person_record(person)
+
+    def rename_person(
+        self, person_id: uuid.UUID, display_name: str
+    ) -> PersonRecord | None:
+        person = self.session.get(Person, person_id, with_for_update=True)
+        if person is None:
+            return None
+        person.display_name = display_name
+        self.session.flush()
+        return self._person_record(person)
 
     def create_context(
         self, display_name: str, created_by_id: uuid.UUID
@@ -1315,14 +1394,19 @@ class SqlAlchemyApiRepository:
                 ),
             )
         )
+        # The one join that turns this page from machine output into a
+        # sentence. `people` was never read here, so both fields below were
+        # `str(uuid)` and the guest page asked a stranger for money in the name
+        # of "b40dec6d-...". Read once for every id this envelope will print.
+        names = self._display_names(recorded_by_ids | {envelope.sender_id})
         recorded_by = (
-            str(next(iter(recorded_by_ids)))
+            names[next(iter(recorded_by_ids))]
             if len(recorded_by_ids) == 1
             else "Người tạo đợt"
         )
         raw_envelope = {
             "recorded_by_display_name": recorded_by,
-            "claimed_person_display_name": str(envelope.sender_id),
+            "claimed_person_display_name": names[envelope.sender_id],
             "link_state": state,
             "obligations": blocks,
             "reports_used": report_count,
@@ -1649,6 +1733,7 @@ __all__ = [
     "ObligationDraft",
     "PaymentReportRecord",
     "PaymentReportTarget",
+    "PersonRecord",
     "PublishObligation",
     "ReceiptRecord",
     "ReceiptTarget",
