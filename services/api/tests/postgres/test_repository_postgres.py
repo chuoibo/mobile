@@ -646,6 +646,52 @@ def test_expected_rows_exist_in_real_tables(postgres_session: Session):
         assert count == expected, model.__tablename__
 
 
+def test_leave_and_rejoin_never_retargets_an_old_obligation(
+    postgres_session: Session,
+):
+    state = _persist_lifecycle(postgres_session, confirm_receipts=False)
+    context = postgres_session.get(Context, state.context_id)
+    assert context is not None
+    first_membership = postgres_session.scalar(
+        select(Membership).where(
+            Membership.group_id == context.group_id,
+            Membership.person_id == state.sender_id,
+            Membership.state == MembershipState.ACTIVE,
+        )
+    )
+    assert first_membership is not None
+
+    first_membership.state = MembershipState.LEFT
+    first_membership.left_at = NOW + timedelta(days=1)
+    postgres_session.flush()
+    second_membership = Membership(
+        group_id=context.group_id,
+        person_id=state.sender_id,
+        state=MembershipState.ACTIVE,
+        role=MembershipRole.MEMBER,
+        joined_at=NOW + timedelta(days=2),
+        created_at=NOW + timedelta(days=2),
+    )
+    postgres_session.add(second_membership)
+    postgres_session.flush()
+
+    obligation = postgres_session.get(CollectionObligation, state.obligation_id)
+    assert obligation is not None
+    assert obligation.sender_id == state.sender_id
+    assert second_membership.id != first_membership.id
+    assert (
+        postgres_session.scalar(
+            select(func.count())
+            .select_from(Membership)
+            .where(
+                Membership.group_id == context.group_id,
+                Membership.person_id == state.sender_id,
+            )
+        )
+        == 2
+    )
+
+
 def test_a_paid_obligation_can_still_be_disputed(
     postgres_session: Session,
 ):
