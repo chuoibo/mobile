@@ -212,8 +212,21 @@ jobs:
         # The rest still holds: the client must never derive a split of its
         # own, and editing the roster must never move who paid onto a different
         # person. Both were real defects a typecheck sees nothing of.
-        name: App bundles, client never computes money
+        #
+        # `MOBILE_REQUIRE_WEB_A11Y=1` is what makes the three render checks in
+        # tests/vo-tab-web.test.mjs a gate rather than a decoration. They drive
+        # a headless Chrome over the build `build:check` has just written, and
+        # without the flag a runner with no browser skips them and the job
+        # still reports green -- which is the exact shape of the hole they were
+        # added to close: the opening screen scrolled sideways and all four
+        # tabs were anonymous to a screen reader while every gate here passed.
+        # GitHub's ubuntu image ships Chrome at /usr/bin/google-chrome. If that
+        # ever stops being true this step fails and names the reason, which is
+        # the honest outcome; set CHROME_BIN or add an install step then.
+        name: App bundles, client never computes money, shell renders right
         working-directory: apps/mobile
+        env:
+          MOBILE_REQUIRE_WEB_A11Y: "1"
         run: npm test
 
       - if: steps.present.outputs.found == 'true'

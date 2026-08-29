@@ -21,6 +21,7 @@ import { KhamPha } from "../screens/kham-pha/KhamPha";
 import { ManVo } from "./ManVo";
 import { MenuTao } from "./MenuTao";
 import { ThanhTab } from "./ThanhTab";
+import { useInertBackground } from "./modal";
 import { CREATE_ACTIONS, DEFAULT_TAB, type CreateActionId } from "./tabs";
 import type { DemoPerson } from "./nhom-demo";
 
@@ -36,6 +37,9 @@ export function VoTab({ nguoi, renderKhoanChi }: {
   const [luongKhoanChi, setLuongKhoanChi] = useState(false);
   // What to say when someone opens a create action that is still a shell.
   const [thongBao, setThongBao] = useState<string | null>(null);
+  // The screen and the bar go inert while the [+] sheet is open, so Tab cannot
+  // walk onto controls the sheet is covering.
+  const nenRef = useInertBackground(menuMo);
 
   function chonTao(id: CreateActionId) {
     setMenuMo(false);
@@ -58,43 +62,51 @@ export function VoTab({ nguoi, renderKhoanChi }: {
     <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
       <StatusBar style={scheme === "dark" ? "light" : "dark"} />
 
-      <View style={{ flex: 1 }}>
-        {tab === "kham-pha" ? <KhamPha /> : null}
-        {tab === "len-plan" ? (
-          <ManVo
-            title="Lên plan"
-            hint="Chuyến đi của nhóm, ngày giờ và ai đi"
-            screen="LenPlan"
-            owner="frontend"
-            work="chưa xếp"
-          />
-        ) : null}
-        {tab === "tin-nhan" ? (
-          <ManVo
-            title="Tin nhắn"
-            hint="Chat nhóm, AI gợi ý chỗ ăn ngay trong khung chat"
-            screen="TinNhan"
-            owner="frontend"
-            work="rd-fe-03"
-          />
-        ) : null}
-        {tab === "ca-nhan" ? <CaNhan nguoi={nguoi} /> : null}
+      {/* Everything the sheet covers, in one container, so it can be taken out
+          of the tab order as one thing while the sheet is open. The wrapper is
+          a column of `flex: 1` inside a column of `flex: 1`, so it changes no
+          layout -- it exists to give `useInertBackground` a single node to
+          own. Splitting it into per-child refs would leave whichever child
+          somebody adds next silently reachable behind the sheet. */}
+      <View ref={nenRef} style={{ flex: 1 }}>
+        <View style={{ flex: 1 }}>
+          {tab === "kham-pha" ? <KhamPha /> : null}
+          {tab === "len-plan" ? (
+            <ManVo
+              title="Lên plan"
+              hint="Chuyến đi của nhóm, ngày giờ và ai đi"
+              screen="LenPlan"
+              owner="frontend"
+              work="chưa xếp"
+            />
+          ) : null}
+          {tab === "tin-nhan" ? (
+            <ManVo
+              title="Tin nhắn"
+              hint="Chat nhóm, AI gợi ý chỗ ăn ngay trong khung chat"
+              screen="TinNhan"
+              owner="frontend"
+              work="rd-fe-03"
+            />
+          ) : null}
+          {tab === "ca-nhan" ? <CaNhan nguoi={nguoi} /> : null}
+        </View>
+
+        {thongBao ? <BangThongBao text={thongBao} onClose={() => setThongBao(null)} /> : null}
+
+        <ThanhTab
+          active={tab}
+          menuOpen={menuMo}
+          onSelect={(id) => {
+            setThongBao(null);
+            setTab(id);
+          }}
+          onCreate={() => {
+            setThongBao(null);
+            setMenuMo((open) => !open);
+          }}
+        />
       </View>
-
-      {thongBao ? <BangThongBao text={thongBao} onClose={() => setThongBao(null)} /> : null}
-
-      <ThanhTab
-        active={tab}
-        menuOpen={menuMo}
-        onSelect={(id) => {
-          setThongBao(null);
-          setTab(id);
-        }}
-        onCreate={() => {
-          setThongBao(null);
-          setMenuMo((open) => !open);
-        }}
-      />
 
       {menuMo ? <MenuTao onPick={chonTao} onClose={() => setMenuMo(false)} /> : null}
     </SafeAreaView>
