@@ -122,7 +122,7 @@ export function VoTab({
       moLuong[route.flow]();
       return;
     }
-    setThongBao(`"${action?.label}" chưa dựng — mới có chỗ trong menu.`);
+    setThongBao(`"${action?.label}" chưa dựng, mới có chỗ trong menu.`);
   }
 
   // The expense flow takes the whole screen: it is a task with its own steps,

@@ -184,9 +184,17 @@ function ChuaChon() {
  *
  * Two of the mockup's four -- kỷ niệm and đánh giá -- have no table behind
  * them anywhere in this product. They are kept in the row because the row's
- * rhythm is the design, and marked with `—` and one caption rather than filled
- * with a number that would look exactly as real as the two beside it. That
- * substitution is the failure this whole screen is built to avoid.
+ * rhythm is the design, and marked "chưa có" with one caption rather than
+ * filled with a number that would look exactly as real as the two beside it.
+ * That substitution is the failure this whole screen is built to avoid.
+ *
+ * The marker used to be an em dash, which read as nothing at all to a screen
+ * reader: the tile announced "Kỷ niệm" and no value, so absence was indist-
+ * inguishable from a figure that failed to load. Words say it outright. They
+ * are set at `label` rather than `title` size because a 20px "chưa có" wraps
+ * inside a quarter-width tile, and because a smaller, fainter value is the
+ * honest signal that this is not a number. The shared `lineHeight` is what
+ * keeps all four labels on one baseline across the mixed sizes.
  */
 function HangSoLieu({ trang }: { trang: Trang }) {
   const c = usePalette();
@@ -195,8 +203,8 @@ function HangSoLieu({ trang }: { trang: Trang }) {
   const items: { label: string; value: string; that: boolean }[] = [
     { label: "Lần chia bill", value: o(`${so?.expense_count ?? 0}`), that: true },
     { label: "Nhóm", value: o(`${so?.group_count ?? 0}`), that: true },
-    { label: "Kỷ niệm", value: "—", that: false },
-    { label: "Đánh giá", value: "—", that: false },
+    { label: "Kỷ niệm", value: "chưa có", that: false },
+    { label: "Đánh giá", value: "chưa có", that: false },
   ];
   return (
     <Card>
@@ -205,7 +213,8 @@ function HangSoLieu({ trang }: { trang: Trang }) {
           <View key={item.label} style={{ flex: 1, alignItems: "center", gap: 2 }}>
             <Text
               style={{
-                ...type.title,
+                ...(item.that ? type.title : type.label),
+                lineHeight: 26,
                 fontVariant: ["tabular-nums"],
                 color: item.that ? c.ink : c.inkFaint,
               }}
@@ -346,7 +355,7 @@ function GiaoDich({ trang }: { trang: Trang }) {
       {list.length === 0 ? (
         <Text style={{ ...type.label, color: c.inkSoft }}>
           Chưa có giao dịch nào được xác nhận. Một khoản chỉ vào đây khi người nhận xác
-          nhận đã nhận tiền — người gửi báo đã chuyển thì chưa tính.
+          nhận đã nhận tiền. Người gửi báo đã chuyển thì chưa tính.
         </Text>
       ) : (
         list.map((m, i) => <DongGiaoDich key={m.obligation_id + i} m={m} />)
@@ -452,7 +461,7 @@ function NhomCuaBan({ trang }: { trang: Trang }) {
       ) : (
         <Text style={{ ...type.label, color: c.inkSoft }}>
           {count === 1 ? "Một nhóm" : `${count} nhóm`} đang hoạt động. Danh sách tên
-          nhóm và ảnh thành viên chưa dựng — màn nhóm là việc của lane khác.
+          nhóm và ảnh thành viên chưa dựng, màn nhóm là việc của lane khác.
         </Text>
       )}
     </Card>
