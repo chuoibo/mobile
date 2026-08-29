@@ -1,6 +1,14 @@
 name: PostgreSQL Repository
 
+# The 293 cases here are the only proof this repository has of any SQL, index,
+# view or trigger -- the fake repository in `tests/api/` cannot see one of them.
+# Running them only after a merge means a broken persistence layer is found on
+# main, by whoever pulls next. `pull_request` was dropped in 1e7e65b to cut
+# Actions minutes; that trade put the most expensive-to-diagnose tier of the
+# suite behind the merge instead of in front of it.
+
 on:
+  pull_request:
   push:
     branches: [main]
   workflow_dispatch:
