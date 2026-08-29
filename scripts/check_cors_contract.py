@@ -215,7 +215,9 @@ _KEY = re.compile(
 )
 
 
-def _literal_keys(text: str, blank: str, start: int, end: int) -> tuple[list[str], bool]:
+def _literal_keys(
+    text: str, blank: str, start: int, end: int
+) -> tuple[list[str], bool]:
     """Top-level keys of the object literal spanning [start, end).
 
     `blank` drives the structure (commas at depth 1) and `text` supplies the
@@ -346,7 +348,11 @@ def read_client(root: Path) -> ClientFacts:
         # every NAME comes from `named` (comments gone, strings intact).
         blank = _strip_to_spaces(src)
         named = _strip_to_spaces(src, blank_strings=False)
-        rel = str(path.relative_to(REPO_ROOT)) if path.is_relative_to(REPO_ROOT) else path.name
+        rel = (
+            str(path.relative_to(REPO_ROOT))
+            if path.is_relative_to(REPO_ROOT)
+            else path.name
+        )
         facts.files_read += 1
 
         # Names bound from a header-producing function, so `...headers` and
@@ -354,7 +360,9 @@ def read_client(root: Path) -> ClientFacts:
         producers = {m.group("name") for m in _HEADERS_FN.finditer(blank)}
         producers.add("headers")
         bound: set[str] = set()
-        for m in re.finditer(r"(?<![\w$])(?:const|let|var)\s+(?P<lhs>[^=;]+)=(?P<rhs>[^;\n]*)", blank):
+        for m in re.finditer(
+            r"(?<![\w$])(?:const|let|var)\s+(?P<lhs>[^=;]+)=(?P<rhs>[^;\n]*)", blank
+        ):
             if any(p in m.group("rhs") for p in producers):
                 bound.update(_IDENT.findall(m.group("lhs")))
         # Names that hold a header object in THIS file: something that builds
@@ -773,7 +781,11 @@ def selftest(api_dir: Path) -> int:
             (root / "canary.ts").write_text(source, encoding="utf-8")
             try:
                 facts = read_client(root)
-                if facts.files_read == 0 or facts.literal_sites == 0 or not facts.headers:
+                if (
+                    facts.files_read == 0
+                    or facts.literal_sites == 0
+                    or not facts.headers
+                ):
                     got = EXIT_CANNOT_RUN
                 else:
                     got = EXIT_MISMATCH if compare(facts, policy) else EXIT_OK
