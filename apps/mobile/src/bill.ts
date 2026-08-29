@@ -233,17 +233,24 @@ export function moTaTrangThaiGan(bill: BillWire | null | undefined): string {
   // The same shape `readingFromWire` guards against -- a missing field read as
   // an answer instead of as an absence -- except this one failed loudly, which
   // is the lucky half of that family.
+  // Every branch stays inside one rendered line at 390pt, and that is a
+  // measured constraint rather than a style preference. The first draft ran to
+  // 61 characters, wrapped to two lines, and took 15pt off the matrix's scroll
+  // region -- 164pt down to 149pt against 326pt of content. The rendered
+  // detector caught it as two `text-occlusion` findings on "Lẩu thái" and its
+  // price: rows that had been reachable were now clipped below the fold. The
+  // sentence is worth saying, but not at the cost of the table it describes.
   if (bill == null) {
-    return "Chưa lưu được lên máy chủ. Các ô đã tích chỉ nằm trên máy này.";
+    return "Chưa lưu được. Ô đã tích chỉ ở máy này.";
   }
   const con = bill.suggested_item_keys.length;
   if (con === 0) {
-    return "Đã lưu. Ai ăn món gì là do nhóm chốt, không phải máy đoán.";
+    return "Đã lưu. Nhóm đã chốt ai ăn món gì.";
   }
   if (con === bill.items.length) {
-    return "Máy đọc gợi ý sẵn ai ăn món gì. Sửa lại cho đúng rồi bấm Xem kết quả.";
+    return "Máy đoán sẵn. Sửa rồi bấm Xem kết quả.";
   }
-  return `Đã lưu. Còn ${con} món vẫn là máy đoán, chưa ai xác nhận.`;
+  return `Đã lưu. Còn ${con} món máy đoán.`;
 }
 
 /* --------------------------------------------------------------- balances */

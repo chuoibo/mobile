@@ -164,7 +164,10 @@ test("prop không tới nơi cũng là chưa lưu, không phải trạng thái t
 
 test("chốt hết rồi thì không còn gọi là máy đoán", () => {
   const bill = { suggested_item_keys: [], items: [{ item_key: "mon-0" }] };
-  assert.match(moTaTrangThaiGan(bill), /nhóm chốt/);
+  const noi = moTaTrangThaiGan(bill);
+  assert.match(noi, /Đã lưu/);
+  assert.match(noi, /chốt/);
+  assert.doesNotMatch(noi, /đoán/);
 });
 
 test("chốt 4/6 dòng KHÔNG bị báo thành chưa có gì được lưu", () => {
