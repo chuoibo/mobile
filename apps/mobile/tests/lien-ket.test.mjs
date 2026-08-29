@@ -67,3 +67,31 @@ test("fragment rác không làm hàm ném lỗi", () => {
     assert.doesNotThrow(() => docDiemDen(hash), hash);
   }
 });
+
+/* ----------------------------------------------- màn vào cửa (F01/F03/F04) --- */
+
+test("#vao=dang-ky mở màn đăng ký, nhưng KHÔNG tự bỏ qua màn mở đầu", () => {
+  const d = docDiemDen("#vao=dang-ky");
+  assert.equal(d.vao, "dang-ky");
+  // The registration screen writes to `people`. A link that walked somebody
+  // straight into it would be a link that starts creating an account.
+  assert.equal(d.boQuaMoDau, false);
+});
+
+test("#vao=nhom vào thẳng màn nhóm trong vỏ tab", () => {
+  const d = docDiemDen("#vao=nhom&nguoi=minh");
+  assert.equal(d.vao, "nhom");
+  assert.equal(d.nguoi.id, "minh");
+  assert.equal(d.boQuaMoDau, true);
+});
+
+test("tên màn lạ bị bỏ qua chứ không mở màn trắng", () => {
+  for (const hash of ["#vao=khong-co-man-nay", "#vao=", "#vao=DANG-KY"]) {
+    assert.equal(docDiemDen(hash).vao, null, hash);
+  }
+});
+
+test("không có fragment thì không có màn vào cửa nào", () => {
+  assert.equal(docDiemDen("").vao, null);
+  assert.equal(docDiemDen("#tab=ca-nhan").vao, null);
+});

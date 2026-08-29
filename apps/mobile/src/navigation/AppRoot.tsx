@@ -28,7 +28,7 @@ export function AppRoot({ renderKhoanChi }: {
   // either. It is its own destination -- somebody can back out of it to the
   // sunset without having registered, which a sheet over `MoDau` would have
   // made awkward and which entering the shell first would have made a lie.
-  const [dangDangKy, setDangDangKy] = useState(false);
+  const [dangDangKy, setDangDangKy] = useState(diemDen.vao === "dang-ky");
 
   if (!daVao) {
     if (dangDangKy) {
@@ -55,5 +55,12 @@ export function AppRoot({ renderKhoanChi }: {
     );
   }
 
-  return <VoTab nguoi={nguoi} tabDau={diemDen.tab ?? DEFAULT_TAB} renderKhoanChi={renderKhoanChi} />;
+  return (
+    <VoTab
+      nguoi={nguoi}
+      tabDau={diemDen.tab ?? DEFAULT_TAB}
+      moNhomNgay={diemDen.vao === "nhom"}
+      renderKhoanChi={renderKhoanChi}
+    />
+  );
 }

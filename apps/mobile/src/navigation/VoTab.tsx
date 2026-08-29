@@ -26,8 +26,12 @@ import { useInertBackground } from "./modal";
 import { CREATE_ACTIONS, DEFAULT_TAB, type CreateActionId } from "./tabs";
 import type { DemoPerson } from "./nhom-demo";
 
-export function VoTab({ nguoi, tabDau, renderKhoanChi }: {
+export function VoTab({ nguoi, tabDau, moNhomNgay, renderKhoanChi }: {
   nguoi: DemoPerson | null;
+  /** Open the F03/F04 group screen immediately, from `#vao=nhom`. It sits
+   *  behind the [+] menu, so nothing that loads a URL cold can otherwise
+   *  reach it -- see `lien-ket.ts` for why that is treated as a defect. */
+  moNhomNgay?: boolean;
   /** Which tab to open on, from the link that opened the app. Optional and
    *  null-tolerant so the shell keeps working for any caller that does not
    *  care; `AppRoot` passes the one named in the URL on web, so a screenshot
@@ -46,7 +50,7 @@ export function VoTab({ nguoi, tabDau, renderKhoanChi }: {
   // offer an exit that drops the handle to a group this app cannot look up
   // again -- see `screens/vao-cua/Nhom.tsx` on why the group outlives the app's
   // memory of it.
-  const [luongNhom, setLuongNhom] = useState(false);
+  const [luongNhom, setLuongNhom] = useState(moNhomNgay ?? false);
   // What to say when someone opens a create action that is still a shell.
   const [thongBao, setThongBao] = useState<string | null>(null);
   // The screen and the bar go inert while the [+] sheet is open, so Tab cannot
