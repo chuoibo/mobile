@@ -29,16 +29,36 @@
 import { DEMO_PEOPLE, type DemoPerson } from "./nhom-demo";
 import { TABS } from "./tabs";
 
+/** The entry-door screens, which are not tabs and so cannot be named by `tab`.
+ *
+ * `dang-ky` is F01's form; `nhom` is the F03/F04 group screen, which lives
+ * behind the [+] menu inside the shell. Both are unreachable to anything that
+ * loads a URL cold -- the same hole this file was written to close for the
+ * four tabs, reappearing the moment a screen was put behind a button. */
+export type ManVaoCua = "dang-ky" | "nhom";
+
+const MAN_VAO_CUA: ManVaoCua[] = ["dang-ky", "nhom"];
+
 export type DiemDen = {
   /** Which tab to open on, or null to use the default. */
   tab: string | null;
   /** Who to enter as. `null` means the opening screen still asks. */
   nguoi: DemoPerson | null;
+  /** Which entry-door screen to open, or null for none. Spelled `vao` rather
+   *  than `man` because `?man=` already means a *tab* in the query form, and
+   *  two keys with one name is how a detector run ends up describing the wrong
+   *  screen while exiting 0. */
+  vao: ManVaoCua | null;
   /** Whether the fragment asked to skip the opening screen at all. */
   boQuaMoDau: boolean;
 };
 
-export const KHONG_CO_DIEM_DEN: DiemDen = { tab: null, nguoi: null, boQuaMoDau: false };
+export const KHONG_CO_DIEM_DEN: DiemDen = {
+  tab: null,
+  nguoi: null,
+  vao: null,
+  boQuaMoDau: false,
+};
 
 /**
  * Parse a location fragment into a destination.
@@ -62,12 +82,22 @@ export function docDiemDen(hash: string, search = ""): DiemDen {
   const slug = params.get("nguoi");
   const nguoi = slug ? (DEMO_PEOPLE.find((p) => p.id === slug) ?? null) : null;
 
+  const vaoAsked = params.get("vao");
+  const vao = MAN_VAO_CUA.find((m) => m === vaoAsked) ?? null;
+
   return {
     tab,
     nguoi,
+    vao,
     // A recognised tab is enough to enter: opening the app on a named screen
     // with nobody signed in is a real state, and the screens render it.
-    boQuaMoDau: tab !== null || nguoi !== null,
+    //
+    // `vao=dang-ky` is deliberately NOT enough. That screen sits before the
+    // shell and registers somebody; skipping the opening screen to reach it
+    // would mean a link could put a person straight into a form that writes to
+    // `people`. `vao=nhom` does enter, because the group screen lives inside
+    // the shell and has nothing to show outside it.
+    boQuaMoDau: tab !== null || nguoi !== null || vao === "nhom",
   };
 }
 

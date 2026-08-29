@@ -33,10 +33,14 @@ const ON_SUNSET = tokens.color.light.accentInk;
  *  decision: dark enough to carry white body text at AA with room to spare. */
 const PANEL = mixHex(brand.violet, tokens.color.light.ink, 0.84);
 
-export function MoDau({ onVao, onBoQua }: {
+export function MoDau({ onVao, onBoQua, onSoDienThoai }: {
   onVao: (nguoi: DemoPerson) => void;
   /** Skip. Enters the shell with nobody signed in, which is a real state. */
   onBoQua: () => void;
+  /** The one way in that is not a shell. Opens F01, which sends a real
+   *  `PUT /people/{id}`; the two provider buttons above it still open the
+   *  demo picker, and the caption under them now has to say which is which. */
+  onSoDienThoai: () => void;
 }) {
   const [dangChon, setDangChon] = useState(false);
   // The picker below is the same kind of sheet as the [+] menu and had the
@@ -141,7 +145,7 @@ export function MoDau({ onVao, onBoQua }: {
           />
 
           <Pressable
-            onPress={() => setDangChon(true)}
+            onPress={onSoDienThoai}
             accessibilityRole="button"
             style={({ pressed }) => ({
               minHeight: 44,
@@ -165,9 +169,16 @@ export function MoDau({ onVao, onBoQua }: {
               nominal 13.51:1 of the colour pair never reaches the eye. Full
               opacity plus 500 weight; it stays subordinate by size, not by
               being hard to read. */}
+          {/* This sentence used to say all three buttons opened the picker,
+              which was true when it was written and stopped being true when
+              F01 landed. A caption that overstates what is a shell is the
+              lesser failure; one that calls a working thing a shell teaches
+              the person watching to distrust the parts that do work. Both
+              halves are named separately now. */}
           <Text style={{ ...type.label, fontWeight: "500", color: ON_SUNSET, textAlign: "center" }}>
-            Bản demo: chưa nối đăng nhập thật. Bấm nút nào cũng mở danh sách{" "}
-            {DEMO_GROUP_NAME} để chọn nhanh một người.
+            Google và Apple chưa nối thật — bấm vào sẽ mở danh sách{" "}
+            {DEMO_GROUP_NAME} để chọn nhanh một người. Đăng nhập bằng số điện
+            thoại là thật: nó tạo tài khoản trên máy chủ.
           </Text>
         </View>
       </View>

@@ -34,15 +34,32 @@
  * exist and render a truthful, correct, entirely empty answer.
  */
 
-export type DemoPerson = {
-  /** Slug. Stable, readable, and never sent anywhere. */
+/**
+ * Whoever the app is currently acting as.
+ *
+ * Named for what it is rather than where it came from, because since F01 it is
+ * no longer always a demo row: `screens/vao-cua/DangKy.tsx` builds one of these
+ * from a real `PUT /people/{id}`, and a type called `DemoPerson` holding a
+ * genuinely registered person is a comment that lies in every file it reaches.
+ *
+ * The two ids collapse for a registered person -- `id` and `personId` are the
+ * same UUID -- and stay apart for the seeded seven below, where `id` is a slug
+ * somebody reads in this file. Anything sending a request must use `personId`.
+ */
+export type NguoiDung = {
+  /** Slug for a seeded person, or the person's own UUID once registered.
+   *  Read by `personById`; never sent to the API. */
   id: string;
-  /** The `people` row this person is, in the seeded database. */
+  /** The `people` row this person is. This is what the API is asked about. */
   personId: string;
   name: string;
   /** Two-letter monogram for the avatar. No photos of real people in Git. */
   initials: string;
 };
+
+/** The old name, kept so the call sites that predate F01 keep compiling.
+ *  New code should say `NguoiDung`. */
+export type DemoPerson = NguoiDung;
 
 export const DEMO_GROUP_NAME = "Team Đà Lạt";
 

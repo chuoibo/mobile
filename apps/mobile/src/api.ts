@@ -213,7 +213,11 @@ export function thongDiepNguoiDoc(status: number, detail: unknown): string {
   return "Chưa làm được việc này. Thử lại sau một chút.";
 }
 
-function actorHeaders(actorId: string): Record<string, string> {
+function actorHeaders(
+  actorId: string,
+  roles = "member,advancer,recipient,batch_owner",
+  contexts = CONTEXT_ID,
+): Record<string, string> {
   return {
     "Content-Type": "application/json",
     // A trusted gateway is supposed to write these; there is no gateway yet,
@@ -221,8 +225,8 @@ function actorHeaders(actorId: string): Record<string, string> {
     // from the internet as it stands -- anybody who can set a header can be
     // anybody. Said here rather than left to be discovered.
     "X-Actor-ID": actorId,
-    "X-Actor-Roles": "member,advancer,recipient,batch_owner",
-    "X-Actor-Contexts": CONTEXT_ID,
+    "X-Actor-Roles": roles,
+    "X-Actor-Contexts": contexts,
   };
 }
 
@@ -232,11 +236,33 @@ type CallOptions = {
   actorId?: string;
   /** Required for writes. A write without one is unprotected against retries. */
   attempt?: Attempt;
+  /**
+   * What this actor claims to be, when the default four roles are not enough.
+   *
+   * The expense flow acts as a plain member throughout, so the default covers
+   * it. Group administration does not: `invite_context_member` in
+   * `app/domain/permissions.py` asks for `group_admin`, which nothing in that
+   * default list carries. Parameterised rather than widened, so one screen
+   * needing an extra claim does not hand every other screen the same claim.
+   *
+   * It is worth being blunt about what this is. These headers are asserted by
+   * the client because no gateway exists to overwrite them, so this parameter
+   * does not *grant* anything -- the same request could always have been made
+   * with curl. It records which claim a screen depends on, which is what will
+   * have to be reproduced when real sessions arrive.
+   */
+  roles?: string;
+  /** Which groups this actor claims to be in. Defaults to the demo group. */
+  contexts?: string;
 };
 
-async function call<T>(path: string, { method = "POST", body, actorId, attempt }: CallOptions): Promise<T> {
+/** One request, with the two headers this API insists on. */
+async function call<T>(
+  path: string,
+  { method = "POST", body, actorId, attempt, roles, contexts }: CallOptions,
+): Promise<T> {
   const headers: Record<string, string> = actorId
-    ? actorHeaders(actorId)
+    ? actorHeaders(actorId, roles, contexts)
     : { "Content-Type": "application/json" };
   // The header the server's middleware keys off. Without it the middleware
   // passes the request straight through -- which is what this app did on every
@@ -904,8 +930,16 @@ export async function publishBatch(
  *
  * The code is preserved on the error. Only the sentence changes, so a bug
  * report still names what actually happened.
+ *
+ * Exported for the entry-door screens (`screens/vao-cua/`), which speak to
+ * `/people`, `/contexts` and `/memberships` rather than to the expense path
+ * this file grew around. They call this instead of writing a second `fetch`
+ * wrapper, because the parts worth not duplicating are the ones that took
+ * measurement to get right: the idempotency header, the status-to-sentence
+ * table above, and `thongDiepNguoiDoc` -- a second copy of those would be a
+ * second place for machine text to reach somebody's screen.
  */
-async function translated<T>(
+export async function translated<T>(
   table: Record<string, string>,
   path: string,
   options: CallOptions,

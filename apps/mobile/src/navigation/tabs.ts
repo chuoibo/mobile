@@ -104,7 +104,12 @@ export const CREATE_ACTIONS: CreateAction[] = [
     id: "tao-nhom",
     label: "Tạo nhóm",
     hint: "Lập hội mới, mời bạn vào",
-    built: false,
+    // F03/F04 built this: the action opens `screens/vao-cua/Nhom.tsx`, which
+    // sends `POST /contexts`, `PUT /people/{id}` and
+    // `POST /contexts/{id}/members` for real. `tests/navigation.test.mjs`
+    // reads this flag, so flipping it without wiring the screen fails there
+    // rather than in front of somebody pressing the menu.
+    built: true,
   },
 ];
 

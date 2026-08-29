@@ -10,10 +10,11 @@
  */
 import React, { useState } from "react";
 import { MoDau } from "../screens/mo-dau/MoDau";
+import { DangKy } from "../screens/vao-cua/DangKy";
 import { VoTab } from "./VoTab";
 import { DEFAULT_TAB } from "./tabs";
 import { diemDenHienTai } from "./lien-ket";
-import type { DemoPerson } from "./nhom-demo";
+import type { NguoiDung } from "./nhom-demo";
 
 export function AppRoot({ renderKhoanChi }: {
   renderKhoanChi: (onExit: () => void) => React.ReactNode;
@@ -22,9 +23,26 @@ export function AppRoot({ renderKhoanChi }: {
   // change yank somebody out of the screen they navigated to by hand.
   const [diemDen] = useState(diemDenHienTai);
   const [daVao, setDaVao] = useState(diemDen.boQuaMoDau);
-  const [nguoi, setNguoi] = useState<DemoPerson | null>(diemDen.nguoi);
+  const [nguoi, setNguoi] = useState<NguoiDung | null>(diemDen.nguoi);
+  // F01 sits between the opening screen and the shell rather than inside
+  // either. It is its own destination -- somebody can back out of it to the
+  // sunset without having registered, which a sheet over `MoDau` would have
+  // made awkward and which entering the shell first would have made a lie.
+  const [dangDangKy, setDangDangKy] = useState(diemDen.vao === "dang-ky");
 
   if (!daVao) {
+    if (dangDangKy) {
+      return (
+        <DangKy
+          onXong={(p) => {
+            setNguoi(p);
+            setDangDangKy(false);
+            setDaVao(true);
+          }}
+          onQuayLai={() => setDangDangKy(false)}
+        />
+      );
+    }
     return (
       <MoDau
         onVao={(p) => {
@@ -32,9 +50,17 @@ export function AppRoot({ renderKhoanChi }: {
           setDaVao(true);
         }}
         onBoQua={() => setDaVao(true)}
+        onSoDienThoai={() => setDangDangKy(true)}
       />
     );
   }
 
-  return <VoTab nguoi={nguoi} tabDau={diemDen.tab ?? DEFAULT_TAB} renderKhoanChi={renderKhoanChi} />;
+  return (
+    <VoTab
+      nguoi={nguoi}
+      tabDau={diemDen.tab ?? DEFAULT_TAB}
+      moNhomNgay={diemDen.vao === "nhom"}
+      renderKhoanChi={renderKhoanChi}
+    />
+  );
 }
