@@ -10,6 +10,7 @@ import { ScrollView, Share, Text, View } from "react-native";
 import { formatVnd } from "../../../../packages/shared/money.mjs";
 import { radius, space, type, usePalette } from "../theme";
 import { Button, Card, Screen } from "../ui/Kit";
+import { TrongRong } from "../ui/TrangThai";
 
 /** One debt inside an envelope, with the code that pays it.
  *
@@ -90,6 +91,17 @@ export function ChiaSe({ envelopes, onDone }: { envelopes: Envelope[]; onDone: (
       </Card>
 
       <ScrollView contentContainerStyle={{ gap: space.sm }}>
+        {/* Reachable: "Chia sẻ" is on the batch screen before it is published,
+            and codes only come into existence at publish. The screen used to
+            answer that press with a blank page. */}
+        {envelopes.length === 0 ? (
+          <TrongRong
+            tieuDe="Chưa có lời nhắn nào để gửi"
+            than="Đợt thu chưa được phát nên chưa sinh mã cho ai. Quay lại đợt thu, bấm phát, rồi mở lại màn này."
+            hanhDong={{ nhan: "Quay lại đợt thu", onPress: onDone }}
+          />
+        ) : null}
+
         {envelopes.map((e) => (
           <View
             key={e.senderId}

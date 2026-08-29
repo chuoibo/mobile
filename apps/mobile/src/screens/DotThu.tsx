@@ -11,6 +11,7 @@ import { formatVnd } from "../../../../packages/shared/money.mjs";
 import { radius, space, type, usePalette } from "../theme";
 import { canPublish, type PublishGates } from "../api";
 import { Button, Card, Screen } from "../ui/Kit";
+import { TrongRong } from "../ui/TrangThai";
 
 export type Obligation = {
   id: string;
@@ -129,6 +130,17 @@ export function DotThu({
       ) : null}
 
       <ScrollView contentContainerStyle={{ gap: space.sm }}>
+        {/* An empty batch is a real answer, not a failure, so it says which of
+            the two harmless reasons produced it rather than sending anybody to
+            look for a bug. Without this the screen was a "0/0" tile above a
+            blank scroll area, which reads as a list that failed to load. */}
+        {obligations.length === 0 ? (
+          <TrongRong
+            tieuDe="Chưa có ai phải chuyển tiền"
+            than="Khoản chi này không sinh nghĩa vụ nào. Thường là vì chỉ có một người trong nhóm, hoặc người ứng tiền cũng là người duy nhất phải trả."
+          />
+        ) : null}
+
         {obligations.map((o) => {
           const settled = TRANSFERRED.has(o.status);
           const flagged = o.status === "disputed";

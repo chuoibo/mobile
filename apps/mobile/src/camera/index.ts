@@ -48,6 +48,7 @@ export {
   MAX_BYTES,
   QUALITY,
   type BillPhoto,
+  type GiaiDoanDocBill,
   type PhotoBackend,
   type TempPhoto,
 } from "./bill-photo";

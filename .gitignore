@@ -285,3 +285,7 @@ dist-test/
 # Impeccable: ảnh chụp để review, là bằng chứng của một lần chạy chứ không phải
 # nguồn. Repo guard fail closed với binary nên chúng không được vào Git.
 .impeccable/review/
+
+# rd-fe-08: local web export used for detector scans and screenshots
+apps/mobile/.rd-fe-08-web/
+apps/mobile/.impeccable/review/
