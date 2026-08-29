@@ -22,6 +22,8 @@
     "src/navigation/tabs.ts",
     "src/navigation/nhom-demo.ts",
     "src/screens/kham-pha/places.ts",
+    "src/navigation/lien-ket.ts",
+    "src/screens/ca-nhan/tai-chinh.ts",
     // Two screens compiled rather than only logic modules, so a test can
     // render them and read the markup react-native-web actually emits. See
     // `tools/fixup-esm.mjs` for why that is the real DOM and not a mock.
