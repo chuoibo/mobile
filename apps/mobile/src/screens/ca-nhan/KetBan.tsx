@@ -549,6 +549,13 @@ function HangNguoi({
       <Anh
         uri={null}
         alt={`Ảnh đại diện của ${ten}`}
+        // `uri` is hard-null here: this row draws the monogram and asks for no
+        // photograph, so there is no viewer to fetch as. Pointing it at
+        // `/people/{id}/avatar` would work now that `Anh` can send a header --
+        // that is a small follow-up, not part of the #222 fix, and it wants its
+        // own pass over what a 403 means for somebody you have not shared a
+        // group with yet.
+        nguoiXem={null}
         cho={
           <View
             style={{

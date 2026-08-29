@@ -25,6 +25,8 @@ import { Button, Card } from "../../ui/Kit";
 import { Gradient, HERO_SUNSET } from "../../navigation/Gradient";
 import { DEMO_GROUP_NAME, type DemoPerson } from "../../navigation/nhom-demo";
 import { Anh, khungTron } from "../../ui/Anh";
+import { NutChonAnh } from "../../ui/NutChonAnh";
+import { duongDanAnhDaiDien, taiAnhDaiDien } from "../../api";
 import { MaCuaToi } from "./MaCuaToi";
 import {
   FinanceError,
@@ -60,6 +62,9 @@ export function CaNhan({
   const c = usePalette();
   const [trang, setTrang] = useState<Trang>({ pha: "dang-tai" });
   const [dangLamMoi, setDangLamMoi] = useState(false);
+  // Bumped after a successful upload. See `BiaVaAnh` for why a counter is the
+  // thing that makes a new avatar appear at all.
+  const [doiAnh, setDoiAnh] = useState(0);
 
   const tai = useCallback(async () => {
     if (!nguoi) return;
@@ -86,14 +91,19 @@ export function CaNhan({
     <ScrollView
       style={{ flex: 1, backgroundColor: c.ground }}
       contentContainerStyle={{ paddingBottom: space.xl }}
-      // A keyboard tab-stop on the scroller itself, which this screen needs and
-      // the other tabs do not. Every other tab holds buttons, and a scrollable
-      // region containing a focusable child is already reachable by keyboard.
-      // This screen is entirely static -- numbers, rows and labels, nothing
-      // pressable -- so without a tab-stop there is no key that scrolls it, and
-      // the transaction list and "Nhóm của bạn" below the fold cannot be read at
-      // all. Measured: axe `scrollable-region-focusable` (serious) fired here
-      // and on none of the other four tabs.
+      // A keyboard tab-stop on the scroller itself. Measured: axe
+      // `scrollable-region-focusable` (serious) fired here and on none of the
+      // other four tabs, because this was the one tab holding nothing
+      // pressable, and a scrollable region containing a focusable child is
+      // already reachable.
+      //
+      // rd-fe-25 added the avatar picker below, so that original reason has
+      // expired -- and the stop stays anyway, for a reason the axe rule does not
+      // cover. Satisfying the rule with a button means a keyboard reaches this
+      // region only by tabbing *to that button*; the stop on the region is what
+      // lets somebody scroll the transaction list and "Nhóm của bạn" with arrow
+      // keys without first landing on a control that changes their photograph.
+      // The rule is the floor here, not the requirement.
       //
       // `tabIndex` rather than `focusable`: the latter is deprecated in
       // react-native-web 0.21 and warns. Native ignores the prop, which is
@@ -103,10 +113,16 @@ export function CaNhan({
         <RefreshControl refreshing={dangLamMoi} onRefresh={lamMoi} tintColor={c.accent} />
       }
     >
-      <BiaVaAnh nguoi={nguoi} ten={tenHienThi(nguoi, trang)} />
+      <BiaVaAnh nguoi={nguoi} ten={tenHienThi(nguoi, trang)} doiAnh={doiAnh} />
 
       <View style={{ padding: space.md, gap: space.md }}>
         {nguoi ? null : <ChuaChon />}
+        {nguoi ? (
+          <DoiAnhDaiDien
+            personId={nguoi.personId}
+            onXong={() => setDoiAnh((n) => n + 1)}
+          />
+        ) : null}
         <HangSoLieu trang={trang} />
         <TaiChinh trang={trang} onThuLai={lamMoi} coNguoi={Boolean(nguoi)} />
         <GiaoDich trang={trang} />
@@ -126,31 +142,67 @@ function tenHienThi(nguoi: DemoPerson | null, trang: Trang): string {
   return nguoi?.name ?? "Khách";
 }
 
-/** Cover band with the avatar sitting over its lower edge, as in the mockup. */
+/** Cover band with the avatar sitting over its lower edge, as in the mockup.
+ *
+ * The avatar is a real photograph now, and the two things that took measuring
+ * are both about the address it is read from.
+ *
+ * **The bytes are permission-checked, so the frame fetches them.** `GET
+ * /people/{id}/avatar` answers 401 without `X-Actor-ID`, and an `<img>` cannot
+ * send one. Pointing the frame at the address therefore never worked: the load
+ * failed, `Anh` drew the initials, and the initials are also what somebody with
+ * no photograph sees, so nothing on the screen or in the tests could tell the
+ * two apart. `nguoiXem` is what makes the request carry the header; see `Anh`.
+ *
+ * **The address is stable, and that is a feature with one sharp edge.**
+ * `/people/{id}/avatar` always names the current picture, so nothing has to be
+ * stored, threaded through the finance response, or added to a roster for a new
+ * face to appear -- the frame simply starts resolving. But the server sends
+ * `Cache-Control: private, max-age=300` with it, which is right for a picture
+ * every screen shows and wrong for the five minutes after you change yours: the
+ * URL did not change, so the image layer has no reason to ask again, and a
+ * person who just uploaded a photo would watch the old one stay put and
+ * reasonably conclude the upload failed. `doiAnh` is bumped on success and rides
+ * along as a query parameter, which makes the address different *only* for the
+ * client that changed it. A timestamp would work too and would defeat the cache
+ * on every mount, costing every other screen the caching this one needs beaten
+ * exactly once.
+ *
+ * **A 404 is the ordinary answer.** Somebody with no avatar yet gets one, and
+ * `Anh` draws the caller's stand-in for a frame whose load failed, so nothing
+ * has to ask first. The stand-in is the person's initials, which is a better
+ * answer than a grey silhouette: it is about them.
+ */
 function BiaVaAnh({
   nguoi,
   ten,
   anhBia,
-  anhDaiDien,
+  doiAnh = 0,
 }: {
   nguoi: DemoPerson | null;
   ten: string;
   anhBia?: string | null;
-  anhDaiDien?: string | null;
+  doiAnh?: number;
 }) {
   const c = usePalette();
   const AVATAR = 84;
+  const anhDaiDien = nguoi
+    ? `${duongDanAnhDaiDien(nguoi.personId)}${doiAnh > 0 ? `?v=${doiAnh}` : ""}`
+    : null;
   return (
     <View style={{ marginBottom: AVATAR / 2 + space.xs }}>
-      {/* The frame is real now (`Anh`). What it holds today is still not a
-          photograph: real faces of real people do not go into Git, and a
-          stock portrait of a stranger is a worse lie than a gradient. Same
-          sunset the opening screen paints, so arriving here reads as the same
-          product rather than a second one. No text sits on it: `tokens.brand`
-          measures white on the coral stop at 2.92:1 and forbids exactly that. */}
+      {/* The cover band still holds no photograph: there is no cover-photo route
+          and a stock landscape of somewhere this person has never been is a
+          worse lie than a gradient. Same sunset the opening screen paints, so
+          arriving here reads as the same product rather than a second one. No
+          text sits on it: `tokens.brand` measures white on the coral stop at
+          2.92:1 and forbids exactly that. */}
       <Anh
         uri={anhBia}
         alt=""
+        // No cover-photo route exists, so no address reaching this frame is
+        // permission-checked. Stated rather than defaulted; see `Anh`.
+        nguoiXem={null}
         cho={<Gradient colors={HERO_SUNSET} style={{ flex: 1 }} />}
         style={{ height: 148 }}
       />
@@ -164,6 +216,10 @@ function BiaVaAnh({
         <Anh
           uri={anhDaiDien}
           alt={`Ảnh đại diện của ${ten}`}
+          // `GET /people/{id}/avatar` is permission-checked, so the frame has to
+          // fetch the bytes with this person's header rather than point an
+          // <img> at the address and be told 401. See `Anh` and `taiAnhCoQuyen`.
+          nguoiXem={nguoi?.personId ?? null}
           cho={
             <View
               style={{
@@ -196,6 +252,55 @@ function BiaVaAnh({
         </Text>
       </View>
     </View>
+  );
+}
+
+/**
+ * Change your own picture. Yours, and only ever yours.
+ *
+ * `POST /people/{id}/avatar` checks `is_self` on the server, so the id in the
+ * address is not a suggestion -- this screen could not set somebody else's face
+ * even if it tried. Passing `nguoi.personId` as both the subject and the actor
+ * is what makes that check pass, and it is written out rather than defaulted so
+ * the day real sessions arrive, the place where the two stop being the same
+ * value is visible.
+ *
+ * A card of its own rather than a control floating on the cover band. The
+ * avatar overhangs the gradient by half its height and the name block fills the
+ * space beside it; a button squeezed in there would either sit on a photograph
+ * whose brightness nothing controls -- the contrast the rest of this screen is
+ * measured against would stop meaning anything -- or push the name off the
+ * band. It is the first card in the column, directly under the face it changes.
+ */
+function DoiAnhDaiDien({
+  personId,
+  onXong,
+}: {
+  personId: string;
+  onXong: () => void;
+}) {
+  const c = usePalette();
+  const tai = useCallback(
+    async (photo: { uri: string }) => {
+      await taiAnhDaiDien(personId, photo, personId);
+    },
+    [personId],
+  );
+  return (
+    <Card>
+      <Text style={{ ...type.title, color: c.ink }}>Ảnh đại diện</Text>
+      <Text style={{ ...type.label, color: c.inkSoft }}>
+        Chỉ những người chung nhóm với bạn mới xem được tấm ảnh này. Máy chủ xoá sạch
+        thông tin ẩn trong file trước khi lưu, nên ảnh không mang theo toạ độ nơi chụp.
+      </Text>
+      <NutChonAnh
+        nhan="Đổi ảnh đại diện"
+        moTa="Chọn một tấm ảnh từ thư viện để làm ảnh đại diện của bạn"
+        kieu="nhe"
+        taiLen={tai}
+        onXong={onXong}
+      />
+    </Card>
   );
 }
 

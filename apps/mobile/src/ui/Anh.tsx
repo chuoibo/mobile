@@ -24,6 +24,24 @@
  * from dialling anything that is not our own API, and it runs here rather than
  * in the callers so that no future screen can forget it.
  *
+ * "Loaded" is the other one that is not about layout, and it is the half that
+ * rd-fe-25 shipped broken. Every image route this product has is
+ * permission-checked -- `GET /people/{id}/avatar` and
+ * `GET /contexts/{cid}/photos/{pid}` both answer 401 without `X-Actor-ID` --
+ * and an `<img>`, which is what react-native-web turns this `<Image>` into,
+ * cannot send a header. So an address handed straight to the frame is a request
+ * guaranteed to be refused, and the refusal lands in note 2 below: back to the
+ * stand-in, silently. For an avatar the stand-in is the person's initials,
+ * which is exactly what somebody with no photograph sees, so the screen looked
+ * correct in every state and the picture never appeared.
+ *
+ * `nguoiXem` is the fix and the reason it is a *required* prop. When it names
+ * somebody, this frame fetches the bytes with that person's headers and paints
+ * a local `blob:` URL instead; when it is `null` the caller is stating that
+ * addresses reaching it are served without credentials. Optional would have
+ * meant forgetting it compiles, and forgetting it fails the way described
+ * above -- invisibly. See `taiAnhCoQuyen` in `api.ts`.
+ *
  * Nothing here decides what the stand-in looks like. That stays with the caller,
  * because each surface knows what it can honestly draw when it has no picture:
  * `AnhDiaDiem` draws a category mark, `MoDau` draws the sunset, `CaNhan` draws
@@ -46,11 +64,11 @@
  *    painted stand-in, and a real photograph can be brighter than any of them.
  *    Callers that put text on the frame must bring their own ground.
  */
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Image, View } from "react-native";
 import type { StyleProp, ViewStyle } from "react-native";
 
-import { BASE_URL } from "../api";
+import { BASE_URL, boNguonCucBo, taiAnhCoQuyen } from "../api";
 import { nguonAnhAnToan } from "./nguon-anh";
 
 /** What the frame is currently able to show. Exported because the tests assert
@@ -70,6 +88,8 @@ export function Anh({
   style,
   children,
   onTrangThai,
+  nguoiXem,
+  nhom,
 }: {
   /** Where the photograph lives. `null` is the normal case today: the server
    *  does not send place or profile photos yet, and a screen must render
@@ -89,6 +109,24 @@ export function Anh({
   /** Badges, ribbons, name blocks. Drawn above the photograph. */
   children?: React.ReactNode;
   onTrangThai?: (t: TrangThaiAnh) => void;
+  /**
+   * Who is looking, when the bytes at `uri` are permission-checked.
+   *
+   * Required, and `null` is a real answer rather than a missing one: it says
+   * "addresses reaching this frame are served without a header". That is true
+   * of the opening illustration and of place photographs, and false of every
+   * picture a person or a group owns.
+   *
+   * Not optional on purpose. An optional prop makes forgetting it compile, and
+   * forgetting it does not throw or warn -- it produces a 401 the frame absorbs
+   * into the stand-in, which is the same thing a person with no photograph
+   * sees. That failure shipped once already (#222) and was invisible on every
+   * screen and in every test. A required prop makes the compiler ask.
+   */
+  nguoiXem: string | null;
+  /** Which group's photograph, for the routes that check membership of a
+   *  context rather than of a person. Ignored when `nguoiXem` is `null`. */
+  nhom?: string;
 }) {
   // `hong` is sticky per URI: once a load has failed, re-rendering must not put
   // the <Image> back and start the same failing request again on every parent
@@ -103,8 +141,59 @@ export function Anh({
   // its author having to know the rule exists. See `nguon-anh.ts`.
   const nguon = nguonAnhAnToan(uri, BASE_URL);
 
+  // The bytes, once they have been fetched with the caller's credentials. Kept
+  // with the address they came from so a stale result from a previous `uri`
+  // cannot be painted into the new frame for a tick.
+  const [cucBo, setCucBo] = useState<{ cua: string; uri: string } | null>(null);
+
+  // Fetch-with-header, for the addresses that need one. The frame is handed a
+  // local `blob:`/`data:` URL afterwards, which is why the <Image> below never
+  // needs credentials of its own.
+  //
+  // The cleanup revokes. A `blob:` URL holds its bytes alive until it does, and
+  // this frame remounts on every tab switch.
+  useEffect(() => {
+    // `!nguoiXem` rather than `=== null`: the prop is required in TypeScript, so
+    // app code has already made the decision, but a `.mjs` test renders this
+    // component untyped and an `undefined` slipping into `taiAnhCoQuyen` would
+    // send a request with no actor at all. Falsy means "no credentials to send".
+    if (nguon === null || !nguoiXem) return;
+    let huy = false;
+    let daCap: string | null = null;
+    setCucBo(null);
+    taiAnhCoQuyen(nguon, nguoiXem, nhom)
+      .then((local) => {
+        // Arrived after the frame moved on: release it rather than leak it.
+        if (huy) return void boNguonCucBo(local);
+        daCap = local;
+        setCucBo({ cua: nguon, uri: local });
+      })
+      .catch(() => {
+        // 401, 403, 404 and a dead network all land here and all mean the same
+        // thing to a person looking at the screen: no picture. The reason is
+        // deliberately not surfaced -- see note 2 above.
+        if (!huy) setHong(nguon);
+      });
+    return () => {
+      huy = true;
+      if (daCap) boNguonCucBo(daCap);
+    };
+  }, [nguon, nguoiXem, nhom]);
+
   const coUri = typeof uri === "string" && uri.trim().length > 0;
-  const veAnh = nguon !== null && hong !== nguon;
+
+  // What the <Image> is actually pointed at. An unauthenticated address is used
+  // as-is; a checked one waits for its bytes.
+  const hienThi =
+    nguon === null
+      ? null
+      : !nguoiXem
+        ? nguon
+        : cucBo && cucBo.cua === nguon
+          ? cucBo.uri
+          : null;
+
+  const veAnh = hienThi !== null && hong !== nguon;
 
   const trangThai: TrangThaiAnh = nguon === null
     ? coUri
@@ -112,7 +201,7 @@ export function Anh({
       : "khong-co"
     : hong === nguon
       ? "hong"
-      : xong === nguon
+      : hienThi !== null && xong === hienThi
         ? "hien"
         : "dang-tai";
 
@@ -152,7 +241,7 @@ export function Anh({
 
       {veAnh ? (
         <Image
-          source={{ uri: nguon }}
+          source={{ uri: hienThi }}
           // Never `contain`: a photograph letterboxed inside a card reads as a
           // broken card, and the frame's whole job is to be filled.
           resizeMode="cover"
@@ -161,7 +250,7 @@ export function Anh({
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
           aria-hidden
-          onLoad={() => setXong(nguon)}
+          onLoad={() => setXong(hienThi)}
           onError={() => {
             // No message, no code, no retry. The stand-in reappears and the
             // screen keeps working; see note 2.

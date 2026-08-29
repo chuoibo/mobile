@@ -15,6 +15,22 @@
     "src/extraction.ts",
     "src/camera/access.ts",
     "src/camera/bill-photo.ts",
+    // rd-fe-25. The pick-compress-upload-cleanup lifecycle for photographs the
+    // group KEEPS, as opposed to a bill that is read and thrown away. Compiled
+    // rather than read as source because the three claims that matter are all
+    // negative -- a cancelled picker sends nothing, a failed upload leaves no
+    // temp file behind, and no thrown value of any shape reaches the screen as
+    // `[object ...]` -- and a negative is only settled by running the real
+    // function over the values libraries really throw. See
+    // `tests/tai-anh-len.test.mjs`.
+    "src/camera/anh-nhom.ts",
+    // The button those bytes leave through. Compiled so a test can render it
+    // and read the markup react-native-web actually emits: the claim is that
+    // an upload in flight is BOTH announced and unpressable, and `disabled`
+    // and `aria-busy` are only real once they have reached the DOM.
+    // `accessibilityState` compiles just as well and arrives as nothing --
+    // that is the whole subject of `tests/aria-state.test.mjs`.
+    "src/ui/NutChonAnh.tsx",
     "src/ui/direction.ts",
     "src/ui/a11y.ts",
     // Which image addresses the app will dial. Compiled on its own line because

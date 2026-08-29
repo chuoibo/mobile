@@ -77,6 +77,10 @@ export function AnhDiaDiem({ category, height, rounded = radius.small, children,
     <Anh
       uri={uri}
       alt={name ? `Ảnh ${name}` : "Ảnh địa điểm"}
+      // A place is not owned by anybody, and `photo_url` is not behind a
+      // membership check, so these bytes are served without a header. The day
+      // place photographs move onto a checked route this becomes a viewer id.
+      nguoiXem={null}
       cho={
         <>
           <Gradient
