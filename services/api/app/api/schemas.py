@@ -459,6 +459,31 @@ class ContextBalancesResponse(ApiModel):
     transfer_count: Annotated[int, Field(strict=True, ge=0)]
 
 
+class RecapOutingResponse(ApiModel):
+    """One finished trip on the memory wall.
+
+    `split_total_vnd` is recomputed from the ledger per request. It counts the
+    expenses that happened on this trip's days, which is a rule the screen
+    states out loud -- there is no `expenses.outing_id` to be exact with.
+    """
+
+    outing_id: UUID
+    title: str
+    starts_on: date
+    ends_on: date
+    headcount: int
+    stops: list[OutingStopResponse]
+    split_total_vnd: int
+    expense_count: int
+    memory_count: int
+
+
+class GroupRecapResponse(ApiModel):
+    context_id: UUID
+    outings: list[RecapOutingResponse]
+    split_total_vnd: int
+
+
 class MemoryCreateRequest(ApiModel):
     image_url: Annotated[StrictStr, Field(min_length=1)]
     caption: str | None = None

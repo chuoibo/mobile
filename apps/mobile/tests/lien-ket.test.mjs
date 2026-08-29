@@ -95,3 +95,33 @@ test("không có fragment thì không có màn vào cửa nào", () => {
   assert.equal(docDiemDen("").vao, null);
   assert.equal(docDiemDen("#tab=ca-nhan").vao, null);
 });
+
+/* ---------------------------------------------------- kỷ niệm (F30/F35) --- */
+
+test("vao=ky-niem mở thẳng tường kỷ niệm, không cần bấm qua menu [+]", () => {
+  // The wall lives behind the [+] sheet, so without this a detector run, a
+  // screenshot pass and an accessibility sweep all describe the opening screen
+  // while claiming to describe the wall — and all three still exit 0.
+  const d = docDiemDen("#vao=ky-niem&nguoi=minh");
+  assert.equal(d.vao, "ky-niem");
+  assert.equal(d.boQuaMoDau, true);
+});
+
+test("nhom=<uuid> đặt tên nhóm cho tường kỷ niệm", () => {
+  const id = "1aa00000-aaaa-4aaa-8aaa-0000a0000001";
+  const d = docDiemDen(`#vao=ky-niem&nhom=${id}`);
+  assert.equal(d.nhomId, id);
+});
+
+test("nhom gõ sai bị bỏ chứ không đi thẳng vào đường dẫn yêu cầu", () => {
+  // This value is interpolated into a request path. A malformed one passed
+  // through is the app writing somebody else's URL, so it has to become null
+  // rather than "probably harmless".
+  for (const bad of ["", "khong-phai-uuid", "../../etc/passwd", "1aa00000"]) {
+    assert.equal(docDiemDen(`#vao=ky-niem&nhom=${bad}`).nhomId, null, bad);
+  }
+});
+
+test("không có nhom thì để null — màn tự đi tìm nhóm demo", () => {
+  assert.equal(docDiemDen("#vao=ky-niem").nhomId, null);
+});

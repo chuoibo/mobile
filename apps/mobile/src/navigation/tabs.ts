@@ -71,7 +71,7 @@ export const TABS: Tab[] = [
  * shell to open it is a compile error rather than a menu row that quietly
  * does nothing.
  */
-export type CreateFlowId = "khoan-chi" | "nhom";
+export type CreateFlowId = "khoan-chi" | "nhom" | "ky-niem";
 
 /**
  * How the shell reaches a create action -- as data the shell reads, not as a
@@ -105,10 +105,12 @@ export type CreateAction = {
 /**
  * What [+] opens.
  *
- * Three of these reach real behaviour today, and the menu says so out loud
- * rather than letting four identical rows imply four working features. Spec
- * section 14.3's rule about not designing ahead of the actions cuts both ways:
- * the action that does not exist yet must not pretend to.
+ * All four reach real behaviour today, and the menu says so out loud rather
+ * than letting four identical rows imply four working features. Spec section
+ * 14.3's rule about not designing ahead of the actions cuts both ways: the
+ * action that does not exist yet must not pretend to. That the list happens to
+ * be all-true today is why `built` stays rather than being deleted as
+ * redundant -- the next action added here starts at `false` and earns it.
  *
  * Wiring a new one is two edits in this list -- `built: true` and a `route` --
  * and no edit to the suite. Leaving either one out is a red run.
@@ -132,13 +134,21 @@ export const CREATE_ACTIONS: CreateAction[] = [
   },
   {
     id: "dang-ky-niem",
-    label: "Đăng kỷ niệm",
-    hint: "Ảnh và khoảnh khắc của chuyến vừa rồi",
-    // No route, and the missing route is the honest part: there is no photo
-    // store to put a memory in yet. The row says "vỏ" because of this `null`,
-    // not in spite of it.
-    built: false,
-    route: null,
+    // Renamed from "Đăng kỷ niệm" because what exists is the wall, not the
+    // posting. F30's read side is built -- `screens/ky-niem/KyNiem.tsx` opens
+    // `GET /contexts/{id}/recap` and shows the trips that are over, where they
+    // went and what they cost. Uploading a photo (F35) is not built and there
+    // is no photo store to put one in, so a menu row saying "Đăng" would
+    // promise the half that does not exist. The label names the half that does.
+    //
+    // The route is what turns that claim into something the suite can check:
+    // the previous comment here explained a `null` route as the honest part,
+    // and it was, right up until the wall existed. Now the honest part is that
+    // both move together.
+    label: "Kỷ niệm nhóm",
+    hint: "Xem lại chuyến đã đi, chỗ đã tới, tiền đã chia",
+    built: true,
+    route: { kind: "flow", flow: "ky-niem" },
   },
   {
     id: "tao-nhom",
