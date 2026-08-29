@@ -236,12 +236,13 @@ do_ruff() {
   # The one-argument form compares <base> against the WORKING TREE, so this
   # covers changes not yet committed. CI can only ever see pushed commits;
   # locally the useful moment is before the commit exists.
+  #
+  # Shared with check_prereq deliberately. The two have to agree on which base
+  # they mean: the prereq check decides whether this stage runs at all from the
+  # file list at that base, and if it computed a different one it could skip a
+  # stage that had work to do.
   local base
-  base="$(git merge-base origin/main HEAD 2>/dev/null)" || base=""
-  if [ -z "$base" ]; then
-    git fetch --no-tags --quiet origin main 2>/dev/null || true
-    base="$(git merge-base origin/main HEAD 2>/dev/null)" || base=""
-  fi
+  base="$(guard_range_base)"
   if [ -z "$base" ]; then
     echo "không tìm được merge base với origin/main" >&2
     return 1
@@ -371,7 +372,30 @@ do_postgres() {
 check_prereq() {
   case "$1" in
     ruff)
-      git rev-parse --git-dir >/dev/null 2>&1 || { echo "không phải git repo"; return 1; } ;;
+      git rev-parse --git-dir >/dev/null 2>&1 || { echo "không phải git repo"; return 1; }
+      # `ruff_changed.sh` is a ratchet, so an empty scope makes it print
+      # "nothing for ruff to check" and exit 0 -- correct for the script, and a
+      # lie once this file renders it as ĐẠT. `guard-range` refuses the
+      # identical empty-range condition one stage above; this is the same
+      # refusal for the same reason.
+      #
+      # It hid a real defect. Measured 2026-08-30 on main at 15b0e5c: standing
+      # on origin/main the scope is empty, so this stage said ĐẠT, while the
+      # same commit in a clone whose merge base was one commit back said HỎNG
+      # over three files `ruff format` rejects. The moment you most want to ask
+      # "is main clean?" was the moment the stage could not answer.
+      #
+      # Only a confident empty answer skips. No base, or the script erroring,
+      # falls through and runs the body -- which reports the real problem far
+      # more loudly than a skip line. A prereq check may turn a run into a skip
+      # only when it is certain there is nothing to do.
+      local rbase rlist
+      rbase="$(guard_range_base)"
+      [ -n "$rbase" ] || return 0
+      rlist="$(scripts/ruff_changed.sh --list "$rbase" 2>/dev/null)" || return 0
+      [ -n "$rlist" ] || {
+        echo "nhánh không đổi file Python nào so với origin/main -- ruff không kiểm được gì"
+        return 1; } ;;
     guard-range)
       git rev-parse --git-dir >/dev/null 2>&1 || { echo "không phải git repo"; return 1; }
       # No base: let the body fail loudly rather than skipping quietly here.
