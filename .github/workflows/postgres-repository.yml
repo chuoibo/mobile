@@ -1,9 +1,9 @@
 name: PostgreSQL Repository
 
 on:
-  pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: postgres-repository-${{ github.ref }}
