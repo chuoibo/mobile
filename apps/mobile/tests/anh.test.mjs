@@ -11,8 +11,20 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+// react-native-web resolves to its CJS build for a bare specifier (`main` in
+// its package.json), so the cache primed below must be the CJS instance -- the
+// ESM copy under `dist/` is a different module with a different cache, and
+// priming that one leaves every render at 0 images while looking correct.
+import rnwImageLoader from "react-native-web/dist/cjs/modules/ImageLoader/index.js";
+
 import { parsePlace, PLACES_BASE_URL } from "../dist-test/screens/kham-pha/places.js";
 import { nguonAnhAnToan } from "../dist-test/ui/nguon-anh.js";
+import { Anh } from "../dist-test/ui/Anh.js";
+import { BASE_URL } from "../dist-test/api.js";
+
+const { ImageUriCache } = rnwImageLoader;
 
 const MOBILE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -146,9 +158,21 @@ test("photo_url không phải http/https bị bỏ, không đưa vào <Image>", 
  *      ảnh chụp trông y hệt lúc đường ảnh còn sống.
  *
  * Ca 2 là ca nguy hiểm hơn: nó biến một cổng thành đồ trang trí mà không đổi
- * một dòng nào trong `src/`. Hai ca dưới đọc nguồn nên chạy được trong
- * `npm test` không cần trình duyệt; bằng chứng render thật nằm ở ảnh chụp
- * kèm PR.
+ * một dòng nào trong `src/`.
+ *
+ * Ca 1 từng được gác bằng `assert.match(src, /<Image\b/)` -- đọc văn bản nguồn.
+ * Cổng đó MÙ, và rd-qa-35 (#198) đo được điều đó. Đột biến đúng hồi quy nó nêu
+ * tên -- làm `veAnh` không bao giờ đúng, nên `<Image>` không bao giờ được mount
+ * -- để app render 0 ảnh mà cả 14 ca ở đây vẫn xanh, vì chữ `<Image` vẫn nằm
+ * nguyên trong file. Một cổng không đỏ được là tệ hơn không có cổng: nó đọc
+ * thành đã phủ.
+ *
+ * Nên ca 1 giờ RENDER. `Anh` đi qua `react-native-web` -- đúng phép thay thế
+ * `expo export` làm cho bản web -- nên markup dưới đây là markup trình duyệt
+ * thật sự nhận, cùng lý do `aria-vai-tro.test.mjs` render thay vì đọc nguồn.
+ * Xem `tools/fixup-esm.mjs`.
+ *
+ * Cái nó KHÔNG chứng minh: iOS và Android, nơi một thư viện khác đọc cùng props.
  */
 /* Luật origin, đọc thẳng chứ không qua parser địa điểm.
  *
@@ -192,22 +216,83 @@ test("nguonAnhAnToan: rỗng, sai kiểu, hoặc có ký tự điều khiển th
   assert.equal(nguonAnhAnToan("/a\tb.png", GOC), null);
 });
 
-test("Anh gọi cổng origin, không tự nhận uri thô", () => {
-  // Ca này là cái giữ cho luật trên không thành đồ trang trí. `Anh` là chỗ duy
-  // nhất dựng <Image>; nếu nó đọc thẳng `uri` thì mọi màn khác địa điểm vẫn
-  // tải được ảnh của người lạ dù parser địa điểm đã sạch.
-  const src = readFileSync(join(MOBILE_ROOT, "src/ui/Anh.tsx"), "utf8");
-  assert.match(src, /nguonAnhAnToan/);
-  // Và <Image> phải lấy nguồn đã lọc, không phải biến `uri` gốc.
-  assert.doesNotMatch(src, /source=\{\{\s*uri:\s*uri\b/);
+/* ---------------------------------------------------------- render thật --- */
+
+/** Mọi `src` mà react-native-web đặt lên một <img>, theo thứ tự tài liệu. */
+function anhTrongMarkup(html) {
+  return [...html.matchAll(/<img\b[^>]*\bsrc="([^"]*)"/g)].map((m) => m[1]);
+}
+
+/** `Anh` dựng markup gì cho một `uri`.
+ *
+ * `ImageUriCache.add` đứng trước mỗi lượt render vì react-native-web khởi tạo
+ * `<Image>` ở trạng thái IDLE và chỉ vẽ ảnh khi đã có trong cache trình duyệt;
+ * không mồi thì SSR luôn ra 0 ảnh và CẢ HAI ca dưới đều xanh vì lý do sai. Mồi
+ * cache là mô phỏng một trạng thái thật người dùng chạm tới (ảnh đã tải trước
+ * đó), bằng chính API công khai của thư viện -- không vá, không stub.
+ *
+ * Mồi CẢ địa chỉ độc là chỗ làm ca âm có giá trị: nếu `Anh` quên lọc, markup sẽ
+ * mang <img src="http://evil..."> ngay tại đây.
+ */
+function veAnh(uri) {
+  ImageUriCache.add(uri);
+  return renderToStaticMarkup(
+    React.createElement(Anh, {
+      uri,
+      alt: "Ảnh quán",
+      cho: React.createElement("i", { "data-cho": "1" }),
+    }),
+  );
+}
+
+test("Anh dựng <img> thật khi địa chỉ nằm trên API của chính mình", () => {
+  // Đây là ca thay cho `assert.match(src, /<Image\b/)`. Nó đỏ khi `<Image>`
+  // thôi được mount, kể cả lúc chữ `<Image` vẫn còn nguyên trong nguồn.
+  const an = `${BASE_URL}/contexts/abc/photos/xyz`;
+  const html = veAnh(an);
+  assert.deepEqual(
+    anhTrongMarkup(html),
+    [an],
+    "đúng một <img>, mang đúng địa chỉ đã lọc -- 0 ảnh nghĩa là khung không còn dựng <Image>",
+  );
 });
 
-test("Anh render <Image> thật của react-native, không phải View tô màu", () => {
+test("Anh không phát một request nào tới origin lạ", () => {
+  // Ca âm, và là ca quan trọng hơn: rò rỉ nằm ở REQUEST, không ở pixel. Nên
+  // phép đo là "địa chỉ đó không xuất hiện ở đâu trong markup" -- không <img>,
+  // và cũng không <link rel=preload> hay background-image, vì cả ba đều làm
+  // trình duyệt đi tải thật.
+  const doc = "http://evil.example/theo-doi.png";
+  const html = veAnh(doc);
+  assert.deepEqual(anhTrongMarkup(html), [], "địa chỉ lạ không được thành <img>");
+  assert.ok(
+    !html.includes("evil.example"),
+    "địa chỉ lạ không được lọt vào markup dưới bất kỳ dạng nào (preload / background-image)",
+  );
+  // Và khung vẫn vẽ chỗ chờ, không để lại một ô trống.
+  assert.match(html, /data-cho="1"/);
+});
+
+test("chỗ chờ vẫn nằm dưới ảnh kể cả khi ảnh đã hiện", () => {
+  // Hành vi 1 trong docstring của `Anh.tsx`: chỗ chờ không phải màn chờ, nó là
+  // cái sàn. Ảnh giải mã xong rồi bị thu hồi không được để lại lỗ thủng.
+  const html = veAnh(`${BASE_URL}/contexts/abc/photos/san.jpg`);
+  assert.equal(anhTrongMarkup(html).length, 1);
+  assert.match(html, /data-cho="1"/);
+});
+
+test("Anh đưa tải hỏng về chỗ chờ, không hiện mã lỗi", () => {
+  // Đọc nguồn, và nói thẳng ra là đọc nguồn: `onError` chỉ chạy trong trình
+  // duyệt thật, `renderToStaticMarkup` không chạy effect nào. Ca này chứng minh
+  // đường quay về CÓ ĐƯỢC NỐI, không chứng minh nó chạy đúng. Bằng chứng hành
+  // vi cho đường hỏng vẫn là ô chưa quét -- rd-qa-35 ghi nó ở #198.
+  //
+  // Và nó chỉ kiểm ĐÚNG một chuyện: đường đó có được nối. Bản nháp của ca này
+  // còn `assert.doesNotMatch(src, /ECONNREFUSED/)` để nói "không mã lỗi nào lên
+  // khung" -- rồi đỏ, vì `ECONNREFUSED` nằm trong chính đoạn chú thích giải
+  // thích vì sao không được hiện nó. Một phép so văn bản không phân biệt được
+  // mã với lời bàn về mã, nên nó đã bị gỡ thay vì được nới cho xanh.
   const src = readFileSync(join(MOBILE_ROOT, "src/ui/Anh.tsx"), "utf8");
-  assert.match(src, /import\s*\{[^}]*\bImage\b[^}]*\}\s*from\s*"react-native"/);
-  assert.match(src, /<Image\b/);
-  assert.match(src, /source=\{\{\s*uri:/);
-  // Tải hỏng phải quay về chỗ chờ, không phải hiện icon ảnh vỡ hay mã lỗi.
   assert.match(src, /onError=/);
 });
 
