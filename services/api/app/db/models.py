@@ -898,6 +898,7 @@ __all__ = [
     "GuestLinkStatus",
     "IdempotencyKey",
     "MembershipRole",
+    "Memory",
     "Message",
     "MessageKind",
     "PayerAcknowledgement",
@@ -1059,6 +1060,44 @@ class Membership(Base):
     left_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class Memory(Base):
+    """One immutable keepsake attached to a context's private memory wall.
+
+    A memory belongs to the context rather than its author because the group,
+    not one person's continuing membership, defines the shared history.
+    """
+
+    __tablename__ = "memories"
+    __table_args__ = (
+        Index(
+            "ix_memories_context_feed",
+            "context_id",
+            desc("created_at"),
+            desc("id"),
+        ),
+        CheckConstraint("image_url <> ''", name="image_url_not_blank"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    context_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("contexts.id", name="fk_memories_context"),
+        nullable=False,
+    )
+    author_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_memories_author"),
+        nullable=False,
+    )
+    image_url: Mapped[str] = mapped_column(Text, nullable=False)
+    caption: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

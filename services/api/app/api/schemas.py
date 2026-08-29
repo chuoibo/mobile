@@ -336,6 +336,33 @@ class ContextBalancesResponse(ApiModel):
     transfer_count: Annotated[int, Field(strict=True, ge=0)]
 
 
+class MemoryCreateRequest(ApiModel):
+    image_url: Annotated[StrictStr, Field(min_length=1)]
+    caption: str | None = None
+
+
+class MemoryQuery(ApiModel):
+    limit: int = Field(default=50, ge=1, le=100)
+    before: str | None = None
+
+
+class MemoryResponse(ApiModel):
+    id: UUID
+    context_id: UUID
+    author_id: UUID
+    image_url: str
+    caption: str | None
+    created_at: datetime
+    cursor: str
+
+
+class MemoryListResponse(ApiModel):
+    context_id: UUID
+    memories: list[MemoryResponse]
+    next_cursor: str | None
+    has_more: bool
+
+
 class MessageCreateRequest(ApiModel):
     kind: Literal["text", "image", "ai_card"]
     body: Annotated[StrictStr, Field(max_length=4000)] | None = None

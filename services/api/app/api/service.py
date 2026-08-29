@@ -19,6 +19,7 @@ from app.api.repository import (
     BillRecord,
     GuestLinkDraft,
     MembershipRecord,
+    MemoryRecord,
     MessageRecord,
     ObligationDraft,
     PersonFinanceSummary,
@@ -56,6 +57,10 @@ from app.api.schemas import (
     MembershipInviteRequest,
     MembershipListResponse,
     MembershipResponse,
+    MemoryCreateRequest,
+    MemoryListResponse,
+    MemoryQuery,
+    MemoryResponse,
     MessageCreateRequest,
     MessageListResponse,
     MessageQuery,
@@ -294,6 +299,18 @@ def _wire_membership(record: MembershipRecord) -> MembershipResponse:
         joined_at=record.joined_at,
         left_at=record.left_at,
         created_at=record.created_at,
+    )
+
+
+def _wire_memory(record: MemoryRecord) -> MemoryResponse:
+    return MemoryResponse(
+        id=record.id,
+        context_id=record.context_id,
+        author_id=record.author_id,
+        image_url=record.image_url,
+        caption=record.caption,
+        created_at=record.created_at,
+        cursor=encode_cursor(record.created_at, record.id),
     )
 
 
@@ -573,6 +590,55 @@ class ApiService:
             ],
             proven_minimal=plan["proven_minimal"],
             transfer_count=plan["transfer_count"],
+        )
+
+    def post_context_memory(
+        self,
+        context_id: uuid.UUID,
+        request: MemoryCreateRequest,
+        actor: Actor,
+    ) -> MemoryResponse:
+        _require_permission(
+            "post_group_memory",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        record = self.repository.create_memory(
+            context_id=context_id,
+            author_id=actor.id,
+            image_url=request.image_url,
+            caption=request.caption,
+            now=_now(),
+        )
+        return _wire_memory(record)
+
+    def list_context_memories(
+        self,
+        context_id: uuid.UUID,
+        query: MemoryQuery,
+        actor: Actor,
+    ) -> MemoryListResponse:
+        _require_permission(
+            "view_group_memories",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        try:
+            before = decode_cursor(query.before) if query.before is not None else None
+        except CursorError as exc:
+            raise ApiProblem(422, "invalid_cursor", "Memory cursor is invalid") from exc
+
+        page = self.repository.list_memories(
+            context_id,
+            limit=query.limit,
+            before=before,
+        )
+        memories = [_wire_memory(record) for record in page.memories]
+        return MemoryListResponse(
+            context_id=context_id,
+            memories=memories,
+            next_cursor=memories[-1].cursor if memories else None,
+            has_more=page.has_more,
         )
 
     def post_context_message(
