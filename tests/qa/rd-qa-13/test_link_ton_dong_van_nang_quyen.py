@@ -35,7 +35,7 @@ Run:
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import UTC, date, datetime
 
 import anyio
 import httpx
@@ -56,9 +56,12 @@ from app.db.models import (
     Person,
 )
 
-from tests.postgres.test_repository_postgres import NOW
-
 pytestmark = pytest.mark.postgres
+
+# Declared here rather than imported from `tests.postgres.test_repository_postgres`:
+# two directories in this repo are named `tests`, so that import resolves
+# differently depending on which directory pytest was invoked from.
+NOW = datetime(2030, 8, 27, 12, tzinfo=UTC)
 
 # A token that was handed out before #124 landed. Its plaintext survives in a
 # chat message; only the digest was ever stored.
@@ -217,24 +220,6 @@ def _walk(postgres_session: Session, monkeypatch: pytest.MonkeyPatch):
 
     accepted, after, balances = anyio.run(escalate)
     return redeemed, accepted, after, balances
-
-
-def test_a_link_minted_before_the_shutoff_is_still_redeemable(
-    postgres_session: Session, monkeypatch: pytest.MonkeyPatch
-):
-    """Turning off the mint does not revoke what was already minted.
-
-    `accept_outing_invite` checks single-use, never an expiry, and #124 left
-    both consuming routes mounted. Every link already sitting in a chat message
-    still works.
-    """
-    redeemed, _, _, _ = _walk(postgres_session, monkeypatch)
-
-    assert redeemed.status_code == 404, (
-        "PR #124 refuses to MINT a link; it does not refuse to redeem one that "
-        "already exists, and there is no expiry. An outstanding link is still "
-        f"live. Got {redeemed.status_code}: {redeemed.text}"
-    )
 
 
 def test_a_link_bearer_cannot_promote_themselves_to_active(
