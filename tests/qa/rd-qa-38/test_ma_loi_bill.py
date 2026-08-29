@@ -152,21 +152,25 @@ class TestCaiGiThucSuHong:
         assert len(result["items"]) == 5
         assert result["total_vnd"] == 235000
 
-    def test_quantity_rong_pha_huy_ca_hoa_don(self):
-        """One empty string on ONE line destroys all five.
+    def test_quantity_rong_khong_con_pha_huy_ca_hoa_don(self):
+        """One empty string on ONE line no longer destroys all five.
 
         This is the observed production failure, not a constructed one: the
         reader emitted `""` on 25 of 60 item-readings across 12 real calls.
         Semantically `""` and a missing key say the same thing -- this line
-        prints no quantity -- and the two are handled differently.
+        prints no quantity -- and the two used to be handled differently.
 
-        Characterization, not endorsement. The day the domain stops doing this,
-        this case goes red and points whoever changed it at this file.
+        Written as characterization while the bug was alive, with the note that
+        the day the domain stopped doing this the case would go red and point
+        whoever changed it at this file. That is exactly what happened: #220
+        (rd-be-22) landed the fix, and the old form -- `pytest.raises`, asserting
+        code `INVALID_QUANTITY` -- started failing with DID NOT RAISE. It is
+        inverted here into the regression guard for the fixed behaviour: the
+        blank line reads, and it takes the other four with it instead of down.
         """
 
-        with pytest.raises(ReceiptError) as caught:
-            read_scanned_document(_bill(""))
-        assert caught.value.code == "INVALID_QUANTITY"
+        result = read_scanned_document(_bill(""))
+        assert len(result["items"]) == 5
 
     def test_bon_mon_kia_doc_duoc_van_bi_vut_di(self):
         """The four good lines are collateral, not the cause."""
@@ -177,14 +181,17 @@ class TestCaiGiThucSuHong:
         ]
         assert read_scanned_document(chi_bon_mon)["total_vnd"] == 235000
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="rd-qa-38: `` and a missing key mean the same thing on a bill "
-        "that prints no quantity column; only one of them is accepted. Fixing "
-        "`_read_quantity` to read blank as absent turns this green and is the "
-        "single highest-value change measured on the hero path.",
-    )
     def test_quantity_rong_nen_doc_nhu_khong_co(self):
+        """Blank and absent now mean the same thing, and the money is right.
+
+        Was `xfail(strict=True)` while `_read_quantity` accepted only bare
+        digits: `""` and a missing key say the same thing on a bill that prints
+        no quantity column, and only one of them was read. #220 (rd-be-22) reads
+        blank as absent, so this passes on its own now. The marker came off in
+        the same change that proved it -- a strict xfail left on a case that has
+        started passing turns XPASS into a hard failure and reds main.
+        """
+
         assert read_scanned_document(_bill(""))["total_vnd"] == 235000
 
 
@@ -213,15 +220,17 @@ class TestBayMaMotCau:
 class TestKhongAiChanDoanDuoc:
     """Can anyone find out which of the seven it was, after the fact?"""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="rd-qa-38: measured on a live server -- 5 failing scans produced "
-        "5 identical `422 Unprocessable Content` access lines and nothing else. "
-        "A malformed X-Actor-ID produces that same line, so the log cannot even "
-        "separate a bad header from an unreadable bill. Log the CODE (never the "
-        "reading) and this goes green.",
-    )
     def test_ma_loi_co_trong_log(self, caplog):
+        """The failing code reaches the log, so the cause is recoverable.
+
+        Was `xfail(strict=True)`: measured on a live server, 5 failing scans
+        produced 5 identical `422 Unprocessable Content` access lines and
+        nothing else, and a malformed X-Actor-ID produced that same line, so the
+        log could not separate a bad header from an unreadable bill. #220
+        (rd-be-22) logs the code, which is more than that change promised to do.
+        Marker removed for the same reason as the case above.
+        """
+
         with caplog.at_level(logging.DEBUG):
             response = _scan(_Reader(error=ReceiptError("INVALID_QUANTITY")))
         assert response.status_code == 422
