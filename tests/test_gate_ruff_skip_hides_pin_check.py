@@ -36,18 +36,24 @@ did change a file the ruff stage cares about, and the gate reports that it did
 not. Under `--strict` the run is still red, but red with a diagnosis that sends
 the reader to the wrong file.
 
-## Why xfail(strict=True) and not a red line
+## The xfail(strict=True) marker is gone -- this is a live guard now
 
-Same reason tests/qa/rd-qa-37 gave: a permanently red suite is one everybody
-learns to scroll past, and `scripts/` belongs to the devops lane, not to QA.
-Strict makes the marker self-clearing -- the day `check_prereq` stops hiding
-the pin assertion this XPASSes, strict turns that into a failure, and whoever
-fixed it is told to delete the marker and keep the guard.
+It was filed xfail rather than red for the reason tests/qa/rd-qa-37 gave: a
+permanently red suite is one everybody learns to scroll past, and `scripts/`
+belongs to the devops lane, not to QA. Strict made the marker self-clearing --
+the day `check_prereq` stopped hiding the pin assertion this XPASSed, strict
+turned that into a failure, and whoever fixed it was told to delete the marker
+and keep the guard.
 
-The marker was verified to be a real gate rather than a decorative line, by
-applying a candidate fix and taking it away again:
+That day is now. `check_prereq ruff` consults `ruff_pin()` before it is allowed
+to skip, so the case below passes on its own terms and the marker has been
+removed rather than the case weakened. Deleting the marker is the second half
+of the fix: leaving it on would have turned this XPASS into a red main.
 
-    1 xfailed                     # main @ 7e1ed4b, untouched
+The marker was verified to be a real gate rather than a decorative line before
+it came off, by applying the fix and taking it away again:
+
+    1 xfailed                     # main @ 9564684, untouched
     1 xpassed -> failed (strict)  # + pin checked before the skip decision
     1 xfailed                     # fix reverted, tree clean again
 
@@ -72,7 +78,6 @@ import subprocess
 import tempfile
 import unittest
 
-import pytest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -175,15 +180,9 @@ class GateRuffSkipHidesPinCheck(unittest.TestCase):
 
     # --- the hole ---------------------------------------------------------
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "main @ 7e1ed4b: check_prereq skips before do_ruff runs, so #206's "
-            "ruff== pin assertion never executes for a change that touches no "
-            "Python. Deleting the pin is exactly such a change. When this "
-            "XPASSes the hole is closed: delete this marker, keep the guard."
-        ),
-    )
+    # Was xfail(strict=True) until check_prereq stopped deciding the skip from
+    # the changed-Python-file list alone. The assertion is unchanged; only the
+    # marker came off.
     def test_a_deleted_ruff_pin_is_not_hidden_by_the_empty_scope_skip(self):
         self.delete_the_pin()
 
