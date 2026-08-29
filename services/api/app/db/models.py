@@ -153,6 +153,73 @@ class BillItem(Base):
     position: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
+class BillSurcharge(Base):
+    """A surcharge line retained with the mode used by the allocator."""
+
+    __tablename__ = "bill_surcharges"
+    __table_args__ = (
+        UniqueConstraint(
+            "bill_id",
+            "surcharge_key",
+            name="uq_bill_surcharges_bill_surcharge_key",
+        ),
+        CheckConstraint("amount_vnd > 0", name="amount_positive"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    bill_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("bills.id", name="fk_bill_surcharges_bill"),
+        nullable=False,
+        index=True,
+    )
+    surcharge_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    mode: Mapped[SurchargeMode] = mapped_column(
+        _enum_type(SurchargeMode, "surcharge_mode"), nullable=False
+    )
+
+
+class BillDiscount(Base):
+    """A discount line retained without pre-resolving its item reference."""
+
+    __tablename__ = "bill_discounts"
+    __table_args__ = (
+        UniqueConstraint(
+            "bill_id",
+            "discount_key",
+            name="uq_bill_discounts_bill_discount_key",
+        ),
+        CheckConstraint("amount_vnd > 0", name="amount_positive"),
+        CheckConstraint(
+            "(scope = 'item' AND target_item_key IS NOT NULL) OR "
+            "(scope = 'global_proportional' AND target_item_key IS NULL)",
+            name="scope_target_match",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    bill_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("bills.id", name="fk_bill_discounts_bill"),
+        nullable=False,
+        index=True,
+    )
+    discount_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    scope: Mapped[DiscountScope] = mapped_column(
+        _enum_type(DiscountScope, "discount_scope"), nullable=False
+    )
+    # This stays a plain key so the allocator remains authoritative for
+    # UNKNOWN_ITEM and its error precedence.
+    target_item_key: Mapped[str | None] = mapped_column(String(64))
+
+
 class BillItemShare(Base):
     """One suggested or confirmed participant assignment for a bill item."""
 

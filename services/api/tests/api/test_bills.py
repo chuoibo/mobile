@@ -85,6 +85,20 @@ def confirm_all(client, bill_id):
     )
 
 
+def _scalars(node):
+    """Every leaf value in a decoded JSON body, keys included."""
+
+    if isinstance(node, dict):
+        for key, value in node.items():
+            yield key
+            yield from _scalars(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _scalars(value)
+    else:
+        yield node
+
+
 def sources(body):
     return {
         item["item_key"]: [share["source"] for share in item["shares"]]
@@ -120,7 +134,12 @@ class TestBillDraftCreation:
         )
 
         assert "confidence" not in response.json()
-        assert "88" not in response.text
+        # Walk the decoded body rather than grepping the raw text. The claim is
+        # that no VALUE carries the score; "88" as a substring also matches the
+        # bill's random uuid, which put this assertion at a measured 28/200
+        # failures and made the suite red about one CI run in seven.
+        assert 88 not in _scalars(response.json())
+        assert "88" not in _scalars(response.json())
 
     def test_a_draft_creates_no_obligation(self, client, repository):
         """Scanning a bill is not spending money. The ledger only accepts an

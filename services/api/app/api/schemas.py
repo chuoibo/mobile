@@ -18,6 +18,7 @@ from pydantic import (
     StrictBool,
     StrictStr,
     field_validator,
+    model_validator,
 )
 
 MoneyVnd = Annotated[int, Field(strict=True)]
@@ -109,6 +110,41 @@ class BillItemCreateRequest(ApiModel):
     suggested_participant_ids: list[UUID]
 
 
+class BillSurchargeCreateRequest(ApiModel):
+    surcharge_key: Annotated[StrictStr, Field(max_length=64)]
+    kind: Annotated[StrictStr, Field(max_length=32)]
+    amount_vnd: PositiveMoneyVnd
+    mode: Literal["proportional", "even"]
+
+
+class BillDiscountCreateRequest(ApiModel):
+    """A discount line, WITH its scope and, when item-scoped, its target.
+
+    ADR-0004 owns this rule and calls the violation SCOPE_TARGET_MISMATCH, but
+    the allocator never sees a draft that fails to store: a bill is written
+    long before it is split, and `ck_bill_discounts_scope_target_match`
+    refuses the incoherent row at INSERT. Checking it here keeps a malformed
+    body a 422 about the body instead of a write conflict about the schema.
+    """
+
+    discount_key: Annotated[StrictStr, Field(max_length=64)]
+    amount_vnd: PositiveMoneyVnd
+    scope: Literal["global_proportional", "item"]
+    item_key: Annotated[StrictStr, Field(max_length=64)] | None = None
+
+    @model_validator(mode="after")
+    def _target_matches_scope(self) -> BillDiscountCreateRequest:
+        if (self.scope == "item") != (self.item_key is not None):
+            # Both directions are wrong in their own way: a global discount
+            # carrying a target reads as item-scoped to anybody skimming, and
+            # an item-scoped one without a target has no item to subtract from.
+            raise ValueError(
+                "an item-scoped discount needs item_key and a global one "
+                "must not carry it"
+            )
+        return self
+
+
 class BillCreateRequest(ApiModel):
     context_id: UUID
     printed_total_vnd: NonNegativeMoneyVnd | None
@@ -116,6 +152,8 @@ class BillCreateRequest(ApiModel):
     confidence: Annotated[int, Field(strict=True, ge=0, le=100)]
     needs_review: StrictBool
     items: list[BillItemCreateRequest]
+    surcharges: list[BillSurchargeCreateRequest] = Field(default_factory=list)
+    discounts: list[BillDiscountCreateRequest] = Field(default_factory=list)
 
 
 class BillAssignment(ApiModel):
@@ -149,6 +187,20 @@ class BillItemResponse(ApiModel):
     shares: list[BillShareResponse]
 
 
+class BillSurchargeResponse(ApiModel):
+    surcharge_key: StrictStr
+    kind: StrictStr
+    amount_vnd: PositiveMoneyVnd
+    mode: Literal["proportional", "even"]
+
+
+class BillDiscountResponse(ApiModel):
+    discount_key: StrictStr
+    amount_vnd: PositiveMoneyVnd
+    scope: Literal["global_proportional", "item"]
+    item_key: StrictStr | None
+
+
 class BillResponse(ApiModel):
     id: UUID
     context_id: UUID
@@ -160,6 +212,8 @@ class BillResponse(ApiModel):
     assignment_state: Literal["confirmed", "ai_suggested"]
     suggested_item_keys: list[StrictStr]
     items: list[BillItemResponse]
+    surcharges: list[BillSurchargeResponse]
+    discounts: list[BillDiscountResponse]
 
 
 class BillSplitResponse(ApiModel):

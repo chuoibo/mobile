@@ -25,9 +25,11 @@ from app.db.models import (
     BankRecipient,
     BankRecipientSnapshot,
     Bill,
+    BillDiscount,
     BillItem,
     BillItemShare,
     BillShareSource,
+    BillSurcharge,
     CollectionBatch,
     CollectionBatchStatus,
     CollectionBatchVersion,
@@ -308,6 +310,32 @@ class BillItemRecord:
     shares: list[BillShareRecord]
 
 
+# One code per bill-draft constraint a caller can actually trip. A Vietnamese
+# bill repeats dish names constantly, so whoever mints these keys collides on
+# the second "Bia Sài Gòn" line; the answer has to say which key repeated.
+_BILL_WRITE_CONFLICTS = {
+    "uq_bill_items_bill_item_key": "DUPLICATE_BILL_ITEM_KEY",
+    "uq_bill_surcharges_bill_surcharge_key": "DUPLICATE_BILL_SURCHARGE_KEY",
+    "uq_bill_discounts_bill_discount_key": "DUPLICATE_BILL_DISCOUNT_KEY",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class BillSurchargeRecord:
+    surcharge_key: str
+    kind: str
+    amount_vnd: int
+    mode: str
+
+
+@dataclass(frozen=True, slots=True)
+class BillDiscountRecord:
+    discount_key: str
+    amount_vnd: int
+    scope: str
+    target_item_key: str | None
+
+
 @dataclass(frozen=True, slots=True)
 class BillRecord:
     id: uuid.UUID
@@ -319,6 +347,8 @@ class BillRecord:
     created_by_id: uuid.UUID
     created_at: datetime
     items: list[BillItemRecord]
+    surcharges: list[BillSurchargeRecord]
+    discounts: list[BillDiscountRecord]
 
 
 class ApiRepository(Protocol):
@@ -400,6 +430,8 @@ class ApiRepository(Protocol):
         confidence: int,
         needs_review: bool,
         items: list[dict],
+        surcharges: list[dict],
+        discounts: list[dict],
         now: datetime,
     ) -> BillRecord: ...
 
@@ -621,6 +653,21 @@ class SqlAlchemyApiRepository:
                     self._bill_share_record(share)
                 )
 
+        surcharge_rows = list(
+            self.session.scalars(
+                select(BillSurcharge)
+                .where(BillSurcharge.bill_id == bill.id)
+                .order_by(BillSurcharge.surcharge_key)
+            )
+        )
+        discount_rows = list(
+            self.session.scalars(
+                select(BillDiscount)
+                .where(BillDiscount.bill_id == bill.id)
+                .order_by(BillDiscount.discount_key)
+            )
+        )
+
         return BillRecord(
             id=bill.id,
             context_id=bill.context_id,
@@ -641,6 +688,24 @@ class SqlAlchemyApiRepository:
                     shares=shares_by_item[item.id],
                 )
                 for item in item_rows
+            ],
+            surcharges=[
+                BillSurchargeRecord(
+                    surcharge_key=surcharge.surcharge_key,
+                    kind=surcharge.kind,
+                    amount_vnd=surcharge.amount_vnd,
+                    mode=surcharge.mode.value,
+                )
+                for surcharge in surcharge_rows
+            ],
+            discounts=[
+                BillDiscountRecord(
+                    discount_key=discount.discount_key,
+                    amount_vnd=discount.amount_vnd,
+                    scope=discount.scope.value,
+                    target_item_key=discount.target_item_key,
+                )
+                for discount in discount_rows
             ],
         )
 
@@ -899,47 +964,85 @@ class SqlAlchemyApiRepository:
         confidence: int,
         needs_review: bool,
         items: list[dict],
+        surcharges: list[dict],
+        discounts: list[dict],
         now: datetime,
     ) -> BillRecord:
-        bill = Bill(
-            context_id=context_id,
-            created_by_id=created_by_id,
-            printed_total_vnd=printed_total_vnd,
-            items_total_vnd=items_total_vnd,
-            confidence=confidence,
-            needs_review=needs_review,
-            created_at=now,
-        )
-        self.session.add(bill)
-        self.session.flush()
-
-        item_models: list[tuple[dict, BillItem]] = []
-        for item in items:
-            model = BillItem(
-                bill_id=bill.id,
-                item_key=item["item_key"],
-                name=item["name"],
-                quantity=item["quantity"],
-                unit_price_vnd=item["unit_price_vnd"],
-                line_total_vnd=item["line_total_vnd"],
-                position=item["position"],
-            )
-            self.session.add(model)
-            item_models.append((item, model))
-        self.session.flush()
-
-        for item, model in item_models:
-            for participant_id in item["suggested_participant_ids"]:
-                self.session.add(
-                    BillItemShare(
-                        bill_item_id=model.id,
-                        participant_id=participant_id,
-                        source=BillShareSource.AI_SUGGESTED,
-                        decided_by_id=None,
-                        decided_at=None,
-                    )
+        try:
+            with self.session.begin_nested():
+                bill = Bill(
+                    context_id=context_id,
+                    created_by_id=created_by_id,
+                    printed_total_vnd=printed_total_vnd,
+                    items_total_vnd=items_total_vnd,
+                    confidence=confidence,
+                    needs_review=needs_review,
+                    created_at=now,
                 )
-        self.session.flush()
+                self.session.add(bill)
+                self.session.flush()
+
+                item_models: list[tuple[dict, BillItem]] = []
+                for item in items:
+                    model = BillItem(
+                        bill_id=bill.id,
+                        item_key=item["item_key"],
+                        name=item["name"],
+                        quantity=item["quantity"],
+                        unit_price_vnd=item["unit_price_vnd"],
+                        line_total_vnd=item["line_total_vnd"],
+                        position=item["position"],
+                    )
+                    self.session.add(model)
+                    item_models.append((item, model))
+                self.session.flush()
+
+                for item, model in item_models:
+                    for participant_id in item["suggested_participant_ids"]:
+                        self.session.add(
+                            BillItemShare(
+                                bill_item_id=model.id,
+                                participant_id=participant_id,
+                                source=BillShareSource.AI_SUGGESTED,
+                                decided_by_id=None,
+                                decided_at=None,
+                            )
+                        )
+                for surcharge in surcharges:
+                    self.session.add(
+                        BillSurcharge(
+                            bill_id=bill.id,
+                            surcharge_key=surcharge["surcharge_key"],
+                            kind=surcharge["kind"],
+                            amount_vnd=surcharge["amount_vnd"],
+                            mode=surcharge["mode"],
+                        )
+                    )
+                for discount in discounts:
+                    self.session.add(
+                        BillDiscount(
+                            bill_id=bill.id,
+                            discount_key=discount["discount_key"],
+                            amount_vnd=discount["amount_vnd"],
+                            scope=discount["scope"],
+                            target_item_key=discount["target_item_key"],
+                        )
+                    )
+                self.session.flush()
+        except IntegrityError as exc:
+            constraint = getattr(
+                getattr(exc.orig, "diag", None), "constraint_name", None
+            )
+            # Fail closed. Naming each constraint gives the caller something
+            # it can act on, but a name list is a list somebody has to
+            # remember to extend, and the constraint added next would go back
+            # to escaping as a raw database error -- which is the 500 this
+            # translation exists to stop. The default is a conflict, and the
+            # psycopg DETAIL line (it carries the bill id and the raw
+            # constraint name) never reaches the caller either way.
+            raise RepositoryConflict(
+                _BILL_WRITE_CONFLICTS.get(constraint, "BILL_WRITE_CONFLICT")
+            ) from exc
         return self._bill_record(bill)
 
     def get_bill(self, bill_id: uuid.UUID) -> BillRecord | None:

@@ -29,9 +29,11 @@ from app.api.repository import (
     BatchForPublish,
     BatchInputs,
     BatchObligationRow,
+    BillDiscountRecord,
     BillItemRecord,
     BillRecord,
     BillShareRecord,
+    BillSurchargeRecord,
     ConfirmationRecord,
     ConfirmedExpense,
     ExpenseIdentity,
@@ -119,6 +121,14 @@ class FakeRepository:
                     key=lambda item: (item.position, item.item_key),
                 )
             ],
+            surcharges=sorted(
+                bill.surcharges,
+                key=lambda surcharge: surcharge.surcharge_key.encode("utf-8"),
+            ),
+            discounts=sorted(
+                bill.discounts,
+                key=lambda discount: discount.discount_key.encode("utf-8"),
+            ),
         )
 
     def get_person(self, person_id):
@@ -157,8 +167,24 @@ class FakeRepository:
         confidence,
         needs_review,
         items,
+        surcharges,
+        discounts,
         now,
     ):
+        # Mirrors the three unique constraints on the bill draft tables so the
+        # route's 409 can be exercised without a database. Being taught to
+        # refuse is not the same as being unable to accept: what PostgreSQL
+        # actually does with these rows is proved in
+        # tests/postgres/test_bill_duplicate_item_key_postgres.py.
+        for lines, key, code in (
+            (items, "item_key", "DUPLICATE_BILL_ITEM_KEY"),
+            (surcharges, "surcharge_key", "DUPLICATE_BILL_SURCHARGE_KEY"),
+            (discounts, "discount_key", "DUPLICATE_BILL_DISCOUNT_KEY"),
+        ):
+            keys = [line[key] for line in lines]
+            if len(keys) != len(set(keys)):
+                raise RepositoryConflict(code)
+
         bill = BillRecord(
             id=uuid.uuid4(),
             context_id=context_id,
@@ -189,6 +215,24 @@ class FakeRepository:
                     ],
                 )
                 for item in items
+            ],
+            surcharges=[
+                BillSurchargeRecord(
+                    surcharge_key=surcharge["surcharge_key"],
+                    kind=surcharge["kind"],
+                    amount_vnd=surcharge["amount_vnd"],
+                    mode=surcharge["mode"],
+                )
+                for surcharge in surcharges
+            ],
+            discounts=[
+                BillDiscountRecord(
+                    discount_key=discount["discount_key"],
+                    amount_vnd=discount["amount_vnd"],
+                    scope=discount["scope"],
+                    target_item_key=discount["target_item_key"],
+                )
+                for discount in discounts
             ],
         )
         self.bills[bill.id] = bill

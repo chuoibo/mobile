@@ -34,11 +34,13 @@ from app.api.schemas import (
     BatchPublishResponse,
     BillAssignmentsRequest,
     BillCreateRequest,
+    BillDiscountResponse,
     BillItemResponse,
     BillResponse,
     BillShareResponse,
     BillSplitRequest,
     BillSplitResponse,
+    BillSurchargeResponse,
     ContextCreateRequest,
     ContextResponse,
     ExpenseConfirmationRequest,
@@ -229,6 +231,24 @@ def _wire_bill(record: BillRecord) -> BillResponse:
         created_at=record.created_at,
         assignment_state="confirmed" if all_confirmed else "ai_suggested",
         suggested_item_keys=suggested_item_keys,
+        surcharges=[
+            BillSurchargeResponse(
+                surcharge_key=surcharge.surcharge_key,
+                kind=surcharge.kind,
+                amount_vnd=surcharge.amount_vnd,
+                mode=surcharge.mode,
+            )
+            for surcharge in record.surcharges
+        ],
+        discounts=[
+            BillDiscountResponse(
+                discount_key=discount.discount_key,
+                amount_vnd=discount.amount_vnd,
+                scope=discount.scope,
+                item_key=discount.target_item_key,
+            )
+            for discount in record.discounts
+        ],
         items=[
             BillItemResponse(
                 item_key=item.item_key,
@@ -572,29 +592,50 @@ class ApiService:
             actor,
             {"is_group_member": request.context_id in actor.context_ids},
         )
-        record = self.repository.create_bill(
-            context_id=request.context_id,
-            created_by_id=actor.id,
-            printed_total_vnd=request.printed_total_vnd,
-            items_total_vnd=request.items_total_vnd,
-            confidence=request.confidence,
-            needs_review=request.needs_review,
-            items=[
-                {
-                    "item_key": item.item_key,
-                    "name": item.name,
-                    "quantity": item.quantity,
-                    "unit_price_vnd": item.unit_price_vnd,
-                    "line_total_vnd": item.line_total_vnd,
-                    "position": position,
-                    "suggested_participant_ids": list(
-                        item.suggested_participant_ids
-                    ),
-                }
-                for position, item in enumerate(request.items)
-            ],
-            now=_now(),
-        )
+        try:
+            record = self.repository.create_bill(
+                context_id=request.context_id,
+                created_by_id=actor.id,
+                printed_total_vnd=request.printed_total_vnd,
+                items_total_vnd=request.items_total_vnd,
+                confidence=request.confidence,
+                needs_review=request.needs_review,
+                items=[
+                    {
+                        "item_key": item.item_key,
+                        "name": item.name,
+                        "quantity": item.quantity,
+                        "unit_price_vnd": item.unit_price_vnd,
+                        "line_total_vnd": item.line_total_vnd,
+                        "position": position,
+                        "suggested_participant_ids": list(
+                            item.suggested_participant_ids
+                        ),
+                    }
+                    for position, item in enumerate(request.items)
+                ],
+                surcharges=[
+                    {
+                        "surcharge_key": surcharge.surcharge_key,
+                        "kind": surcharge.kind,
+                        "amount_vnd": surcharge.amount_vnd,
+                        "mode": surcharge.mode,
+                    }
+                    for surcharge in request.surcharges
+                ],
+                discounts=[
+                    {
+                        "discount_key": discount.discount_key,
+                        "amount_vnd": discount.amount_vnd,
+                        "scope": discount.scope,
+                        "target_item_key": discount.item_key,
+                    }
+                    for discount in request.discounts
+                ],
+                now=_now(),
+            )
+        except RepositoryConflict as exc:
+            raise ApiProblem(409, exc.code, "Bill creation conflicted") from exc
         return _wire_bill(record)
 
     def get_bill(self, bill_id: uuid.UUID, actor: Actor) -> BillResponse:
@@ -676,8 +717,24 @@ class ApiService:
                         }
                         for item in record.items
                     ],
-                    "surcharges": [],
-                    "discounts": [],
+                    "surcharges": [
+                        {
+                            "surcharge_id": surcharge.surcharge_key,
+                            "kind": surcharge.kind,
+                            "amount_vnd": surcharge.amount_vnd,
+                            "mode": surcharge.mode,
+                        }
+                        for surcharge in record.surcharges
+                    ],
+                    "discounts": [
+                        {
+                            "discount_id": discount.discount_key,
+                            "amount_vnd": discount.amount_vnd,
+                            "scope": discount.scope,
+                            "item_id": discount.target_item_key,
+                        }
+                        for discount in record.discounts
+                    ],
                     "advancer_id": (
                         str(request.paid_by_id)
                         if request.paid_by_id is not None

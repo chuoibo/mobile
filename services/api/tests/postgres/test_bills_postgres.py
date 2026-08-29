@@ -76,6 +76,8 @@ def _create_bill(session: Session, an: uuid.UUID, binh: uuid.UUID, **overrides):
         "confidence": 88,
         "needs_review": False,
         "items": _items(an, binh),
+        "surcharges": [],
+        "discounts": [],
         "now": NOW,
     }
     payload.update(overrides)
