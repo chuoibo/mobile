@@ -7,6 +7,7 @@ import logging
 import secrets
 import uuid
 from collections import defaultdict
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -1911,6 +1912,43 @@ class ApiService:
             allocation=_wire_allocation(allocation_result),
         )
 
+    def _require_participants_are_members(
+        self, context_id: uuid.UUID, participants: Sequence[uuid.UUID]
+    ) -> None:
+        """Every name charged by the ledger must be one the group contains.
+
+        The permission check above proves the *actor* belongs here. It says
+        nothing about the ids in the body, and those are the ones that get
+        money written against them. `ConfirmedAllocation.participant_id` has no
+        foreign key into `people`, so a UUID that names nobody survives the
+        write intact and reappears as a balance row and, once the batch
+        publishes, as a guest envelope addressed to no one.
+
+        Read the roster once rather than asking `is_member` per participant: a
+        bill from a large table would otherwise issue a query per diner, and
+        the set is needed whole anyway to name every stranger at once.
+        """
+
+        roster = {
+            membership.person_id
+            for membership in self.repository.list_members(context_id)
+            if membership.state == "active"
+        }
+        strangers = sorted(
+            {participant for participant in participants if participant not in roster},
+            key=lambda value: value.bytes,
+        )
+        if strangers:
+            raise ApiProblem(
+                422,
+                "participant_not_in_context",
+                # Naming them is not a roster leak: the caller sent these ids,
+                # so the answer only reflects their own input back. What it
+                # must never do is name anyone they did not ask about.
+                "Not members of this group: "
+                + ", ".join(str(stranger) for stranger in strangers),
+            )
+
     def confirm_expense(
         self,
         expense_id: uuid.UUID,
@@ -1931,6 +1969,9 @@ class ApiService:
             "confirm_expense_proposal",
             actor,
             {"is_group_member": identity.context_id in actor.context_ids},
+        )
+        self._require_participants_are_members(
+            identity.context_id, request.proposal.participants
         )
         acknowledgement = "pending"
         if request.acknowledge_as_advancer:

@@ -23,6 +23,7 @@ from .helpers import (
     SENDER_ID,
     actor_headers,
     create_batch,
+    join_group,
     propose_and_confirm,
     publish_batch,
 )
@@ -347,6 +348,7 @@ class TestADisputeStopsExactlyOneObligation:
         # Three participants, so two people owe the advancer and the batch has
         # two obligations on two separate links. With one obligation there is
         # nothing for a stray dispute to spill onto and the test proves nothing.
+        join_group(repository, OTHER_ID)
         propose_and_confirm(
             client, total=90_000, participants=[SENDER_ID, OTHER_ID, ADVANCER_ID]
         )
@@ -574,6 +576,7 @@ class TestObjectingOnALinkWithTwoDebts:
 
     @staticmethod
     def _two_debt_link(client, repository):
+        join_group(repository, OTHER_ID)
         propose_and_confirm(
             client, total=90_000, participants=[SENDER_ID, OTHER_ID, ADVANCER_ID]
         )
