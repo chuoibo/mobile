@@ -78,11 +78,13 @@ import { TaiKhoanNhan } from "./src/screens/tai-khoan/TaiKhoanNhan";
 import { FORM_TRONG } from "./src/screens/tai-khoan/kiem-tra";
 import {
   EMPTY_FORM,
-  addParticipant,
+  addMember,
+  groupMembers,
   makeIdFactory,
   removeParticipant,
   type DraftForm,
 } from "./src/participants";
+import { DEMO_PEOPLE } from "./src/navigation/nhom-demo";
 import { space, type, usePalette } from "./src/theme";
 import { Button } from "./src/ui/Kit";
 import {
@@ -153,13 +155,22 @@ function expenseIntent(d: Draft, matrixSig: string): string {
 }
 
 /**
- * The id minted for a person added on the split screen.
+ * The group this flow splits bills for.
  *
- * Separate from the scan actor above: that one says who is *asking* for a bill
- * to be read, this one names somebody who is going to *owe money*. Sharing a
- * factory between the two would let a scan id land in the roster.
+ * Nothing here is minted. `personId` is the `people` row the seed script wrote,
+ * so an id chosen on the split screen is a person the database has already
+ * heard of -- which is the whole of bug-125301. Before this, the split screen
+ * asked for a *name* and minted a fresh UUID from it: typing "Hải" created a
+ * third row called Hải, the allocator divided 989.000 into 329.667 x2 +
+ * 329.666 and filed every dong against that stranger, and the real Hải's Cá
+ * nhân tab stayed on the number it had before the meal. The money was right to
+ * the dong and belonged to nobody.
+ *
+ * One group, hard-coded, because sign-in is a shell (see `nhom-demo.ts`). When
+ * a real session exists this reads the group off it and nothing else moves:
+ * the screens below already take the roster as a prop.
  */
-const NEXT_SPLIT_PERSON_ID = makeIdFactory();
+const NHOM_DEMO = groupMembers(DEMO_PEOPLE);
 
 function LuongKhoanChi({ onExit }: { onExit: () => void }) {
   const c = usePalette();
@@ -457,6 +468,7 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
         <GoiYChia
           reading={reading}
           roster={form.roster}
+          nhom={NHOM_DEMO}
           assignment={assignment}
           preview={preview}
           onBack={() => { setError(null); setStep("ket-qua"); }}
@@ -471,13 +483,14 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
           onToggle={(lineId, personId) => {
             setAssignment((a) => toggle(a, lineId, personId));
           }}
-          onAddPerson={(name) => {
-            const next = addParticipant(form.roster, name, NEXT_SPLIT_PERSON_ID);
-            const added = next.participants[next.participants.length - 1];
-            if (added === undefined) return;
-            setForm((f) => ({ ...f, roster: next }));
+          onAddMember={(member) => {
+            setForm((f) => ({ ...f, roster: addMember(f.roster, member) }));
+            // Somebody who just joined the bill starts on every dish, matching
+            // the default the screen states out loud ("mặc định là cả nhóm ăn
+            // chung"). Ticking them off is one tap; hunting for the dishes they
+            // did eat is eight.
             setAssignment((a) =>
-              addPersonToAll(a, reading.lines.map((line) => line.id), added.id),
+              addPersonToAll(a, reading.lines.map((line) => line.id), member.id),
             );
           }}
           onRemovePerson={(id) => {
@@ -497,6 +510,7 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
       {step === "nhap" && (
         <NhapKhoanChi
           form={form}
+          nhom={NHOM_DEMO}
           onForm={setForm}
           onNext={(d) => guard(async () => {
             setDraft(d);

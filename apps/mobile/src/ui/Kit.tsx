@@ -114,9 +114,11 @@ export function Button({ label, onPress, tone = "primary", disabled }: {
   );
 }
 
-export function Field({ label, value, onChangeText, keyboardType, placeholder }: {
+export function Field({ label, value, onChangeText, keyboardType, placeholder, onSubmitEditing }: {
   label: string; value: string; onChangeText: (t: string) => void;
   keyboardType?: "default" | "number-pad"; placeholder?: string;
+  /** Called when the person presses Enter / Done. */
+  onSubmitEditing?: () => void;
 }) {
   const c = usePalette();
   return (
@@ -129,6 +131,26 @@ export function Field({ label, value, onChangeText, keyboardType, placeholder }:
         onChangeText={onChangeText}
         keyboardType={keyboardType ?? "default"}
         placeholder={placeholder}
+        // The visible label above is a `Text`, and react-native-web emits it as
+        // a `div` -- not a `<label for>`, which is a thing only real form
+        // markup has. So the input reached the browser with no accessible name
+        // at all: `aria-label` null, no `aria-labelledby`, nothing. A screen
+        // reader read the placeholder instead, and a placeholder is one example
+        // value ("Hà", "480000"), not a name for the field. Measured on the
+        // split screen and reported with bug-125301.
+        //
+        // The string is the same one drawn above, so the visible label stays
+        // part of the accessible name (WCAG 2.5.3) rather than being replaced
+        // by a second wording that only a screen reader hears.
+        aria-label={label}
+        // Enter submits where the caller has somewhere to submit to. Reported
+        // alongside the above: typing into the add-person box and pressing
+        // Enter did nothing at all, and the only way forward was finding the
+        // button. `blurOnSubmit={false}` keeps the keyboard up for a field
+        // somebody is about to use again.
+        onSubmitEditing={onSubmitEditing}
+        enterKeyHint={onSubmitEditing === undefined ? undefined : "done"}
+        blurOnSubmit={false}
         // A tone of its own, not `inkSoft`. At `inkSoft` the example "480000"
         // sat at almost the same weight as a typed number, so an empty
         // "Tổng tiền" read as a filled one -- somebody presses "Chia tiền"
