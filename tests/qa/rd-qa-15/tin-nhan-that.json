@@ -1,0 +1,95 @@
+{
+  "messages": [
+    {
+      "id": "bd9abc8c-ca72-4a6a-841a-996f3b7e044e",
+      "context_id": "2eefafc2-0fff-4f7a-827d-18658c1e746c",
+      "author_id": "7ec84ee4-be14-4b8f-87a0-b40e62c41d81",
+      "kind": "ai_card",
+      "body": null,
+      "image_url": null,
+      "card": {
+        "kind": "poll_vote",
+        "payload": {
+          "poll_id": "poll-qa15",
+          "option_id": "o1"
+        }
+      },
+      "created_at": "2030-08-27T12:00:00Z",
+      "cursor": "MjAzMC0wOC0yN1QxMjowMDowMCswMDowMHxiZDlhYmM4Yy1jYTcyLTRhNmEtODQxYS05OTZmM2I3ZTA0NGU"
+    },
+    {
+      "id": "97d83c2e-ae69-4bfb-ad45-16eb72b6e3b2",
+      "context_id": "2eefafc2-0fff-4f7a-827d-18658c1e746c",
+      "author_id": "a3368007-53e4-4aed-ace1-5991277c18b6",
+      "kind": "ai_card",
+      "body": null,
+      "image_url": null,
+      "card": {
+        "kind": "poll_vote",
+        "payload": {
+          "poll_id": "poll-qa15",
+          "nguoi_bo": "7ec84ee4-be14-4b8f-87a0-b40e62c41d81",
+          "voter_id": "7ec84ee4-be14-4b8f-87a0-b40e62c41d81",
+          "author_id": "7ec84ee4-be14-4b8f-87a0-b40e62c41d81",
+          "option_id": "o3"
+        }
+      },
+      "created_at": "2030-08-27T12:00:00Z",
+      "cursor": "MjAzMC0wOC0yN1QxMjowMDowMCswMDowMHw5N2Q4M2MyZS1hZTY5LTRiZmItYWQ0NS0xNmViNzJiNmUzYjI"
+    },
+    {
+      "id": "955a1cec-b9d0-4d4a-b450-6ed33f3f0ffa",
+      "context_id": "2eefafc2-0fff-4f7a-827d-18658c1e746c",
+      "author_id": "a3368007-53e4-4aed-ace1-5991277c18b6",
+      "kind": "ai_card",
+      "body": null,
+      "image_url": null,
+      "card": {
+        "kind": "poll_vote",
+        "payload": {
+          "poll_id": "poll-qa15",
+          "option_id": "o2"
+        }
+      },
+      "created_at": "2030-08-27T12:00:00Z",
+      "cursor": "MjAzMC0wOC0yN1QxMjowMDowMCswMDowMHw5NTVhMWNlYy1iOWQwLTRkNGEtYjQ1MC02ZWQzM2YzZjBmZmE"
+    },
+    {
+      "id": "30b077b5-5f8c-4087-b1b0-dc5437cabe0d",
+      "context_id": "2eefafc2-0fff-4f7a-827d-18658c1e746c",
+      "author_id": "ce95f903-9b1c-414a-b4f7-3c2aa4a1316f",
+      "kind": "ai_card",
+      "body": null,
+      "image_url": null,
+      "card": {
+        "kind": "poll",
+        "payload": {
+          "options": [
+            {
+              "label": "Tiem nuong Xom Leo",
+              "option_id": "o1"
+            },
+            {
+              "label": "Lau ga la e Tao Ngo",
+              "option_id": "o2"
+            },
+            {
+              "label": "Banh can Nha Chung",
+              "option_id": "o3"
+            }
+          ],
+          "poll_id": "poll-qa15",
+          "question": "Toi nay an o dau?"
+        }
+      },
+      "created_at": "2030-08-27T12:00:00Z",
+      "cursor": "MjAzMC0wOC0yN1QxMjowMDowMCswMDowMHwzMGIwNzdiNS01ZjhjLTQwODctYjFiMC1kYzU0MzdjYWJlMGQ"
+    }
+  ],
+  "ids": {
+    "an": "ce95f903-9b1c-414a-b4f7-3c2aa4a1316f",
+    "trang": "7ec84ee4-be14-4b8f-87a0-b40e62c41d81",
+    "minh": "a3368007-53e4-4aed-ace1-5991277c18b6"
+  },
+  "poll_id": "poll-qa15"
+}
