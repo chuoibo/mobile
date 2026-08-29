@@ -772,6 +772,13 @@ export async function scanReceipt(
     }
     throw new ApiError(response.status, code, SCAN_REFUSALS[code.toLowerCase()] ?? detail);
   }
+  // A cast, not a parse, like every other route in this file -- and the one
+  // place where that has already cost something. `ReceiptScanWire` once
+  // declared a `confidence` the server had removed; the cast asserted it was
+  // there, `undefined` came out, and a screen rendered a percent sign with
+  // nothing in front of it. Nothing here can catch that, so the checking lives
+  // one step down in `readingFromWire`, which treats anything other than an
+  // explicit `false` for `needs_review` as "needs review".
   return (await response.json()) as ReceiptScanWire;
 }
 

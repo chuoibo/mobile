@@ -6,6 +6,7 @@
  */
 import React from "react";
 import { Pressable, Text, TextInput, View, ViewStyle } from "react-native";
+import { BillReading, disclosure } from "../receipt";
 import { Palette, radius, space, type, usePalette } from "../theme";
 
 export function Screen({ title, hint, children, footer, gap = space.md }: {
@@ -159,6 +160,58 @@ export function Row({ left, right, muted }: { left: string; right: string; muted
     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", gap: space.sm }}>
       <Text style={{ ...type.body, color: muted ? c.inkSoft : c.ink, flexShrink: 1 }}>{left}</Text>
       <Text style={{ ...type.amountSmall, color: muted ? c.inkSoft : c.ink }}>{right}</Text>
+    </View>
+  );
+}
+
+/**
+ * What the app is willing to say about a machine reading, in the mockup's pill.
+ *
+ * The mockup draws a pill here and it stays a pill; what changed is what is
+ * written inside it. It used to interpolate a scan field the server has never
+ * sent, so what actually rendered was an English endorsement of the machine
+ * followed by a bare percent sign with no number in front of it, sitting above
+ * a table of somebody's dinner money. ADR-0009 decision 4 refuses the
+ * percentage outright: a number invites an interface to auto-accept above a
+ * threshold, and the number it would have shown measured legibility, not
+ * whether the money was right.
+ *
+ * So the slot keeps its place in the layout and the sentence tells the truth.
+ * The words come from `disclosure()` in `receipt.ts`, which both screens share
+ * and which is tested without rendering anything.
+ *
+ * `stretch` is layout only: the results screen sits it inline under the list,
+ * the split screen pins it full width above the total. Same words either way.
+ */
+export function ReadingNotice({ reading, stretch }: {
+  reading: BillReading;
+  stretch?: boolean;
+}) {
+  const c = usePalette();
+  const { tone, text } = disclosure(reading);
+  // `warn` on `accentSoft` computes 4.66:1, `split` on `splitSoft` 4.83:1;
+  // both clear the 4.5:1 WCAG asks of this text size. The review tone also
+  // carries an edge, so the difference between "look at this" and "here is a
+  // count" survives being read in sunlight or by someone who cannot separate
+  // the two hues.
+  const review = tone === "review";
+  return (
+    <View
+      accessibilityRole="text"
+      style={{
+        alignSelf: stretch ? "stretch" : "flex-start",
+        alignItems: stretch ? "center" : "flex-start",
+        backgroundColor: review ? c.accentSoft : c.splitSoft,
+        borderColor: review ? c.warn : c.splitSoft,
+        borderWidth: 1,
+        borderRadius: radius.pill,
+        paddingVertical: stretch ? space.sm : 6,
+        paddingHorizontal: stretch ? space.md : space.sm,
+      }}
+    >
+      <Text style={{ ...type.label, color: review ? c.warn : c.split, fontWeight: "600" }}>
+        {text}
+      </Text>
     </View>
   );
 }

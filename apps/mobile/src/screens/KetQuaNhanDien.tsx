@@ -26,7 +26,7 @@ import {
   type EditRefusal,
 } from "../receipt";
 import { radius, space, type, usePalette } from "../theme";
-import { Button, Card } from "../ui/Kit";
+import { Button, Card, ReadingNotice } from "../ui/Kit";
 
 const HIT = 44;
 
@@ -59,7 +59,6 @@ export function KetQuaNhanDien(props: {
 }): React.JSX.Element {
   const c = usePalette();
   const { reading, onChange } = props;
-  const n = reading.lines.length;
   const touched = editedCount(reading);
   const total = itemsTotalVnd(reading);
   const gap = totalGapVnd(reading);
@@ -147,21 +146,13 @@ export function KetQuaNhanDien(props: {
         <Text style={{ ...type.title, color: c.ink, flex: 1 }}>Kết quả nhận diện</Text>
       </View>
 
-      <View
-        accessibilityRole="text"
-        accessibilityLabel={`Đã nhận diện ${n} món, ${touched} món đã sửa tay`}
-        style={{
-          alignSelf: "flex-start",
-          backgroundColor: c.splitSoft,
-          borderRadius: radius.pill,
-          paddingVertical: 6,
-          paddingHorizontal: space.sm,
-        }}
-      >
-        <Text style={{ ...type.label, color: c.split, fontWeight: "600" }}>
-          Đã nhận diện {n} món
-        </Text>
-      </View>
+      {/* The mockup's teal pill, in the mockup's slot, now branching.
+          It used to count `reading.lines`, which includes rows a person typed
+          in themselves -- so adding a missing dish raised a number labelled
+          "nhận diện" for a line nothing recognised. `disclosure()` counts only
+          what the reader transcribed, and hands back a different sentence
+          entirely when the server asked for a second pair of eyes. */}
+      <ReadingNotice reading={reading} />
 
       {/* Said out loud rather than left to the border colours. After four
           corrections a person needs to know how much of this is still the
@@ -328,19 +319,14 @@ export function KetQuaNhanDien(props: {
 
         <Button label="Thêm món" tone="quiet" onPress={extraLine} />
 
-        <View
-          style={{
-            alignSelf: "flex-start",
-            backgroundColor: c.aiSoft,
-            borderRadius: radius.pill,
-            paddingVertical: 6,
-            paddingHorizontal: space.sm,
-          }}
-        >
-          <Text style={{ ...type.label, color: c.ai, fontWeight: "600" }}>
-            AI suggested {reading.confidence}%
-          </Text>
-        </View>
+        {/* The mockup draws a second chip here, the one whose caption is an
+            English endorsement of the reader followed by a percentage, and it
+            is deliberately not rebuilt. Its only content was the percentage
+            ADR-0009 decision 4 refuses; the sentence that legitimately replaces
+            it is already at the top of this screen, above the fold, and a
+            second pill repeating it word for word would read as a second,
+            independent endorsement of the same reading. The invitation to
+            correct things is the part of that block worth keeping. */}
         <Text style={{ ...type.label, color: c.inkSoft }}>
           Bạn có thể chỉnh tay trước khi xác nhận
         </Text>

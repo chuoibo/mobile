@@ -49,7 +49,23 @@ export type ReceiptScanWire = {
   total_vnd: number | null;
   totals_agree: boolean | null;
   total_difference_vnd: number | null;
-  confidence: number;
+  /**
+   * The one signal the client is meant to branch on.
+   *
+   * There is deliberately no `confidence` beside it. ADR-0009 decision 4
+   * refuses a percentage on the grounds that a percentage invites an interface
+   * to auto-accept above a threshold, and rd-qa-03 measured the reason live:
+   * the number tracked how legible the print was, not whether the money was
+   * right, so a clean menu scored 95-100 while a reading that got four lines
+   * wrong scored 70-75. This type declared `confidence: number` anyway, the
+   * response was cast to it without checking, and the screens rendered
+   * "AI suggested %" -- a machine endorsement, with the number missing,
+   * printed on top of a table of real money.
+   *
+   * And `false` here does not mean the reading is correct. It means no signal
+   * fired. Nothing downstream may treat it as a reason to skip looking.
+   */
+  needs_review: boolean;
   warnings: string[];
 };
 
@@ -94,8 +110,8 @@ export type BillReading = {
    * able to disagree, and it was only ever useful because it could.
    */
   printedTotalVnd: number | null;
-  /** The reader's own estimate of how legible the paper was, 0-100. */
-  confidence: number;
+  /** Whether the server raised a hand about this reading. See the wire field. */
+  needsReview: boolean;
   /** Sentences from the server about what it was unsure of. Shown, not hidden. */
   warnings: string[];
 };
@@ -147,9 +163,57 @@ export function readingFromWire(wire: ReceiptScanWire): BillReading {
       },
     })),
     printedTotalVnd: wire.total_vnd,
-    confidence: wire.confidence,
+    /* Only an explicit `false` earns the calm branch.
+     *
+     * `api.ts` casts the response body rather than parsing it, so a server that
+     * renames or drops this field delivers `undefined` here -- and `undefined`
+     * is falsy, which would land a broken contract on the reassuring side of
+     * the branch. That is the same shape of failure that put "AI suggested %"
+     * on screen: a missing field read as an answer instead of as an absence.
+     * Anything that is not the boolean `false` means nobody has told us this
+     * reading is quiet, so we say it needs a look. */
+    needsReview: wire.needs_review !== false,
     warnings: wire.warnings,
   };
+}
+
+/* ----------------------------------------------------------- what to say */
+
+/** One line of disclosure about the reading, and how loudly to say it. */
+export type ReadingDisclosure = {
+  tone: "review" | "neutral";
+  text: string;
+};
+
+/**
+ * What the screen is allowed to claim about a machine reading.
+ *
+ * Lives here rather than in either screen because both screens show it, and a
+ * disclosure that two components each spell for themselves is a disclosure
+ * that can drift on one of them. It also has to be testable without rendering
+ * anything, which is what makes the percentage impossible to reintroduce
+ * quietly.
+ *
+ * Two branches, and neither one is an endorsement:
+ *
+ *   - `needsReview` -- the server raised a hand, so the sentence asks for a
+ *     person. No detail, because the specifics are already in `warnings`.
+ *   - otherwise -- a count, which is the only thing here that is both true and
+ *     checkable by looking at the screen. It is not a verdict on the numbers.
+ *
+ * The count is of lines the reader actually transcribed. A row somebody typed
+ * has `read: null` and no machine ever saw it, so counting it would inflate a
+ * claim about recognition with rows that were never recognised.
+ */
+export function disclosure(reading: BillReading): ReadingDisclosure {
+  if (reading.needsReview) {
+    return { tone: "review", text: "Cần bạn kiểm lại" };
+  }
+  const read = reading.lines.filter((line) => line.read !== null).length;
+  if (read === 0) {
+    return { tone: "neutral", text: "Chưa nhận diện được món nào" };
+  }
+  return { tone: "neutral", text: `Đã nhận diện ${read} món` };
 }
 
 /**

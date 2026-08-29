@@ -71,7 +71,12 @@ const SCAN_FIXTURE = {
   total_vnd: 480000,
   totals_agree: true,
   total_difference_vnd: 0,
-  confidence: 91,
+  // The field the route actually sends. It used to be `confidence: 91`, which
+  // the route has never sent, so this stub was quietly rehearsing a contract
+  // nobody serves -- and the screens rendered a percentage off the back of it.
+  // `false` is right for this fixture: the lines and the printed total agree.
+  // It means no signal fired, not that the reading is correct.
+  needs_review: false,
   warnings: [],
 };
 
