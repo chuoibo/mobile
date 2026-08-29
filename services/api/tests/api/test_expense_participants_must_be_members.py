@@ -64,9 +64,7 @@ def test_confirm_names_every_stranger_at_once_not_just_the_first(client, reposit
     """
     second_stranger = uuid.UUID("8ff00000-ffff-4fff-8fff-0000f0000008")
 
-    response = _propose_and_confirm(
-        client, [ADVANCER_ID, STRANGER_ID, second_stranger]
-    )
+    response = _propose_and_confirm(client, [ADVANCER_ID, STRANGER_ID, second_stranger])
 
     assert response.status_code == 422
     detail = response.json()["detail"]

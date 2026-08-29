@@ -108,7 +108,9 @@ def test_a_completed_key_replays_the_stored_response(postgres_engine: Engine):
     )
 
     with _store(postgres_engine) as store:
-        assert isinstance(store.reserve(scope=SCOPE, key=key, fingerprint=FINGERPRINT), Reserved)
+        assert isinstance(
+            store.reserve(scope=SCOPE, key=key, fingerprint=FINGERPRINT), Reserved
+        )
     with _store(postgres_engine) as store:
         store.complete(scope=SCOPE, key=key, response=stored)
     with _store(postgres_engine) as store:
@@ -172,7 +174,12 @@ def test_the_database_itself_refuses_a_duplicate_row(postgres_engine: Engine):
     with Session(postgres_engine) as session, session.begin():
         session.execute(
             insert,
-            {"id": uuid.uuid4(), "scope": SCOPE, "key": key, "fingerprint": FINGERPRINT},
+            {
+                "id": uuid.uuid4(),
+                "scope": SCOPE,
+                "key": key,
+                "fingerprint": FINGERPRINT,
+            },
         )
 
     with pytest.raises(IntegrityError):
@@ -267,8 +274,7 @@ class _Client:
     def count_expense_versions(self, expense_id: uuid.UUID) -> int:
         return self.connection.scalar(
             text(
-                "select count(*) from expense_versions"
-                " where expense_id = :expense_id"
+                "select count(*) from expense_versions where expense_id = :expense_id"
             ),
             {"expense_id": expense_id},
         )
@@ -328,9 +334,12 @@ def live_client(postgres_engine: Engine, monkeypatch):
 
     @contextmanager
     def session_on_connection():
-        with Session(
-            bind=connection, join_transaction_mode="create_savepoint"
-        ) as session, session.begin():
+        with (
+            Session(
+                bind=connection, join_transaction_mode="create_savepoint"
+            ) as session,
+            session.begin(),
+        ):
             yield session
 
     @contextmanager

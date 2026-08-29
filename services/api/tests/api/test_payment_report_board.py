@@ -101,7 +101,9 @@ class TestTheClaimReachesTheBoard:
         that spilled would tell the advancer somebody paid who never said so."""
         join_group(repository, OTHER_ID)
         batch, links = _published(
-            client, repository, total=90_000,
+            client,
+            repository,
+            total=90_000,
             participants=[SENDER_ID, OTHER_ID, ADVANCER_ID],
         )
         assert len(links) >= 2, "fixture stopped producing two guest links"

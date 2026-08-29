@@ -242,9 +242,7 @@ def _image_rejection_problem(exc: ImageRejected) -> ApiProblem:
     return ApiProblem(status_code, exc.code, exc.detail)
 
 
-def _require_photo_url_context(
-    context_id: uuid.UUID, image_url: str | None
-) -> None:
+def _require_photo_url_context(context_id: uuid.UUID, image_url: str | None) -> None:
     """Refuse a photo url that points into another group's storage.
 
     The schema already pins `image_url` to `/contexts/{uuid}/photos/{uuid}`,
@@ -2605,9 +2603,7 @@ class ApiService:
             {"is_not_self": actor.id != addressee_id},
         )
         if self.repository.get_person(addressee_id) is None:
-            raise ApiProblem(
-                404, "person_not_found", "Chưa có ai mang danh tính này."
-            )
+            raise ApiProblem(404, "person_not_found", "Chưa có ai mang danh tính này.")
 
         existing = self.repository.get_friend_edge(actor.id, addressee_id)
         try:
@@ -2644,9 +2640,7 @@ class ApiService:
         """
         edge = self.repository.get_friend_request(request_id, actor.id)
         if edge is None:
-            raise ApiProblem(
-                404, "friend_request_not_found", "Không có lời mời này."
-            )
+            raise ApiProblem(404, "friend_request_not_found", "Không có lời mời này.")
 
         answer = Decision(body.decision)
         # Blocking is the one answer either party may give, so the predicate
@@ -2704,9 +2698,7 @@ class ApiService:
                 ) from exc
             raise self._friend_refusal(FriendshipError(exc.code)) from exc
         if record is None:
-            raise ApiProblem(
-                404, "friend_request_not_found", "Không có lời mời này."
-            )
+            raise ApiProblem(404, "friend_request_not_found", "Không có lời mời này.")
         return _wire_friend_edge(record)
 
     def list_friend_requests(
@@ -2724,9 +2716,7 @@ class ApiService:
             ]
         )
 
-    def list_friends(
-        self, person_id: uuid.UUID, actor: Actor
-    ) -> FriendListResponse:
+    def list_friends(self, person_id: uuid.UUID, actor: Actor) -> FriendListResponse:
         _require_permission(
             "view_own_friends", actor, {"is_self": actor.id == person_id}
         )
@@ -2770,13 +2760,9 @@ class ApiService:
     def _friend_refusal(refused: FriendshipError) -> ApiProblem:
         """Map a domain code to an answer that does not narrate the graph."""
         if refused.code == BLOCKED_IS_SILENT:
-            return ApiProblem(
-                409, refused.code.lower(), "Chưa gửi được lời mời này."
-            )
+            return ApiProblem(409, refused.code.lower(), "Chưa gửi được lời mời này.")
         if refused.code == "SELF_EDGE":
-            return ApiProblem(
-                422, "self_edge", "Không tự kết bạn với chính mình được."
-            )
+            return ApiProblem(422, "self_edge", "Không tự kết bạn với chính mình được.")
         if refused.code in ("ONLY_ADDRESSEE_MAY_ANSWER", "NOT_A_PARTY"):
             return ApiProblem(403, "permission_denied", refused.code.lower())
         return ApiProblem(409, refused.code.lower(), "Lời mời không ở trạng thái đó.")

@@ -30,7 +30,11 @@ from sqlalchemy.orm import Session
 from app.api.deps import Actor
 from app.api.errors import ApiProblem
 from app.api.repository import SqlAlchemyApiRepository
-from app.api.schemas import ExpenseConfirmationRequest, ExpenseInput
+from app.api.schemas import (
+    BillSplitRequest,
+    ExpenseConfirmationRequest,
+    ExpenseInput,
+)
 from app.api.service import ApiService
 from app.db.models import (
     Context,
@@ -115,7 +119,9 @@ def _confirm(
     )
 
 
-def _context(session: Session, owner_id: uuid.UUID, name: str = "Nhóm ăn tối") -> uuid.UUID:
+def _context(
+    session: Session, owner_id: uuid.UUID, name: str = "Nhóm ăn tối"
+) -> uuid.UUID:
     """A real row, because `memberships.context_id` is a real foreign key.
 
     Worth stating: `fk_memberships_context` is one of the constraints this
@@ -194,6 +200,66 @@ def test_a_member_of_a_different_group_cannot_be_billed(postgres_session: Sessio
         _confirm(postgres_session, context_id, payer.id, [payer.id, friend.id])
 
     assert caught.value.code == "participant_not_in_context"
+
+
+def test_splitting_a_bill_leaves_out_a_member_who_never_accepted(
+    postgres_session: Session,
+):
+    """`split_bill` has the same `state == "active"` filter, and had no gate.
+
+    Found by a mutation that landed on the wrong line: widening the filter in
+    `split_bill` instead of the one in `_require_participants_are_members` left
+    the whole suite green -- 1128 fake cases and 299 live ones, nothing red. So
+    the preview every group reads before pressing *Xác nhận* would happily
+    spread a bill across somebody who had only been invited, and the number
+    each person saw would be wrong in their favour or against it with no test
+    objecting.
+
+    This is a preview rather than a ledger write, which does not make it
+    harmless: it is the number the client confirms, and it is the number people
+    argue about at the table.
+    """
+
+    context_id, payer, friend = _group_of_two(postgres_session)
+    _membership(postgres_session, context_id, friend.id, MembershipState.ACTIVE)
+    invited = _person(postgres_session, "Khách chưa nhận lời")
+    _membership(postgres_session, context_id, invited.id, MembershipState.INVITED)
+
+    repository = SqlAlchemyApiRepository(postgres_session)
+    bill = repository.create_bill(
+        context_id=context_id,
+        created_by_id=payer.id,
+        printed_total_vnd=TOTAL_VND,
+        items_total_vnd=TOTAL_VND,
+        confidence=88,
+        needs_review=False,
+        items=[
+            {
+                "item_key": "i1",
+                "name": "Phở bò",
+                "quantity": 1,
+                "unit_price_vnd": TOTAL_VND,
+                "line_total_vnd": TOTAL_VND,
+                "position": 0,
+                "suggested_participant_ids": [payer.id, friend.id],
+            }
+        ],
+        surcharges=[],
+        discounts=[],
+        now=NOW,
+    )
+    postgres_session.flush()
+
+    split = ApiService(repository).split_bill(
+        bill.id,
+        BillSplitRequest(for_ledger=False, paid_by_id=payer.id),
+        Actor(id=payer.id, roles=ROLES, context_ids=frozenset({context_id})),
+    )
+
+    assert invited.id not in split.allocation.allocations
+    assert set(split.allocation.allocations) == {payer.id, friend.id}
+    # Money rule 2 still holds over the people who are actually there.
+    assert sum(split.allocation.allocations.values()) == TOTAL_VND
 
 
 def test_nothing_is_written_when_a_participant_is_refused(postgres_session: Session):

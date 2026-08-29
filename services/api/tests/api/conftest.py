@@ -95,7 +95,6 @@ class FakeReceipt:
 
 
 class FakeRepository:
-
     def __init__(self):
         self.expenses: dict[uuid.UUID, ExpenseIdentity] = {}
         self.confirmed: dict[uuid.UUID, ConfirmedExpense] = {}
@@ -172,7 +171,6 @@ class FakeRepository:
         self.people[person_id] = renamed
         return renamed
 
-
     # --- friend graph (F03, F04) ---------------------------------------
     #
     # A dict cannot express `uq_friend_edge_live`, the functional partial
@@ -183,7 +181,8 @@ class FakeRepository:
 
     def _friend_record(self, edge, reader_id):
         other = (
-            edge["addressee_id"] if edge["requester_id"] == reader_id
+            edge["addressee_id"]
+            if edge["requester_id"] == reader_id
             else edge["requester_id"]
         )
         person = self.people.get(other)
@@ -424,9 +423,7 @@ class FakeRepository:
                             decided_by_id=None,
                             decided_at=None,
                         )
-                        for participant_id in item[
-                            "suggested_participant_ids"
-                        ]
+                        for participant_id in item["suggested_participant_ids"]
                     ],
                 )
                 for item in items
@@ -848,8 +845,12 @@ class FakeRepository:
     def save_guest_objection(self, *, token_digest, kind, obligation_id, reason, now):
         del now
         self.objections.append(
-            {"token_digest": token_digest, "kind": kind,
-             "obligation_id": obligation_id, "reason": reason}
+            {
+                "token_digest": token_digest,
+                "kind": kind,
+                "obligation_id": obligation_id,
+                "reason": reason,
+            }
         )
         if kind == "not_me":
             link = self.links.get(token_digest)
