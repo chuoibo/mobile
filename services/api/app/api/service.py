@@ -20,6 +20,7 @@ from app.api.repository import (
     MembershipRecord,
     MessageRecord,
     ObligationDraft,
+    PersonFinanceSummary,
     PersonRecord,
 )
 from app.api.schemas import (
@@ -340,6 +341,37 @@ class ApiService:
                 404, "person_not_found", "Person disappeared during rename"
             )
         return renamed, False
+
+    #: How many confirmed movements the personal screen reads back. The screen
+    #: shows a handful and links to the rest; an unbounded read here would let
+    #: one long-lived group make this route the slowest in the product.
+    FINANCE_MOVEMENT_LIMIT = 20
+
+    def person_finance_summary(
+        self, person_id: uuid.UUID, actor: Actor
+    ) -> PersonFinanceSummary:
+        """One person's money, readable only by that person.
+
+        Self-only, and checked here rather than in the route, because this is
+        the whole privacy rule for the screen: spend, debts and the names of
+        everyone they have settled with. There is no group-admin exception --
+        an admin runs the collection round, which is a different question from
+        what a member has spent all year.
+
+        No 404 for an id with no ledger rows. A person who has not split
+        anything yet has a real and correct answer, and it is zero; answering
+        404 would make a new account indistinguishable from a typo, and the
+        screen would have to guess which.
+        """
+        if actor.id != person_id:
+            raise ApiProblem(
+                403,
+                "not_your_finances",
+                "A finance summary is readable only by the person it describes",
+            )
+        return self.repository.person_finance_summary(
+            person_id, movement_limit=self.FINANCE_MOVEMENT_LIMIT
+        )
 
     def _require_registered_person(self, person_id: uuid.UUID) -> None:
         """Refuse before the foreign key does.

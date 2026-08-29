@@ -24,6 +24,7 @@ from app.api.routes import (
     bills,
     contexts,
     expenses,
+    finance,
     guests,
     messages,
     obligations,
@@ -72,6 +73,7 @@ def create_app(
     application.include_router(bank_recipients.router)
     application.include_router(people.router)
     application.include_router(places.router)
+    application.include_router(finance.router)
     application.include_router(receipts.router)
 
     # Middleware, not a decorator on each route: a write route added later is
