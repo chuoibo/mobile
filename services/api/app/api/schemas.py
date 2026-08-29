@@ -926,3 +926,68 @@ class BatchObligationsResponse(ApiModel):
 class ErrorResponse(ApiModel):
     code: StrictStr
     detail: StrictStr
+
+
+# --- friend graph (F03, F04) ------------------------------------------------
+
+
+class FriendRequestCreate(ApiModel):
+    """Who to ask. The requester is the actor header, never the body.
+
+    Taking `requester_id` from the body would let anybody send requests in
+    somebody else's name, and the recipient would see a request from a person
+    who never sent it.
+    """
+
+    addressee_id: UUID
+
+
+class FriendRequestDecision(ApiModel):
+    """The addressee's answer. Accepting is one of three, not the default."""
+
+    decision: Literal["accept", "decline", "block"]
+
+
+class FriendRequestResponse(ApiModel):
+    """One edge, as its two parties may see it.
+
+    `other_display_name` is the name of whoever the reader is not, resolved by
+    the repository. No telephone number appears in this model, and none can:
+    the server never stored one -- see `app/api/person_identity.py`.
+    """
+
+    id: UUID
+    requester_id: UUID
+    addressee_id: UUID
+    other_person_id: UUID
+    other_display_name: str
+    state: Literal["pending", "accepted", "declined", "blocked"]
+    created_at: datetime
+    decided_at: datetime | None = None
+
+
+class FriendRequestListResponse(ApiModel):
+    requests: list[FriendRequestResponse]
+
+
+class FriendSummary(ApiModel):
+    person_id: UUID
+    display_name: str
+    friends_since: datetime
+
+
+class FriendListResponse(ApiModel):
+    friends: list[FriendSummary]
+
+
+class PersonMatchResponse(ApiModel):
+    """The answer to "who holds this number".
+
+    An id and a name. Deliberately not a telephone number, not an email, not a
+    group list, not a friend count -- the caller supplied the only identifier
+    in this exchange, and gets back the least the product needs to render
+    "Send a friend request to Binh?".
+    """
+
+    person_id: UUID
+    display_name: str

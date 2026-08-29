@@ -161,6 +161,37 @@ _TABLE: dict[str, dict] = {
     # Section 9.2: an admin does not adjudicate identity. Only the platform
     # does -- because in a group dispute the attacker is a group member.
     "adjudicate_person_stub_claim": {"roles": {"platform_moderator"}, "requires": ()},
+    # --- friend graph (F03, F04) ----------------------------------------
+    # Asking is not adding. `send_friend_request` creates a PENDING edge that
+    # grants nothing, which is why its only predicate is that the actor is not
+    # asking themselves; anyone with an account may ask anyone.
+    #
+    # `is_not_self` rather than a new predicate: the fact is identical to the
+    # one `approve_link_join_request` already proves, and the note there is the
+    # reason to reuse rather than mint. A second name for the same fact is a
+    # second place to get it wrong.
+    "send_friend_request": {"roles": {"member"}, "requires": ("is_not_self",)},
+    # The consent gate. `is_invitee` is reused deliberately and exactly:
+    # `accept_context_membership` already means "the person this was addressed
+    # to may consent to it", and a friend request is the same shape -- an offer
+    # aimed at one named person. Inventing `is_addressee` would have created
+    # two predicates that must agree forever, which is what #128 cost us.
+    #
+    # Blocking is answered by this action too, and blocking is the one answer
+    # either party may give. The extra latitude is proven in the service from
+    # the row, not widened here: a permission table that says "either party"
+    # would also let a requester accept.
+    "respond_to_friend_request": {"roles": {"member"}, "requires": ("is_invitee",)},
+    # Reading your own graph. `is_self` keeps one member from listing another
+    # member's friends -- the social graph is the person's, not the group's.
+    "view_own_friends": {"roles": {"member"}, "requires": ("is_self",)},
+    # Resolving a telephone number the caller already holds to a person id.
+    # No predicate beyond membership of the product, because the caller is
+    # asking about a number they typed. What keeps this from being a directory
+    # is that it answers with an id and a display name and never with a
+    # telephone number -- see `routes/friends.py`, which is where that is
+    # enforced and tested.
+    "find_person_by_phone": {"roles": {"member"}, "requires": ()},
     # --- group logistics ------------------------------------------------
     # These four actions require group membership, not outing ownership: the
     # trip belongs to the group, so any member may adjust its plan.

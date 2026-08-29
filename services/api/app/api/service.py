@@ -20,6 +20,7 @@ from app.api.repository import (
     ApiRepository,
     BankRecipientRecord,
     BillRecord,
+    FriendEdgeRecord,
     GuestLinkDraft,
     MembershipRecord,
     MemoryRecord,
@@ -61,6 +62,12 @@ from app.api.schemas import (
     ExpenseConfirmationResponse,
     ExpenseInput,
     ExpenseProposalResponse,
+    FriendListResponse,
+    FriendRequestCreate,
+    FriendRequestDecision,
+    FriendRequestListResponse,
+    FriendRequestResponse,
+    FriendSummary,
     GroupRecapResponse,
     GroupSuggestionResponse,
     MemberRoleRequest,
@@ -87,6 +94,7 @@ from app.api.schemas import (
     OutingTimelineRequest,
     PaymentReportRequest,
     PaymentReportResponse,
+    PersonMatchResponse,
     PublishedGuestLink,
     PublishedObligation,
     RecapOutingResponse,
@@ -106,6 +114,17 @@ from app.domain.collection import CollectionError, transition, unmet_publish_gat
 from app.domain.companion import CompanionError, ground_card, plan_turn
 from app.domain.contract import AllocationError
 from app.domain.expense import component_rollups
+from app.domain.friendship import (
+    BLOCKED_IS_SILENT,
+    Decision,
+    FriendshipError,
+)
+from app.domain.friendship import (
+    decide as decide_friendship,
+)
+from app.domain.friendship import (
+    open_request as open_friendship_request,
+)
 from app.domain.ledger import (
     LedgerError,
     group_balances,
@@ -349,6 +368,20 @@ def _wire_membership(record: MembershipRecord) -> MembershipResponse:
         joined_at=record.joined_at,
         left_at=record.left_at,
         created_at=record.created_at,
+    )
+
+
+def _wire_friend_edge(record: FriendEdgeRecord) -> FriendRequestResponse:
+    """One edge onto the wire. No telephone number exists to omit."""
+    return FriendRequestResponse(
+        id=record.id,
+        requester_id=record.requester_id,
+        addressee_id=record.addressee_id,
+        other_person_id=record.other_person_id,
+        other_display_name=record.other_display_name,
+        state=record.state,
+        created_at=record.created_at,
+        decided_at=record.decided_at,
     )
 
 
@@ -2369,6 +2402,179 @@ class ApiService:
             amount_vnd=record.amount_vnd,
             obligation_status=status,
         )
+
+    # --- friend graph (F03, F04) ---------------------------------------
+
+    def send_friend_request(
+        self, request: FriendRequestCreate, actor: Actor
+    ) -> FriendRequestResponse:
+        """Ask. This grants nothing until the other person answers.
+
+        Order matters and is the house rule: permission, then domain, then
+        repository. The domain call is not decoration here -- it is what
+        refuses a self-edge and what refuses to stack a second request on a
+        live one, using the same code for "already asked" and "blocked".
+        """
+        addressee_id = request.addressee_id
+        _require_permission(
+            "send_friend_request",
+            actor,
+            {"is_not_self": actor.id != addressee_id},
+        )
+        if self.repository.get_person(addressee_id) is None:
+            raise ApiProblem(
+                404, "person_not_found", "Chưa có ai mang danh tính này."
+            )
+
+        existing = self.repository.get_friend_edge(actor.id, addressee_id)
+        try:
+            open_friendship_request(
+                requester_id=str(actor.id),
+                addressee_id=str(addressee_id),
+                existing=None if existing is None else {"state": existing.state},
+            )
+        except FriendshipError as refused:
+            raise self._friend_refusal(refused) from refused
+
+        try:
+            record = self.repository.open_friend_request(
+                requester_id=actor.id, addressee_id=addressee_id, now=_now()
+            )
+        except RepositoryConflict as exc:
+            # The race arm of the same refusal. Deliberately the same status
+            # and the same code as the read arm above: if these differed, a
+            # blocked person could tell a block from a duplicate by timing.
+            raise ApiProblem(
+                409, BLOCKED_IS_SILENT.lower(), "Chưa gửi được lời mời này."
+            ) from exc
+        return _wire_friend_edge(record)
+
+    def respond_to_friend_request(
+        self, request_id: uuid.UUID, body: FriendRequestDecision, actor: Actor
+    ) -> FriendRequestResponse:
+        """Answer one. Accepting is the addressee's alone.
+
+        The permission table proves `is_invitee` from the row, and the domain
+        proves it again from the same row. Two layers that fail differently:
+        one is a data table somebody could edit without reading the domain, the
+        other is logic somebody could reach without going through a route.
+        """
+        edge = self.repository.get_friend_request(request_id, actor.id)
+        if edge is None:
+            raise ApiProblem(
+                404, "friend_request_not_found", "Không có lời mời này."
+            )
+
+        answer = Decision(body.decision)
+        # Blocking is the one answer either party may give, so the predicate
+        # proven for it is "you are a party", not "you were the one asked".
+        # Accept and decline keep the narrow `is_invitee`, which is what stops
+        # a requester from answering their own request.
+        is_invitee = (
+            actor.id in (edge.requester_id, edge.addressee_id)
+            if answer is Decision.BLOCK
+            else actor.id == edge.addressee_id
+        )
+        _require_permission(
+            "respond_to_friend_request", actor, {"is_invitee": is_invitee}
+        )
+
+        try:
+            decided = decide_friendship(
+                edge={
+                    "requester_id": str(edge.requester_id),
+                    "addressee_id": str(edge.addressee_id),
+                    "state": edge.state,
+                },
+                actor_id=str(actor.id),
+                decision=str(answer),
+            )
+        except FriendshipError as refused:
+            raise self._friend_refusal(refused) from refused
+
+        record = self.repository.decide_friend_request(
+            request_id=request_id,
+            state=decided["state"],
+            decided_by_id=actor.id,
+            now=_now(),
+        )
+        if record is None:
+            raise ApiProblem(
+                404, "friend_request_not_found", "Không có lời mời này."
+            )
+        return _wire_friend_edge(record)
+
+    def list_friend_requests(
+        self, person_id: uuid.UUID, direction: str, actor: Actor
+    ) -> FriendRequestListResponse:
+        _require_permission(
+            "view_own_friends", actor, {"is_self": actor.id == person_id}
+        )
+        return FriendRequestListResponse(
+            requests=[
+                _wire_friend_edge(record)
+                for record in self.repository.list_friend_requests(
+                    person_id, direction=direction
+                )
+            ]
+        )
+
+    def list_friends(
+        self, person_id: uuid.UUID, actor: Actor
+    ) -> FriendListResponse:
+        _require_permission(
+            "view_own_friends", actor, {"is_self": actor.id == person_id}
+        )
+        return FriendListResponse(
+            friends=[
+                FriendSummary(
+                    person_id=record.other_person_id,
+                    display_name=record.other_display_name,
+                    # An accepted row always carries a decision time: the check
+                    # constraint `decided_state_matches_timestamp` makes the
+                    # alternative unrepresentable, so this cannot be None.
+                    friends_since=record.decided_at or record.created_at,
+                )
+                for record in self.repository.list_friends(person_id)
+            ]
+        )
+
+    def find_person_by_person_id(
+        self, person_id: uuid.UUID, actor: Actor
+    ) -> PersonMatchResponse:
+        """Resolve an already-derived person id to a name.
+
+        The telephone number never reaches this method. `routes/friends.py`
+        turns the number into an id and drops it in the same expression; what
+        arrives here is the opaque id, which is why no argument on this
+        signature can be logged into a disclosure.
+        """
+        _require_permission("find_person_by_phone", actor, {})
+        person = self.repository.get_person(person_id)
+        if person is None:
+            # Same sentence whatever the input was. A refusal that varied with
+            # the number would be a directory with extra steps.
+            raise ApiProblem(
+                404, "person_not_found", "Chưa có ai dùng số này trong Rủ Đi."
+            )
+        return PersonMatchResponse(
+            person_id=person.id, display_name=person.display_name
+        )
+
+    @staticmethod
+    def _friend_refusal(refused: FriendshipError) -> ApiProblem:
+        """Map a domain code to an answer that does not narrate the graph."""
+        if refused.code == BLOCKED_IS_SILENT:
+            return ApiProblem(
+                409, refused.code.lower(), "Chưa gửi được lời mời này."
+            )
+        if refused.code == "SELF_EDGE":
+            return ApiProblem(
+                422, "self_edge", "Không tự kết bạn với chính mình được."
+            )
+        if refused.code in ("ONLY_ADDRESSEE_MAY_ANSWER", "NOT_A_PARTY"):
+            return ApiProblem(403, "permission_denied", refused.code.lower())
+        return ApiProblem(409, refused.code.lower(), "Lời mời không ở trạng thái đó.")
 
 
 __all__ = ["ApiService", "token_digest"]

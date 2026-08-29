@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Protocol
 
-from sqlalchemy import Date, cast, func, select, tuple_
+from sqlalchemy import Date, cast, func, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -44,6 +44,8 @@ from app.db.models import (
     ExpenseItemShare,
     ExpenseSurcharge,
     ExpenseVersion,
+    FriendRequest,
+    FriendRequestState,
     GuestLink,
     GuestLinkStatus,
     Membership,
@@ -544,6 +546,32 @@ class BillRecord:
     discounts: list[BillDiscountRecord]
 
 
+@dataclass(frozen=True, slots=True)
+class FriendEdgeRecord:
+    """One friend request, plus the name of whoever the reader is not.
+
+    `other_person_id` and `other_display_name` are filled relative to a reader,
+    because every screen that shows this row shows "the other person" -- the
+    requester on an incoming request, the addressee on an outgoing one. Making
+    the repository resolve it means no screen has to branch on direction, and
+    no screen can get the branch backwards.
+
+    There is no telephone number on this record and there is nowhere to put
+    one: the table has no such column, by the design in
+    `app/api/person_identity.py`.
+    """
+
+    id: uuid.UUID
+    requester_id: uuid.UUID
+    addressee_id: uuid.UUID
+    other_person_id: uuid.UUID
+    other_display_name: str
+    state: str
+    decided_by_id: uuid.UUID | None
+    created_at: datetime
+    decided_at: datetime | None
+
+
 class ApiRepository(Protocol):
     def get_person(self, person_id: uuid.UUID) -> PersonRecord | None: ...
 
@@ -887,6 +915,39 @@ class ApiRepository(Protocol):
         idempotency_key: uuid.UUID,
         now: datetime,
     ) -> ReceiptRecord: ...
+
+    # --- friend graph (F03, F04) ---------------------------------------
+
+    def get_friend_edge(
+        self, person_a: uuid.UUID, person_b: uuid.UUID
+    ) -> FriendEdgeRecord | None: ...
+
+    def get_friend_request(
+        self, request_id: uuid.UUID, reader_id: uuid.UUID
+    ) -> FriendEdgeRecord | None: ...
+
+    def open_friend_request(
+        self,
+        *,
+        requester_id: uuid.UUID,
+        addressee_id: uuid.UUID,
+        now: datetime,
+    ) -> FriendEdgeRecord: ...
+
+    def decide_friend_request(
+        self,
+        *,
+        request_id: uuid.UUID,
+        state: str,
+        decided_by_id: uuid.UUID,
+        now: datetime,
+    ) -> FriendEdgeRecord | None: ...
+
+    def list_friend_requests(
+        self, person_id: uuid.UUID, *, direction: str
+    ) -> list[FriendEdgeRecord]: ...
+
+    def list_friends(self, person_id: uuid.UUID) -> list[FriendEdgeRecord]: ...
 
 
 def _bank_recipient(row: BankRecipient) -> BankRecipientRecord:
@@ -3404,6 +3465,192 @@ class SqlAlchemyApiRepository:
             return unique[0]
         return f"{unique[0]} +{len(unique) - 1}"
 
+    # --- friend graph (F03, F04) ---------------------------------------
+
+    def _friend_edge(
+        self, row: FriendRequest, reader_id: uuid.UUID, name: str | None = None
+    ) -> FriendEdgeRecord:
+        """One row, oriented for whoever is reading it.
+
+        The reader is always one of the two parties -- callers reach this only
+        through queries filtered to their own id -- so "the other person" is
+        well defined. If a future caller passes a stranger, they get the
+        requester, which is wrong but not a disclosure: both ids are already
+        in the row this caller was given.
+        """
+        other = row.addressee_id if row.requester_id == reader_id else row.requester_id
+        return FriendEdgeRecord(
+            id=row.id,
+            requester_id=row.requester_id,
+            addressee_id=row.addressee_id,
+            other_person_id=other,
+            other_display_name=name or self._display_names({other})[other],
+            state=str(row.state),
+            decided_by_id=row.decided_by_id,
+            created_at=row.created_at,
+            decided_at=row.decided_at,
+        )
+
+    def _edge_between(self, person_a: uuid.UUID, person_b: uuid.UUID):
+        """The live edge for this unordered pair, whichever way it was asked.
+
+        `DECLINED` rows are excluded because a declined edge does not occupy
+        the pair -- the same states the partial unique index lists, and for the
+        same reason. Two spellings of one rule; see the migration.
+        """
+        return self.session.scalar(
+            select(FriendRequest)
+            .where(
+                or_(
+                    (FriendRequest.requester_id == person_a)
+                    & (FriendRequest.addressee_id == person_b),
+                    (FriendRequest.requester_id == person_b)
+                    & (FriendRequest.addressee_id == person_a),
+                ),
+                FriendRequest.state != FriendRequestState.DECLINED,
+            )
+            .order_by(FriendRequest.created_at.desc())
+        )
+
+    def get_friend_edge(
+        self, person_a: uuid.UUID, person_b: uuid.UUID
+    ) -> FriendEdgeRecord | None:
+        row = self._edge_between(person_a, person_b)
+        return None if row is None else self._friend_edge(row, person_a)
+
+    def get_friend_request(
+        self, request_id: uuid.UUID, reader_id: uuid.UUID
+    ) -> FriendEdgeRecord | None:
+        row = self.session.scalar(
+            select(FriendRequest).where(FriendRequest.id == request_id)
+        )
+        if row is None:
+            return None
+        if reader_id not in (row.requester_id, row.addressee_id):
+            # A stranger asking by id gets the same answer as a stranger asking
+            # for an id that does not exist. Returning 403 here would confirm
+            # that two particular people have an edge, to somebody who is not
+            # either of them.
+            return None
+        return self._friend_edge(row, reader_id)
+
+    def open_friend_request(
+        self,
+        *,
+        requester_id: uuid.UUID,
+        addressee_id: uuid.UUID,
+        now: datetime,
+    ) -> FriendEdgeRecord:
+        row = FriendRequest(
+            requester_id=requester_id,
+            addressee_id=addressee_id,
+            state=FriendRequestState.PENDING,
+            created_at=now,
+        )
+        self.session.add(row)
+        try:
+            self.session.flush()
+        except IntegrityError as exc:
+            # `uq_friend_edge_live` fires when two people tap "add" at the same
+            # moment. The service maps this to the same refusal the domain
+            # raises for an edge it could see, so the two orderings of one race
+            # are indistinguishable from outside -- which is what keeps a block
+            # silent under concurrency too.
+            raise RepositoryConflict("FRIEND_EDGE_EXISTS") from exc
+        return self._friend_edge(row, requester_id)
+
+    def decide_friend_request(
+        self,
+        *,
+        request_id: uuid.UUID,
+        state: str,
+        decided_by_id: uuid.UUID,
+        now: datetime,
+    ) -> FriendEdgeRecord | None:
+        row = self.session.scalar(
+            select(FriendRequest)
+            .where(FriendRequest.id == request_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if row is None:
+            return None
+        row.state = FriendRequestState(state)
+        # The check constraint requires these to move together: a non-pending
+        # row must carry a decision time, and a pending one must not.
+        row.decided_at = now
+        row.decided_by_id = decided_by_id
+        self.session.flush()
+        return self._friend_edge(row, decided_by_id)
+
+    def list_friend_requests(
+        self, person_id: uuid.UUID, *, direction: str
+    ) -> list[FriendEdgeRecord]:
+        """Pending requests only, in one direction.
+
+        Answered requests are deliberately not listed here: an inbox that keeps
+        showing declines is an inbox nobody opens, and a decline the requester
+        can poll for is a decline that leaks the answer they were not given.
+        A requester sees their outgoing request disappear; whether it was
+        accepted is answered by the friend list, and only if it was.
+        """
+        side = (
+            FriendRequest.addressee_id
+            if direction == "incoming"
+            else FriendRequest.requester_id
+        )
+        rows = list(
+            self.session.scalars(
+                select(FriendRequest)
+                .where(side == person_id, FriendRequest.state == FriendRequestState.PENDING)
+                .order_by(FriendRequest.created_at.desc(), FriendRequest.id)
+            )
+        )
+        names = self._display_names(
+            {
+                row.addressee_id if row.requester_id == person_id else row.requester_id
+                for row in rows
+            }
+        )
+        return [
+            self._friend_edge(row, person_id, names[
+                row.addressee_id if row.requester_id == person_id else row.requester_id
+            ])
+            for row in rows
+        ]
+
+    def list_friends(self, person_id: uuid.UUID) -> list[FriendEdgeRecord]:
+        """Friendship read back from the events that created it.
+
+        `state = 'accepted'`, both directions. There is no `friends` table to
+        drift from this query, which is the point.
+        """
+        rows = list(
+            self.session.scalars(
+                select(FriendRequest)
+                .where(
+                    or_(
+                        FriendRequest.requester_id == person_id,
+                        FriendRequest.addressee_id == person_id,
+                    ),
+                    FriendRequest.state == FriendRequestState.ACCEPTED,
+                )
+                .order_by(FriendRequest.decided_at.desc(), FriendRequest.id)
+            )
+        )
+        names = self._display_names(
+            {
+                row.addressee_id if row.requester_id == person_id else row.requester_id
+                for row in rows
+            }
+        )
+        return [
+            self._friend_edge(row, person_id, names[
+                row.addressee_id if row.requester_id == person_id else row.requester_id
+            ])
+            for row in rows
+        ]
+
 
 __all__ = [
     "AllocationRow",
@@ -3415,6 +3662,7 @@ __all__ = [
     "ConfirmationRecord",
     "ContextRecord",
     "ExpenseIdentity",
+    "FriendEdgeRecord",
     "FinanceMovement",
     "FrozenBatch",
     "FrozenObligation",
