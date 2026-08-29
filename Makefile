@@ -40,7 +40,7 @@ DC = $(COMPOSE) -p $(PROJECT)
 WAIT_TIMEOUT ?= 300
 
 .DEFAULT_GOAL := help
-.PHONY: help up down clean logs ps migrate seed demo smoke
+.PHONY: help up down clean logs ps migrate db-check seed demo smoke
 
 # `demo` phải gọi đúng bộ container mà `up` vừa dựng. Trên nhánh này biến đó là
 # $(COMPOSE); PR #60 (đang mở, cùng lane) đổi nó thành $(DC) = compose kèm
@@ -124,6 +124,18 @@ ps: ## Trạng thái các service
 migrate: ## Chỉ chạy `alembic upgrade head` (up đã tự chạy rồi)
 	$(DC) run --rm migrate
 
+db-check: ## Hỏi database xem nó có ở đúng head mà mã đang phục vụ mong đợi không
+	@# Chạy alembic TRONG ẢNH ĐANG PHỤC VỤ, không phải trong worktree này. Máy
+	@# này có năm worktree chung một stack; câu hỏi đúng là "schema có khớp code
+	@# đang chạy không", và chỉ cái ảnh đó trả lời được. So với worktree thì trên
+	@# nhánh có migration chưa merge, cổng sẽ báo database "đứng sau" rồi bảo
+	@# bạn migrate nó lên revision của nhánh — đúng nước đi đã tạo ra sự cố
+	@# 29/08. Xem đầu scripts/check_db_revision.sh.
+	@#
+	@# --no-deps vì postgres đã chạy rồi; không có nó thì `run` dựng lại chuỗi
+	@# phụ thuộc và có thể recreate `api` mà lane khác đang gọi.
+	@sh scripts/check_db_revision.sh $(DC) run --rm --no-deps -T migrate alembic
+
 seed: ## Chỉ seed dữ liệu mẫu — chạy lại là no-op, không nhân đôi
 	@$(DC) ps --services --filter status=running | grep -qx api || { \
 	  echo "API chưa chạy. Chạy 'make up' trước." >&2; exit 1; }
@@ -160,3 +172,9 @@ smoke: ## Gọi thật /healthz qua cổng đã publish và in địa chỉ ra
 	echo; \
 	echo "API sẵn sàng:  $$url"; \
 	echo "Tài liệu API:  $$url/docs"
+	@# /healthz cố ý không chạm database, nên nó KHÔNG trả lời được "database có
+	@# đúng schema không". Ngày 29/08 khoảng trống đó để cả bộ báo khoẻ suốt
+	@# nhiều giờ trong khi database đứng ở một revision không nhánh nào giữ và
+	@# mọi route đụng bảng `outings` trả 500. Đây là vế còn lại của câu hỏi
+	@# "bộ này dùng được không".
+	@$(MAKE) --no-print-directory db-check
