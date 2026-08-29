@@ -323,7 +323,11 @@ async function main() {
       args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
     });
 
-    console.log(`\n== nam man, tren trang that ==`);
+    // Counted, not spelled out. The heading said "nam man" while the loop
+    // below printed nine, because a screen was added to the list and the
+    // sentence describing the list was not -- the same class of drift this
+    // whole file exists to catch, sitting in its own output.
+    console.log(`\n== ${moiMan().length} man, tren trang that ==`);
     const bangKe = [];
     for (const { step, frag, needle } of moiMan()) {
       const url = `${goc}/__quet-${step}.html#${frag}`;
