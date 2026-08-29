@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import timedelta
 
 import anyio
 import httpx
@@ -50,6 +51,10 @@ pytestmark = pytest.mark.postgres
 # A string nobody would produce by accident, planted in a message body so the
 # privacy case can look for it everywhere output goes.
 SECRET = "SENTINEL-rieng-tu-cua-nhom-khong-duoc-log"
+
+# The conversation happened before the service clock reads `NOW`, so no message
+# is in the future and none of them sit inside the companion's cooldown window.
+CONVERSATION_START = NOW - timedelta(hours=2)
 
 CATALOGUE = [
     {
@@ -136,6 +141,19 @@ def _group(session: Session) -> tuple[Context, Person, Person]:
 
 
 def _say(session: Session, context: Context, author: Person | None, body: str) -> None:
+    """Append one message, strictly later than every message before it.
+
+    The timestamp is computed rather than fixed, and that is load-bearing. The
+    feed orders by `(created_at DESC, id DESC)`, so messages sharing one
+    timestamp are ordered by a random UUID4 -- and "who spoke last" is exactly
+    what the speaking cap reads. Stamping every row with `NOW` made the
+    already-spoke-last case pass or fail on which UUID happened to sort higher.
+
+    Timestamps run backwards from `NOW` so the whole conversation sits in the
+    past relative to the service clock, and well outside the cooldown window.
+    """
+
+    said_before = _message_count(session, context)
     session.add(
         Message(
             id=uuid.uuid4(),
@@ -144,7 +162,7 @@ def _say(session: Session, context: Context, author: Person | None, body: str) -
             kind=MessageKind.AI_CARD if author is None else MessageKind.TEXT,
             body=None if author is None else body,
             card={"kind": "text", "payload": {"text": body}} if author is None else None,
-            created_at=NOW,
+            created_at=CONVERSATION_START + timedelta(minutes=said_before),
         )
     )
     session.flush()
