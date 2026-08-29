@@ -128,10 +128,14 @@ export function KhamPha({ nguoi, nhom, diaDiemDau }: {
     // template glued around it: this text reaches a model prompt, and every
     // string the client concatenated onto it would be a second place an
     // injected instruction could ride in that the server cannot see.
-    askSearch(q).then((s) => {
+    //
+    // The one thing that does ride along is who is asking. `POST /places/search`
+    // spends model quota and is metered per actor (rd-be-13), so a search with
+    // nobody signed in is a 401 -- `askSearch` says so without the round trip.
+    askSearch(q, { actorId: nguoi?.personId }).then((s) => {
       if (luot.current === cua) setTim(s);
     });
-  }, [cau]);
+  }, [cau, nguoi]);
 
   const xoaTim = useCallback(() => {
     luot.current += 1; // any reply still in flight is now stale

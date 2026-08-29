@@ -152,6 +152,24 @@ export function TimKhongDuoc({ state, baseUrl }: { state: TimKiemState; baseUrl:
   if (state.kind === "cau-khong-hop-le") {
     tieuDe = "Câu tìm kiếm chưa dùng được";
     than = `Viết một câu ngắn hơn ${state.max} chữ và đừng để trống, rồi tìm lại.`;
+  } else if (state.kind === "chua-biet-la-ai") {
+    // No address line: nothing was sent anywhere, so "Đã thử:" would name a
+    // server that was never asked and send somebody to check it.
+    tieuDe = "Chưa biết bạn là ai";
+    than =
+      "Tìm bằng lời cần biết ai đang hỏi, vì mỗi người có giới hạn số lần hỏi AI riêng. Quay lại màn đầu và chọn tên bạn trong nhóm, rồi tìm lại.";
+  } else if (state.kind === "bi-tu-choi") {
+    tieuDe = "Máy chủ chưa nhận ra bạn";
+    than =
+      "App có gửi kèm danh tính nhưng máy chủ không nhận. Chọn lại tên bạn ở màn đầu rồi tìm lại. Nếu vẫn vậy thì app và máy chủ đang lệch nhau, không phải do câu bạn viết.";
+    diaChi = state.url;
+  } else if (state.kind === "qua-nhieu-lan") {
+    // Nothing is broken and nothing needs reporting, so this one names no
+    // address and no work item. The window is the server's number to change,
+    // and printing it here would be a second copy that quietly goes stale.
+    tieuDe = "Bạn vừa tìm hơi nhiều";
+    than =
+      "Mỗi người chỉ hỏi AI được một số lần trong mỗi phút, để một người tìm nhanh không làm cả nhóm hết lượt. Chờ khoảng một phút rồi tìm lại, câu bạn viết vẫn còn nguyên ở trên.";
   } else if (state.kind === "chua-co-endpoint") {
     tieuDe = "Máy chủ này chưa có tìm kiếm bằng lời";
     than = `Máy chủ đang chạy nhưng không có route POST /places/search. Route đó có trong ${state.work}, nên nhiều khả năng app đang trỏ vào một bản API cũ hơn, không phải app thiếu gì.`;
