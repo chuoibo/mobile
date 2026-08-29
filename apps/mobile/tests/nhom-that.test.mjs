@@ -34,7 +34,15 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { GoiYChia, VUNG_CUON_MA_TRAN } from "../dist-test/screens/GoiYChia.js";
+/* Namespace import, not a named one, and the reason is about evidence rather
+ * than style. `VUNG_CUON_MA_TRAN` arrived with the fix, so a named import of it
+ * makes this whole file fail to *parse* against a build that predates the fix
+ * -- one syntax error where thirteen separate defects should each be reporting
+ * themselves. Red has to say which thing is broken, or it is not worth much. */
+import * as ManChia from "../dist-test/screens/GoiYChia.js";
+
+const { GoiYChia } = ManChia;
+const VUNG_CUON_MA_TRAN = ManChia.VUNG_CUON_MA_TRAN ?? "vung-cuon-ma-tran";
 import { Field } from "../dist-test/ui/Kit.js";
 import { DEMO_PEOPLE } from "../dist-test/navigation/nhom-demo.js";
 import {
