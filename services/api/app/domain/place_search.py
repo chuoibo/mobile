@@ -45,6 +45,15 @@ MAX_RESULTS = 8
 #: what an injected instruction can get printed if it survives everything else.
 MAX_REASON = 240
 
+#: The model's own conclusion about one place for one group, from a closed set.
+#: Held here as a literal rather than imported because the domain may not reach
+#: into `app.places`, and kept identical to `app.places.reasons.VERDICTS` on
+#: purpose: browse and search put the same badge on the same card, so two
+#: vocabularies for this field would mean one of them is the weaker one and
+#: nobody finds out which until it is on a screen.
+#: `tests/places/test_search_verdict_contract.py` fails the day they drift.
+VERDICTS: tuple[str, ...] = ("hop", "tam", "khong-hop")
+
 
 class PlaceSearchError(Exception):
     """A model answer that will not be served, with the reason it was refused.
@@ -124,6 +133,40 @@ def _reason(value: Any) -> str | None:
     return trimmed[:MAX_REASON] if trimmed else None
 
 
+def _verdict(value: Any) -> str | None:
+    """Absent, mistyped and outside the vocabulary all mean the same: no verdict.
+
+    Deliberately narrower blast radius than an identifier, a category or a
+    trait outside the catalogue, each of which sinks the whole answer. Those
+    are fabricated *facts* -- evidence the model stopped reading what it was
+    handed. An unusable verdict token is a malformed field on one row, and
+    costing a search its every result over it would trade a whole feature for a
+    label on one card.
+    """
+
+    if isinstance(value, str) and value in VERDICTS:
+        return value
+    return None
+
+
+def _paired(
+    place_id: str, reason: str | None, verdict: str | None
+) -> tuple[str, str | None, str | None]:
+    """A sentence and the conclusion behind it, or neither.
+
+    The screen prints `reason` under the words AI MATCH and prints the badge
+    from `verdict`, so half a pair is a card that either claims a model
+    endorsement nobody gave, or shows a conclusion with nothing justifying it.
+    Tied here, at the one point every result passes through, rather than in
+    each caller -- a rule that has to be remembered at every call site is a
+    rule that gets forgotten at the next one.
+    """
+
+    if reason is None or verdict is None:
+        return place_id, None, None
+    return place_id, reason, verdict
+
+
 def _ground_understood(
     raw: Any, allowed_places: list[dict], allowed_categories: list[dict]
 ) -> dict:
@@ -181,14 +224,16 @@ def ground_search(
     if not isinstance(raw_results, list):
         raise _malformed()
 
-    entries: list[tuple[str, str | None]] = []
+    entries: list[tuple[str, str | None, str | None]] = []
     for item in raw_results:
         if not isinstance(item, dict):
             raise _malformed()
         place_id = item.get("id")
         if not isinstance(place_id, str):
             raise _malformed()
-        entries.append((place_id, _reason(item.get("reason"))))
+        entries.append(
+            _paired(place_id, _reason(item.get("reason")), _verdict(item.get("verdict")))
+        )
 
     catalogue = {
         place["id"]: place
@@ -198,15 +243,21 @@ def ground_search(
     # Before deduplication and before the display limit, on purpose. See the
     # module docstring: a check that ran after truncation would serve a full
     # page of real places for an answer that was partly fiction.
-    if any(place_id not in catalogue for place_id, _ in entries):
+    if any(place_id not in catalogue for place_id, _, _ in entries):
         raise PlaceSearchError("place_search_place_not_in_catalogue")
 
     results: list[dict] = []
     seen: set[str] = set()
-    for place_id, reason in entries:
+    for place_id, reason, verdict in entries:
         if place_id in seen:
             continue
         seen.add(place_id)
-        results.append({"place": dict(catalogue[place_id]), "reason": reason})
+        results.append(
+            {
+                "place": dict(catalogue[place_id]),
+                "reason": reason,
+                "verdict": verdict,
+            }
+        )
 
     return {"understood": understood, "results": results[:MAX_RESULTS]}

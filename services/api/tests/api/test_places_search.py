@@ -137,13 +137,212 @@ def test_a_grounded_model_sentence_is_served_under_the_ai_label(client):
         client,
         {
             "understood": understood(),
-            "results": [{"id": "p-lung-chung-cafe", "reason": "Chỗ này yên, hợp ngồi lâu."}],
+            "results": [
+                {
+                    "id": "p-lung-chung-cafe",
+                    "verdict": "hop",
+                    "reason": "Chỗ này yên, hợp ngồi lâu.",
+                }
+            ],
         },
     )
 
     match = post(client).json()["places"][0]["match"]
     assert match["source"] == "ai"
     assert match["reason"] == "Chỗ này yên, hợp ngồi lâu."
+
+
+# ---------------------------------------------------------------------------
+# The label and the conclusion are one claim (bug-174904)
+# ---------------------------------------------------------------------------
+#
+# `match.source == "ai"` says a model wrote the sentence; `match.verdict` says
+# what the model concluded. The app treats the pair as a single fact and
+# refuses a whole response that breaks it, because the two halves are what the
+# badge is assembled from: `source: "ai"` with no verdict renders as "AI MATCH
+# 95%", a percentage attributed to a model that never gave an opinion.
+#
+# So search asks for the verdict rather than passing `None` and hoping the
+# label carries itself. Every case below states the same rule from one side:
+# a card carries both halves or neither.
+
+
+def pairs_intact(body) -> list[dict]:
+    """Cards whose `source`/`verdict` pair is the one the app refuses."""
+
+    return [
+        place["match"]
+        for place in body["places"]
+        if (place["match"]["source"] == "ai") != (place["match"]["verdict"] is not None)
+    ]
+
+
+def test_the_verdict_the_model_gave_reaches_the_card_it_belongs_to(client):
+    """Three rows, three different conclusions, none of them swapped."""
+
+    use(
+        client,
+        {
+            "understood": understood(),
+            "results": [
+                {"id": "p-tiem-nuong-xom-lao", "verdict": "hop", "reason": "Hợp nhóm."},
+                {"id": "p-lung-chung-cafe", "verdict": "tam", "reason": "Tạm được."},
+                {
+                    "id": "p-nuong-ngoi-troi-thong",
+                    "verdict": "khong-hop",
+                    "reason": "Hơi xa nhóm.",
+                },
+            ],
+        },
+    )
+
+    body = post(client).json()
+    assert [
+        (place["id"], place["match"]["source"], place["match"]["verdict"])
+        for place in body["places"]
+    ] == [
+        ("p-tiem-nuong-xom-lao", "ai", "hop"),
+        ("p-lung-chung-cafe", "ai", "tam"),
+        ("p-nuong-ngoi-troi-thong", "ai", "khong-hop"),
+    ]
+
+
+def test_a_sentence_written_without_a_verdict_is_never_labelled_ai(client):
+    """The exact shape the app rejected on the first live query of F12.
+
+    The model wrote prose for this row and gave no conclusion. Serving that as
+    `source: "ai"` with `verdict: null` puts the words AI MATCH and a
+    percentage on a card the model never judged.
+    """
+
+    use(
+        client,
+        {
+            "understood": understood(),
+            "results": [{"id": "p-lung-chung-cafe", "reason": "Chỗ này yên, hợp ngồi lâu."}],
+        },
+    )
+
+    body = post(client).json()
+    assert [place["id"] for place in body["places"]] == ["p-lung-chung-cafe"]
+    match = body["places"][0]["match"]
+    assert match["verdict"] is None
+    assert match["source"] == "none", (
+        "a sentence with no verdict shipped under the ai label -- the badge "
+        "would say AI MATCH for a place no model gave an opinion on"
+    )
+    assert "Chỗ này yên" not in match["reason"], (
+        "the model's sentence is still on the card while the card claims no "
+        "model wrote it"
+    )
+
+
+def test_a_verdict_outside_the_closed_set_costs_the_row_its_label_not_the_answer(
+    client,
+):
+    """Blast radius, deliberately narrower than a fabricated identifier.
+
+    An unknown verdict token is a malformed field on one row, not evidence the
+    model stopped reading the catalogue, so the row survives without its label.
+    """
+
+    use(
+        client,
+        {
+            "understood": understood(),
+            "results": [
+                {"id": "p-lung-chung-cafe", "verdict": "rất hợp", "reason": "Hợp nhóm."},
+                {"id": "p-tiem-nuong-xom-lao", "verdict": "hop", "reason": "Nướng ngon."},
+            ],
+        },
+    )
+
+    body = post(client).json()
+    assert body["source"] == "ai"
+    assert [place["id"] for place in body["places"]] == [
+        "p-lung-chung-cafe",
+        "p-tiem-nuong-xom-lao",
+    ]
+    assert [place["match"]["source"] for place in body["places"]] == ["none", "ai"]
+    assert body["places"][0]["match"]["verdict"] is None
+    assert "rất hợp" not in response_text(body)
+
+
+def test_a_row_that_loses_its_sentence_loses_its_verdict_with_it(client):
+    """The gates drop the prose; the conclusion cannot outlive it.
+
+    A verdict left behind on a card labelled `none` breaks the same pair from
+    the other side, and the app refuses that response too.
+    """
+
+    use(
+        client,
+        {
+            "understood": understood(),
+            "results": [
+                {
+                    "id": "p-lung-chung-cafe",
+                    "verdict": "hop",
+                    "reason": "Quán từng lọt top 47 quán cafe đẹp nhất năm 2019.",
+                }
+            ],
+        },
+    )
+
+    match = post(client).json()["places"][0]["match"]
+    assert match["source"] == "none"
+    assert match["verdict"] is None, (
+        "the ungrounded-number gate dropped the sentence but kept the verdict"
+    )
+
+
+def test_an_echoed_sentence_loses_its_verdict_with_it(client):
+    query = "quán nướng ngoài trời cho 6 người dưới 300k, gần trung tâm"
+    use(
+        client,
+        {
+            "understood": understood(),
+            "results": [{"id": "p-lung-chung-cafe", "verdict": "hop", "reason": query}],
+        },
+    )
+
+    match = post(client, query=query).json()["places"][0]["match"]
+    assert match["source"] == "none"
+    assert match["verdict"] is None
+
+
+def test_no_card_search_serves_ever_breaks_the_pair_the_app_enforces(client):
+    """One payload with every shape at once, checked by the client's own rule.
+
+    The cases above each pin one path. This pins the invariant itself, so a
+    later path that produces a card some other way is covered before anyone
+    remembers to write a case for it.
+    """
+
+    use(
+        client,
+        {
+            "understood": understood(),
+            "results": [
+                {"id": "p-tiem-nuong-xom-lao", "verdict": "hop", "reason": "Hợp nhóm."},
+                {"id": "p-lung-chung-cafe", "reason": "Không có kết luận."},
+                {"id": "p-nuong-ngoi-troi-thong", "verdict": "khong-hop"},
+                {"id": "p-quan-oc-di-be", "verdict": "sai-tu-vung", "reason": "Ổn."},
+                {
+                    "id": "p-the-hill-rooftop",
+                    "verdict": "tam",
+                    "reason": "Quán từng lọt top 47 quán ngon nhất năm 2019.",
+                },
+            ],
+        },
+    )
+
+    body = post(client).json()
+    assert len(body["places"]) == 5
+    assert pairs_intact(body) == [], (
+        "these cards claim an AI label with no verdict, or a verdict with no "
+        "AI label -- the app refuses the whole response on either"
+    )
 
 
 # ---------------------------------------------------------------------------
