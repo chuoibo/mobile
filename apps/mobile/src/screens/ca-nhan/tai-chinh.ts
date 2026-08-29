@@ -65,12 +65,34 @@ export function tienCoDau(movement: Movement): string {
   return `${movement.direction === "in" ? "+" : "-"}${tienVnd(movement.amount_vnd)}`;
 }
 
-/** `20/05`, from the ISO instant the server sent. */
+/** Vietnam is a fixed UTC+7: no DST, and none since 1975. */
+const PHUT_LECH_VN = 7 * 60;
+
+/**
+ * `20/05`, from the ISO instant the server sent, always as Vietnam reads it.
+ *
+ * `getDate()`/`getMonth()` were used here first, and they answer in *the
+ * device's* timezone -- so one transaction rendered `02/01` on a phone in Hà
+ * Nội and `01/01` on a laptop in UTC. A shared expense has one date: the date
+ * it happened for the group that ate the meal. Whose airport a member is
+ * standing in must not move it.
+ *
+ * That bug is invisible to whoever writes the test, because it only shows up
+ * where the machine's clock disagrees -- it passed locally at +07 and failed in
+ * CI at UTC, which is the only reason it was ever seen.
+ *
+ * Shifting the instant and reading its UTC parts is the whole conversion.
+ * `Intl`/`toLocaleString` with a `timeZone` would be the obvious tool and is
+ * refused for the reason at the top of this file: Hermes ships without full ICU
+ * and would silently answer in the wrong zone on a phone while looking correct
+ * on web.
+ */
 export function ngayNgan(iso: string): string {
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) return "";
-  const dd = `${at.getDate()}`.padStart(2, "0");
-  const mm = `${at.getMonth() + 1}`.padStart(2, "0");
+  const vn = new Date(at.getTime() + PHUT_LECH_VN * 60_000);
+  const dd = `${vn.getUTCDate()}`.padStart(2, "0");
+  const mm = `${vn.getUTCMonth() + 1}`.padStart(2, "0");
   return `${dd}/${mm}`;
 }
 

@@ -64,6 +64,69 @@ test("ngày rút gọn dạng ngày/tháng", () => {
   assert.equal(ngayNgan("2026-01-02T00:00:00+07:00"), "02/01");
 });
 
+/* Ca này từng ĐỎ trên CI và XANH trên máy tôi, cùng một commit.
+ *
+ * `getDate()` trả lời theo múi giờ của MÁY, nên `2026-05-19T18:00:00Z` đọc ra
+ * "20/05" ở +07 và "19/05" ở UTC — một khoản chi đổi ngày theo chỗ người xem
+ * đang đứng. Ba mốc dưới đây đều rơi vào ngày HÔM SAU theo giờ Việt Nam nhưng
+ * vẫn là hôm trước theo UTC.
+ *
+ * Đọc kỹ giới hạn của ca này: nó chỉ đỏ khi máy chạy test KHÔNG ở +07. Trên máy
+ * một người Việt, bản dùng giờ máy và bản ghim giờ Việt Nam cho ra kết quả y
+ * hệt nhau, nên ca này một mình sẽ để lọt. Ca ghim thật nằm ngay dưới.
+ */
+test("ngày là ngày ở Việt Nam, không phải ngày của máy đang xem", () => {
+  assert.equal(ngayNgan("2026-05-19T18:00:00Z"), "20/05");
+  assert.equal(ngayNgan("2026-01-01T17:00:00Z"), "02/01");
+  // Giao thừa: 31/12 lúc 17:00Z đã là 01/01 ở Việt Nam.
+  assert.equal(ngayNgan("2025-12-31T17:00:00Z"), "01/01");
+});
+
+/* Ca ghim: đỏ ở MỌI múi giờ máy, kể cả +07.
+ *
+ * Lỗi này đi lọt được vì người sửa và người review đều ngồi ở +07, nơi bản
+ * hỏng và bản đúng cho ra cùng một chuỗi. Chỉ CI mới thấy — và tin vào CI để
+ * bắt lỗi này nghĩa là mỗi lần tái phát phải tốn một vòng đẩy nhánh. Ca dưới
+ * tự dời múi giờ của tiến trình nên nó đỏ ngay trên máy người sửa.
+ *
+ * Node đọc lại `process.env.TZ` khi đổi lúc đang chạy (đã kiểm trên v20). Nếu
+ * một ngày nào đó nó thôi làm vậy thì mọi múi giờ dưới đây sẽ đọc thành múi giờ
+ * của máy và ca sẽ XANH mà chẳng kiểm gì — nên bước đầu tiên là chứng minh cái
+ * cần gạt còn sống, đúng kiểu đã dùng cho máy quét a11y.
+ */
+test("một mốc cho một ngày, dù máy người xem đứng ở múi giờ nào", () => {
+  const MUI_GIO = [
+    "UTC",
+    "Asia/Ho_Chi_Minh", // +07, múi giờ của người dùng lẫn người viết test
+    "Pacific/Kiritimati", // +14, xa nhất về phía đông
+    "America/Los_Angeles", // -07/-08, qua bên kia ngày
+    "Europe/London",
+  ];
+  const tzGoc = process.env.TZ;
+  const iso = "2026-05-19T18:00:00Z"; // 01:00 sáng 20/05 giờ Việt Nam
+
+  try {
+    // Cần gạt còn sống chưa? Nếu đổi TZ không đổi được gì thì ca này vô nghĩa.
+    const gioDocDuoc = new Set();
+    for (const tz of MUI_GIO) {
+      process.env.TZ = tz;
+      gioDocDuoc.add(new Date(iso).getHours());
+    }
+    assert.ok(
+      gioDocDuoc.size > 1,
+      "đổi process.env.TZ không còn tác dụng — ca này không chứng minh được gì",
+    );
+
+    for (const tz of MUI_GIO) {
+      process.env.TZ = tz;
+      assert.equal(ngayNgan(iso), "20/05", `ngày đổi theo máy khi TZ=${tz}`);
+    }
+  } finally {
+    if (tzGoc === undefined) delete process.env.TZ;
+    else process.env.TZ = tzGoc;
+  }
+});
+
 test("ngày hỏng trả chuỗi rỗng chứ không phải NaN/NaN", () => {
   assert.equal(ngayNgan("khong-phai-ngay"), "");
 });
