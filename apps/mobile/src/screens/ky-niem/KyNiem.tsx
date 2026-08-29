@@ -560,7 +560,7 @@ function TuongAnh({
           }}
         >
           {anh.map((m) => (
-            <Polaroid key={m.id} kyNiem={m} />
+            <Polaroid key={m.id} kyNiem={m} personId={personId} contextId={contextId} />
           ))}
         </View>
       ) : null}
@@ -568,8 +568,21 @@ function TuongAnh({
   );
 }
 
-/** One picture on the wall, in the mockup's polaroid shape. */
-function Polaroid({ kyNiem }: { kyNiem: KyNiemWire }) {
+/** One picture on the wall, in the mockup's polaroid shape.
+ *
+ * Takes the viewer and the group rather than only the row, because
+ * `GET /contexts/{cid}/photos/{pid}` is members-only: without a header the
+ * server answers 401 and the wall shows its stand-in for every photograph on
+ * it, which is indistinguishable from a group that has posted none. */
+function Polaroid({
+  kyNiem,
+  personId,
+  contextId,
+}: {
+  kyNiem: KyNiemWire;
+  personId: string;
+  contextId: string;
+}) {
   const c = usePalette();
   const chuThich = kyNiem.caption?.trim() ?? "";
   return (
@@ -590,6 +603,8 @@ function Polaroid({ kyNiem }: { kyNiem: KyNiemWire }) {
       <Anh
         uri={kyNiem.image_url}
         alt={chuThich ? `Ảnh kỷ niệm: ${chuThich}` : "Ảnh kỷ niệm của nhóm"}
+        nguoiXem={personId}
+        nhom={contextId}
         // Square, because the wall reads as a wall only if the rows line up, and
         // a mixed-orientation set of real photographs does not.
         style={{ aspectRatio: 1, width: "100%" }}

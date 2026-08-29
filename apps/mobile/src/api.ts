@@ -1379,6 +1379,113 @@ export function duongDanAnhDaiDien(personId: string): string {
   return `/people/${personId}/avatar`;
 }
 
+/**
+ * Fetch a photograph the server permission-checks, and hand back an address a
+ * frame can actually display.
+ *
+ * ## Why a frame cannot simply be pointed at the address
+ *
+ * Every image route this product has is permission-checked, and the check reads
+ * a header:
+ *
+ *     GET /people/{id}/avatar          without X-Actor-ID -> 401
+ *     GET /contexts/{cid}/photos/{pid} without X-Actor-ID -> 401
+ *
+ * An `<img>` cannot send a header, and react-native-web's `<Image>` becomes an
+ * `<img>`. So `<Image source={{uri: "/people/x/avatar"}}>` is not "the read path
+ * wired up" -- it is a request that is *guaranteed* to be refused. Worse, the
+ * refusal is silent: `Anh` reacts to a failed load by drawing its stand-in, and
+ * the stand-in for an avatar is the person's initials, which is exactly what a
+ * person with no photograph yet also sees. Upload returns 201, the picture
+ * never appears, and every surface agrees that nothing is wrong. That is what
+ * shipped in rd-fe-25 and what #222 was sent back for.
+ *
+ * React Native's own `Image` does accept `source={{uri, headers}}`, so a native
+ * build could pass the header through. react-native-web ignores it. Fetching
+ * the bytes here instead is one path that works on both, and it keeps the rule
+ * in one place rather than leaving web quietly broken.
+ *
+ * ## What comes back
+ *
+ * A `blob:` URL where the platform has one, a `data:` URL where it does not.
+ * Both are local, so the frame that displays it makes no second request and
+ * carries no header of its own. Hand the result to `boNguonCucBo` when the
+ * frame is done with it; a `blob:` URL pins its bytes in memory until revoked.
+ *
+ * `contexts` matters for the group wall and not for an avatar: the photo route
+ * checks membership of the context in the address, and the avatar route checks
+ * whether the two people share one. Passing it wrong is a 403, not a leak --
+ * the server decides either way.
+ */
+export async function taiAnhCoQuyen(
+  url: string,
+  actorId: string,
+  contexts?: string,
+): Promise<string> {
+  // Same reason as `guiAnhLen`: `actorHeaders` sets `application/json`, which is
+  // a lie about a request that wants image bytes back.
+  const { "Content-Type": _dropped, ...headers } = actorHeaders(actorId, "member", contexts);
+
+  let response: Response;
+  try {
+    response = await fetch(url, { headers });
+  } catch {
+    throw new ApiError(
+      0,
+      "unreachable",
+      `Không nối được ${BASE_URL}. Máy chủ có đang chạy không?`,
+    );
+  }
+
+  if (!response.ok) {
+    let code = `http_${response.status}`;
+    let detail: unknown = null;
+    try {
+      const problem = await response.json();
+      if (problem?.code) code = problem.code;
+      if (problem?.detail) detail = problem.detail;
+    } catch {
+      /* not JSON; the status chooses the words */
+    }
+    throw new ApiError(
+      response.status,
+      code,
+      ANH_REFUSALS[code.toLowerCase()] ?? thongDiepNguoiDoc(response.status, detail),
+    );
+  }
+
+  return nguonCucBo(await response.blob());
+}
+
+/** Turn fetched bytes into something `<Image>` accepts, on either platform.
+ *
+ *  `URL.createObjectURL` is the cheap answer and exists on web. React Native
+ *  has `Blob` but not reliably that method, so the fallback reads the bytes
+ *  into a `data:` URL, which every `Image` implementation understands. Base64
+ *  costs a third more memory, which is the right trade for a picture the server
+ *  has already re-encoded and capped. */
+function nguonCucBo(blob: Blob): Promise<string> {
+  const url = (globalThis as { URL?: { createObjectURL?: (b: Blob) => string } }).URL;
+  if (typeof url?.createObjectURL === "function") {
+    return Promise.resolve(url.createObjectURL(blob));
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () =>
+      reject(new ApiError(0, "image_unreadable", "Không đọc được tấm ảnh vừa tải về."));
+    reader.onload = () => resolve(String(reader.result));
+    reader.readAsDataURL(blob);
+  });
+}
+
+/** Release what `taiAnhCoQuyen` handed out. A no-op for `data:`, which owns no
+ *  resource; a `blob:` URL holds its bytes alive until this is called. */
+export function boNguonCucBo(uri: string): void {
+  if (!uri.startsWith("blob:")) return;
+  const url = (globalThis as { URL?: { revokeObjectURL?: (u: string) => void } }).URL;
+  url?.revokeObjectURL?.(uri);
+}
+
 /* --------------------------------------------------- the memory wall (rd-be-07) */
 
 /** One keepsake on the wall, as the server describes it. */

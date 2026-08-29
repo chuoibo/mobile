@@ -139,6 +139,13 @@ function tenHienThi(nguoi: DemoPerson | null, trang: Trang): string {
  * The avatar is a real photograph now, and the two things that took measuring
  * are both about the address it is read from.
  *
+ * **The bytes are permission-checked, so the frame fetches them.** `GET
+ * /people/{id}/avatar` answers 401 without `X-Actor-ID`, and an `<img>` cannot
+ * send one. Pointing the frame at the address therefore never worked: the load
+ * failed, `Anh` drew the initials, and the initials are also what somebody with
+ * no photograph sees, so nothing on the screen or in the tests could tell the
+ * two apart. `nguoiXem` is what makes the request carry the header; see `Anh`.
+ *
  * **The address is stable, and that is a feature with one sharp edge.**
  * `/people/{id}/avatar` always names the current picture, so nothing has to be
  * stored, threaded through the finance response, or added to a roster for a new
@@ -185,6 +192,9 @@ function BiaVaAnh({
       <Anh
         uri={anhBia}
         alt=""
+        // No cover-photo route exists, so no address reaching this frame is
+        // permission-checked. Stated rather than defaulted; see `Anh`.
+        nguoiXem={null}
         cho={<Gradient colors={HERO_SUNSET} style={{ flex: 1 }} />}
         style={{ height: 148 }}
       />
@@ -198,6 +208,10 @@ function BiaVaAnh({
         <Anh
           uri={anhDaiDien}
           alt={`Ảnh đại diện của ${ten}`}
+          // `GET /people/{id}/avatar` is permission-checked, so the frame has to
+          // fetch the bytes with this person's header rather than point an
+          // <img> at the address and be told 401. See `Anh` and `taiAnhCoQuyen`.
+          nguoiXem={nguoi?.personId ?? null}
           cho={
             <View
               style={{

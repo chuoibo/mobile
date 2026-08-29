@@ -66,6 +66,9 @@ export function MoDau({ onVao, onBoQua, onSoDienThoai, anhNen }: {
         // Decorative: the wordmark and caption already say everything this
         // screen means, so an empty alt keeps the frame out of the tree.
         alt=""
+        // Nobody is signed in yet on this screen, and the illustration is not
+        // anybody's property. There is no viewer to fetch as.
+        nguoiXem={null}
         cho={
           <>
             <Gradient colors={HERO_SUNSET} style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} />
