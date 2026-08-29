@@ -242,6 +242,18 @@ class PersonResponse(ApiModel):
     created_at: datetime
 
 
+class PersonIdResponse(ApiModel):
+    """The id a telephone number derives to, and nothing else.
+
+    No echo of the number, not even normalised. The request carried it; the
+    response is what the caller did not already have. A round trip that returns
+    its own input is a round trip that puts the input into a second set of
+    logs.
+    """
+
+    person_id: UUID
+
+
 class FinanceMovementView(ApiModel):
     """One confirmed movement, with the sign carried as a word.
 

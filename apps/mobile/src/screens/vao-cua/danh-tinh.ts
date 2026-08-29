@@ -1,90 +1,42 @@
-/** Turning a phone number somebody types into the person id the API stores.
+/** What the entry door can decide about a telephone number without asking.
  *
- * This is the whole of F01. It is kept out of the screen because the screen
- * unmounts and because none of what matters here is visual: two spellings of
- * one number must reach one account, two different numbers must never reach
- * the same one, and the digits must not leave the device.
+ * This is the client half of F01, and it is deliberately the smaller half. The
+ * id itself is no longer minted here: `layIdTuSo` in `cong-api.ts` asks the
+ * server for it, because the derivation is now keyed and a key the app holds
+ * is not a key.
  *
- * ## Why the id is derived rather than minted
+ * ## Why the derivation left this file (bug-140342)
  *
- * `PUT /people/{id}` names an id the caller already holds, and this app holds
- * no storage: there is no AsyncStorage, no SecureStore and no cookie in
- * `package.json`, so nothing survives a reload. A `crypto.randomUUID()` at the
- * sign-in button would therefore mint a *new* person on every launch -- the
- * same human would accumulate accounts, each with its own share of a dinner,
- * and "log in" would be a word for "lose everything". Deriving the id from the
- * number is what makes typing the same number twice arrive at the same person,
- * which is the only behaviour that makes the screen's own label true.
+ * It used to be FNV-1a through MurmurHash3's finaliser, right here, and every
+ * property it was tested for held. 20,000 consecutive numbers gave 20,000
+ * distinct ids; numbers one digit apart came out half a digest apart. What it
+ * was never tested for is that an id cannot be turned back into its number,
+ * and that is a different property: `GET /contexts/{id}/members` hands every
+ * member's `person_id` to every member, and Vietnamese mobile numbers are a
+ * space of about 5x10^8. Enumerate it and the ids match.
  *
- * ## What this does and does not protect
+ * That is not a worry, it is a measurement. Against the code that used to sit
+ * in this file: 257,316 candidates per second in Node on one core, and a
+ * number recovered from its id in 29.75 seconds. QA measured the same thing in
+ * Python and put a full sweep at about an hour, or seconds in C.
  *
- * The digits never reach the server. `PersonRegistrationRequest` has one field
- * and it is `display_name`, so there is no column for a phone number and this
- * file does not invent one; what crosses the wire is the derived id and a name
- * somebody chose to show. That is worth having and it is not privacy.
+ * No amount of choosing a better hash fixes that while every input to it is in
+ * the repository. Only a secret the attacker does not hold does, and the only
+ * place this product has one is the server -- see
+ * `services/api/app/api/person_identity.py` for the whole argument, including
+ * what the move costs.
  *
- * Being blunt, because the alternative is a comment that flatters the code:
- * Vietnamese mobile numbers are a space of well under a billion, so anybody
- * holding an id and this file can enumerate that space offline and recover the
- * number. This derivation keeps the digits out of the database and out of the
- * logs. It is NOT a defence against someone who already has the id. When real
- * sessions arrive, the number moves server-side behind the login and this file
- * goes away with the header auth it was built on top of -- see `api/deps.py`,
- * which says the same thing about `X-Actor-ID`.
+ * ## What is left here, and why it is still worth having
+ *
+ * `chuanHoaSo` still runs on the device, and the server runs the identical
+ * rule. That is not duplication for its own sake: the refusal has to be
+ * explainable while somebody is still typing, and a round trip to be told
+ * "that is a landline" is a round trip. The server's copy is the one that
+ * decides; this one only lets the button stay off.
  *
  * Nothing here logs. `console.log(so)` in this file would put a real phone
- * number in a browser console during a demo, which is exactly the disclosure
- * the derivation exists to avoid.
+ * number in a browser console during a demo.
  */
-
-/** 64-bit mask. The hash below is written in `BigInt` because the arithmetic
- *  is 64-bit and doing it in doubles silently loses the low bits -- which is
- *  the failure that would collide two people onto one account. Hermes has had
- *  `BigInt` since React Native 0.70 and this runs on 0.86; it is called once,
- *  at a button press, so its cost is not worth a hand-rolled 32-bit version. */
-const M64 = (1n << 64n) - 1n;
-
-/** MurmurHash3's 64-bit finaliser.
- *
- * FNV-1a alone is not enough here and the reason is specific to this input.
- * Phone numbers differ from each other in one digit, and FNV-1a's avalanche
- * over near-identical short inputs is poor: neighbouring numbers come out as
- * neighbouring hashes. Feeding the result through `fmix64` is the standard
- * repair -- every input bit reaches every output bit. `tests/danh-tinh.test.mjs`
- * pins this by hashing a large block of consecutive numbers and asserting both
- * that none collide and that adjacent ones differ across roughly half their
- * bits.
- */
-function fmix64(input: bigint): bigint {
-  let z = input & M64;
-  z = (z ^ (z >> 33n)) & M64;
-  z = (z * 0xff51afd7ed558ccdn) & M64;
-  z = (z ^ (z >> 33n)) & M64;
-  z = (z * 0xc4ceb9fe1a85ec53n) & M64;
-  z = (z ^ (z >> 33n)) & M64;
-  return z;
-}
-
-function fnv1a64(bytes: Uint8Array, offset: bigint): bigint {
-  let h = offset & M64;
-  for (const byte of bytes) {
-    h = (h ^ BigInt(byte)) & M64;
-    h = (h * 0x100000001b3n) & M64;
-  }
-  return fmix64(h);
-}
-
-/** Two different starting constants, so the two 64-bit lanes are independent
- *  rather than two names for the same hash. The first is the published FNV-1a
- *  offset basis; the second is this product's own, and it is a salt in the
- *  sense that it separates these ids from any other FNV-1a in the world -- not
- *  in the sense that it is secret. It is in the repository. */
-const LANE_A = 0xcbf29ce484222325n;
-const LANE_B = 0x9ae16a3b2f90404fn;
-
-function utf8(text: string): Uint8Array {
-  return new TextEncoder().encode(text);
-}
 
 /**
  * The canonical spelling of a Vietnamese mobile number, or null.
@@ -131,41 +83,6 @@ export function chuanHoaSo(raw: string): string | null {
 /** True when this reads as a Vietnamese mobile number. */
 export function soHopLe(raw: string): boolean {
   return chuanHoaSo(raw) !== null;
-}
-
-/**
- * The person id for a number. Same number in, same id out, on every device.
- *
- * Version nibble `8` -- RFC 9562's "custom" version, which is what this is.
- * Claiming v4 would be a lie told to anybody reading a row in `people`, and
- * claiming v5 would be a lie about the digest. The variant nibble is forced
- * into `8..b` so the value is a well-formed UUID and Python's `UUID()` accepts
- * it at the route boundary.
- *
- * Throws on an unusable number rather than deriving from the raw text. A
- * fallback here would mint an id from " 0912 " that differs from the one for
- * "0912", which is the collision-by-whitespace this function exists to remove.
- */
-export function idTuSo(raw: string): string {
-  const so = chuanHoaSo(raw);
-  if (so === null) {
-    // The number itself is not in this message on purpose: it is thrown, and
-    // a thrown message ends up in a console or a bug report.
-    throw new Error("Số điện thoại không hợp lệ, không thể tạo danh tính.");
-  }
-  const bytes = utf8("ru-di:nguoi:" + so);
-  const hex =
-    fnv1a64(bytes, LANE_A).toString(16).padStart(16, "0") +
-    fnv1a64(bytes, LANE_B).toString(16).padStart(16, "0");
-
-  const variant = ((parseInt(hex[16] as string, 16) & 0x3) | 0x8).toString(16);
-  return [
-    hex.slice(0, 8),
-    hex.slice(8, 12),
-    "8" + hex.slice(13, 16),
-    variant + hex.slice(17, 20),
-    hex.slice(20, 32),
-  ].join("-");
 }
 
 /**

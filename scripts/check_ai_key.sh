@@ -24,52 +24,15 @@
 
 # Where the key can legitimately live -- both places, in Compose's own order.
 #
-# Compose resolves `${GEMINI_API_KEY:-}` in docker-compose.yml from TWO sources:
-# the shell environment, and `.env` in the project directory. This check used to
-# look only at the first. So the person who did exactly what `.env.example` and
-# the warning below both instruct -- put the key in `.env` -- was told the key
-# was missing while it sat in the container working fine.
-#
-# That is worse than the silence it was written to replace. A gate that fires on
-# correct behaviour gets switched off, and a switched-off gate is not there on
-# the day it would have been right.
-#
-# Precedence below is Compose's, measured against `docker compose config`:
-#   shell variable set, even to empty -> that value wins, `.env` is not consulted
-#   shell variable unset              -> whatever `.env` assigns, if anything
-#
-# `.env` is read relative to this script rather than to the caller's directory,
-# because that is where docker-compose.yml lives and Compose loads `.env` from
-# the compose file's directory. Resolving it any other way lets the two answers
-# drift apart again, which is the whole bug.
+# The resolution itself is `env_value.sh`, shared with check_identity_key.sh.
+# This check used to carry its own copy and look only at the shell, so the
+# person who did exactly what `.env.example` and the warning below both
+# instruct -- put the key in `.env` -- was told the key was missing while it sat
+# in the container working fine. That is worse than the silence it was written
+# to replace: a gate that fires on correct behaviour gets switched off, and a
+# switched-off gate is not there on the day it would have been right.
 
-repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd) || exit 0
-env_file="$repo_root/.env"
-
-if [ "${GEMINI_API_KEY+set}" = set ]; then
-  configured_key=$GEMINI_API_KEY
-elif [ -r "$env_file" ]; then
-  # dotenv semantics, kept narrow on purpose: skip comments, allow an `export`
-  # prefix, drop one layer of matching quotes, last assignment wins. Anything
-  # fancier would be guessing at Compose's parser instead of agreeing with it.
-  configured_key=$(awk -v q="'" '
-    { line = $0; sub(/^[ \t]*/, "", line) }
-    line ~ /^#/ { next }
-    { sub(/^export[ \t]+/, "", line) }
-    line !~ /^GEMINI_API_KEY[ \t]*=/ { next }
-    {
-      sub(/^GEMINI_API_KEY[ \t]*=/, "", line)
-      sub(/[ \t\r]+$/, "", line)
-      first = substr(line, 1, 1); last = substr(line, length(line), 1)
-      if (length(line) > 1 && first == last && (first == "\"" || first == q))
-        line = substr(line, 2, length(line) - 2)
-      value = line
-    }
-    END { printf "%s", value }
-  ' "$env_file")
-else
-  configured_key=
-fi
+configured_key=$(sh "$(dirname -- "$0")/env_value.sh" GEMINI_API_KEY)
 
 if [ -n "$configured_key" ]; then
   # Silence when configured, on purpose. A warning that prints every time is

@@ -53,6 +53,9 @@ DEMO_COMPOSE = $(if $(DC),$(DC),$(COMPOSE))
 # vì recipe không test được nếu không dựng Docker; script thì chạy và kiểm
 # được một mình (tests/test_stack_carries_gemini_key.py).
 KEY_CHECK = sh scripts/check_ai_key.sh
+# Và khoá danh tính. Tách khỏi KEY_CHECK vì hậu quả khác hẳn: thiếu khoá AI
+# thì đọc bill chết, thiếu khoá này thì KHÔNG AI ĐĂNG NHẬP ĐƯỢC.
+IDENTITY_KEY_CHECK = sh scripts/check_identity_key.sh
 
 help: ## In danh sách lệnh
 	@echo "Lệnh có sẵn:"
@@ -75,6 +78,7 @@ up: ## Dựng ảnh, chạy migration, bật API, seed dữ liệu mẫu, rồi 
 	@# báo in ra sau đó thì đã trôi khỏi màn hình. In ở đây thì còn kịp Ctrl-C.
 	@# Cảnh báo, không chặn — xem đầu file scripts/check_ai_key.sh.
 	@$(KEY_CHECK)
+	@$(IDENTITY_KEY_CHECK)
 	@echo "Project compose: $(PROJECT) (dùng chung cho mọi worktree trên máy này)"
 	@$(DC) up -d --build --wait --wait-timeout $(WAIT_TIMEOUT) || { \
 	  echo >&2; \
