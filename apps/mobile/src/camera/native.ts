@@ -111,6 +111,19 @@ export function nativeBackend(camera: { current: CameraView | null }): PhotoBack
   };
 }
 
+/** The same backend, for the paths that only ever pick from the library.
+ *
+ * Choosing a photo for the memory wall or for an avatar never opens a
+ * viewfinder, so those screens have no `CameraView` to hand over. Calling
+ * `nativeBackend({ current: null })` at each of them would work -- `pick`,
+ * `compress` and `discard` never touch the ref -- and it would work by accident,
+ * readable only to somebody who had checked. Naming it says the absence is the
+ * design: there is no camera here, and `capture()` is expected to refuse.
+ */
+export function backendThuVien(): PhotoBackend {
+  return nativeBackend({ current: null });
+}
+
 /** Bytes of the encoded image, or 0 when it cannot be established.
  *
  * 0 is not a silent fallback: `compressForReading` treats a non-positive size

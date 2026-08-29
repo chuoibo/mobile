@@ -1191,6 +1191,253 @@ const SCAN_REFUSALS: Record<string, string> = {
   permission_denied: "Tài khoản này chưa được phép đọc bill trong nhóm.",
 };
 
+/* --------------------------------------------- photographs people keep */
+
+/**
+ * One image on its way back from the server, after it has been sanitised.
+ *
+ * `byteSize`, `width` and `height` describe **the stored image, not the file
+ * that was chosen**. The server decodes every upload, drops the metadata and
+ * re-encodes, so these three routinely disagree with what the picker reported --
+ * measured on the demo stack, an 861-byte primer came back 305 bytes. Comparing
+ * them against a client-side size and complaining about the difference would be
+ * reporting the feature working as a fault.
+ *
+ * `url` is a path on this API, never an absolute address, and that is what makes
+ * it safe to hand to `image_url` on a memory or a message. See `nguon-anh.ts`.
+ */
+export type AnhDaTai = {
+  id: string;
+  url: string;
+  contentType: string;
+  byteSize: number;
+  width: number;
+  height: number;
+};
+
+/**
+ * What a refusal to accept a photograph means to the person who chose it.
+ *
+ * Every sentence names the next move and none of them prints a status code. A
+ * person who reads "413" has learned that something is wrong, which the screen
+ * already told them, and nothing about what to do instead.
+ *
+ * `image_dimensions_too_large` is a separate refusal from `image_too_large` on
+ * the server and gets separate words here, because the two have different
+ * answers: a heavy file can be re-saved smaller, a 20000-px panorama cannot be
+ * fixed by compressing it. Collapsing them into "ảnh quá lớn" would send half
+ * the people who hit it to do something that cannot work.
+ */
+const ANH_REFUSALS: Record<string, string> = {
+  image_too_large:
+    "Tấm ảnh này nặng quá 10 MB nên máy chủ không nhận. Chọn một tấm nhẹ hơn giúp mình.",
+  image_dimensions_too_large:
+    "Tấm ảnh này có kích thước quá lớn nên máy chủ không nhận. Chọn một tấm khác giúp mình.",
+  not_an_image:
+    "File bạn chọn không phải là ảnh nên máy chủ không đọc được. Chọn một tấm ảnh JPG hoặc PNG.",
+  permission_denied:
+    "Bạn cần là thành viên của nhóm này mới đăng ảnh lên tường được. Nhờ người tạo nhóm mời bạn vào rồi thử lại.",
+  photo_not_found: "Không tìm thấy tấm ảnh này trên máy chủ.",
+  avatar_not_found: "Người này chưa có ảnh đại diện nào.",
+};
+
+/**
+ * Send one image, as multipart, and hand back where it now lives.
+ *
+ * Shared by the group wall and the avatar because the two differ only in their
+ * path and in which header the server checks; everything that is easy to get
+ * wrong is identical, and all four of those things have been got wrong here
+ * before:
+ *
+ *  - **No `Content-Type` header.** `actorHeaders` sets `application/json`, and
+ *    a multipart body under that header arrives as an unparseable blob. The
+ *    boundary has to be chosen by whatever assembles the `FormData`, so the
+ *    header must be *absent*, not merely different.
+ *  - **The field is called `file`.** Not `image`, which is what
+ *    `POST /receipts/scan` calls its own. A mismatch is a 422 that says nothing
+ *    about field names.
+ *  - **`X-Actor-Roles` is required.** Without `member` in it the server answers
+ *    403 `role_not_permitted`, which reads exactly like "you are not in this
+ *    group" and sends somebody to fix their membership instead of the header.
+ *  - **Two ways to put a file in a `FormData`.** React Native accepts
+ *    `{uri, name, type}` and streams the file. On the web the manipulator hands
+ *    back a `blob:` url, and that object appends as the literal string
+ *    "[object Object]".
+ *
+ * Deliberately does not go through `call`: that function sets a JSON
+ * `Content-Type` and `JSON.stringify`s its body, both of which are wrong here.
+ * It does not reuse `scanReceipt`'s copy of the same logic either. That one
+ * sits on the bill path, which has been repaired twice in two days, and folding
+ * a second caller into it now would put this feature's bugs and the hero flow's
+ * bugs in one place. The duplication is named rather than hidden, and the day
+ * the bill path is next opened is the day to merge them.
+ *
+ * No `Idempotency-Key`. The middleware fingerprints method + path + body, and a
+ * body here is several megabytes of JPEG; the protection that matters for this
+ * feature is the one on the write that *references* the photo, which is where
+ * the key is sent. Uploading the same picture twice costs a stored blob nobody
+ * points at, not a duplicated row on anybody's wall.
+ */
+async function guiAnhLen(
+  path: string,
+  photo: { uri: string },
+  headers: Record<string, string>,
+): Promise<AnhDaTai> {
+  const form = new FormData();
+  if (photo.uri.startsWith("blob:") || photo.uri.startsWith("data:")) {
+    const blob = await fetch(photo.uri).then((r) => r.blob());
+    form.append("file", blob, "anh.jpg");
+  } else {
+    // React Native's own FormData understands this shape and nothing else.
+    form.append("file", { uri: photo.uri, name: "anh.jpg", type: "image/jpeg" } as never);
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(BASE_URL + path, { method: "POST", headers, body: form });
+  } catch {
+    throw new ApiError(
+      0,
+      "unreachable",
+      `Không nối được ${BASE_URL}. Máy chủ có đang chạy không?`,
+    );
+  }
+
+  if (!response.ok) {
+    let code = `http_${response.status}`;
+    let detail: unknown = null;
+    try {
+      const problem = await response.json();
+      if (problem?.code) code = problem.code;
+      if (problem?.detail) detail = problem.detail;
+    } catch {
+      /* not JSON; there is nothing to read, so the status chooses the words */
+    }
+    throw new ApiError(
+      response.status,
+      code,
+      ANH_REFUSALS[code.toLowerCase()] ?? thongDiepNguoiDoc(response.status, detail),
+    );
+  }
+
+  const wire = (await response.json()) as {
+    id: string;
+    url: string;
+    content_type: string;
+    byte_size: number;
+    width: number;
+    height: number;
+  };
+  return {
+    id: wire.id,
+    url: wire.url,
+    contentType: wire.content_type,
+    byteSize: wire.byte_size,
+    width: wire.width,
+    height: wire.height,
+  };
+}
+
+/** Put a photograph into one group's private storage. Members only, server-side. */
+export async function taiAnhNhom(
+  contextId: string,
+  photo: { uri: string },
+  actorId: string,
+): Promise<AnhDaTai> {
+  const { "Content-Type": _dropped, ...headers } = actorHeaders(actorId, "member", contextId);
+  return guiAnhLen(`/contexts/${contextId}/photos`, photo, headers);
+}
+
+/**
+ * Set this person's avatar. Only ever your own -- the server checks `is_self`.
+ *
+ * The address it answers with is `/people/{id}/avatar`, which is stable: it does
+ * not change when a new picture is uploaded, and it is the same address every
+ * other screen already builds from a person id. So nothing has to be stored,
+ * threaded through a roster, or added to a profile response for a new avatar to
+ * appear -- the frames pointing at it simply start resolving.
+ *
+ * `contexts` is deliberately left at the default. This route is about a person,
+ * not a group, and the server's permission check for it never reads the header.
+ */
+export async function taiAnhDaiDien(
+  personId: string,
+  photo: { uri: string },
+  actorId: string,
+): Promise<AnhDaTai> {
+  const { "Content-Type": _dropped, ...headers } = actorHeaders(actorId, "member");
+  return guiAnhLen(`/people/${personId}/avatar`, photo, headers);
+}
+
+/** Where a person's avatar lives, whether or not one has been uploaded.
+ *
+ * Always the same string for the same person. A 404 is the ordinary answer for
+ * "no picture yet", and `Anh` already draws the caller's stand-in for a frame
+ * whose load failed, so no screen needs to ask first.
+ */
+export function duongDanAnhDaiDien(personId: string): string {
+  return `/people/${personId}/avatar`;
+}
+
+/* --------------------------------------------------- the memory wall (rd-be-07) */
+
+/** One keepsake on the wall, as the server describes it. */
+export type KyNiemWire = {
+  id: string;
+  author_id: string;
+  kind: "photo" | "checkin";
+  image_url: string | null;
+  caption: string | null;
+  place_name: string | null;
+  created_at: string;
+};
+
+/**
+ * Hang a photograph on the group's wall.
+ *
+ * `imageUrl` must be the `url` a previous `taiAnhNhom` handed back, and the
+ * group in it must be the group being written to. The server enforces both --
+ * the schema pins the shape and the service re-parses it rather than trusting
+ * the schema -- so an address pointing anywhere else is a 422 rather than a row.
+ * That is the first of the two layers; `nguonAnhAnToan` in `ui/nguon-anh.ts` is
+ * the second, and it runs on the way back out because a row written before the
+ * server's check existed is still in the database.
+ *
+ * The attempt is keyed on the photo by the caller, so a second press while the
+ * first is still in flight replays the first answer instead of hanging the same
+ * picture on the wall twice.
+ */
+export async function themKyNiemAnh(
+  contextId: string,
+  imageUrl: string,
+  caption: string | null,
+  actorId: string,
+  attempt: Attempt,
+): Promise<KyNiemWire> {
+  return translated<KyNiemWire>(ANH_REFUSALS, `/contexts/${contextId}/memories`, {
+    method: "POST",
+    body: { image_url: imageUrl, caption: caption?.trim() ? caption.trim() : null },
+    actorId,
+    attempt,
+    roles: "member",
+    contexts: contextId,
+  });
+}
+
+/** Read the wall. Group-private: a non-member gets 403 whatever the header says. */
+export async function docKyNiem(
+  contextId: string,
+  actorId: string,
+  limit = 24,
+): Promise<KyNiemWire[]> {
+  const result = await translated<{ memories: KyNiemWire[] }>(
+    ANH_REFUSALS,
+    `/contexts/${contextId}/memories?limit=${limit}&kind=photo`,
+    { method: "GET", actorId, roles: "member", contexts: contextId },
+  );
+  return result.memories ?? [];
+}
+
 /* ------------------------------------------------------- outings (F13/F15) */
 
 export type { BodyTaoBuoiDi, BuoiDi, ChangGui, CheckIn };
