@@ -203,6 +203,36 @@ do_guard-range() {
 }
 
 do_ruff() {
+  # test.yml's lint job does not install whatever ruff it finds: it reads the
+  # `ruff==` pin out of services/api/requirements-dev.txt and fails with
+  # "::error::no ruff== pin" when there is none, so CI always lints with the
+  # version everybody agreed on.
+  #
+  # That assertion ran nowhere else. Measured 2026-08-30: `ruff_changed.sh`
+  # checks that a ruff exists on PATH and never looks at the pin, and no test
+  # under tests/ or services/api/tests greps for `ruff==` at all. Delete the
+  # pin and CI is the only thing that notices -- which, while Actions cannot
+  # start a job, means nothing notices.
+  local pin
+  pin="$(grep -E '^ruff==' services/api/requirements-dev.txt 2>/dev/null || true)"
+  if [ -z "$pin" ]; then
+    echo "không có dòng ruff== trong services/api/requirements-dev.txt" >&2
+    echo "CI cài ruff từ pin đó; mất pin thì mỗi máy lint bằng một bản khác nhau." >&2
+    return 1
+  fi
+
+  # Deliberately NOT a failure when the local version differs. The workflow
+  # step asserts that a pin exists, and mirroring it any harder would make
+  # this stage red on every machine that has a newer ruff than the pin -- the
+  # kind of gate that gets switched off within a day. Said out loud instead,
+  # because it is the reason local ruff and CI ruff can disagree.
+  local have_version
+  have_version="$(ruff --version 2>/dev/null | awk '{print $2}')"
+  echo "pin: $pin   ruff tại máy: ${have_version:-không có}"
+  if [ -n "$have_version" ] && [ "ruff==$have_version" != "$pin" ]; then
+    echo "CHÚ Ý: máy này lint bằng ruff $have_version, CI lint bằng $pin -- kết quả có thể khác."
+  fi
+
   # The one-argument form compares <base> against the WORKING TREE, so this
   # covers changes not yet committed. CI can only ever see pushed commits;
   # locally the useful moment is before the commit exists.
