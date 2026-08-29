@@ -110,6 +110,31 @@ services:
       # `scripts/seed_dev_data.py`. A secret belongs in exactly the processes
       # that use it.
       MOBILE_PERSON_ID_KEY: ${MOBILE_PERSON_ID_KEY:-}
+      # Where uploaded photos land. Unset, `app/media/storage.py` falls back to
+      # `$HOME/.local/share/rudi/media` -- inside the container's writable
+      # layer, which `docker compose up --build` throws away. Measured on the
+      # shared stack after one rebuild: `select count(*) from uploaded_images`
+      # returned 4, `find ~/.local/share/rudi/media -type f` returned 0.
+      #
+      # That is a worse failure than losing both halves. Losing the rows too
+      # would leave an empty memory wall, which reads as "nothing here yet".
+      # Keeping the rows and dropping the files leaves a wall that LISTS
+      # memories whose photos 404 forever.
+      #
+      # Pinned to a literal rather than `${...:-}`: the value must agree with
+      # the mount target below, and a host that overrides one without the other
+      # gets the silent-loss behaviour back. Someone who genuinely wants the
+      # photos elsewhere edits both lines together, which is the point.
+      MOBILE_MEDIA_ROOT: /var/lib/rudi/media
+    volumes:
+      # A named volume, NOT a bind mount into the source tree. Photos of real
+      # bills must never be reachable from a path git can stage: the repo guard
+      # fails closed on binaries, but a guard is a net, not a floor.
+      #
+      # The mount target exists in the image owned by uid 10001 (see the
+      # Dockerfile). Without that, Docker creates this mount point as root and
+      # every upload fails with EACCES.
+      - mobile-media-data:/var/lib/rudi/media
     # Cố ý KHÔNG đặt MOBILE_PUBLIC_BASE_URL ở đây. `.env.example` có khai nó,
     # nhưng `grep -rn MOBILE_PUBLIC_BASE_URL services/` không ra dòng code nào
     # đọc: publish trả về `path` tương đối, người gửi tự ghép host. Đặt một
@@ -172,3 +197,8 @@ services:
 
 volumes:
   mobile-postgres-data:
+  # Photos survive `up --build` because of this line and nothing else. Removing
+  # it does not break a test that reads this file -- it breaks
+  # `scripts/check_media_persists.sh`, which writes a photo in one container and
+  # reads it back in another.
+  mobile-media-data:
