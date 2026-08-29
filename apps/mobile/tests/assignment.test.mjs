@@ -150,10 +150,13 @@ test("blockingProblem: nhóm rỗng, món không ai nhận, món 0đ, hợp lệ
   const ok = everyoneShares(TWO.lines, people);
   assert.equal(blockingProblem(TWO, people, ok), null);
 
-  assert.equal(
-    blockingProblem(TWO, [], ok),
-    "Chưa có ai trong nhóm. Thêm người bằng nút + ở trên.",
-  );
+  // Không ghim nút "+" nữa: màn không vẽ nút đó ở đúng trạng thái câu này hiện
+  // ra. `tests/cau-chan-tro-dung-nut.test.mjs` giữ vế "câu trỏ tới nút có thật"
+  // bằng cách đọc markup, còn ở đây chỉ giữ vế "câu nói ra được vấn đề".
+  const rong = blockingProblem(TWO, [], ok);
+  assert.match(rong, /Chưa có ai trong nhóm/);
+  assert.match(rong, /chọn/i);
+  assert.equal(rong.includes("nút +"), false, `còn trỏ tới nút không tồn tại: ${rong}`);
 
   const orphan = toggle(toggle(ok, "mon-0", HA), "mon-0", NAM);
   const orphaned = blockingProblem(TWO, people, orphan);

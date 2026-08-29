@@ -156,7 +156,13 @@ export function blockingProblem(
   a: Assignment,
 ): string | null {
   if (participantIds.length === 0) {
-    return "Chưa có ai trong nhóm. Thêm người bằng nút + ở trên.";
+    // Names the control that is actually on screen in this state. The "+" this
+    // used to point at is drawn only when somebody is already on the bill
+    // (`GoiYChia` guards it with `people.length > 0`), so it could never be
+    // there at the moment this sentence appears: the two conditions are
+    // mutually exclusive. What IS open, by default and precisely because the
+    // list is empty, is the group picker headed "Ai đã ăn bữa này?".
+    return "Chưa có ai trong nhóm. Chọn người đã ăn bữa này ở danh sách trên.";
   }
   const fromReceipt = receiptBlocking(reading);
   if (fromReceipt !== null) return fromReceipt;

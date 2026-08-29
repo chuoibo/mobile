@@ -25,7 +25,25 @@ const MOBILE_ROOT = path.resolve(HERE, "..");
 /** Same sentinel `build:check` inlines. The fetch stub keys off this prefix. */
 const API_BASE = "http://api.build-check.invalid";
 
-const STEPS = ["chup-bill", "ket-qua", "goi-y", "nhap", "de-xuat", "dot-thu", "chia-se"];
+const STEPS = [
+  "chup-bill", "ket-qua", "goi-y", "nhap", "de-xuat", "dot-thu",
+  "ket-qua-thanh-toan", "chia-se",
+];
+
+/**
+ * Who goes onto the bill, and who is added afterwards to crowd the matrix.
+ *
+ * These are members of the demo group (`navigation/nhom-demo`), not names
+ * invented here. Since #113 a person can only reach the bill by being picked
+ * out of the group, so a name this file made up has nothing to click: the walk
+ * used to add "Nam", "Hà" and "Quyên", and none of the three is anybody.
+ *
+ * Three, then three more: four columns fit beside the dish name on a 390pt
+ * phone, so six is what forces the collapsed "k/N" layout that `goi-y-dong`
+ * exists to scan.
+ */
+const BILL_ROSTER = ["Minh", "Trang", "Hải"];
+const BILL_CROWD = ["Ngọc", "Đức", "Linh"];
 
 /**
  * States of one screen that the linear walk does not reach.
@@ -171,6 +189,53 @@ export function createStaticServer(root) {
 export function installBeforeApp(apiBase, scanBody) {
   const originalFetch = window.fetch.bind(window);
 
+  /* A real EMVCo VietQR string, assembled the way the server assembles it.
+   *
+   * Not decoration, and not a constant either. `MaVietQr` parses the payload
+   * back with `readVietQr` and refuses to draw a code it cannot read, then
+   * cross-checks the dong inside the string against the dong printed beside
+   * it. So a stub that omits this field -- which this one did -- puts the
+   * settlement screen into its refusal state ("Không đọc được mã chuyển tiền
+   * máy chủ gửi về"), and a snapshot of that is a scan of an error panel that
+   * looks, to anyone reading the filename, like a scan of the QR screen.
+   *
+   * The amount is threaded through rather than frozen so the code keeps
+   * agreeing with the split; freezing it would trip the screen's own
+   * amount-mismatch refusal the moment the walk's roster changes.
+   *
+   * Test account, and it must stay one: no real account number belongs in
+   * this repo. CRC-16/CCITT-FALSE, whose standard check value is 0x29B1 --
+   * getting the variant wrong is the classic way to build a code every
+   * banking app silently refuses.
+   */
+  function vietqrPayload(amountVnd) {
+    const tlv = (tag, value) => `${tag}${String(value.length).padStart(2, "0")}${value}`;
+    const crc = (data) => {
+      let acc = 0xffff;
+      for (const byte of new TextEncoder().encode(data)) {
+        acc ^= byte << 8;
+        for (let i = 0; i < 8; i++) {
+          acc = acc & 0x8000 ? ((acc << 1) ^ 0x1021) & 0xffff : (acc << 1) & 0xffff;
+        }
+      }
+      return acc.toString(16).toUpperCase().padStart(4, "0");
+    };
+    // repo-guard: allow=long-number reason=synthetic-test-account-never-real
+    const beneficiary = tlv("00", "970415") + tlv("01", "113366668888");
+    const merchant =
+      tlv("00", "A000000727") + tlv("01", beneficiary) + tlv("02", "QRIBFTTA");
+    const body =
+      tlv("00", "01") +
+      tlv("01", "12") +
+      tlv("38", merchant) +
+      tlv("53", "704") +
+      tlv("54", String(amountVnd)) +
+      tlv("58", "VN") +
+      tlv("62", tlv("08", "Chia tien")) +
+      "6304";
+    return body + crc(body);
+  }
+
   const db = {
     expenseId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
     versionId: "vvvvvvvv-vvvv-4vvv-8vvv-vvvvvvvvvvvv",
@@ -278,7 +343,13 @@ export function installBeforeApp(apiBase, scanBody) {
         guest_links: db.obligations.map((row) => ({
           sender_id: row.sender_id,
           path: `/g/${row.obligation_id}`,
-          obligations: [{ obligation_id: row.obligation_id, amount_vnd: row.amount_vnd }],
+          obligations: [
+            {
+              obligation_id: row.obligation_id,
+              amount_vnd: row.amount_vnd,
+              vietqr_payload: vietqrPayload(row.amount_vnd),
+            },
+          ],
         })),
       });
     }
@@ -427,23 +498,38 @@ async function typePlaceholder(page, placeholder, value) {
 }
 
 /**
- * Add one person on the matrix screen.
+ * Put one person of the group onto the bill, from the matrix screen.
  *
- * Not `addPerson`: there the name field is always mounted, here it appears
- * only after the "+" avatar is pressed and unmounts again on submit, so
- * waiting for an empty input would wait for a node that has gone. The "+"
- * carries `aria-label="Thêm"` while the confirm button's text is exactly
- * "Thêm" and it has no aria-label, which is what keeps the two apart.
+ * There is no text box here and there must not be one: bug-125301 (#113)
+ * replaced it, because typing "Hải" minted a fresh UUID instead of finding
+ * Hải, and the split was then recorded against a stranger who shared his name.
+ * People are picked from the group, so each chip carries the person's own
+ * label rather than a generic "Thêm".
+ *
+ * This walked into that change and stayed broken for a while, which is worth
+ * naming: it clicked `aria-label="Thêm"` and typed into `input[placeholder="Hà"]`,
+ * and neither node has existed since #113. The failure surfaced only as a
+ * timeout deep in the walk, `npm test` stayed green throughout -- nothing in
+ * the suite runs this file -- and so every bill-flow screen quietly stopped
+ * being scannable by the detector. A dev tool that cannot reach the screen
+ * reports nothing, which reads exactly like a screen with nothing wrong.
  */
 export async function addPersonOnMatrix(page, name) {
-  await clickAria(page, "Thêm");
-  const sel = 'input[placeholder="Hà"]';
-  await page.waitForSelector(sel, { visible: true, timeout: 15000 });
-  await page.click(sel);
-  await page.type(sel, name, { delay: 15 });
-  await clickButton(page, "Thêm");
+  const label = `Thêm ${name} vào nhóm`;
+  // The picker is already open when nobody is on the bill; once somebody is,
+  // it hides behind the "+" avatar. Open it only when the chip is not showing,
+  // so this works at both points of the walk.
+  const visible = await page.$(`[aria-label="${label}"]`);
+  if (visible === null) await clickAria(page, "Thêm người từ nhóm");
+  await clickAria(page, label);
+  // The roster avatar strip is what proves the person landed on the bill. The
+  // chip's own name is already on screen from the picker, so waiting for the
+  // name alone would pass without anything having been added.
   await page.waitForFunction(
-    (n) => (document.body?.innerText ?? "").includes(n),
+    (n) =>
+      [...document.querySelectorAll('[aria-label]')].some(
+        (el) => el.getAttribute("aria-label") === n,
+      ),
     { timeout: 10000 },
     name,
   );
@@ -584,16 +670,14 @@ async function drive(page, outDir, jpegPath) {
   // one box off before the snapshot is deliberate: a grid where every cell is
   // on cannot show that an off cell is legible, and the off state is the one
   // carrying a 3:1 border instead of a fill.
-  await addPersonOnMatrix(page, "Nam");
-  await addPersonOnMatrix(page, "Hà");
-  await addPersonOnMatrix(page, "Quyên");
-  await clickAria(page, "Nam, Lẩu thái");
+  for (const name of BILL_ROSTER) await addPersonOnMatrix(page, name);
+  await clickAria(page, `${BILL_ROSTER[0]}, Lẩu thái`);
   await waitForPreview(page);
   await snapshot(page, outDir, step);
 
   // The crowded layout, and then the picker it opens. Three more names take
   // the group past what the inline columns can hold.
-  for (const name of ["Bình", "Chi", "Dũng"]) await addPersonOnMatrix(page, name);
+  for (const name of BILL_CROWD) await addPersonOnMatrix(page, name);
   await page.waitForFunction(() => (document.body?.innerText ?? "").includes("/6"));
   await waitForPreview(page);
   await snapshot(page, outDir, "goi-y-dong");
@@ -621,12 +705,20 @@ async function drive(page, outDir, jpegPath) {
   console.log(`goi-y-chon (live png)  ${pickerShot}`);
   await clickButton(page, "Xong");
 
-  // Back to four, so the rest of the walk sees the roster it expects.
-  for (const name of ["Bình", "Chi", "Dũng"]) {
+  // Back to three, so the rest of the walk sees the roster it expects.
+  for (const name of BILL_CROWD) {
     await clickAria(page, name);
     await clickButton(page, `Xoá ${name} khỏi nhóm`);
+    // Gone from the BILL, not gone from the page. Taking somebody off the bill
+    // hands them straight back to the group picker, where their name is on
+    // screen again as a "Thêm ... vào nhóm" chip -- so waiting for the text to
+    // disappear waits forever. The roster avatar is the thing that goes, and
+    // it is the only node whose aria-label is the bare name.
     await page.waitForFunction(
-      (n) => !(document.body?.innerText ?? "").includes(n),
+      (n) =>
+        ![...document.querySelectorAll("[aria-label]")].some(
+          (el) => el.getAttribute("aria-label") === n,
+        ),
       { timeout: 10000 },
       name,
     );
@@ -638,16 +730,23 @@ async function drive(page, outDir, jpegPath) {
   await snapshot(page, outDir, step);
 
   await typePlaceholder(page, "bữa lẩu tối thứ bảy", "bữa lẩu tối thứ bảy");
-  await page.waitForFunction(() => {
+  // Who paid up front. The radio carries the person's display name, so it has
+  // to be one of the people actually put on the bill above.
+  const payer = BILL_ROSTER[0];
+  await page.waitForFunction(
+    (who) =>
+      [...document.querySelectorAll('[role="radio"]')].some(
+        (r) => r.textContent.trim() === who,
+      ),
+    {},
+    payer,
+  );
+  await page.evaluate((who) => {
     const radios = [...document.querySelectorAll('[role="radio"]')];
-    return radios.some((r) => r.textContent.trim() === "Nam");
-  });
-  await page.evaluate(() => {
-    const radios = [...document.querySelectorAll('[role="radio"]')];
-    const nam = radios.find((r) => r.textContent.trim() === "Nam");
-    if (!nam) throw new Error('no radio for "Nam"');
-    nam.click();
-  });
+    const chosen = radios.find((r) => r.textContent.trim() === who);
+    if (!chosen) throw new Error(`no radio for "${who}"`);
+    chosen.click();
+  }, payer);
   await page.waitForFunction(() => {
     const btn = [...document.querySelectorAll("button")].find(
       (b) => b.textContent.trim() === "Chia tiền",
@@ -665,11 +764,23 @@ async function drive(page, outDir, jpegPath) {
   await waitForScreen(page, step, "Đợt thu");
   await snapshot(page, outDir, step);
 
+  // The settlement screen, carrying the VietQR. It was never in this walk:
+  // publishing used to land back on the batch screen, and when it stopped
+  // doing that the step after it was the only thing that noticed.
+  step = "ket-qua-thanh-toan";
   await clickButton(page, "Phát đợt thu");
-  await waitForScreen(page, step, "Chia sẻ cho từng người");
+  await waitForScreen(page, step, "Quét để thanh toán");
+  // The code is drawn from the server's bytes, so wait for it to survive the
+  // screen's own parse and amount cross-check rather than for the panel that
+  // says it could not.
+  await page.waitForFunction(
+    () => !(document.body?.innerText ?? "").includes("Chưa hiện được mã"),
+    { timeout: 15000 },
+  );
+  await snapshot(page, outDir, step);
 
   step = "chia-se";
-  await clickButton(page, "Chia sẻ cho từng người");
+  await clickButton(page, "Chia sẻ kết quả");
   await waitForScreen(page, step, "Mỗi người một link riêng");
   await snapshot(page, outDir, step);
 }
