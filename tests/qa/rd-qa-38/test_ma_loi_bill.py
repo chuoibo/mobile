@@ -32,6 +32,7 @@ The observed shapes are in `docs/claude/2026-08-30/rd-qa-38-do-lai-do-tin-cay.md
 
 from __future__ import annotations
 
+import base64
 import logging
 
 import pytest
@@ -236,16 +237,48 @@ class TestKhongAiChanDoanDuoc:
         assert response.status_code == 422
         assert "INVALID_QUANTITY" in caplog.text
 
-    def test_log_khong_bao_gio_chua_noi_dung_bill(self, caplog):
-        """The guard that has to hold once the code above is fixed.
+    @pytest.mark.parametrize("duong_di", ["doc duoc", "bi tu choi"])
+    def test_log_khong_bao_gio_chua_anh_hay_noi_dung_bill(self, caplog, duong_di):
+        """The guard that has to hold now that the code above logs something.
 
-        Vacuously true today, because nothing is logged at all. It is here so
-        that the fix for the case above cannot be "log the reading" -- an image
-        of a bill is private data, and so is its transcription. Only the code
-        may be written down.
+        Written while nothing was logged at all, and measured blind after #220
+        landed the log line. It was blind for two independent reasons, and one
+        of them would have survived fixing the other:
+
+        1. Wrong path. It exercised a reading that SUCCEEDS, while the log line
+           #220 added sits in the `except ReceiptError` branch. The assertion
+           never reached the code it was written to watch, so it stayed
+           vacuously true after the very change that was supposed to arm it.
+        2. Wrong payload. It looked only for the transcription. Logging the
+           uploaded photograph itself is the bigger leak and matched nothing.
+
+        Both paths are walked here, and the picture is looked for in every
+        shape a log line can carry it -- `%r` of the bytes, hex, base64, and a
+        leading slice of each, because a guard that only catches one spelling
+        of the leak is decoration. Measured: logging `content` at this seam is
+        invisible to the whole suite (1452 passed) without these assertions.
         """
 
+        reader = (
+            _Reader(reading=_bill(""))
+            if duong_di == "doc duoc"
+            else _Reader(error=ReceiptError("INVALID_QUANTITY"))
+        )
         with caplog.at_level(logging.DEBUG):
-            _scan(_Reader(reading=_bill("")))
+            _scan(reader)
+        text = caplog.text
+
         for bi_mat in ("Cơm tấm sườn bì chả", "Trà đá", "235.000", "65.000"):
-            assert bi_mat not in caplog.text
+            assert bi_mat not in text, f"log lộ nội dung bill ({duong_di})"
+
+        for hinh_dang in (
+            repr(PNG_1x1),
+            repr(PNG_1x1)[2:20],
+            PNG_1x1.hex(),
+            PNG_1x1.hex()[:24],
+            base64.b64encode(PNG_1x1).decode(),
+            base64.b64encode(PNG_1x1).decode()[:20],
+        ):
+            assert hinh_dang not in text, f"log lộ chính tấm ảnh ({duong_di})"
+
+        assert "bill.png" not in text, f"log lộ tên file người dùng ({duong_di})"
