@@ -27,7 +27,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { radius, space, type, usePalette } from "../../theme";
 import { Card, Choice, Field, Screen } from "../../ui/Kit";
-import { AnhDiaDiem, Ruy } from "./AnhDiaDiem";
+import { AnhDiaDiem, Ruy, RuyDongCua } from "./AnhDiaDiem";
 import { HuyHieuMatch } from "./NhanAi";
 import { ChiTietDiaDiem } from "./ChiTietDiaDiem";
 import { DaiBanDo } from "./DaiBanDo";
@@ -237,7 +237,13 @@ function TheDiaDiem({ place, onChon }: { place: Place; onChon: (p: Place) => voi
     <Pressable
       onPress={() => onChon(place)}
       accessibilityRole="button"
-      accessibilityLabel={`${place.name}, ${formatKinds(place.kinds)}, ${formatDistance(place.distanceKm)}`}
+      accessibilityLabel={
+        `${place.name}, ${formatKinds(place.kinds)}, ${formatDistance(place.distanceKm)}` +
+        // Said aloud, not just coloured. The ribbon is the sighted half of this
+        // signal; without it here a screen reader user gets a card that reads
+        // like every other card and only finds the shut door on the detail page.
+        (place.openNow ? "" : ", đang đóng cửa")
+      }
       style={({ pressed }) => ({
         backgroundColor: c.card,
         borderColor: c.line,
@@ -251,7 +257,13 @@ function TheDiaDiem({ place, onChon }: { place: Place; onChon: (p: Place) => voi
         <View style={{ flex: 1, padding: space.xs, justifyContent: "space-between" }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
             <HuyHieuMatch match={place.match} />
-            {place.flag ? <Ruy flag={place.flag} /> : null}
+            {/* A shut door outranks "HOT" as news. One ribbon slot, and when
+                the two compete the closed state wins it. */}
+            {place.openNow ? (
+              place.flag ? <Ruy flag={place.flag} /> : null
+            ) : (
+              <RuyDongCua />
+            )}
           </View>
         </View>
       </AnhDiaDiem>

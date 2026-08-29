@@ -237,4 +237,34 @@ export function Ruy({ flag }: { flag: "new" | "hot" }) {
   );
 }
 
+/** "ĐANG ĐÓNG", the same ribbon slot as NEW/HOT.
+ *
+ *  A closed place still appears in the list -- it is a real answer to "where
+ *  could we go", just not tonight -- so it sorts to the bottom rather than
+ *  disappearing. Sorting alone is invisible though: a card at the bottom looks
+ *  identical to a card that merely scored badly. This is the part a reader can
+ *  see.
+ *
+ *  Foreground is `splitInk`, not a literal white. White on `warn` measures
+ *  5.18:1 in light but 3.68:1 in dark, which fails AA at this size. `splitInk`
+ *  is the palette's mode-aware ink for a saturated fill (#ffffff light,
+ *  #04201d dark) and lands at 5.18:1 and 4.64:1 -- both legal, and it stays
+ *  legal if the brand ramp moves, which a hardcoded white would not. */
+export function RuyDongCua() {
+  const c = usePalette();
+  return (
+    <View
+      style={{
+        alignSelf: "flex-start",
+        backgroundColor: c.warn,
+        paddingHorizontal: space.xs,
+        paddingVertical: 3,
+        borderRadius: radius.small,
+      }}
+    >
+      <Text style={{ ...type.micro, color: c.splitInk }}>ĐANG ĐÓNG</Text>
+    </View>
+  );
+}
+
 export { ON_RAMP };

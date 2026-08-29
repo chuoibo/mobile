@@ -257,14 +257,39 @@ test("URL mang theo nhóm đang xem và danh mục đang chọn", () => {
   assert.match(url, /q=view/);
 });
 
+const mkSort = (id, score, rating, openNow = true) => ({
+  id,
+  rating,
+  openNow,
+  match: score === null ? null : { score, source: "ai", reason: "r", factors: [] },
+});
+
 test("chỗ điểm cao lên trước, chỗ chưa chấm xuống cuối", () => {
-  const mk = (id, score, rating) => ({
-    id,
-    rating,
-    match: score === null ? null : { score, source: "ai", reason: "r", factors: [] },
-  });
-  const sorted = [mk("a", 60, 4.0), mk("b", null, 4.9), mk("c", 95, 4.1)].sort(byMatchThenRating);
+  const sorted = [mkSort("a", 60, 4.0), mkSort("b", null, 4.9), mkSort("c", 95, 4.1)].sort(
+    byMatchThenRating,
+  );
   assert.deepEqual(sorted.map((p) => p.id), ["c", "a", "b"]);
+});
+
+test("quán đóng cửa không bao giờ xếp trên quán đang mở, dù điểm cao hơn", () => {
+  /* A shut door is not a matter of degree. The server sorts this way too; the
+   * client re-sorts after a local search, so the rule has to exist in both
+   * places or filtering silently restores the order the server just rejected. */
+  const sorted = [
+    mkSort("dong-diem-cao", 96, 4.9, false),
+    mkSort("mo-diem-thap", 40, 4.0, true),
+  ].sort(byMatchThenRating);
+  assert.deepEqual(sorted.map((p) => p.id), ["mo-diem-thap", "dong-diem-cao"]);
+});
+
+test("trong cùng một tầng, điểm vẫn quyết định thứ tự", () => {
+  const sorted = [
+    mkSort("dong-thap", 10, 4.0, false),
+    mkSort("dong-cao", 90, 4.0, false),
+    mkSort("mo-thap", 20, 4.0, true),
+    mkSort("mo-cao", 80, 4.0, true),
+  ].sort(byMatchThenRating);
+  assert.deepEqual(sorted.map((p) => p.id), ["mo-cao", "mo-thap", "dong-cao", "dong-thap"]);
 });
 
 test("tìm tại chỗ nhìn cả tên, loại, đặc điểm và địa chỉ", () => {

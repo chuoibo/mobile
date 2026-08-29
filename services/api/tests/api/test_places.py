@@ -21,6 +21,7 @@ import pytest
 from app.api.routes.places import get_reason_writer
 from app.places.catalog import CATEGORIES, GROUP, PLACES
 from app.places.reasons import PlaceReason
+from app.places.scoring import score_place
 
 
 def fixed_reasons(rows):
@@ -168,9 +169,19 @@ def test_score_is_between_0_and_100_and_the_factors_explain_it(client):
             assert factor["detail"].strip()
 
 
-def test_places_are_ordered_best_first(client):
-    scores = [place["match"]["score"] for place in get_places(client).json()["places"]]
-    assert scores == sorted(scores, reverse=True)
+def test_places_are_ordered_best_first_within_each_open_tier(client):
+    """Best first -- but inside a tier, since `open_now` now sorts above score.
+
+    This used to assert one globally descending list. That assertion is false
+    by design now: a closed place sorts below every open place regardless of
+    score. Narrowed rather than deleted, because "the score orders the list" is
+    still the rule everywhere it is allowed to apply.
+    """
+
+    places = get_places(client).json()["places"]
+    for is_open in (True, False):
+        tier = [p["match"]["score"] for p in places if p["open_now"] is is_open]
+        assert tier == sorted(tier, reverse=True), f"open_now={is_open} tier unsorted"
 
 
 def test_category_filter_narrows_the_list(client):
@@ -212,3 +223,57 @@ def test_catalogue_ids_are_unique(client):
     ids = [place["id"] for place in get_places(client).json()["places"]]
     assert len(ids) == len(set(ids))
     assert len(ids) == len(PLACES)
+
+
+# ---------------------------------------------------------------------------
+# open_now: a tier above the score, never a term inside it
+# ---------------------------------------------------------------------------
+
+
+def test_a_closed_place_never_outranks_an_open_one(client):
+    """The ordering rule, stated as the only thing that matters to a reader.
+
+    A shut door is not a matter of degree. Folding `open_now` into the score
+    would make it one -- a closed place would merely lose some points and could
+    still out-argue an open place on budget and distance, which is how a screen
+    ends up recommending somewhere nobody can go tonight. It would also mean
+    re-deriving every hand-checked score in this suite to buy that.
+
+    So it sorts as a tier: open before closed, and the score decides only
+    within a tier. The score itself is untouched.
+    """
+
+    places = get_places(client).json()["places"]
+    open_ids = [place["id"] for place in places if place["open_now"]]
+    closed_ids = [place["id"] for place in places if not place["open_now"]]
+    assert open_ids and closed_ids, "seed needs both states or this proves nothing"
+
+    last_open = max(places.index(p) for p in places if p["open_now"])
+    first_closed = min(places.index(p) for p in places if not p["open_now"])
+    assert first_closed > last_open, (
+        "a closed place ranked above an open one: "
+        f"closed at {first_closed}, open still at {last_open}"
+    )
+
+
+def test_open_now_does_not_move_the_score(client):
+    """The companion half: the tier must not have leaked into the arithmetic.
+
+    Without this, someone could satisfy the test above by adding an `open_now`
+    penalty to `score_place`, which is exactly what was ruled out.
+    """
+
+    places = {place["id"]: place for place in get_places(client).json()["places"]}
+    for place in PLACES:
+        expected, _ = score_place(place, GROUP)
+        assert places[place["id"]]["match"]["score"] == expected, (
+            f"{place['id']}: score no longer matches score_place() alone"
+        )
+
+
+def test_ties_inside_a_tier_still_break_on_rating(client):
+    """Two renders of the same data must not shuffle under a thumb."""
+
+    first = [p["id"] for p in get_places(client).json()["places"]]
+    second = [p["id"] for p in get_places(client).json()["places"]]
+    assert first == second

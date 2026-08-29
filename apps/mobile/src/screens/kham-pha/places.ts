@@ -417,9 +417,19 @@ export function locNoiBo(places: Place[], q: string): Place[] {
   );
 }
 
-/** Places the best-scoring first, unscored last, ties broken by rating so the
- *  order does not shuffle between two identical renders. */
+/** Open before closed, then best-scoring first, unscored last, ties broken by
+ *  rating so the order does not shuffle between two identical renders.
+ *
+ *  `openNow` is a TIER, not a term in the score. A closed place does not merely
+ *  lose points -- it sorts below every open place, however well it scores.
+ *  Weighting it instead would let a closed place out-argue an open one on
+ *  budget and distance and be recommended for tonight.
+ *
+ *  This mirrors the server's ordering on purpose. The server sorts, but the
+ *  screen re-sorts after a local search; without the same rule here, filtering
+ *  would quietly restore the order the server had just rejected. */
 export function byMatchThenRating(a: Place, b: Place): number {
+  if (a.openNow !== b.openNow) return a.openNow ? -1 : 1;
   const sa = a.match?.score ?? -1;
   const sb = b.match?.score ?? -1;
   if (sa !== sb) return sb - sa;

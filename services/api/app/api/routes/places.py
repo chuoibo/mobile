@@ -223,9 +223,24 @@ def list_places(
             )
         )
 
-    # Best first, ties broken by rating so two renders of the same data do not
-    # shuffle under someone's thumb.
-    out.sort(key=lambda place: (-place.match.score, -place.rating, place.id))
+    # Two tiers, not one weighted number. `open_now` decides the tier; the
+    # score only decides the order inside a tier; rating breaks the remaining
+    # ties so two renders of the same data do not shuffle under someone's thumb.
+    #
+    # `open_now` deliberately never reaches `score_place`. A shut door is not a
+    # matter of degree: as a scoring term it would merely cost a place some
+    # points, so a closed place could still out-argue an open one on budget and
+    # distance and be recommended for tonight. As a tier it cannot. Keeping it
+    # out of the arithmetic also leaves every hand-checked score in the suite
+    # exactly where it was -- the ordering changed, no number did.
+    out.sort(
+        key=lambda place: (
+            not place.open_now,
+            -place.match.score,
+            -place.rating,
+            place.id,
+        )
+    )
 
     return PlacesResponse(
         places=out,
