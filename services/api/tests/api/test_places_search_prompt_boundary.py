@@ -35,6 +35,8 @@ from app.places.catalog import GROUP, PLACES
 from app.places.reasons import ReasonRow, build_prompt
 from app.places.search import SEARCH_RULES, build_search_prompt
 
+from .helpers import actor_headers
+
 #: An instruction, phrased the way one is actually phrased, and carrying no
 #: digit -- so that anything it survives, it survives for being contained rather
 #: than for tripping the unrelated `ungrounded_numbers` figure gate.
@@ -157,7 +159,9 @@ def test_an_obeyed_instruction_still_cannot_put_a_place_on_the_screen(client):
         }
     )
 
-    response = client.post("/places/search", json={"query": MARKER})
+    response = client.post(
+        "/places/search", json={"query": MARKER}, headers=actor_headers()
+    )
     assert response.status_code == 200, response.text
     body = json.dumps(response.json(), ensure_ascii=False)
 
@@ -182,7 +186,9 @@ def test_an_instruction_in_the_query_is_never_echoed_back_as_a_reason(client):
         }
     )
 
-    body = client.post("/places/search", json={"query": MARKER}).json()
+    body = client.post(
+        "/places/search", json={"query": MARKER}, headers=actor_headers()
+    ).json()
     served = body["places"][0]["match"]["reason"]
     # Echoing the marker back is not a security hole by itself, but a reason
     # that is really the caller's own sentence must not wear an `ai` label.
@@ -214,7 +220,12 @@ def test_a_search_never_leaks_into_the_browse_prompt(client):
     """
 
     client.app.dependency_overrides[get_place_searcher] = lambda: searcher(None)
-    assert client.post("/places/search", json={"query": MARKER}).status_code == 200
+    assert (
+        client.post(
+            "/places/search", json={"query": MARKER}, headers=actor_headers()
+        ).status_code
+        == 200
+    )
 
     recorder = Recorder()
     client.app.dependency_overrides[get_reason_writer] = lambda: recorder

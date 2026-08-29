@@ -22,6 +22,8 @@ from app.api.routes.places import get_place_searcher
 from app.places.catalog import CATEGORIES, GROUP, PLACES
 from app.places.scoring import score_place
 
+from .helpers import actor_headers
+
 BY_ID = {place["id"]: place for place in PLACES}
 REAL_IDS = [place["id"] for place in PLACES]
 REAL_CATEGORY_IDS = [category["id"] for category in CATEGORIES]
@@ -54,7 +56,7 @@ def understood(**overrides):
 
 
 def post(client, query="quán nướng ngoài trời cho 6 người dưới 300k"):
-    return client.post("/places/search", json={"query": query})
+    return client.post("/places/search", json={"query": query}, headers=actor_headers())
 
 
 # ---------------------------------------------------------------------------
@@ -449,7 +451,9 @@ def test_an_empty_query_is_refused_before_any_model_is_asked(client, query):
 
     client.app.dependency_overrides[get_place_searcher] = lambda: record
 
-    response = client.post("/places/search", json={"query": query})
+    response = client.post(
+        "/places/search", json={"query": query}, headers=actor_headers()
+    )
     assert response.status_code == 422, response.text
     assert asked == []
 
@@ -463,7 +467,9 @@ def test_an_oversized_query_is_refused_rather_than_pasted_into_a_prompt(client):
 
     client.app.dependency_overrides[get_place_searcher] = lambda: record
 
-    response = client.post("/places/search", json={"query": "a" * 5000})
+    response = client.post(
+        "/places/search", json={"query": "a" * 5000}, headers=actor_headers()
+    )
     assert response.status_code == 422, response.text
     assert asked == [], "a 5000-character payload reached the prompt builder"
 
