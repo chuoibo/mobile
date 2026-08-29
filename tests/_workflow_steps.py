@@ -74,17 +74,26 @@ class Step:
         """Does this step contain a deliberate failure?
 
         `::error::` is GitHub's way of failing a step with a message, and a
-        bare `exit 1` is the other. Either one means the step is asserting
+        non-zero `exit` is the other. Either one means the step is asserting
         something -- which makes it a gate, whatever it is labelled.
 
         Deliberately not a judgement about whether the step *can* fail: `pip
         install` fails when the network is down, and `docker build` fails on a
         bad Dockerfile. Those are errors, not assertions. What separates a gate
         is that it was written to be able to say no.
+
+        The pattern is not anchored to the start of a line, and that is the
+        whole of it. It was, until a canary on 2026-08-30 wrote the same
+        violation a second way: a step filed SETUP grew
+        `test -f services/api/pyproject.toml || exit 1`, and the anchored
+        version read it as harmless because the `exit` sat after a `||` --
+        blind to the shape a shell script most often uses to say no. `exit 0`
+        stays excluded on purpose: that is a step declining to do work, not
+        refusing to pass.
         """
         return (
             "::error::" in self.body
-            or re.search(r"^\s*exit 1\b", self.body, re.M) is not None
+            or re.search(r"\bexit\s+[1-9][0-9]*\b", self.body) is not None
         )
 
 
