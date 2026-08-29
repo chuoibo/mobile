@@ -1181,6 +1181,70 @@ class OutingStop(Base):
     place_name: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class OutingStopCheckin(Base):
+    """One person saying they reached one stop, and the moment they said it.
+
+    ## This table holds no location
+
+    F46 in this product is a button, not a sensor. The row says *who* pressed
+    *which stop* and *when* -- and a stop is a plan the group typed, not a
+    place the phone observed. Reading the phone's GPS is F47 and is not built.
+
+    There is deliberately no `lat`/`lng` here even though `memories` has them.
+    A check-in on the memory wall stores the *catalogue's* coordinates for a
+    public venue, which is a fact about a restaurant. A coordinate recorded
+    against a person and a timestamp is a fact about a person's movements, and
+    that is a different class of data with no way to un-share it once it is in
+    a group's permanent history. The column does not exist so that no later
+    change can quietly start filling it.
+
+    ## Why the row dies with its stop
+
+    `stop_id` cascades because `replace_outing_stops` deletes and re-inserts
+    every stop on each timeline save. A check-in therefore does not survive an
+    edit of the plan it refers to. That is the honest behaviour for a deleted
+    stop and the WRONG behaviour for a renamed one, and the difference is not
+    visible from here -- the repository cannot tell a rewrite from a removal.
+    Fixing it means making the timeline save preserve unchanged stops, which
+    is a change to code this file does not own. Recorded rather than hidden.
+    """
+
+    __tablename__ = "outing_stop_checkins"
+    __table_args__ = (
+        # The one-per-person-per-stop rule, held by the database rather than by
+        # a read-then-write in Python. Two phones pressing the button in the
+        # same instant both pass an `if not exists` check; only one of them
+        # gets past this index.
+        UniqueConstraint(
+            "stop_id", "person_id", name="uq_outing_stop_checkins_person"
+        ),
+        # "Who has arrived at this stop" is the read the timeline screen makes,
+        # once per stop it draws.
+        Index("ix_outing_stop_checkins_stop", "stop_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    stop_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "outing_stops.id",
+            name="fk_outing_stop_checkins_stop",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    person_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_outing_stop_checkins_person"),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class OutingInvite(Base):
     """An outing invitation that never persists a bearer secret.
 

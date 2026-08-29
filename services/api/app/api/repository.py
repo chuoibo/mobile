@@ -58,6 +58,7 @@ from app.db.models import (
     OutingInvite,
     OutingInviteSource,
     OutingStop,
+    OutingStopCheckin,
     PayerAcknowledgement,
     PaymentReport,
     Person,
@@ -152,10 +153,21 @@ class MemoryPage:
 
 @dataclass(frozen=True, slots=True)
 class OutingStopRecord:
+    id: uuid.UUID
     position: int
     minute_of_day: int
     label: str
     place_name: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class StopCheckinRecord:
+    """One arrival. Carries no coordinates -- see `OutingStopCheckin`."""
+
+    id: uuid.UUID
+    stop_id: uuid.UUID
+    person_id: uuid.UUID
+    created_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -602,6 +614,22 @@ class ApiRepository(Protocol):
         stops: list[dict],
     ) -> OutingRecord: ...
 
+    def get_outing_stop(
+        self, stop_id: uuid.UUID
+    ) -> tuple[OutingStopRecord, OutingRecord] | None: ...
+
+    def create_stop_checkin(
+        self,
+        *,
+        stop_id: uuid.UUID,
+        person_id: uuid.UUID,
+        now: datetime,
+    ) -> StopCheckinRecord: ...
+
+    def list_outing_checkins(
+        self, outing_id: uuid.UUID
+    ) -> tuple[StopCheckinRecord, ...]: ...
+
     def create_outing_invite(
         self,
         *,
@@ -910,6 +938,7 @@ class SqlAlchemyApiRepository:
     @staticmethod
     def _outing_stop_record(stop: OutingStop) -> OutingStopRecord:
         return OutingStopRecord(
+            id=stop.id,
             position=stop.position,
             minute_of_day=stop.minute_of_day,
             label=stop.label,
@@ -1452,6 +1481,63 @@ class SqlAlchemyApiRepository:
         )
         self.session.flush()
         return self._outing_record(outing)
+
+    def get_outing_stop(
+        self, stop_id: uuid.UUID
+    ) -> tuple[OutingStopRecord, OutingRecord] | None:
+        stop = self.session.get(OutingStop, stop_id)
+        if stop is None:
+            return None
+        outing = self.session.get(Outing, stop.outing_id)
+        if outing is None:
+            return None
+        return self._outing_stop_record(stop), self._outing_record(outing)
+
+    def create_stop_checkin(
+        self,
+        *,
+        stop_id: uuid.UUID,
+        person_id: uuid.UUID,
+        now: datetime,
+    ) -> StopCheckinRecord:
+        checkin = OutingStopCheckin(
+            stop_id=stop_id, person_id=person_id, created_at=now
+        )
+        # The unique index is the rule, so the write is attempted and the
+        # database answers. Asking "has this person checked in?" first and
+        # branching on the answer is the same code with a race in it.
+        try:
+            with self.session.begin_nested():
+                self.session.add(checkin)
+                self.session.flush()
+        except IntegrityError as exc:
+            constraint = getattr(
+                getattr(exc.orig, "diag", None), "constraint_name", None
+            )
+            if constraint == "uq_outing_stop_checkins_person":
+                raise RepositoryConflict("ALREADY_CHECKED_IN") from exc
+            raise
+        return self._stop_checkin_record(checkin)
+
+    def list_outing_checkins(
+        self, outing_id: uuid.UUID
+    ) -> tuple[StopCheckinRecord, ...]:
+        rows = self.session.scalars(
+            select(OutingStopCheckin)
+            .join(OutingStop, OutingStop.id == OutingStopCheckin.stop_id)
+            .where(OutingStop.outing_id == outing_id)
+            .order_by(OutingStopCheckin.created_at, OutingStopCheckin.id)
+        )
+        return tuple(self._stop_checkin_record(row) for row in rows)
+
+    @staticmethod
+    def _stop_checkin_record(row: OutingStopCheckin) -> StopCheckinRecord:
+        return StopCheckinRecord(
+            id=row.id,
+            stop_id=row.stop_id,
+            person_id=row.person_id,
+            created_at=row.created_at,
+        )
 
     def create_outing_invite(
         self,

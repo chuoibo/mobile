@@ -352,10 +352,33 @@ class OutingTimelineRequest(ApiModel):
 
 
 class OutingStopResponse(ApiModel):
+    id: UUID
     position: int
     at: str
     label: str
     place_name: str | None
+
+
+class StopCheckinResponse(ApiModel):
+    """One arrival, named by person and moment.
+
+    There is no latitude, longitude or accuracy on this model on purpose, and
+    no request body to match it: F46 is somebody pressing "đã tới", not the
+    phone reporting where it is. A coordinate attached to a person and a time
+    is a movement record, and the group timeline is read by everyone in the
+    group -- see `OutingStopCheckin` for why the column does not exist at all.
+    """
+
+    id: UUID
+    stop_id: UUID
+    person_id: UUID
+    display_name: str | None
+    created_at: datetime
+
+
+class OutingCheckinListResponse(ApiModel):
+    outing_id: UUID
+    checkins: list[StopCheckinResponse]
 
 
 class OutingResponse(ApiModel):

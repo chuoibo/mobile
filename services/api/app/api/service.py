@@ -28,6 +28,7 @@ from app.api.repository import (
     OutingRecord,
     PersonFinanceSummary,
     PersonRecord,
+    StopCheckinRecord,
 )
 from app.api.schemas import (
     AllocationProposal,
@@ -72,6 +73,7 @@ from app.api.schemas import (
     MessageQuery,
     MessageResponse,
     ObligationResponse,
+    OutingCheckinListResponse,
     OutingCreateRequest,
     OutingInviteAcceptResponse,
     OutingInviteCreateRequest,
@@ -88,6 +90,7 @@ from app.api.schemas import (
     ReceiptConfirmationRequest,
     ReceiptConfirmationResponse,
     SettlementTransferProposal,
+    StopCheckinResponse,
 )
 from app.domain import permissions
 from app.domain.allocator import allocate
@@ -362,6 +365,7 @@ def _wire_outing(record: OutingRecord) -> OutingResponse:
         created_at=record.created_at,
         stops=[
             OutingStopResponse(
+                id=stop.id,
                 position=stop.position,
                 at=_clock(stop.minute_of_day),
                 label=stop.label,
@@ -816,6 +820,71 @@ class ApiService:
                 outing_id=outing_id,
                 stops=stops,
             )
+        )
+
+    def check_in_to_stop(
+        self, stop_id: uuid.UUID, actor: Actor
+    ) -> StopCheckinResponse:
+        found = self.repository.get_outing_stop(stop_id)
+        if found is None:
+            raise ApiProblem(404, "stop_not_found", "Stop does not exist")
+        _stop, outing = found
+        _require_permission(
+            "check_in_to_stop",
+            actor,
+            {
+                "is_group_member": self.repository.is_member(
+                    outing.context_id, actor.id
+                )
+            },
+        )
+        try:
+            record = self.repository.create_stop_checkin(
+                stop_id=stop_id,
+                person_id=actor.id,
+                now=_now(),
+            )
+        except RepositoryConflict as exc:
+            if exc.code == "ALREADY_CHECKED_IN":
+                raise ApiProblem(
+                    409,
+                    "already_checked_in",
+                    "You have already checked in at this stop",
+                ) from exc
+            raise
+        return self._wire_stop_checkin(record)
+
+    def list_outing_checkins(
+        self, outing_id: uuid.UUID, actor: Actor
+    ) -> OutingCheckinListResponse:
+        outing = self.repository.get_outing(outing_id)
+        if outing is None:
+            raise ApiProblem(404, "outing_not_found", "Outing does not exist")
+        _require_permission(
+            "view_stop_checkins",
+            actor,
+            {
+                "is_group_member": self.repository.is_member(
+                    outing.context_id, actor.id
+                )
+            },
+        )
+        return OutingCheckinListResponse(
+            outing_id=outing_id,
+            checkins=[
+                self._wire_stop_checkin(record)
+                for record in self.repository.list_outing_checkins(outing_id)
+            ],
+        )
+
+    def _wire_stop_checkin(self, record: StopCheckinRecord) -> StopCheckinResponse:
+        person = self.repository.get_person(record.person_id)
+        return StopCheckinResponse(
+            id=record.id,
+            stop_id=record.stop_id,
+            person_id=record.person_id,
+            display_name=None if person is None else person.display_name,
+            created_at=record.created_at,
         )
 
     def create_outing_invite(
