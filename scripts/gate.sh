@@ -65,7 +65,14 @@ REPO_ROOT="$PWD"
 
 # Every stage, in run order: cheapest and most likely to fail first, so a
 # broken tree is reported in seconds rather than after a docker build.
-STAGES=(guard guard-range ruff contract client-routes api migration shared mobile docker postgres)
+#
+# `gemini` is last, and is the one stage no workflow job maps to. It runs the
+# live model tier, which CI never ran and -- with no GEMINI_API_KEY secret on
+# the repository -- could not have run. It is here because "AI là THẬT" is this
+# product's headline claim and `services/api/tests/live` is the only tier that
+# checks it. See scripts/gemini_tier.sh, and the LOCAL_ONLY entry in
+# tests/test_gate_covers_every_workflow_job.py where that choice is recorded.
+STAGES=(guard guard-range ruff contract client-routes api migration shared mobile docker postgres gemini)
 
 stage_help() {
   case "$1" in
@@ -80,6 +87,7 @@ stage_help() {
     mobile)    echo "tsc, npm test with MOBILE_REQUIRE_WEB_A11Y=1, expo export --platform all (test.yml: mobile)" ;;
     docker)    echo "image pinned, builds, non-root, no dev tooling, serves /healthz (test.yml: docker)" ;;
     postgres)  echo "pytest tests/postgres against a real PostgreSQL it provisions itself (postgres-repository.yml)" ;;
+    gemini)    echo "pytest tests/live against the real model -- 34 ca, ~3 phút, tốn quota thật (không có job CI)" ;;
   esac
 }
 
@@ -332,6 +340,18 @@ do_postgres() {
   scripts/postgres_tier.sh -q
 }
 
+do_gemini() {
+  # Delegates for the same reason `postgres` does: the runner has to be callable
+  # and testable without this file (tests/test_gemini_tier_runner.py), and the
+  # key resolution has to live in exactly one place.
+  #
+  # The runner, not pytest, decides the verdict. `python -m pytest tests/live`
+  # exits 0 on a run where all 34 cases skipped, and until this stage existed
+  # that is what every run of this repository's test suite did -- 33 skips that
+  # read as green, on the only tier that touches a real model.
+  scripts/gemini_tier.sh -q
+}
+
 # --- prerequisites --------------------------------------------------------
 #
 # Answers exactly one of: run it, skip it with a reason, or fail because the
@@ -404,6 +424,22 @@ check_prereq() {
         echo "docker daemon không chạy và chưa đặt MOBILE_TEST_DATABASE_URL"; return 1; }
       docker image inspect "${MOBILE_TEST_POSTGRES_IMAGE:-postgres:16-alpine}" >/dev/null 2>&1 || {
         echo "chưa có ảnh postgres tại máy (docker pull postgres:16-alpine)"; return 1; } ;;
+    gemini)
+      # Asked of the runner rather than answered again here. Two copies of the
+      # resolution is two chances to disagree, and a gate that says "no key"
+      # while the key sits in `.env` working fine is the failure
+      # scripts/env_value.sh was written to remove -- a gate that fires on
+      # correct behaviour gets switched off, and a switched-off gate is not
+      # there on the day it would have been right.
+      #
+      # No key is a skip with a reason and not a red stage, because it is an
+      # absence: somebody working on money or migrations has no use for the
+      # key. `--strict` turns it red, which is the form to run before merging
+      # anything that touches the AI path.
+      scripts/gemini_tier.sh --check >/dev/null 2>&1 || {
+        echo "chưa có GEMINI_API_KEY (đặt vào .env ở gốc repo, hoặc xuất ra shell)"; return 1; }
+      python3 -c "import google.genai" 2>/dev/null || {
+        echo "chưa cài google-genai (pip install -r services/api/requirements-dev.txt)"; return 1; } ;;
   esac
   return 0
 }

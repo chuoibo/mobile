@@ -80,6 +80,25 @@ COVERED_BY: dict[str, tuple[str, ...]] = {
     "repository-postgres": ("postgres",),
 }
 
+# Gate stages that deliberately map to no workflow job, and why.
+#
+# `test_every_gate_stage_is_claimed_by_some_job` used to require that every
+# stage appear in COVERED_BY, while its own docstring said the opposite: "A
+# stage nobody maps to is not wrong -- the gate may legitimately run more than
+# CI -- but it must be a deliberate, recorded choice rather than a leftover".
+# There was nowhere to record it, so the only way to add a local-only stage was
+# to invent a workflow job for it. This is that place. An entry needs a reason,
+# and a reason that is empty is not an entry.
+LOCAL_ONLY: dict[str, str] = {
+    "gemini": (
+        "Tầng model sống (services/api/tests/live). CI chưa bao giờ chạy nó và "
+        "cũng không chạy được: repository không có secret GEMINI_API_KEY, nên "
+        "một job ở đây sẽ vĩnh viễn skip — đúng thứ đồ trang trí mà cả thư mục "
+        "này tồn tại để từ chối. Nó vẫn phải là một chặng, vì 'AI là THẬT' là "
+        "khẳng định lớn nhất của sản phẩm và đây là tầng duy nhất kiểm nó."
+    ),
+}
+
 JOB_ID = re.compile(r"^  ([A-Za-z0-9_-]+):\s*$", re.M)
 
 
@@ -190,13 +209,56 @@ class GateCoversEveryWorkflowJob(unittest.TestCase):
         may legitimately run more than CI -- but it must be a deliberate,
         recorded choice rather than a leftover, so it is listed here."""
         claimed = {stage for stages in COVERED_BY.values() for stage in stages}
-        unclaimed = sorted(set(_gate_stages()) - claimed)
+        unclaimed = sorted(set(_gate_stages()) - claimed - set(LOCAL_ONLY))
         self.assertEqual(
             unclaimed,
             [],
             f"scripts/gate.sh has stages no workflow job maps to: {unclaimed}. "
-            "If that is intended, map them in COVERED_BY with a comment saying "
-            "why the local gate runs more than CI does.",
+            "If that is intended, record them in LOCAL_ONLY with the reason the "
+            "local gate runs more than CI does.",
+        )
+
+    def test_every_local_only_stage_gives_a_reason(self):
+        """An entry with no reason is a hole with a name on it.
+
+        The whole value of LOCAL_ONLY over deleting the assertion is that the
+        next reader can tell a deliberate choice from a stage somebody wanted to
+        stop failing this file.
+        """
+        for stage, reason in sorted(LOCAL_ONLY.items()):
+            with self.subTest(stage=stage):
+                self.assertTrue(
+                    reason and reason.strip(),
+                    f"LOCAL_ONLY[{stage!r}] has no reason",
+                )
+                self.assertGreater(
+                    len(reason.strip()),
+                    40,
+                    f"LOCAL_ONLY[{stage!r}] says {reason.strip()!r}, which does "
+                    "not explain anything to the person who finds it later",
+                )
+
+    def test_the_local_only_list_has_no_stages_that_are_gone(self):
+        """Same failure as a stale COVERED_BY entry: it describes a gate that is
+        not there any more, and reads as though something is still covered."""
+        stages = set(_gate_stages())
+        stale = sorted(set(LOCAL_ONLY) - stages)
+        self.assertEqual(
+            stale,
+            [],
+            f"LOCAL_ONLY names stages scripts/gate.sh no longer has: {stale}.",
+        )
+
+    def test_no_stage_is_both_claimed_and_local_only(self):
+        """A stage cannot be both covered by CI and deliberately outside it. If
+        it is in both lists, one of them is wrong and the reader cannot tell
+        which."""
+        claimed = {stage for stages in COVERED_BY.values() for stage in stages}
+        both = sorted(claimed & set(LOCAL_ONLY))
+        self.assertEqual(
+            both,
+            [],
+            f"these stages are in COVERED_BY and in LOCAL_ONLY at once: {both}",
         )
 
 

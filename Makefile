@@ -40,7 +40,7 @@ DC = $(COMPOSE) -p $(PROJECT)
 WAIT_TIMEOUT ?= 300
 
 .DEFAULT_GOAL := help
-.PHONY: help gate test-db up down clean logs ps migrate db-check seed demo smoke
+.PHONY: help gate test-db test-ai up down clean logs ps migrate db-check seed demo smoke
 
 # `demo` phải gọi đúng bộ container mà `up` vừa dựng. Trên nhánh này biến đó là
 # $(COMPOSE); PR #60 (đang mở, cùng lane) đổi nó thành $(DC) = compose kèm
@@ -89,6 +89,17 @@ gate: ## Chạy các cổng của CI ngay tại máy — ONLY="api mobile" chọ
 # với người khác.
 test-db: ## Chạy tầng PostgreSQL thật trên database dùng một lần — ARGS="-k ten" lọc ca
 	@scripts/postgres_tier.sh $(ARGS)
+
+# Tầng DUY NHẤT gọi model thật. Mọi test khác của chụp bill và gợi ý đều chạy
+# trên reader giả, nên chúng chứng minh điều phối chứ không chứng minh AI.
+# Trước hôm nay 33 ca này chỉ có một trạng thái: bỏ qua — không workflow, không
+# chặng cổng, không target nào đặt hai biến bật chúng lên. Khoá hết hạn, quota
+# cạn hay tên model bị khai tử đều không làm đỏ được thứ gì.
+#
+# TỐN QUOTA THẬT, cùng cái quota mà buổi demo chạy trên đó: 34 ca, ~3 phút.
+# Lọc bớt bằng ARGS khi chỉ cần soi một mảng.
+test-ai: ## Chạy tầng Gemini sống — gọi model thật, tốn quota. ARGS="-k receipt" lọc ca
+	@scripts/gemini_tier.sh $(ARGS)
 
 up: ## Dựng ảnh, chạy migration, bật API, seed dữ liệu mẫu, rồi tự kiểm
 	@# Trước `docker build`, không phải sau: build mất vài phút, và một cảnh
