@@ -237,6 +237,102 @@ export async function docDanhSach(contextId: string): Promise<void> {
         self.assertEqual([r.name for r in hits], ["docDanhSach"])
 
 
+class ACallItCannotReadIsNamed(unittest.TestCase):
+    """Không đọc được một URL phải là chỗ mù CÓ TÊN, không phải im lặng.
+
+    Đo được ngày 30/08 trên `main` 7adf961. Cùng một vi phạm, hai cách viết:
+
+        fetch(`${BASE}/places/search`, ...)          -> HỎNG, mã 1   (đúng)
+        fetch(`${BASE}${ENDPOINTS.search}`, ...)     -> ĐẠT,  mã 0   (mù)
+
+    Cả hai đều gọi `POST /places/search` mà không gửi `X-Actor-ID`, tức đều là
+    401 và một màn hình báo "sự cố máy chủ". Cách thứ hai đi lọt vì `route_paths`
+    bóc ĐÚNG MỘT `${...}` ở đầu rồi đòi phần còn lại bắt đầu bằng `/`; khi phần
+    còn lại lại là một biểu thức nữa, nó rơi vào `continue` — không thành đường
+    dẫn, mà cũng không thành `unresolved`. Biến mất, chứ không phải được tha.
+
+    Cổng này đã có sẵn chỗ đúng để ghi những ca như vậy: `region.unresolved`,
+    và `.actor-header-unresolved.json` để ghim khi có lý do. Ghim là NÓI RA chỗ
+    mù. `continue` là giấu nó, và một chỗ mù bị giấu đọc y hệt một cây sạch.
+    """
+
+    @staticmethod
+    def _regions(source: str) -> list:
+        import check_actor_headers as mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            target = pathlib.Path(tmp) / "mau.ts"
+            target.write_text(source, encoding="utf-8")
+            return mod.build_graph([target])
+
+    ENDPOINT_MAP = """
+const BASE = "http://x";
+const ENDPOINTS = { search: "/places/search" };
+export async function traCuu(query: string): Promise<void> {
+  await fetch(`${BASE}${ENDPOINTS.search}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query }),
+  });
+}
+"""
+
+    def test_a_url_from_an_endpoint_map_is_recorded_as_a_blind_spot(self):
+        (region,) = [r for r in self._regions(self.ENDPOINT_MAP) if r.requester]
+        self.assertEqual(region.name, "traCuu")
+        self.assertEqual(
+            region.paths,
+            set(),
+            "phép đọc không phân giải được đường dẫn này — nếu nó phân giải "
+            "được thì ca này phải đổi, vì lúc đó vi phạm bị bắt thẳng",
+        )
+        self.assertTrue(
+            region.unresolved,
+            "URL dựng từ `${base}${expr}` không đọc được, nhưng cổng không ghi "
+            "nó vào `unresolved` — nên nó không thành đường dẫn, cũng không "
+            "thành chỗ mù. Đó là im lặng, và im lặng đọc thành ĐẠT.",
+        )
+
+    def test_the_selftest_covers_this_shape_too(self):
+        """Canary trong script phải phủ hình dạng này, không chỉ `fetch` literal.
+
+        `--selftest` là thứ `scripts/gate.sh` chạy. Một canary chỉ dùng hình
+        dạng mà máy quét chắc chắn đọc được thì chứng minh máy quét đỏ được
+        cho hình dạng ĐÓ, và không nói gì về hình dạng đã đi lọt.
+        """
+        done = _run("--selftest")
+        self.assertEqual(done.returncode, 0, f"{done.stdout}\n{done.stderr}")
+        self.assertIn("canary mù", done.stdout)
+
+    def test_plain_interpolated_prose_is_still_not_a_url(self):
+        """Vế phải của phép cân: chuỗi hiển thị không được biến thành chỗ mù.
+
+        `${a} và ${b}` cũng có hai biểu thức, nhưng có chữ thật ở giữa. Nếu ca
+        này đỏ thì luật mới đang quét cả câu chữ tiếng Việt, và cổng sẽ đòi ghim
+        những dòng không liên quan gì tới URL — đúng kiểu tiếng ồn khiến người
+        ta đọc cổng này thành nhiễu rồi bỏ qua nó thật.
+        """
+        regions = self._regions(
+            """
+const BASE = "http://x";
+export async function chao(ten: string, so: number): Promise<void> {
+  const loi = `${ten} có ${so} món`;
+  await fetch(`${BASE}/batches`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Actor-ID": ten },
+    body: JSON.stringify({ loi }),
+  });
+}
+"""
+        )
+        (region,) = [r for r in regions if r.requester]
+        self.assertEqual(
+            region.unresolved,
+            [],
+            f"chuỗi hiển thị bị coi là URL không đọc được: {region.unresolved}",
+        )
+
+
 class TheTreeItselfPasses(unittest.TestCase):
     def test_every_actor_route_the_app_calls_sends_the_header(self):
         """Phép kiểm thật, trên cây thật. Chậm hơn các ca trên vì nó dựng OpenAPI."""
