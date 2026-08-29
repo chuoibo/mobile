@@ -20,6 +20,7 @@
 # Usage:
 #   scripts/ruff_changed.sh <base>           compare <base> against the working tree
 #   scripts/ruff_changed.sh <base> <head>    compare the merge base against <head>
+#   scripts/ruff_changed.sh --list <base>    print what it would check, check nothing
 #
 # Exit codes: 0 clean (or nothing to check), 1 ruff found problems,
 # 2 the script could not determine what to check -- which is a failure, never
@@ -27,8 +28,20 @@
 
 set -euo pipefail
 
+# `--list` exists so a caller can ask "would you check anything?" before running
+# the stage. scripts/gate.sh needs that to tell BỎ QUA from ĐẠT: exiting 0 on an
+# empty scope is right for this script and wrong for a gate summary that then
+# says every stage passed. It is answered here rather than recomputed by the
+# caller because a second copy of the enumeration below -- diff, plus untracked,
+# minus paths no longer on disk -- is a copy that drifts.
+list_only=0
+if [ "${1:-}" = "--list" ]; then
+  list_only=1
+  shift
+fi
+
 if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
-  echo "usage: $0 <base> [head]" >&2
+  echo "usage: $0 [--list] <base> [head]" >&2
   exit 2
 fi
 
@@ -92,6 +105,13 @@ for path in "${candidates[@]}"; do
   [ -f "$path" ] || continue
   files+=("$path")
 done
+
+if [ "$list_only" -eq 1 ]; then
+  # Empty output and exit 0 is the "nothing in scope" answer. The array guard is
+  # for `set -u`, under which expanding an empty array is itself an error.
+  [ "${#files[@]}" -eq 0 ] || printf '%s\n' "${files[@]}"
+  exit 0
+fi
 
 # The trap this early exit exists for: `ruff check` with no path arguments
 # checks the ENTIRE tree. Falling through to ruff with an empty array would

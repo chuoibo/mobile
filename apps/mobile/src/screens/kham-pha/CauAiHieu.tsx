@@ -27,6 +27,7 @@
 import React from "react";
 import { Text, View } from "react-native";
 import { radius, space, type, usePalette } from "../../theme";
+import { themChiTiet, thanLoiMayChu } from "../../ui/loi-may-chu";
 import { hieuDuocGi, type TimKiemState, type Understood } from "./tim-kiem";
 import { type Category } from "./places";
 
@@ -151,21 +152,43 @@ export function TimKhongDuoc({ state, baseUrl }: { state: TimKiemState; baseUrl:
   if (state.kind === "cau-khong-hop-le") {
     tieuDe = "Câu tìm kiếm chưa dùng được";
     than = `Viết một câu ngắn hơn ${state.max} chữ và đừng để trống, rồi tìm lại.`;
+  } else if (state.kind === "chua-biet-la-ai") {
+    // No address line: nothing was sent anywhere, so "Đã thử:" would name a
+    // server that was never asked and send somebody to check it.
+    tieuDe = "Chưa biết bạn là ai";
+    than =
+      "Tìm bằng lời cần biết ai đang hỏi, vì mỗi người có giới hạn số lần hỏi AI riêng. Quay lại màn đầu và chọn tên bạn trong nhóm, rồi tìm lại.";
+  } else if (state.kind === "bi-tu-choi") {
+    tieuDe = "Máy chủ chưa nhận ra bạn";
+    than =
+      "App có gửi kèm danh tính nhưng máy chủ không nhận. Chọn lại tên bạn ở màn đầu rồi tìm lại. Nếu vẫn vậy thì app và máy chủ đang lệch nhau, không phải do câu bạn viết.";
+    diaChi = state.url;
+  } else if (state.kind === "qua-nhieu-lan") {
+    // Nothing is broken and nothing needs reporting, so this one names no
+    // address and no work item. The window is the server's number to change,
+    // and printing it here would be a second copy that quietly goes stale.
+    tieuDe = "Bạn vừa tìm hơi nhiều";
+    than =
+      "Mỗi người chỉ hỏi AI được một số lần trong mỗi phút, để một người tìm nhanh không làm cả nhóm hết lượt. Chờ khoảng một phút rồi tìm lại, câu bạn viết vẫn còn nguyên ở trên.";
   } else if (state.kind === "chua-co-endpoint") {
     tieuDe = "Máy chủ này chưa có tìm kiếm bằng lời";
     than = `Máy chủ đang chạy nhưng không có route POST /places/search. Route đó có trong ${state.work}, nên nhiều khả năng app đang trỏ vào một bản API cũ hơn, không phải app thiếu gì.`;
     diaChi = state.url;
   } else if (state.kind === "khong-noi-duoc") {
     tieuDe = "Không mở được máy chủ";
-    than = `Không kết nối được tới API. Chi tiết: ${state.detail}`;
+    than = themChiTiet("Không kết nối được tới API.", state.detail);
     diaChi = state.url;
   } else if (state.kind === "may-chu-loi") {
     tieuDe = `Máy chủ trả lỗi ${state.status}`;
-    than = state.detail;
+    // The clause is this screen's own: somebody typed a sentence and pressed a
+    // button, so "it is not your sentence" is the thing they are about to
+    // wonder. `ChuaCoDuLieu` says the same lead without it, because on the
+    // catalogue nobody typed anything. See `ui/loi-may-chu.ts` (bug-185426).
+    than = thanLoiMayChu(state.status, state.detail, "Câu bạn viết không phải nguyên nhân.");
     diaChi = state.url;
   } else if (state.kind === "du-lieu-sai") {
     tieuDe = "Kết quả tìm kiếm không đúng dạng";
-    than = `App từ chối hiển thị thay vì vẽ ra kết quả sai. Chi tiết: ${state.detail}`;
+    than = themChiTiet("App từ chối hiển thị thay vì vẽ ra kết quả sai.", state.detail);
     diaChi = state.url;
   }
 

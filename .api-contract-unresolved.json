@@ -1,0 +1,48 @@
+{
+  "_doc": [
+    "Những lời gọi HTTP mà scripts/check_api_contract.py không lần ra được route.",
+    "Ghim chứ không bỏ qua: thêm một chỗ mù MỚI là cổng ĐỎ, để danh sách này",
+    "không tự phình ra trong im lặng. Khoá là 'file :: biểu thức' chứ không phải",
+    "số dòng — api.ts sửa gần như mỗi ngày, ghim theo dòng sẽ đỏ vì lý do sai.",
+    "'count' là số chỗ đã có người đọc và chấp nhận. Vượt count là ĐỎ; thấp hơn",
+    "count chỉ in ra GHIM CŨ, vì đó là client vừa dễ đọc hơn, không phải lỗi.",
+    "Xoá file này thì cổng đỏ 9 chỗ — đó là hành vi đúng, không phải hỏng."
+  ],
+  "unresolved": [
+    {
+      "where": "apps/mobile/src/api.ts :: BASE_URL + path",
+      "count": 2,
+      "reason": "Thân của call<T>() và của đường tải ảnh lên — đây LÀ cái phễu mà mọi lời gọi có route đi qua. Route thật nằm ở chỗ gọi call(...), và những chỗ đó cổng đọc được. Bản thân phễu thì không bao giờ đọc được, và cũng không cần."
+    },
+    {
+      "where": "apps/mobile/src/api.ts :: photo.uri",
+      "count": 2,
+      "reason": "fetch() một blob:/data: cục bộ để lấy bytes ảnh trước khi đính vào FormData. Không phải lời gọi API — không có route nào để tồn tại hay không."
+    },
+    {
+      "where": "apps/mobile/src/api.ts :: path",
+      "count": 1,
+      "reason": "translated<T>() chuyển tiếp thẳng vào call<T>(). Cùng lý do với phễu ở trên."
+    },
+    {
+      "where": "apps/mobile/src/api.ts :: url",
+      "count": 1,
+      "reason": "taiAnhCoQuyen(url, ...) — helper tải ảnh có header quyền. Đường dẫn do CHỖ GỌI nó quyết định, mà chỗ gọi lại không phải hàm gửi request nào cổng biết. Hệ quả phải nói thẳng: mọi route ảnh đi qua helper này KHÔNG được cổng kiểm là có tồn tại hay không."
+    },
+    {
+      "where": "apps/mobile/src/camera/native.ts :: uri",
+      "count": 1,
+      "reason": "sizeOf() đo dung lượng một file cục bộ. Không phải lời gọi API."
+    },
+    {
+      "where": "apps/mobile/src/api.ts :: path: string",
+      "count": 1,
+      "reason": "Không phải lời gọi mà là KHAI BÁO 'async function call<T>(path: string,' — regex CALLEE khớp nhầm chữ ký hàm. Đây là hạn chế của bộ đọc, không phải của client; sửa nó là một việc riêng, và khi sửa xong ghim này sẽ tự báo GHIM CŨ."
+    },
+    {
+      "where": "apps/mobile/src/api.ts :: string>",
+      "count": 1,
+      "reason": "Cùng một hạn chế: khai báo 'export async function translated<T>(' bị đọc thành lời gọi. Xem ghi chú ở mục ngay trên."
+    }
+  ]
+}

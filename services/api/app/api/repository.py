@@ -13,9 +13,9 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Protocol
 
-from sqlalchemy import Date, cast, func, select, tuple_
+from sqlalchemy import Date, cast, func, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.api.errors import RepositoryConflict
 from app.api.limits import OBJECTION_LIMIT, REPORT_LIMIT
@@ -44,6 +44,8 @@ from app.db.models import (
     ExpenseItemShare,
     ExpenseSurcharge,
     ExpenseVersion,
+    FriendRequest,
+    FriendRequestState,
     GuestLink,
     GuestLinkStatus,
     Membership,
@@ -63,9 +65,12 @@ from app.db.models import (
     PaymentReport,
     Person,
     ReceiptConfirmation,
+    UploadedImage,
     VerificationScope,
 )
 from app.domain.capability import capability_scope
+from app.domain.friendship import Decision, FriendshipError
+from app.domain.friendship import decide as decide_friendship
 from app.domain.ledger import obligation_status
 from app.payments.vietqr import build_payload
 from app.web.qr import payload_to_png_data_uri
@@ -110,6 +115,11 @@ class MembershipRecord:
     id: uuid.UUID
     context_id: uuid.UUID
     person_id: uuid.UUID
+    #: What this person is shown as. `memberships.person_id` is a foreign key
+    #: into `people` and `people.display_name` is `NOT NULL`, so the name exists
+    #: for every row this record can describe -- carrying only the id meant the
+    #: roster handed a screen a hexadecimal string and nothing to render it as.
+    display_name: str
     state: str
     role: str
     origin: str
@@ -142,6 +152,20 @@ class MemoryRecord:
     place_name: str | None
     lat: float | None
     lng: float | None
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class UploadedImageRecord:
+    id: uuid.UUID
+    storage_key: str
+    context_id: uuid.UUID | None
+    owner_person_id: uuid.UUID | None
+    uploaded_by_id: uuid.UUID
+    content_type: str
+    byte_size: int
+    width: int
+    height: int
     created_at: datetime
 
 
@@ -186,7 +210,7 @@ class OutingRecord:
 
 @dataclass(frozen=True, slots=True)
 class RecapOutingRecord:
-    """One finished trip, with its money recomputed rather than stored.
+    """One started trip, with its money recomputed rather than stored.
 
     `split_total_vnd` is not a column. It is the sum of the confirmed
     allocations of the expenses that happened inside the trip's days, summed on
@@ -196,6 +220,7 @@ class RecapOutingRecord:
     """
 
     outing: OutingRecord
+    in_progress: bool
     split_total_vnd: int
     expense_count: int
     memory_count: int
@@ -538,6 +563,44 @@ class BillRecord:
     discounts: list[BillDiscountRecord]
 
 
+#: Which answer produces which rest state. The inverse of the domain's own
+#: mapping, and the reason `decide_friend_request` can re-ask the domain without
+#: the caller passing the decision down a second time: a target state names
+#: exactly one answer. `pending` is absent because it is where an edge starts,
+#: not somewhere a decision moves it to.
+_ANSWER_PRODUCING: dict[FriendRequestState, Decision] = {
+    FriendRequestState.ACCEPTED: Decision.ACCEPT,
+    FriendRequestState.DECLINED: Decision.DECLINE,
+    FriendRequestState.BLOCKED: Decision.BLOCK,
+}
+
+
+@dataclass(frozen=True, slots=True)
+class FriendEdgeRecord:
+    """One friend request, plus the name of whoever the reader is not.
+
+    `other_person_id` and `other_display_name` are filled relative to a reader,
+    because every screen that shows this row shows "the other person" -- the
+    requester on an incoming request, the addressee on an outgoing one. Making
+    the repository resolve it means no screen has to branch on direction, and
+    no screen can get the branch backwards.
+
+    There is no telephone number on this record and there is nowhere to put
+    one: the table has no such column, by the design in
+    `app/api/person_identity.py`.
+    """
+
+    id: uuid.UUID
+    requester_id: uuid.UUID
+    addressee_id: uuid.UUID
+    other_person_id: uuid.UUID
+    other_display_name: str
+    state: str
+    decided_by_id: uuid.UUID | None
+    created_at: datetime
+    decided_at: datetime | None
+
+
 class ApiRepository(Protocol):
     def get_person(self, person_id: uuid.UUID) -> PersonRecord | None: ...
 
@@ -553,6 +616,8 @@ class ApiRepository(Protocol):
         self, display_name: str, created_by_id: uuid.UUID
     ) -> ContextRecord: ...
 
+    def get_context(self, context_id: uuid.UUID) -> ContextRecord | None: ...
+
     def add_member(
         self,
         context_id: uuid.UUID,
@@ -566,9 +631,7 @@ class ApiRepository(Protocol):
         self, membership_id: uuid.UUID, now: datetime
     ) -> MembershipRecord | None: ...
 
-    def get_membership(
-        self, membership_id: uuid.UUID
-    ) -> MembershipRecord | None: ...
+    def get_membership(self, membership_id: uuid.UUID) -> MembershipRecord | None: ...
 
     def leave_context(
         self, context_id: uuid.UUID, person_id: uuid.UUID, now: datetime
@@ -577,6 +640,10 @@ class ApiRepository(Protocol):
     def list_members(self, context_id: uuid.UUID) -> list[MembershipRecord]: ...
 
     def is_member(self, context_id: uuid.UUID, person_id: uuid.UUID) -> bool: ...
+
+    def shares_active_context(
+        self, viewer_id: uuid.UUID, subject_id: uuid.UUID
+    ) -> bool: ...
 
     def membership_role(
         self, context_id: uuid.UUID, person_id: uuid.UUID
@@ -646,9 +713,7 @@ class ApiRepository(Protocol):
         self, outing_id: uuid.UUID, person_id: uuid.UUID
     ) -> OutingInviteRecord | None: ...
 
-    def get_outing_invite(
-        self, invite_id: uuid.UUID
-    ) -> OutingInviteRecord | None: ...
+    def get_outing_invite(self, invite_id: uuid.UUID) -> OutingInviteRecord | None: ...
 
     def get_outing_invite_by_digest(
         self, token_digest: bytes
@@ -677,6 +742,26 @@ class ApiRepository(Protocol):
         invited_by_id: uuid.UUID,
         now: datetime,
     ) -> MembershipRecord: ...
+
+    def create_uploaded_image(
+        self,
+        *,
+        storage_key: str,
+        context_id: uuid.UUID | None,
+        owner_person_id: uuid.UUID | None,
+        uploaded_by_id: uuid.UUID,
+        content_type: str,
+        byte_size: int,
+        width: int,
+        height: int,
+        now: datetime,
+    ) -> UploadedImageRecord: ...
+
+    def get_context_image(
+        self, context_id: uuid.UUID, image_id: uuid.UUID
+    ) -> UploadedImageRecord | None: ...
+
+    def get_latest_avatar(self, person_id: uuid.UUID) -> UploadedImageRecord | None: ...
 
     def create_memory(
         self,
@@ -880,6 +965,39 @@ class ApiRepository(Protocol):
         now: datetime,
     ) -> ReceiptRecord: ...
 
+    # --- friend graph (F03, F04) ---------------------------------------
+
+    def get_friend_edge(
+        self, person_a: uuid.UUID, person_b: uuid.UUID
+    ) -> FriendEdgeRecord | None: ...
+
+    def get_friend_request(
+        self, request_id: uuid.UUID, reader_id: uuid.UUID
+    ) -> FriendEdgeRecord | None: ...
+
+    def open_friend_request(
+        self,
+        *,
+        requester_id: uuid.UUID,
+        addressee_id: uuid.UUID,
+        now: datetime,
+    ) -> FriendEdgeRecord: ...
+
+    def decide_friend_request(
+        self,
+        *,
+        request_id: uuid.UUID,
+        state: str,
+        decided_by_id: uuid.UUID,
+        now: datetime,
+    ) -> FriendEdgeRecord | None: ...
+
+    def list_friend_requests(
+        self, person_id: uuid.UUID, *, direction: str
+    ) -> list[FriendEdgeRecord]: ...
+
+    def list_friends(self, person_id: uuid.UUID) -> list[FriendEdgeRecord]: ...
+
 
 def _bank_recipient(row: BankRecipient) -> BankRecipientRecord:
     return BankRecipientRecord(
@@ -904,12 +1022,23 @@ class SqlAlchemyApiRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    @staticmethod
-    def _membership_record(membership: Membership) -> MembershipRecord:
+    def _membership_record(
+        self, membership: Membership, display_name: str | None = None
+    ) -> MembershipRecord:
+        # `display_name` is passed in only by callers that already hold it:
+        # `list_members` reads every name in one statement rather than one per
+        # row. Every other path here returns a single membership, so looking
+        # the name up here costs one query and saves eight call sites from
+        # remembering to.
+        if display_name is None:
+            display_name = self._display_names({membership.person_id})[
+                membership.person_id
+            ]
         return MembershipRecord(
             id=membership.id,
             context_id=membership.context_id,
             person_id=membership.person_id,
+            display_name=display_name,
             state=membership.state.value,
             role=membership.role.value,
             origin=membership.origin.value,
@@ -933,6 +1062,21 @@ class SqlAlchemyApiRepository:
             lat=memory.lat,
             lng=memory.lng,
             created_at=memory.created_at,
+        )
+
+    @staticmethod
+    def _uploaded_image_record(image: UploadedImage) -> UploadedImageRecord:
+        return UploadedImageRecord(
+            id=image.id,
+            storage_key=image.storage_key,
+            context_id=image.context_id,
+            owner_person_id=image.owner_person_id,
+            uploaded_by_id=image.uploaded_by_id,
+            content_type=image.content_type,
+            byte_size=image.byte_size,
+            width=image.width,
+            height=image.height,
+            created_at=image.created_at,
         )
 
     @staticmethod
@@ -1023,11 +1167,7 @@ class SqlAlchemyApiRepository:
         if item_rows:
             share_rows = self.session.scalars(
                 select(BillItemShare)
-                .where(
-                    BillItemShare.bill_item_id.in_(
-                        [item.id for item in item_rows]
-                    )
-                )
+                .where(BillItemShare.bill_item_id.in_([item.id for item in item_rows]))
                 .order_by(
                     BillItemShare.bill_item_id,
                     BillItemShare.participant_id,
@@ -1111,9 +1251,7 @@ class SqlAlchemyApiRepository:
         found = {
             person_id: display_name
             for person_id, display_name in self.session.execute(
-                select(Person.id, Person.display_name).where(
-                    Person.id.in_(person_ids)
-                )
+                select(Person.id, Person.display_name).where(Person.id.in_(person_ids))
             )
         }
         return {
@@ -1160,6 +1298,17 @@ class SqlAlchemyApiRepository:
             created_at=context.created_at,
         )
 
+    def get_context(self, context_id: uuid.UUID) -> ContextRecord | None:
+        context = self.session.get(Context, context_id)
+        if context is None:
+            return None
+        return ContextRecord(
+            id=context.id,
+            display_name=context.display_name,
+            created_by_id=context.created_by_id,
+            created_at=context.created_at,
+        )
+
     def add_member(
         self,
         context_id: uuid.UUID,
@@ -1191,9 +1340,7 @@ class SqlAlchemyApiRepository:
             raise
         return self._membership_record(membership)
 
-    def get_membership(
-        self, membership_id: uuid.UUID
-    ) -> MembershipRecord | None:
+    def get_membership(self, membership_id: uuid.UUID) -> MembershipRecord | None:
         membership = self.session.scalar(
             select(Membership).where(Membership.id == membership_id)
         )
@@ -1240,15 +1387,24 @@ class SqlAlchemyApiRepository:
         return self._membership_record(membership)
 
     def list_members(self, context_id: uuid.UUID) -> list[MembershipRecord]:
-        memberships = self.session.scalars(
-            select(Membership)
-            .where(
-                Membership.context_id == context_id,
-                Membership.left_at.is_(None),
+        memberships = list(
+            self.session.scalars(
+                select(Membership)
+                .where(
+                    Membership.context_id == context_id,
+                    Membership.left_at.is_(None),
+                )
+                .order_by(Membership.created_at, Membership.id)
             )
-            .order_by(Membership.created_at, Membership.id)
         )
-        return [self._membership_record(membership) for membership in memberships]
+        # One statement for the whole roster. A per-row lookup would make the
+        # cost of naming a group grow with the group, on the request every
+        # group screen opens with.
+        names = self._display_names({row.person_id for row in memberships})
+        return [
+            self._membership_record(membership, names[membership.person_id])
+            for membership in memberships
+        ]
 
     def is_member(self, context_id: uuid.UUID, person_id: uuid.UUID) -> bool:
         return (
@@ -1264,6 +1420,30 @@ class SqlAlchemyApiRepository:
             )
             is not None
         )
+
+    def shares_active_context(
+        self, viewer_id: uuid.UUID, subject_id: uuid.UUID
+    ) -> bool:
+        if viewer_id == subject_id:
+            return True
+
+        viewer_membership = aliased(Membership)
+        subject_membership = aliased(Membership)
+        shared_context = (
+            select(viewer_membership.id)
+            .join(
+                subject_membership,
+                subject_membership.context_id == viewer_membership.context_id,
+            )
+            .where(
+                viewer_membership.person_id == viewer_id,
+                viewer_membership.state == MembershipState.ACTIVE,
+                subject_membership.person_id == subject_id,
+                subject_membership.state == MembershipState.ACTIVE,
+            )
+            .exists()
+        )
+        return bool(self.session.scalar(select(shared_context)))
 
     def membership_role(
         self, context_id: uuid.UUID, person_id: uuid.UUID
@@ -1340,7 +1520,7 @@ class SqlAlchemyApiRepository:
     def group_recap(
         self, context_id: uuid.UUID, *, today: date
     ) -> tuple[RecapOutingRecord, ...]:
-        """Finished trips of one group, newest first, money read back from the ledger.
+        """Started trips of one group, newest first, money read back from the ledger.
 
         There is no `expenses.outing_id`, so a trip claims the spending that
         happened on its days. That rule is stated on the screen rather than
@@ -1352,12 +1532,12 @@ class SqlAlchemyApiRepository:
         multiplies one by the other, and an inflated photo count is the kind of
         wrong number that still looks like a number.
         """
-        finished = (
+        started = (
             select(Outing)
-            .where(Outing.context_id == context_id, Outing.ends_on < today)
+            .where(Outing.context_id == context_id, Outing.starts_on <= today)
             .order_by(Outing.ends_on.desc(), Outing.id)
         )
-        outings = tuple(self.session.scalars(finished))
+        outings = tuple(self.session.scalars(started))
         if not outings:
             return ()
 
@@ -1440,6 +1620,7 @@ class SqlAlchemyApiRepository:
         return tuple(
             RecapOutingRecord(
                 outing=self._outing_record(outing),
+                in_progress=outing.ends_on >= today,
                 split_total_vnd=money.get(outing.id, (0, 0))[0],
                 expense_count=money.get(outing.id, (0, 0))[1],
                 memory_count=photos.get(outing.id, 0),
@@ -1576,9 +1757,7 @@ class SqlAlchemyApiRepository:
         )
         return None if invite is None else self._outing_invite_record(invite)
 
-    def get_outing_invite(
-        self, invite_id: uuid.UUID
-    ) -> OutingInviteRecord | None:
+    def get_outing_invite(self, invite_id: uuid.UUID) -> OutingInviteRecord | None:
         invite = self.session.get(OutingInvite, invite_id)
         return None if invite is None else self._outing_invite_record(invite)
 
@@ -1672,6 +1851,54 @@ class SqlAlchemyApiRepository:
         self.session.add(membership)
         self.session.flush()
         return self._membership_record(membership)
+
+    def create_uploaded_image(
+        self,
+        *,
+        storage_key: str,
+        context_id: uuid.UUID | None,
+        owner_person_id: uuid.UUID | None,
+        uploaded_by_id: uuid.UUID,
+        content_type: str,
+        byte_size: int,
+        width: int,
+        height: int,
+        now: datetime,
+    ) -> UploadedImageRecord:
+        image = UploadedImage(
+            storage_key=storage_key,
+            context_id=context_id,
+            owner_person_id=owner_person_id,
+            uploaded_by_id=uploaded_by_id,
+            content_type=content_type,
+            byte_size=byte_size,
+            width=width,
+            height=height,
+            created_at=now,
+        )
+        self.session.add(image)
+        self.session.flush()
+        return self._uploaded_image_record(image)
+
+    def get_context_image(
+        self, context_id: uuid.UUID, image_id: uuid.UUID
+    ) -> UploadedImageRecord | None:
+        image = self.session.scalar(
+            select(UploadedImage).where(
+                UploadedImage.context_id == context_id,
+                UploadedImage.id == image_id,
+            )
+        )
+        return None if image is None else self._uploaded_image_record(image)
+
+    def get_latest_avatar(self, person_id: uuid.UUID) -> UploadedImageRecord | None:
+        image = self.session.scalar(
+            select(UploadedImage)
+            .where(UploadedImage.owner_person_id == person_id)
+            .order_by(UploadedImage.created_at.desc(), UploadedImage.id.desc())
+            .limit(1)
+        )
+        return None if image is None else self._uploaded_image_record(image)
 
     def create_memory(
         self,
@@ -1800,9 +2027,7 @@ class SqlAlchemyApiRepository:
                 tuple_(Message.created_at, Message.id) > tuple_(*after)
             ).order_by(Message.created_at.asc(), Message.id.asc())
         else:
-            statement = statement.order_by(
-                Message.created_at.desc(), Message.id.desc()
-            )
+            statement = statement.order_by(Message.created_at.desc(), Message.id.desc())
 
         rows = list(self.session.scalars(statement.limit(limit + 1)))
         has_more = len(rows) > limit
@@ -1810,6 +2035,7 @@ class SqlAlchemyApiRepository:
             messages=tuple(self._message_record(row) for row in rows[:limit]),
             has_more=has_more,
         )
+
     def create_bill(
         self,
         *,
@@ -1921,9 +2147,7 @@ class SqlAlchemyApiRepository:
 
         item_rows = list(
             self.session.scalars(
-                select(BillItem)
-                .where(BillItem.bill_id == bill_id)
-                .with_for_update()
+                select(BillItem).where(BillItem.bill_id == bill_id).with_for_update()
             )
         )
         items_by_key = {item.item_key: item for item in item_rows}
@@ -1933,9 +2157,7 @@ class SqlAlchemyApiRepository:
         if set(assignments_by_key) - set(items_by_key):
             raise RepositoryConflict("UNKNOWN_BILL_ITEM")
 
-        target_item_ids = [
-            items_by_key[item_key].id for item_key in assignments_by_key
-        ]
+        target_item_ids = [items_by_key[item_key].id for item_key in assignments_by_key]
         if target_item_ids:
             existing_shares = self.session.scalars(
                 select(BillItemShare)
@@ -3227,9 +3449,9 @@ class SqlAlchemyApiRepository:
         # apart.
         owed_vnd = int(
             self.session.scalar(
-                select(func.coalesce(func.sum(current_allocations.c.amount_vnd), 0)).where(
-                    current_allocations.c.paid_by_id != person_id
-                )
+                select(
+                    func.coalesce(func.sum(current_allocations.c.amount_vnd), 0)
+                ).where(current_allocations.c.paid_by_id != person_id)
             )
             or 0
         )
@@ -3290,7 +3512,9 @@ class SqlAlchemyApiRepository:
                 CollectionBatchVersion,
                 CollectionBatchVersion.id == CollectionObligation.batch_version_id,
             )
-            .join(CollectionBatch, CollectionBatch.id == CollectionBatchVersion.batch_id)
+            .join(
+                CollectionBatch, CollectionBatch.id == CollectionBatchVersion.batch_id
+            )
             # OUTER, and this is not defensive padding. `collection_batches`
             # .context_id carries no foreign key into `contexts`, and nothing
             # in the vertical slice writes a context row -- the app posts
@@ -3326,7 +3550,9 @@ class SqlAlchemyApiRepository:
                     direction="out" if outgoing else "in",
                     amount_vnd=amount_vnd,
                     counterparty_id=counterparty_id,
-                    counterparty_name=counterparty.display_name if counterparty else None,
+                    counterparty_name=counterparty.display_name
+                    if counterparty
+                    else None,
                     context_id=context_id,
                     context_name=context_name,
                     occasion=self._obligation_occasion(obligation_id),
@@ -3347,7 +3573,8 @@ class SqlAlchemyApiRepository:
             .select_from(CollectionObligationSource)
             .join(
                 ConfirmedAllocation,
-                ConfirmedAllocation.id == CollectionObligationSource.confirmed_allocation_id,
+                ConfirmedAllocation.id
+                == CollectionObligationSource.confirmed_allocation_id,
             )
             .join(
                 ExpenseVersion,
@@ -3364,6 +3591,236 @@ class SqlAlchemyApiRepository:
             return unique[0]
         return f"{unique[0]} +{len(unique) - 1}"
 
+    # --- friend graph (F03, F04) ---------------------------------------
+
+    def _friend_edge(
+        self, row: FriendRequest, reader_id: uuid.UUID, name: str | None = None
+    ) -> FriendEdgeRecord:
+        """One row, oriented for whoever is reading it.
+
+        The reader is always one of the two parties -- callers reach this only
+        through queries filtered to their own id -- so "the other person" is
+        well defined. If a future caller passes a stranger, they get the
+        requester, which is wrong but not a disclosure: both ids are already
+        in the row this caller was given.
+        """
+        other = row.addressee_id if row.requester_id == reader_id else row.requester_id
+        return FriendEdgeRecord(
+            id=row.id,
+            requester_id=row.requester_id,
+            addressee_id=row.addressee_id,
+            other_person_id=other,
+            other_display_name=name or self._display_names({other})[other],
+            state=str(row.state),
+            decided_by_id=row.decided_by_id,
+            created_at=row.created_at,
+            decided_at=row.decided_at,
+        )
+
+    def _edge_between(self, person_a: uuid.UUID, person_b: uuid.UUID):
+        """The live edge for this unordered pair, whichever way it was asked.
+
+        `DECLINED` rows are excluded because a declined edge does not occupy
+        the pair -- the same states the partial unique index lists, and for the
+        same reason. Two spellings of one rule; see the migration.
+        """
+        return self.session.scalar(
+            select(FriendRequest)
+            .where(
+                or_(
+                    (FriendRequest.requester_id == person_a)
+                    & (FriendRequest.addressee_id == person_b),
+                    (FriendRequest.requester_id == person_b)
+                    & (FriendRequest.addressee_id == person_a),
+                ),
+                FriendRequest.state != FriendRequestState.DECLINED,
+            )
+            .order_by(FriendRequest.created_at.desc())
+        )
+
+    def get_friend_edge(
+        self, person_a: uuid.UUID, person_b: uuid.UUID
+    ) -> FriendEdgeRecord | None:
+        row = self._edge_between(person_a, person_b)
+        return None if row is None else self._friend_edge(row, person_a)
+
+    def get_friend_request(
+        self, request_id: uuid.UUID, reader_id: uuid.UUID
+    ) -> FriendEdgeRecord | None:
+        row = self.session.scalar(
+            select(FriendRequest).where(FriendRequest.id == request_id)
+        )
+        if row is None:
+            return None
+        if reader_id not in (row.requester_id, row.addressee_id):
+            # A stranger asking by id gets the same answer as a stranger asking
+            # for an id that does not exist. Returning 403 here would confirm
+            # that two particular people have an edge, to somebody who is not
+            # either of them.
+            return None
+        return self._friend_edge(row, reader_id)
+
+    def open_friend_request(
+        self,
+        *,
+        requester_id: uuid.UUID,
+        addressee_id: uuid.UUID,
+        now: datetime,
+    ) -> FriendEdgeRecord:
+        row = FriendRequest(
+            requester_id=requester_id,
+            addressee_id=addressee_id,
+            state=FriendRequestState.PENDING,
+            created_at=now,
+        )
+        self.session.add(row)
+        try:
+            self.session.flush()
+        except IntegrityError as exc:
+            # `uq_friend_edge_live` fires when two people tap "add" at the same
+            # moment. The service maps this to the same refusal the domain
+            # raises for an edge it could see, so the two orderings of one race
+            # are indistinguishable from outside -- which is what keeps a block
+            # silent under concurrency too.
+            raise RepositoryConflict("FRIEND_EDGE_EXISTS") from exc
+        return self._friend_edge(row, requester_id)
+
+    def decide_friend_request(
+        self,
+        *,
+        request_id: uuid.UUID,
+        state: str,
+        decided_by_id: uuid.UUID,
+        now: datetime,
+    ) -> FriendEdgeRecord | None:
+        row = self.session.scalar(
+            select(FriendRequest)
+            .where(FriendRequest.id == request_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if row is None:
+            return None
+
+        target = FriendRequestState(state)
+        answer = _ANSWER_PRODUCING.get(target)
+        if answer is None:
+            raise RepositoryConflict("NOT_A_DECISION")
+
+        # The lock queues two writers; it does not tell the second one that the
+        # edge moved while it waited. The service decided on a read taken
+        # BEFORE this lock was held, so that decision is a proposal about a
+        # state that may no longer exist -- `SELECT ... FOR UPDATE` returns the
+        # row as the first writer committed it, and overwriting it blindly is
+        # how a `block` that already answered 200 gets erased by an `accept`
+        # that was approved against a stale `pending`.
+        #
+        # So ask the domain again, on the row we now hold. Asking rather than
+        # re-deriving the rule here is the point: "BLOCKED is terminal" has to
+        # have one spelling, and it lives in `app/domain/friendship.py`. This
+        # adapter still invents nothing -- it re-runs the same pure function the
+        # service ran, on fresher facts.
+        try:
+            decide_friendship(
+                edge={
+                    "requester_id": str(row.requester_id),
+                    "addressee_id": str(row.addressee_id),
+                    "state": str(row.state),
+                },
+                actor_id=str(decided_by_id),
+                decision=str(answer),
+            )
+        except FriendshipError as refused:
+            # The same code the service would have raised had this read come
+            # first, so the two orderings of one race are indistinguishable
+            # from outside -- the property `open_friend_request` keeps for the
+            # other half of this feature.
+            raise RepositoryConflict(refused.code) from refused
+
+        row.state = target
+        # The check constraint requires these to move together: a non-pending
+        # row must carry a decision time, and a pending one must not.
+        row.decided_at = now
+        row.decided_by_id = decided_by_id
+        try:
+            self.session.flush()
+        except IntegrityError as exc:
+            # `uq_friend_edge_live` also covers UPDATEs into a live state, and
+            # a decision can collide with it without any concurrency at all:
+            # blocking a stale `declined` row while the pair already holds a
+            # newer `pending` one. Uncaught, that reached
+            # `ServerErrorMiddleware` as a 500 on an ordinary user path.
+            raise RepositoryConflict("FRIEND_EDGE_EXISTS") from exc
+        return self._friend_edge(row, decided_by_id)
+
+    def list_friend_requests(
+        self, person_id: uuid.UUID, *, direction: str
+    ) -> list[FriendEdgeRecord]:
+        """Pending requests only, in one direction.
+
+        Answered requests are deliberately not listed here: an inbox that keeps
+        showing declines is an inbox nobody opens, and a decline the requester
+        can poll for is a decline that leaks the answer they were not given.
+        A requester sees their outgoing request disappear; whether it was
+        accepted is answered by the friend list, and only if it was.
+        """
+        side = (
+            FriendRequest.addressee_id
+            if direction == "incoming"
+            else FriendRequest.requester_id
+        )
+        rows = list(
+            self.session.scalars(
+                select(FriendRequest)
+                .where(side == person_id, FriendRequest.state == FriendRequestState.PENDING)
+                .order_by(FriendRequest.created_at.desc(), FriendRequest.id)
+            )
+        )
+        names = self._display_names(
+            {
+                row.addressee_id if row.requester_id == person_id else row.requester_id
+                for row in rows
+            }
+        )
+        return [
+            self._friend_edge(row, person_id, names[
+                row.addressee_id if row.requester_id == person_id else row.requester_id
+            ])
+            for row in rows
+        ]
+
+    def list_friends(self, person_id: uuid.UUID) -> list[FriendEdgeRecord]:
+        """Friendship read back from the events that created it.
+
+        `state = 'accepted'`, both directions. There is no `friends` table to
+        drift from this query, which is the point.
+        """
+        rows = list(
+            self.session.scalars(
+                select(FriendRequest)
+                .where(
+                    or_(
+                        FriendRequest.requester_id == person_id,
+                        FriendRequest.addressee_id == person_id,
+                    ),
+                    FriendRequest.state == FriendRequestState.ACCEPTED,
+                )
+                .order_by(FriendRequest.decided_at.desc(), FriendRequest.id)
+            )
+        )
+        names = self._display_names(
+            {
+                row.addressee_id if row.requester_id == person_id else row.requester_id
+                for row in rows
+            }
+        )
+        return [
+            self._friend_edge(row, person_id, names[
+                row.addressee_id if row.requester_id == person_id else row.requester_id
+            ])
+            for row in rows
+        ]
+
 
 __all__ = [
     "AllocationRow",
@@ -3375,6 +3832,7 @@ __all__ = [
     "ConfirmationRecord",
     "ContextRecord",
     "ExpenseIdentity",
+    "FriendEdgeRecord",
     "FinanceMovement",
     "FrozenBatch",
     "FrozenObligation",
@@ -3398,4 +3856,5 @@ __all__ = [
     "ReceiptTarget",
     "SqlAlchemyApiRepository",
     "StoredGuestLink",
+    "UploadedImageRecord",
 ]

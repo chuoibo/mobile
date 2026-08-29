@@ -17,6 +17,7 @@ import { SafeAreaView, Text, View, useColorScheme } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { radius, space, type, usePalette } from "../theme";
 import { CaNhan } from "../screens/ca-nhan/CaNhan";
+import { KetBan } from "../screens/ca-nhan/KetBan";
 import { TinNhan } from "../screens/chat/TinNhan";
 import { KhamPha } from "../screens/kham-pha/KhamPha";
 import { KyNiem } from "../screens/ky-niem/KyNiem";
@@ -35,6 +36,7 @@ export function VoTab({
   tabDau,
   moNhomNgay,
   moKyNiemNgay,
+  moBanBeNgay,
   nhomId,
   banQuetDuoc,
   diaDiemDau,
@@ -49,6 +51,9 @@ export function VoTab({
    *  it lives behind the [+] menu, so a detector run, a screenshot pass or an
    *  accessibility sweep could not reach it at all without this. */
   moKyNiemNgay?: boolean;
+  /** Open the F03/F04 friend screen immediately, from `#vao=ban-be`. It sits
+   *  behind a button on the Cá nhân tab, so the same rule applies. */
+  moBanBeNgay?: boolean;
   /** Which group the wall should read, from `#nhom=<uuid>`. Null lets the
    *  screen find the demo group itself. */
   nhomId?: string | null;
@@ -80,6 +85,11 @@ export function VoTab({
   // F30. Full screen like the two flows above, and for the same reason: it is
   // a place you go and come back from, not a tab you switch between.
   const [luongKyNiem, setLuongKyNiem] = useState(moKyNiemNgay ?? false);
+  // F03/F04. Full screen for the same reason as the two above: it is a task
+  // with its own steps, and it is entered from a button on Cá nhân rather than
+  // from the bar, so leaving the bar underneath would offer two ways out of
+  // one task.
+  const [luongBanBe, setLuongBanBe] = useState(moBanBeNgay ?? false);
   // The group handle, lifted out of the group screen.
   //
   // It used to live inside `Nhom.tsx` and die when that screen closed, which
@@ -122,7 +132,7 @@ export function VoTab({
       moLuong[route.flow]();
       return;
     }
-    setThongBao(`"${action?.label}" chưa dựng — mới có chỗ trong menu.`);
+    setThongBao(`"${action?.label}" chưa dựng, mới có chỗ trong menu.`);
   }
 
   // The expense flow takes the whole screen: it is a task with its own steps,
@@ -143,6 +153,15 @@ export function VoTab({
           banQuetDuoc={banQuetDuoc ?? null}
           onDong={() => setLuongNhom(false)}
         />
+      </SafeAreaView>
+    );
+  }
+
+  if (luongBanBe) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
+        <StatusBar style={scheme === "dark" ? "light" : "dark"} />
+        <KetBan nguoi={nguoi} onDong={() => setLuongBanBe(false)} />
       </SafeAreaView>
     );
   }
@@ -177,7 +196,9 @@ export function VoTab({
           ) : null}
           {tab === "len-plan" ? <LenPlan nguoi={nguoi} /> : null}
           {tab === "tin-nhan" ? <TinNhan nguoi={nguoi} /> : null}
-          {tab === "ca-nhan" ? <CaNhan nguoi={nguoi} /> : null}
+          {tab === "ca-nhan" ? (
+            <CaNhan nguoi={nguoi} onKetBan={() => setLuongBanBe(true)} />
+          ) : null}
         </View>
 
         {thongBao ? <BangThongBao text={thongBao} onClose={() => setThongBao(null)} /> : null}

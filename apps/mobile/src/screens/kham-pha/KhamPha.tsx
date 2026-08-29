@@ -24,7 +24,7 @@
  *
  * | Mockup | Here | Why |
  * |---|---|---|
- * | Photo per card | Drawn mark on a token ramp | No place imagery in Git; see `AnhDiaDiem.tsx` |
+ * | Photo per card | Real `Anh` frame; drawn mark as stand-in | The frame is sized now; `photo_url` fills it when the server sends one. See `AnhDiaDiem.tsx` |
  * | Search box with placeholder only | Labelled field | The kit's own rule: a placeholder vanishes the moment you type |
  * | Avatar top-right | Not drawn | The Cá nhân tab is one tap away and already owns that |
  * | Real map strip | Relative-position strip, labelled | The coordinates are real; the basemap is not, and it says so |
@@ -39,6 +39,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { radius, space, type, usePalette } from "../../theme";
 import { Button, Card, Choice, Field, Screen } from "../../ui/Kit";
+import { themChiTiet, thanLoiMayChu } from "../../ui/loi-may-chu";
 import { AnhDiaDiem, Ruy, RuyDongCua } from "./AnhDiaDiem";
 import { HuyHieuMatch } from "./NhanAi";
 import { CauAiHieu, KhongCoKetQua, TimKhongDuoc } from "./CauAiHieu";
@@ -127,10 +128,14 @@ export function KhamPha({ nguoi, nhom, diaDiemDau }: {
     // template glued around it: this text reaches a model prompt, and every
     // string the client concatenated onto it would be a second place an
     // injected instruction could ride in that the server cannot see.
-    askSearch(q).then((s) => {
+    //
+    // The one thing that does ride along is who is asking. `POST /places/search`
+    // spends model quota and is metered per actor (rd-be-13), so a search with
+    // nobody signed in is a 401 -- `askSearch` says so without the round trip.
+    askSearch(q, { actorId: nguoi?.personId }).then((s) => {
       if (luot.current === cua) setTim(s);
     });
-  }, [cau]);
+  }, [cau, nguoi]);
 
   const xoaTim = useCallback(() => {
     luot.current += 1; // any reply still in flight is now stale
@@ -317,7 +322,7 @@ function DangTai() {
  * gets spent restarting a server that was fine the whole time -- so the
  * address, the status, and the work item that owns the gap are all on screen.
  */
-function ChuaCoDuLieu({ state }: { state: PlacesState }) {
+export function ChuaCoDuLieu({ state }: { state: PlacesState }) {
   const c = usePalette();
   let tieuDe = "Chưa có dữ liệu địa điểm";
   let than = "";
@@ -325,19 +330,19 @@ function ChuaCoDuLieu({ state }: { state: PlacesState }) {
 
   if (state.kind === "chua-co-endpoint") {
     tieuDe = "Máy chủ này chưa có danh mục địa điểm";
-    than = `Máy chủ đang chạy nhưng không có route GET /places. Route đó có trong ${state.work}, nên nhiều khả năng app đang trỏ vào một bản API cũ hơn — không phải app thiếu gì.`;
+    than = `Máy chủ đang chạy nhưng không có route GET /places. Route đó có trong ${state.work}, nên nhiều khả năng app đang trỏ vào một bản API cũ hơn, không phải app thiếu gì.`;
     diaChi = state.url;
   } else if (state.kind === "khong-noi-duoc") {
     tieuDe = "Không mở được máy chủ";
-    than = `Không kết nối được tới API. Chi tiết: ${state.detail}`;
+    than = themChiTiet("Không kết nối được tới API.", state.detail);
     diaChi = state.url;
   } else if (state.kind === "may-chu-loi") {
     tieuDe = `Máy chủ trả lỗi ${state.status}`;
-    than = state.detail;
+    than = thanLoiMayChu(state.status, state.detail);
     diaChi = state.url;
   } else if (state.kind === "du-lieu-sai") {
     tieuDe = "Dữ liệu địa điểm không đúng dạng";
-    than = `App từ chối hiển thị thay vì vẽ ra số sai. Chi tiết: ${state.detail}`;
+    than = themChiTiet("App từ chối hiển thị thay vì vẽ ra số sai.", state.detail);
     diaChi = state.url;
   }
 
@@ -354,7 +359,7 @@ function ChuaCoDuLieu({ state }: { state: PlacesState }) {
           the name in copy would put the token in the bundle and cost the gate
           its meaning. The address below is the part a person can act on. */}
       <Text style={{ ...type.micro, color: c.inkFaint }}>
-        API app đang trỏ tới: {PLACES_BASE_URL} — đổi trong .env rồi mở lại app.
+        API app đang trỏ tới: {PLACES_BASE_URL}. Đổi trong .env rồi mở lại app.
       </Text>
     </Card>
   );
@@ -414,7 +419,7 @@ function TheDiaDiem({ place, onChon }: { place: Place; onChon: (p: Place) => voi
         opacity: pressed ? 0.9 : 1,
       })}
     >
-      <AnhDiaDiem category={place.category} height={124} rounded={0}>
+      <AnhDiaDiem category={place.category} height={124} rounded={0} uri={place.photoUrl} name={place.name}>
         <View style={{ flex: 1, padding: space.xs, justifyContent: "space-between" }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
             <HuyHieuMatch match={place.match} />

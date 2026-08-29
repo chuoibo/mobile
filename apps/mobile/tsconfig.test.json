@@ -15,8 +15,49 @@
     "src/extraction.ts",
     "src/camera/access.ts",
     "src/camera/bill-photo.ts",
+    // rd-fe-25. The pick-compress-upload-cleanup lifecycle for photographs the
+    // group KEEPS, as opposed to a bill that is read and thrown away. Compiled
+    // rather than read as source because the three claims that matter are all
+    // negative -- a cancelled picker sends nothing, a failed upload leaves no
+    // temp file behind, and no thrown value of any shape reaches the screen as
+    // `[object ...]` -- and a negative is only settled by running the real
+    // function over the values libraries really throw. See
+    // `tests/tai-anh-len.test.mjs`.
+    "src/camera/anh-nhom.ts",
+    // The button those bytes leave through. Compiled so a test can render it
+    // and read the markup react-native-web actually emits: the claim is that
+    // an upload in flight is BOTH announced and unpressable, and `disabled`
+    // and `aria-busy` are only real once they have reached the DOM.
+    // `accessibilityState` compiles just as well and arrives as nothing --
+    // that is the whole subject of `tests/aria-state.test.mjs`.
+    "src/ui/NutChonAnh.tsx",
     "src/ui/direction.ts",
     "src/ui/a11y.ts",
+    // Which image addresses the app will dial. Compiled on its own line because
+    // the rule it carries is a *negative* one -- an address off our own API
+    // never becomes a request -- and the bypasses worth pinning (`//host`,
+    // a base that is a prefix of a longer host, userinfo before `@`) are
+    // properties of this function, provable with no renderer and no server.
+    "src/ui/nguon-anh.ts",
+    // The frame that turns one of those addresses into a request. Compiled
+    // rather than read as source because the claim it carries -- an allowed
+    // address becomes a real `<img>`, a refused one becomes no element and no
+    // preload -- is a fact about emitted markup. A source read cannot see it:
+    // `<Image` stays spelled in the file whether or not the branch that mounts
+    // it can ever be taken, which is exactly how the earlier gate here went
+    // blind. See the render block in `tests/anh.test.mjs`.
+    "src/ui/Anh.tsx",
+    // bug-185426. The copy shown when the server itself refuses. Compiled on
+    // its own line because the rule it carries -- a 5xx body never becomes the
+    // sentence, and never reaches the screen uncut -- is assertable without a
+    // renderer, and the excerpt half is the one worth pinning directly.
+    "src/ui/loi-may-chu.ts",
+    // bug-010822. The copy shown when the failure came from the device rather
+    // than the server. Compiled on its own line because the rule it carries is
+    // a negative one -- no thrown value, of any shape, can reach the screen as
+    // `[object ...]` -- and a negative is only provable by running the function
+    // over the values libraries really throw. See `tests/anh-hong.test.mjs`.
+    "src/ui/loi-tren-man.ts",
     "src/ui/qr.ts",
     "src/ui/vietqr.ts",
     "src/navigation/tabs.ts",
@@ -29,6 +70,11 @@
     // `tim-dia-diem.test.mjs` and `hieu-cau-web.test.mjs`.
     "src/screens/kham-pha/tim-kiem.ts",
     "src/screens/kham-pha/CauAiHieu.tsx",
+    // The catalogue screen itself, for `ChuaCoDuLieu`. Its 5xx card is the
+    // second copy of the same dead end `CauAiHieu.tsx` renders for search, and
+    // bug-185426 was present in both -- so both are rendered and read, rather
+    // than one being trusted to stand for the other.
+    "src/screens/kham-pha/KhamPha.tsx",
     "src/screens/chat/uuid5.ts",
     "src/screens/chat/tin-nhan.ts",
     "src/screens/chat/ke-hoach.ts",
@@ -92,6 +138,12 @@
     // `focusable` compiles just as well as `tabIndex` and reaches the DOM as
     // nothing. See `vung-cuon-ban-phim.test.mjs`.
     "src/screens/ca-nhan/CaNhan.tsx",
+    // F03/F04's client half. The shape check is compiled so a test can pin it
+    // against the server's own regex, and the refusal tables so a test can pin
+    // every key against a code the server can really raise -- the check
+    // `PUBLISH_REFUSALS` did not have when it shipped naming two codes that
+    // existed nowhere in `services/api/app`.
+    "src/screens/ca-nhan/ban-be.ts",
     // F13/F15 outing screens. Compiled so a test can run the pure rules under
     // bare node and render the two forms through react-native-web, the same
     // substitution Expo's web build performs, and read the markup a browser

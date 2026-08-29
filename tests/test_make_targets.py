@@ -171,6 +171,29 @@ class UpFailureTests(MakeHarness):
             "make up kept going after the stack failed to come up",
         )
 
+    def test_a_failed_up_warns_that_the_old_api_may_still_hold_the_port(self):
+        """The trap that cost six hours on 2026-08-29, written where it is read.
+
+        `api` waits on `migrate` with `service_completed_successfully`. When
+        `migrate` fails, Compose stops before it touches `api`, so the container
+        from the previous build is never replaced and keeps answering the
+        published port. `make up` exits non-zero, but its failure text was
+        about alembic and the API kept serving -- which reads as survivable. It
+        was not: the port served code from before two merges, missing five
+        routes, while `/healthz` returned 200 the whole time.
+
+        So the failure path has to name the trap and hand over the one command
+        that actually asks whether the port is usable.
+        """
+        self.set_stub_exit(1)
+
+        result = self.run_make("up")
+
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        text = result.stdout + result.stderr
+        self.assertIn("MÃ CŨ", text)
+        self.assertIn("make smoke", text)
+
 
 def _docker_compose_available() -> bool:
     if shutil.which("docker") is None:

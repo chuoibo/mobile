@@ -14,6 +14,7 @@ from app.api.receipt_skill import ReceiptReader
 from app.api.repository import ApiRepository, SqlAlchemyApiRepository
 from app.db.session import get_session_factory
 from app.domain.permissions import ROLES
+from app.media.storage import PhotoStorage
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +42,19 @@ class Companion(Protocol):
         places: list[dict],
         budget_per_person_vnd: int | None,
     ) -> dict: ...
+
+
+class Suggester(Protocol):
+    """A model backend that returns an untrusted, raw F32 suggestion card.
+
+    Takes the server's own history digest, never a conversation: a proactive
+    card is built from what the group did, not from what anybody just said.
+    Returning `None` is an allowed answer and means "no suggestion right now".
+    """
+
+    def __call__(
+        self, history: dict, places: list[dict]
+    ) -> dict | None: ...
 
 
 def _csv(value: str | None) -> list[str]:
@@ -85,6 +99,10 @@ def get_repository() -> Generator[ApiRepository]:
         yield SqlAlchemyApiRepository(session)
 
 
+def get_photo_storage() -> PhotoStorage:
+    return PhotoStorage()
+
+
 def get_receipt_reader() -> ReceiptReader:
     """Build the external reader lazily so importing the app needs no key."""
 
@@ -99,3 +117,16 @@ def get_companion() -> Companion:
     from app.api.companion_gemini import GeminiCompanion
 
     return GeminiCompanion()
+
+
+def get_suggester() -> Suggester:
+    """Seam for tests, and the F32 backend for everyone else.
+
+    Returned as a plain function rather than a memoised object: a suggestion is
+    a function of a group's history, and caching one keyed on anything coarser
+    would serve one group's evening to another.
+    """
+
+    from app.api.suggestion_gemini import gemini_suggestion
+
+    return gemini_suggestion

@@ -464,7 +464,7 @@ function ThemBangMa({ ma, onMa, tenGoTay, onTenGoTay, dangLam, onThem }: {
       <Text style={{ ...type.title, color: c.ink }}>Thêm bằng mã kết bạn</Text>
       <Text style={{ ...type.label, color: c.inkSoft }}>
         Quét mã của bạn mình bằng camera điện thoại rồi dán đường dẫn vào đây.
-        App chưa có máy quét riêng — camera sẵn có của máy làm việc đó tốt hơn.
+        App chưa có máy quét riêng, và camera sẵn có của máy làm việc đó tốt hơn.
       </Text>
       <Field
         label="Mã hoặc đường dẫn"

@@ -6,13 +6,17 @@ import pathlib
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.cors import install_cors
-from app.api.errors import ApiProblem
-from app.api.guest_privacy import GuestPrivacyHeadersMiddleware
+from app.api.errors import GUEST_LINK_NOT_FOUND, ApiProblem
+from app.api.guest_privacy import (
+    GuestPrivacyHeadersMiddleware,
+    guest_aware_server_error_response,
+    is_guest_path,
+)
 from app.api.idempotency import (
     IdempotencyMiddleware,
     IdempotencyStore,
@@ -26,6 +30,7 @@ from app.api.routes import (
     contexts,
     expenses,
     finance,
+    friends,
     guests,
     identity,
     memories,
@@ -33,11 +38,17 @@ from app.api.routes import (
     obligations,
     outings,
     people,
+    photos,
     places,
     recap,
     receipts,
+    suggestions,
 )
 from app.api.schemas import ErrorResponse
+from app.api.search_rate_limit import (
+    build_receipt_scan_limiter,
+    build_search_limiter,
+)
 from app.db.session import get_session_factory
 
 WEB_ROOT = pathlib.Path(__file__).resolve().parents[1] / "web"
@@ -63,15 +74,26 @@ def create_app(
     idempotency_in_flight_wait_seconds: float | None = None,
 ) -> FastAPI:
     application = FastAPI(title="Group Expense API", version="0.1.0")
+
+    # Per application, not per module: `POST /places/search` spends real model
+    # quota, and the window that caps it has to outlive a request while not
+    # outliving the app that owns it. See `app/api/search_rate_limit.py`.
+    application.state.search_limiter = build_search_limiter()
+    # `POST /receipts/scan` spends the same key on a vision call. Its own
+    # window, not a share of the one above: see `build_receipt_scan_limiter`.
+    application.state.receipt_scan_limiter = build_receipt_scan_limiter()
+
     application.mount(
         "/static",
         StaticFiles(directory=str(WEB_ROOT / "static")),
         name="static",
     )
     application.include_router(expenses.router)
+    application.include_router(friends.router)
     application.include_router(bills.router)
     application.include_router(contexts.router)
     application.include_router(memories.router)
+    application.include_router(photos.router)
     application.include_router(outings.router)
     application.include_router(messages.router)
     application.include_router(batches.router)
@@ -84,6 +106,7 @@ def create_app(
     application.include_router(finance.router)
     application.include_router(recap.router)
     application.include_router(receipts.router)
+    application.include_router(suggestions.router)
 
     # Middleware, not a decorator on each route: a write route added later is
     # covered the moment it is registered, with no list for anyone to forget.
@@ -112,6 +135,14 @@ def create_app(
     # seven guest routes.
     application.add_middleware(GuestPrivacyHeadersMiddleware)
 
+    # The one guest answer the middleware above cannot reach. Starlette's
+    # `ServerErrorMiddleware` is prepended ahead of every middleware installed
+    # here, so an unhandled exception unwinds past that layer and its 500 goes
+    # out from above it -- bare. Handling `Exception` here runs *inside* that
+    # outermost layer, which is the only place a crash page under `/g` can still
+    # be stamped. Non-guest crashes keep Starlette's own answer, unchanged.
+    application.add_exception_handler(Exception, guest_aware_server_error_response)
+
     # Installed last, which is what puts it outermost: `add_middleware`
     # prepends, and the first entry wraps everything after it.
     #
@@ -135,7 +166,24 @@ def create_app(
         return {"status": "ok"}
 
     @application.exception_handler(ApiProblem)
-    async def api_problem_handler(_request: Request, exc: ApiProblem) -> JSONResponse:
+    async def api_problem_handler(request: Request, exc: ApiProblem) -> Response:
+        """One branch, and only one: the guest boundary answers people.
+
+        Everywhere else an `ApiProblem` is read by a client we wrote. Under
+        `/g` it is read by a stranger on a phone who was sent a link, and a
+        token that resolves to nothing is the answer they are most likely to
+        get -- chat clients truncate long URLs when forwarding them, so a
+        correct link arrives here missing its tail. That branch was handing
+        them `{"code":"guest_link_not_found"}` in English while the repo
+        already owned the right wording for a link that stopped working.
+
+        Only this one code is redirected. An expired or revoked link is a
+        different fact and already has its own page; every other problem under
+        `/g` stays machine-readable.
+        """
+
+        if exc.code == GUEST_LINK_NOT_FOUND and is_guest_path(request.url.path):
+            return guests.guest_link_broken_page(request)
         body = ErrorResponse(code=exc.code, detail=exc.detail)
         return JSONResponse(status_code=exc.status_code, content=body.model_dump())
 

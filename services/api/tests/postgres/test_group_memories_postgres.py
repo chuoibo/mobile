@@ -42,8 +42,20 @@ from .test_repository_postgres import NOW
 
 pytestmark = pytest.mark.postgres
 
-PHOTO = "https://cdn.example/kyniem/da-lat-01.jpg"
 CAPTION = "Một chiều chill thật chill ở Đà Lạt"
+
+
+def _photo_url(context_id: uuid.UUID) -> str:
+    """A url shaped like the one `POST /contexts/{id}/photos` hands back.
+
+    `image_url` used to accept any string, which made it a tracking pixel: the
+    poster chose a host, and every other member's device fetched from it. It
+    now accepts only a pointer into this group's own photo storage, so a
+    memory here has to carry one. The photo id need not resolve -- what is
+    under test on this path is the memory, not the bytes.
+    """
+
+    return f"/contexts/{context_id}/photos/{uuid.uuid4()}"
 
 
 def _http(session: Session, monkeypatch: pytest.MonkeyPatch):
@@ -115,14 +127,14 @@ def _remember(
     author: Person,
     *,
     caption: str | None = CAPTION,
-    image_url: str = PHOTO,
+    image_url: str | None = None,
     created_at=NOW,
 ) -> Memory:
     memory = Memory(
         id=uuid.uuid4(),
         context_id=context.id,
         author_id=author.id,
-        image_url=image_url,
+        image_url=image_url or _photo_url(context.id),
         caption=caption,
         created_at=created_at,
     )
@@ -135,6 +147,7 @@ def test_a_member_posts_a_memory_and_reads_it_back(
     postgres_session: Session, monkeypatch: pytest.MonkeyPatch
 ):
     context, owner, _ = _group(postgres_session)
+    photo = _photo_url(context.id)
     app = _http(postgres_session, monkeypatch)
 
     async def exchange():
@@ -145,7 +158,7 @@ def test_a_member_posts_a_memory_and_reads_it_back(
             posted = await client.post(
                 f"/contexts/{context.id}/memories",
                 headers=_headers(owner.id),
-                json={"image_url": PHOTO, "caption": CAPTION},
+                json={"image_url": photo, "caption": CAPTION},
             )
             listed = await client.get(
                 f"/contexts/{context.id}/memories", headers=_headers(owner.id)
@@ -156,7 +169,7 @@ def test_a_member_posts_a_memory_and_reads_it_back(
 
     assert posted.status_code == 201, posted.text
     body = posted.json()
-    assert body["image_url"] == PHOTO
+    assert body["image_url"] == photo
     assert body["caption"] == CAPTION
     assert body["author_id"] == str(owner.id)
     assert body["context_id"] == str(context.id)
@@ -174,7 +187,7 @@ def test_a_stranger_can_neither_read_nor_post_group_memories(
 ):
     """The acceptance criterion, at the boundary a real client uses."""
     context, owner, outsider = _group(postgres_session)
-    _remember(postgres_session, context, owner)
+    seeded = _remember(postgres_session, context, owner)
     app = _http(postgres_session, monkeypatch)
 
     async def exchange():
@@ -188,7 +201,10 @@ def test_a_stranger_can_neither_read_nor_post_group_memories(
             wrote = await client.post(
                 f"/contexts/{context.id}/memories",
                 headers=_headers(outsider.id),
-                json={"image_url": "https://cdn.example/khong-phai-cua-toi.jpg"},
+                # Well formed on purpose. A malformed url would be refused at
+                # the schema with a 422 and this test would stop proving that
+                # membership is what closes the door.
+                json={"image_url": _photo_url(context.id)},
             )
             return read, wrote
 
@@ -198,7 +214,7 @@ def test_a_stranger_can_neither_read_nor_post_group_memories(
     assert wrote.status_code == 403, wrote.text
     # A refusal is a place private data leaks by accident: the photo URL, the
     # caption and the poster's name must all be absent from the body.
-    assert PHOTO not in read.text
+    assert seeded.image_url not in read.text
     assert "Đà Lạt" not in read.text
     assert "Minh Anh" not in read.text
 
@@ -221,7 +237,7 @@ def test_a_person_who_left_the_group_stops_seeing_its_memories(
         state=MembershipState.LEFT,
         left_at=NOW,
     )
-    _remember(postgres_session, context, owner)
+    seeded = _remember(postgres_session, context, owner)
     app = _http(postgres_session, monkeypatch)
 
     async def exchange():
@@ -236,7 +252,7 @@ def test_a_person_who_left_the_group_stops_seeing_its_memories(
     read = anyio.run(exchange)
 
     assert read.status_code == 403, read.text
-    assert PHOTO not in read.text
+    assert seeded.image_url not in read.text
 
 
 def test_a_memory_belonging_to_another_group_never_appears_in_this_feed(
@@ -256,7 +272,6 @@ def test_a_memory_belonging_to_another_group_never_appears_in_this_feed(
         other,
         owner,
         caption="Sa Pa mù sương",
-        image_url="https://cdn.example/kyniem/sa-pa-01.jpg",
     )
     app = _http(postgres_session, monkeypatch)
 
@@ -291,7 +306,7 @@ def test_the_caption_is_optional_but_the_photo_is_not(
             silent = await client.post(
                 f"/contexts/{context.id}/memories",
                 headers=_headers(owner.id),
-                json={"image_url": PHOTO},
+                json={"image_url": _photo_url(context.id)},
             )
             blank = await client.post(
                 f"/contexts/{context.id}/memories",

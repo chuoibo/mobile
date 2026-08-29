@@ -24,6 +24,17 @@ from pydantic import (
 MoneyVnd = Annotated[int, Field(strict=True)]
 PositiveMoneyVnd = Annotated[int, Field(strict=True, gt=0)]
 NonNegativeMoneyVnd = Annotated[int, Field(strict=True, ge=0)]
+RelativePhotoUrl = Annotated[
+    StrictStr,
+    Field(
+        pattern=(
+            r"\A/contexts/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-"
+            r"[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/photos/"
+            r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+            r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\z"
+        )
+    ),
+]
 
 
 class ApiModel(BaseModel):
@@ -444,9 +455,23 @@ class MemberRoleRequest(ApiModel):
 
 
 class MembershipResponse(ApiModel):
+    """One person's standing in one group, including who they are.
+
+    `display_name` is required rather than optional because the database makes
+    it so: `memberships.person_id` is a foreign key into `people`, whose
+    `display_name` is `NOT NULL`. An optional field would have invited every
+    client to invent its own placeholder, and a placeholder shared by two
+    unnamed people reads as one person on the screen whose job is telling them
+    apart.
+
+    Nothing may be derived from it. It repeats inside a group, it changes, and
+    identity stays the id.
+    """
+
     id: UUID
     context_id: UUID
     person_id: UUID
+    display_name: StrictStr
     state: Literal["invited", "active", "left"]
     role: Literal["member", "admin"]
     invited_by_id: UUID | None
@@ -483,11 +508,16 @@ class ContextBalancesResponse(ApiModel):
 
 
 class RecapOutingResponse(ApiModel):
-    """One finished trip on the memory wall.
+    """One trip on the recap -- finished, or still under way.
 
     `split_total_vnd` is recomputed from the ledger per request. It counts the
     expenses that happened on this trip's days, which is a rule the screen
     states out loud -- there is no `expenses.outing_id` to be exact with.
+
+    For a trip still under way that same rule reads as "so far": the trip's
+    days run past today, and only the expenses already confirmed are in the
+    ledger to be counted. The figure is a running one, and it is recomputed
+    rather than accumulated, so it can go *down* when somebody corrects a bill.
     """
 
     outing_id: UUID
@@ -502,13 +532,113 @@ class RecapOutingResponse(ApiModel):
 
 
 class GroupRecapResponse(ApiModel):
+    """Two lists, deliberately not one.
+
+    `outings` is the memory wall: trips that have ended, newest first. It is
+    unchanged, because a client is already reading it.
+
+    `in_progress` is the trip the group is on right now -- started on or before
+    today, ending today or later. It is separate rather than flagged inside
+    `outings` so that adding it could not quietly turn an unfinished trip into
+    a memory.
+
+    `split_total_vnd` totals `outings` alone. A memory wall's total that drifted
+    upward through the day, as the group kept eating, would stop matching the
+    per-trip figures printed under it.
+    """
+
     context_id: UUID
     outings: list[RecapOutingResponse]
+    in_progress: list[RecapOutingResponse]
     split_total_vnd: int
 
 
+class SuggestionPlace(ApiModel):
+    """The catalogue row behind one stop, and nothing the model wrote.
+
+    No `lat`/`lng`. The suggestion is about where a group might go next, not
+    about where anybody is, and a coordinate pair on this response would be
+    the first place F47 looked like it had been built.
+    """
+
+    id: str
+    name: str
+    category: str
+    address: str
+    price_min_vnd: int
+    price_max_vnd: int
+    rating: float
+    distance_km: float
+    open_hours: str
+
+
+class SuggestionStop(ApiModel):
+    """One stop. `reason` and `verdict` are one claim or neither.
+
+    The app prints `reason` under the words AI MATCH and prints the badge from
+    `verdict`, so half a pair renders as an endorsement nobody gave. They are
+    tied in `app/domain/suggestion.py`, at the single point every stop passes
+    through, rather than at each place that builds one of these.
+    """
+
+    time_text: str
+    note: str
+    reason: str | None
+    verdict: Literal["hop", "tam", "khong-hop"] | None
+    place: SuggestionPlace
+
+
+class SuggestionBasis(ApiModel):
+    """Why this suggestion, computed by the server from the group's own rows.
+
+    Recomputed per request from the ledger and the memory wall -- invariant 3
+    applied to a screen whose whole argument is "you have done this before".
+    Deliberately not asked of the model: a basis the model wrote would be a
+    number with nothing behind it, printed directly under one that has.
+    """
+
+    outing_count: int
+    split_total_vnd: int
+    avg_per_person_vnd: int | None
+    top_categories: list[str]
+    recent_titles: list[str]
+
+
+class GroupSuggestionResponse(ApiModel):
+    """F32. `suggested` is the honest half of the contract.
+
+    `false` with a reason is a real answer -- a group with no finished trips
+    has nothing to suggest from, and a model outage is not something to paper
+    over with a hand-written card. There is deliberately no fallback: a
+    plausible card served while the feature is broken is a broken feature
+    nobody can see is broken.
+    """
+
+    context_id: UUID
+    suggested: bool
+    #: `ok` | `no_history` | `unavailable` | `ungrounded`
+    reason: str
+    title: str | None
+    when_text: str | None
+    stops: list[SuggestionStop]
+    basis: SuggestionBasis
+    #: A claim about who wrote the sentences on these cards.
+    source: Literal["ai", "none"]
+
+
+class UploadedImageResponse(ApiModel):
+    id: UUID
+    context_id: UUID | None
+    url: str
+    content_type: str
+    byte_size: int
+    width: int
+    height: int
+    created_at: datetime
+
+
 class MemoryCreateRequest(ApiModel):
-    image_url: Annotated[StrictStr, Field(min_length=1)]
+    image_url: RelativePhotoUrl
     caption: str | None = None
 
 
@@ -575,7 +705,7 @@ class MemoryListResponse(ApiModel):
 class MessageCreateRequest(ApiModel):
     kind: Literal["text", "image", "ai_card"]
     body: Annotated[StrictStr, Field(max_length=4000)] | None = None
-    image_url: Annotated[StrictStr, Field(max_length=2000)] | None = None
+    image_url: RelativePhotoUrl | None = None
     card: dict | None = None
 
 
@@ -818,3 +948,68 @@ class BatchObligationsResponse(ApiModel):
 class ErrorResponse(ApiModel):
     code: StrictStr
     detail: StrictStr
+
+
+# --- friend graph (F03, F04) ------------------------------------------------
+
+
+class FriendRequestCreate(ApiModel):
+    """Who to ask. The requester is the actor header, never the body.
+
+    Taking `requester_id` from the body would let anybody send requests in
+    somebody else's name, and the recipient would see a request from a person
+    who never sent it.
+    """
+
+    addressee_id: UUID
+
+
+class FriendRequestDecision(ApiModel):
+    """The addressee's answer. Accepting is one of three, not the default."""
+
+    decision: Literal["accept", "decline", "block"]
+
+
+class FriendRequestResponse(ApiModel):
+    """One edge, as its two parties may see it.
+
+    `other_display_name` is the name of whoever the reader is not, resolved by
+    the repository. No telephone number appears in this model, and none can:
+    the server never stored one -- see `app/api/person_identity.py`.
+    """
+
+    id: UUID
+    requester_id: UUID
+    addressee_id: UUID
+    other_person_id: UUID
+    other_display_name: str
+    state: Literal["pending", "accepted", "declined", "blocked"]
+    created_at: datetime
+    decided_at: datetime | None = None
+
+
+class FriendRequestListResponse(ApiModel):
+    requests: list[FriendRequestResponse]
+
+
+class FriendSummary(ApiModel):
+    person_id: UUID
+    display_name: str
+    friends_since: datetime
+
+
+class FriendListResponse(ApiModel):
+    friends: list[FriendSummary]
+
+
+class PersonMatchResponse(ApiModel):
+    """The answer to "who holds this number".
+
+    An id and a name. Deliberately not a telephone number, not an email, not a
+    group list, not a friend count -- the caller supplied the only identifier
+    in this exchange, and gets back the least the product needs to render
+    "Send a friend request to Binh?".
+    """
+
+    person_id: UUID
+    display_name: str

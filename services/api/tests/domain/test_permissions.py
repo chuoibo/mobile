@@ -177,3 +177,57 @@ class AdvancerAcknowledgement(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FriendGraph(unittest.TestCase):
+    """F03 and F04 entries, asserted as DATA.
+
+    These exist because of a measured gap. Mutating each consent layer on its
+    own showed that deleting `is_invitee` from `respond_to_friend_request`
+    broke NOTHING: the domain state machine still refused, so every test
+    stayed green while the permission table had quietly stopped guarding
+    anything. A rule nobody checks is a rule that is already gone -- it just
+    has not been noticed. The table is data, so the test reads the data.
+    """
+
+    def test_answering_a_request_requires_being_the_one_asked(self):
+        self.assertEqual(
+            denial_reason("respond_to_friend_request", facts({"member"})),
+            "is_invitee",
+        )
+
+    def test_the_person_who_was_asked_may_answer(self):
+        self.assertTrue(
+            can("respond_to_friend_request", facts({"member"}, {"is_invitee"}))
+        )
+
+    def test_asking_requires_not_asking_yourself(self):
+        self.assertEqual(
+            denial_reason("send_friend_request", facts({"member"})), "is_not_self"
+        )
+
+    def test_anybody_may_ask_somebody_else(self):
+        self.assertTrue(can("send_friend_request", facts({"member"}, {"is_not_self"})))
+
+    def test_a_friend_list_belongs_to_its_owner(self):
+        self.assertEqual(
+            denial_reason("view_own_friends", facts({"member"})), "is_self"
+        )
+        self.assertTrue(can("view_own_friends", facts({"member"}, {"is_self"})))
+
+    def test_a_guest_may_not_touch_the_friend_graph(self):
+        """A capability token proves possession of one envelope, never identity."""
+        for action in (
+            "send_friend_request",
+            "respond_to_friend_request",
+            "view_own_friends",
+            "find_person_by_phone",
+        ):
+            with self.subTest(action=action):
+                self.assertEqual(
+                    denial_reason(
+                        action,
+                        facts({"guest"}, {"is_invitee", "is_not_self", "is_self"}),
+                    ),
+                    "role_not_permitted",
+                )

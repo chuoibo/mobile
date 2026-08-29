@@ -44,6 +44,7 @@
  * information the server withheld on purpose.
  */
 
+import { chiTietLoi } from "../../ui/loi-tren-man";
 import { parsePlace, PLACES_BASE_URL, type Category, type Place } from "./places";
 
 /** The server's own cap (`app/places/search.py`, `MAX_QUERY_CHARS`). Mirrored,
@@ -97,6 +98,9 @@ export type TimKiemState =
   | { kind: "co-ket-qua"; query: string; understood: Understood; places: Place[] }
   | { kind: "khong-tra-loi"; query: string }
   | { kind: "cau-khong-hop-le"; max: number }
+  | { kind: "chua-biet-la-ai" }
+  | { kind: "bi-tu-choi"; url: string }
+  | { kind: "qua-nhieu-lan"; query: string }
   | { kind: "chua-co-endpoint"; url: string; work: string }
   | { kind: "khong-noi-duoc"; url: string; detail: string }
   | { kind: "may-chu-loi"; url: string; status: number; detail: string }
@@ -194,7 +198,7 @@ export function searchUrl(base: string): string {
  */
 export async function askSearch(
   query: string,
-  opts: { base?: string; fetchImpl?: typeof fetch } = {},
+  opts: { base?: string; fetchImpl?: typeof fetch; actorId?: string } = {},
 ): Promise<TimKiemState> {
   const base = opts.base ?? PLACES_BASE_URL;
   const url = searchUrl(base);
@@ -205,19 +209,44 @@ export async function askSearch(
     return { kind: "cau-khong-hop-le", max: MAX_QUERY_CHARS };
   }
 
+  // Answered here rather than by the server, for the same reason the length cap
+  // is: the app already knows this one. Sending the request anyway would spend a
+  // round trip to be told 401, and 401 is the status this screen has the least
+  // ability to explain -- "máy chủ từ chối" is true and sends the person to look
+  // at the server, when what actually happened is that nobody is signed in yet.
+  if (!opts.actorId) return { kind: "chua-biet-la-ai" };
+
   let res: Response;
   try {
     res = await doFetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        // Who is spending the quota. rd-be-13 meters this route at 12 calls per
+        // minute *per actor*, so the header is what keeps one person's burst
+        // from being everybody's outage. Deliberately the only actor header
+        // sent: `search_places` reads `actor.id` and authorises nothing, and a
+        // role claimed here would be a claim this screen does not need.
+        "X-Actor-ID": opts.actorId,
+      },
       // The sentence, alone, as its own field. See the module header.
       body: JSON.stringify({ query: trimmed }),
     });
   } catch (e) {
-    return { kind: "khong-noi-duoc", url, detail: (e as Error).message };
+    return { kind: "khong-noi-duoc", url, detail: chiTietLoi(e) };
   }
 
   if (res.status === 404) return { kind: "chua-co-endpoint", url, work: SEARCH_WORK_ITEM };
+  // The actor header went out and was still refused, so the two sides disagree
+  // about who this is. Carries no body: the server says `authentication_required`
+  // in English, and neither that nor the address it names is something the
+  // person holding the phone can act on beyond signing in again.
+  if (res.status === 401 || res.status === 403) return { kind: "bi-tu-choi", url };
+  // Metered, not broken. Distinguished from every other refusal because it is
+  // the only one that fixes itself by waiting, and because `may-chu-loi` would
+  // put the limiter's English sentence and its window size on screen.
+  if (res.status === 429) return { kind: "qua-nhieu-lan", query: trimmed };
   // 422 gets its own state so FastAPI's validation body never reaches a person.
   // The client mirrors both of the server's limits, so arriving here means the
   // two copies have drifted -- worth a plain sentence, not a JSON dump.
@@ -235,7 +264,7 @@ export async function askSearch(
   try {
     return parseSearch(await res.json(), trimmed);
   } catch (e) {
-    return { kind: "du-lieu-sai", url, detail: (e as Error).message };
+    return { kind: "du-lieu-sai", url, detail: chiTietLoi(e) };
   }
 }
 

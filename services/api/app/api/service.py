@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 import uuid
 from collections import defaultdict
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from app.api import companion_places
 from app.api.cursors import CursorError, decode_cursor, encode_cursor
-from app.api.deps import Actor, Companion
+from app.api.deps import Actor, Companion, Suggester
 from app.api.errors import ApiProblem, RepositoryConflict
 from app.api.limits import OBJECTION_KINDS, QUOTA_CONSUMING_OBJECTIONS
 from app.api.repository import (
@@ -19,6 +21,7 @@ from app.api.repository import (
     ApiRepository,
     BankRecipientRecord,
     BillRecord,
+    FriendEdgeRecord,
     GuestLinkDraft,
     MembershipRecord,
     MemoryRecord,
@@ -28,7 +31,9 @@ from app.api.repository import (
     OutingRecord,
     PersonFinanceSummary,
     PersonRecord,
+    RecapOutingRecord,
     StopCheckinRecord,
+    UploadedImageRecord,
 )
 from app.api.schemas import (
     AllocationProposal,
@@ -59,7 +64,14 @@ from app.api.schemas import (
     ExpenseConfirmationResponse,
     ExpenseInput,
     ExpenseProposalResponse,
+    FriendListResponse,
+    FriendRequestCreate,
+    FriendRequestDecision,
+    FriendRequestListResponse,
+    FriendRequestResponse,
+    FriendSummary,
     GroupRecapResponse,
+    GroupSuggestionResponse,
     MemberRoleRequest,
     MembershipInviteRequest,
     MembershipListResponse,
@@ -84,6 +96,7 @@ from app.api.schemas import (
     OutingTimelineRequest,
     PaymentReportRequest,
     PaymentReportResponse,
+    PersonMatchResponse,
     PublishedGuestLink,
     PublishedObligation,
     RecapOutingResponse,
@@ -91,6 +104,9 @@ from app.api.schemas import (
     ReceiptConfirmationResponse,
     SettlementTransferProposal,
     StopCheckinResponse,
+    SuggestionBasis,
+    SuggestionStop,
+    UploadedImageResponse,
 )
 from app.domain import permissions
 from app.domain.allocator import allocate
@@ -101,6 +117,17 @@ from app.domain.collection import CollectionError, transition, unmet_publish_gat
 from app.domain.companion import CompanionError, ground_card, plan_turn
 from app.domain.contract import AllocationError
 from app.domain.expense import component_rollups
+from app.domain.friendship import (
+    BLOCKED_IS_SILENT,
+    Decision,
+    FriendshipError,
+)
+from app.domain.friendship import (
+    decide as decide_friendship,
+)
+from app.domain.friendship import (
+    open_request as open_friendship_request,
+)
 from app.domain.ledger import (
     LedgerError,
     group_balances,
@@ -109,6 +136,13 @@ from app.domain.ledger import (
     obligations_from_allocations,
     settlement_plan,
 )
+from app.domain.suggestion import (
+    SuggestionError,
+    ground_suggestion,
+    summarise_history,
+)
+from app.media.images import ImageRejected, sanitize_image
+from app.media.storage import PhotoStorage, new_storage_key
 from app.payments.banks import describe_bank
 from app.payments.vietqr import VietQRError, build_payload
 from app.places.catalog import find_place
@@ -120,7 +154,13 @@ from app.web.objection_view import (
     build_wrong_amount_view,
 )
 
+logger = logging.getLogger(__name__)
+
 CONTEXT_WINDOW = 40
+#: How far back F32 reads check-ins when working out what kind of place a
+#: group keeps choosing. A ceiling rather than a window: the digest is a
+#: shape, and one more year of arrivals does not change it.
+SUGGESTION_HISTORY_LIMIT = 100
 OUTING_INVITE_TTL = timedelta(days=7)
 
 
@@ -191,6 +231,68 @@ def _require_permission(
     reason = permissions.denial_reason(action, facts)
     if reason is not None:
         raise ApiProblem(403, "permission_denied", reason)
+
+
+def _image_rejection_problem(exc: ImageRejected) -> ApiProblem:
+    status_code = {
+        "image_too_large": 413,
+        "image_dimensions_too_large": 413,
+        "not_an_image": 415,
+    }[exc.code]
+    return ApiProblem(status_code, exc.code, exc.detail)
+
+
+def _require_photo_url_context(context_id: uuid.UUID, image_url: str | None) -> None:
+    """Refuse a photo url that points into another group's storage.
+
+    The schema already pins `image_url` to `/contexts/{uuid}/photos/{uuid}`,
+    so a malformed value should not arrive here. "Should not" is not a gate:
+    this parses defensively rather than inheriting the promise of the layer
+    above it, because the day that promise moves, a bad request body becomes a
+    500 instead of a 422.
+    """
+
+    if image_url is None:
+        return
+    # ["", "contexts", <context id>, "photos", <photo id>]
+    parts = image_url.split("/")
+    try:
+        if (
+            len(parts) != 5
+            or parts[0]
+            or parts[1] != "contexts"
+            or parts[3] != "photos"
+        ):
+            raise ValueError(image_url)
+        photo_context_id = uuid.UUID(parts[2])
+        uuid.UUID(parts[4])
+    except ValueError:
+        raise ApiProblem(
+            422,
+            "photo_url_invalid",
+            "Photo URL is not a path into this product's photo storage",
+        ) from None
+    if photo_context_id != context_id:
+        raise ApiProblem(
+            422,
+            "photo_context_mismatch",
+            "Photo URL context does not match the requested context",
+        )
+
+
+def _uploaded_image_response(
+    record: UploadedImageRecord, url: str
+) -> UploadedImageResponse:
+    return UploadedImageResponse(
+        id=record.id,
+        context_id=record.context_id,
+        url=url,
+        content_type=record.content_type,
+        byte_size=record.byte_size,
+        width=record.width,
+        height=record.height,
+        created_at=record.created_at,
+    )
 
 
 def _bank_recipient_response(record: BankRecipientRecord) -> BankRecipientResponse:
@@ -266,8 +368,7 @@ def _wire_bill(record: BillRecord) -> BillResponse:
         key=lambda key: key.encode("utf-8"),
     )
     all_confirmed = bool(record.items) and all(
-        item.shares
-        and all(share.source == "confirmed" for share in item.shares)
+        item.shares and all(share.source == "confirmed" for share in item.shares)
         for item in record.items
     )
     return BillResponse(
@@ -326,12 +427,27 @@ def _wire_membership(record: MembershipRecord) -> MembershipResponse:
         id=record.id,
         context_id=record.context_id,
         person_id=record.person_id,
+        display_name=record.display_name,
         state=record.state,
         role=record.role,
         invited_by_id=record.invited_by_id,
         joined_at=record.joined_at,
         left_at=record.left_at,
         created_at=record.created_at,
+    )
+
+
+def _wire_friend_edge(record: FriendEdgeRecord) -> FriendRequestResponse:
+    """One edge onto the wire. No telephone number exists to omit."""
+    return FriendRequestResponse(
+        id=record.id,
+        requester_id=record.requester_id,
+        addressee_id=record.addressee_id,
+        other_person_id=record.other_person_id,
+        other_display_name=record.other_display_name,
+        state=record.state,
+        created_at=record.created_at,
+        decided_at=record.decided_at,
     )
 
 
@@ -373,6 +489,27 @@ def _wire_outing(record: OutingRecord) -> OutingResponse:
             )
             for stop in record.stops
         ],
+    )
+
+
+def _wire_recap_outing(record: RecapOutingRecord) -> RecapOutingResponse:
+    """One trip on the recap, finished or under way.
+
+    Shared by both lists on purpose. A trip the group is still on has to arrive
+    in the same shape as one that is over, or the screen ends up with two ways
+    to read a trip's spending and two chances to read one of them wrong.
+    """
+
+    return RecapOutingResponse(
+        outing_id=record.outing.id,
+        title=record.outing.title,
+        starts_on=record.outing.starts_on,
+        ends_on=record.outing.ends_on,
+        headcount=record.outing.headcount,
+        stops=_wire_outing(record.outing).stops,
+        split_total_vnd=record.split_total_vnd,
+        expense_count=record.expense_count,
+        memory_count=record.memory_count,
     )
 
 
@@ -419,8 +556,14 @@ def _group_budget_per_person_vnd() -> int | None:
 
 
 class ApiService:
-    def __init__(self, repository: ApiRepository):
+    def __init__(
+        self,
+        repository: ApiRepository,
+        *,
+        photo_storage: PhotoStorage | None = None,
+    ):
         self.repository = repository
+        self.photo_storage = PhotoStorage() if photo_storage is None else photo_storage
 
     def register_person(
         self, person_id: uuid.UUID, display_name: str, actor: Actor
@@ -613,6 +756,31 @@ class ApiService:
                 404, "membership_not_found", "Active membership does not exist"
             )
 
+    def get_context(self, context_id: uuid.UUID, actor: Actor) -> ContextResponse:
+        """Trade a group id for the group's name, for members only.
+
+        The order of the two checks below is the security property, not an
+        implementation detail. A group id travels in share links, so answering
+        404 for an unknown id and 403 for a real one would turn this route into
+        an oracle: a stranger could enumerate ids and learn which groups exist.
+        Membership is therefore decided before the row is read, and a
+        non-member gets the same 403 either way.
+        """
+        _require_permission(
+            "view_context_members",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        record = self.repository.get_context(context_id)
+        if record is None:
+            raise ApiProblem(404, "context_not_found", "Context does not exist")
+        return ContextResponse(
+            id=record.id,
+            display_name=record.display_name,
+            created_by_id=record.created_by_id,
+            created_at=record.created_at,
+        )
+
     def list_context_members(
         self, context_id: uuid.UUID, actor: Actor
     ) -> MembershipListResponse:
@@ -690,6 +858,105 @@ class ApiService:
             transfer_count=plan["transfer_count"],
         )
 
+    def _store_uploaded_image(
+        self,
+        raw: bytes,
+        *,
+        context_id: uuid.UUID | None,
+        owner_person_id: uuid.UUID | None,
+        uploaded_by_id: uuid.UUID,
+    ) -> UploadedImageRecord:
+        try:
+            sanitized = sanitize_image(raw)
+        except ImageRejected as exc:
+            raise _image_rejection_problem(exc) from None
+
+        storage_key = new_storage_key()
+        self.photo_storage.write(storage_key, sanitized.data)
+        return self.repository.create_uploaded_image(
+            storage_key=storage_key,
+            context_id=context_id,
+            owner_person_id=owner_person_id,
+            uploaded_by_id=uploaded_by_id,
+            content_type=sanitized.content_type,
+            byte_size=len(sanitized.data),
+            width=sanitized.width,
+            height=sanitized.height,
+            now=_now(),
+        )
+
+    def upload_context_photo(
+        self, context_id: uuid.UUID, raw: bytes, actor: Actor
+    ) -> UploadedImageResponse:
+        _require_permission(
+            "post_group_memory",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        record = self._store_uploaded_image(
+            raw,
+            context_id=context_id,
+            owner_person_id=None,
+            uploaded_by_id=actor.id,
+        )
+        return _uploaded_image_response(
+            record, f"/contexts/{context_id}/photos/{record.id}"
+        )
+
+    def read_context_photo(
+        self, context_id: uuid.UUID, image_id: uuid.UUID, actor: Actor
+    ) -> tuple[bytes, str]:
+        _require_permission(
+            "view_group_memories",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        record = self.repository.get_context_image(context_id, image_id)
+        if record is None:
+            raise ApiProblem(404, "photo_not_found", "Photo does not exist")
+        try:
+            content = self.photo_storage.read(record.storage_key)
+        except FileNotFoundError:
+            raise ApiProblem(404, "photo_not_found", "Photo does not exist") from None
+        return content, record.content_type
+
+    def set_person_avatar(
+        self, person_id: uuid.UUID, raw: bytes, actor: Actor
+    ) -> UploadedImageResponse:
+        _require_permission(
+            "set_own_avatar",
+            actor,
+            {"is_self": actor.id == person_id},
+        )
+        record = self._store_uploaded_image(
+            raw,
+            context_id=None,
+            owner_person_id=person_id,
+            uploaded_by_id=actor.id,
+        )
+        return _uploaded_image_response(record, f"/people/{person_id}/avatar")
+
+    def read_person_avatar(
+        self, person_id: uuid.UUID, actor: Actor
+    ) -> tuple[bytes, str]:
+        _require_permission(
+            "view_person_avatar",
+            actor,
+            {
+                "shares_a_group_with_subject": (
+                    self.repository.shares_active_context(actor.id, person_id)
+                )
+            },
+        )
+        record = self.repository.get_latest_avatar(person_id)
+        if record is None:
+            raise ApiProblem(404, "avatar_not_found", "Avatar does not exist")
+        try:
+            content = self.photo_storage.read(record.storage_key)
+        except FileNotFoundError:
+            raise ApiProblem(404, "avatar_not_found", "Avatar does not exist") from None
+        return content, record.content_type
+
     def post_context_memory(
         self,
         context_id: uuid.UUID,
@@ -701,6 +968,7 @@ class ApiService:
             actor,
             {"is_group_member": self.repository.is_member(context_id, actor.id)},
         )
+        _require_photo_url_context(context_id, request.image_url)
         record = self.repository.create_memory(
             context_id=context_id,
             author_id=actor.id,
@@ -750,12 +1018,20 @@ class ApiService:
         )
 
     def group_recap(self, context_id: uuid.UUID, actor: Actor) -> GroupRecapResponse:
-        """The memory wall: trips that are over, and what they cost.
+        """Trips that are over, and -- separately -- the one the group is on.
 
         Reuses `view_group_memories` rather than minting a permission. This is
         the memory wall's own read -- a different name for the same act would
         make it possible to be a member who can see the photos but not the
         trip they were taken on, which is a distinction nobody asked for.
+
+        The two lists are kept apart rather than merged with a flag, because
+        they answer different questions and one of them was already being
+        asked. `outings` is the memory wall and has a client reading it today;
+        putting a trip nobody has come home from yet into that list would show
+        an unfinished trip as a memory and silently change what the field
+        means. `in_progress` is budget awareness (F34), which is only worth
+        anything while the money is still moving.
         """
         _require_permission(
             "view_group_memories",
@@ -768,25 +1044,137 @@ class ApiService:
         today = _now().astimezone(ZoneInfo(WALL_CLOCK_ZONE)).date()
         records = self.repository.group_recap(context_id, today=today)
         outings = [
-            RecapOutingResponse(
-                outing_id=record.outing.id,
-                title=record.outing.title,
-                starts_on=record.outing.starts_on,
-                ends_on=record.outing.ends_on,
-                headcount=record.outing.headcount,
-                stops=_wire_outing(record.outing).stops,
-                split_total_vnd=record.split_total_vnd,
-                expense_count=record.expense_count,
-                memory_count=record.memory_count,
-            )
-            for record in records
+            _wire_recap_outing(record) for record in records if not record.in_progress
         ]
         return GroupRecapResponse(
             context_id=context_id,
             outings=outings,
+            in_progress=[
+                _wire_recap_outing(record) for record in records if record.in_progress
+            ],
             # Summed here rather than by a sixth query: the per-trip figures on
-            # the screen have to add back up to the total above them.
+            # the screen have to add back up to the total above them. Finished
+            # trips only, and that is the point -- a memory wall whose total
+            # crept upward every time somebody bought lunch on the trip they
+            # are still on would stop matching the rows printed beneath it.
             split_total_vnd=sum(outing.split_total_vnd for outing in outings),
+        )
+
+    def group_suggestion(
+        self,
+        context_id: uuid.UUID,
+        actor: Actor,
+        suggester: Suggester,
+    ) -> GroupSuggestionResponse:
+        """F32 -- the companion proposes an evening nobody asked it for.
+
+        Built from this group's own past: the trips that are over and what they
+        cost (the same recomputed figures the memory wall reads, never a stored
+        total), plus the catalogue categories of the places they actually
+        checked in at. Both reads are scoped to `context_id` by the repository,
+        so there is no path here to a second group's history -- which matters
+        more than usual, because this response is the one screen in the product
+        that summarises a group in five numbers.
+
+        Every figure the screen shows as *evidence* is computed here.
+        `basis` never passes through the model, and the model is not asked to
+        restate it: a number written by a model, printed under a number derived
+        from the ledger, is the fabrication this whole surface exists to stop.
+
+        The model's only remaining job is to pick place identifiers and say why.
+        `ground_suggestion` refuses the entire card if it invented one, and
+        every failure lands on the same honest answer: 200, `suggested: false`,
+        with the reason it did not speak. There is no hand-written fallback
+        card, because a plausible suggestion served while the feature is broken
+        is a broken feature that nobody can see is broken.
+        """
+
+        _require_permission(
+            "view_group_suggestion",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+
+        # The server's own wall-clock day in Vietnam, exactly as the memory
+        # wall reads it: a trip that ended yesterday is history for everybody,
+        # including a phone whose clock is set wrong.
+        today = _now().astimezone(ZoneInfo(WALL_CLOCK_ZONE)).date()
+        trips = [
+            {
+                "title": record.outing.title,
+                "split_total_vnd": record.split_total_vnd,
+                "headcount": record.outing.headcount,
+            }
+            for record in self.repository.group_recap(context_id, today=today)
+        ]
+
+        places = companion_places.load_place_catalogue()
+        category_of = {
+            place["id"]: place.get("category")
+            for place in places
+            if isinstance(place.get("id"), str)
+        }
+        # Check-ins carry a catalogue `place_id`; photographs do not, and a
+        # caption is not evidence of a category. Rows whose place is no longer
+        # in the catalogue are dropped rather than counted under a stale id.
+        visits = [
+            {"category": category_of[memory.place_id]}
+            for memory in self.repository.list_memories(
+                context_id, limit=SUGGESTION_HISTORY_LIMIT, kind="checkin"
+            ).memories
+            if memory.place_id in category_of
+            and category_of[memory.place_id] is not None
+        ]
+
+        history = summarise_history(trips, visits)
+        basis = SuggestionBasis(**history)
+
+        def _silent(reason: str) -> GroupSuggestionResponse:
+            return GroupSuggestionResponse(
+                context_id=context_id,
+                suggested=False,
+                reason=reason,
+                title=None,
+                when_text=None,
+                stops=[],
+                basis=basis,
+                source="none",
+            )
+
+        # Nothing to reason from is not a failure, and inventing a first outing
+        # for a group that has never been anywhere would be the product
+        # asserting a past that did not happen.
+        if history["outing_count"] == 0:
+            return _silent("no_history")
+
+        try:
+            raw = suggester(history, places)
+        except Exception as error:  # noqa: BLE001 - a home screen must not 500
+            logger.warning(
+                "group suggestion: backend failed (%s)", type(error).__name__
+            )
+            return _silent("unavailable")
+        if raw is None:
+            return _silent("unavailable")
+
+        try:
+            grounded = ground_suggestion(raw, places)
+        except SuggestionError as error:
+            # The code, never the card. What provoked the refusal is model
+            # output shaped by a private group's own text.
+            logger.warning("group suggestion: card refused (%s)", error.code)
+            return _silent("ungrounded")
+
+        payload = grounded["payload"]
+        return GroupSuggestionResponse(
+            context_id=context_id,
+            suggested=True,
+            reason="ok",
+            title=payload["title"],
+            when_text=payload["when_text"],
+            stops=[SuggestionStop(**stop) for stop in payload["stops"]],
+            basis=basis,
+            source="ai",
         )
 
     def replace_outing_timeline(
@@ -801,11 +1189,7 @@ class ApiService:
         _require_permission(
             "edit_outing_timeline",
             actor,
-            {
-                "is_group_member": self.repository.is_member(
-                    record.context_id, actor.id
-                )
-            },
+            {"is_group_member": self.repository.is_member(record.context_id, actor.id)},
         )
         stops = [
             {
@@ -822,9 +1206,7 @@ class ApiService:
             )
         )
 
-    def check_in_to_stop(
-        self, stop_id: uuid.UUID, actor: Actor
-    ) -> StopCheckinResponse:
+    def check_in_to_stop(self, stop_id: uuid.UUID, actor: Actor) -> StopCheckinResponse:
         found = self.repository.get_outing_stop(stop_id)
         if found is None:
             raise ApiProblem(404, "stop_not_found", "Stop does not exist")
@@ -832,11 +1214,7 @@ class ApiService:
         _require_permission(
             "check_in_to_stop",
             actor,
-            {
-                "is_group_member": self.repository.is_member(
-                    outing.context_id, actor.id
-                )
-            },
+            {"is_group_member": self.repository.is_member(outing.context_id, actor.id)},
         )
         try:
             record = self.repository.create_stop_checkin(
@@ -863,11 +1241,7 @@ class ApiService:
         _require_permission(
             "view_stop_checkins",
             actor,
-            {
-                "is_group_member": self.repository.is_member(
-                    outing.context_id, actor.id
-                )
-            },
+            {"is_group_member": self.repository.is_member(outing.context_id, actor.id)},
         )
         return OutingCheckinListResponse(
             outing_id=outing_id,
@@ -899,11 +1273,7 @@ class ApiService:
         _require_permission(
             "invite_to_outing",
             actor,
-            {
-                "is_group_member": self.repository.is_member(
-                    outing.context_id, actor.id
-                )
-            },
+            {"is_group_member": self.repository.is_member(outing.context_id, actor.id)},
         )
 
         raw_token: str | None = None
@@ -1019,11 +1389,7 @@ class ApiService:
         _require_permission(
             "revoke_outing_invite",
             actor,
-            {
-                "is_group_member": self.repository.is_member(
-                    outing.context_id, actor.id
-                )
-            },
+            {"is_group_member": self.repository.is_member(outing.context_id, actor.id)},
         )
         if invite.accepted_at is not None:
             raise ApiProblem(
@@ -1137,19 +1503,23 @@ class ApiService:
         )
 
         payload_is_valid = (
-            request.kind == "text"
-            and request.body is not None
-            and request.image_url is None
-            and request.card is None
-        ) or (
-            request.kind == "image"
-            and request.image_url is not None
-            and request.card is None
-        ) or (
-            request.kind == "ai_card"
-            and request.card is not None
-            and request.image_url is None
-            and request.body is None
+            (
+                request.kind == "text"
+                and request.body is not None
+                and request.image_url is None
+                and request.card is None
+            )
+            or (
+                request.kind == "image"
+                and request.image_url is not None
+                and request.card is None
+            )
+            or (
+                request.kind == "ai_card"
+                and request.card is not None
+                and request.image_url is None
+                and request.body is None
+            )
         )
         if not payload_is_valid:
             raise ApiProblem(
@@ -1158,6 +1528,7 @@ class ApiService:
                 "Message payload does not match its kind",
             )
 
+        _require_photo_url_context(context_id, request.image_url)
         record = self.repository.create_message(
             context_id=context_id,
             author_id=actor.id,
@@ -1191,7 +1562,9 @@ class ApiService:
             before = decode_cursor(query.before) if query.before is not None else None
             after = decode_cursor(query.after) if query.after is not None else None
         except CursorError as exc:
-            raise ApiProblem(422, "invalid_cursor", "Message cursor is invalid") from exc
+            raise ApiProblem(
+                422, "invalid_cursor", "Message cursor is invalid"
+            ) from exc
 
         page = self.repository.list_messages(
             context_id,
@@ -1236,9 +1609,7 @@ class ApiService:
             }
             for message in messages
         ]
-        decision = plan_turn(
-            {"messages": metadata, "now": _now().isoformat()}
-        )
+        decision = plan_turn({"messages": metadata, "now": _now().isoformat()})
         if not decision["may_speak"]:
             return CompanionTurnResponse(
                 context_id=context_id,
@@ -1278,7 +1649,11 @@ class ApiService:
                 places=places,
                 budget_per_person_vnd=_group_budget_per_person_vnd(),
             )
-        except (CompanionError, RuntimeError):
+        except (CompanionError, RuntimeError) as error:
+            # The exception type, never the exception text: a backend error
+            # carries both the prompt (the group's own words) and the API key
+            # often enough that the message itself is the classic leak.
+            logger.warning("companion turn: backend failed (%s)", type(error).__name__)
             return CompanionTurnResponse(
                 context_id=context_id,
                 spoke=False,
@@ -1288,7 +1663,10 @@ class ApiService:
 
         try:
             grounded = ground_card(raw, places)
-        except CompanionError:
+        except CompanionError as error:
+            # The refusal code is ours and is a closed set. What provoked the
+            # refusal is model output shaped by a private group's own text.
+            logger.warning("companion turn: card refused (%s)", error.code)
             return CompanionTurnResponse(
                 context_id=context_id,
                 spoke=False,
@@ -1323,9 +1701,7 @@ class ApiService:
             "set_member_role",
             actor,
             {
-                "is_group_admin": self.repository.membership_role(
-                    context_id, actor.id
-                )
+                "is_group_admin": self.repository.membership_role(context_id, actor.id)
                 == "admin"
             },
         )
@@ -1428,12 +1804,8 @@ class ApiService:
             )
         except RepositoryConflict as exc:
             if exc.code == "BILL_NOT_FOUND":
-                raise ApiProblem(
-                    404, "bill_not_found", "Bill does not exist"
-                ) from exc
-            raise ApiProblem(
-                409, exc.code, "Bill assignment conflicted"
-            ) from exc
+                raise ApiProblem(404, "bill_not_found", "Bill does not exist") from exc
+            raise ApiProblem(409, exc.code, "Bill assignment conflicted") from exc
         return _wire_bill(record)
 
     def split_bill(
@@ -1453,9 +1825,7 @@ class ApiService:
         }
         if not participant_ids:
             participant_ids = {
-                share.participant_id
-                for item in record.items
-                for share in item.shares
+                share.participant_id for item in record.items for share in item.shares
             }
 
         try:
@@ -1540,6 +1910,43 @@ class ApiService:
             allocation=_wire_allocation(allocation_result),
         )
 
+    def _require_participants_are_members(
+        self, context_id: uuid.UUID, participants: Sequence[uuid.UUID]
+    ) -> None:
+        """Every name charged by the ledger must be one the group contains.
+
+        The permission check above proves the *actor* belongs here. It says
+        nothing about the ids in the body, and those are the ones that get
+        money written against them. `ConfirmedAllocation.participant_id` has no
+        foreign key into `people`, so a UUID that names nobody survives the
+        write intact and reappears as a balance row and, once the batch
+        publishes, as a guest envelope addressed to no one.
+
+        Read the roster once rather than asking `is_member` per participant: a
+        bill from a large table would otherwise issue a query per diner, and
+        the set is needed whole anyway to name every stranger at once.
+        """
+
+        roster = {
+            membership.person_id
+            for membership in self.repository.list_members(context_id)
+            if membership.state == "active"
+        }
+        strangers = sorted(
+            {participant for participant in participants if participant not in roster},
+            key=lambda value: value.bytes,
+        )
+        if strangers:
+            raise ApiProblem(
+                422,
+                "participant_not_in_context",
+                # Naming them is not a roster leak: the caller sent these ids,
+                # so the answer only reflects their own input back. What it
+                # must never do is name anyone they did not ask about.
+                "Not members of this group: "
+                + ", ".join(str(stranger) for stranger in strangers),
+            )
+
     def confirm_expense(
         self,
         expense_id: uuid.UUID,
@@ -1560,6 +1967,9 @@ class ApiService:
             "confirm_expense_proposal",
             actor,
             {"is_group_member": identity.context_id in actor.context_ids},
+        )
+        self._require_participants_are_members(
+            identity.context_id, request.proposal.participants
         )
         acknowledgement = "pending"
         if request.acknowledge_as_advancer:
@@ -2173,6 +2583,189 @@ class ApiService:
             amount_vnd=record.amount_vnd,
             obligation_status=status,
         )
+
+    # --- friend graph (F03, F04) ---------------------------------------
+
+    def send_friend_request(
+        self, request: FriendRequestCreate, actor: Actor
+    ) -> FriendRequestResponse:
+        """Ask. This grants nothing until the other person answers.
+
+        Order matters and is the house rule: permission, then domain, then
+        repository. The domain call is not decoration here -- it is what
+        refuses a self-edge and what refuses to stack a second request on a
+        live one, using the same code for "already asked" and "blocked".
+        """
+        addressee_id = request.addressee_id
+        _require_permission(
+            "send_friend_request",
+            actor,
+            {"is_not_self": actor.id != addressee_id},
+        )
+        if self.repository.get_person(addressee_id) is None:
+            raise ApiProblem(404, "person_not_found", "Chưa có ai mang danh tính này.")
+
+        existing = self.repository.get_friend_edge(actor.id, addressee_id)
+        try:
+            open_friendship_request(
+                requester_id=str(actor.id),
+                addressee_id=str(addressee_id),
+                existing=None if existing is None else {"state": existing.state},
+            )
+        except FriendshipError as refused:
+            raise self._friend_refusal(refused) from refused
+
+        try:
+            record = self.repository.open_friend_request(
+                requester_id=actor.id, addressee_id=addressee_id, now=_now()
+            )
+        except RepositoryConflict as exc:
+            # The race arm of the same refusal. Deliberately the same status
+            # and the same code as the read arm above: if these differed, a
+            # blocked person could tell a block from a duplicate by timing.
+            raise ApiProblem(
+                409, BLOCKED_IS_SILENT.lower(), "Chưa gửi được lời mời này."
+            ) from exc
+        return _wire_friend_edge(record)
+
+    def respond_to_friend_request(
+        self, request_id: uuid.UUID, body: FriendRequestDecision, actor: Actor
+    ) -> FriendRequestResponse:
+        """Answer one. Accepting is the addressee's alone.
+
+        The permission table proves `is_invitee` from the row, and the domain
+        proves it again from the same row. Two layers that fail differently:
+        one is a data table somebody could edit without reading the domain, the
+        other is logic somebody could reach without going through a route.
+        """
+        edge = self.repository.get_friend_request(request_id, actor.id)
+        if edge is None:
+            raise ApiProblem(404, "friend_request_not_found", "Không có lời mời này.")
+
+        answer = Decision(body.decision)
+        # Blocking is the one answer either party may give, so the predicate
+        # proven for it is "you are a party", not "you were the one asked".
+        # Accept and decline keep the narrow `is_invitee`, which is what stops
+        # a requester from answering their own request.
+        is_invitee = (
+            actor.id in (edge.requester_id, edge.addressee_id)
+            if answer is Decision.BLOCK
+            else actor.id == edge.addressee_id
+        )
+        _require_permission(
+            "respond_to_friend_request", actor, {"is_invitee": is_invitee}
+        )
+
+        try:
+            decided = decide_friendship(
+                edge={
+                    "requester_id": str(edge.requester_id),
+                    "addressee_id": str(edge.addressee_id),
+                    "state": edge.state,
+                },
+                actor_id=str(actor.id),
+                decision=str(answer),
+            )
+        except FriendshipError as refused:
+            raise self._friend_refusal(refused) from refused
+
+        try:
+            record = self.repository.decide_friend_request(
+                request_id=request_id,
+                state=decided["state"],
+                decided_by_id=actor.id,
+                now=_now(),
+            )
+        except RepositoryConflict as exc:
+            # The write arm of the refusal the domain gives above. The read
+            # that fed `decide_friendship` was taken before the row was
+            # locked, so by the time the write holds the lock the edge may
+            # have moved. Answering with the code the domain would have given
+            # on the fresher read is what makes the two orderings of one race
+            # indistinguishable from outside: losing a race and never having
+            # been allowed must look the same, or timing becomes the channel a
+            # silent block leaks through.
+            if exc.code == "FRIEND_EDGE_EXISTS":
+                # Not a state the row is in -- a state the *pair* is in. The
+                # decision would have moved this row into a live state while a
+                # different live row already holds the pair, which is the same
+                # fact `send_friend_request` answers for, so it gets the same
+                # wire code.
+                raise ApiProblem(
+                    409,
+                    BLOCKED_IS_SILENT.lower(),
+                    "Chưa trả lời được lời mời này.",
+                ) from exc
+            raise self._friend_refusal(FriendshipError(exc.code)) from exc
+        if record is None:
+            raise ApiProblem(404, "friend_request_not_found", "Không có lời mời này.")
+        return _wire_friend_edge(record)
+
+    def list_friend_requests(
+        self, person_id: uuid.UUID, direction: str, actor: Actor
+    ) -> FriendRequestListResponse:
+        _require_permission(
+            "view_own_friends", actor, {"is_self": actor.id == person_id}
+        )
+        return FriendRequestListResponse(
+            requests=[
+                _wire_friend_edge(record)
+                for record in self.repository.list_friend_requests(
+                    person_id, direction=direction
+                )
+            ]
+        )
+
+    def list_friends(self, person_id: uuid.UUID, actor: Actor) -> FriendListResponse:
+        _require_permission(
+            "view_own_friends", actor, {"is_self": actor.id == person_id}
+        )
+        return FriendListResponse(
+            friends=[
+                FriendSummary(
+                    person_id=record.other_person_id,
+                    display_name=record.other_display_name,
+                    # An accepted row always carries a decision time: the check
+                    # constraint `decided_state_matches_timestamp` makes the
+                    # alternative unrepresentable, so this cannot be None.
+                    friends_since=record.decided_at or record.created_at,
+                )
+                for record in self.repository.list_friends(person_id)
+            ]
+        )
+
+    def find_person_by_person_id(
+        self, person_id: uuid.UUID, actor: Actor
+    ) -> PersonMatchResponse:
+        """Resolve an already-derived person id to a name.
+
+        The telephone number never reaches this method. `routes/friends.py`
+        turns the number into an id and drops it in the same expression; what
+        arrives here is the opaque id, which is why no argument on this
+        signature can be logged into a disclosure.
+        """
+        _require_permission("find_person_by_phone", actor, {})
+        person = self.repository.get_person(person_id)
+        if person is None:
+            # Same sentence whatever the input was. A refusal that varied with
+            # the number would be a directory with extra steps.
+            raise ApiProblem(
+                404, "person_not_found", "Chưa có ai dùng số này trong Rủ Đi."
+            )
+        return PersonMatchResponse(
+            person_id=person.id, display_name=person.display_name
+        )
+
+    @staticmethod
+    def _friend_refusal(refused: FriendshipError) -> ApiProblem:
+        """Map a domain code to an answer that does not narrate the graph."""
+        if refused.code == BLOCKED_IS_SILENT:
+            return ApiProblem(409, refused.code.lower(), "Chưa gửi được lời mời này.")
+        if refused.code == "SELF_EDGE":
+            return ApiProblem(422, "self_edge", "Không tự kết bạn với chính mình được.")
+        if refused.code in ("ONLY_ADDRESSEE_MAY_ANSWER", "NOT_A_PARTY"):
+            return ApiProblem(403, "permission_denied", refused.code.lower())
+        return ApiProblem(409, refused.code.lower(), "Lời mời không ở trạng thái đó.")
 
 
 __all__ = ["ApiService", "token_digest"]

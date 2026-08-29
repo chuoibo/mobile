@@ -8,16 +8,27 @@ import os
 from google import genai
 from google.genai import types
 
-from app.domain.companion import CompanionError
+from app.domain.companion import MAX_PLACES, MAX_STOPS, CompanionError
 
 __all__ = ["GeminiCompanion"]
 
 DEFAULT_MODEL = "gemini-2.5-flash"
 
-_PROMPT = """
+# The card limits are stated to the model rather than only enforced after it
+# answers. The model knows which stop matters to the plan and the server does
+# not, so a request for two days should come back condensed on purpose instead
+# of arriving whole and being cut at the tail.
+_PROMPT = f"""
 You are a quiet planning companion inside a private Vietnamese group chat.
 Return exactly one JSON card matching the supplied response schema. Speak in
 natural Vietnamese and suggest rather than decide for the group.
+
+A places card shows at most {MAX_PLACES} places and an itinerary card shows at
+most {MAX_STOPS} stops. These are hard limits on the card, not on the plan. When
+the trip does not fit -- a full day, or two days of specific times -- do not
+simply stop at the limit and let the rest fall off the end. Choose the stops
+that carry the plan, cover the whole span the group asked about, and say in the
+title or in a note that the card is a condensed version.
 
 You may choose a place only by copying a place_id from the supplied catalogue.
 Never invent a place_id. Never describe a place with your own name, address,
@@ -48,8 +59,15 @@ _PAYLOAD_SCHEMA = types.Schema(
         "text": _STRING,
         "intro": _STRING,
         "title": _STRING,
-        "place_ids": types.Schema(type=types.Type.ARRAY, items=_STRING),
-        "stops": types.Schema(type=types.Type.ARRAY, items=_STOP_SCHEMA),
+        # max_items mirrors the domain limits so the model condenses rather than
+        # overruns. It is a request and not a guarantee -- ground_card still
+        # counts anything it has to cut.
+        "place_ids": types.Schema(
+            type=types.Type.ARRAY, items=_STRING, max_items=MAX_PLACES
+        ),
+        "stops": types.Schema(
+            type=types.Type.ARRAY, items=_STOP_SCHEMA, max_items=MAX_STOPS
+        ),
     },
 )
 # Place descriptions are intentionally absent. The model can select an ID, but

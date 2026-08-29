@@ -46,6 +46,19 @@ _GROUPED_PATTERN = re.compile(
 )
 _PLAIN_PATTERN = re.compile(r"\d+")
 _FRACTIONAL_PATTERN = re.compile(r"(?P<whole>\d+)[.,](?P<fraction>\d+)")
+# A Vietnamese bill prints the count beside the dish -- "Trà đá X4" -- rather
+# than in a column of its own, and the reader transcribes that marker into
+# quantity_text. Both orders occur on paper, and the ASCII "x" and the
+# multiplication sign are the same mark set by different tools.
+#
+# The strictness is the point. This admits a marker wrapped around digits and
+# nothing else, so "vài", "4 phần" and "x4x" still raise INVALID_QUANTITY. A
+# quantity that cannot be read exactly must not be guessed: it divides a real
+# line total into the unit price shown beside a real dish.
+_QUANTITY_MARKER_PATTERN = re.compile(
+    r"(?:[x×]\s*(?P<leading>\d+)|(?P<trailing>\d+)\s*[x×])",
+    re.IGNORECASE,
+)
 
 
 class ReceiptError(Exception):
@@ -141,14 +154,44 @@ def normalize_vnd(text: str) -> int:
 
 
 def _read_quantity(item: dict) -> int:
+    """Read a printed count, treating "none was printed" as one of the item.
+
+    The model has three ways of saying a line prints no quantity column --
+    omitting the key, sending ``null``, sending an empty or blank string -- and
+    only the first used to be accepted. The other two raised INVALID_QUANTITY,
+    which ``read_receipt`` applies to the WHOLE document, so one blank on one
+    line threw away every correctly-read line beside it. rd-qa-38 measured that
+    on the hero path: 153 of 153 observed failures were this one code, and none
+    of them were a picture the model had misread.
+
+    Reading a blank as 1 cannot move money. ``line_total_text`` is transcribed
+    independently and the bill total is the sum of those line totals, so no
+    count chosen here enters an amount. A count is used only to cross-check a
+    printed unit price and to derive one when the bill printed none, where 1
+    makes the derivation ``line_total // 1`` -- the identity, inventing no
+    number. That is why this widening is safe while "x4" had to be read exactly
+    (#213): 4 genuinely divides a real total.
+
+    Widening "not printed" must not widen "printed and unreadable" -- "vài",
+    "0" and "2.5" are still refusals, and a non-string that is not ``None``
+    (4, [], True) is a broken contract rather than a blank.
+    """
+
     if "quantity_text" not in item:
         return 1
     quantity_text = item["quantity_text"]
+    if quantity_text is None:
+        return 1
     if not isinstance(quantity_text, str):
         raise ReceiptError("INVALID_QUANTITY")
     stripped = quantity_text.strip()
+    if not stripped:
+        return 1
     if _PLAIN_PATTERN.fullmatch(stripped) is None:
-        raise ReceiptError("INVALID_QUANTITY")
+        marker = _QUANTITY_MARKER_PATTERN.fullmatch(stripped)
+        if marker is None:
+            raise ReceiptError("INVALID_QUANTITY")
+        stripped = marker.group("leading") or marker.group("trailing")
     try:
         quantity = int(stripped)
     except ValueError:

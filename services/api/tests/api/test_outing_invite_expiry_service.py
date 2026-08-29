@@ -71,6 +71,7 @@ class PermissiveInviteRepository:
             id=uuid.uuid4(),
             context_id=context_id,
             person_id=person_id,
+            display_name="Hà",
             state="invited",
             role="member",
             origin="invite_link",

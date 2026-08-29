@@ -36,6 +36,8 @@
  * a model verdict of `hop`. Everything else says less. The test file pins each
  * case, because this is the exact spot where a demo starts lying politely.
  */
+import { chiTietLoi } from "../../ui/loi-tren-man";
+import { nguonAnhAnToan } from "../../ui/nguon-anh";
 
 /** Where the API lives. Same read as `api.ts`, and it has to stay this exact
  *  shape: Expo's inline-env-vars plugin pattern-matches the syntax tree and a
@@ -119,6 +121,8 @@ export type Place = {
   openHours: string;
   travelMinutes: number;
   photoCount: number;
+  /** Server-sent photograph. Null today: the field is not sent yet. */
+  photoUrl: string | null;
   traits: string[];
   groupFit: GroupFit | null;
   /** "new" | "hot" ribbon in the mockup's top-left. Null is the normal case. */
@@ -182,6 +186,26 @@ function str(v: unknown, field: string): string {
 function strList(v: unknown, field: string): string[] {
   if (!Array.isArray(v)) throw new Error(`${field} phải là mảng`);
   return v.map((x, i) => str(x, `${field}[${i}]`));
+}
+
+/**
+ * Read a server-sent image URL. Tolerant on purpose: missing, null, a
+ * non-string, or an empty string become `null` rather than a throw, because
+ * today's server does not send this field and every card must still render.
+ *
+ * Only addresses on this app's own API are accepted, and the rule lives in
+ * `nguonAnhAnToan` rather than here. This value goes straight into an
+ * `<Image>`, which *dials* it -- so an arbitrary host would learn the reader's
+ * IP and the moment they opened the screen. See `src/ui/nguon-anh.ts` for the
+ * full account of why the origin, and not just the scheme, is the thing being
+ * checked.
+ *
+ * This used to accept any `http(s)://` address and reject relative paths --
+ * backwards on both sides, since `/contexts/{id}/photos/{id}` is the shape the
+ * photo route actually returns.
+ */
+function parsePhotoUrl(v: unknown): string | null {
+  return nguonAnhAnToan(v, PLACES_BASE_URL);
 }
 
 function parseMatch(raw: unknown, field: string): Match | null {
@@ -253,6 +277,7 @@ export function parsePlace(raw: unknown, field: string): Place {
     openHours: str(p.open_hours, `${field}.open_hours`),
     travelMinutes: int(p.travel_minutes, `${field}.travel_minutes`),
     photoCount: int(p.photo_count ?? 0, `${field}.photo_count`),
+    photoUrl: parsePhotoUrl(p.photo_url),
     traits: strList(p.traits ?? [], `${field}.traits`),
     groupFit: fit
       ? {
@@ -306,7 +331,7 @@ export async function fetchPlaces(
   try {
     res = await doFetch(url, { headers: { Accept: "application/json" } });
   } catch (e) {
-    return { kind: "khong-noi-duoc", url, detail: (e as Error).message };
+    return { kind: "khong-noi-duoc", url, detail: chiTietLoi(e) };
   }
 
   // 404 still gets its own state now that the route exists: the server is up
@@ -327,7 +352,7 @@ export async function fetchPlaces(
     const parsed = parseCatalogue(await res.json());
     return { kind: "co-du-lieu", places: parsed.places, categories: parsed.categories };
   } catch (e) {
-    return { kind: "du-lieu-sai", url, detail: (e as Error).message };
+    return { kind: "du-lieu-sai", url, detail: chiTietLoi(e) };
   }
 }
 

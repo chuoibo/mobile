@@ -39,7 +39,7 @@ export function nativeBackend(camera: { current: CameraView | null }): PhotoBack
     async capture(): Promise<TempPhoto> {
       const view = camera.current;
       if (view === null) {
-        throw new Error("Camera chưa sẵn sàng — thử lại sau một nhịp.");
+        throw new Error("Camera chưa sẵn sàng, thử lại sau một nhịp.");
       }
       const shot = await view.takePictureAsync({
         // Full quality here, compression in the next step. Compressing twice
@@ -109,6 +109,19 @@ export function nativeBackend(camera: { current: CameraView | null }): PhotoBack
       if (file.exists) file.delete();
     },
   };
+}
+
+/** The same backend, for the paths that only ever pick from the library.
+ *
+ * Choosing a photo for the memory wall or for an avatar never opens a
+ * viewfinder, so those screens have no `CameraView` to hand over. Calling
+ * `nativeBackend({ current: null })` at each of them would work -- `pick`,
+ * `compress` and `discard` never touch the ref -- and it would work by accident,
+ * readable only to somebody who had checked. Naming it says the absence is the
+ * design: there is no camera here, and `capture()` is expected to refuse.
+ */
+export function backendThuVien(): PhotoBackend {
+  return nativeBackend({ current: null });
 }
 
 /** Bytes of the encoded image, or 0 when it cannot be established.

@@ -336,6 +336,16 @@ def test_nothing_anybody_typed_reaches_the_log(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ):
+    """A turn that succeeds logs nothing today; this holds it that way.
+
+    There is no liveness assertion here because this path emits no record by
+    design, so demanding one would be demanding a log line the product does not
+    want. That makes the case an absence guard, and an absence guard is only
+    worth anything while the channel is open -- which is what
+    `test_log_channel_postgres.py` asserts separately. It catches the change
+    that matters: someone adding a debug line that prints the conversation.
+    """
+
     context, owner, _ = _group(postgres_session)
     _say(postgres_session, context, owner, f"Chuyển vào {SECRET} nhé")
     companion = FakeCompanion()
@@ -373,5 +383,11 @@ def test_a_backend_failure_leaks_neither_the_conversation_nor_the_credential(
     assert response.json()["spoke"] is False
     assert response.json()["reason"] == "unavailable"
     assert SECRET not in response.text and "AIzaSy" not in response.text
+    # Liveness first. A backend failure this service swallows has to leave a
+    # trace, otherwise the two absence assertions below are reading an empty
+    # buffer and would hold no matter what the code logged.
+    assert [
+        record for record in caplog.records if record.name == "app.api.service"
+    ], "the swallowed backend failure was never logged, so nothing below is proven"
     assert SECRET not in caplog.text and "AIzaSy" not in caplog.text
     assert _message_count(postgres_session, context) == before

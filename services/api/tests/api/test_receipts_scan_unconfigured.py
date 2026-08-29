@@ -27,12 +27,9 @@ from app.api.main import create_app
 from app.api.routes.receipts import _RECEIPT_UNREADABLE_DETAIL
 
 from .conftest import ASGITestClient
-from .helpers import ADVANCER_ID
+from .helpers import ADVANCER_ID, png_bytes
 
-PNG = (
-    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
-    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
-)
+PNG = png_bytes()
 HEADERS = {"X-Actor-ID": str(ADVANCER_ID)}
 
 

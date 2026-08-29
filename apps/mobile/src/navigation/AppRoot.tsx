@@ -61,6 +61,7 @@ export function AppRoot({ renderKhoanChi }: {
       tabDau={diemDen.tab ?? DEFAULT_TAB}
       moNhomNgay={diemDen.vao === "nhom"}
       moKyNiemNgay={diemDen.vao === "ky-niem"}
+      moBanBeNgay={diemDen.vao === "ban-be"}
       nhomId={diemDen.nhomId}
       banQuetDuoc={diemDen.ban}
       diaDiemDau={diemDen.diaDiem}

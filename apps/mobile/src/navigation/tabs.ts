@@ -39,7 +39,7 @@ export const TABS: Tab[] = [
   {
     id: "kham-pha",
     label: "Khám phá",
-    a11yLabel: "Khám phá — gợi ý chỗ đi cho nhóm",
+    a11yLabel: "Khám phá: gợi ý chỗ đi cho nhóm",
     // Real since rd-be-05 (#81) put `GET /places` behind it, and rd-fe-15
     // added the `POST /places/search` box. The entry named rd-do-fe-06 as
     // still owed for months after that work landed; nothing rendered the
@@ -49,19 +49,19 @@ export const TABS: Tab[] = [
   {
     id: "len-plan",
     label: "Lên plan",
-    a11yLabel: "Lên plan — chuyến đi của nhóm",
+    a11yLabel: "Lên plan: chuyến đi của nhóm",
     destination: { kind: "built", screen: "LenPlan" },
   },
   {
     id: "tin-nhan",
     label: "Tin nhắn",
-    a11yLabel: "Tin nhắn — chat nhóm và AI",
+    a11yLabel: "Tin nhắn: chat nhóm và AI",
     destination: { kind: "built", screen: "TinNhan" },
   },
   {
     id: "ca-nhan",
     label: "Cá nhân",
-    a11yLabel: "Cá nhân — hồ sơ và tài chính của bạn",
+    a11yLabel: "Cá nhân: hồ sơ và tài chính của bạn",
     // rd-do-fe-09 shipped this in #96: the finance summary is read back from
     // the ledger rather than cached, and #99 gave the scroll area its keyboard
     // stop. The entry kept naming rd-do-fe-09 as owed anyway.

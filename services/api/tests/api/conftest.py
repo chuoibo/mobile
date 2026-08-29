@@ -36,11 +36,14 @@ from app.api.repository import (
     BillSurchargeRecord,
     ConfirmationRecord,
     ConfirmedExpense,
+    ContextRecord,
     ExpenseIdentity,
+    FriendEdgeRecord,
     FrozenBatch,
     FrozenObligation,
     GuestEnvelopeRecord,
     GuestLinkDraft,
+    MembershipRecord,
     ObligationDraft,
     OutingInviteRecord,
     PaymentReportRecord,
@@ -56,7 +59,7 @@ from app.domain.capability import capability_scope
 from app.domain.ledger import obligation_status
 from app.payments.vietqr import build_payload
 
-from .helpers import CONTEXT_ID
+from .helpers import ADVANCER_ID, CONTEXT_ID, SENDER_ID
 
 
 @dataclass(slots=True)
@@ -92,7 +95,6 @@ class FakeReceipt:
 
 
 class FakeRepository:
-
     def __init__(self):
         self.expenses: dict[uuid.UUID, ExpenseIdentity] = {}
         self.confirmed: dict[uuid.UUID, ConfirmedExpense] = {}
@@ -107,11 +109,13 @@ class FakeRepository:
         self.objections: list[dict] = []
         self.receipts: dict[uuid.UUID, FakeReceipt] = {}
         self.people: dict[uuid.UUID, PersonRecord] = {}
+        self.contexts: dict[uuid.UUID, ContextRecord] = {}
         self.bills: dict[uuid.UUID, BillRecord] = {}
         self.finances: dict[uuid.UUID, PersonFinanceSummary] = {}
         self.active_memberships: set[tuple[uuid.UUID, uuid.UUID]] = set()
         self.outing_invites: dict[uuid.UUID, OutingInviteRecord] = {}
         self.outing_invite_ids_by_digest: dict[bytes, uuid.UUID] = {}
+        self.friend_edges: dict[uuid.UUID, dict] = {}
         self.leak_guest_input = False
 
     @staticmethod
@@ -167,8 +171,129 @@ class FakeRepository:
         self.people[person_id] = renamed
         return renamed
 
+    # --- friend graph (F03, F04) ---------------------------------------
+    #
+    # A dict cannot express `uq_friend_edge_live`, the functional partial
+    # unique index that makes (A,B) and (B,A) one edge under concurrency. This
+    # fake is blind to that race BY CONSTRUCTION, which is why
+    # tests/postgres/test_friend_requests_postgres.py exists. Widening this
+    # fake until the race "passes" here would be the lie CLAUDE.md names.
+
+    def _friend_record(self, edge, reader_id):
+        other = (
+            edge["addressee_id"]
+            if edge["requester_id"] == reader_id
+            else edge["requester_id"]
+        )
+        person = self.people.get(other)
+        return FriendEdgeRecord(
+            id=edge["id"],
+            requester_id=edge["requester_id"],
+            addressee_id=edge["addressee_id"],
+            other_person_id=other,
+            other_display_name=(
+                person.display_name if person is not None else str(other)
+            ),
+            state=edge["state"],
+            decided_by_id=edge["decided_by_id"],
+            created_at=edge["created_at"],
+            decided_at=edge["decided_at"],
+        )
+
+    def get_friend_edge(self, person_a, person_b):
+        pair = frozenset((person_a, person_b))
+        for edge in self.friend_edges.values():
+            same_pair = frozenset((edge["requester_id"], edge["addressee_id"]))
+            if same_pair == pair and edge["state"] != "declined":
+                return self._friend_record(edge, person_a)
+        return None
+
+    def get_friend_request(self, request_id, reader_id):
+        edge = self.friend_edges.get(request_id)
+        if edge is None:
+            return None
+        if reader_id not in (edge["requester_id"], edge["addressee_id"]):
+            return None
+        return self._friend_record(edge, reader_id)
+
+    def open_friend_request(self, *, requester_id, addressee_id, now):
+        edge = {
+            "id": uuid.uuid4(),
+            "requester_id": requester_id,
+            "addressee_id": addressee_id,
+            "state": "pending",
+            "decided_by_id": None,
+            "created_at": now,
+            "decided_at": None,
+        }
+        self.friend_edges[edge["id"]] = edge
+        return self._friend_record(edge, requester_id)
+
+    def decide_friend_request(self, *, request_id, state, decided_by_id, now):
+        edge = self.friend_edges.get(request_id)
+        if edge is None:
+            return None
+        edge["state"] = state
+        edge["decided_by_id"] = decided_by_id
+        edge["decided_at"] = now
+        return self._friend_record(edge, decided_by_id)
+
+    def list_friend_requests(self, person_id, *, direction):
+        side = "addressee_id" if direction == "incoming" else "requester_id"
+        return [
+            self._friend_record(edge, person_id)
+            for edge in self.friend_edges.values()
+            if edge[side] == person_id and edge["state"] == "pending"
+        ]
+
+    def list_friends(self, person_id):
+        return [
+            self._friend_record(edge, person_id)
+            for edge in self.friend_edges.values()
+            if edge["state"] == "accepted"
+            and person_id in (edge["requester_id"], edge["addressee_id"])
+        ]
+
     def is_member(self, context_id, person_id):
         return (context_id, person_id) in self.active_memberships
+
+    def list_members(self, context_id):
+        """`ApiRepository` has always declared this; the fake never had it.
+
+        `ApiService.split_bill` reads it through `getattr(..., None)` and falls
+        back to "the participants are whoever the shares name" when it is
+        missing -- which, against this fake, was always. That fallback makes
+        the allocator's `UNKNOWN_PARTICIPANT` check unreachable by
+        construction, so the whole `tests/api` layer was proving a membership
+        rule it could not have broken.
+        """
+
+        return [
+            MembershipRecord(
+                id=uuid.uuid5(uuid.NAMESPACE_URL, f"{context}/{person}"),
+                context_id=context,
+                person_id=person,
+                display_name=(
+                    self.people[person].display_name
+                    if person in self.people
+                    else f"Thành viên {str(person)[:8]}"
+                ),
+                state="active",
+                role="member",
+                origin="named",
+                invited_by_id=None,
+                joined_at=datetime(2030, 8, 27, 12, tzinfo=UTC),
+                left_at=None,
+                created_at=datetime(2030, 8, 27, 12, tzinfo=UTC),
+            )
+            for context, person in sorted(
+                self.active_memberships, key=lambda pair: pair[1].bytes
+            )
+            if context == context_id
+        ]
+
+    def get_context(self, context_id):
+        return self.contexts.get(context_id)
 
     def create_outing_invite(
         self,
@@ -298,9 +423,7 @@ class FakeRepository:
                             decided_by_id=None,
                             decided_at=None,
                         )
-                        for participant_id in item[
-                            "suggested_participant_ids"
-                        ]
+                        for participant_id in item["suggested_participant_ids"]
                     ],
                 )
                 for item in items
@@ -722,8 +845,12 @@ class FakeRepository:
     def save_guest_objection(self, *, token_digest, kind, obligation_id, reason, now):
         del now
         self.objections.append(
-            {"token_digest": token_digest, "kind": kind,
-             "obligation_id": obligation_id, "reason": reason}
+            {
+                "token_digest": token_digest,
+                "kind": kind,
+                "obligation_id": obligation_id,
+                "reason": reason,
+            }
         )
         if kind == "not_me":
             link = self.links.get(token_digest)
@@ -930,7 +1057,31 @@ class ASGITestClient:
 
 @pytest.fixture
 def repository():
-    return FakeRepository()
+    """The standard cast starts out inside the standard group.
+
+    Every test here that spends money uses `helpers.expense_payload`, whose
+    default people are `SENDER_ID` and `ADVANCER_ID` in `CONTEXT_ID`. That they
+    belong to that group was always the intent -- it just was not written down
+    anywhere, because nothing had ever asked. Now the ledger asks, so the fake
+    has to state it.
+
+    `OTHER_ID` is deliberately **not** here. Across this suite it is the person
+    standing outside: `test_context_read` and `test_context_balances` both use
+    it to prove that holding a group id is not membership. Seeding it turns
+    those two green for the wrong reason -- measured, not guessed: adding it
+    here flips both from 403 to 200. The three tests that do want it spending
+    money say so themselves via `helpers.join_group`.
+
+    That is the rule for anything added here later: seed the id only if every
+    test in the suite agrees it is an insider. A fixture that seeds every id a
+    test mentions would silence the membership gate entirely -- see
+    `test_expense_participants_must_be_members.py`.
+    """
+
+    repository = FakeRepository()
+    for person_id in (SENDER_ID, ADVANCER_ID):
+        repository.active_memberships.add((CONTEXT_ID, person_id))
+    return repository
 
 
 @pytest.fixture
