@@ -31,6 +31,19 @@ _NOT_A_RECEIPT_DETAIL = (
     "tổng tiền."
 )
 _READER_UNAVAILABLE_DETAIL = "Không đọc được bill lúc này, thử lại sau."
+# A server with no credential is not a bad photograph, and must not be
+# answerable with the same code as one. rd-qa-05 measured what happens when it
+# is: a stack built by `make up` answered `422 receipt_unreadable` in 2.5ms --
+# no network call, just a missing variable -- while the same image on a process
+# with the key returned eight items in 7.06s. On a stage the presenter re-shoots
+# the bill three times before suspecting the server, because every signal they
+# can see says the photo was the problem. A distinct code is what lets the
+# client, and the person reading the response, tell the two faults apart.
+_READER_NOT_CONFIGURED_DETAIL = (
+    "Máy chủ chưa cấu hình khoá đọc bill nên không gọi được AI. Đây là lỗi "
+    "cấu hình phía máy chủ, không phải ảnh bạn chụp — chụp lại cũng không "
+    "giúp được. Người dựng hệ cần đặt biến GEMINI_API_KEY rồi khởi động lại API."
+)
 
 
 @router.post(
@@ -42,6 +55,7 @@ _READER_UNAVAILABLE_DETAIL = "Không đọc được bill lúc này, thử lại
         415: {"model": ErrorResponse},
         422: {"model": ErrorResponse},
         502: {"model": ErrorResponse},
+        503: {"model": ErrorResponse},
     },
 )
 def scan_receipt(
@@ -74,6 +88,15 @@ def scan_receipt(
                 422,
                 "receipt_too_blurry",
                 _RECEIPT_TOO_BLURRY_DETAIL,
+            ) from None
+        if exc.code == "RECEIPT_READER_NOT_CONFIGURED":
+            # 503 and not 422: nothing the caller sends can fix this, so it is
+            # not their request that is wrong. 502 next door means "the
+            # upstream call failed"; here no call was attempted at all.
+            raise ApiProblem(
+                503,
+                "receipt_reader_not_configured",
+                _READER_NOT_CONFIGURED_DETAIL,
             ) from None
         if exc.code in {"NOT_A_RECEIPT", "NOT_A_RECEIPT_PRICE_LIST"}:
             raise ApiProblem(
