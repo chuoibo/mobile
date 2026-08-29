@@ -1,0 +1,16 @@
+{
+  "name": "rd-qa-06-harness",
+  "private": true,
+  "type": "module",
+  "description": "QA harness for rd-qa-06: the SECOND HALF of the vertical slice walked by hand. Not shipped, not imported by the app.",
+  "scripts": {
+    "selfcheck": "node --test 04-selfcheck.mjs",
+    "walk": "node 02-nua-sau-walk.mjs && node 03-trang-khach.mjs",
+    "a11y": "node 05-a11y.mjs",
+    "repro": "node 06-repro-cut-duong.mjs"
+  },
+  "dependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "playwright": "1.62.1"
+  }
+}
