@@ -42,7 +42,6 @@ import {
   type Attempt,
   type PendingProposal,
   BASE_URL,
-  CONTEXT_ID,
   type PublishGates,
   type SavedBankRecipient,
   type SplitPreview,
@@ -85,14 +84,15 @@ import { FORM_TRONG } from "./src/screens/tai-khoan/kiem-tra";
 import {
   EMPTY_FORM,
   addMember,
-  groupMembers,
   makeIdFactory,
   removeParticipant,
   type DraftForm,
+  type GroupMember,
 } from "./src/participants";
-import { DEMO_PEOPLE } from "./src/navigation/nhom-demo";
+import { DEMO_PEOPLE, type DemoPerson } from "./src/navigation/nhom-demo";
+import { cauBuocNhom, khoiDongNhom, type NhomMan, type ThanhVien } from "./src/screens/chat/nhom";
 import { space, type, usePalette } from "./src/theme";
-import { Button } from "./src/ui/Kit";
+import { Button, Screen } from "./src/ui/Kit";
 import {
   DEMO_ADVANCER_ID,
   DEMO_ALLOCATIONS,
@@ -161,24 +161,46 @@ function expenseIntent(d: Draft, matrixSig: string): string {
 }
 
 /**
- * The group this flow splits bills for.
+ * The people this flow may charge, read off the group the server holds.
  *
- * Nothing here is minted. `personId` is the `people` row the seed script wrote,
- * so an id chosen on the split screen is a person the database has already
- * heard of -- which is the whole of bug-125301. Before this, the split screen
- * asked for a *name* and minted a fresh UUID from it: typing "Hải" created a
- * third row called Hải, the allocator divided 989.000 into 329.667 x2 +
- * 329.666 and filed every dong against that stranger, and the real Hải's Cá
- * nhân tab stayed on the number it had before the meal. The money was right to
- * the dong and belonged to nobody.
+ * Nothing here is minted. `personId` is a `people` row, so an id chosen on the
+ * split screen is a person the database has already heard of -- which is the
+ * whole of bug-125301. Before that, the split screen asked for a *name* and
+ * minted a fresh UUID from it: typing "Hải" created a third row called Hải,
+ * the allocator divided 989.000 into 329.667 x2 + 329.666 and filed every dong
+ * against that stranger, and the real Hải's Cá nhân tab stayed on the number
+ * it had before the meal. The money was right to the dong and belonged to
+ * nobody.
  *
- * One group, hard-coded, because sign-in is a shell (see `nhom-demo.ts`). When
- * a real session exists this reads the group off it and nothing else moves:
- * the screens below already take the roster as a prop.
+ * This used to be `groupMembers(DEMO_PEOPLE)` -- the seven names in
+ * `nhom-demo.ts`, offered whether or not the group contained them. The server
+ * refuses that outright: `_require_participants_are_members` answers `422
+ * participant_not_in_context` for anyone charged who is not an *active*
+ * member. Offering a name the bill cannot legally carry is a dead end drawn as
+ * a button, so the roster is now the membership itself, filtered to active.
+ *
+ * `left` and `invited` are excluded for the same reason the server excludes
+ * them: an invitation nobody accepted is not consent to be billed.
+ *
+ * Names come from the server first (`MembershipResponse.display_name`), then
+ * from the demo roster, and only then from a neutral label. A person can be in
+ * this group without being one of the seeded seven -- `DangKy.tsx` registers
+ * real people -- and printing their UUID because this file has not heard of
+ * them is bug-213501 all over again.
  */
-const NHOM_DEMO = groupMembers(DEMO_PEOPLE);
+function nguoiCoTheChia(members: ThanhVien[]): GroupMember[] {
+  return members
+    .filter((m) => m.state === "active")
+    .map((m) => ({
+      id: m.personId,
+      name:
+        m.displayName ??
+        DEMO_PEOPLE.find((p) => p.personId === m.personId)?.name ??
+        "Chưa có tên",
+    }));
+}
 
-function LuongKhoanChi({ onExit }: { onExit: () => void }) {
+function LuongKhoanChi({ onExit, nguoi }: { onExit: () => void; nguoi: DemoPerson | null }) {
   const c = usePalette();
   const scheme = useColorScheme();
   // The bill comes first. This is the hero path: photograph the paper, let the
@@ -186,6 +208,18 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
   // about who owes what. "Huỷ" on that first screen lands on the old manual
   // entry, which is still the whole flow for a group that has no paper bill.
   const [step, setStep] = useState<Step>("chup-bill");
+  // The group this bill belongs to, opened the way chat and Lên plan open it.
+  //
+  // Held as state rather than taken from a constant because there is no
+  // constant that works: the id this file used to send (`CONTEXT_ID` in
+  // api.ts) had never had a row in `contexts`, so `confirm` refused every
+  // expense in the app with `422 participant_not_in_context` once the server
+  // started checking that the people being charged are in the group. A group
+  // that does not exist has no members, so everyone is a stranger.
+  //
+  // `khoiDongNhom` creates or replays the demo group and returns its real id
+  // and its real roster, which is what both halves of that check need.
+  const [nhom, setNhom] = useState<NhomMan>(nguoi ? { kind: "dang-tai" } : { kind: "chua-chon" });
   const [draft, setDraft] = useState<Draft | null>(null);
   // Held here, not inside the screen. "Sửa lại" unmounts the screen, and a
   // form owned by the screen goes with it -- which erased everything a
@@ -321,7 +355,12 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
    */
   async function refreshBoard() {
     if (!batchId || !proposal) return;
-    const board = await loadBoard(batchId, proposal.advancerId, proposal.participants);
+    const board = await loadBoard(
+      proposal.contextId,
+      batchId,
+      proposal.advancerId,
+      proposal.participants,
+    );
     setObligations(board.obligations);
   }
 
@@ -385,18 +424,41 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
    * nothing, so the screen simply does not show the panel.
    */
   useEffect(() => {
-    if (step !== "goi-y") return;
+    if (step !== "goi-y" || nhom.kind !== "xong") return;
     const nguoiDoc = form.roster.participants[0]?.id;
     if (nguoiDoc === undefined) return;
     let cancelled = false;
-    docSoDu(CONTEXT_ID, nguoiDoc)
+    docSoDu(nhom.contextId, nguoiDoc)
       .then((ket) => { if (!cancelled) setSoDu(ket); })
       .catch(() => { if (!cancelled) setSoDu(null); });
     return () => { cancelled = true; };
-  }, [step, form.roster, bill]);
+  }, [step, form.roster, bill, nhom]);
+
+  /**
+   * Open the group before anything is written under it.
+   *
+   * Same call, same order as `TinNhan` and `LenPlan`: those two screens have
+   * been doing this since they shipped, and this flow was the last one still
+   * addressing a group that did not exist.
+   */
+  useEffect(() => {
+    if (!nguoi) {
+      setNhom({ kind: "chua-chon" });
+      return;
+    }
+    let huy = false;
+    setNhom({ kind: "dang-tai" });
+    khoiDongNhom(nguoi.id).then((s) => {
+      if (!huy) setNhom(s);
+    });
+    return () => {
+      huy = true;
+    };
+  }, [nguoi]);
 
   useEffect(() => {
-    if (step !== "goi-y" || reading === null) return;
+    if (step !== "goi-y" || reading === null || nhom.kind !== "xong") return;
+    const contextId = nhom.contextId;
     const ids = form.roster.participants.map((person) => person.id);
     const blocked = blockingProblem(reading, ids, assignment);
     if (blocked !== null || ids.length === 0) return;
@@ -407,6 +469,7 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
       if (payerId === undefined) return;
       previewSplit(
         {
+          contextId,
           participantIds: ids,
           totalVnd: itemsTotalVnd(reading),
           items: itemsForWire(reading, assignment),
@@ -433,7 +496,7 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [step, reading, form.roster, assignment]);
+  }, [step, reading, form.roster, assignment, nhom]);
 
   // The viewfinder is the one screen that owns the whole pane. Left on the
   // cream page ground, the shell painted a light strip under a black screen
@@ -447,6 +510,50 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
   const tenNguoiUngTien =
     proposal?.participants.find((person) => person.id === proposal.advancerId)?.name ??
     "người ứng tiền";
+
+  /* Nothing below is drawn until the group is open, and that is the point.
+   *
+   * Every step of this flow writes under a group: the bill, the preview, the
+   * expense, the batch, the board. Letting the camera open first and finding
+   * out at "Xác nhận" that there is no group is what the previous version did,
+   * except it never found out at all -- it sent an id that could not exist and
+   * read the server's refusal as an app error, three screens deep, after
+   * somebody had photographed a bill and ticked twenty boxes.
+   *
+   * Waiting costs nothing that was not already being waited for: reading the
+   * bill is itself a server call, so this flow has never worked offline. */
+  if (nhom.kind !== "xong") {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
+        <StatusBar style={scheme === "dark" ? "light" : "dark"} />
+        <Screen title="Chia tiền" hint="Khoản chi được ghi vào nhóm bạn đang ở.">
+          {nhom.kind === "chua-chon" ? (
+            <TrongRong
+              tieuDe="Chưa biết bạn là ai"
+              than="Chọn tên mình ở màn hình mở đầu rồi quay lại. Khoản chi phải ghi vào một nhóm có thật, và nhóm đó là nhóm của bạn."
+              hanhDong={{ nhan: "Quay lại", onPress: onExit }}
+            />
+          ) : nhom.kind === "dang-tai" ? (
+            <DangTai noiDung="Đang mở nhóm" phu="Chỉ mất một lúc, rồi tới phần chụp bill." />
+          ) : (
+            <CoLoi
+              tieuDe={cauBuocNhom(nhom.buoc)}
+              than="Chưa mở được nhóm nên chưa ghi khoản chi vào đâu được. Bước đang đứng và địa chỉ đã thử nằm dưới."
+              viecTiepTheo="Thử lại. Nếu vẫn vậy thì máy chủ chưa lên, báo cho nhóm kỹ thuật kèm địa chỉ dưới đây."
+              diaChi={nhom.url}
+              onThuLai={() => {
+                if (!nguoi) return;
+                setNhom({ kind: "dang-tai" });
+                khoiDongNhom(nguoi.id).then(setNhom);
+              }}
+            />
+          )}
+        </Screen>
+      </SafeAreaView>
+    );
+  }
+  const contextId = nhom.contextId;
+  const nguoiTrongNhom = nguoiCoTheChia(nhom.members);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: dark ? "#000" : c.ground }}>
@@ -529,7 +636,7 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
             if (nguoiTao === undefined) return;
             taoBill(
               reading,
-              CONTEXT_ID,
+              contextId,
               ganMon,
               nguoiTao,
               attemptFor(attempts.current, `tao-bill:${signature(reading, ids, ganMon)}`),
@@ -544,7 +651,7 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
         <GoiYChia
           reading={reading}
           roster={form.roster}
-          nhom={NHOM_DEMO}
+          nhom={nguoiTrongNhom}
           assignment={assignment}
           preview={preview}
           bill={bill}
@@ -599,7 +706,7 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
               reading,
               assignment,
               nguoiChot,
-              CONTEXT_ID,
+              contextId,
               attemptFor(
                 attempts.current,
                 `gan-mon:${bill.id}:${signature(reading, ids, assignment)}`,
@@ -614,7 +721,7 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
       {step === "nhap" && (
         <NhapKhoanChi
           form={form}
-          nhom={NHOM_DEMO}
+          nhom={nguoiTrongNhom}
           onForm={setForm}
           onNext={(d) => guard(async () => {
             setDraft(d);
@@ -640,6 +747,7 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
             const matrixSig = reading === null ? "" : signature(reading, ids, aligned);
             setProposal(
               await proposeSplit(
+                contextId,
                 d,
                 attemptFor(attempts.current, expenseIntent(d, matrixSig)),
                 items,
@@ -1068,5 +1176,5 @@ export default function App() {
   if (manThamSo() === "trang-thai") return <XemTrangThai />;
   if (manThamSo()?.startsWith("doc-bill")) return <XemDocBill />;
   if (manThamSo()?.startsWith("tai-khoan-nhan")) return <XemTaiKhoanNhan />;
-  return <AppRoot renderKhoanChi={(onExit) => <LuongKhoanChi onExit={onExit} />} />;
+  return <AppRoot renderKhoanChi={(onExit, nguoi) => <LuongKhoanChi onExit={onExit} nguoi={nguoi} />} />;
 }

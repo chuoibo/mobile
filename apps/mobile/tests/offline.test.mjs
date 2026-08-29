@@ -363,7 +363,7 @@ test("bảng đợt thu đọc được tên, số tiền và trạng thái", as
     ],
   });
   try {
-    const board = await loadBoard("b", "a", ROSTER);
+    const board = await loadBoard("c", "b", "a", ROSTER);
     assert.equal(board.disputedCount, 1);
     assert.equal(board.obligations[0].senderName, "Hà");
     assert.equal(board.obligations[0].recipient, "Quyên");
@@ -392,7 +392,7 @@ test("tiền đã tới thì vẫn hiện là đã tới, kể cả khi có ngư
     ],
   });
   try {
-    const board = await loadBoard("b", "a", ROSTER);
+    const board = await loadBoard("c", "b", "a", ROSTER);
     assert.equal(board.obligations[0].status, "confirmed", "che mat tien da toi");
   } finally {
     restore();

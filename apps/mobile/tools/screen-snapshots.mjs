@@ -76,7 +76,7 @@ export const VIETQR_FIXTURE =
  * compile would silently change the cast. A name that drifts out of
  * `nhom-demo.ts` fails loudly in `clickAria` instead.
  */
-const TREN_BILL = ["Minh", "Trang", "Hải"];
+export const TREN_BILL = ["Minh", "Trang", "Hải"];
 /** Three more, taking the row past the four columns it can draw inline. */
 const THEM_CHO_DONG = ["Ngọc", "Đức", "Linh"];
 
@@ -249,7 +249,24 @@ export function createStaticServer(root) {
 export function installBeforeApp(apiBase, scanBody, vietqrPayload) {
   const originalFetch = window.fetch.bind(window);
 
+  /* The seeded seven, in `nhom-demo.ts`'s order, `personId` then name.
+   *
+   * Restated rather than imported because this function is serialised into the
+   * page before the bundle exists -- there is nothing to import from yet.
+   * `tests/quet-man-sau-tap.test.mjs` holds the two copies together. */
+  const NHOM_DEMO_IDS = [
+    "46b55e67-932b-5415-a5ee-08fb2641a4ff",
+    "49871dab-3bf9-5140-acf3-6c9736b31e8f",
+    "be2389f9-62cb-5b28-8e5f-874768e9fb75",
+    "e3a44e25-4547-508a-8f4d-9b2495c3325f",
+    "4421b3f8-26a6-5827-a7e7-548c5a4a10f9",
+    "cdadf49b-b6a8-5631-8b9d-aee6a7d532de",
+    "93c153f7-042a-556d-b227-7b1e54f2d50b",
+  ];
+  const NHOM_DEMO_TEN = ["Minh", "Trang", "Hải", "Ngọc", "Đức", "Linh", "Quân"];
+
   const db = {
+    contextId: "c7d2a3f1-9b4e-4a1c-8d6f-2e5b7c9a1d4f",
     expenseId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
     versionId: "vvvvvvvv-vvvv-4vvv-8vvv-vvvvvvvvvvvv",
     batchId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
@@ -317,6 +334,79 @@ export function installBeforeApp(apiBase, scanBody, vietqrPayload) {
     const person = /^\/people\/([^/]+)$/.exec(path);
     if (method === "PUT" && person) {
       return json({ id: person[1], display_name: parsed?.display_name ?? "" });
+    }
+
+    /* The group, which this walk did not used to need.
+     *
+     * The expense flow used to address a hard-coded `CONTEXT_ID` that had never
+     * had a row in `contexts`, so it asked the server nothing before writing.
+     * That is bug-053800: a group with no row has no members, and `confirm`
+     * answered `422 participant_not_in_context` for everybody. The flow now
+     * opens the group through `khoiDongNhom` first, exactly as chat and Lên
+     * plan already did, so these four routes are on the walk.
+     *
+     * The roster returned is the seeded seven, because the split screen's list
+     * of people IS the membership now -- it is no longer a constant in App.tsx.
+     * A stub that returned two members would silently scan a different screen
+     * from the one the demo shows, and the number would look just as real.
+     */
+    if (method === "POST" && path === "/contexts") {
+      return json({
+        id: db.contextId,
+        display_name: parsed?.display_name ?? "Team Đà Lạt",
+        created_by_id: NHOM_DEMO_IDS[0],
+        created_at: "2026-08-29T04:00:00Z",
+      }, 201);
+    }
+
+    const moi = /^\/contexts\/([^/]+)\/members$/.exec(path);
+    if (method === "POST" && moi) {
+      return json({
+        id: "b8e4f6a1-3c7d-4b2e-9a5f-6d1c8b3e7f2a",
+        context_id: moi[1],
+        person_id: parsed?.person_id ?? NHOM_DEMO_IDS[1],
+        display_name: "",
+        state: "invited",
+        role: "member",
+        invited_by_id: NHOM_DEMO_IDS[0],
+        joined_at: null,
+        left_at: null,
+        created_at: "2026-08-29T04:00:00Z",
+      }, 201);
+    }
+
+    const chapNhan = /^\/memberships\/([^/]+)\/accept$/.exec(path);
+    if (method === "POST" && chapNhan) {
+      return json({
+        id: chapNhan[1],
+        context_id: db.contextId,
+        person_id: NHOM_DEMO_IDS[1],
+        display_name: NHOM_DEMO_TEN[1],
+        state: "active",
+        role: "member",
+        invited_by_id: NHOM_DEMO_IDS[0],
+        joined_at: "2026-08-29T04:00:00Z",
+        left_at: null,
+        created_at: "2026-08-29T04:00:00Z",
+      });
+    }
+
+    if (method === "GET" && moi) {
+      return json({
+        context_id: moi[1],
+        members: NHOM_DEMO_IDS.map((id, i) => ({
+          id: `b8e4f6a1-3c7d-4b2e-9a5f-6d1c8b3e7f2${i}`,
+          context_id: moi[1],
+          person_id: id,
+          display_name: NHOM_DEMO_TEN[i],
+          state: "active",
+          role: i === 0 ? "admin" : "member",
+          invited_by_id: NHOM_DEMO_IDS[0],
+          joined_at: "2026-08-29T04:00:00Z",
+          left_at: null,
+          created_at: "2026-08-29T04:00:00Z",
+        })),
+      });
     }
 
     if (method === "POST" && path === "/expenses") {
@@ -773,7 +863,21 @@ async function drive(page, outDir, jpegPath) {
   await snapshot(page, outDir, step);
 
   step = "vao-app";
-  await clickAria(page, "Bỏ qua, vào app mà chưa chọn người");
+  // Đăng nhập chứ không bỏ qua: luồng chia tiền mở nhóm dưới danh nghĩa người
+  // đang đăng nhập kể từ bug-053800, nên "Bỏ qua" dừng ở màn "Chưa biết bạn là
+  // ai" và ảnh chụp sau đó sẽ là màn khác mang tên màn này.
+  await page.evaluate(() => {
+    const el = [...document.querySelectorAll("button, [role='button']")].find(
+      (n) => (n.textContent || "").replace(/\s+/g, " ").trim() === "Đăng ký với Apple",
+    );
+    if (!el) throw new Error('khong thay nut "Đăng ký với Apple"');
+    el.click();
+  });
+  await page.waitForFunction(
+    () => document.body.innerText.includes("Vào app với tư cách ai?"),
+    { timeout: 15000 },
+  );
+  await clickAria(page, "Vào app với tư cách Minh");
   await waitForScreen(page, step, "Khám phá");
 
   step = "menu-tao";

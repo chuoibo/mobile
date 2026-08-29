@@ -68,8 +68,12 @@ export function VoTab({
   /** F46. A place id from the link, opened as a detail card so the check-in
    *  on it is reachable without a tap. Passed straight through to Khám phá. */
   diaDiemDau?: string | null;
-  /** The organiser flow, handed in with the way back out of it. */
-  renderKhoanChi: (onExit: () => void) => React.ReactNode;
+  /** The organiser flow, handed in with the way back out of it and with whoever
+   *  is signed in. The person is not a decoration: the expense flow opens the
+   *  group under their id (`khoiDongNhom`), and a bill has to be written into a
+   *  group that exists -- filing it under a synthetic id is how every confirm
+   *  in this app came back `422 participant_not_in_context`. */
+  renderKhoanChi: (onExit: () => void, nguoi: DemoPerson | null) => React.ReactNode;
 }) {
   const c = usePalette();
   const scheme = useColorScheme();
@@ -139,7 +143,7 @@ export function VoTab({
   // and leaving the tab bar under it would offer an exit that loses a
   // half-written expense without saying so.
   if (luongKhoanChi) {
-    return <>{renderKhoanChi(() => setLuongKhoanChi(false))}</>;
+    return <>{renderKhoanChi(() => setLuongKhoanChi(false), nguoi)}</>;
   }
 
   if (luongNhom) {

@@ -17,7 +17,7 @@ import { diemDenHienTai } from "./lien-ket";
 import type { NguoiDung } from "./nhom-demo";
 
 export function AppRoot({ renderKhoanChi }: {
-  renderKhoanChi: (onExit: () => void) => React.ReactNode;
+  renderKhoanChi: (onExit: () => void, nguoi: NguoiDung | null) => React.ReactNode;
 }) {
   // Read once, at mount. Re-reading on every render would let a fragment
   // change yank somebody out of the screen they navigated to by hand.
