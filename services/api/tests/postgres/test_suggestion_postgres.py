@@ -516,15 +516,31 @@ def test_a_backend_that_raises_is_silence_not_a_five_hundred(
 def test_the_group_own_words_never_reach_a_log_line(
     postgres_session: Session, monkeypatch: pytest.MonkeyPatch, caplog
 ):
-    """A refused card is logged by code. The trip title is the group's, not ours."""
+    """A refused card is logged by code. The trip title is the group's, not ours.
+
+    The re-enable below is load-bearing, not tidying. Alembic's `env.py` runs
+    `fileConfig`, which defaults to `disable_existing_loggers=True`, so
+    migrating the schema in the session fixture switches off every `app.*`
+    logger that was already imported -- for the rest of this tier. A privacy
+    assertion written without this passes because nothing is logged at all,
+    which is the most convincing way for a guard to look present while it is
+    absent. The liveness assertion is what stops that from happening again: if
+    the channel is dead, this case fails loudly instead of passing quietly.
+    """
 
     suggester = FakeSuggester(_card("p-khong-co-that"))
     app = _app(postgres_session, monkeypatch, suggester)
     context, owner = _group_with_history(postgres_session, app, title=SECRET)
 
+    for name in ("app.api.service", "app.api.suggestion_gemini"):
+        logging.getLogger(name).disabled = False
+
     with caplog.at_level(logging.DEBUG):
         response = _suggestion(app, context, owner)
 
     assert response.json()["reason"] == "ungrounded"
+    # The refusal really was logged, so the two assertions below are reading a
+    # live channel rather than an empty one.
+    assert [record for record in caplog.records if record.name == "app.api.service"]
     assert SECRET not in caplog.text
     assert "p-khong-co-that" not in caplog.text
