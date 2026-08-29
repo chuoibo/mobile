@@ -76,6 +76,14 @@ import {
   type DraftForm,
 } from "./src/participants";
 import { space, type, usePalette } from "./src/theme";
+import {
+  DEMO_ADVANCER_ID,
+  DEMO_ALLOCATIONS,
+  DEMO_ENVELOPES,
+  DEMO_ITEM_COUNT,
+  DEMO_OBLIGATIONS,
+  DEMO_ROSTER,
+} from "./src/fixtures/thanh-toan-demo";
 
 type Step =
   | "chup-bill"
@@ -617,6 +625,66 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
 }
 
 /**
+ * The settlement screen on frozen data, reachable from a URL, web only.
+ *
+ * Same reason as `tabTuUrl` in `AppRoot`, which the comment there spells out:
+ * a detector renders a URL and cannot press anything. The real screen is eight
+ * presses and a live server past the opening screen, so without this it never
+ * gets scanned, and "the app was checked" quietly means "the opening screen
+ * was checked".
+ *
+ * Narrow on purpose. One exact parameter value, nothing on native, no writes,
+ * and every number comes from a fixture that says out loud it is one. It is
+ * not a demo mode and not a way into the product: there is no route from here
+ * to anything that touches a server.
+ */
+function manDo(): boolean {
+  const loc = (globalThis as { location?: { search?: string } }).location;
+  if (!loc?.search) return false;
+  return new URLSearchParams(loc.search).get("man") === "ket-qua-thanh-toan";
+}
+
+function XemKetQuaThanhToan() {
+  const c = usePalette();
+  const [nguoiDangChon, setNguoiDangChon] = useState<string | null>(
+    DEMO_ENVELOPES[0]?.senderId ?? null,
+  );
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
+      <StatusBar style="dark" />
+      <KetQuaThanhToan
+        roster={DEMO_ROSTER}
+        allocations={DEMO_ALLOCATIONS}
+        obligations={DEMO_OBLIGATIONS}
+        envelopes={DEMO_ENVELOPES}
+        advancerId={DEMO_ADVANCER_ID}
+        itemCount={DEMO_ITEM_COUNT}
+        nguoiDangChon={nguoiDangChon}
+        onChonNguoi={setNguoiDangChon}
+        renderMaQr={(senderId) => {
+          const envelope = DEMO_ENVELOPES.find((e) => e.senderId === senderId);
+          if (envelope === undefined) return null;
+          return envelope.obligations.map((debt) => (
+            <MaVietQr
+              key={debt.obligationId}
+              payload={debt.vietqrPayload}
+              expectedAmountVnd={debt.amountVnd}
+              recipientName={
+                DEMO_OBLIGATIONS.find((o) => o.id === debt.obligationId)?.recipient ??
+                "người nhận"
+              }
+            />
+          ));
+        }}
+        onShare={() => {}}
+        onDone={() => {}}
+        onBack={() => {}}
+      />
+    </SafeAreaView>
+  );
+}
+
+/**
  * The app root: the opening screen, then the five-tab shell.
  *
  * The flow above is passed down rather than imported by the shell, so the
@@ -624,5 +692,6 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
  * this file remains the only place that knows both halves exist.
  */
 export default function App() {
+  if (manDo()) return <XemKetQuaThanhToan />;
   return <AppRoot renderKhoanChi={(onExit) => <LuongKhoanChi onExit={onExit} />} />;
 }
