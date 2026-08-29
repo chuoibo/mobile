@@ -112,6 +112,13 @@ test("tên của ô không đổi khi có hay không có placeholder", () => {
   const without = field({ label: LABEL });
 
   assert.equal(withHint.placeholder, PLACEHOLDER);
+  // Both renders must be named before comparing them. Without this line the
+  // comparison passes on the exact bug the file is about: with no `aria-label`
+  // at all, both sides are `undefined` and `undefined === undefined` holds, so
+  // the assertion would report green on the broken code. Measured -- this test
+  // passed against a `Field` with the line deleted until the check was added.
+  assert.ok(accessibleName(withHint), "ô có placeholder không có tên khả truy cập");
+  assert.ok(accessibleName(without), "ô không placeholder không có tên khả truy cập");
   assert.equal(
     accessibleName(withHint),
     accessibleName(without),
