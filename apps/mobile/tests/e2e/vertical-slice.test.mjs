@@ -36,12 +36,60 @@ import {
   registerPeople,
   saveBankRecipient,
 } from "../../dist-test/api.js";
-import { makeIdFactory } from "../../dist-test/participants.js";
+import { khoiDongNhom } from "../../dist-test/screens/chat/nhom.js";
+import { DEMO_PEOPLE } from "../../dist-test/navigation/nhom-demo.js";
 
-const nextId = makeIdFactory();
-const NAM = { id: nextId(), name: "Nam" };
-const HA = { id: nextId(), name: "Hà" };
-const QUYEN = { id: nextId(), name: "Quyên" };
+/* Ba người này là thành viên THẬT của một nhóm THẬT, không phải id bịa ra.
+ *
+ * Trước bug-053800 file này mint ba id bằng `makeIdFactory` rồi `registerPeople`
+ * cho chúng có tên. Đủ để `POST /expenses` trả lời -- nó chỉ chia tiền chứ
+ * không ghi gì -- nhưng `confirm` thì không: `_require_participants_are_members`
+ * đòi mọi người bị ghi nợ phải là thành viên ACTIVE của chính nhóm đó. Người
+ * lạ trong một nhóm không tồn tại là hai lần sai một lúc, và lát cắt dừng ở
+ * đúng chỗ ấy với `422 participant_not_in_context`.
+ *
+ * Nên nhóm được mở bằng đúng đường app mở: `khoiDongNhom`, cùng hàm màn chat
+ * và Lên plan gọi. Gọi nhiều lần với các slug khác nhau vì nó tạo-hoặc-phát-lại
+ * MỘT nhóm rồi mời thêm đúng người đang đăng nhập; ba lần là ba thành viên
+ * trong cùng một nhóm, chứ không phải ba nhóm.
+ */
+const SLUGS = ["minh", "trang", "ngoc"];
+
+function tenCuaNguoi(personId, displayName) {
+  return (
+    displayName ??
+    DEMO_PEOPLE.find((p) => p.personId === personId)?.name ??
+    personId
+  );
+}
+
+/**
+ * Open the demo group and return its active roster.
+ *
+ * Throws rather than returning a failure state: every assertion below depends
+ * on this, and a slice that carried on with an empty roster would report a
+ * green split of nothing among nobody.
+ */
+async function moNhom() {
+  let state = null;
+  for (const slug of SLUGS) {
+    state = await khoiDongNhom(slug, { base: BASE_URL });
+    if (state.kind !== "xong") {
+      assert.fail(
+        `khong mo duoc nhom o buoc "${state.buoc}" (${state.status}) ${state.url}: ${state.detail}`,
+      );
+    }
+  }
+  const nguoi = state.members
+    .filter((m) => m.state === "active")
+    .map((m) => ({ id: m.personId, name: tenCuaNguoi(m.personId, m.displayName) }));
+  assert.equal(
+    nguoi.length,
+    SLUGS.length,
+    `nhom co ${nguoi.length} thanh vien active, cho doi ${SLUGS.length}`,
+  );
+  return { contextId: state.contextId, nguoi };
+}
 
 /* Invented, and the repo guard is right to ask about a long digit run. Not a
  * real bank, not a real account, nobody's money behind it. */
@@ -88,12 +136,19 @@ async function skipWithoutServer(t) {
 test("một khoản chi đi hết đường tới link của khách", async (t) => {
   if (await skipWithoutServer(t)) return;
 
+  const { contextId, nguoi } = await moNhom();
+  // The advancer is the group's admin, which is who `khoiDongNhom` makes the
+  // creator. Named off the roster rather than hard-coded so this keeps working
+  // if the demo group's first member ever changes.
+  const ungTien = nguoi.find((n) => n.name === "Minh") ?? nguoi[0];
   const draft = {
-    participants: [NAM, HA, QUYEN],
+    participants: nguoi,
     totalVnd: 300_000,
-    advancerId: NAM.id,
+    advancerId: ungTien.id,
     occasion: "bữa lẩu tối thứ bảy",
   };
+  const conLai = nguoi.filter((n) => n.id !== ungTien.id);
+  const tenConLai = conLai.map((n) => n.name);
 
   // Filed the way App.tsx files them, so this exercises the client's real
   // retry behaviour rather than a shape invented for the test.
@@ -106,9 +161,9 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
   // the app still showed the typed name. Asserted at the bottom of this test
   // against the rendered page rather than here, because a 201 from this call
   // proves the request was accepted, not that a reader ever sees the name.
-  await registerPeople(draft.participants, NAM.id, lanBam);
+  await registerPeople(draft.participants, ungTien.id, lanBam);
 
-  const proposal = await proposeSplit(draft, attemptFor(lanBam, "khoan-chi"));
+  const proposal = await proposeSplit(contextId, draft, attemptFor(lanBam, "khoan-chi"));
 
   // Money rule 2, checked against what the server actually returned rather
   // than against anything computed here.
@@ -144,11 +199,11 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
   // uses -- which means a client that drifts from the contract fails here
   // rather than at a demo.
   const saved = await saveBankRecipient(
-    NAM.id,
+    ungTien.id,
     { bankBin: "970418", accountNumber: SO_TAI_KHOAN, accountName: "NGUOI UNG TIEN" },
     // The actor is the subject. Section 9.2 has no exception for an admin, so
     // passing anybody else here is a 403 rather than a convenience.
-    NAM.id,
+    ungTien.id,
     attemptFor(lanBam, "tai-khoan-nhan"),
   );
   assert.equal(saved.bankName, "BIDV", "máy chủ gọi tên ngân hàng khác app");
@@ -171,13 +226,13 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
   assert.ok(batch.batchId);
   // Two people owe the advancer; the advancer does not owe themselves.
   assert.equal(batch.obligations.length, 2);
-  assert.ok(!batch.obligations.some((o) => o.senderId === NAM.id));
+  assert.ok(!batch.obligations.some((o) => o.senderId === ungTien.id));
 
   // Gate 1 is the server's answer, carried through confirm. Gate 2 is the
   // server's to enforce and is not modelled here at all.
   assert.equal(batch.gates.payerAcknowledged, true);
   await assert.rejects(
-    () => publishBatch(batch.batchId, { payerAcknowledged: false }, NAM.id, attemptFor(lanBam, "phat")),
+    () => publishBatch(batch.batchId, { payerAcknowledged: false }, ungTien.id, attemptFor(lanBam, "phat")),
     (error) => error.name === "GateNotPassedError",
     "phat duoc trong khi nguoi ung tien chua xac nhan",
   );
@@ -185,7 +240,7 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
   const envelopes = await publishBatch(
     batch.batchId,
     batch.gates,
-    NAM.id,
+    ungTien.id,
     attemptFor(lanBam, "phat"),
     draft.participants,
   );
@@ -195,7 +250,7 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
   // real server this is where ids leak in, because ids are all it sends back.
   for (const envelope of envelopes) {
     assert.ok(
-      ["Hà", "Quyên"].includes(envelope.senderName),
+      tenConLai.includes(envelope.senderName),
       `phong bi ghi "${envelope.senderName}" thay vi ten nguoi`,
     );
   }
@@ -219,9 +274,10 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
   // against the rendered page rather than against the view model, because the
   // ids reach the reader through the template and nothing in between was
   // looking.
-  const quyen = envelopes.find((envelope) => envelope.senderId === QUYEN.id);
-  assert.ok(quyen, "khong tim thay phong bi cua Quyên");
-  const guestHtml = await (await fetch(quyen.url)).text();
+  const nguoiNo = conLai[conLai.length - 1];
+  const phongBi = envelopes.find((envelope) => envelope.senderId === nguoiNo.id);
+  assert.ok(phongBi, `khong tim thay phong bi cua ${nguoiNo.name}`);
+  const guestHtml = await (await fetch(phongBi.url)).text();
   // Script and style bodies survive tag-stripping and are not read by anyone,
   // so they are removed first; what is left is what a person actually sees.
   const visible = guestHtml
@@ -238,12 +294,12 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
     `trang khách hiện mã máy "${strayId?.[0]}" ở chỗ đáng lẽ là tên người`,
   );
   assert.ok(
-    visible.includes(`Phần của ${QUYEN.name}`),
-    `trang khách không nói phần này của ai — không thấy "Phần của ${QUYEN.name}"`,
+    visible.includes(`Phần của ${nguoiNo.name}`),
+    `trang khách không nói phần này của ai — không thấy "Phần của ${nguoiNo.name}"`,
   );
   assert.ok(
-    visible.includes(`${NAM.name} đã ghi`),
-    `trang khách không nói ai ghi khoản chi — không thấy "${NAM.name} đã ghi"`,
+    visible.includes(`${ungTien.name} đã ghi`),
+    `trang khách không nói ai ghi khoản chi — không thấy "${ungTien.name} đã ghi"`,
   );
 
   // The share is asserted present before the total is asserted absent, and the
@@ -258,14 +314,14 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
   // The other half of the round, which the app had no way to reach until now:
   // the money comes back. Publishing is not the end of anything -- an
   // organiser still has to see who paid and say it arrived.
-  const before = await loadBoard(batch.batchId, NAM.id, draft.participants);
+  const before = await loadBoard(contextId, batch.batchId, ungTien.id, draft.participants);
   assert.equal(before.obligations.length, 2);
   assert.ok(
     before.obligations.every((o) => o.status === "outstanding"),
     "co nghia vu da xong truoc khi ai tra tien",
   );
   assert.ok(
-    before.obligations.every((o) => ["Hà", "Quyên"].includes(o.senderName)),
+    before.obligations.every((o) => tenConLai.includes(o.senderName)),
     "bang doc ra id thay vi ten",
   );
 
@@ -273,7 +329,7 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
   const receipt = await confirmReceipt(
     owed.id,
     owed.amountVnd,
-    NAM.id,
+    ungTien.id,
     attemptFor(lanBam, `bao-tien-ve:${owed.id}`),
   );
   assert.equal(receipt.status, "confirmed");
@@ -281,7 +337,7 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
   // Read it back rather than trusting the reply: the board is what an
   // organiser looks at, and it derives status from the ledger rather than
   // storing it. If those two ever disagree, this is where it shows.
-  const after = await loadBoard(batch.batchId, NAM.id, draft.participants);
+  const after = await loadBoard(contextId, batch.batchId, ungTien.id, draft.participants);
   const settled = after.obligations.find((o) => o.id === owed.id);
   assert.equal(settled.status, "confirmed", "bang khong thay tien da ve");
   assert.equal(
@@ -300,17 +356,19 @@ test("bấm hai lần chỉ ghi một khoản chi", async (t) => {
   // engaged. Counted from the client here rather than from the database: two
   // presses that return one `expense_id` are one row, and that is the fact an
   // organiser's ledger depends on.
+  const { contextId, nguoi } = await moNhom();
+  const ungTien = nguoi.find((n) => n.name === "Minh") ?? nguoi[0];
   const draft = {
-    participants: [NAM, HA, QUYEN],
+    participants: nguoi,
     totalVnd: 420_000,
-    advancerId: NAM.id,
+    advancerId: ungTien.id,
     occasion: "bấm hai lần",
   };
 
   const lanBam = {};
   const attempt = attemptFor(lanBam, "khoan-chi");
-  const first = await proposeSplit(draft, attempt);
-  const again = await proposeSplit(draft, attempt);
+  const first = await proposeSplit(contextId, draft, attempt);
+  const again = await proposeSplit(contextId, draft, attempt);
 
   assert.equal(
     again.expenseId,
@@ -321,7 +379,7 @@ test("bấm hai lần chỉ ghi một khoản chi", async (t) => {
   // The control, and it is not optional: without it this test also passes on a
   // server that returns the same id for everything. A genuinely different
   // press has to write a genuinely different expense.
-  const khac = await proposeSplit(draft, newAttempt());
+  const khac = await proposeSplit(contextId, draft, newAttempt());
   assert.notEqual(
     khac.expenseId,
     first.expenseId,

@@ -73,7 +73,11 @@ COVERED_BY: dict[str, tuple[str, ...]] = {
     "repo-guard": ("guard", "guard-range"),
     "lint": ("ruff",),
     "api": ("api", "migration", "client-routes"),
-    "contract": ("contract",),
+    # Two stages, one job. `contract` asks whether a call sends X-Actor-ID;
+    # `cors` asks whether the headers it does send survive a browser's
+    # preflight at all. They share a job because they need the identical
+    # setup, and stay two stages for the reason given just above.
+    "contract": ("contract", "cors"),
     "docker": ("docker",),
     "shared": ("shared",),
     "mobile": ("mobile",),

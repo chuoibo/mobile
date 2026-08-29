@@ -186,6 +186,18 @@ jobs:
       - if: steps.present.outputs.found == 'true'
         name: Every route wanting X-Actor-ID is called with it
         run: python3 scripts/check_actor_headers.py
+      - if: steps.present.outputs.found == 'true'
+        name: The CORS checker can be red
+        # Two checkers in one job because they need the identical setup and
+        # ask about the identical pair of files. They are two *stages* in
+        # scripts/gate.sh, though, and that is the part worth keeping: the
+        # questions are different, and folding two questions into one name is
+        # how one of them stopped running once already -- see
+        # tests/test_gate_stage_bodies_are_unique.py.
+        run: python3 scripts/check_cors_contract.py --selftest
+      - if: steps.present.outputs.found == 'true'
+        name: Every header the client sends survives the CORS preflight
+        run: python3 scripts/check_cors_contract.py
 
   docker:
     name: api image builds and serves
