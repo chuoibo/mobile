@@ -1,4 +1,10 @@
-"""One malformed reason costs all twelve. Measured, not theorised.
+"""One malformed reason used to cost all twelve. Measured, not theorised.
+
+Written by the backend lane while gating #81 (PR #91) to pin the defect;
+kept by the devops lane as the regression test for the fix, with the
+`xfail(strict=True)` on the desired-behaviour case removed now that it holds.
+The history below is why the recovery path in `app.places.reasons` exists, and
+is left in full so nobody has to re-measure it to know what it cost.
 
 Gating PR #81 (merged as 43ae65d) turned up a failure the PR's own live tier
 cannot see, because that tier asserts on the runs that came back and says
@@ -12,19 +18,25 @@ JSON string without escaping it:
 
     "reason": "Quán cafe này có đặc điểm "yên tĩnh" không phù hợp với nhóm..."
 
-`json.loads` dies at that quote, `parse_reasons` catches `JSONDecodeError` and
-returns `{}`, and eleven perfectly well-formed reasons that were sitting in the
-same array are thrown away with the broken one.
+`json.loads` dies at that quote, `parse_reasons` caught `JSONDecodeError` and
+returned `{}`, and eleven perfectly well-formed reasons that were sitting in
+the same array were thrown away with the broken one. `parse_reasons` now falls
+back to decoding the array item by item, so the loss is one card, not twelve.
 
-The route degrades honestly -- `source` drops to `"none"`, nothing is labelled
-AI that a model did not write, no money is touched -- so this is loss of the
-feature, not a wrong answer. And `cached_gemini_reasons` caches successes only,
-so the next request retries. But it is the Khám phá screen on the hero path,
-and roughly one first load in ten opens with no AI MATCH on any card.
+The route degraded honestly -- `source` dropped to `"none"`, nothing was
+labelled AI that a model did not write, no money was touched -- so this was
+loss of the feature, not a wrong answer. And `cached_gemini_reasons` caches
+successes only, so the next request retried. But it is the Khám phá screen on
+the hero path, and roughly one first load in ten opened with no AI MATCH on
+any card.
 
 The prompt itself invites the failure: it tells the model to name the specific
 fact that decided the verdict, and traits like `Yên tĩnh` are exactly the kind
-of short label a writer reaches for quote marks to set off.
+of short label a writer reaches for quote marks to set off. The prompt was
+deliberately *not* touched by the fix -- wording changes move verdicts, and the
+live measurements #91 took would all have to be re-run to know they had not.
+Asking the model more nicely would also only lower the rate; the parser is what
+decided that one bad sentence costs twelve cards instead of one.
 
 Deterministic on purpose -- no key, no network, runs in the default suite.
 Fixture is trimmed from the real captured payload; the shape of the break is
@@ -32,8 +44,6 @@ byte-for-byte what Gemini returned.
 """
 
 from __future__ import annotations
-
-import pytest
 
 from app.places.catalog import GROUP, PLACES
 from app.places.reasons import ReasonRow, parse_reasons
@@ -61,25 +71,23 @@ ROWS = [
 ]
 
 
-def test_a_single_unescaped_quote_discards_the_whole_batch():
-    """Current behaviour, pinned so a fix has something to change.
+def test_the_item_carrying_the_unescaped_quote_is_the_only_one_lost():
+    """The other half of the fix, and the half that is easy to lose.
 
-    This passing is the bug report: two reasons went in, one of them was
-    valid, nothing came out.
+    Before: two reasons in, one of them valid, nothing out. After: the broken
+    item is still dropped -- it is not repaired, not guessed at, not served
+    with the quotes stripped -- and it is the *only* thing dropped.
+
+    This was the case that pinned the defect (asserting `== {}`); it now pins
+    the boundary of the recovery instead. If a later edit makes the salvage
+    clever enough to reconstruct `p-an-cafe-da-lat`, that is a parser inventing
+    a sentence the model did not write, and this test is what says no.
     """
 
-    assert parse_reasons(MALFORMED_BATCH, ROWS, GROUP) == {}
+    kept = parse_reasons(MALFORMED_BATCH, ROWS, GROUP)
+    assert set(kept) == {"p-tiem-nuong-xom-lao"}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "known defect from gating #81: parse_reasons is all-or-nothing on the "
-        "batch, so one unescaped quote drops every other reason with it. "
-        "Owner is the devops lane (app/places/reasons.py); reported via "
-        "bug-to. Remove this marker when the parser recovers per-item."
-    ),
-)
 def test_a_well_formed_reason_survives_a_neighbour_that_is_broken():
     """What the screen needs: damage confined to the row that caused it.
 
