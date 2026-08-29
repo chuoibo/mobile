@@ -154,5 +154,133 @@ class TheGateKnowsHowToBeRed(unittest.TestCase):
         )
 
 
+class TheDigestHasToBeTheArgValue(unittest.TestCase):
+    """A digest *somewhere on the ARG line* is not a pin.
+
+    The gate used to ask whether the line ended in `@sha256:<64 hex>`, which is a
+    question about the line rather than about the value Docker resolves. Both
+    cases below pull `python:3.12-slim` -- the mutable tag this gate exists to
+    forbid -- while the old check printed `ok: every base image ... is pinned`.
+    A gate that is merely silent is bad; this one made a false statement.
+    """
+
+    def _check(self, body: str) -> subprocess.CompletedProcess:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "Dockerfile"
+            path.write_text(body, encoding="utf-8")
+            return _run(str(path))
+
+    def test_a_digest_left_behind_in_a_trailing_comment_is_not_a_pin(self):
+        """services/api/Dockerfile carries a "To bump: ... copy the Digest"
+        note directly above its ARG, so the likeliest way this repository loses
+        its pin is a bump that leaves the old digest in a comment on the line."""
+        result = self._check(
+            f"ARG PYTHON_IMAGE=python:3.12-slim  # bump from @{DIGEST}\n"
+            "FROM ${PYTHON_IMAGE} AS build\n"
+        )
+        self.assertEqual(
+            result.returncode,
+            1,
+            f"a digest in a comment passed as a pin:\n{result.stdout}",
+        )
+        self.assertIn("not digest-pinned", result.stderr)
+
+    def test_a_later_unpinned_redeclaration_is_not_saved_by_an_earlier_pin(self):
+        """`grep -q` is satisfied by any one matching line, so a pinned first
+        declaration used to vouch for an unpinned second one. Whichever of the
+        two Docker resolves, one `FROM` here pulls a mutable tag."""
+        result = self._check(
+            f"ARG PY=python:3.12-slim@{DIGEST}\n"
+            "ARG PY=python:3.12-slim\n"
+            "FROM ${PY} AS build\n"
+        )
+        self.assertEqual(
+            result.returncode,
+            1,
+            f"an unpinned redeclaration passed:\n{result.stdout}",
+        )
+        self.assertIn("not digest-pinned", result.stderr)
+
+    def test_an_earlier_unpinned_declaration_is_not_saved_by_a_later_pin(self):
+        """The same defect with the declarations swapped. Reading only the last
+        declaration would let the `FROM` that sits between them pull a tag."""
+        result = self._check(
+            "ARG PY=python:3.12-slim\n"
+            "FROM ${PY} AS build\n"
+            f"ARG PY=python:3.12-slim@{DIGEST}\n"
+            "FROM ${PY} AS runtime\n"
+        )
+        self.assertEqual(
+            result.returncode,
+            1,
+            f"an unpinned first declaration passed:\n{result.stdout}",
+        )
+
+    def test_a_comment_naming_the_arg_does_not_count_as_a_declaration(self):
+        """The mirror of the first case, and the reason the scan stops at `#`:
+        a note that mentions `PY=<old tag>` must not be read as a second, worse
+        declaration and fail a file whose real value is pinned. A gate with
+        false positives gets bypassed, which costs the same as one with holes."""
+        result = self._check(
+            f"ARG PY=python:3.12-slim@{DIGEST}  # was PY=python:3.12-slim\n"
+            "FROM ${PY} AS build\n"
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_an_arg_that_is_only_redeclared_without_a_value_keeps_its_pin(self):
+        """`ARG PY` with no `=` pulls the global value into a stage; it does not
+        blank it. Rejecting this shape would break the one legal way to use a
+        build arg across stages, and an unusable gate gets deleted."""
+        result = self._check(
+            f"ARG PY=python:3.12-slim@{DIGEST}\n"
+            "FROM ${PY} AS build\n"
+            "ARG PY\n"
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+
+class TheGateReadsFromFlags(unittest.TestCase):
+    """`FROM --platform=$BUILDPLATFORM image@sha256:...` is a correctly pinned
+    image. The gate rejected it -- right verdict is not the issue, the issue is
+    that it rejected it by handing `--platform=...` to `grep` as an option and
+    printing grep's usage screen. A gate whose failure output is another tool's
+    help text teaches people to stop reading its output.
+    """
+
+    def _check(self, body: str) -> subprocess.CompletedProcess:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "Dockerfile"
+            path.write_text(body, encoding="utf-8")
+            return _run(str(path))
+
+    def test_a_platform_flag_does_not_hide_the_pinned_image_behind_it(self):
+        result = self._check(
+            f"FROM --platform=$BUILDPLATFORM python:3.12-slim@{DIGEST} AS build\n"
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            f"a correctly pinned image was rejected:\n{result.stdout}\n{result.stderr}",
+        )
+        self.assertNotIn("Usage: grep", result.stderr)
+
+    def test_a_platform_flag_does_not_hide_a_mutable_tag_either(self):
+        result = self._check("FROM --platform=$BUILDPLATFORM python:3.12-slim\n")
+        self.assertEqual(
+            result.returncode, 1, f"tag behind a flag passed:\n{result.stdout}"
+        )
+        self.assertIn("python:3.12-slim", result.stderr)
+        self.assertNotIn("Usage: grep", result.stderr)
+
+    def test_a_stage_declared_behind_a_platform_flag_is_still_a_known_stage(self):
+        """The stage-name scan skipped `FROM --platform=x img AS build`, so the
+        later `FROM build` looked like an unknown registry image."""
+        result = self._check(
+            f"FROM --platform=$BUILDPLATFORM python:3.12-slim@{DIGEST} AS build\n"
+            "FROM build AS runtime\n"
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
