@@ -1,4 +1,11 @@
-"""The read behind the group memory wall.
+"""The read behind the group memory wall, and behind budget awareness.
+
+Answers in two lists. `outings` is the wall itself -- trips that are over.
+`in_progress` is the trip the group has not come home from yet, and it exists
+because a spending figure that only arrives after the trip ends arrives at the
+one moment nobody can act on it (F34, rd-be-15). Both are recomputed the same
+way from the same ledger; neither is stored.
+
 
 Pillar 5 of the spec starts here rather than at the photo grid, because the
 part of a trip a group can still recover months later is not the pictures --

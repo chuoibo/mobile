@@ -23,7 +23,7 @@
 import React from "react";
 import { Text, View } from "react-native";
 import { radius, space, type, usePalette } from "../../theme";
-import type { MessageWire } from "./tin-nhan";
+import { TEN_CHUA_BIET, type MessageWire } from "./tin-nhan";
 import { TheKeHoach } from "./TheKeHoach";
 import type { KeHoach } from "./ke-hoach";
 
@@ -40,8 +40,10 @@ export function BongBong({
   onXemKeHoach,
 }: {
   message: MessageWire;
-  /** Looked up from `nhom-demo.ts` by `author_id`. Null when the author is
-   *  not in the demo group: we show a shortened id, never a made-up name. */
+  /** Looked up from `nhom-demo.ts` by `author_id`. Null when the author is not
+   *  in the demo group, which is every person who joined for real -- the API
+   *  sends no name with a message or a membership. Still never a made-up name;
+   *  the null case says `TEN_CHUA_BIET` rather than printing the id. */
   nguoiGui: NguoiHienThi | null;
   cuaMinh: boolean;
   dauChuoi: boolean;
@@ -132,7 +134,7 @@ function HangNguoi({
   lechPhai: boolean;
 }) {
   const c = usePalette();
-  const ten = nguoiGui?.name ?? (authorId ? authorId.slice(0, 8) : "Ẩn danh");
+  const ten = nguoiGui?.name ?? (authorId ? TEN_CHUA_BIET : "Ẩn danh");
   const initials = nguoiGui?.initials ?? "?";
   return (
     <View

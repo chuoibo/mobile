@@ -460,7 +460,7 @@ export async function waitForPreview(page) {
   );
 }
 
-async function snapshot(page, outDir, step) {
+export async function snapshot(page, outDir, step) {
   const { html, cssText } = await page.evaluate(() => {
     // `react-native-web` builds its stylesheet through the CSSOM
     // (`sheet.insertRule`), and rules inserted that way are NOT reflected in

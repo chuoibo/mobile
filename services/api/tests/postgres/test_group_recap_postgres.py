@@ -63,6 +63,12 @@ TRIP_STARTS_ON = date(2030, 8, 21)
 TRIP_ENDS_ON = date(2030, 8, 23)
 DINNER_VND = 520_000
 
+# The trip the group is on right now: started before today, ends after it. The
+# server's Vietnamese day is 2030-08-27, so `today` falls strictly inside.
+ONGOING_STARTS_ON = date(2030, 8, 26)
+ONGOING_ENDS_ON = date(2030, 8, 29)
+LUNCH_VND = 340_000
+
 
 def _app(session: Session, monkeypatch: pytest.MonkeyPatch):
     async def run_sync_inline(function, *args, **kwargs):
@@ -374,6 +380,222 @@ def test_correcting_a_bill_does_not_double_the_trip_total(
     assert trip["expense_count"] == 1
 
 
+def test_a_trip_the_group_is_still_on_reports_what_it_has_cost_so_far(
+    postgres_session: Session, monkeypatch: pytest.MonkeyPatch
+):
+    """rd-be-15. Budget awareness is worth something only while money is moving.
+
+    `group_recap` used to select `ends_on < today` and nothing else, so a trip
+    in progress was absent from every answer this route gave. The screen that
+    warns about overspending could therefore only warn after everyone had gone
+    home -- the one moment the warning cannot change anything.
+
+    The figure is read the same way a finished trip's is: summed from
+    `confirmed_allocations` on the request that asks. No new column, no running
+    total kept on `outings`. Invariant 3 does not get an exception for being
+    early.
+    """
+
+    app = _app(postgres_session, monkeypatch)
+    context, owner = _group(postgres_session)
+    _outing(
+        postgres_session,
+        context,
+        owner,
+        title="Đang ở Đà Lạt",
+        starts_on=ONGOING_STARTS_ON,
+        ends_on=ONGOING_ENDS_ON,
+    )
+    _split(
+        app,
+        context,
+        owner,
+        [],
+        occurred_at="2030-08-26T19:00:00+07:00",
+        total=LUNCH_VND,
+    )
+
+    body = _recap(app, context, owner).json()
+
+    assert [trip["title"] for trip in body["in_progress"]] == ["Đang ở Đà Lạt"]
+    trip = body["in_progress"][0]
+    assert trip["split_total_vnd"] == LUNCH_VND
+    assert trip["expense_count"] == 1
+    # Law 1 end to end. PostgreSQL sums a bigint as `numeric`, psycopg hands
+    # that back as `Decimal`, and a Decimal that escapes reaches JSON as
+    # `340000.0`. Only a real driver can catch this, which is why the case
+    # lives here and not against the fake repository.
+    assert isinstance(trip["split_total_vnd"], int)
+
+
+def test_a_finished_trip_reads_exactly_as_it_did_before_in_progress_existed(
+    postgres_session: Session, monkeypatch: pytest.MonkeyPatch
+):
+    """The control. Without it, "fixed the live trip" and "broke the memory
+    wall" are the same shade of green.
+
+    `outings` stays what it has always been -- trips that are over -- and the
+    top-level `split_total_vnd` stays the sum of exactly those. A trip the group
+    is still on must not sneak into either, or the memory wall starts showing a
+    trip that has not happened yet and its total stops adding up to the figures
+    printed under it.
+    """
+
+    app = _app(postgres_session, monkeypatch)
+    context, owner = _group(postgres_session)
+    _outing(postgres_session, context, owner, title="Đã về")
+    _outing(
+        postgres_session,
+        context,
+        owner,
+        title="Đang đi",
+        starts_on=ONGOING_STARTS_ON,
+        ends_on=ONGOING_ENDS_ON,
+    )
+    _split(app, context, owner, [], occurred_at="2030-08-22T19:00:00+07:00")
+    _split(
+        app,
+        context,
+        owner,
+        [],
+        occurred_at="2030-08-26T19:00:00+07:00",
+        total=LUNCH_VND,
+    )
+
+    body = _recap(app, context, owner).json()
+
+    assert [trip["title"] for trip in body["outings"]] == ["Đã về"]
+    assert body["outings"][0]["split_total_vnd"] == DINNER_VND
+    # The memory wall's own total: finished trips only, still adding up to the
+    # rows printed beneath it. The live trip's lunch is not part of it.
+    assert body["split_total_vnd"] == DINNER_VND
+    assert [trip["title"] for trip in body["in_progress"]] == ["Đang đi"]
+    assert body["in_progress"][0]["split_total_vnd"] == LUNCH_VND
+
+
+def test_the_last_day_of_a_trip_still_counts_as_being_on_it(
+    postgres_session: Session, monkeypatch: pytest.MonkeyPatch
+):
+    """The boundary the old filter got wrong, and the cheapest one to get wrong
+    again.
+
+    `ends_on < today` put a trip ending *today* on the memory wall while the
+    group was still at the table. Today is the last day, not the first day
+    afterwards: it belongs to the trip in progress.
+    """
+
+    app = _app(postgres_session, monkeypatch)
+    context, owner = _group(postgres_session)
+    _outing(
+        postgres_session,
+        context,
+        owner,
+        title="Về tối nay",
+        starts_on=date(2030, 8, 25),
+        ends_on=date(2030, 8, 27),
+    )
+
+    body = _recap(app, context, owner).json()
+
+    assert [trip["title"] for trip in body["in_progress"]] == ["Về tối nay"]
+    assert body["outings"] == []
+
+
+def test_a_dinner_before_the_live_trip_began_is_not_charged_to_it(
+    postgres_session: Session, monkeypatch: pytest.MonkeyPatch
+):
+    """A trip claims the spending on its own days, in progress or not.
+
+    The live trip inherits the date rule rather than a looser one. Summing
+    everything up to today would hand the group a warning built from a dinner
+    they ate the week before, and a wrong number that arrives early is worse
+    than a right one that arrives late.
+    """
+
+    app = _app(postgres_session, monkeypatch)
+    context, owner = _group(postgres_session)
+    _outing(
+        postgres_session,
+        context,
+        owner,
+        title="Đang đi",
+        starts_on=ONGOING_STARTS_ON,
+        ends_on=ONGOING_ENDS_ON,
+    )
+    # Two days before this trip started, and on no trip at all.
+    _split(app, context, owner, [], occurred_at="2030-08-24T19:00:00+07:00")
+
+    body = _recap(app, context, owner).json()
+
+    trip = body["in_progress"][0]
+    assert trip["split_total_vnd"] == 0
+    assert trip["expense_count"] == 0
+
+
+@pytest.mark.parametrize(
+    ("state", "left_at", "joined_at"),
+    [
+        (MembershipState.LEFT, NOW, NOW),
+        (MembershipState.INVITED, None, None),
+    ],
+)
+def test_only_an_active_member_sees_what_the_live_trip_has_cost(
+    postgres_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    state: MembershipState,
+    left_at,
+    joined_at,
+):
+    """The new payload is behind the same gate as the old one, proven and not
+    assumed.
+
+    A field added to a response is a field that has to be refused too. Somebody
+    who left and somebody who never accepted both hold a `memberships` row, so
+    neither is refused by "no row exists" -- what refuses them is
+    `state = 'active'`, and this is the case that goes red if the live trip's
+    money is ever read on a looser check than the memory wall's.
+    """
+
+    app = _app(postgres_session, monkeypatch)
+    context, owner = _group(postgres_session)
+    _outing(
+        postgres_session,
+        context,
+        owner,
+        title="Đang đi",
+        starts_on=ONGOING_STARTS_ON,
+        ends_on=ONGOING_ENDS_ON,
+    )
+    _split(
+        app,
+        context,
+        owner,
+        [],
+        occurred_at="2030-08-26T19:00:00+07:00",
+        total=LUNCH_VND,
+    )
+    stranger = _person(postgres_session, "Không còn quyền")
+    postgres_session.add(
+        Membership(
+            id=uuid.uuid4(),
+            context_id=context.id,
+            person_id=stranger.id,
+            state=state,
+            role=MembershipRole.MEMBER,
+            joined_at=joined_at,
+            left_at=left_at,
+            invited_by_id=owner.id if state is MembershipState.INVITED else None,
+        )
+    )
+    postgres_session.flush()
+
+    response = _recap(app, context, stranger)
+
+    assert response.status_code == 403, response.text
+    assert "Đang đi" not in response.text
+    assert str(LUNCH_VND) not in response.text
+
+
 def test_a_trip_still_ahead_is_not_a_memory_yet(
     postgres_session: Session, monkeypatch: pytest.MonkeyPatch
 ):
@@ -394,6 +616,10 @@ def test_a_trip_still_ahead_is_not_a_memory_yet(
     body = _recap(app, context, owner).json()
 
     assert [trip["title"] for trip in body["outings"]] == ["Đã đi"]
+    # Nor is it under way. "In progress" has to mean started-and-not-finished;
+    # a filter that decayed into "not finished" would collect the whole
+    # calendar and warn the group about a budget they have not opened yet.
+    assert body["in_progress"] == []
 
 
 def test_another_groups_dinner_never_lands_on_this_wall(

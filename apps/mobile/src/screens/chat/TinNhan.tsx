@@ -47,6 +47,7 @@ import {
   khuTrungTheoId,
   napTinCuHon,
   napTinNhan,
+  TEN_CHUA_BIET,
   type MessageWire,
   type TinNhanState,
 } from "./tin-nhan";
@@ -773,7 +774,7 @@ function TabThanhVien({ nhom }: { nhom: NhomMan }) {
 function DongThanhVien({ tv }: { tv: ThanhVien }) {
   const c = usePalette();
   const nguoi = DEMO_PEOPLE.find((p) => p.personId === tv.personId) ?? null;
-  const ten = nguoi?.name ?? tv.personId.slice(0, 8);
+  const ten = nguoi?.name ?? TEN_CHUA_BIET;
   const initials = nguoi?.initials ?? "?";
   return (
     <Card>

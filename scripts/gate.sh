@@ -65,19 +65,20 @@ REPO_ROOT="$PWD"
 
 # Every stage, in run order: cheapest and most likely to fail first, so a
 # broken tree is reported in seconds rather than after a docker build.
-STAGES=(guard ruff api migration contract shared mobile docker postgres)
+STAGES=(guard ruff contract client-routes api migration shared mobile docker postgres)
 
 stage_help() {
   case "$1" in
     guard)     echo "repo_guard.py tree HEAD (repo-guard.yml)" ;;
     ruff)      echo "ruff on the files this branch changes, uncommitted ones included (test.yml: lint)" ;;
+    contract)  echo "every route wanting X-Actor-ID is called with it (test.yml: contract)" ;;
+    client-routes) echo "every route apps/mobile calls exists in the API (test.yml: api, inline)" ;;
     api)       echo "pytest services/api/tests tests (test.yml: api)" ;;
     migration) echo "alembic upgrade head --sql, no database (test.yml: api, inline)" ;;
-    contract)  echo "every route apps/mobile calls exists in the API (test.yml: api, inline)" ;;
     shared)    echo "node packages/shared/money.test.mjs (test.yml: shared)" ;;
     mobile)    echo "tsc, npm test with MOBILE_REQUIRE_WEB_A11Y=1, expo export --platform all (test.yml: mobile)" ;;
     docker)    echo "image pinned, builds, non-root, no dev tooling, serves /healthz (test.yml: docker)" ;;
-    postgres)  echo "pytest tests/postgres against a real PostgreSQL (postgres-repository.yml)" ;;
+    postgres)  echo "pytest tests/postgres against a real PostgreSQL it provisions itself (postgres-repository.yml)" ;;
   esac
 }
 
@@ -89,7 +90,7 @@ while [ $# -gt 0 ]; do
     --strict) STRICT=1 ;;
     --list)
       echo "Các chặng của cổng (thứ tự chạy):"
-      for s in "${STAGES[@]}"; do printf '  %-10s %s\n' "$s" "$(stage_help "$s")"; done
+      for s in "${STAGES[@]}"; do printf '  %-14s %s\n' "$s" "$(stage_help "$s")"; done
       exit 0
       ;;
     -h|--help) sed -n '2,60p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -146,6 +147,32 @@ do_ruff() {
   scripts/ruff_changed.sh "$base"
 }
 
+do_contract() {
+  # Runs before `api` on purpose. It is seconds, and it answers a question no
+  # other stage here asks: the two sides of one HTTP contract are checked by
+  # two suites that each mock the other, so a route that starts demanding a
+  # header leaves both suites green and the screen dead. See the file header.
+  echo "--- self-test: the checker has to be able to be red"
+  python3 scripts/check_actor_headers.py --selftest || return 1
+  echo "--- client vs OpenAPI"
+  python3 scripts/check_actor_headers.py
+}
+
+# Deliberately NOT called `do_contract`. It was, until 2026-08-29: this check
+# was written on a branch cut before the actor-header stage reached main, and
+# both stages picked the name `contract` independently. Merging the two left
+# two `do_contract()` bodies in this file, neither inside a conflict marker,
+# `bash -n` clean, and bash keeps the last one -- so the actor-header gate
+# stopped running while `gate.sh contract` still printed its description and
+# exited 0. tests/test_gate_stage_bodies_are_unique.py now refuses that shape.
+do_client-routes() {
+  # Reads the rendered OpenAPI and the client source. No database, no server,
+  # no npm -- the two halves of a request compared where nothing else compares
+  # them. Proven on 2026-08-29: with `/batches/current/publish` back in
+  # api.ts, `tsc --noEmit` exited 0 and `npm test` passed 493 of 493.
+  python3 scripts/check_api_contract.py
+}
+
 do_api() { python3 -m pytest services/api/tests tests -q; }
 
 do_migration() {
@@ -163,14 +190,6 @@ with contextlib.redirect_stdout(io.StringIO()):
 print("migration renders")
 PY
   )
-}
-
-do_contract() {
-  # Reads the rendered OpenAPI and the client source. No database, no server,
-  # no npm -- the two halves of a request compared where nothing else compares
-  # them. Proven on 2026-08-29: with `/batches/current/publish` back in
-  # api.ts, `tsc --noEmit` exited 0 and `npm test` passed 493 of 493.
-  python3 scripts/check_api_contract.py
 }
 
 do_shared() { node packages/shared/money.test.mjs; }
@@ -232,7 +251,12 @@ do_docker() {
 }
 
 do_postgres() {
-  ( cd services/api && MOBILE_REQUIRE_POSTGRES_TESTS=1 python3 -m pytest tests/postgres -q )
+  # Delegates so the provisioning has a caller outside this file and can be
+  # tested on its own (tests/test_postgres_tier_runner.py). The script builds
+  # its own throwaway database when no URL is given, which is what stops this
+  # stage from being the permanent BO QUA it had been: 147 skips and 0 runs in
+  # CI, and a skip locally every time nobody exported a connection string.
+  scripts/postgres_tier.sh -q
 }
 
 # --- prerequisites --------------------------------------------------------
@@ -246,8 +270,22 @@ check_prereq() {
     ruff)
       git rev-parse --git-dir >/dev/null 2>&1 || { echo "không phải git repo"; return 1; } ;;
     contract)
-      [ -d apps/mobile/src ] || { echo "apps/mobile không có trên nhánh này"; return 1; }
-      [ -d services/api ] || { echo "services/api không có trên nhánh này"; return 1; } ;;
+      # Needs both sides of the contract. Without `apps/mobile` there is no
+      # client to check and skipping is the honest answer; with it present but
+      # no `src`, the checker itself would find nothing and report green, so
+      # that case is a defect and refuses to skip.
+      [ -d apps/mobile ] || { echo "apps/mobile không có trên nhánh này"; return 1; }
+      [ -d apps/mobile/src ] || return 2
+      python3 -c "import fastapi" 2>/dev/null || {
+        echo "chưa cài fastapi (pip install -r services/api/requirements-dev.txt)"; return 1; } ;;
+    client-routes)
+      # Same two halves as `contract`, same reasoning for each outcome. The
+      # question asked of them is different: `contract` asks whether a call
+      # sends X-Actor-ID, this one asks whether the path it calls exists.
+      [ -d apps/mobile ] || { echo "apps/mobile không có trên nhánh này"; return 1; }
+      [ -d apps/mobile/src ] || return 2
+      python3 -c "import fastapi" 2>/dev/null || {
+        echo "chưa cài fastapi (pip install -r services/api/requirements-dev.txt)"; return 1; } ;;
     shared)
       have node || { echo "không có node"; return 1; }
       [ -d packages/shared ] || { echo "packages/shared không có trên nhánh này"; return 1; }
@@ -261,12 +299,25 @@ check_prereq() {
       have docker || { echo "không có docker"; return 1; }
       docker info >/dev/null 2>&1 || { echo "docker daemon không chạy"; return 1; } ;;
     postgres)
-      # Only an explicitly given URL. Guessing a connection string would point
-      # the tier at the shared `mobile-local` database that every worktree on
-      # this machine uses, and the postgres tier migrates a schema.
-      [ -n "${MOBILE_TEST_DATABASE_URL:-}" ] || {
-        echo "chưa đặt MOBILE_TEST_DATABASE_URL (xem CLAUDE.md; 'docker compose up -d postgres' rồi export)"
-        return 1; } ;;
+      # An explicitly given URL still wins: somebody who aimed this at a
+      # database on purpose is not to be second-guessed.
+      #
+      # Otherwise `scripts/postgres_tier.sh` makes one. The old rule here was
+      # "only an explicitly given URL", and its reason was right -- guessing a
+      # connection string would have pointed the tier at the shared
+      # `mobile-local` database that every worktree on this machine uses. But
+      # the conclusion cost more than it saved: the stage skipped on every run,
+      # so 224 cases that are the only proof of any SQL, index, view or trigger
+      # in this repository never executed. Provisioning has nothing to guess --
+      # a container of its own, on a random loopback port, deleted on the way
+      # out -- so the collision that rule protected against cannot happen.
+      [ -n "${MOBILE_TEST_DATABASE_URL:-}" ] && return 0
+      have docker || {
+        echo "không có docker và chưa đặt MOBILE_TEST_DATABASE_URL"; return 1; }
+      docker info >/dev/null 2>&1 || {
+        echo "docker daemon không chạy và chưa đặt MOBILE_TEST_DATABASE_URL"; return 1; }
+      docker image inspect "${MOBILE_TEST_POSTGRES_IMAGE:-postgres:16-alpine}" >/dev/null 2>&1 || {
+        echo "chưa có ảnh postgres tại máy (docker pull postgres:16-alpine)"; return 1; } ;;
   esac
   return 0
 }
@@ -274,6 +325,7 @@ check_prereq() {
 # The "present but broken" message, kept next to the rule it enforces.
 broken_why() {
   case "$1" in
+    contract|client-routes) echo "apps/mobile có mặt nhưng thiếu src/ -- từ chối bỏ qua" ;;
     shared) echo "packages/shared có mặt nhưng thiếu money.test.mjs -- từ chối bỏ qua" ;;
     mobile) echo "apps/mobile có mặt nhưng thiếu package-lock.json -- từ chối bỏ qua" ;;
     *) echo "thiếu file mà chặng này cần -- từ chối bỏ qua" ;;

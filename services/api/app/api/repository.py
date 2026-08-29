@@ -110,6 +110,11 @@ class MembershipRecord:
     id: uuid.UUID
     context_id: uuid.UUID
     person_id: uuid.UUID
+    #: What this person is shown as. `memberships.person_id` is a foreign key
+    #: into `people` and `people.display_name` is `NOT NULL`, so the name exists
+    #: for every row this record can describe -- carrying only the id meant the
+    #: roster handed a screen a hexadecimal string and nothing to render it as.
+    display_name: str
     state: str
     role: str
     origin: str
@@ -186,7 +191,7 @@ class OutingRecord:
 
 @dataclass(frozen=True, slots=True)
 class RecapOutingRecord:
-    """One finished trip, with its money recomputed rather than stored.
+    """One started trip, with its money recomputed rather than stored.
 
     `split_total_vnd` is not a column. It is the sum of the confirmed
     allocations of the expenses that happened inside the trip's days, summed on
@@ -196,6 +201,7 @@ class RecapOutingRecord:
     """
 
     outing: OutingRecord
+    in_progress: bool
     split_total_vnd: int
     expense_count: int
     memory_count: int
@@ -904,12 +910,23 @@ class SqlAlchemyApiRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    @staticmethod
-    def _membership_record(membership: Membership) -> MembershipRecord:
+    def _membership_record(
+        self, membership: Membership, display_name: str | None = None
+    ) -> MembershipRecord:
+        # `display_name` is passed in only by callers that already hold it:
+        # `list_members` reads every name in one statement rather than one per
+        # row. Every other path here returns a single membership, so looking
+        # the name up here costs one query and saves eight call sites from
+        # remembering to.
+        if display_name is None:
+            display_name = self._display_names({membership.person_id})[
+                membership.person_id
+            ]
         return MembershipRecord(
             id=membership.id,
             context_id=membership.context_id,
             person_id=membership.person_id,
+            display_name=display_name,
             state=membership.state.value,
             role=membership.role.value,
             origin=membership.origin.value,
@@ -1240,15 +1257,24 @@ class SqlAlchemyApiRepository:
         return self._membership_record(membership)
 
     def list_members(self, context_id: uuid.UUID) -> list[MembershipRecord]:
-        memberships = self.session.scalars(
-            select(Membership)
-            .where(
-                Membership.context_id == context_id,
-                Membership.left_at.is_(None),
+        memberships = list(
+            self.session.scalars(
+                select(Membership)
+                .where(
+                    Membership.context_id == context_id,
+                    Membership.left_at.is_(None),
+                )
+                .order_by(Membership.created_at, Membership.id)
             )
-            .order_by(Membership.created_at, Membership.id)
         )
-        return [self._membership_record(membership) for membership in memberships]
+        # One statement for the whole roster. A per-row lookup would make the
+        # cost of naming a group grow with the group, on the request every
+        # group screen opens with.
+        names = self._display_names({row.person_id for row in memberships})
+        return [
+            self._membership_record(membership, names[membership.person_id])
+            for membership in memberships
+        ]
 
     def is_member(self, context_id: uuid.UUID, person_id: uuid.UUID) -> bool:
         return (
@@ -1340,7 +1366,7 @@ class SqlAlchemyApiRepository:
     def group_recap(
         self, context_id: uuid.UUID, *, today: date
     ) -> tuple[RecapOutingRecord, ...]:
-        """Finished trips of one group, newest first, money read back from the ledger.
+        """Started trips of one group, newest first, money read back from the ledger.
 
         There is no `expenses.outing_id`, so a trip claims the spending that
         happened on its days. That rule is stated on the screen rather than
@@ -1352,12 +1378,12 @@ class SqlAlchemyApiRepository:
         multiplies one by the other, and an inflated photo count is the kind of
         wrong number that still looks like a number.
         """
-        finished = (
+        started = (
             select(Outing)
-            .where(Outing.context_id == context_id, Outing.ends_on < today)
+            .where(Outing.context_id == context_id, Outing.starts_on <= today)
             .order_by(Outing.ends_on.desc(), Outing.id)
         )
-        outings = tuple(self.session.scalars(finished))
+        outings = tuple(self.session.scalars(started))
         if not outings:
             return ()
 
@@ -1440,6 +1466,7 @@ class SqlAlchemyApiRepository:
         return tuple(
             RecapOutingRecord(
                 outing=self._outing_record(outing),
+                in_progress=outing.ends_on >= today,
                 split_total_vnd=money.get(outing.id, (0, 0))[0],
                 expense_count=money.get(outing.id, (0, 0))[1],
                 memory_count=photos.get(outing.id, 0),
