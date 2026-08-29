@@ -38,6 +38,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import zlib from "node:zlib";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import puppeteer from "file:///home/lakiet/.claude/node_modules/puppeteer-core/lib/puppeteer/puppeteer-core.js";
@@ -188,6 +189,69 @@ export function installTabStubs(apiBase, fixtures) {
     // rather than a plausible empty body keeps an unstubbed call loud.
     return json({ detail: `tab-snapshots: unstubbed ${method} ${route}` }, 404);
   };
+}
+
+/**
+ * Write a real PNG next to the bundle, so one card in the snapshot holds an
+ * actual photograph rather than the drawn stand-in.
+ *
+ * The point is not decoration. Until `ui/Anh.tsx` landed the app rendered no
+ * images at all, and the easy way to "add images" is to write an `<Image>`
+ * branch that nothing ever reaches: `photo_url` is null on every row the
+ * server sends today, so the frame would draw its stand-in forever and a
+ * screenshot could not tell a working image path from a dead one. Serving a
+ * byte-real PNG to exactly one of the two fixture rows makes the snapshot show
+ * both states side by side -- one photo, one stand-in -- which is the only
+ * version of this evidence that can fail.
+ *
+ * Generated at scan time and written into `.expo-build-check`, never
+ * committed. The repo guard refuses binaries on sight and it is right to; this
+ * is a build artifact in an ignored directory, not an asset.
+ *
+ * Hand-rolled because there is no image library here and adding one for four
+ * chunks would be worse. A PNG is a signature plus length/type/data/CRC
+ * chunks; `zlib.crc32` and `zlib.deflateSync` do the two hard parts.
+ */
+function vietPngThu(file, w = 480, h = 360) {
+  const raw = Buffer.alloc(h * (w * 3 + 1));
+  let o = 0;
+  for (let y = 0; y < h; y++) {
+    raw[o++] = 0; // filter: none
+    for (let x = 0; x < w; x++) {
+      // A warm dusk wash with a lighter horizon band. Deliberately unlike the
+      // drawn category marks, so nobody can mistake one for the other in a
+      // screenshot.
+      const t = (x / w) * 0.55 + (y / h) * 0.45;
+      const band = Math.abs(y / h - 0.62) < 0.05 ? 42 : 0;
+      raw[o++] = Math.min(255, Math.round(232 - t * 96 + band));
+      raw[o++] = Math.min(255, Math.round(122 - t * 44 + band));
+      raw[o++] = Math.min(255, Math.round(96 + t * 78 + band));
+    }
+  }
+
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(zlib.crc32(body) >>> 0);
+    return Buffer.concat([len, body, crc]);
+  };
+
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0);
+  ihdr.writeUInt32BE(h, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 2; // colour type: truecolour
+  fs.writeFileSync(
+    file,
+    Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      chunk("IHDR", ihdr),
+      chunk("IDAT", zlib.deflateSync(raw)),
+      chunk("IEND", Buffer.alloc(0)),
+    ]),
+  );
 }
 
 async function main() {
@@ -375,6 +439,22 @@ async function main() {
   let browser = null;
   try {
     const port = await listen(server);
+
+    // `photo_url` is a RELATIVE path, which is both the shape the photo route
+    // actually returns and the only shape the app will now dial: `Anh` refuses
+    // any address that is not on `EXPO_PUBLIC_API_URL`, so the old absolute
+    // `http://127.0.0.1:<port>/...` would be declined and this card would draw
+    // its stand-in -- turning this whole scan back into decoration without
+    // changing a line of it. Serving the bytes on the API origin instead keeps
+    // the scan honest AND makes it exercise the real resolution path.
+    //
+    // The first row gets a photograph and the second deliberately does not, so
+    // `kham-pha.png` shows the loaded state and the waiting state in one frame.
+    const anhThuFile = path.join(buildDir, "anh-thu-dia-diem.png");
+    vietPngThu(anhThuFile);
+    const anhThuBytes = fs.readFileSync(anhThuFile);
+    const anhThuUrl = `${API_BASE}/anh-thu-dia-diem.png`;
+    fixtures.places[0].photo_url = "/anh-thu-dia-diem.png";
     browser = await puppeteer.launch({
       executablePath: CHROME,
       headless: true,
@@ -393,6 +473,19 @@ async function main() {
       page.setDefaultTimeout(30000);
       const pageErrors = [];
       page.on("pageerror", (err) => pageErrors.push(String(err)));
+
+      // The photograph is the one request that does NOT go through the fetch
+      // stub: an <Image> loads it itself. `api.build-check.invalid` resolves
+      // nowhere on purpose, so it is answered here instead.
+      await page.setRequestInterception(true);
+      page.on("request", (req) => {
+        if (req.url() === anhThuUrl) {
+          req.respond({ status: 200, contentType: "image/png", body: anhThuBytes });
+          return;
+        }
+        req.continue();
+      });
+
       await page.evaluateOnNewDocument(installTabStubs, API_BASE, fixtures);
 
       // `AppRoot` reads the fragment once, at mount. Navigating from one
@@ -410,6 +503,35 @@ async function main() {
         if (pageErrors.length) console.error(`Page errors:\n${pageErrors.join("\n")}`);
         throw err;
       }
+
+      // Assert the photograph decoded, rather than trusting that it did.
+      // A refused address, a broken resolution, or an <Image> that quietly
+      // stopped rendering all leave a frame that looks exactly like the
+      // stand-in state this scan is also supposed to show -- so without this
+      // check the two are indistinguishable in the PNG and the scan reports
+      // success either way. `naturalWidth > 0` is the browser saying it got
+      // real pixels, not merely that an element exists.
+      if (step === "kham-pha") {
+        const daTai = await page.evaluate(async (src) => {
+          const imgs = [...document.querySelectorAll("img")];
+          const anh = imgs.find((i) => i.src === src || i.currentSrc === src);
+          if (!anh) return { found: false, srcs: imgs.map((i) => i.src).slice(0, 5) };
+          if (!anh.complete) await anh.decode().catch(() => {});
+          return { found: true, width: anh.naturalWidth, height: anh.naturalHeight };
+        }, anhThuUrl);
+        if (!daTai.found) {
+          throw new Error(
+            `kham-pha: khong tim thay <img> cho ${anhThuUrl}. ` +
+              `Cong origin tu choi dia chi nay, hoac <Image> khong con render. ` +
+              `src dang co: ${JSON.stringify(daTai.srcs)}`,
+          );
+        }
+        if (!daTai.width) {
+          throw new Error(`kham-pha: <img> ${anhThuUrl} khong giai ma duoc (naturalWidth=0)`);
+        }
+        console.log(`  anh dia diem da tai that: ${daTai.width}x${daTai.height}`);
+      }
+
       await snapshot(page, outDir, step);
       await page.close();
     }

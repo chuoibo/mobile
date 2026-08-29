@@ -17,6 +17,12 @@
     "src/camera/bill-photo.ts",
     "src/ui/direction.ts",
     "src/ui/a11y.ts",
+    // Which image addresses the app will dial. Compiled on its own line because
+    // the rule it carries is a *negative* one -- an address off our own API
+    // never becomes a request -- and the bypasses worth pinning (`//host`,
+    // a base that is a prefix of a longer host, userinfo before `@`) are
+    // properties of this function, provable with no renderer and no server.
+    "src/ui/nguon-anh.ts",
     // bug-185426. The copy shown when the server itself refuses. Compiled on
     // its own line because the rule it carries -- a 5xx body never becomes the
     // sentence, and never reaches the screen uncut -- is assertable without a

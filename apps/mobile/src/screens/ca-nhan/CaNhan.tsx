@@ -24,6 +24,7 @@ import { radius, space, type, usePalette } from "../../theme";
 import { Card } from "../../ui/Kit";
 import { Gradient, HERO_SUNSET } from "../../navigation/Gradient";
 import { DEMO_GROUP_NAME, type DemoPerson } from "../../navigation/nhom-demo";
+import { Anh, khungTron } from "../../ui/Anh";
 import { MaCuaToi } from "./MaCuaToi";
 import {
   FinanceError,
@@ -118,33 +119,57 @@ function tenHienThi(nguoi: DemoPerson | null, trang: Trang): string {
 }
 
 /** Cover band with the avatar sitting over its lower edge, as in the mockup. */
-function BiaVaAnh({ nguoi, ten }: { nguoi: DemoPerson | null; ten: string }) {
+function BiaVaAnh({
+  nguoi,
+  ten,
+  anhBia,
+  anhDaiDien,
+}: {
+  nguoi: DemoPerson | null;
+  ten: string;
+  anhBia?: string | null;
+  anhDaiDien?: string | null;
+}) {
   const c = usePalette();
   const AVATAR = 84;
   return (
     <View style={{ marginBottom: AVATAR / 2 + space.xs }}>
-      {/* No photograph. Real faces of real people do not go into Git, and a
+      {/* The frame is real now (`Anh`). What it holds today is still not a
+          photograph: real faces of real people do not go into Git, and a
           stock portrait of a stranger is a worse lie than a gradient. Same
           sunset the opening screen paints, so arriving here reads as the same
           product rather than a second one. No text sits on it: `tokens.brand`
           measures white on the coral stop at 2.92:1 and forbids exactly that. */}
-      <Gradient colors={HERO_SUNSET} style={{ height: 148 }} />
+      <Anh
+        uri={anhBia}
+        alt=""
+        cho={<Gradient colors={HERO_SUNSET} style={{ flex: 1 }} />}
+        style={{ height: 148 }}
+      />
       <View
         style={{
           position: "absolute",
           left: space.md,
           bottom: -AVATAR / 2,
-          width: AVATAR,
-          height: AVATAR,
-          borderRadius: radius.pill,
-          backgroundColor: c.accentSoft,
-          borderColor: c.card,
-          borderWidth: 4,
-          alignItems: "center",
-          justifyContent: "center",
         }}
       >
-        <Text style={{ ...type.amount, color: c.accent }}>{nguoi?.initials ?? "?"}</Text>
+        <Anh
+          uri={anhDaiDien}
+          alt={`Ảnh đại diện của ${ten}`}
+          cho={
+            <View
+              style={{
+                flex: 1,
+                backgroundColor: c.accentSoft,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Text style={{ ...type.amount, color: c.accent }}>{nguoi?.initials ?? "?"}</Text>
+            </View>
+          }
+          style={{ ...khungTron(84), borderColor: c.card, borderWidth: 4 }}
+        />
       </View>
       <View
         style={{

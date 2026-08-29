@@ -23,6 +23,7 @@ import { radius, space, type, usePalette } from "../../theme";
 import { Gradient, HERO_SUNSET, Scrim, mixHex } from "../../navigation/Gradient";
 import { DEMO_GROUP_NAME, DEMO_PEOPLE, type DemoPerson } from "../../navigation/nhom-demo";
 import { useInertBackground } from "../../navigation/modal";
+import { Anh } from "../../ui/Anh";
 
 const brand = tokens.brand;
 
@@ -33,7 +34,7 @@ const ON_SUNSET = tokens.color.light.accentInk;
  *  decision: dark enough to carry white body text at AA with room to spare. */
 const PANEL = mixHex(brand.violet, tokens.color.light.ink, 0.84);
 
-export function MoDau({ onVao, onBoQua, onSoDienThoai }: {
+export function MoDau({ onVao, onBoQua, onSoDienThoai, anhNen }: {
   onVao: (nguoi: DemoPerson) => void;
   /** Skip. Enters the shell with nobody signed in, which is a real state. */
   onBoQua: () => void;
@@ -41,6 +42,7 @@ export function MoDau({ onVao, onBoQua, onSoDienThoai }: {
    *  `PUT /people/{id}`; the two provider buttons above it still open the
    *  demo picker, and the caption under them now has to say which is which. */
   onSoDienThoai: () => void;
+  anhNen?: string | null;
 }) {
   const [dangChon, setDangChon] = useState(false);
   // The picker below is the same kind of sheet as the [+] menu and had the
@@ -59,8 +61,19 @@ export function MoDau({ onVao, onBoQua, onSoDienThoai }: {
     // white. Naming the ramp's own top stop here makes the DOM state what is
     // actually behind the text and gives the screen a floor to fail onto.
     <View style={{ flex: 1, backgroundColor: HERO_SUNSET[0] }}>
-      <Gradient colors={HERO_SUNSET} style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} />
-      <CanhHoangHon />
+      <Anh
+        uri={anhNen}
+        // Decorative: the wordmark and caption already say everything this
+        // screen means, so an empty alt keeps the frame out of the tree.
+        alt=""
+        cho={
+          <>
+            <Gradient colors={HERO_SUNSET} style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} />
+            <CanhHoangHon />
+          </>
+        }
+        style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
+      />
       {/* Enough at the top to seat the wordmark, out of the way through the
           middle so the sunset stays a sunset. The button block does not lean
           on this -- it brings its own ground. */}
