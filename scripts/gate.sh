@@ -65,13 +65,14 @@ REPO_ROOT="$PWD"
 
 # Every stage, in run order: cheapest and most likely to fail first, so a
 # broken tree is reported in seconds rather than after a docker build.
-STAGES=(guard ruff contract api migration shared mobile docker postgres)
+STAGES=(guard ruff contract client-routes api migration shared mobile docker postgres)
 
 stage_help() {
   case "$1" in
     guard)     echo "repo_guard.py tree HEAD (repo-guard.yml)" ;;
     ruff)      echo "ruff on the files this branch changes, uncommitted ones included (test.yml: lint)" ;;
     contract)  echo "every route wanting X-Actor-ID is called with it (test.yml: contract)" ;;
+    client-routes) echo "every route apps/mobile calls exists in the API (test.yml: api, inline)" ;;
     api)       echo "pytest services/api/tests tests (test.yml: api)" ;;
     migration) echo "alembic upgrade head --sql, no database (test.yml: api, inline)" ;;
     shared)    echo "node packages/shared/money.test.mjs (test.yml: shared)" ;;
@@ -89,7 +90,7 @@ while [ $# -gt 0 ]; do
     --strict) STRICT=1 ;;
     --list)
       echo "Các chặng của cổng (thứ tự chạy):"
-      for s in "${STAGES[@]}"; do printf '  %-10s %s\n' "$s" "$(stage_help "$s")"; done
+      for s in "${STAGES[@]}"; do printf '  %-14s %s\n' "$s" "$(stage_help "$s")"; done
       exit 0
       ;;
     -h|--help) sed -n '2,60p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -155,6 +156,21 @@ do_contract() {
   python3 scripts/check_actor_headers.py --selftest || return 1
   echo "--- client vs OpenAPI"
   python3 scripts/check_actor_headers.py
+}
+
+# Deliberately NOT called `do_contract`. It was, until 2026-08-29: this check
+# was written on a branch cut before the actor-header stage reached main, and
+# both stages picked the name `contract` independently. Merging the two left
+# two `do_contract()` bodies in this file, neither inside a conflict marker,
+# `bash -n` clean, and bash keeps the last one -- so the actor-header gate
+# stopped running while `gate.sh contract` still printed its description and
+# exited 0. tests/test_gate_stage_bodies_are_unique.py now refuses that shape.
+do_client-routes() {
+  # Reads the rendered OpenAPI and the client source. No database, no server,
+  # no npm -- the two halves of a request compared where nothing else compares
+  # them. Proven on 2026-08-29: with `/batches/current/publish` back in
+  # api.ts, `tsc --noEmit` exited 0 and `npm test` passed 493 of 493.
+  python3 scripts/check_api_contract.py
 }
 
 do_api() { python3 -m pytest services/api/tests tests -q; }
@@ -262,6 +278,14 @@ check_prereq() {
       [ -d apps/mobile/src ] || return 2
       python3 -c "import fastapi" 2>/dev/null || {
         echo "chưa cài fastapi (pip install -r services/api/requirements-dev.txt)"; return 1; } ;;
+    client-routes)
+      # Same two halves as `contract`, same reasoning for each outcome. The
+      # question asked of them is different: `contract` asks whether a call
+      # sends X-Actor-ID, this one asks whether the path it calls exists.
+      [ -d apps/mobile ] || { echo "apps/mobile không có trên nhánh này"; return 1; }
+      [ -d apps/mobile/src ] || return 2
+      python3 -c "import fastapi" 2>/dev/null || {
+        echo "chưa cài fastapi (pip install -r services/api/requirements-dev.txt)"; return 1; } ;;
     shared)
       have node || { echo "không có node"; return 1; }
       [ -d packages/shared ] || { echo "packages/shared không có trên nhánh này"; return 1; }
@@ -301,7 +325,7 @@ check_prereq() {
 # The "present but broken" message, kept next to the rule it enforces.
 broken_why() {
   case "$1" in
-    contract) echo "apps/mobile có mặt nhưng thiếu src/ -- từ chối bỏ qua" ;;
+    contract|client-routes) echo "apps/mobile có mặt nhưng thiếu src/ -- từ chối bỏ qua" ;;
     shared) echo "packages/shared có mặt nhưng thiếu money.test.mjs -- từ chối bỏ qua" ;;
     mobile) echo "apps/mobile có mặt nhưng thiếu package-lock.json -- từ chối bỏ qua" ;;
     *) echo "thiếu file mà chặng này cần -- từ chối bỏ qua" ;;
