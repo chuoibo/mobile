@@ -15,6 +15,75 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Ruff has been configured in services/api/pyproject.toml the whole time and
+  # called by nothing, so the debt grew unwatched: 26 lint errors and 76
+  # misformatted files by the day this job landed. A whole-tree gate cannot be
+  # landed -- it is red on the commit that adds it, and the only way to green
+  # it is to reformat 76 files, which buries every real diff underneath it.
+  # This checks the files in the diff instead. Old debt stays visible to anyone
+  # who runs ruff by hand; it just cannot grow any more.
+  lint:
+    name: ruff on changed files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out complete history
+        # fetch-depth: 0 or there is no merge base to diff against, and the
+        # script would exit 2 rather than guess.
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the pinned ruff
+        # Read the pin out of requirements-dev.txt rather than repeating the
+        # version here. Two copies drift, and a lint gate running a different
+        # ruff than developers have is a gate that fails for reasons nobody can
+        # reproduce locally.
+        run: |
+          set -euo pipefail
+          pin="$(grep -E '^ruff==' services/api/requirements-dev.txt)"
+          if [ -z "$pin" ]; then
+            echo "::error::no ruff== pin in services/api/requirements-dev.txt"
+            exit 1
+          fi
+          echo "installing $pin"
+          python -m pip install --quiet "$pin"
+
+      - name: Check the files this pull request changes
+        if: github.event_name == 'pull_request'
+        env:
+          RUFF_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          RUFF_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: scripts/ruff_changed.sh "$RUFF_BASE_SHA" "$RUFF_HEAD_SHA"
+
+      - name: Check the files this push changes
+        # Same shape as the repo guard's push step, and for the same reason: a
+        # brand-new branch reports an all-zero "before", and handing that over
+        # would diff against the entire history and fail the author for every
+        # file anyone has ever committed.
+        if: github.event_name == 'push'
+        env:
+          RUFF_BASE_SHA: ${{ github.event.before }}
+          RUFF_HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          base="$RUFF_BASE_SHA"
+          if [ -z "${base//0/}" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            git fetch --no-tags --quiet origin main:refs/remotes/origin/main || true
+            base="$(git merge-base refs/remotes/origin/main "$RUFF_HEAD_SHA" || true)"
+          fi
+          if [ -z "$base" ]; then
+            # Nothing shared to compare against. Say so and check nothing --
+            # but never silently, and never by scanning the tree, which would
+            # fail on debt this push did not create.
+            echo "::notice::no merge base, no changed-file set to lint"
+            exit 0
+          fi
+          scripts/ruff_changed.sh "$base" "$RUFF_HEAD_SHA"
+
   api:
     name: api and domain
     runs-on: ubuntu-latest

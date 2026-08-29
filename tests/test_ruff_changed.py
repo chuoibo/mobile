@@ -82,7 +82,9 @@ class RuffGateHarness(unittest.TestCase):
         self.write("README.md", "# repo\n")
         return self.commit("base with pre-existing debt")
 
-    def run_gate(self, *args: str, path: str | None = None) -> subprocess.CompletedProcess:
+    def run_gate(
+        self, *args: str, path: str | None = None
+    ) -> subprocess.CompletedProcess:
         env = dict(os.environ)
         if path is not None:
             env["PATH"] = path
@@ -180,7 +182,6 @@ class BranchComparison(RuffGateHarness):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn("landed_after.py", result.stdout)
 
-
     def test_worktree_form_ignores_commits_main_moved_on_to(self) -> None:
         """The same blame bug as above, in the local form.
 
@@ -192,16 +193,22 @@ class BranchComparison(RuffGateHarness):
         changed" instead of "what differs from main".
         """
         base = self.base_commit_with_dirty_file()
-        self.git("checkout", "-q", "-b", "moved-on")
-        self.write("landed_after.py", LINT_ERROR)
-        self.commit("someone else's dirty file")
 
-        self.git("checkout", "-q", "main")
+        # Main has to MODIFY the dirty file, not add a new one. A file the
+        # branch never had reads as a deletion from the working tree's side and
+        # --diff-filter=ACMR drops it anyway, so an added file cannot tell the
+        # two behaviours apart -- the first version of this test used one and
+        # passed against the bug it was written for.
+        self.git("checkout", "-q", "-b", "moved-on")
+        self.write("legacy_dirty.py", LINT_ERROR + "y = 1\n")
+        self.commit("main keeps working on the dirty file")
+
+        self.git("checkout", "-q", base)
         self.write("mine.py", CLEAN)
 
         result = self.run_gate("moved-on")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertNotIn("landed_after.py", result.stdout)
+        self.assertNotIn("legacy_dirty.py", result.stdout)
 
 
 class FailsLoudlyNotSilently(RuffGateHarness):
@@ -233,6 +240,19 @@ class FailsLoudlyNotSilently(RuffGateHarness):
         result = self.run_gate(base, path=str(bare))
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         self.assertIn("ruff is not installed", result.stderr)
+
+    def test_unresolvable_head_is_an_error_not_a_pass(self) -> None:
+        """A bad head ref must not read as "nothing changed".
+
+        Without the check, `git diff base...garbage` fails inside a process
+        substitution, the file list comes back empty, and the gate reports the
+        cheerful "no Python files changed" -- green, for a comparison it could
+        not make. Found by mutation: removing the head check broke no test.
+        """
+        base = self.base_commit_with_dirty_file()
+        result = self.run_gate(base, "no-such-ref")
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("cannot resolve head ref", result.stderr)
 
     def test_wrong_argument_count_is_an_error(self) -> None:
         result = self.run_gate()
