@@ -144,7 +144,7 @@ def test_an_active_member_can_approve_a_link_request_and_that_opens_the_group(
             await client.post(
                 f"/contexts/{context.id}/memories",
                 json={
-                    "image_url": "https://example.invalid/a.jpg",
+                    "image_url": f"/contexts/{context.id}/photos/{uuid.uuid4()}",
                     "caption": SECRET_CAPTION,
                 },
                 headers=_headers(owner.id),

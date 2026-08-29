@@ -58,7 +58,17 @@ pytestmark = pytest.mark.postgres
 PLACE = PLACES[0]
 PLACE_ID = PLACE["id"]
 OTHER_PLACE_ID = PLACES[1]["id"]
-PHOTO = "https://cdn.example/kyniem/da-lat-01.jpg"
+
+
+def _photo_url(context_id: uuid.UUID) -> str:
+    """A url shaped like the one `POST /contexts/{id}/photos` hands back.
+
+    `image_url` only accepts a pointer into this group's own photo storage --
+    an off-site url is refused at the schema, because the poster picking the
+    host is how a memory wall turns into a tracking pixel.
+    """
+
+    return f"/contexts/{context_id}/photos/{uuid.uuid4()}"
 
 
 def _http(session: Session, monkeypatch: pytest.MonkeyPatch):
@@ -334,13 +344,14 @@ def test_photos_and_checkins_share_one_wall_and_can_be_narrowed(
     """
 
     context, owner = _group(postgres_session)
+    photo = _photo_url(context.id)
     app = _http(postgres_session, monkeypatch)
 
     async def exchange(client):
         await client.post(
             f"/contexts/{context.id}/memories",
             headers=_headers(owner.id),
-            json={"image_url": PHOTO, "caption": "Ảnh cả nhóm"},
+            json={"image_url": photo, "caption": "Ảnh cả nhóm"},
         )
         await client.post(
             f"/contexts/{context.id}/checkins",
@@ -381,7 +392,7 @@ def test_photos_and_checkins_share_one_wall_and_can_be_narrowed(
         "checkin",
         "checkin",
     ]
-    assert [item["image_url"] for item in photos.json()["memories"]] == [PHOTO]
+    assert [item["image_url"] for item in photos.json()["memories"]] == [photo]
     assert [item["place_id"] for item in here.json()["memories"]] == [PLACE_ID]
 
 
@@ -406,7 +417,7 @@ def test_the_database_refuses_a_row_that_is_both_kinds_at_once(
             context_id=context.id,
             author_id=owner.id,
             kind="checkin",
-            image_url=PHOTO,
+            image_url=_photo_url(context.id),
             place_id=PLACE_ID,
             place_name=PLACE["name"],
             lat=PLACE["lat"],
