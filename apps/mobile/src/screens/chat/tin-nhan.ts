@@ -33,6 +33,26 @@ declare const process: { env: Record<string, string | undefined> };
 
 export const TIN_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8099";
 
+/**
+ * What to call somebody whose name this client does not have.
+ *
+ * The client resolves names out of `DEMO_PEOPLE`, and nothing else can: today
+ * `MembershipResponse` and `MessageResponse` both carry `person_id` /
+ * `author_id` and no name, and there is no `GET /people/{id}` to ask. So for
+ * anybody who joined through "Tạo nhóm" or a friend QR card -- which is every
+ * real person -- the name is genuinely unknown here.
+ *
+ * The previous answer was `id.slice(0, 8)`, which printed `2bb00000` in the
+ * place a human name goes. That is worse than saying nothing: it looks like an
+ * identifier the reader ought to recognise, it leaks a database key onto the
+ * screen, and it is the same class of mistake as showing a server error code
+ * to somebody trying to split a bill.
+ *
+ * One shared constant rather than a literal at each site, so the member list
+ * and the chat bubble cannot drift into two different words for one state.
+ */
+export const TEN_CHUA_BIET = "Thành viên";
+
 export type MessageKind = "text" | "image" | "ai_card";
 
 export type MessageWire = {
