@@ -70,6 +70,49 @@ export function changedFiles({ base = "origin/main", ref = "HEAD", cwd } = {}) {
   return listed === null ? null : listed.split("\n").filter(Boolean);
 }
 
+/**
+ * Name which of the two redundancy shapes this is, because they need opposite
+ * instructions and only the count can tell them apart.
+ *
+ * A stacked child that merged the base in keeps its own commit, so its real
+ * work survives in the diff: some files are redundant, at least one is not.
+ * A branch whose work has already landed by squash carries nothing new at all
+ * -- every file in the diff hashes to the base. The old message assumed the
+ * first shape and sent the second one to `git rebase --onto <parent tip>`,
+ * which is wrong twice over: there is no parent PR to name, and rebasing a
+ * branch that is already merged replays nothing and leaves it empty.
+ *
+ * This is not hypothetical. A gate run on 2026-08-30 hit "9/9 file ... y het
+ * origin/main" a few minutes after that branch's own PR was squash-merged, and
+ * the advice it printed pointed at a stack that never existed.
+ */
+export function diagnose({ redundant, changed, base = "origin/main" } = {}) {
+  const counts = `${redundant.length}/${changed.length} file hien trong diff ma ` +
+    `noi dung y het ${base}.`;
+
+  if (redundant.length === 0) {
+    return { kind: "clean", message: "" };
+  }
+
+  // Every changed file identical to the base: the diff adds nothing over it.
+  if (redundant.length === changed.length) {
+    return {
+      kind: "merged",
+      message:
+        `${counts} Nhanh nay khong con gi moi so voi ${base} -- viec cua no da ` +
+        `nam tren ${base} roi (thuong la vua duoc squash-merge). Khong phai ` +
+        `loi: dung rebase, chi can sang ${base} va mo nhanh moi tu do.`,
+    };
+  }
+
+  return {
+    kind: "stacked",
+    message:
+      `${counts} Nhanh nay dang merge ${base} vao thay vi rebase len no. ` +
+      `Sua: git rebase --onto ${base} <commit cuoi cua PR cha>`,
+  };
+}
+
 const invokedDirectly =
   process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
 
@@ -93,11 +136,7 @@ if (invokedDirectly) {
     ),
   );
   if (redundant.length > 0) {
-    console.error(
-      `\n${redundant.length}/${changed.length} file hien trong diff ma noi dung ` +
-        `y het ${base}. Nhanh nay dang merge ${base} vao thay vi rebase len no. ` +
-        `Sua: git rebase --onto ${base} <commit cuoi cua PR cha>`,
-    );
+    console.error(`\n${diagnose({ redundant, changed, base }).message}`);
     process.exit(2);
   }
 }
