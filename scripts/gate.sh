@@ -65,7 +65,7 @@ REPO_ROOT="$PWD"
 
 # Every stage, in run order: cheapest and most likely to fail first, so a
 # broken tree is reported in seconds rather than after a docker build.
-STAGES=(guard guard-range ruff contract client-routes api migration shared mobile docker postgres)
+STAGES=(guard guard-range ruff contract client-routes api migration shared mobile docker postgres e2e)
 
 stage_help() {
   case "$1" in
@@ -80,6 +80,7 @@ stage_help() {
     mobile)    echo "tsc, npm test with MOBILE_REQUIRE_WEB_A11Y=1, expo export --platform all (test.yml: mobile)" ;;
     docker)    echo "image pinned, builds, non-root, no dev tooling, serves /healthz (test.yml: docker)" ;;
     postgres)  echo "pytest tests/postgres against a real PostgreSQL it provisions itself (postgres-repository.yml)" ;;
+    e2e)       echo "the vertical slice through src/api.ts against an API and database it provisions itself (test.yml: e2e)" ;;
   esac
 }
 
@@ -389,6 +390,26 @@ do_postgres() {
   scripts/postgres_tier.sh -q
 }
 
+do_e2e() {
+  # Delegates for the same reason `do_postgres` does: the provisioning gets a
+  # caller outside this file and can be tested on its own
+  # (tests/test_e2e_slice_runner.py).
+  #
+  # This is the only stage where the client and the server are both real. Every
+  # other one holds one side fixed and fakes the other: `api` runs on a fake
+  # repository, `mobile` runs on a fake API, `client-routes` and `contract`
+  # compare two files without executing either. A defect that lives in the seam
+  # -- a body key the client spells differently from the server, a field the
+  # server stopped returning -- is invisible to all of them and green in all of
+  # them.
+  #
+  # Measured 2026-08-30 at 1649c16: nothing ran it. `npm test` prunes
+  # `tests/e2e` by construction, the mobile job runs that same `npm test`, and
+  # `grep -rn test:e2e` over every .yml, .sh, .py, .json and .md found one
+  # definition in package.json and no caller at all.
+  scripts/e2e_slice.sh
+}
+
 # --- prerequisites --------------------------------------------------------
 #
 # Answers exactly one of: run it, skip it with a reason, or fail because the
@@ -495,6 +516,23 @@ check_prereq() {
         echo "docker daemon không chạy và chưa đặt MOBILE_TEST_DATABASE_URL"; return 1; }
       docker image inspect "${MOBILE_TEST_POSTGRES_IMAGE:-postgres:16-alpine}" >/dev/null 2>&1 || {
         echo "chưa có ảnh postgres tại máy (docker pull postgres:16-alpine)"; return 1; } ;;
+    e2e)
+      # Needs both sides for real, so it asks for more than any other stage:
+      # the client to drive, a Python that can serve the API, and Docker for
+      # the database. Each missing piece is an absence and skips honestly.
+      [ -d apps/mobile ] || { echo "apps/mobile không có trên nhánh này"; return 1; }
+      # Present but missing the slice itself is a defect, not an absence.
+      # Deleting the one file that proves client and server connect must never
+      # be the thing that turns this stage green.
+      [ -f apps/mobile/tests/e2e/vertical-slice.test.mjs ] || return 2
+      have npm || { echo "không có npm"; return 1; }
+      [ -d apps/mobile/node_modules ] || { echo "chưa 'npm ci' trong apps/mobile"; return 1; }
+      python3 -c "import fastapi, uvicorn, alembic" 2>/dev/null || {
+        echo "chưa cài fastapi/uvicorn/alembic (pip install -r services/api/requirements-dev.txt)"; return 1; }
+      have docker || { echo "không có docker"; return 1; }
+      docker info >/dev/null 2>&1 || { echo "docker daemon không chạy"; return 1; }
+      docker image inspect "${MOBILE_TEST_POSTGRES_IMAGE:-postgres:16-alpine}" >/dev/null 2>&1 || {
+        echo "chưa có ảnh postgres tại máy (docker pull postgres:16-alpine)"; return 1; } ;;
   esac
   return 0
 }
@@ -505,6 +543,7 @@ broken_why() {
     contract|client-routes) echo "apps/mobile có mặt nhưng thiếu src/ -- từ chối bỏ qua" ;;
     shared) echo "packages/shared có mặt nhưng thiếu money.test.mjs -- từ chối bỏ qua" ;;
     mobile) echo "apps/mobile có mặt nhưng thiếu package-lock.json -- từ chối bỏ qua" ;;
+    e2e) echo "apps/mobile có mặt nhưng thiếu tests/e2e/vertical-slice.test.mjs -- từ chối bỏ qua" ;;
     *) echo "thiếu file mà chặng này cần -- từ chối bỏ qua" ;;
   esac
 }

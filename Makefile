@@ -40,7 +40,7 @@ DC = $(COMPOSE) -p $(PROJECT)
 WAIT_TIMEOUT ?= 300
 
 .DEFAULT_GOAL := help
-.PHONY: help gate gate-merge test-db up down clean logs ps migrate db-check seed demo smoke
+.PHONY: help gate gate-merge test-db e2e up down clean logs ps migrate db-check seed demo smoke
 
 # `demo` phải gọi đúng bộ container mà `up` vừa dựng. Trên nhánh này biến đó là
 # $(COMPOSE); PR #60 (đang mở, cùng lane) đổi nó thành $(DC) = compose kèm
@@ -99,6 +99,22 @@ gate-merge: ## Chạy cổng trên KẾT QUẢ GỘP vào main — PR=210 hoặc
 # với người khác.
 test-db: ## Chạy tầng PostgreSQL thật trên database dùng một lần — ARGS="-k ten" lọc ca
 	@scripts/postgres_tier.sh $(ARGS)
+
+# Tầng duy nhất mà CẢ HAI phía của một request đều là thật. Mọi tầng khác giữ
+# một phía và giả phía kia: `tests/api/` chạy trên repository giả, bộ test của
+# apps/mobile tiêm fetch giả, còn hai cổng đối chiếu contract thì đọc file chứ
+# không chạy file nào. Lỗi nằm ở khe giữa hai bên — client viết tên trường khác
+# server, server thôi trả một trường — thì cả ba đều xanh.
+#
+# Đo 2026-08-30 tại 1649c16: KHÔNG AI chạy nó. `npm test` cắt sẵn `tests/e2e`
+# bằng chính câu find của nó, job `mobile` trên CI cũng chạy đúng `npm test` đó,
+# và `grep -rn test:e2e` khắp .yml/.sh/.py/.json/.md ra đúng một dòng định nghĩa
+# trong package.json, không một người gọi nào.
+#
+# Nó tự dựng Postgres và uvicorn riêng rồi tự xoá, KHÔNG đụng bộ `make up` của
+# lane nào — nên không cần `make up` trước, và chạy song song được với người khác.
+e2e: ## Chạy lát cắt dọc qua src/api.ts trên API + database dùng một lần
+	@scripts/e2e_slice.sh
 
 up: ## Dựng ảnh, chạy migration, bật API, seed dữ liệu mẫu, rồi tự kiểm
 	@# Trước `docker build`, không phải sau: build mất vài phút, và một cảnh

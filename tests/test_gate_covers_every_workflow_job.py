@@ -78,6 +78,12 @@ COVERED_BY: dict[str, tuple[str, ...]] = {
     "shared": ("shared",),
     "mobile": ("mobile",),
     "repository-postgres": ("postgres",),
+    # The one job where both sides of a request are real. It is its own job
+    # rather than a step of `mobile` because it needs what that job does not:
+    # a Python that can serve the API and a database to serve it from. Folding
+    # it in would make the whole mobile job unrunnable on a machine with no
+    # Docker, and the way that gets resolved is by deleting the slice.
+    "e2e": ("e2e",),
 }
 
 JOB_ID = re.compile(r"^  ([A-Za-z0-9_-]+):\s*$", re.M)
@@ -116,7 +122,10 @@ def _gate_stages() -> list[str]:
     for line in result.stdout.splitlines():
         parts = line.split()
         # Stage lines are indented and start with the bare name.
-        if line.startswith("  ") and parts and re.fullmatch(r"[a-z-]+", parts[0]):
+        # Digits belong in the class: `[a-z-]+` dropped the `e2e` stage, and a
+        # stage missing from this list is one `test_every_gate_stage_is_claimed
+        # _by_some_job` cannot notice going unclaimed.
+        if line.startswith("  ") and parts and re.fullmatch(r"[a-z0-9-]+", parts[0]):
             stages.append(parts[0])
     return stages
 
