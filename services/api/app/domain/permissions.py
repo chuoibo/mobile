@@ -168,6 +168,12 @@ _TABLE: dict[str, dict] = {
     "view_outings": {"roles": {"group_admin", "member"}, "requires": ("is_group_member",)},
     "edit_outing_timeline": {"roles": {"group_admin", "member"}, "requires": ("is_group_member",)},
     "invite_to_outing": {"roles": {"group_admin", "member"}, "requires": ("is_group_member",)},
+    # Revocation is a group decision, so ACTIVE membership is the gate; an
+    # INVITED link holder fails is_group_member.
+    "revoke_outing_invite": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
     "create_context": {"roles": {"group_admin", "member"}, "requires": ()},
     "invite_context_member": {
         "roles": {"group_admin"},

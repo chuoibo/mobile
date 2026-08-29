@@ -1203,6 +1203,10 @@ class OutingInvite(Base):
             "(accepted_at IS NULL) = (accepted_by_id IS NULL)",
             name="acceptance_is_whole",
         ),
+        CheckConstraint(
+            "expires_at >= created_at",
+            name="expiry_after_creation",
+        ),
         Index(
             "uq_outing_invites_person",
             "outing_id",
@@ -1247,6 +1251,12 @@ class OutingInvite(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
 
