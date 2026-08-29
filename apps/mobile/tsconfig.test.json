@@ -60,6 +60,12 @@
     // an ARIA role, and a role is only real once react-native-web has emitted
     // it. `aria-vai-tro.test.mjs` reads the markup these produce.
     "src/navigation/ThanhTab.tsx",
-    "src/screens/kham-pha/DaiBanDo.tsx"
+    "src/screens/kham-pha/DaiBanDo.tsx",
+    // Cá nhân, for the keyboard tab-stop on its scroller. The screen holds
+    // nothing pressable, so the stop is the only key that scrolls it, and
+    // whether it survives is a fact about emitted markup rather than source:
+    // `focusable` compiles just as well as `tabIndex` and reaches the DOM as
+    // nothing. See `vung-cuon-ban-phim.test.mjs`.
+    "src/screens/ca-nhan/CaNhan.tsx"
   ]
 }
