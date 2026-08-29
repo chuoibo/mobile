@@ -8,6 +8,7 @@ import React from "react";
 import { Pressable, Text, TextInput, View, ViewStyle } from "react-native";
 import { BillReading, disclosure } from "../receipt";
 import { Palette, radius, space, type, usePalette } from "../theme";
+import { toggleState } from "./a11y";
 
 export function Screen({ title, hint, children, footer, gap = space.md }: {
   title: string; hint?: string; children: React.ReactNode; footer?: React.ReactNode;
@@ -230,18 +231,29 @@ export function Choice({ label, options, value, onChange }: {
   return (
     <View style={{ gap: space.xs }}>
       <Text style={{ ...type.label, color: c.inkSoft }}>{label}</Text>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.xs }}>
-        {options.length === 0 ? (
-          <Text style={{ ...type.body, color: c.inkSoft }}>Nhập tên phía trên trước.</Text>
-        ) : null}
+      {options.length === 0 ? (
+        // Outside the group on purpose: `radiogroup` requires `radio` children,
+        // so a group holding only this sentence is itself a violation.
+        <Text style={{ ...type.body, color: c.inkSoft }}>Nhập tên phía trên trước.</Text>
+      ) : (
+      <View
+        // The group is what makes "one of these" audible. Without it each chip
+        // is announced alone, with no way to hear that picking one drops
+        // another, and axe asks for it as `radio`'s required parent.
+        accessibilityRole="radiogroup"
+        aria-label={label}
+        style={{ flexDirection: "row", flexWrap: "wrap", gap: space.xs }}
+      >
         {options.map((o) => {
           const on = o.id === value;
           return (
             <Pressable
               key={o.id}
               onPress={() => onChange(o.id)}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: on }}
+              // Was `accessibilityRole="radio"` with `accessibilityState={{ selected: on }}`,
+              // which delivered nothing and named the wrong attribute even if it
+              // had: `aria-selected` is invalid on a radio. See `a11y.ts`.
+              {...toggleState("radio", on)}
               style={({ pressed }) => ({
                 borderWidth: 1, borderRadius: radius.base,
                 paddingVertical: 10, paddingHorizontal: space.md,
@@ -259,6 +271,7 @@ export function Choice({ label, options, value, onChange }: {
           );
         })}
       </View>
+      )}
     </View>
   );
 }

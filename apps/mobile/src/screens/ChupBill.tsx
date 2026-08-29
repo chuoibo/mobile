@@ -168,7 +168,11 @@ export function ChupBill(props: {
           disabled={busy}
           accessibilityRole="button"
           accessibilityLabel="Chọn ảnh bill"
-          accessibilityState={{ disabled: busy }}
+          // No `accessibilityState={{ disabled: busy }}`: react-native-web
+          // drops that prop entirely, and `disabled` above already emits
+          // `aria-disabled` on web and wins over it on native
+          // (`Pressable.js:236`). It was two ways to say one thing, one of
+          // which never arrived.
           style={({ pressed }) => ({
             minWidth: HIT,
             minHeight: HIT,
@@ -185,7 +189,11 @@ export function ChupBill(props: {
           disabled={!canShoot}
           accessibilityRole="button"
           accessibilityLabel="Chụp bill"
-          accessibilityState={{ disabled: !canShoot, busy }}
+          // `disabled` carries the first half. The second half was the part
+          // that mattered and the part that vanished: while a photo is being
+          // read the shutter looked identical to a shutter that was merely
+          // not ready. `aria-busy` is the spelling both platforms read.
+          aria-busy={busy}
           style={({ pressed }) => ({
             width: RING,
             height: RING,
@@ -288,7 +296,7 @@ function AccessWell({
           disabled={busy}
           accessibilityRole="button"
           accessibilityLabel={label}
-          accessibilityState={{ disabled: busy }}
+          // Same as the two above: `disabled` is what reaches the element.
           style={({ pressed }) => ({
             minHeight: HIT,
             paddingHorizontal: space.md,

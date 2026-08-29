@@ -27,6 +27,7 @@ import { itemsTotalVnd, type BillLine, type BillReading } from "../receipt";
 import { labelFor, type Roster } from "../participants";
 import type { SplitPreview } from "../api";
 import { radius, space, type, usePalette } from "../theme";
+import { toggleState } from "../ui/a11y";
 import { Button, Card, Field, ReadingNotice } from "../ui/Kit";
 
 const HIT = 44;
@@ -218,6 +219,8 @@ export function GoiYChia(props: {
       ) : null}
 
       <View
+        accessibilityRole="radiogroup"
+        aria-label="Kiểu chia"
         style={{
           flexDirection: "row",
           alignSelf: "stretch",
@@ -356,8 +359,11 @@ function ModeChip({
   return (
     <Pressable
       onPress={onPress}
-      accessibilityRole="button"
-      accessibilityState={{ selected: on }}
+      // Two chips where exactly one is on is a radio group, not two buttons.
+      // It was `role="button"` carrying `selected`, which is invalid on a
+      // button on both platforms and was dropped before the DOM on this one,
+      // so nothing ever announced which mode was active.
+      {...toggleState("radio", on)}
       style={{
         flex: 1,
         minHeight: HIT,
@@ -453,8 +459,11 @@ function MatrixRow({
           <Pressable
             key={person.id}
             onPress={() => onToggle(line.id, person.id)}
-            accessibilityRole="checkbox"
-            accessibilityState={{ checked }}
+            // `aria-checked`, via the kit helper. `accessibilityState` reached
+            // the browser as nothing at all, so this cell rendered
+            // byte-identical ticked and unticked and a screen reader could not
+            // tell which dishes were on somebody's bill. See `ui/a11y.ts`.
+            {...toggleState("checkbox", checked)}
             accessibilityLabel={`${labelFor(roster, person.id)}, ${dish}`}
             // The cell is 44 wide and 44 tall, so neighbouring columns abut
             // and never overlap. Horizontal hitSlop stays 0: half the gap
@@ -580,8 +589,8 @@ function LinePicker({
               <Pressable
                 key={person.id}
                 onPress={() => onToggle(line.id, person.id)}
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked }}
+                // Same substitution as the matrix cell, same reason.
+                {...toggleState("checkbox", checked)}
                 accessibilityLabel={`${labelFor(roster, person.id)}, ${dish}`}
                 style={{
                   minHeight: HIT,

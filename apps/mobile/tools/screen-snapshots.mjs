@@ -54,7 +54,7 @@ const MIME = {
   ".png": "image/png",
 };
 
-const CHROME =
+export const CHROME =
   process.env.PUPPETEER_EXECUTABLE_PATH ||
   "/home/lakiet/.cache/ms-playwright/chromium-1194/chrome-linux/chrome";
 
@@ -68,7 +68,7 @@ const CHROME =
  * non-Error as `String(problem)` -- so a broken JPEG surfaces as the visible
  * text `[object HTMLCanvasElement]` and the scan never starts.
  */
-const JPEG_B64 =
+export const JPEG_B64 =
   "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAgACADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDz+iiivlD+gAooooAKKKKACiiigD//2Q==";
 
 /**
@@ -79,7 +79,7 @@ const JPEG_B64 =
  * reading and the allocator gets a number that splits evenly across 3 people.
  * Money is integer dong throughout -- a float here would throw in `formatVnd`.
  */
-const SCAN_FIXTURE = {
+export const SCAN_FIXTURE = {
   items: [
     { name: "Lẩu thái", quantity: 1, unit_price_vnd: 280000, line_total_vnd: 280000 },
     { name: "Nước sâm", quantity: 2, unit_price_vnd: 25000, line_total_vnd: 50000 },
@@ -109,7 +109,7 @@ function flag(name, fallback) {
   return fallback;
 }
 
-function listen(server) {
+export function listen(server) {
   return new Promise((resolve, reject) => {
     server.once("error", reject);
     // Port 0: the OS picks an ephemeral one so two runs cannot collide.
@@ -117,7 +117,7 @@ function listen(server) {
   });
 }
 
-function closeServer(server) {
+export function closeServer(server) {
   return new Promise((resolve) => {
     if (!server.listening) {
       resolve();
@@ -128,7 +128,7 @@ function closeServer(server) {
 }
 
 /** Static file server for the Expo web export. No SPA fallback: the app is `/`. */
-function createStaticServer(root) {
+export function createStaticServer(root) {
   const resolvedRoot = path.resolve(root);
   return http.createServer((req, res) => {
     try {
@@ -168,7 +168,7 @@ function createStaticServer(root) {
  * does not open a file chooser. Puppeteer's `waitForFileChooser` listens for
  * the native activation, so a dispatched click is rewritten to `HTMLInputElement.click()`.
  */
-function installBeforeApp(apiBase, scanBody) {
+export function installBeforeApp(apiBase, scanBody) {
   const originalFetch = window.fetch.bind(window);
 
   const db = {
@@ -338,7 +338,7 @@ async function apiLog(page) {
   }
 }
 
-async function waitForScreen(page, step, needle, timeoutMs = 30000) {
+export async function waitForScreen(page, step, needle, timeoutMs = 30000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const text = await visibleText(page);
@@ -359,7 +359,7 @@ async function waitForScreen(page, step, needle, timeoutMs = 30000) {
   );
 }
 
-async function clickAria(page, label) {
+export async function clickAria(page, label) {
   const sel = `[aria-label="${label}"]`;
   await page.waitForSelector(sel, { visible: true, timeout: 15000 });
   // Scroll first, then fall back to a scripted click. The avatar strip is a
@@ -391,7 +391,7 @@ async function clickAria(page, label) {
   }
 }
 
-async function clickButton(page, label) {
+export async function clickButton(page, label) {
   const found = await page.waitForFunction(
     (needle) => {
       const nodes = [...document.querySelectorAll("button, [role='button']")];
@@ -435,7 +435,7 @@ async function typePlaceholder(page, placeholder, value) {
  * carries `aria-label="Thêm"` while the confirm button's text is exactly
  * "Thêm" and it has no aria-label, which is what keeps the two apart.
  */
-async function addPersonOnMatrix(page, name) {
+export async function addPersonOnMatrix(page, name) {
   await clickAria(page, "Thêm");
   const sel = 'input[placeholder="Hà"]';
   await page.waitForSelector(sel, { visible: true, timeout: 15000 });
@@ -450,7 +450,7 @@ async function addPersonOnMatrix(page, name) {
 }
 
 /** Wait until every avatar shows a figure the server sent, not the "..." placeholder. */
-async function waitForPreview(page) {
+export async function waitForPreview(page) {
   await page.waitForFunction(
     () => {
       const text = document.body?.innerText ?? "";
@@ -757,7 +757,12 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+/* Exports above are for `tools/aria-probe.mjs`, which drives the same bundle
+ * through the same fetch stub to read attributes off the live DOM. Only run
+ * the snapshot walk when this file is the one that was invoked. */
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
