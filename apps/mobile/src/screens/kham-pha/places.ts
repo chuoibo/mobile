@@ -119,6 +119,8 @@ export type Place = {
   openHours: string;
   travelMinutes: number;
   photoCount: number;
+  /** Server-sent photograph. Null today: the field is not sent yet. */
+  photoUrl: string | null;
   traits: string[];
   groupFit: GroupFit | null;
   /** "new" | "hot" ribbon in the mockup's top-left. Null is the normal case. */
@@ -182,6 +184,23 @@ function str(v: unknown, field: string): string {
 function strList(v: unknown, field: string): string[] {
   if (!Array.isArray(v)) throw new Error(`${field} phải là mảng`);
   return v.map((x, i) => str(x, `${field}[${i}]`));
+}
+
+/**
+ * Read a server-sent image URL. Tolerant on purpose: missing, null, a
+ * non-string, or an empty string become `null` rather than a throw, because
+ * today's server does not send this field and every card must still render.
+ *
+ * Only `http://` and `https://` are accepted. This value is sent by the
+ * server and goes straight into an `<Image>` tag, so any other scheme
+ * (`javascript:`, `data:`, `file:`) is dropped rather than painted.
+ */
+function parsePhotoUrl(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const s = v.trim();
+  if (s === "") return null;
+  if (!/^https?:\/\//i.test(s)) return null;
+  return s;
 }
 
 function parseMatch(raw: unknown, field: string): Match | null {
@@ -253,6 +272,7 @@ export function parsePlace(raw: unknown, field: string): Place {
     openHours: str(p.open_hours, `${field}.open_hours`),
     travelMinutes: int(p.travel_minutes, `${field}.travel_minutes`),
     photoCount: int(p.photo_count ?? 0, `${field}.photo_count`),
+    photoUrl: parsePhotoUrl(p.photo_url),
     traits: strList(p.traits ?? [], `${field}.traits`),
     groupFit: fit
       ? {

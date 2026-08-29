@@ -24,7 +24,7 @@
  *
  * | Mockup | Here | Why |
  * |---|---|---|
- * | Photo per card | Drawn mark on a token ramp | No place imagery in Git; see `AnhDiaDiem.tsx` |
+ * | Photo per card | Real `Anh` frame; drawn mark as stand-in | The frame is sized now; `photo_url` fills it when the server sends one. See `AnhDiaDiem.tsx` |
  * | Search box with placeholder only | Labelled field | The kit's own rule: a placeholder vanishes the moment you type |
  * | Avatar top-right | Not drawn | The Cá nhân tab is one tap away and already owns that |
  * | Real map strip | Relative-position strip, labelled | The coordinates are real; the basemap is not, and it says so |
@@ -419,7 +419,7 @@ function TheDiaDiem({ place, onChon }: { place: Place; onChon: (p: Place) => voi
         opacity: pressed ? 0.9 : 1,
       })}
     >
-      <AnhDiaDiem category={place.category} height={124} rounded={0}>
+      <AnhDiaDiem category={place.category} height={124} rounded={0} uri={place.photoUrl} name={place.name}>
         <View style={{ flex: 1, padding: space.xs, justifyContent: "space-between" }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
             <HuyHieuMatch match={place.match} />
