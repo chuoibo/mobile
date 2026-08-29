@@ -489,17 +489,55 @@ class MemoryCreateRequest(ApiModel):
     caption: str | None = None
 
 
+class CheckinCreateRequest(ApiModel):
+    """F46. The group arrived somewhere, and only the group says where.
+
+    One field names the place and nothing describes it. The name and the
+    coordinates are looked up server-side from `app/places/catalog.py`, so a
+    caller cannot assert that the group was at "Nhà tôi, 0.0, 0.0" or move a
+    real venue by a kilometre -- the same rule `POST /expenses` follows about
+    who is allowed to state a fact. An unknown `place_id` is a 422 rather than
+    a row: a check-in at a place this product has never heard of is a mark on
+    a timeline that no screen can open.
+
+    There is no latitude or longitude on this request on purpose. Reading the
+    phone's GPS is F47 and is not built; taking coordinates from the body
+    would let this route *look* like it had been.
+    """
+
+    place_id: Annotated[StrictStr, Field(min_length=1, max_length=200)]
+    caption: Annotated[str, Field(max_length=2000)] | None = None
+
+
 class MemoryQuery(ApiModel):
     limit: int = Field(default=50, ge=1, le=100)
     before: str | None = None
+    #: Narrows the wall to one kind, or to one place's check-ins. Both are
+    #: filters on top of the membership gate, never instead of it.
+    kind: Literal["photo", "checkin"] | None = None
+    place_id: str | None = None
 
 
 class MemoryResponse(ApiModel):
+    """One row of the wall.
+
+    `image_url` and the four place fields are mutually exclusive by database
+    constraint, and `kind` says which pair of shoes this row is wearing so a
+    reader never has to infer it from which field happens to be null.
+    """
+
     id: UUID
     context_id: UUID
     author_id: UUID
-    image_url: str
+    kind: Literal["photo", "checkin"]
+    image_url: str | None
     caption: str | None
+    place_id: str | None
+    place_name: str | None
+    #: Group-private, at the same rank as a phone number. It leaves the server
+    #: only on this response, which every route behind it gates on membership.
+    lat: float | None
+    lng: float | None
     created_at: datetime
     cursor: str
 

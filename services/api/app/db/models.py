@@ -19,6 +19,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     ForeignKeyConstraint,
     Index,
@@ -1260,11 +1261,35 @@ class OutingInvite(Base):
     )
 
 
+class MemoryKind(StrEnum):
+    """What a row on the memory wall is a record of.
+
+    `checkin` is F46: the group arrived somewhere, and that is a keepsake with
+    coordinates and a moment instead of a photograph. It shares this table
+    rather than getting its own because the wall is one timeline -- two tables
+    would mean two feeds, two cursors and a merge in the reader, and the merge
+    is where a check-in silently stops appearing.
+    """
+
+    PHOTO = "photo"
+    CHECKIN = "checkin"
+
+
 class Memory(Base):
     """One immutable keepsake attached to a context's private memory wall.
 
     A memory belongs to the context rather than its author because the group,
     not one person's continuing membership, defines the shared history.
+
+    ## Why a check-in stores coordinates it could have looked up
+
+    `place_id` names a row in `app/places/catalog.py`, so `place_name`, `lat`
+    and `lng` are derivable from it today and are stored anyway. The catalogue
+    is seed data with a stated expiry -- its own docstring says the file "gets
+    replaced" when places become user-editable -- and a venue that moves, is
+    renamed or is deleted would then rewrite where the group was last March.
+    A keepsake that changes after the fact is not a keepsake. These five
+    columns are the snapshot taken at the moment somebody pressed the button.
     """
 
     __tablename__ = "memories"
@@ -1275,7 +1300,34 @@ class Memory(Base):
             desc("created_at"),
             desc("id"),
         ),
-        CheckConstraint("image_url <> ''", name="image_url_not_blank"),
+        # Check-ins are read per place ("who has been here") as well as per
+        # feed, and the partial predicate keeps photo rows -- which have no
+        # place -- out of an index that could never serve them.
+        Index(
+            "ix_memories_context_place",
+            "context_id",
+            "place_id",
+            desc("created_at"),
+            postgresql_where=text("place_id IS NOT NULL"),
+        ),
+        # One constraint rather than five, because the invariant is a shape and
+        # not a set of independent facts: a photo has no location, a check-in
+        # has no image, and a row carrying both is a row no screen knows how to
+        # draw. Written the same way `messages.payload_matches_kind` is.
+        CheckConstraint(
+            "(kind = 'photo' AND image_url IS NOT NULL AND image_url <> '' "
+            "AND place_id IS NULL AND place_name IS NULL "
+            "AND lat IS NULL AND lng IS NULL) OR "
+            "(kind = 'checkin' AND image_url IS NULL "
+            "AND place_id IS NOT NULL AND place_id <> '' "
+            "AND place_name IS NOT NULL AND place_name <> '' "
+            "AND lat IS NOT NULL AND lng IS NOT NULL)",
+            name="payload_matches_kind",
+        ),
+        # A coordinate outside these ranges is not a place on Earth, and the
+        # map strip would draw it somewhere plausible-looking anyway.
+        CheckConstraint("lat IS NULL OR lat BETWEEN -90 AND 90", name="lat_range"),
+        CheckConstraint("lng IS NULL OR lng BETWEEN -180 AND 180", name="lng_range"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -1291,8 +1343,21 @@ class Memory(Base):
         ForeignKey("people.id", name="fk_memories_author"),
         nullable=False,
     )
-    image_url: Mapped[str] = mapped_column(Text, nullable=False)
+    # `server_default` exists so the rows written before F46 became photos
+    # without the migration having to guess. New rows always name their kind;
+    # a write that forgot to would land on 'photo' and then be refused by the
+    # payload constraint above rather than stored as the wrong thing.
+    kind: Mapped[MemoryKind] = mapped_column(
+        _enum_type(MemoryKind, "memory_kind"),
+        nullable=False,
+        server_default=MemoryKind.PHOTO.value,
+    )
+    image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     caption: Mapped[str | None] = mapped_column(Text, nullable=True)
+    place_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    place_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lng: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

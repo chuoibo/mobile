@@ -48,6 +48,7 @@ from app.api.schemas import (
     BillSplitRequest,
     BillSplitResponse,
     BillSurchargeResponse,
+    CheckinCreateRequest,
     CompanionTurnResponse,
     ContextBalanceEntry,
     ContextBalancesResponse,
@@ -107,6 +108,7 @@ from app.domain.ledger import (
 )
 from app.payments.banks import describe_bank
 from app.payments.vietqr import VietQRError, build_payload
+from app.places.catalog import find_place
 from app.web.guest_view import GuestViewError, build_guest_view
 from app.web.objection_view import (
     OBJECTION_REASONS,
@@ -335,8 +337,13 @@ def _wire_memory(record: MemoryRecord) -> MemoryResponse:
         id=record.id,
         context_id=record.context_id,
         author_id=record.author_id,
+        kind=record.kind,  # type: ignore[arg-type]
         image_url=record.image_url,
         caption=record.caption,
+        place_id=record.place_id,
+        place_name=record.place_name,
+        lat=record.lat,
+        lng=record.lng,
         created_at=record.created_at,
         cursor=encode_cursor(record.created_at, record.id),
     )
@@ -976,6 +983,47 @@ class ApiService:
             raise
         return _wire_outing_invite(revoked, None)
 
+    def post_context_checkin(
+        self,
+        context_id: uuid.UUID,
+        request: CheckinCreateRequest,
+        actor: Actor,
+    ) -> MemoryResponse:
+        """F46. Mark that the group was at a place, as a row on its own wall.
+
+        Gated on `post_group_memory`, not on a permission of its own. A
+        check-in *is* a memory -- same table, same feed, same reader -- and a
+        second key would be a second place for the two to drift apart, which
+        on a privacy boundary means one of them eventually being the loose one.
+
+        The place is resolved before the write and the refusal names the
+        parameter rather than echoing it. `place_id` arrives from a client and
+        an error message is the one part of a response that gets pasted into
+        chats and bug reports.
+        """
+
+        _require_permission(
+            "post_group_memory",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        place = find_place(request.place_id)
+        if place is None:
+            raise ApiProblem(
+                422, "place_not_found", "No place in the catalogue has that id"
+            )
+        record = self.repository.create_checkin(
+            context_id=context_id,
+            author_id=actor.id,
+            place_id=place["id"],
+            place_name=place["name"],
+            lat=place["lat"],
+            lng=place["lng"],
+            caption=request.caption,
+            now=_now(),
+        )
+        return _wire_memory(record)
+
     def list_context_memories(
         self,
         context_id: uuid.UUID,
@@ -996,6 +1044,8 @@ class ApiService:
             context_id,
             limit=query.limit,
             before=before,
+            kind=query.kind,
+            place_id=query.place_id,
         )
         memories = [_wire_memory(record) for record in page.memories]
         return MemoryListResponse(
