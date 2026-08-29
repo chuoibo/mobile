@@ -37,6 +37,7 @@ export function VoTab({
   moKyNiemNgay,
   nhomId,
   banQuetDuoc,
+  diaDiemDau,
   renderKhoanChi,
 }: {
   nguoi: DemoPerson | null;
@@ -59,6 +60,9 @@ export function VoTab({
   /** F05. A friend read off a scanned code, passed through to the group
    *  screen so the card is already filled when it opens. */
   banQuetDuoc?: TheBan | null;
+  /** F46. A place id from the link, opened as a detail card so the check-in
+   *  on it is reachable without a tap. Passed straight through to Khám phá. */
+  diaDiemDau?: string | null;
   /** The organiser flow, handed in with the way back out of it. */
   renderKhoanChi: (onExit: () => void) => React.ReactNode;
 }) {
@@ -168,7 +172,9 @@ export function VoTab({
           somebody adds next silently reachable behind the sheet. */}
       <View ref={nenRef} style={{ flex: 1 }}>
         <View style={{ flex: 1 }}>
-          {tab === "kham-pha" ? <KhamPha nguoi={nguoi} nhom={nhom} /> : null}
+          {tab === "kham-pha" ? (
+            <KhamPha nguoi={nguoi} nhom={nhom} diaDiemDau={diaDiemDau ?? null} />
+          ) : null}
           {tab === "len-plan" ? <LenPlan nguoi={nguoi} /> : null}
           {tab === "tin-nhan" ? <TinNhan nguoi={nguoi} /> : null}
           {tab === "ca-nhan" ? <CaNhan nguoi={nguoi} /> : null}

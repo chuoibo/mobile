@@ -72,6 +72,14 @@ export type DiemDen = {
    *  typed form sends, authorised by the same `X-Actor-ID` as everything else.
    *  A fragment cannot make somebody a member; only the group's admin can. */
   ban: TheBan | null;
+  /** F46. A place id to open the detail card on, or null for the list.
+   *
+   *  The check-in card lives on a place's detail, which until now was reachable
+   *  only by pressing a tile. That made it a screen no URL could name -- not
+   *  reachable by a link somebody shares, and not reachable by a detector run
+   *  either, which is the same hole `vao` was added to close for the entry
+   *  door. An unknown id falls back to the list rather than an empty card. */
+  diaDiem: string | null;
   /** Whether the fragment asked to skip the opening screen at all. */
   boQuaMoDau: boolean;
 };
@@ -82,6 +90,7 @@ export const KHONG_CO_DIEM_DEN: DiemDen = {
   vao: null,
   nhomId: null,
   ban: null,
+  diaDiem: null,
   boQuaMoDau: false,
 };
 
@@ -120,12 +129,19 @@ export function docDiemDen(hash: string, search = ""): DiemDen {
   const nhomAsked = params.get("nhom");
   const nhomId = nhomAsked && UUID_RE.test(nhomAsked) ? nhomAsked : null;
 
+  // Trimmed, and empty means absent. `#dia-diem=` with nothing after it is what
+  // a half-built link looks like, and it must open the list rather than a card
+  // for a place with no id.
+  const diaDiemAsked = (params.get("dia-diem") ?? "").trim();
+  const diaDiem = diaDiemAsked === "" ? null : diaDiemAsked;
+
   return {
-    tab,
+    tab: tab ?? (diaDiem ? "kham-pha" : null),
     nguoi,
     vao,
     nhomId,
     ban,
+    diaDiem,
     // A recognised tab is enough to enter: opening the app on a named screen
     // with nobody signed in is a real state, and the screens render it.
     //
@@ -134,8 +150,16 @@ export function docDiemDen(hash: string, search = ""): DiemDen {
     // would mean a link could put a person straight into a form that writes to
     // `people`. `vao=nhom` and `vao=ky-niem` do enter, because both live inside
     // the shell and have nothing to show outside it.
+    //
+    // `dia-diem` enters for the same reason `vao=nhom` does: the card it names
+    // is inside the shell, so stopping at the opening screen would mean the
+    // link silently does nothing.
     boQuaMoDau:
-      tab !== null || nguoi !== null || vao === "nhom" || vao === "ky-niem",
+      tab !== null ||
+      nguoi !== null ||
+      vao === "nhom" ||
+      vao === "ky-niem" ||
+      diaDiem !== null,
   };
 }
 

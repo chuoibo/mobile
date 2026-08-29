@@ -125,3 +125,36 @@ test("nhom gõ sai bị bỏ chứ không đi thẳng vào đường dẫn yêu 
 test("không có nhom thì để null — màn tự đi tìm nhóm demo", () => {
   assert.equal(docDiemDen("#vao=ky-niem").nhomId, null);
 });
+
+// F46. The place detail carries the check-in card, so a link that cannot name
+// a place is a link that cannot reach the feature at all.
+
+test("#dia-diem mở thẳng thẻ địa điểm, và tự chọn tab Khám phá", () => {
+  const d = docDiemDen("#dia-diem=p-tiem-nuong-xom-lao");
+  assert.equal(d.diaDiem, "p-tiem-nuong-xom-lao");
+  // Naming a place without naming a tab must not land on the default tab with
+  // the place quietly dropped.
+  assert.equal(d.tab, "kham-pha");
+  assert.equal(d.boQuaMoDau, true);
+});
+
+test("tab viết rõ thì thắng suy luận từ dia-diem", () => {
+  const d = docDiemDen("#tab=ca-nhan&dia-diem=p-tiem-nuong-xom-lao");
+  assert.equal(d.tab, "ca-nhan");
+  assert.equal(d.diaDiem, "p-tiem-nuong-xom-lao");
+});
+
+test("dia-diem rỗng là không có, không phải một chỗ tên rỗng", () => {
+  for (const hash of ["#dia-diem=", "#dia-diem=%20%20"]) {
+    const d = docDiemDen(hash);
+    assert.equal(d.diaDiem, null, hash);
+    // And it must not drag the app past the opening screen on the strength of
+    // a parameter that named nothing.
+    assert.equal(d.boQuaMoDau, false, hash);
+  }
+});
+
+test("không có dia-diem thì trường này là null", () => {
+  assert.equal(docDiemDen("").diaDiem, null);
+  assert.equal(docDiemDen("#tab=kham-pha").diaDiem, null);
+});

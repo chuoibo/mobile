@@ -49,13 +49,17 @@ import {
 
 const TAT_CA = "tat-ca";
 
-export function KhamPha({ nguoi, nhom }: {
+export function KhamPha({ nguoi, nhom, diaDiemDau }: {
   /** Who the app is acting as, passed down to the check-in card. Optional so
    *  the screen still renders for any caller that does not care -- including
    *  the detector runs, which load it cold. */
   nguoi?: NguoiDung | null;
   /** The group a check-in would belong to. `VoTab` holds it. */
   nhom?: NhomWire | null;
+  /** F46. A place id from the opening link, opened as a detail card as soon as
+   *  the list it names has arrived. Null opens the list, and so does an id no
+   *  loaded place matches. */
+  diaDiemDau?: string | null;
 } = {}) {
   const c = usePalette();
   const [state, setState] = useState<PlacesState>({ kind: "dang-tai" });
@@ -77,6 +81,23 @@ export function KhamPha({ nguoi, nhom }: {
   useEffect(() => tai(danhMuc), [tai, danhMuc]);
 
   const places = state.kind === "co-du-lieu" ? state.places : [];
+
+  // The link's place, opened once and only once.
+  //
+  // `daMoTuLink` is what stops this from being a cage: without it, pressing
+  // back out of the card would re-satisfy the condition on the next render and
+  // reopen it, and the list would be unreachable for as long as the fragment
+  // stayed in the address bar.
+  const [daMoTuLink, setDaMoTuLink] = useState(false);
+  useEffect(() => {
+    if (daMoTuLink || !diaDiemDau || places.length === 0) return;
+    setDaMoTuLink(true);
+    const thay = places.find((p) => p.id === diaDiemDau);
+    // An unknown id leaves the list up. It is a link to a place this build
+    // cannot show -- a stale share, or another environment's catalogue -- and
+    // an empty card would say "this place has nothing" instead of the truth.
+    if (thay) setDangXem(thay);
+  }, [daMoTuLink, diaDiemDau, places]);
   const categories: Category[] = state.kind === "co-du-lieu" ? state.categories : [];
 
   // Text filters what is already on screen; the category goes back to the
