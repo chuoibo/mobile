@@ -68,6 +68,8 @@ from app.db.models import (
     VerificationScope,
 )
 from app.domain.capability import capability_scope
+from app.domain.friendship import Decision, FriendshipError
+from app.domain.friendship import decide as decide_friendship
 from app.domain.ledger import obligation_status
 from app.payments.vietqr import build_payload
 from app.web.qr import payload_to_png_data_uri
@@ -544,6 +546,18 @@ class BillRecord:
     items: list[BillItemRecord]
     surcharges: list[BillSurchargeRecord]
     discounts: list[BillDiscountRecord]
+
+
+#: Which answer produces which rest state. The inverse of the domain's own
+#: mapping, and the reason `decide_friend_request` can re-ask the domain without
+#: the caller passing the decision down a second time: a target state names
+#: exactly one answer. `pending` is absent because it is where an edge starts,
+#: not somewhere a decision moves it to.
+_ANSWER_PRODUCING: dict[FriendRequestState, Decision] = {
+    FriendRequestState.ACCEPTED: Decision.ACCEPT,
+    FriendRequestState.DECLINED: Decision.DECLINE,
+    FriendRequestState.BLOCKED: Decision.BLOCK,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -3575,12 +3589,56 @@ class SqlAlchemyApiRepository:
         )
         if row is None:
             return None
-        row.state = FriendRequestState(state)
+
+        target = FriendRequestState(state)
+        answer = _ANSWER_PRODUCING.get(target)
+        if answer is None:
+            raise RepositoryConflict("NOT_A_DECISION")
+
+        # The lock queues two writers; it does not tell the second one that the
+        # edge moved while it waited. The service decided on a read taken
+        # BEFORE this lock was held, so that decision is a proposal about a
+        # state that may no longer exist -- `SELECT ... FOR UPDATE` returns the
+        # row as the first writer committed it, and overwriting it blindly is
+        # how a `block` that already answered 200 gets erased by an `accept`
+        # that was approved against a stale `pending`.
+        #
+        # So ask the domain again, on the row we now hold. Asking rather than
+        # re-deriving the rule here is the point: "BLOCKED is terminal" has to
+        # have one spelling, and it lives in `app/domain/friendship.py`. This
+        # adapter still invents nothing -- it re-runs the same pure function the
+        # service ran, on fresher facts.
+        try:
+            decide_friendship(
+                edge={
+                    "requester_id": str(row.requester_id),
+                    "addressee_id": str(row.addressee_id),
+                    "state": str(row.state),
+                },
+                actor_id=str(decided_by_id),
+                decision=str(answer),
+            )
+        except FriendshipError as refused:
+            # The same code the service would have raised had this read come
+            # first, so the two orderings of one race are indistinguishable
+            # from outside -- the property `open_friend_request` keeps for the
+            # other half of this feature.
+            raise RepositoryConflict(refused.code) from refused
+
+        row.state = target
         # The check constraint requires these to move together: a non-pending
         # row must carry a decision time, and a pending one must not.
         row.decided_at = now
         row.decided_by_id = decided_by_id
-        self.session.flush()
+        try:
+            self.session.flush()
+        except IntegrityError as exc:
+            # `uq_friend_edge_live` also covers UPDATEs into a live state, and
+            # a decision can collide with it without any concurrency at all:
+            # blocking a stale `declined` row while the pair already holds a
+            # newer `pending` one. Uncaught, that reached
+            # `ServerErrorMiddleware` as a 500 on an ordinary user path.
+            raise RepositoryConflict("FRIEND_EDGE_EXISTS") from exc
         return self._friend_edge(row, decided_by_id)
 
     def list_friend_requests(

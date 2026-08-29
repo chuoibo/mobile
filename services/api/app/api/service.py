@@ -2492,12 +2492,34 @@ class ApiService:
         except FriendshipError as refused:
             raise self._friend_refusal(refused) from refused
 
-        record = self.repository.decide_friend_request(
-            request_id=request_id,
-            state=decided["state"],
-            decided_by_id=actor.id,
-            now=_now(),
-        )
+        try:
+            record = self.repository.decide_friend_request(
+                request_id=request_id,
+                state=decided["state"],
+                decided_by_id=actor.id,
+                now=_now(),
+            )
+        except RepositoryConflict as exc:
+            # The write arm of the refusal the domain gives above. The read
+            # that fed `decide_friendship` was taken before the row was
+            # locked, so by the time the write holds the lock the edge may
+            # have moved. Answering with the code the domain would have given
+            # on the fresher read is what makes the two orderings of one race
+            # indistinguishable from outside: losing a race and never having
+            # been allowed must look the same, or timing becomes the channel a
+            # silent block leaks through.
+            if exc.code == "FRIEND_EDGE_EXISTS":
+                # Not a state the row is in -- a state the *pair* is in. The
+                # decision would have moved this row into a live state while a
+                # different live row already holds the pair, which is the same
+                # fact `send_friend_request` answers for, so it gets the same
+                # wire code.
+                raise ApiProblem(
+                    409,
+                    BLOCKED_IS_SILENT.lower(),
+                    "Chưa trả lời được lời mời này.",
+                ) from exc
+            raise self._friend_refusal(FriendshipError(exc.code)) from exc
         if record is None:
             raise ApiProblem(
                 404, "friend_request_not_found", "Không có lời mời này."
