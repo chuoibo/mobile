@@ -47,7 +47,7 @@ export const TABS: Tab[] = [
     id: "len-plan",
     label: "Lên plan",
     a11yLabel: "Lên plan — chuyến đi của nhóm",
-    destination: { kind: "shell", screen: "LenPlan", owner: "frontend", work: "chưa xếp" },
+    destination: { kind: "built", screen: "LenPlan" },
   },
   {
     id: "tin-nhan",
@@ -76,17 +76,17 @@ export type CreateAction = {
 /**
  * What [+] opens.
  *
- * Exactly one of these is wired to something real today, and the menu says so
- * out loud rather than letting four identical rows imply four working
- * features. Spec section 14.3's rule about not designing ahead of the actions
- * cuts both ways: the actions that do not exist yet must not pretend to.
+ * Three of these reach real behaviour today, and the menu says so out loud
+ * rather than letting four identical rows imply four working features. Spec
+ * section 14.3's rule about not designing ahead of the actions cuts both ways:
+ * the action that does not exist yet must not pretend to.
  */
 export const CREATE_ACTIONS: CreateAction[] = [
   {
     id: "tao-chuyen",
     label: "Tạo chuyến",
     hint: "Rủ nhóm đi đâu đó, chọn ngày",
-    built: false,
+    built: true,
   },
   {
     id: "tao-khoan-chi",

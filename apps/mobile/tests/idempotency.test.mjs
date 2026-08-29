@@ -80,6 +80,35 @@ const WRITES = [
     volatile: false,
     run: (api, attempt) => api.confirmReceipt("ob-1", 100_000, ACTOR, attempt),
   },
+  {
+    name: "POST /contexts/{id}/outings",
+    volatile: false,
+    run: (api, attempt) =>
+      api.taoBuoiDi(
+        "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+        {
+          title: "Đà Lạt cuối tuần",
+          starts_on: "2026-09-07",
+          ends_on: "2026-09-08",
+          headcount: 7,
+          budget_per_person_vnd: 2_500_000,
+        },
+        ACTOR,
+        attempt,
+      ),
+  },
+  {
+    name: "PUT /outings/{id}/timeline",
+    volatile: false,
+    run: (api, attempt) =>
+      api.luuDongThoiGian(
+        "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff",
+        [{ at: "07:00", label: "Cafe", place_name: null }],
+        ACTOR,
+        attempt,
+        "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      ),
+  },
 ];
 
 function bodyFor(path) {
@@ -96,6 +125,20 @@ function bodyFor(path) {
     };
   }
   if (path.endsWith("/batches")) return { batch_id: "b-1", obligations: [] };
+  if (path.endsWith("/timeline") || path.endsWith("/outings")) {
+    return {
+      id: "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff",
+      context_id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      created_by_id: ACTOR,
+      title: "Đà Lạt cuối tuần",
+      starts_on: "2026-09-07",
+      ends_on: "2026-09-08",
+      headcount: 7,
+      budget_per_person_vnd: 2_500_000,
+      created_at: "2026-08-29T04:00:00Z",
+      stops: [],
+    };
+  }
   throw new Error(`bài test chưa có câu trả lời cho ${path}`);
 }
 
