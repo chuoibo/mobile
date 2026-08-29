@@ -119,9 +119,32 @@ const VIEWPORT = process.env.QUET_VIEWPORT ?? "390x844";
  *  exist under a plugin install, and the system node is often too old. */
 const IMP = process.env.IMP_BIN ?? path.join(os.homedir(), ".claude/skills/impeccable-pipeline/scripts/imp");
 
-/** The string the drive canary paints, and the only thing that proves the
- *  detector waited. Deliberately not a word any screen in the app contains. */
+/** The words the drive canary paints. Read by a human in the log, and by
+ *  `kiemManHinh` as a needle; NOT by the assertion -- see `DAU_MAU`. */
 export const DAU_LAI = "CANARY LAI DA CHAY";
+
+/**
+ * The colour pair the assertion actually looks for, and why it is a colour.
+ *
+ * The first version of this canary asserted that some finding's JSON contained
+ * the words above. It could never pass, and it never had: the detector reports
+ * the *style* it measured, not the text it measured it on, so a marker painted
+ * perfectly comes back as
+ *
+ *     [warning] low-contrast: 1.2:1 (need 4.5:1) — text #eeeeee on #ffffff
+ *
+ * with the sentence nowhere in it. That fails closed, which is the safe
+ * direction, but it means the whole file could never report a number -- the
+ * walk finished, the marker rendered, and the run aborted anyway.
+ *
+ * So the marker is a colour pair instead, chosen for three properties:
+ * contrast low enough that `low-contrast` fires on it (1.16:1), a hex that
+ * appears nowhere in the app's warm cream palette so no real screen can forge
+ * it, and a value the detector prints verbatim into the finding. It still
+ * cannot exist before the walk ends, which is the only thing the canary was
+ * ever asserting.
+ */
+export const DAU_MAU = { chu: "#e3e4e5", nen: "#fcfdfe" };
 
 /**
  * The walk, as data.
@@ -353,11 +376,13 @@ export function laiTrongTrang(kichBan, dauLai) {
         // z-index is 6 digits, not the int32 maximum. The repo guard's
         // long-number rule reads 10 consecutive digits as a possible account
         // number and is right to; nothing on these pages stacks above 6.
-        "position:fixed;inset:0;z-index:999999;background:#fff;font-family:Arial",
+        "position:fixed;inset:0;z-index:999999;background:" + dauLai.nen +
+          ";font-family:Arial",
       );
       d.innerHTML =
-        '<p style="color:#eee;background:#fff;font-size:11px">' +
-        dauLai +
+        '<p style="color:' + dauLai.chu + ";background:" + dauLai.nen +
+        ';font-size:11px">' +
+        dauLai.chu +
         " chu nay gan nhu vo hinh tren nen trang</p>";
       document.body.appendChild(d);
     }
@@ -560,7 +585,7 @@ async function main() {
     // The drive canary runs the LONGEST scenario here, so proving the detector
     // waited for it proves it waited for every shorter one too.
     const sauNhat = MAN_SAU_TAP.reduce((a, b) => (b.kichBan.length > a.kichBan.length ? b : a));
-    const tenLai = ghi("__canary-lai.html", trangTuLai(indexHtml, sauNhat.kichBan, DAU_LAI));
+    const tenLai = ghi("__canary-lai.html", trangTuLai(indexHtml, sauNhat.kichBan, DAU_MAU));
     for (const { step, kichBan } of MAN_SAU_TAP) {
       ghi(`__quet-${step}.html`, trangTuLai(indexHtml, kichBan));
     }
@@ -590,17 +615,46 @@ async function main() {
     // The third canary. Not a count -- a marker, because a page measured too
     // early still scores whatever the opening screen scores.
     const lai = await quet(`${goc}/${tenLai}`);
-    const thayDau = lai.findings.some((f) => JSON.stringify(f).includes(DAU_LAI));
+    const thayDau = lai.findings.some((f) => JSON.stringify(f).includes(DAU_MAU.chu));
     console.log(
       `  canary lai   findings=${lai.findings.length} exit=${lai.status}` +
-        `  (can chua "${DAU_LAI}": ${thayDau ? "CO" : "KHONG"})`,
+        `  (can chua "${DAU_MAU.chu}": ${thayDau ? "CO" : "KHONG"})`,
     );
+    for (const f of lai.findings) {
+      console.log(`      [${f.severity}] ${f.antipattern}: ${(f.snippet ?? "").slice(0, 120)}`);
+    }
     if (!thayDau) {
+      // Say WHERE the walk stopped, not just that the marker is missing.
+      //
+      // Both causes print the same line otherwise, and they need opposite
+      // fixes: a detector that measured too early is a timing problem in this
+      // file, while a walk that died on press four is a broken screen. The
+      // driver already records its own progress on `window.__lai` for exactly
+      // this, so the diagnosis costs one page load.
+      let chan = null;
+      try {
+        const tam = await puppeteer.launch({
+          executablePath: process.env.PUPPETEER_EXECUTABLE_PATH ?? CHROME,
+          headless: true,
+          defaultViewport: { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
+          args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+        });
+        try {
+          chan = await kiemManHinh(tam, `${goc}/${tenLai}`, DAU_MAU.chu);
+        } finally {
+          await tam.close();
+        }
+      } catch (err) {
+        chan = { loiChanDoan: String(err) };
+      }
       throw new Error(
         `MAY QUET DO SOM: canary lai chay het kich ban "${sauNhat.step}" roi moi ve dau ` +
-          `"${DAU_LAI}", va detector khong thay dau do. Nghia la no do TRUOC khi trang ` +
+          `"${DAU_MAU.chu}", va detector khong thay dau do. Nghia la no do TRUOC khi trang ` +
           `lai xong, nen moi con so duoi day se la man mo dau doi ten thanh man khac. ` +
-          `Khong bao cao so nao het.`,
+          `Khong bao cao so nao het.\n` +
+          `  chan doan: lai.xong=${chan?.lai?.xong} lai.loi=${chan?.lai?.loi ?? "-"}\n` +
+          `  buoc da qua (${chan?.lai?.buoc?.length ?? 0}): ${(chan?.lai?.buoc ?? []).join(" | ")}\n` +
+          `  pageerror: ${(chan?.loi ?? []).slice(0, 2).join(" ; ") || "(khong co)"}`,
       );
     }
 
@@ -668,7 +722,20 @@ async function main() {
     await closeServer(server);
     // Scan scaffolding, not build output. Leaving one behind would put a page
     // that stubs the API inside a directory somebody could serve.
-    for (const p of viet) {
+    //
+    // `QUET_GIU=1` keeps them, for one job only: measuring the geometry behind
+    // a `text-occlusion` finding, which needs the same page the detector saw
+    // rather than a second walk that might lay out differently. Opt-in, and
+    // loud, because the thing it leaves behind serves fake data.
+    // Not `return` -- this is a `finally`, and returning from one discards any
+    // exception still travelling through it, so a failed run would exit 0 with
+    // its reason deleted.
+    const giu = process.env.QUET_GIU === "1";
+    if (giu) {
+      console.log(`\nQUET_GIU=1: giu lai ${viet.length} trang tam trong .expo-build-check/`);
+      console.log("  CHUNG STUB API VA CHUA DU LIEU GIA -- xoa tay sau khi do xong.");
+    }
+    for (const p of giu ? [] : viet) {
       try {
         fs.unlinkSync(p);
       } catch (err) {
