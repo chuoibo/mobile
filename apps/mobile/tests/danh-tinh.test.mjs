@@ -1,21 +1,25 @@
-/* F01's identity derivation, checked as arithmetic rather than by signing in.
+/* What the entry door can decide about a number without asking the server.
  *
  * Run from apps/mobile:
  *     npx tsc -p tsconfig.test.json && node tools/fixup-esm.mjs \
  *       && node --test tests/danh-tinh.test.mjs
  *
- * Two properties carry the whole feature, and both are invisible on screen:
+ * This file used to test the id derivation as arithmetic, and it tested it
+ * well: 20,000 consecutive numbers giving 20,000 distinct ids, and numbers one
+ * digit apart giving ids half a digest apart. Both assertions passed and both
+ * were about AVALANCHE. Neither was about whether an id could be turned back
+ * into its number, which it could -- in 29.75 seconds. bug-140342.
  *
- *   - One telephone reaches one account, however it was spelled. Break this
- *     and a person who typed a space last time is a stranger today, holding
- *     none of their own money.
- *   - Two telephones never reach the same account. Break this and two people
- *     ARE one person: same balance, same obligations, each able to see the
- *     other's. That is the money-shaped failure, and it is the reason the
- *     collision block below is large rather than a token three cases.
+ * So the derivation moved behind a key the server holds, and those tests moved
+ * with it, to `services/api/tests/api/test_person_identity.py`, where the one
+ * that matters runs the actual attack instead of measuring how random the
+ * output looks. What is left here is the rule this app still applies on its
+ * own: what counts as a Vietnamese mobile number, so the button can stay off
+ * without a round trip.
  *
- * What this file cannot show is that the screen calls any of it. That is the
- * `expo export` build and the detector run in the PR.
+ * Keeping the collision and avalanche blocks here as well would have been
+ * comfortable and wrong -- they would have been testing a function this app no
+ * longer owns.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -24,10 +28,10 @@ import {
   chuDau,
   chuanHoaSo,
   idNgauNhien,
-  idTuSo,
   soHopLe,
   tenHopLe,
 } from "../dist-test/screens/vao-cua/danh-tinh.js";
+import { layIdTuSo } from "../dist-test/screens/vao-cua/cong-api.js";
 
 /* Every number in this file is invented, and the repo guard cannot tell an
  * invented one from a real one -- nor should it have to. `LONG_NUMBER_RE` in
@@ -36,9 +40,6 @@ import {
  * The splitting is deliberate; a test fixture is not a reason to teach the
  * guard to look away. */
 const so = (...phan) => phan.join("");
-
-/** A valid mobile number built from a six-digit tail, for the bulk blocks. */
-const soThu = (n) => so("09", "12", String(n).padStart(6, "0"));
 
 /* ------------------------------------------------------- chuẩn hoá số --- */
 
@@ -56,11 +57,17 @@ test("bốn cách viết một số đều về một dạng chuẩn", () => {
   }
 });
 
-test("một người gõ số mình theo hai kiểu vẫn ra đúng một tài khoản", () => {
-  // The whole of "log back in" is this assertion.
-  const a = idTuSo(so("09", "12345678"));
-  const b = idTuSo(so("+84 912", " 345 ", "678"));
-  assert.equal(a, b);
+test("một người gõ số mình theo hai kiểu vẫn gửi lên đúng một chuỗi", () => {
+  // "Log back in" is now two halves. This is the client's half: whatever a
+  // person types, one telephone leaves this device as one string. The other
+  // half -- that one string reaches one id -- is the server's, and is asserted
+  // in `test_person_identity.py::test_one_number_however_spelled_reaches_one_id`.
+  //
+  // Worth keeping even though it looks like the test above it. That one checks
+  // a table of spellings against a constant; this one names the consequence,
+  // so a change that breaks it fails with the sentence that explains what the
+  // person lost.
+  assert.equal(chuanHoaSo(so("09", "12345678")), chuanHoaSo(so("+84 912", " 345 ", "678")));
 });
 
 test("cái không phải số di động Việt Nam thì bị từ chối, không đoán bừa", () => {
@@ -80,10 +87,14 @@ test("cái không phải số di động Việt Nam thì bị từ chối, khôn
   }
 });
 
-test("số hỏng thì idTuSo ném lỗi, và lỗi không chứa chính con số", () => {
+test("số hỏng thì layIdTuSo ném lỗi trước khi gửi, và lỗi không chứa con số", async () => {
   const xau = so("012", "3456789");
-  assert.throws(
-    () => idTuSo(xau),
+  // Refused on the device, so a number that cannot be an account never
+  // travels at all. `fetch` is not stubbed here on purpose: if this ever
+  // stopped throwing, the test would fail by trying to reach a real server
+  // rather than by quietly passing against a mock.
+  await assert.rejects(
+    () => layIdTuSo(xau),
     (loi) => {
       // The number must not travel in a message that ends up in a console or
       // a bug report. This is the one assertion standing between a thrown
@@ -97,14 +108,6 @@ test("số hỏng thì idTuSo ném lỗi, và lỗi không chứa chính con s�
 
 /* --------------------------------------------------------- dạng UUID --- */
 
-test("id sinh ra là UUID hợp lệ, phiên bản 8, biến thể RFC", () => {
-  const dang = /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-  for (let n = 0; n < 500; n++) {
-    const id = idTuSo(soThu(n));
-    assert.match(id, dang, `id không đúng dạng UUID: ${id}`);
-  }
-});
-
 test("id ngẫu nhiên cho bạn bè cũng là UUID hợp lệ và không trùng nhau", () => {
   const thay = new Set();
   for (let n = 0; n < 500; n++) {
@@ -115,46 +118,10 @@ test("id ngẫu nhiên cho bạn bè cũng là UUID hợp lệ và không trùng
   assert.equal(thay.size, 500);
 });
 
-/* ------------------------------------------------------------ va chạm --- */
-
-const MAU = 20000;
-
-test(`${MAU} số liên tiếp cho ${MAU} id khác nhau`, () => {
-  // Two different people must never land on one account. Consecutive numbers
-  // are the hard case on purpose: they differ in a single digit, which is
-  // exactly where a weak hash folds two inputs together.
-  const thay = new Set();
-  for (let n = 0; n < MAU; n++) thay.add(idTuSo(soThu(n)));
-  assert.equal(thay.size, MAU, "có hai số điện thoại ra cùng một id");
-});
-
-test("số cách nhau một chữ số cho id khác hẳn nhau, không phải id kề nhau", () => {
-  // FNV-1a alone fails this: neighbouring inputs come out as neighbouring
-  // hashes. `fmix64` is what makes it pass, so this is the test that would go
-  // red if somebody removed the finaliser as dead weight.
-  const bits = (id) => {
-    const hex = id.replace(/-/g, "");
-    return [...hex].map((ch) => parseInt(ch, 16).toString(2).padStart(4, "0")).join("");
-  };
-  const khoangCach = (a, b) => {
-    let d = 0;
-    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) d++;
-    return d;
-  };
-
-  const ds = [];
-  for (let n = 0; n < 4000; n++) {
-    ds.push(khoangCach(bits(idTuSo(soThu(n))), bits(idTuSo(soThu(n + 1)))));
-  }
-  const tb = ds.reduce((a, b) => a + b, 0) / ds.length;
-  const min = Math.min(...ds);
-
-  // 128 bits, of which the version nibble is fixed and two variant bits are
-  // fixed, so a perfect avalanche averages a little under 64. A hash with no
-  // avalanche at all averages a handful and has a minimum of 1.
-  assert.ok(tb > 56 && tb < 70, `avalanche trung bình lệch: ${tb}`);
-  assert.ok(min >= 20, `có cặp số kề nhau ra id gần như giống hệt: ${min} bit`);
-});
+/* Va chạm và avalanche không còn ở đây. Hàm sinh id nằm ở máy chủ kể từ
+ * bug-140342, nên hai tính chất đó được gác ở
+ * `services/api/tests/api/test_person_identity.py` — cùng với tính chất mà cả
+ * hai đều KHÔNG chứng minh: id không đảo ngược lại thành số điện thoại. */
 
 /* -------------------------------------------------------------- tên --- */
 

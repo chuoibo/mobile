@@ -24,10 +24,15 @@
     "src/screens/kham-pha/places.ts",
     "src/navigation/lien-ket.ts",
     "src/screens/ca-nhan/tai-chinh.ts",
-    // F01's identity derivation. Compiled because the properties that matter
-    // -- one telephone reaching one account, two telephones never reaching the
-    // same one -- are arithmetic, and arithmetic is checkable without a screen.
+    // F01's number rules. The derivation itself moved to the server in
+    // bug-140342 -- an unkeyed digest over 5x10^8 numbers is reversible -- so
+    // what is compiled here is what the device still decides on its own: which
+    // strings are a Vietnamese mobile number at all.
     "src/screens/vao-cua/danh-tinh.ts",
+    // The entry door's requests, including the one that asks the server for an
+    // id. Compiled so a test can assert the client refuses a bad number
+    // BEFORE it travels, which is a property of this file and not of the API.
+    "src/screens/vao-cua/cong-api.ts",
     // Two screens compiled rather than only logic modules, so a test can
     // render them and read the markup react-native-web actually emits. See
     // `tools/fixup-esm.mjs` for why that is the real DOM and not a mock.

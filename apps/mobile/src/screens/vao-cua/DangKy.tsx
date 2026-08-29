@@ -13,10 +13,13 @@
  * way `api.ts` does, because a sign-in that silently succeeds against nothing
  * is the failure mode this product keeps having to design against.
  *
- * The number itself never leaves the device -- see `danh-tinh.ts` for what
- * that is worth and what it is not. The screen says so in a line under the
- * field, because a person typing their telephone number into a demo is owed
- * that sentence before they type it, not in a privacy policy afterwards.
+ * The number is sent to the server, which turns it into an id and keeps
+ * nothing -- `cong-api.ts` and `person_identity.py` say what that costs and
+ * what it buys. It used to be derived on the device and the line under the
+ * field used to say so; bug-140342 made that derivation reversible, so both
+ * the code and the sentence changed together. A privacy line that outlives the
+ * behaviour it describes is worse than no line, because somebody reads it and
+ * believes it.
  */
 import React, { useRef, useState } from "react";
 import { Platform, Pressable, ScrollView, Text, View } from "react-native";
@@ -26,7 +29,8 @@ import { Gradient, HERO_SUNSET, Scrim } from "../../navigation/Gradient";
 import { Button, Field } from "../../ui/Kit";
 import { radius, space, type, usePalette } from "../../theme";
 import type { NguoiDung } from "../../navigation/nhom-demo";
-import { chuDau, chuanHoaSo, idTuSo, tenHopLe } from "./danh-tinh";
+import { chuDau, chuanHoaSo, tenHopLe } from "./danh-tinh";
+import { layIdTuSo } from "./cong-api";
 
 const ON_SUNSET = tokens.color.light.accentInk;
 
@@ -57,7 +61,10 @@ export function DangKy({ onXong, onQuayLai }: {
     if (chuan === null || !tenHopLe(ten)) return;
     setPha({ buoc: "dang-gui" });
     try {
-      const id = idTuSo(chuan);
+      // Round trip before the name is written: the server mints the id,
+      // because it is the only party holding the key that makes the id
+      // unreadable back into the number.
+      const id = await layIdTuSo(chuan);
       const name = ten.trim();
       // The actor is the person themselves. That matters at the server:
       // naming an id that has no row is open to any member, but changing a
@@ -152,8 +159,9 @@ export function DangKy({ onXong, onQuayLai }: {
           {/* Shown always, not only on error. Somebody deciding whether to
               type their number needs this before they type it. */}
           <Text style={{ ...type.label, color: c.inkSoft }}>
-            Số này chỉ nằm trên máy bạn. App không gửi số lên máy chủ và không
-            lưu số ở đâu cả — nó chỉ dùng để nhận ra bạn khi quay lại.
+            Số này gửi lên máy chủ một lần để nhận ra bạn khi quay lại. Máy chủ
+            không lưu số, không ghi số vào nhật ký, và không ai trong nhóm xem
+            được số của bạn.
           </Text>
 
           <Field

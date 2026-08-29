@@ -26,6 +26,7 @@ from app.api.routes import (
     expenses,
     finance,
     guests,
+    identity,
     memories,
     messages,
     obligations,
@@ -76,6 +77,7 @@ def create_app(
     application.include_router(obligations.router)
     application.include_router(bank_recipients.router)
     application.include_router(people.router)
+    application.include_router(identity.router)
     application.include_router(places.router)
     application.include_router(finance.router)
     application.include_router(receipts.router)

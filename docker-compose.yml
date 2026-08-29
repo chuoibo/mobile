@@ -99,6 +99,17 @@ services:
       # `seed` and `demo` share that anchor and none of them read a bill. A
       # credential belongs in exactly the processes that use it.
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      # The key `people.id` is derived under (bug-140342). Same rule as the
+      # line above: Compose forwards nothing by itself, so a key sitting in the
+      # host's `.env` reaches the API only because it is named here. Unset, the
+      # API answers 503 on sign-in rather than falling back to the unkeyed
+      # digest that let group members read each other's telephone numbers.
+      #
+      # On `api` alone. `migrate` and `seed` share the `x-api-env` anchor and
+      # neither derives an id: seeding uses fixed uuids straight out of
+      # `scripts/seed_dev_data.py`. A secret belongs in exactly the processes
+      # that use it.
+      MOBILE_PERSON_ID_KEY: ${MOBILE_PERSON_ID_KEY:-}
     # Cố ý KHÔNG đặt MOBILE_PUBLIC_BASE_URL ở đây. `.env.example` có khai nó,
     # nhưng `grep -rn MOBILE_PUBLIC_BASE_URL services/` không ra dòng code nào
     # đọc: publish trả về `path` tương đối, người gửi tự ghép host. Đặt một
