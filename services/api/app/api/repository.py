@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Protocol
 
 from sqlalchemy import func, select, tuple_
@@ -52,6 +52,10 @@ from app.db.models import (
     Memory,
     Message,
     MessageKind,
+    Outing,
+    OutingInvite,
+    OutingInviteSource,
+    OutingStop,
     PayerAcknowledgement,
     PaymentReport,
     Person,
@@ -112,6 +116,40 @@ class MemoryRecord:
 class MemoryPage:
     memories: tuple[MemoryRecord, ...]
     has_more: bool
+
+
+@dataclass(frozen=True, slots=True)
+class OutingStopRecord:
+    position: int
+    minute_of_day: int
+    label: str
+    place_name: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class OutingRecord:
+    id: uuid.UUID
+    context_id: uuid.UUID
+    created_by_id: uuid.UUID
+    title: str
+    starts_on: date
+    ends_on: date
+    headcount: int
+    budget_per_person_vnd: int
+    created_at: datetime
+    stops: tuple[OutingStopRecord, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class OutingInviteRecord:
+    id: uuid.UUID
+    outing_id: uuid.UUID
+    source: str
+    invited_person_id: uuid.UUID | None
+    invited_by_id: uuid.UUID
+    accepted_at: datetime | None
+    accepted_by_id: uuid.UUID | None
+    created_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -481,6 +519,66 @@ class ApiRepository(Protocol):
         self, context_id: uuid.UUID, person_id: uuid.UUID, role: str
     ) -> MembershipRecord | None: ...
 
+    def create_outing(
+        self,
+        *,
+        context_id: uuid.UUID,
+        created_by_id: uuid.UUID,
+        title: str,
+        starts_on: date,
+        ends_on: date,
+        headcount: int,
+        budget_per_person_vnd: int,
+        now: datetime,
+    ) -> OutingRecord: ...
+
+    def get_outing(self, outing_id: uuid.UUID) -> OutingRecord | None: ...
+
+    def list_outings(self, context_id: uuid.UUID) -> tuple[OutingRecord, ...]: ...
+
+    def replace_outing_stops(
+        self,
+        *,
+        outing_id: uuid.UUID,
+        stops: list[dict],
+    ) -> OutingRecord: ...
+
+    def create_outing_invite(
+        self,
+        *,
+        outing_id: uuid.UUID,
+        source: str,
+        invited_person_id: uuid.UUID | None,
+        invited_by_id: uuid.UUID,
+        token_digest: bytes | None,
+        now: datetime,
+    ) -> OutingInviteRecord: ...
+
+    def find_outing_invite_for_person(
+        self, outing_id: uuid.UUID, person_id: uuid.UUID
+    ) -> OutingInviteRecord | None: ...
+
+    def get_outing_invite_by_digest(
+        self, token_digest: bytes
+    ) -> OutingInviteRecord | None: ...
+
+    def accept_outing_invite(
+        self,
+        *,
+        invite_id: uuid.UUID,
+        accepted_by_id: uuid.UUID,
+        now: datetime,
+    ) -> OutingInviteRecord: ...
+
+    def ensure_invited_membership(
+        self,
+        *,
+        context_id: uuid.UUID,
+        person_id: uuid.UUID,
+        invited_by_id: uuid.UUID,
+        now: datetime,
+    ) -> MembershipRecord: ...
+
     def create_memory(
         self,
         *,
@@ -715,6 +813,47 @@ class SqlAlchemyApiRepository:
             image_url=memory.image_url,
             caption=memory.caption,
             created_at=memory.created_at,
+        )
+
+    @staticmethod
+    def _outing_stop_record(stop: OutingStop) -> OutingStopRecord:
+        return OutingStopRecord(
+            position=stop.position,
+            minute_of_day=stop.minute_of_day,
+            label=stop.label,
+            place_name=stop.place_name,
+        )
+
+    def _outing_record(self, outing: Outing) -> OutingRecord:
+        stops = self.session.scalars(
+            select(OutingStop)
+            .where(OutingStop.outing_id == outing.id)
+            .order_by(OutingStop.position)
+        )
+        return OutingRecord(
+            id=outing.id,
+            context_id=outing.context_id,
+            created_by_id=outing.created_by_id,
+            title=outing.title,
+            starts_on=outing.starts_on,
+            ends_on=outing.ends_on,
+            headcount=outing.headcount,
+            budget_per_person_vnd=outing.budget_per_person_vnd,
+            created_at=outing.created_at,
+            stops=tuple(self._outing_stop_record(stop) for stop in stops),
+        )
+
+    @staticmethod
+    def _outing_invite_record(invite: OutingInvite) -> OutingInviteRecord:
+        return OutingInviteRecord(
+            id=invite.id,
+            outing_id=invite.outing_id,
+            source=invite.source.value,
+            invited_person_id=invite.invited_person_id,
+            invited_by_id=invite.invited_by_id,
+            accepted_at=invite.accepted_at,
+            accepted_by_id=invite.accepted_by_id,
+            created_at=invite.created_at,
         )
 
     @staticmethod
@@ -1022,6 +1161,177 @@ class SqlAlchemyApiRepository:
         if membership is None:
             return None
         membership.role = MembershipRole(role)
+        self.session.flush()
+        return self._membership_record(membership)
+
+    def create_outing(
+        self,
+        *,
+        context_id: uuid.UUID,
+        created_by_id: uuid.UUID,
+        title: str,
+        starts_on: date,
+        ends_on: date,
+        headcount: int,
+        budget_per_person_vnd: int,
+        now: datetime,
+    ) -> OutingRecord:
+        outing = Outing(
+            context_id=context_id,
+            created_by_id=created_by_id,
+            title=title,
+            starts_on=starts_on,
+            ends_on=ends_on,
+            headcount=headcount,
+            budget_per_person_vnd=budget_per_person_vnd,
+            created_at=now,
+        )
+        self.session.add(outing)
+        self.session.flush()
+        return self._outing_record(outing)
+
+    def get_outing(self, outing_id: uuid.UUID) -> OutingRecord | None:
+        outing = self.session.get(Outing, outing_id)
+        return None if outing is None else self._outing_record(outing)
+
+    def list_outings(self, context_id: uuid.UUID) -> tuple[OutingRecord, ...]:
+        outings = self.session.scalars(
+            select(Outing)
+            .where(Outing.context_id == context_id)
+            .order_by(Outing.starts_on, Outing.id)
+        )
+        return tuple(self._outing_record(outing) for outing in outings)
+
+    def replace_outing_stops(
+        self,
+        *,
+        outing_id: uuid.UUID,
+        stops: list[dict],
+    ) -> OutingRecord:
+        outing = self.session.get(Outing, outing_id)
+        if outing is None:
+            raise RepositoryConflict("OUTING_NOT_FOUND")
+
+        existing_stops = list(
+            self.session.scalars(
+                select(OutingStop).where(OutingStop.outing_id == outing_id)
+            )
+        )
+        for stop in existing_stops:
+            self.session.delete(stop)
+        # Reused positions remain unique only after the previous plan is gone.
+        self.session.flush()
+
+        self.session.add_all(
+            [
+                OutingStop(
+                    outing_id=outing_id,
+                    position=position,
+                    minute_of_day=stop["minute_of_day"],
+                    label=stop["label"],
+                    place_name=stop["place_name"],
+                )
+                for position, stop in enumerate(stops)
+            ]
+        )
+        self.session.flush()
+        return self._outing_record(outing)
+
+    def create_outing_invite(
+        self,
+        *,
+        outing_id: uuid.UUID,
+        source: str,
+        invited_person_id: uuid.UUID | None,
+        invited_by_id: uuid.UUID,
+        token_digest: bytes | None,
+        now: datetime,
+    ) -> OutingInviteRecord:
+        invite = OutingInvite(
+            outing_id=outing_id,
+            source=OutingInviteSource(source),
+            invited_person_id=invited_person_id,
+            invited_by_id=invited_by_id,
+            token_digest=token_digest,
+            created_at=now,
+        )
+        self.session.add(invite)
+        self.session.flush()
+        return self._outing_invite_record(invite)
+
+    def find_outing_invite_for_person(
+        self, outing_id: uuid.UUID, person_id: uuid.UUID
+    ) -> OutingInviteRecord | None:
+        invite = self.session.scalar(
+            select(OutingInvite)
+            .where(
+                OutingInvite.outing_id == outing_id,
+                OutingInvite.invited_person_id == person_id,
+            )
+            .limit(1)
+        )
+        return None if invite is None else self._outing_invite_record(invite)
+
+    def get_outing_invite_by_digest(
+        self, token_digest: bytes
+    ) -> OutingInviteRecord | None:
+        invite = self.session.scalar(
+            select(OutingInvite)
+            .where(OutingInvite.token_digest == token_digest)
+            .limit(1)
+        )
+        return None if invite is None else self._outing_invite_record(invite)
+
+    def accept_outing_invite(
+        self,
+        *,
+        invite_id: uuid.UUID,
+        accepted_by_id: uuid.UUID,
+        now: datetime,
+    ) -> OutingInviteRecord:
+        invite = self.session.scalar(
+            select(OutingInvite)
+            .where(OutingInvite.id == invite_id)
+            .with_for_update()
+        )
+        if invite is None:
+            raise RepositoryConflict("OUTING_INVITE_NOT_FOUND")
+        invite.accepted_at = now
+        invite.accepted_by_id = accepted_by_id
+        self.session.flush()
+        return self._outing_invite_record(invite)
+
+    def ensure_invited_membership(
+        self,
+        *,
+        context_id: uuid.UUID,
+        person_id: uuid.UUID,
+        invited_by_id: uuid.UUID,
+        now: datetime,
+    ) -> MembershipRecord:
+        existing = self.session.scalar(
+            select(Membership)
+            .where(
+                Membership.context_id == context_id,
+                Membership.person_id == person_id,
+                Membership.left_at.is_(None),
+            )
+            .limit(1)
+        )
+        if existing is not None:
+            return self._membership_record(existing)
+
+        membership = Membership(
+            context_id=context_id,
+            person_id=person_id,
+            state=MembershipState.INVITED,
+            role=MembershipRole.MEMBER,
+            invited_by_id=invited_by_id,
+            joined_at=None,
+            left_at=None,
+            created_at=now,
+        )
+        self.session.add(membership)
         self.session.flush()
         return self._membership_record(membership)
 
@@ -2694,6 +3004,9 @@ __all__ = [
     "MessagePage",
     "MessageRecord",
     "ObligationDraft",
+    "OutingInviteRecord",
+    "OutingRecord",
+    "OutingStopRecord",
     "PaymentReportRecord",
     "PaymentReportTarget",
     "PersonFinanceSummary",

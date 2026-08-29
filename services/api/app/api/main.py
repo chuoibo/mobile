@@ -29,6 +29,7 @@ from app.api.routes import (
     memories,
     messages,
     obligations,
+    outings,
     people,
     places,
     receipts,
@@ -68,6 +69,7 @@ def create_app(
     application.include_router(bills.router)
     application.include_router(contexts.router)
     application.include_router(memories.router)
+    application.include_router(outings.router)
     application.include_router(messages.router)
     application.include_router(batches.router)
     application.include_router(guests.router)
