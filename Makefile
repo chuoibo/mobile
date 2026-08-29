@@ -132,15 +132,19 @@ down: ## Tắt hệ, GIỮ dữ liệu trong volume
 	@echo "Tắt project '$(PROJECT)' — dùng chung, nên worktree khác cũng mất API."
 	$(DC) down
 
-clean: ## Tắt hệ và XOÁ volume Postgres của cả máy — cần CONFIRM=<tên project>
+clean: ## Tắt hệ và XOÁ volume Postgres + ảnh đã tải lên của cả máy — cần CONFIRM=<tên project>
 	@if [ "$(CONFIRM)" != "$(PROJECT)" ]; then \
-	  echo "Từ chối: make clean xoá volume Postgres của project '$(PROJECT)'." >&2; \
+	  echo "Từ chối: make clean xoá volume của project '$(PROJECT)'." >&2; \
 	  echo >&2; \
 	  echo "Project đó KHÔNG thuộc riêng thư mục này. Mọi worktree trên máy" >&2; \
 	  echo "dùng chung nó, nên dữ liệu mất là mất của cả đội — kể cả đợt thu" >&2; \
 	  echo "mà lane khác đang mở dở trên trình duyệt." >&2; \
 	  echo >&2; \
-	  echo "Sẽ bị xoá: volume $(PROJECT)_mobile-postgres-data ('make ps' xem container)." >&2; \
+	  echo "Sẽ bị xoá ('make ps' xem container):" >&2; \
+	  echo "  $(PROJECT)_mobile-postgres-data  — sổ cái, nhóm, đợt thu" >&2; \
+	  echo "  $(PROJECT)_mobile-media-data     — MỌI ẢNH đã tải lên" >&2; \
+	  echo "Hai volume, không phải một. 'down -v' lấy cả hai, và ảnh thì không" >&2; \
+	  echo "seed lại được: seed dựng dữ liệu tiền, không dựng ảnh của người ta." >&2; \
 	  echo >&2; \
 	  echo "Chắc thì gõ đúng tên project ra:" >&2; \
 	  echo "    make clean CONFIRM=$(PROJECT)" >&2; \
