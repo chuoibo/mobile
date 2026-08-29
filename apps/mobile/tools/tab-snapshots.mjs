@@ -88,14 +88,38 @@ export const SCREENS = [
  * -- so putting it in `SCREENS` would make that second check fail while
  * teaching nobody anything.
  *
- * The needle is the recap heading rather than anything on the photo wall. The
- * wall's own title paints as soon as the group id resolves, so waiting on it
- * would wave through the state where the memories request 404s and the wall is
- * empty -- which is exactly the failure a scan of this screen exists to catch.
- * The photographs themselves are then asserted to have decoded, below.
+ * Every needle here names text that only the LOADED screen prints. That rule
+ * is the whole value of the column and it is easy to break by picking the
+ * heading, because on three of these four screens the heading is chrome drawn
+ * in every state including the failed one. `Nhom` says so about itself -- "so
+ * the way out never depends on the request having succeeded" -- which means
+ * "Nhóm của bạn" is on screen when the members call 404s just as loudly as
+ * when it succeeds. A needle like that turns the check into a no-op and the
+ * scan reports on a refusal panel under the screen's own filename.
+ *
+ * So: the memory wall waits on the recap heading rather than the wall title,
+ * because the title paints as soon as the group id resolves and would wave
+ * through an empty wall. Kết bạn waits on "Bạn bè (" because that count only
+ * renders once both friend reads have returned. Nhóm waits on "Lập hội mới",
+ * the create form, which is honestly what a cold link opens: nothing passes a
+ * group into `Nhom` from the fragment, so there is no member list to wait for
+ * and claiming otherwise would be describing a screen this URL never shows.
+ * Địa điểm waits on "Khoảng giá", which the detail card prints and the list
+ * behind it does not.
  */
 export const MAN_KHAC = [
   { step: "ky-niem", frag: `vao=ky-niem&nguoi=${NGUOI}`, needle: "Đã đi cùng nhau" },
+  { step: "nhom", frag: `vao=nhom&nguoi=${NGUOI}`, needle: "Lập hội mới" },
+  { step: "ban-be", frag: `vao=ban-be&nguoi=${NGUOI}`, needle: "Bạn bè (" },
+  { step: "dia-diem", frag: `dia-diem=p-1&nguoi=${NGUOI}`, needle: "Khoảng giá" },
+  // F01, and the one row here that must NOT name a person. `DangKy` renders
+  // from `AppRoot`'s pre-shell branch, which only runs while `boQuaMoDau` is
+  // false -- and `nguoi=` alone makes it true. So `vao=dang-ky&nguoi=minh`
+  // walks straight past this screen into the default tab and would have
+  // scanned Khám phá under the filename `dang-ky`. The frag is bare on
+  // purpose; `tests/quet-man-sau-nut.test.mjs` holds that difference so it
+  // cannot be "tidied" into consistency with the rows above.
+  { step: "dang-ky", frag: "vao=dang-ky", needle: "Vào Rủ Đi" },
 ];
 
 /** Every screen this tool visits, tabs and links alike, in one list. */
@@ -174,6 +198,20 @@ export function installTabStubs(apiBase, fixtures) {
     // Khám phá.
     if (route === "/places") {
       return json({ categories: fixtures.categories, places: fixtures.places });
+    }
+
+    // Kết bạn reads both directions of the invite list and then the friends
+    // list. `route` has already had the query string cut off it, so the two
+    // directions arrive here as the same path and have to be told apart on the
+    // raw url -- answering one list for both would render the same names under
+    // "đã nhận" and "đã gửi", which is a screen that looks populated and says
+    // something false about who asked whom.
+    if (route.startsWith("/people/") && route.endsWith("/friend-requests")) {
+      const ra = url.includes("direction=outgoing");
+      return json({ requests: ra ? fixtures.loiMoiRa : fixtures.loiMoiVao });
+    }
+    if (route.startsWith("/people/") && route.endsWith("/friends")) {
+      return json({ friends: fixtures.banBe });
     }
 
     // Tin nhắn boots through `screens/chat/nhom.ts`: name the person, create
@@ -333,6 +371,52 @@ export function taoFixtures() {
           factors: [],
         },
       }),
+    ],
+    // Kết bạn, three lists that must differ from each other. All three are
+    // non-empty on purpose: each one has an empty-state sentence, and an
+    // empty fixture would scan that sentence while the rows -- the avatar
+    // frames, the two-button accept/decline pair, the wrapped names -- are
+    // the part with layout in it and the part nothing has ever measured.
+    //
+    // `other_display_name` carries a long Vietnamese name with diacritics
+    // rather than "Test User", because the row is a fixed-width strip with a
+    // button pair on its right and short ASCII names never reach the edge
+    // where it breaks.
+    loiMoiVao: [
+      {
+        id: "9bb8cf5f-1e2a-4c9b-8d6e-a5c3f7b1d9e4",
+        requester_id: "3cc2da9f-6e5b-4a3c-8d4f-c9e7f1a5b3d8",
+        addressee_id: personId,
+        other_person_id: "3cc2da9f-6e5b-4a3c-8d4f-c9e7f1a5b3d8",
+        other_display_name: "Nguyễn Thị Hoàng Phượng",
+        state: "pending",
+        created_at: "2026-08-29T09:00:00Z",
+        decided_at: null,
+      },
+    ],
+    loiMoiRa: [
+      {
+        id: "0cc9da6a-2f3b-4d0c-9e7f-b6d4a8c2e0f5",
+        requester_id: personId,
+        addressee_id: "4dd3eb0b-7f6c-4b5d-8e6a-d1f9a3b7c5e0",
+        other_person_id: "4dd3eb0b-7f6c-4b5d-8e6a-d1f9a3b7c5e0",
+        other_display_name: "Trần Quốc Bảo",
+        state: "pending",
+        created_at: "2026-08-29T10:00:00Z",
+        decided_at: null,
+      },
+    ],
+    banBe: [
+      {
+        person_id: "5ee4fc1c-8a7d-4c6e-9f7b-e2a0b4c8d6f1",
+        display_name: "Lê Minh Khoa",
+        friends_since: "2026-08-20T08:00:00Z",
+      },
+      {
+        person_id: "6ff5ad2d-9b8e-4d7f-8a8c-f3b1c5d9e7a2",
+        display_name: "Phạm Hoàng Anh Thư",
+        friends_since: "2026-08-22T08:00:00Z",
+      },
     ],
     // `docThanhVien` rejects on every field, and `state` is the one a
     // hand-written fixture forgets: it is not in the display at all, so its
