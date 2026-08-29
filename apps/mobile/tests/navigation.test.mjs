@@ -17,6 +17,7 @@ import {
   CREATE_ACTIONS,
   DEFAULT_TAB,
   TABS,
+  misroutedActions,
   tabById,
   unreachableTabs,
 } from "../dist-test/navigation/tabs.js";
@@ -74,12 +75,15 @@ test("màn còn là vỏ thì khai ra chủ và việc sẽ dựng nó", () => {
 
 /* ------------------------------------------------------------ menu [+] --- */
 
-test("nút [+] mở đúng bốn mục", () => {
+test("nút [+] mở đúng bốn mục, mỗi mục một nhãn riêng", () => {
+  // Four is rd-do-fe-02's number and stays hand-written: it is a decision
+  // about the sheet, not a running total of what happens to be wired.
   assert.equal(CREATE_ACTIONS.length, 4);
-  assert.deepEqual(
-    CREATE_ACTIONS.map((a) => a.label),
-    ["Tạo chuyến", "Tạo khoản chi", "Đăng kỷ niệm", "Tạo nhóm"],
-  );
+  for (const a of CREATE_ACTIONS) {
+    assert.ok(a.label.trim(), `${a.id} không có nhãn`);
+  }
+  const labels = CREATE_ACTIONS.map((a) => a.label);
+  assert.equal(new Set(labels).size, labels.length, "hai mục trùng nhãn");
 });
 
 test("mỗi mục có một dòng giải thích, không phải bốn động từ trần", () => {
@@ -88,16 +92,59 @@ test("mỗi mục có một dòng giải thích, không phải bốn động t�
   }
 });
 
-test("đúng ba mục được đánh dấu đã nối: tạo chuyến, khoản chi, tạo nhóm", () => {
-  // This is the assertion that keeps the menu honest. If a later change wires
-  // up another action, this test fails and forces the flag to be updated
-  // rather than letting shells quietly keep claiming to work -- or letting a
-  // working feature keep wearing the "vỏ" mark.
-  //
-  // Order follows CREATE_ACTIONS. `tao-chuyen` is F13/F15 (Lên plan).
-  // `tao-nhom` is F03/F04. The remaining one is still a shell and still says so.
-  const built = CREATE_ACTIONS.filter((a) => a.built);
-  assert.deepEqual(built.map((a) => a.id), ["tao-chuyen", "tao-khoan-chi", "tao-nhom"]);
+/* The three tests below replace one that hand-copied the list of wired ids.
+ *
+ * That copy was the same truth written twice -- once as `built` in tabs.ts,
+ * once as an array here -- so the two could disagree, and every UI branch had
+ * to rewrite the array. Worse, the copy made the gate decorative for the case
+ * it was written for: setting `built: true` with nothing wired passed as soon
+ * as somebody updated the array to match, which is exactly what a PR author
+ * does when a test complains.
+ *
+ * What is asserted now is the relationship between the claim (`built`, which
+ * is what `MenuTao` renders the "vỏ" chip from) and the mechanism (`route`,
+ * which is what `VoTab.chonTao` navigates by). Neither is derived from the
+ * other, so they can still disagree -- and disagreeing is the failure. Wiring
+ * a new action means editing tabs.ts and nothing here.
+ */
+
+test("mục nhận đã nối thì phải có đường đi thật, và ngược lại", () => {
+  assert.deepEqual(misroutedActions(), []);
+});
+
+test("mục đã nối có route, mục còn vỏ thì không", () => {
+  // The same rule as above, stated per-action so a failure names the row
+  // rather than only the list.
+  for (const a of CREATE_ACTIONS) {
+    assert.equal(
+      a.route !== null,
+      a.built,
+      `${a.id}: built=${a.built} nhưng route=${JSON.stringify(a.route)}`,
+    );
+  }
+});
+
+test("route kiểu tab trỏ tới tab có thật, và tab đó không còn là vỏ", () => {
+  // A menu row landing on a placeholder is reachable and still empty. This is
+  // the case a rebase can create with no conflict marker: a branch cut before
+  // a screen landed still calls that screen a shell.
+  for (const a of CREATE_ACTIONS) {
+    if (a.route?.kind !== "tab") continue;
+    const tab = tabById(a.route.tab);
+    assert.ok(tab, `${a.id} trỏ tới tab "${a.route.tab}" không có trong TABS`);
+    assert.equal(tab.destination.kind, "built", `${a.id} trỏ tới tab còn là vỏ`);
+  }
+});
+
+test("mọi mục còn vỏ đều có nhãn giải thích cho người bấm", () => {
+  // The honest-shell rule from the tab side, applied to the sheet: a row that
+  // does nothing has to say something. `MenuTao` renders the chip from
+  // `built`, and the notice in `VoTab` from the missing route.
+  for (const a of CREATE_ACTIONS) {
+    if (a.built) continue;
+    assert.equal(a.route, null, `${a.id} đeo nhãn vỏ mà vẫn đi được`);
+    assert.ok(a.hint.trim(), `${a.id} không nói gì về việc chưa dựng`);
+  }
 });
 
 /* ------------------------------------------------------------ nhóm demo --- */

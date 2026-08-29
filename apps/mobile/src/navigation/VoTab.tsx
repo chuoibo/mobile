@@ -24,7 +24,7 @@ import { Nhom } from "../screens/vao-cua/Nhom";
 import { MenuTao } from "./MenuTao";
 import { ThanhTab } from "./ThanhTab";
 import { useInertBackground } from "./modal";
-import { CREATE_ACTIONS, DEFAULT_TAB, type CreateActionId } from "./tabs";
+import { CREATE_ACTIONS, DEFAULT_TAB, type CreateActionId, type CreateFlowId } from "./tabs";
 import type { DemoPerson } from "./nhom-demo";
 
 export function VoTab({ nguoi, tabDau, moNhomNgay, renderKhoanChi }: {
@@ -58,21 +58,31 @@ export function VoTab({ nguoi, tabDau, moNhomNgay, renderKhoanChi }: {
   // walk onto controls the sheet is covering.
   const nenRef = useInertBackground(menuMo);
 
+  /** Opening a whole-screen task, one entry per flow the table can name.
+   *
+   *  A `Record` rather than an if-chain: `CreateFlowId` is a closed union, so
+   *  adding a flow to `tabs.ts` and forgetting it here does not compile. The
+   *  old chain answered a missing case with the "chưa dựng" notice, which is
+   *  the same thing an unwired row shows -- a wiring mistake was
+   *  indistinguishable from honest work in progress.
+   */
+  const moLuong: Record<CreateFlowId, () => void> = {
+    "khoan-chi": () => setLuongKhoanChi(true),
+    nhom: () => setLuongNhom(true),
+  };
+
   function chonTao(id: CreateActionId) {
     setMenuMo(false);
-    if (id === "tao-khoan-chi") {
-      setLuongKhoanChi(true);
-      return;
-    }
-    if (id === "tao-chuyen") {
-      setTab("len-plan");
-      return;
-    }
-    if (id === "tao-nhom") {
-      setLuongNhom(true);
-      return;
-    }
     const action = CREATE_ACTIONS.find((a) => a.id === id);
+    const route = action?.route ?? null;
+    if (route?.kind === "tab") {
+      setTab(route.tab);
+      return;
+    }
+    if (route?.kind === "flow") {
+      moLuong[route.flow]();
+      return;
+    }
     setThongBao(`"${action?.label}" chưa dựng — mới có chỗ trong menu.`);
   }
 
