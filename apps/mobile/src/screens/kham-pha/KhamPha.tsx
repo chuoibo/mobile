@@ -39,6 +39,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { radius, space, type, usePalette } from "../../theme";
 import { Button, Card, Choice, Field, Screen } from "../../ui/Kit";
+import { thanLoiMayChu } from "../../ui/loi-may-chu";
 import { AnhDiaDiem, Ruy, RuyDongCua } from "./AnhDiaDiem";
 import { HuyHieuMatch } from "./NhanAi";
 import { CauAiHieu, KhongCoKetQua, TimKhongDuoc } from "./CauAiHieu";
@@ -317,7 +318,7 @@ function DangTai() {
  * gets spent restarting a server that was fine the whole time -- so the
  * address, the status, and the work item that owns the gap are all on screen.
  */
-function ChuaCoDuLieu({ state }: { state: PlacesState }) {
+export function ChuaCoDuLieu({ state }: { state: PlacesState }) {
   const c = usePalette();
   let tieuDe = "Chưa có dữ liệu địa điểm";
   let than = "";
@@ -333,7 +334,7 @@ function ChuaCoDuLieu({ state }: { state: PlacesState }) {
     diaChi = state.url;
   } else if (state.kind === "may-chu-loi") {
     tieuDe = `Máy chủ trả lỗi ${state.status}`;
-    than = state.detail;
+    than = thanLoiMayChu(state.status, state.detail);
     diaChi = state.url;
   } else if (state.kind === "du-lieu-sai") {
     tieuDe = "Dữ liệu địa điểm không đúng dạng";
