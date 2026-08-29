@@ -239,17 +239,25 @@ do_ruff() {
     return 1
   fi
 
-  # Deliberately NOT a failure when the local version differs. The workflow
-  # step asserts that a pin exists, and mirroring it any harder would make
-  # this stage red on every machine that has a newer ruff than the pin -- the
-  # kind of gate that gets switched off within a day. Said out loud instead,
-  # because it is the reason local ruff and CI ruff can disagree.
-  local have_version
-  have_version="$(ruff --version 2>/dev/null | awk '{print $2}')"
-  echo "pin: $pin   ruff tại máy: ${have_version:-không có}"
-  if [ -n "$have_version" ] && [ "ruff==$have_version" != "$pin" ]; then
-    echo "CHÚ Ý: máy này lint bằng ruff $have_version, CI lint bằng $pin -- kết quả có thể khác."
-  fi
+  # This used to stop at a CHÚ Ý when the machine's ruff differed from the pin,
+  # and pass the stage anyway. The reasoning was that hard-failing on a
+  # mismatch makes the stage red on every machine with a newer ruff -- true,
+  # and still true. What it missed is that a warning on line three of a
+  # thirteen-stage run, under a summary that ends "ĐẠT ruff", is a warning
+  # nobody reads, and while Actions is down this gate is the only one there is.
+  #
+  # Measured 2026-08-30 at c811254 over the 320 tracked Python files: the pin
+  # (0.9.2) reports 31 findings, this machine's ruff (0.15.15) reports 30. The
+  # missing one is UP038 on services/api/app/domain/place_search.py:105 -- a
+  # rule later ruff REMOVED, so the newer binary cannot report it at all.
+  # Editing that file got ĐẠT here and HỎNG in CI.
+  #
+  # So `ruff_changed.sh` now resolves the pin through scripts/ruff_pinned.sh
+  # and provisions it when this machine lacks it, the same way
+  # scripts/postgres_tier.sh stopped being a permanent BỎ QUA by building its
+  # own database instead of demanding one. Nobody has to downgrade their
+  # editor's ruff, and the verdict is CI's verdict.
+  echo "pin: $pin"
 
   # The one-argument form compares <base> against the WORKING TREE, so this
   # covers changes not yet committed. CI can only ever see pushed commits;

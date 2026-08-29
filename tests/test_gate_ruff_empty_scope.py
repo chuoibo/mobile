@@ -89,11 +89,17 @@ class GateRuffEmptyScope(unittest.TestCase):
         self.repo = pathlib.Path(tempfile.mkdtemp(prefix="gate-ruff-scope-"))
         self.addCleanup(shutil.rmtree, self.repo, ignore_errors=True)
 
-        # Only the two scripts the stage touches, for the reason the
-        # guard-range fixture gives: copying the tree drags this checkout's own
-        # history in and makes the fixture unreadable.
+        # Only the scripts the stage touches, for the reason the guard-range
+        # fixture gives: copying the tree drags this checkout's own history in
+        # and makes the fixture unreadable.
+        #
+        # `ruff_pinned.sh` is here because `ruff_changed.sh` resolves the pinned
+        # ruff through it rather than taking PATH's. Leaving it out made this
+        # fixture red with "No such file or directory" -- correct behaviour from
+        # the script and a broken fixture, which is worth saying out loud: the
+        # list has to track what the stage actually needs.
         (self.repo / "scripts").mkdir(parents=True)
-        for name in ("gate.sh", "ruff_changed.sh"):
+        for name in ("gate.sh", "ruff_changed.sh", "ruff_pinned.sh"):
             shutil.copy2(REPO_ROOT / "scripts" / name, self.repo / "scripts" / name)
 
         # `do_ruff` refuses to run without a ruff== pin to name, which is its
