@@ -38,7 +38,15 @@ export function MenuTao({ onPick, onClose }: {
   const c = usePalette();
 
   return (
-    <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "flex-end" }}>
+    // Declared a modal, now that `useInertBackground` in VoTab actually takes
+    // the screen and the bar out of the tree while this is open. Saying
+    // `aria-modal` without that would be a label on a door that is not shut.
+    <View
+      role="dialog"
+      aria-modal
+      accessibilityLabel="Tạo gì đây?"
+      style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "flex-end" }}
+    >
       {/* Backdrop. A real control, not decoration: tapping outside a sheet to
           dismiss it is the gesture people try first. */}
       <Pressable

@@ -22,6 +22,7 @@ import tokens from "../../../../../packages/shared/tokens.json";
 import { radius, space, type, usePalette } from "../../theme";
 import { Gradient, HERO_SUNSET, Scrim, mixHex } from "../../navigation/Gradient";
 import { DEMO_GROUP_NAME, DEMO_PEOPLE, type DemoPerson } from "../../navigation/nhom-demo";
+import { useInertBackground } from "../../navigation/modal";
 
 const brand = tokens.brand;
 
@@ -38,6 +39,12 @@ export function MoDau({ onVao, onBoQua }: {
   onBoQua: () => void;
 }) {
   const [dangChon, setDangChon] = useState(false);
+  // The picker below is the same kind of sheet as the [+] menu and had the
+  // same hole: it covers the sign-in block, and Tab used to walk straight onto
+  // the buttons underneath it. Not in QA's report -- they measured the [+]
+  // sheet -- but it is the same defect on the screen the demo opens on, and
+  // finding it and leaving it would be a choice.
+  const nenRef = useInertBackground(dangChon);
 
   return (
     // The solid ground is not decoration and not a duplicate of the gradient.
@@ -55,7 +62,9 @@ export function MoDau({ onVao, onBoQua }: {
           on this -- it brings its own ground. */}
       <Scrim alphas={[0.3, 0.06, 0.28]} />
 
-      <View style={{ flex: 1, paddingHorizontal: space.md, paddingTop: Platform.OS === "ios" ? 52 : 36, paddingBottom: space.lg }}>
+      {/* The decorations above are not focusable and carry `pointerEvents:
+          none`, so the only thing the picker has to shut off is this block. */}
+      <View ref={nenRef} style={{ flex: 1, paddingHorizontal: space.md, paddingTop: Platform.OS === "ios" ? 52 : 36, paddingBottom: space.lg }}>
         <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
           <Pressable
             onPress={onBoQua}
@@ -186,7 +195,20 @@ function CanhHoangHon() {
   const gan = mixHex(brand.rose, tokens.color.light.ink, 0.85);
 
   return (
-    <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} pointerEvents="none">
+    // `overflow: hidden` is load-bearing, not tidiness. The ridges below are
+    // deliberately wider than the screen and start left of it -- that is how
+    // three arcs read as a range instead of three domes centred in the
+    // viewport. A react-native `View` does not clip its children on web, so
+    // those overhangs became document width: 445px inside a 390px viewport,
+    // and the opening screen -- the first thing anyone touches -- could be
+    // swiped 55px sideways into a white band with the sign-in buttons cut off
+    // the left edge. Clipping here keeps the shape and drops the overhang.
+    // Stated rather than left to the platform default, because that default is
+    // exactly what differs between web, iOS and Android.
+    <View
+      style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, overflow: "hidden" }}
+      pointerEvents="none"
+    >
       {/* String lights, strung across the sky above the horizon. */}
       <View
         style={{
@@ -385,7 +407,15 @@ function ChonNguoi({ onPick, onClose }: {
 }) {
   const c = usePalette();
   return (
-    <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "flex-end" }}>
+    // Declared a modal, now that the screen behind it is genuinely inert. The
+    // two go together: `aria-hidden` on the background says what is *not* in
+    // the tree, `role="dialog"` + `aria-modal` says what is.
+    <View
+      role="dialog"
+      aria-modal
+      accessibilityLabel="Chọn người để vào app"
+      style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "flex-end" }}
+    >
       <Pressable
         onPress={onClose}
         accessibilityRole="button"

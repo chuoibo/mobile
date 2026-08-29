@@ -100,7 +100,15 @@ function TabSlot({ id, label, a11yLabel, selected, onPress }: {
       onPress={onPress}
       accessibilityRole="tab"
       accessibilityLabel={a11yLabel}
-      accessibilityState={{ selected }}
+      // `aria-selected`, not `accessibilityState={{ selected }}`.
+      // react-native-web 0.21 handles no prop by that name at all -- grep its
+      // createDOMProps for `accessibilityState` and the answer is zero -- so
+      // the state was dropped before it reached the DOM and all four tabs read
+      // identically to a screen reader, with nothing saying which one you are
+      // on. This is not a web-only spelling: React Native's own Pressable
+      // resolves `ariaSelected ?? accessibilityState?.selected`, so one prop
+      // now serves both platforms.
+      aria-selected={selected}
       style={({ pressed }) => ({
         flex: 1,
         minHeight: 44,
@@ -136,7 +144,10 @@ function NutTao({ onPress, open }: { onPress: () => void; open: boolean }) {
         onPress={onPress}
         accessibilityRole="button"
         accessibilityLabel={open ? "Đóng menu tạo mới" : "Tạo mới"}
-        accessibilityState={{ expanded: open }}
+        // Same substitution as the tabs above, same reason: `expanded` inside
+        // `accessibilityState` reached the DOM as nothing, so the button read
+        // the same closed as open.
+        aria-expanded={open}
         style={({ pressed }) => ({
           width: 54,
           height: 54,
