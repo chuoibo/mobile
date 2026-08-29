@@ -100,6 +100,7 @@ import {
   CHROME,
   JPEG_B64,
   SCAN_FIXTURE,
+  TREN_BILL,
   VIETQR_FIXTURE,
   closeServer,
   createStaticServer,
@@ -154,6 +155,62 @@ export const DAU_MAU = { chu: "#e3e4e5", nen: "#fcfdfe" };
  * the shell draws in every state, because a screen stuck on its error panel is
  * quiet, short, scores zero findings and would otherwise pass as clean.
  */
+/**
+ * The walk is written as one growing chain rather than nine copied lists.
+ *
+ * Each screen's scenario is the previous screen's scenario plus the presses
+ * that leave it. Spelled out per entry, the shared prefix appeared nine times
+ * and every one of them was a place where a copy could quietly disagree with
+ * the others -- and a scenario that walks somewhere slightly different still
+ * produces a number, still names the screen it meant to reach, and says
+ * nothing. Chaining makes that class of drift unrepresentable.
+ */
+const DEN_CHUP_BILL = [
+  { cho: "AI đi chơi, chia bill thông minh" },
+  { bam: "Bỏ qua, vào app mà chưa chọn người" },
+  { cho: "Khám phá" },
+  { bam: "Tạo mới" },
+  { cho: "Tạo khoản chi" },
+  { bam: "Tạo khoản chi. Chụp bill hoặc nhập tay, AI chia tiền" },
+  { cho: "Đưa bill vào khung hình" },
+];
+const DEN_KET_QUA = [
+  ...DEN_CHUP_BILL,
+  { bam: "Chọn ảnh bill" },
+  { anh: JPEG_B64 },
+  { cho: "Đã nhận diện 3 món", ms: 45000 },
+];
+const DEN_GOI_Y = [...DEN_KET_QUA, { bamChu: "Tiếp tục" }, { cho: "Gợi ý chia theo người" }];
+/**
+ * `Xem kết quả` is disabled until every đồng on the bill has an eater, so the
+ * roster has to exist before the walk can leave this screen at all. Adding the
+ * three names on the bill puts each of them on every item, which covers 100%
+ * and satisfies `blockingProblem`.
+ */
+const DEN_NHAP = [
+  ...DEN_GOI_Y,
+  ...TREN_BILL.map((ten) => ({ themNguoi: ten })),
+  { bamChu: "Xem kết quả" },
+  { cho: "Khoản chi mới" },
+];
+/** The description is the one field the bill cannot fill in for you; the
+ *  amount arrives already totalled from the reading. */
+const DEN_DE_XUAT = [
+  ...DEN_NHAP,
+  { go: { oNhap: "bữa lẩu tối thứ bảy", chu: "bữa lẩu tối thứ bảy" } },
+  { chonRadio: TREN_BILL[0] },
+  { bamChu: "Chia tiền" },
+  { cho: "Đúng rồi, ghi vào sổ" },
+];
+const DEN_DOT_THU = [...DEN_DE_XUAT, { bamChu: "Đúng rồi, ghi vào sổ" }, { cho: "Phát đợt thu" }];
+/** Publishing is the moment the codes come into existence, so the app leaves
+ *  the batch and lands on the settlement screen carrying the VietQR. */
+const DEN_KET_QUA_THANH_TOAN = [
+  ...DEN_DOT_THU,
+  { bamChu: "Phát đợt thu" },
+  { cho: "Quét để thanh toán", ms: 30000 },
+];
+
 export const MAN_SAU_TAP = [
   {
     step: "mo-dau",
@@ -162,70 +219,46 @@ export const MAN_SAU_TAP = [
     needle: "AI đi chơi, chia bill thông minh",
     kichBan: [{ cho: "AI đi chơi, chia bill thông minh" }],
   },
+  { step: "chup-bill", needle: "Đưa bill vào khung hình", kichBan: DEN_CHUP_BILL },
+  { step: "ket-qua", needle: "Đã nhận diện 3 món", kichBan: DEN_KET_QUA },
+  { step: "goi-y", needle: "Gợi ý chia theo người", kichBan: DEN_GOI_Y },
+  { step: "nhap", needle: "Khoản chi mới", kichBan: DEN_NHAP },
+  { step: "de-xuat", needle: "Đúng rồi, ghi vào sổ", kichBan: DEN_DE_XUAT },
+  // Not "Đợt thu": `ChiaSe` prints that too, so it would also read true one
+  // screen too late. "Phát đợt thu" is the button only this screen carries.
+  { step: "dot-thu", needle: "Phát đợt thu", kichBan: DEN_DOT_THU },
   {
-    step: "chup-bill",
-    needle: "Đưa bill vào khung hình",
-    kichBan: [
-      { cho: "AI đi chơi, chia bill thông minh" },
-      { bam: "Bỏ qua, vào app mà chưa chọn người" },
-      { cho: "Khám phá" },
-      { bam: "Tạo mới" },
-      { cho: "Tạo khoản chi" },
-      { bam: "Tạo khoản chi. Chụp bill hoặc nhập tay, AI chia tiền" },
-      { cho: "Đưa bill vào khung hình" },
-    ],
+    step: "ket-qua-thanh-toan",
+    needle: "Quét để thanh toán",
+    kichBan: DEN_KET_QUA_THANH_TOAN,
   },
   {
-    step: "ket-qua",
-    needle: "Đã nhận diện 3 món",
+    step: "chia-se",
+    needle: "Mỗi người một link riêng",
     kichBan: [
-      { cho: "AI đi chơi, chia bill thông minh" },
-      { bam: "Bỏ qua, vào app mà chưa chọn người" },
-      { cho: "Khám phá" },
-      { bam: "Tạo mới" },
-      { cho: "Tạo khoản chi" },
-      { bam: "Tạo khoản chi. Chụp bill hoặc nhập tay, AI chia tiền" },
-      { cho: "Đưa bill vào khung hình" },
-      { bam: "Chọn ảnh bill" },
-      { anh: JPEG_B64 },
-      { cho: "Đã nhận diện 3 món", ms: 45000 },
-    ],
-  },
-  {
-    step: "goi-y",
-    needle: "Gợi ý chia theo người",
-    kichBan: [
-      { cho: "AI đi chơi, chia bill thông minh" },
-      { bam: "Bỏ qua, vào app mà chưa chọn người" },
-      { cho: "Khám phá" },
-      { bam: "Tạo mới" },
-      { cho: "Tạo khoản chi" },
-      { bam: "Tạo khoản chi. Chụp bill hoặc nhập tay, AI chia tiền" },
-      { cho: "Đưa bill vào khung hình" },
-      { bam: "Chọn ảnh bill" },
-      { anh: JPEG_B64 },
-      { cho: "Đã nhận diện 3 món", ms: 45000 },
-      { bamChu: "Tiếp tục" },
-      { cho: "Gợi ý chia theo người" },
+      ...DEN_KET_QUA_THANH_TOAN,
+      { bamChu: "Chia sẻ kết quả" },
+      { cho: "Mỗi người một link riêng" },
     ],
   },
 ];
 
 /**
- * Screens the hero walk reaches that this file does NOT scan yet, each with the
- * reason. `tests/quet-man-sau-tap.test.mjs` requires every name in `STEPS` to
- * be here or in `MAN_SAU_TAP`, so dropping a screen costs somebody a sentence.
+ * Screens the hero walk reaches that this file does NOT scan, each with the
+ * reason it is excused.
  *
- * These four are unmeasured. That is what this list records; it does not make
- * them covered.
+ * Empty, and that is the point of it existing. `tests/quet-man-sau-tap.test.mjs`
+ * reads `STEPS` out of `screen-snapshots.mjs` and requires every name to be
+ * scanned here or excused here, so a screen added to the walk later cannot
+ * become unmeasured without somebody writing the sentence saying why.
+ *
+ * The five names that used to sit here -- `nhap`, `de-xuat`, `dot-thu`,
+ * `ket-qua-thanh-toan`, `chia-se` -- were the back half of the hero path, and
+ * the reason given for all five was one missing capability: the walk could not
+ * type. `goChu` is that capability. A named exclusion is evidence of intent,
+ * never of coverage, and five of them in a row was a queue, not a decision.
  */
-export const CHUA_QUET = {
-  nhap: "Sau Gợi ý chia: cần gõ vào form khoản chi. Kịch bản gõ chưa dựng.",
-  "de-xuat": "Sau Nhập: cần đi qua form trên, nên chưa với tới được.",
-  "dot-thu": "Sau Đề xuất: cùng chuỗi phụ thuộc.",
-  "ket-qua-thanh-toan": "Sau Đợt thu: cùng chuỗi phụ thuộc.",
-  "chia-se": "Màn cuối chuỗi: cùng chuỗi phụ thuộc.",
-};
+export const CHUA_QUET = {};
 
 /** Deliberately ugly: invisible text, unreadable text, a line long enough to
  *  trip the measured rules. Its only job is to come back dirty. */
@@ -300,6 +333,69 @@ export function laiTrongTrang(kichBan, dauLai) {
     });
   }
 
+  /**
+   * A press target is only usable once it is also ENABLED.
+   *
+   * `Xem kết quả` and `Chia tiền` both ship disabled until their screen is
+   * satisfied, and clicking a disabled button is silent -- no error, no
+   * navigation. Without this check the walk pressed too early, moved on, and
+   * died on the NEXT `cho` with a timeout naming the wrong screen. Treating a
+   * disabled button as "not there yet" turns that into an ordinary wait.
+   */
+  function bamDuoc(el) {
+    if (!el) return null;
+    if (el.disabled) return null;
+    if (el.getAttribute && el.getAttribute("aria-disabled") === "true") return null;
+    return el;
+  }
+
+  function choDom(tim, moTa, ms) {
+    return new Promise((res, rej) => {
+      const t0 = Date.now();
+      (function poll() {
+        if (tim()) return res();
+        if (Date.now() - t0 > ms) return rej(new Error("khong thay " + moTa));
+        setTimeout(poll, 40);
+      })();
+    });
+  }
+
+  /**
+   * Type into a react-native-web `TextInput`.
+   *
+   * Assigning `el.value` is not enough and fails in the most misleading way
+   * available: the box visibly fills, and React never hears about it. React
+   * keeps its own record of the last value it wrote to the node and drops any
+   * `input` event whose value already matches, so state stays empty, the
+   * button stays disabled, and the screen looks typed-into. Going through the
+   * prototype's setter writes past that tracker, which is why the event that
+   * follows is believed.
+   */
+  function goChu(placeholder, giaTri, ms) {
+    return new Promise((res, rej) => {
+      const t0 = Date.now();
+      (function poll() {
+        const el = [...document.querySelectorAll("input, textarea")].find(
+          (n) => (n.getAttribute("placeholder") || "") === placeholder,
+        );
+        if (el) {
+          const dat = Object.getOwnPropertyDescriptor(
+            Object.getPrototypeOf(el),
+            "value",
+          );
+          el.focus();
+          if (dat && dat.set) dat.set.call(el, giaTri);
+          else el.value = giaTri;
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+          return res();
+        }
+        if (Date.now() - t0 > ms) return rej(new Error('khong thay o nhap "' + placeholder + '"'));
+        setTimeout(poll, 40);
+      })();
+    });
+  }
+
   function timBam(tim, moTa, ms) {
     return new Promise((res, rej) => {
       const t0 = Date.now();
@@ -349,7 +445,7 @@ export function laiTrongTrang(kichBan, dauLai) {
       if (b.cho) await cho(b.cho, b.ms || 20000);
       if (b.bam) {
         await timBam(
-          () => document.querySelector('[aria-label="' + b.bam + '"]'),
+          () => bamDuoc(document.querySelector('[aria-label="' + b.bam + '"]')),
           'nut "' + b.bam + '"',
           20000,
         );
@@ -357,13 +453,47 @@ export function laiTrongTrang(kichBan, dauLai) {
       if (b.bamChu) {
         await timBam(
           () =>
-            [...document.querySelectorAll("button, [role='button']")].find(
-              (n) => n.textContent.replace(/\s+/g, " ").trim() === b.bamChu,
-            ) ?? null,
-          'nut chu "' + b.bamChu + '"',
+            bamDuoc(
+              [...document.querySelectorAll("button, [role='button']")].find(
+                (n) => n.textContent.replace(/\s+/g, " ").trim() === b.bamChu,
+              ),
+            ),
+          'nut chu "' + b.bamChu + '" (bam duoc)',
+          25000,
+        );
+      }
+      if (b.themNguoi) {
+        await timBam(
+          () => bamDuoc(document.querySelector('[aria-label="Thêm ' + b.themNguoi + ' vào nhóm"]')),
+          'nut moi "' + b.themNguoi + '"',
+          20000,
+        );
+        // Not `innerText.includes(name)`: the name is already on screen in the
+        // invite list before the press, so that reads true before the click
+        // lands and would wave through a press that missed. Joining moves the
+        // member out of the invite list and into the avatar row, so the honest
+        // signal is the invite button going away AND the avatar arriving.
+        await choDom(
+          () =>
+            document.querySelector('[aria-label="Thêm ' + b.themNguoi + ' vào nhóm"]') === null &&
+            document.querySelector('[aria-label="' + b.themNguoi + '"]') !== null,
+          '"' + b.themNguoi + '" vao nhom',
           20000,
         );
       }
+      if (b.chonRadio) {
+        await timBam(
+          () =>
+            bamDuoc(
+              [...document.querySelectorAll('[role="radio"]')].find(
+                (n) => n.textContent.replace(/\s+/g, " ").trim() === b.chonRadio,
+              ),
+            ),
+          'radio "' + b.chonRadio + '"',
+          20000,
+        );
+      }
+      if (b.go) await goChu(b.go.oNhap, b.go.chu, 20000);
       if (b.anh) await nap(b.anh);
       window.__lai.buoc.push(JSON.stringify(b).slice(0, 60));
     }
