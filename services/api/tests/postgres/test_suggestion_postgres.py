@@ -518,22 +518,20 @@ def test_the_group_own_words_never_reach_a_log_line(
 ):
     """A refused card is logged by code. The trip title is the group's, not ours.
 
-    The re-enable below is load-bearing, not tidying. Alembic's `env.py` runs
-    `fileConfig`, which defaults to `disable_existing_loggers=True`, so
-    migrating the schema in the session fixture switches off every `app.*`
-    logger that was already imported -- for the rest of this tier. A privacy
-    assertion written without this passes because nothing is logged at all,
-    which is the most convincing way for a guard to look present while it is
-    absent. The liveness assertion is what stops that from happening again: if
-    the channel is dead, this case fails loudly instead of passing quietly.
+    This case used to re-enable `app.*` loggers by hand, because Alembic's
+    `env.py` runs `fileConfig` with the default `disable_existing_loggers=True`
+    and that switched them all off for the rest of this tier. `#182` fixed it
+    at the root by naming `app` in `alembic.ini`, so the hand patch is now dead
+    code and has been removed -- keeping it would hide whether the real fix is
+    working. The liveness assertion below stays, and is what holds the fix in
+    place: if migrating ever kills the channel again, this case fails loudly
+    instead of passing on an empty buffer. `test_log_channel_postgres.py`
+    guards the same property for the tier as a whole.
     """
 
     suggester = FakeSuggester(_card("p-khong-co-that"))
     app = _app(postgres_session, monkeypatch, suggester)
     context, owner = _group_with_history(postgres_session, app, title=SECRET)
-
-    for name in ("app.api.service", "app.api.suggestion_gemini"):
-        logging.getLogger(name).disabled = False
 
     with caplog.at_level(logging.DEBUG):
         response = _suggestion(app, context, owner)

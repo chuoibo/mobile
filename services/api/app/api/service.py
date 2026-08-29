@@ -1465,7 +1465,13 @@ class ApiService:
                 places=places,
                 budget_per_person_vnd=_group_budget_per_person_vnd(),
             )
-        except (CompanionError, RuntimeError):
+        except (CompanionError, RuntimeError) as error:
+            # The exception type, never the exception text: a backend error
+            # carries both the prompt (the group's own words) and the API key
+            # often enough that the message itself is the classic leak.
+            logger.warning(
+                "companion turn: backend failed (%s)", type(error).__name__
+            )
             return CompanionTurnResponse(
                 context_id=context_id,
                 spoke=False,
@@ -1475,7 +1481,10 @@ class ApiService:
 
         try:
             grounded = ground_card(raw, places)
-        except CompanionError:
+        except CompanionError as error:
+            # The refusal code is ours and is a closed set. What provoked the
+            # refusal is model output shaped by a private group's own text.
+            logger.warning("companion turn: card refused (%s)", error.code)
             return CompanionTurnResponse(
                 context_id=context_id,
                 spoke=False,
