@@ -208,6 +208,67 @@ lên.
 
 ---
 
+## Quét a11y màn vào cửa (#115) — nơi luồng mời của #116 sẽ đổ bộ
+
+#116 chưa có giao diện (rd-fe-12 chưa vào main), nên chỗ quét được là màn vào cửa
+của #115 và sheet `[+]` — đường **duy nhất** tới màn nhóm F03/F04 từ một lần mở
+app lạnh, tức đường luồng mời sẽ đi qua.
+
+Bundle riêng `dist-qa11`, ghim `EXPO_PUBLIC_API_URL=http://localhost:8811`, phục
+vụ ở `:8911`. Đã đối chiếu hash bundle trong `index.html` khớp bản mình vừa dựng
+trước khi tin bất kỳ con số nào — cổng bị chiếm là bẫy đã nổ một lần ở lane khác.
+
+### axe WCAG 2.2 AA: 0 vi phạm / 6 ô
+
+`mở đầu` · `#vao=dang-ky` · `#vao=nhom`, mỗi màn ở 390px và 320px.
+
+**Một số 0 chỉ đáng tin sau hai phép đối chứng**, cả hai đều đã chạy
+(`a11y_doi_chung.mjs`):
+
+1. **axe có thật sự chạy không?** Cấy hai lỗi vào DOM sống rồi quét lại:
+   `0 vi phạm -> 1 vi phạm (image-alt)`. Máy quét có chạy và có bắt được. Không
+   cấy thì `[] + exit 0` trông y hệt "sạch" — đúng cái bẫy đã nổ với `imp detect`
+   khi thiếu trình duyệt.
+2. **Mỗi nhãn có đúng màn đã render không?** `AppRoot` đọc fragment **một lần**
+   lúc mount, nên mọi lần chuyển màn đều đi qua `about:blank`. Đã in vân tay chữ
+   + danh sách nút của từng màn: cả bốn fragment ra **bốn màn khác nhau**, không
+   màn nào trùng mở đầu. Nhãn đúng.
+
+### Phát hiện a11y — Escape không đóng sheet `[+]` (KHÔNG chặn merge)
+
+axe cho 0 vi phạm và hoàn toàn không thấy cái này.
+
+ARIA của sheet **đúng**: `role="dialog"`, `aria-modal="true"`,
+`aria-label="Tạo gì đây?"`. Mở được bằng bàn phím (`Enter` trên "Tạo mới").
+Nền bị `inert` đúng như `VoTab.tsx` mô tả.
+
+Cái sai: **`Escape` không đóng sheet.** Mẫu dialog của ARIA APG đòi Escape đóng.
+
+Tôi định gọi đây là bẫy bàn phím WCAG 2.1.2 mức A và **đã đo lại trước khi
+báo** — không phải. Focus bị nhốt trong sheet (đúng, đó là hành vi modal đúng),
+nhưng **chặng Tab đầu tiên là "Đóng menu tạo mới"**, một nút bấm được. Người dùng
+bàn phím ra được, chỉ là không ra bằng phím họ mong đợi.
+
+Nên: khó chịu thật, tái lập 100%, **không** phải blocker. Ghi vào báo cáo đúng như
+Lead dặn — leader đang cần độ phủ tính năng, không cần một cổng nữa.
+
+Tái lập: `MOBILE_WEB=http://localhost:8911 node a11y_sheet_ban_phim.mjs`
+
+### Xác nhận thêm cho bản đồ chặng của Lead
+
+`#tab=len-plan` tự khai bằng chữ trên màn: *"vỏ — Màn này chưa dựng, mới có chỗ
+trong menu."* L4 (Khám phá không dẫn đi đâu) **vẫn cụt** — đúng như Lead dự đoán,
+rd-fe-12 chưa vào main. Vỏ có tự nhận là vỏ, đó là cách làm đúng.
+
+### Ô a11y chưa quét
+
+- **Trình đọc màn hình thật** (VoiceOver / NVDA / TalkBack). Không agent nào chạy
+  được, và đây là 60–70% số lỗi mà máy quét không thấy.
+- **2.4.11** (focus bị che) và **2.5.7** (kéo thả) — axe không có rule.
+- **2.5.8** vùng bấm — axe chỉ phủ một phần; script có tự đo `< 24x24` và không
+  thấy nút nào vi phạm ở các màn đã đi.
+- Màn của chính #116 — chưa tồn tại.
+
 ## Ô CHƯA QUÉT
 
 Phần quan trọng nhất của báo cáo này.

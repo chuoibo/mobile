@@ -47,6 +47,7 @@ from app.db.models import (
     GuestLink,
     GuestLinkStatus,
     Membership,
+    MembershipOrigin,
     MembershipRole,
     MembershipState,
     Memory,
@@ -96,6 +97,7 @@ class MembershipRecord:
     person_id: uuid.UUID
     state: str
     role: str
+    origin: str
     invited_by_id: uuid.UUID | None
     joined_at: datetime | None
     left_at: datetime | None
@@ -503,6 +505,10 @@ class ApiRepository(Protocol):
         self, membership_id: uuid.UUID, now: datetime
     ) -> MembershipRecord | None: ...
 
+    def get_membership(
+        self, membership_id: uuid.UUID
+    ) -> MembershipRecord | None: ...
+
     def leave_context(
         self, context_id: uuid.UUID, person_id: uuid.UUID, now: datetime
     ) -> MembershipRecord | None: ...
@@ -798,6 +804,7 @@ class SqlAlchemyApiRepository:
             person_id=membership.person_id,
             state=membership.state.value,
             role=membership.role.value,
+            origin=membership.origin.value,
             invited_by_id=membership.invited_by_id,
             joined_at=membership.joined_at,
             left_at=membership.left_at,
@@ -1052,6 +1059,7 @@ class SqlAlchemyApiRepository:
             person_id=person_id,
             state=MembershipState.INVITED,
             role=MembershipRole(role),
+            origin=MembershipOrigin.NAMED,
             invited_by_id=invited_by_id,
         )
         try:
@@ -1067,11 +1075,22 @@ class SqlAlchemyApiRepository:
             raise
         return self._membership_record(membership)
 
+    def get_membership(
+        self, membership_id: uuid.UUID
+    ) -> MembershipRecord | None:
+        membership = self.session.scalar(
+            select(Membership).where(Membership.id == membership_id)
+        )
+        return None if membership is None else self._membership_record(membership)
+
     def accept_membership(
         self, membership_id: uuid.UUID, now: datetime
     ) -> MembershipRecord | None:
         membership = self.session.scalar(
-            select(Membership).where(Membership.id == membership_id).with_for_update()
+            select(Membership)
+            .where(Membership.id == membership_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
         if membership is None:
             return None
@@ -1293,9 +1312,12 @@ class SqlAlchemyApiRepository:
             select(OutingInvite)
             .where(OutingInvite.id == invite_id)
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
         if invite is None:
             raise RepositoryConflict("OUTING_INVITE_NOT_FOUND")
+        if invite.accepted_at is not None:
+            raise RepositoryConflict("OUTING_INVITE_ALREADY_ACCEPTED")
         invite.accepted_at = now
         invite.accepted_by_id = accepted_by_id
         self.session.flush()
@@ -1326,6 +1348,7 @@ class SqlAlchemyApiRepository:
             person_id=person_id,
             state=MembershipState.INVITED,
             role=MembershipRole.MEMBER,
+            origin=MembershipOrigin.LINK,
             invited_by_id=invited_by_id,
             joined_at=None,
             left_at=None,

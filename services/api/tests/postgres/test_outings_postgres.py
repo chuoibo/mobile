@@ -50,7 +50,6 @@ from app.db.models import (
     MembershipState,
     Outing,
     OutingInvite,
-    OutingInviteSource,
     OutingStop,
     Person,
 )
@@ -647,9 +646,6 @@ def test_a_member_invites_from_the_group_and_from_their_friends(
     assert again.status_code == 409, again.text
 
 
-@pytest.mark.skip(
-    reason="Mời bằng link tắt tạm thời (bug-141903 bước 1); bước 2 bật lại cùng bản sửa gốc"
-)
 def test_an_invite_link_stores_only_a_digest_and_shows_the_token_once(
     postgres_session: Session, monkeypatch: pytest.MonkeyPatch
 ):
@@ -704,9 +700,6 @@ def test_an_invite_link_stores_only_a_digest_and_shows_the_token_once(
     assert nameless.status_code == 422, nameless.text
 
 
-@pytest.mark.skip(
-    reason="Mời bằng link tắt tạm thời (bug-141903 bước 1); bước 2 bật lại cùng bản sửa gốc"
-)
 def test_redeeming_an_invite_link_grants_an_invited_membership_not_an_active_one(
     postgres_session: Session, monkeypatch: pytest.MonkeyPatch
 ):
@@ -765,9 +758,6 @@ def test_redeeming_an_invite_link_grants_an_invited_membership_not_an_active_one
     assert membership.state == MembershipState.INVITED
 
 
-@pytest.mark.skip(
-    reason="Mời bằng link tắt tạm thời (bug-141903 bước 1); bước 2 bật lại cùng bản sửa gốc"
-)
 def test_a_forged_or_reused_invite_link_is_refused(
     postgres_session: Session, monkeypatch: pytest.MonkeyPatch
 ):
@@ -864,59 +854,3 @@ def test_a_stranger_cannot_invite_anyone_to_a_trip_they_are_not_in(
     # so the refusal must not hand one over on the way out.
     assert "invite_token" not in link_invite.text
     assert TITLE not in link_invite.text
-
-
-def test_minting_an_invite_link_is_refused_while_the_feature_is_off(
-    postgres_session: Session, monkeypatch: pytest.MonkeyPatch
-):
-    """Step 1 of bug-141903: shut the one door that leaks, leave the others open.
-
-    A forwarded link promoted its holder to ACTIVE and opened the group's
-    messages, memory wall and balances. Until the predicate behind
-    `/memberships/{id}/accept` stops asking a question the redeem step just
-    wrote the answer to, no new link may be minted.
-
-    `group` and `friend` never had this defect -- they name a person a member
-    chose -- so they keep working. Turning all three off would have cost F14
-    entirely to close a hole in one third of it.
-    """
-    context, owner, friend = _group(postgres_session)
-    app = _http(postgres_session, monkeypatch)
-    outing = _make_outing(postgres_session, app, owner, context)
-
-    async def exchange():
-        async with _client(app) as client:
-            link = await client.post(
-                f"/outings/{outing['id']}/invites",
-                headers=_headers(owner.id),
-                json={"source": "link"},
-            )
-            named = await client.post(
-                f"/outings/{outing['id']}/invites",
-                headers=_headers(owner.id),
-                json={"source": "friend", "person_id": str(friend.id)},
-            )
-            return link, named
-
-    link, named = anyio.run(exchange)
-
-    assert link.status_code == 422, link.text
-    # The refusal has to say the feature is off, not imply the caller erred.
-    assert link.json()["code"] == "invite_link_disabled"
-    # And it must not hand out the very secret it is refusing to mint.
-    assert "invite_token" not in link.text
-
-    # Nothing was written: a refused mint leaves no row to redeem later.
-    assert (
-        postgres_session.scalar(
-            select(OutingInvite.id).where(
-                OutingInvite.outing_id == uuid.UUID(outing["id"]),
-                OutingInvite.source == OutingInviteSource.LINK,
-            )
-        )
-        is None
-    )
-
-    # The two sources that name somebody are untouched.
-    assert named.status_code == 201, named.text
-    assert named.json()["invited_person_id"] == str(friend.id)
