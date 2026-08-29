@@ -12,22 +12,21 @@ claim needs a real photo and a real call, and lives in ``tests/live/``.
 
 from __future__ import annotations
 
+import io
 import logging
 
 import anyio
 import httpx
 import pytest
+from PIL import Image
 
 from app.api.deps import get_receipt_reader
 from app.api.main import create_app
 
 from .conftest import ASGITestClient
-from .helpers import ADVANCER_ID
+from .helpers import ADVANCER_ID, png_bytes
 
-PNG = (
-    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
-    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
-)
+PNG = png_bytes()
 HEADERS = {"X-Actor-ID": str(ADVANCER_ID)}
 
 # The mockup receipt: eight lines summing to 936.000, with 1.125.000 printed at
@@ -141,9 +140,24 @@ class TestScanShape:
         assert isinstance(body["total_vnd"], int)
         assert all(isinstance(i["line_total_vnd"], int) for i in body["items"])
 
-    def test_the_uploaded_bytes_reach_the_reader(self, scan_client, reader):
+    def test_the_uploaded_image_reaches_the_reader_rebuilt(self, scan_client, reader):
+        """The upload arrives, but not byte-for-byte, and that is the point.
+
+        This case read ``reader.calls == [(PNG, "image/png")]`` until rd-be-20.
+        The equality was true and was the defect: the reader received the file
+        exactly as uploaded, so a phone's GPS block travelled with it. What the
+        route owes the backend is the *picture*, not the container the picture
+        came in. ``test_receipts_scan_strips_exif.py`` holds the half about what
+        must be missing; this one holds the half about what must survive.
+        """
+
         scan(scan_client)
-        assert reader.calls == [(PNG, "image/png")]
+        [(sent, mime)] = reader.calls
+        assert sent != PNG
+        assert mime == "image/jpeg"
+        with Image.open(io.BytesIO(sent)) as image:
+            image.load()
+            assert image.size == (40, 24)
 
 
 class TestTotalsAreNotReconciled:

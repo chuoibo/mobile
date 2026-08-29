@@ -29,7 +29,7 @@ from app.api.idempotency import IDEMPOTENCY_HEADER, REPLAY_HEADER, IdempotencyMi
 from app.api.main import create_app
 
 from .conftest import ASGITestClient
-from .helpers import ADVANCER_ID
+from .helpers import ADVANCER_ID, png_bytes
 from .test_idempotency import InMemoryIdempotencyStore
 
 # Every step the PoC demo walks, in order, plus the two reads it needs on the
@@ -53,10 +53,7 @@ DEMO_PATH_ROUTES = {
     ("POST", "/obligations/{obligation_id}/confirm-receipt"),
 }
 
-PNG = (
-    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
-    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
-)
+PNG = png_bytes()
 HEADERS = {"X-Actor-ID": str(ADVANCER_ID)}
 KEY = "5ca11111-bbbb-4bbb-8bbb-0000b0000001"
 
