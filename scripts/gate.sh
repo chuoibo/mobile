@@ -290,6 +290,16 @@ do_client-routes() {
   # no npm -- the two halves of a request compared where nothing else compares
   # them. Proven on 2026-08-29: with `/batches/current/publish` back in
   # api.ts, `tsc --noEmit` exited 0 and `npm test` passed 493 of 493.
+  #
+  # The self-test runs first for the same reason `do_contract`'s does, and the
+  # reason got sharper on 2026-08-30: this checker used to drop, in silence,
+  # every call whose URL it could not follow. `call<void>(path, ...)` with the
+  # path handed in as a parameter named a route that has never existed and
+  # exited 0. Six canaries now hold both halves -- that it reddens on a missing
+  # route, and that it reddens when it cannot read the path at all.
+  echo "--- self-test: the checker has to be able to be red"
+  python3 scripts/check_api_contract.py --selftest || return 1
+  echo "--- client vs OpenAPI"
   python3 scripts/check_api_contract.py
 }
 

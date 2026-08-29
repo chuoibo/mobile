@@ -59,17 +59,16 @@ def a_contract():
 
 
 def kinds(source: str) -> list[str]:
-    findings, _, _ = contract_gate.findings_for_source(
+    scan = contract_gate.findings_for_source(
         textwrap.dedent(source), "snippet.ts", a_contract()
     )
-    return [f.kind for f in findings]
+    return [f.kind for f in scan.findings]
 
 
 def paths_read(source: str) -> int:
-    _, count, _ = contract_gate.findings_for_source(
+    return contract_gate.findings_for_source(
         textwrap.dedent(source), "snippet.ts", a_contract()
-    )
-    return count
+    ).paths
 
 
 class GateBites(unittest.TestCase):
@@ -249,10 +248,9 @@ class ReaderDoesNotGoBlind(unittest.TestCase):
         contract = a_contract()
         total = 0
         for path in contract_gate.client_files():
-            _, count, _ = contract_gate.findings_for_source(
+            total += contract_gate.findings_for_source(
                 path.read_text(encoding="utf-8"), str(path), contract
-            )
-            total += count
+            ).paths
         self.assertGreater(
             total,
             10,

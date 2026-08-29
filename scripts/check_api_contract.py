@@ -39,17 +39,47 @@ about it is worse than one gate per question.
   shapes and permission rules are all outside it: a path that exists for GET
   and is called with POST passes. `tests/postgres` and the QA walks are still
   the only things that prove a route does what it says.
-- Paths assembled from variables rather than written down are invisible. That
-  is why the summary always prints how many it found and how many requests it
-  read: paths falling while requests hold steady is this checker going blind,
-  and going blind looks exactly like a clean tree.
+- Whether a call is *reachable*. A path written in a module nobody imports
+  still counts as called.
 - It reads the tree it is in. A route that exists only on an unmerged branch
   counts as missing, which is the honest answer for `main` and the confusing
   one on a feature branch waiting for its API.
 
+## Paths this reader cannot follow
+
+Some are genuinely unfollowable: `call(path, ...)` inside the wrapper every
+screen funnels through has no route in it, and `fetch(photo.uri)` is a local
+blob rather than an API call at all. Those are pinned in
+`.api-contract-unresolved.json` with a reason each.
+
+Pinned, not skipped -- and that distinction is the whole point. Until
+2026-08-30 an unfollowable call site contributed nothing but a number to the
+summary, and the summary was printed rather than asserted on. So the shape
+below passed:
+
+    async function go(path: string) { return call<void>(path, ...); }
+    export async function e() { return go("/khong-ton-tai-canary"); }
+
+Measured on this tree at 15726d2, the same non-existent route four ways:
+written as a literal, via one const, via `"a" + b`, and via `` `${base}/x` ``
+all failed with exit 1 -- and the two shapes above (a path handed to a helper
+parameter, and `"/" + parts.join("-")`) exited 0 while `duong_dan_tim_thay`
+held at 36 and `lan_goi_doc_duoc` climbed 45 -> 46. That climb is the tell the
+old comment here named, and naming a tell nobody checks is not a gate.
+
+Now a call site this reader cannot follow is either pinned or a finding, so
+the blind list cannot grow in silence. `scripts/check_actor_headers.py` --
+this file's twin, reading the same sources for the adjacent question -- has
+worked this way all along; this is that mechanism brought across.
+
+A pin that no longer matches anything is reported too, loudly, but does not
+fail the run: it means somebody made the client *more* readable, and a gate
+that goes red for an improvement is a gate switched off within a day.
+
 Usage:
   scripts/check_api_contract.py            check the tree this file is in
   scripts/check_api_contract.py --json     the same findings, machine-readable
+  scripts/check_api_contract.py --selftest prove the gate can be red, on canaries
 
 Exit codes: 0 client and server agree, 1 they disagree,
 2 the check could not run -- and could not run is never a pass.
@@ -63,12 +93,20 @@ import os
 import re
 import subprocess
 import sys
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import NamedTuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLIENT_ROOT = REPO_ROOT / "apps" / "mobile" / "src"
 API_ROOT = REPO_ROOT / "services" / "api"
+
+# Call sites whose URL this reader cannot follow, each with a reason. Keyed by
+# the expression text rather than by line number on purpose: `api.ts` is edited
+# almost daily, and a pin that moves with every unrelated line above it goes red
+# for the wrong reason, which is how a gate stops being run at all.
+UNRESOLVED_PIN = REPO_ROOT / ".api-contract-unresolved.json"
 
 # The placeholder a `${...}` or a `{param}` collapses to. A control character
 # so it cannot occur in real source and be mistaken for one.
@@ -611,10 +649,31 @@ class Finding:
     message: str
 
 
-def findings_for_source(
-    src: str, rel: str, contract: Contract
-) -> tuple[list[Finding], int, int]:
-    """Findings for one client file, plus (paths read, request sites seen).
+class Unresolved(NamedTuple):
+    """A request whose URL this reader could not turn into a route."""
+
+    file: str
+    line: int
+    expr: str
+
+    @property
+    def where(self) -> str:
+        """The pin key: file plus the expression, whitespace collapsed.
+
+        Deliberately not the line number -- see `UNRESOLVED_PIN`.
+        """
+        return f"{self.file} :: {' '.join(self.expr.split())}"
+
+
+class Scan(NamedTuple):
+    findings: list[Finding]
+    paths: int
+    sites: int
+    unresolved: list[Unresolved]
+
+
+def findings_for_source(src: str, rel: str, contract: Contract) -> Scan:
+    """Findings for one client file, plus what the reader could not follow.
 
     Separate from `check` so the reader can be exercised on a snippet without a
     repository and without a rendered OpenAPI document -- see
@@ -625,17 +684,19 @@ def findings_for_source(
     masked = mask(src, tokenize(src))
     sites = call_sites(src, masked)
     if not sites:
-        return findings, 0, 0
+        return Scan(findings, 0, 0, [])
 
     decls = declarations(src, masked)
     total_paths = 0
+    unresolved: list[Unresolved] = []
 
     for site in sites:
         api_paths = paths_in(site.url_text, decls)
-        # A request whose URL this reader cannot follow contributes nothing but
-        # its presence in the count. That number is the tell: it climbing while
-        # the path count falls is this checker going blind, and going blind
-        # looks exactly like a clean tree.
+        # A request whose URL this reader cannot follow used to contribute
+        # nothing but its presence in a printed count. It is now carried out of
+        # here so `check` can insist every one of them is pinned with a reason.
+        if not api_paths:
+            unresolved.append(Unresolved(rel, site.line, site.url_text))
         total_paths += len(api_paths)
         for api_path in api_paths:
             if normalise(api_path) not in contract.routes:
@@ -649,7 +710,77 @@ def findings_for_source(
                     )
                 )
 
-    return findings, total_paths, len(sites)
+    return Scan(findings, total_paths, len(sites), unresolved)
+
+
+def load_pins() -> dict[str, int]:
+    """Pin key -> how many occurrences of it a human reviewed and accepted.
+
+    An absent file means an empty pin list rather than an error: a branch whose
+    client has nothing unfollowable in it needs no file. A malformed one is
+    fatal, because the alternative -- reading as empty -- would turn every
+    pinned blind spot into a finding at once, and a gate that fails that
+    loudly for a typo gets reverted rather than read.
+    """
+    if not UNRESOLVED_PIN.exists():
+        return {}
+    try:
+        raw = json.loads(UNRESOLVED_PIN.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"{UNRESOLVED_PIN.name} không phải JSON hợp lệ: {exc}"
+        ) from exc
+
+    pins: dict[str, int] = {}
+    for entry in raw.get("unresolved", []):
+        where = entry.get("where")
+        if not where:
+            raise RuntimeError(f"{UNRESOLVED_PIN.name}: có mục thiếu 'where'")
+        # A pin with no reason is how the list turns into a parking lot: the
+        # next reader cannot tell an accepted limitation from a shrug.
+        if not entry.get("reason"):
+            raise RuntimeError(f"{UNRESOLVED_PIN.name}: {where} thiếu 'reason'")
+        pins[where] = int(entry.get("count", 1))
+    return pins
+
+
+def unpinned_findings(
+    unresolved: list[Unresolved], pins: dict[str, int]
+) -> list[Finding]:
+    """Every unfollowable call site the pin file does not already account for.
+
+    When a key appears more often than it is pinned, every occurrence is
+    reported rather than an arbitrary one of them. The reader cannot tell which
+    is new -- they are the same expression -- and pointing at one line would be
+    a guess dressed up as a location.
+    """
+    seen = Counter(u.where for u in unresolved)
+    out: list[Finding] = []
+    for site in unresolved:
+        allowed = pins.get(site.where, 0)
+        if seen[site.where] <= allowed:
+            continue
+        expr = " ".join(site.expr.split())[:80]
+        if allowed == 0:
+            message = (
+                f"không phân giải được đường dẫn của lời gọi này ({expr!r}), "
+                f"và nó chưa được ghim -- cổng không biết route nào đang bị gọi"
+            )
+        else:
+            message = (
+                f"chỗ mù {expr!r} được ghim {allowed} lần, cây này có "
+                f"{seen[site.where]} -- có chỗ mới"
+            )
+        out.append(
+            Finding("duong_dan_khong_phan_giai_duoc", site.file, site.line, message)
+        )
+    return out
+
+
+def stale_pins(unresolved: list[Unresolved], pins: dict[str, int]) -> list[str]:
+    """Pins matching fewer sites than they claim -- reported, never fatal."""
+    seen = Counter(u.where for u in unresolved)
+    return sorted(where for where, n in pins.items() if seen[where] < n)
 
 
 def check() -> tuple[list[Finding], dict]:
@@ -663,29 +794,37 @@ def check() -> tuple[list[Finding], dict]:
 
     contract = read_contract(load_openapi())
     if not contract.routes:
-        raise RuntimeError("OpenAPI dựng được nhưng không có route nào -- từ chối coi là đạt")
+        raise RuntimeError(
+            "OpenAPI dựng được nhưng không có route nào -- từ chối coi là đạt"
+        )
 
     findings: list[Finding] = []
     total_paths = 0
     total_sites = 0
     files_with_calls = 0
+    unresolved: list[Unresolved] = []
 
     for path in client_files():
         rel = str(path.relative_to(REPO_ROOT))
-        found, paths_read, sites_seen = findings_for_source(
-            path.read_text(encoding="utf-8"), rel, contract
-        )
-        findings.extend(found)
-        total_paths += paths_read
-        total_sites += sites_seen
-        if paths_read:
+        scan = findings_for_source(path.read_text(encoding="utf-8"), rel, contract)
+        findings.extend(scan.findings)
+        total_paths += scan.paths
+        total_sites += scan.sites
+        unresolved.extend(scan.unresolved)
+        if scan.paths:
             files_with_calls += 1
+
+    pins = load_pins()
+    findings.extend(unpinned_findings(unresolved, pins))
+    stale = stale_pins(unresolved, pins)
 
     summary = {
         "routes_may_chu": len(contract.routes),
         "duong_dan_tim_thay": total_paths,
         "lan_goi_doc_duoc": total_sites,
         "file_co_goi_api": files_with_calls,
+        "khong_phan_giai_duoc": len(unresolved),
+        "ghim_cu": stale,
     }
 
     # A checker that found nothing to check has proved nothing. This is the
@@ -701,10 +840,121 @@ def check() -> tuple[list[Finding], dict]:
     return findings, summary
 
 
+# --------------------------------------------------------------------------
+# Tự kiểm: cổng phải ĐỎ được
+# --------------------------------------------------------------------------
+
+# The canaries call one route the fake contract below does not have. Written
+# four ways that this reader *does* follow, and two that it does not -- the
+# second group is the whole reason the pin file exists, and the pair of them is
+# what stops "0 finding, exit 0" from being indistinguishable from a dead
+# scanner.
+CANARY_ROUTE = "/khong-ton-tai-canary"
+
+CANARY_LITERAL = f"""
+import {{ call }} from "./api";
+export async function a() {{ return call<void>("{CANARY_ROUTE}", {{ method: "GET" }}); }}
+"""
+
+CANARY_ONE_HOP = f"""
+import {{ call }} from "./api";
+const p = "{CANARY_ROUTE}";
+export async function b() {{ return call<void>(p, {{ method: "GET" }}); }}
+"""
+
+# Handed to a helper's parameter. Measured on 2026-08-30 at 15726d2: this
+# exited 0 while the three above exited 1 -- the identical non-existent route,
+# two verdicts, which is the shape this gate was extended to refuse.
+CANARY_BLIND_PARAM = f"""
+import {{ call }} from "./api";
+async function go(path: string) {{ return call<void>(path, {{ method: "GET" }}); }}
+export async function e() {{ return go("{CANARY_ROUTE}"); }}
+"""
+
+# The same, assembled at runtime. A second blind shape on purpose: one canary
+# proves one hole, and a gate with one canary is a gate tuned to one mistake.
+CANARY_BLIND_JOIN = """
+import { call } from "./api";
+const parts = ["khong-ton-tai", "canary"];
+export async function g() { return call<void>("/" + parts.join("-"), { method: "GET" }); }
+"""
+
+CANARY_GOOD = """
+import { call } from "./api";
+export async function h() { return call<void>("/healthz", { method: "GET" }); }
+"""
+
+
+def _canary_contract() -> Contract:
+    """A server offering exactly `/healthz`. No OpenAPI render, no database."""
+    contract = Contract()
+    contract.routes[normalise("/healthz")] = {"GET"}
+    contract.spelling[normalise("/healthz")] = "/healthz"
+    return contract
+
+
+def _kinds(source: str) -> set[str]:
+    scan = findings_for_source(source, "__canary__.ts", _canary_contract())
+    kinds = {f.kind for f in scan.findings}
+    # Unpinned against an EMPTY pin file: the canary asks whether the reader
+    # notices it went blind, not whether this repository happens to pin it.
+    kinds |= {f.kind for f in unpinned_findings(scan.unresolved, {})}
+    return kinds
+
+
+def selftest() -> int:
+    """Prove the gate can be red, on both kinds of failure it claims to catch.
+
+    A checker only ever run against a healthy tree proves nothing: `[]` and
+    exit 0 is exactly what a broken scanner prints. So each red canary is
+    paired with a clean one under the same question -- a probe that answers
+    "violation" to everything cannot pass either.
+    """
+    missing = "route_khong_ton_tai"
+    blind = "duong_dan_khong_phan_giai_duoc"
+
+    cases = (
+        ("canary xấu: literal", CANARY_LITERAL, missing, True),
+        ("canary xấu: qua một const", CANARY_ONE_HOP, missing, True),
+        ("canary sạch (route có thật)", CANARY_GOOD, missing, False),
+        ("canary mù: tham số hàm", CANARY_BLIND_PARAM, blind, True),
+        ("canary mù: nối lúc chạy", CANARY_BLIND_JOIN, blind, True),
+        ("canary mù/sạch", CANARY_GOOD, blind, False),
+    )
+
+    ok = True
+    for label, source, kind, want in cases:
+        got = kind in _kinds(source)
+        if got != want:
+            ok = False
+        print(
+            f"  {'ĐẠT' if got == want else 'HỎNG':6} {label}: "
+            f"{'có' if got else 'không có'} [{kind}] "
+            f"(mong đợi {'có' if want else 'không có'})"
+        )
+
+    print()
+    if ok:
+        print(
+            "Tự kiểm ĐẠT — cổng đỏ được khi route không tồn tại, đỏ được khi "
+            "chính nó không đọc nổi đường dẫn, và xanh khi không có cả hai."
+        )
+        return 0
+    print(
+        "Tự kiểm HỎNG — cổng này không phân biệt được sai với đúng.",
+        file=sys.stderr,
+    )
+    return 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", action="store_true", help="in findings dạng JSON")
+    parser.add_argument("--selftest", action="store_true", help="tự kiểm bằng canary")
     args = parser.parse_args()
+
+    if args.selftest:
+        return selftest()
 
     try:
         findings, summary = check()
@@ -732,8 +982,18 @@ def main() -> int:
         f"Máy chủ có {summary['routes_may_chu']} route. "
         f"Đọc được {summary['duong_dan_tim_thay']} đường dẫn qua "
         f"{summary['lan_goi_doc_duoc']} lần gọi trong "
-        f"{summary['file_co_goi_api']} file."
+        f"{summary['file_co_goi_api']} file, "
+        f"{summary['khong_phan_giai_duoc']} chỗ không phân giải được."
     )
+
+    # Printed whether the run passes or fails: a pin that stopped matching is
+    # the one change to this file nobody is otherwise told about.
+    for where in summary["ghim_cu"]:
+        print(
+            f"GHIM CŨ: {where} -- không còn khớp chỗ nào; gỡ khỏi "
+            f"{UNRESOLVED_PIN.name} hoặc giảm 'count'."
+        )
+
     if not findings:
         print("Client và máy chủ khớp hợp đồng.")
         return 0
@@ -743,6 +1003,14 @@ def main() -> int:
         print(f"{finding.file}:{finding.line}  [{finding.kind}]")
         print(f"    {finding.message}")
     print()
+    if any(f.kind == "duong_dan_khong_phan_giai_duoc" for f in findings):
+        print("Viết đường dẫn ra thành literal mà cổng đọc được, hoặc ghim vào")
+        print(f"{UNRESOLVED_PIN.name} -- ghim là nói ra chỗ mù, không phải xoá nó:")
+        print(
+            '  {"unresolved": [{"where": "<file> :: <biểu thức>", '
+            '"count": 1, "reason": "..."}]}'
+        )
+        print()
     print(f"{len(findings)} chỗ lệch hợp đồng.")
     return 1
 
