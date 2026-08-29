@@ -782,6 +782,81 @@ def test_a_second_claim_does_not_move_the_time_the_first_one_was_made(
     assert row.payment_reported_at == NOW + timedelta(minutes=5)
 
 
+def test_the_guest_pressing_the_button_changes_the_advancers_next_refresh(
+    postgres_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The acceptance case, over HTTP, on real PostgreSQL.
+
+    The repository tests above prove the query. This proves the whole promise:
+    a guest presses "I transferred it" on their page, and the very next read of
+    the collection board by the person who advanced the money is different from
+    the one before it. That round trip crosses the guest route, the board
+    route, the permission check, the response model and two tables, and the
+    fake can stand in for none of it.
+    """
+    state = _persist_lifecycle(
+        postgres_session, confirm_receipts=False, file_payment_report=False
+    )
+    repository = SqlAlchemyApiRepository(postgres_session)
+
+    async def run_sync_inline(function, *args, **kwargs):
+        del kwargs
+        return function(*args)
+
+    monkeypatch.setattr(anyio.to_thread, "run_sync", run_sync_inline)
+    monkeypatch.setattr("app.api.service._now", lambda: NOW + timedelta(minutes=10))
+    app = create_app()
+    app.dependency_overrides[get_repository] = lambda: repository
+    board_headers = {
+        "X-Actor-ID": str(state.owner_id),
+        "X-Actor-Roles": "member,advancer,recipient,batch_owner",
+        "X-Actor-Contexts": str(state.context_id),
+    }
+
+    async def walk():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
+            before = await client.get(
+                f"/batches/{state.batch_id}/obligations", headers=board_headers
+            )
+            reported = await client.post(
+                f"/g/{GUEST_TOKEN}/da-chuyen",
+                data={"obligation_id": str(state.obligation_id)},
+            )
+            after = await client.get(
+                f"/batches/{state.batch_id}/obligations", headers=board_headers
+            )
+            return before, reported, after
+
+    before, reported, after = anyio.run(walk)
+
+    assert before.status_code == 200, before.text
+    assert before.json()["payment_reported_count"] == 0
+    assert before.json()["obligations"][0]["payment_reported_at"] is None
+
+    assert reported.status_code == 201, reported.text
+    # The guest's own answer still refuses to call it paid.
+    assert reported.json()["obligation_status"] == "outstanding"
+
+    assert after.status_code == 200, after.text
+    body = after.json()
+    row = [
+        item
+        for item in body["obligations"]
+        if item["obligation_id"] == str(state.obligation_id)
+    ][0]
+    assert row["payment_reported_at"] is not None, (
+        "the guest was told to wait for a confirmation and the person expected "
+        "to give it still sees nothing"
+    )
+    assert body["payment_reported_count"] == 1
+    # Said, not received. The board must show those as different things.
+    assert row["obligation_status"] == "outstanding"
+
+
 def test_an_unreported_obligation_carries_no_claim_in_postgres(
     postgres_session: Session,
 ):
