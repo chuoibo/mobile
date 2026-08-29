@@ -32,7 +32,12 @@ set -eu
 REPO_ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-PROJECT="${MOBILE_MEDIA_GATE_PROJECT:-mobile-media-gate}"
+# Suffixed with the pid because this machine runs five worktrees of one repo.
+# A fixed name would mean two lanes running the gate at the same time share a
+# project, and this script's `down -v` would delete the other run's volume out
+# from under it -- a red that says "photos do not persist" when what actually
+# happened is that a colleague ran the same gate.
+PROJECT="${MOBILE_MEDIA_GATE_PROJECT:-mobile-media-gate-$$}"
 
 # An override that renames the image and NOTHING else. Two reasons, both
 # learned the hard way in one run of this script:
@@ -95,6 +100,7 @@ teardown
 echo "--- dựng ảnh từ CÂY NÀY (không đụng tag dùng chung mobile-local/api:dev)"
 compose build api >/dev/null || { echo "HỎNG: không dựng được ảnh api." >&2; exit 1; }
 
+echo "--- project tạm: $PROJECT (bộ dùng chung không bị đụng tới)"
 echo "--- container thứ nhất: ghi ảnh qua chính PhotoStorage của app"
 compose run --rm --no-deps -T api python -c "
 import pathlib
