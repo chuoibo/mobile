@@ -223,7 +223,15 @@ export const MAN_SAU_TAP = [
   { step: "ket-qua", needle: "Đã nhận diện 3 món", kichBan: DEN_KET_QUA },
   { step: "goi-y", needle: "Gợi ý chia theo người", kichBan: DEN_GOI_Y },
   { step: "nhap", needle: "Khoản chi mới", kichBan: DEN_NHAP },
-  { step: "de-xuat", needle: "Đúng rồi, ghi vào sổ", kichBan: DEN_DE_XUAT },
+  // The needle is the typed sentence, not the button, and that is the whole
+  // point of it. `Chia tiền` turns out NOT to be gated on the description, so a
+  // `goChu` that silently failed still walked here, still landed on `DeXuat`,
+  // and still printed "Đúng rồi, ghi vào sổ" -- the screen was measured with an
+  // empty occasion while the log said `needle OK`. Measured: breaking `goChu`
+  // moved this screen from 279 rendered chars to 269 and changed no verdict
+  // anywhere. `DeXuat` titles itself `Chia {occasion}`, so asking for the
+  // occasion asks whether the typing was believed by React.
+  { step: "de-xuat", needle: "Chia bữa lẩu tối thứ bảy", kichBan: DEN_DE_XUAT },
   // Not "Đợt thu": `ChiaSe` prints that too, so it would also read true one
   // screen too late. "Phát đợt thu" is the button only this screen carries.
   { step: "dot-thu", needle: "Phát đợt thu", kichBan: DEN_DOT_THU },
