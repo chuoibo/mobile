@@ -307,6 +307,20 @@ def route_paths(text: str) -> tuple[set[str], list[str]]:
             if close == -1:
                 continue
             body = body[close + 1 :]
+            # `${base}${expr}` -- the path segment itself is an expression, so
+            # this reader cannot say WHICH route is called. That is a blind
+            # spot, not an absence, and the two must not share an exit. Before
+            # this branch existed the literal fell through to the `/` test
+            # below and was dropped, so `fetch(`${BASE}${ENDPOINTS.search}`)`
+            # with no actor header passed the gate while the same call written
+            # `fetch(`${BASE}/places/search`)` failed it.
+            #
+            # Prose keeps its exemption: real text separates its interpolations
+            # (`${ten} có ${so} món`), so only two ADJACENT ones read as a URL
+            # assembled from a base.
+            if body.startswith("${"):
+                unresolved.append(lit)
+                continue
         if not body.startswith("/"):
             continue
         candidate = normalise(body)
@@ -761,34 +775,66 @@ CANARY_GOOD = CANARY_BAD.replace(
     '{ "Content-Type": "application/json", "X-Actor-ID": actorId }',
 ).replace("askSearch(query: string)", "askSearch(query: string, actorId: string)")
 
+# The same omission as CANARY_BAD, written the way that used to walk past this
+# gate: the path lives in a lookup table, so the URL is `${base}${expr}` and the
+# reader cannot name the route. Measured on main 7adf961, this file passed with
+# exit 0 while CANARY_BAD failed with exit 1 -- identical bug, two verdicts.
+CANARY_BLIND = """
+const BASE = "http://x";
+const ENDPOINTS = { search: "/places/search" };
+export async function askSearch(query: string): Promise<void> {
+  await fetch(`${BASE}${ENDPOINTS.search}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query }),
+  });
+}
+"""
+
+
+def _missing_actor(regions: list[Region]) -> bool:
+    """A call site naming `/places/search` and sending no actor header."""
+    return any(
+        r.requester and "/places/search" in r.paths and not r.actor for r in regions
+    )
+
+
+def _blind_url(regions: list[Region]) -> bool:
+    """A call site whose URL this reader admits it could not follow."""
+    return any(r.requester and r.unresolved for r in regions)
+
 
 def selftest() -> int:
-    """Prove the checker can be red, on the two canaries the repo insists on.
+    """Prove the checker can be red, on the canaries the repo insists on.
 
     A checker only ever run against a healthy tree proves nothing: `[]` and
     exit 0 is what a dead scanner prints too. So: a file that omits the header
     must be reported, and the same file with the header must not be.
+
+    Each canary is paired with the probe that reads it, because the two failure
+    modes are different questions. "Did it see the omission" is not the same as
+    "did it admit it saw nothing", and a canary answering only the first is how
+    the `${base}${expr}` shape stayed invisible while this self-check printed
+    ĐẠT. Every red canary is paired with a clean one under the same probe, so a
+    probe that answers True to everything cannot pass either.
     """
 
     import shutil
     import tempfile
 
     ok = True
-    for label, source, want_violation in (
-        ("canary xấu", CANARY_BAD, True),
-        ("canary sạch", CANARY_GOOD, False),
+    for label, source, probe, want_violation in (
+        ("canary xấu", CANARY_BAD, _missing_actor, True),
+        ("canary sạch", CANARY_GOOD, _missing_actor, False),
+        ("canary mù", CANARY_BLIND, _blind_url, True),
+        ("canary mù/sạch", CANARY_GOOD, _blind_url, False),
     ):
         tmp = Path(tempfile.mkdtemp(prefix="actor-canary-"))
         target = CLIENT_DIR / "__actor_canary__.ts"
         try:
             target.write_text(source, encoding="utf-8")
             regions = build_graph([target])
-            hit = [
-                r
-                for r in regions
-                if r.requester and "/places/search" in r.paths and not r.actor
-            ]
-            got = bool(hit)
+            got = probe(regions)
             mark = "ĐẠT" if got == want_violation else "HỎNG"
             if got != want_violation:
                 ok = False
@@ -803,7 +849,10 @@ def selftest() -> int:
 
     print()
     if ok:
-        print("Tự kiểm ĐẠT — cổng đỏ được khi thiếu header, và xanh khi có.")
+        print(
+            "Tự kiểm ĐẠT — cổng đỏ được khi thiếu header, khi URL không đọc "
+            "được, và xanh khi không có cả hai."
+        )
         return 0
     print("Tự kiểm HỎNG — cổng này không phân biệt được thiếu với có.", file=sys.stderr)
     return 1

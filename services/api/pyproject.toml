@@ -15,6 +15,7 @@ dependencies = [
   "python-multipart>=0.0.20,<1",
   "segno>=1.6,<2",
   "fastapi>=0.115,<1",
+  "pillow>=11,<14",
   "psycopg[binary]>=3.2,<4",
   "sqlalchemy>=2.0,<2.1",
   "uvicorn[standard]>=0.30,<1",
