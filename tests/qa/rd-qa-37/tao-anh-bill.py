@@ -35,9 +35,7 @@ LON = (106, 41, 53.0)
 # Pillow's bitmap font, and the model answered "unreadable" for it while
 # correctly classifying the price list -- which said more about the fixture than
 # about the product. A bill a person would recognise is the only fair input.
-FONT = ImageFont.truetype(
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 34
-)
+FONT = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 34)
 FONT_BIG = ImageFont.truetype(
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 40
 )
@@ -75,7 +73,9 @@ def _draw(lines: list[tuple[str, str | None]], size=(900, 1200)) -> Image.Image:
     y = 90
     for text, amount in lines:
         if text == "":
-            d.line([(70, y + 14), (size[0] - 70, y + 14)], fill=(150, 145, 135), width=2)
+            d.line(
+                [(70, y + 14), (size[0] - 70, y + 14)], fill=(150, 145, 135), width=2
+            )
             y += 46
             continue
         f = FONT_BIG if text.isupper() else FONT
