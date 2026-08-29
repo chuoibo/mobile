@@ -67,6 +67,8 @@ class Slice:
         # the roles the ledger uses, not the roles the screen shows.
         self.payer_id = uuid.uuid4()
         self.sender_id = uuid.uuid4()
+        #: Set by `publish`; the sender's guest link, needed to file a claim.
+        self.token_digest: bytes | None = None
 
     def summary(self, person_id: uuid.UUID):
         return self.repository.person_finance_summary(person_id, movement_limit=20)
@@ -116,7 +118,12 @@ class Slice:
         return expense_id, confirmation
 
     def publish(self, expense_version_id: uuid.UUID, *, amount_vnd: int = SHARE_VND):
-        """Freeze and publish a batch billing `sender` for their share."""
+        """Freeze and publish a batch billing `sender` for their share.
+
+        Keeps the guest link's digest, because the sender's own claim that they
+        transferred can only be recorded through that link -- see
+        `report_payment`.
+        """
         inputs = self.repository.load_batch_inputs(
             self.context_id, (expense_version_id,)
         )
@@ -156,13 +163,14 @@ class Slice:
         )
         batch = self.repository.load_batch_for_publish(frozen.id)
         assert batch is not None
+        self.token_digest = hashlib.sha256(uuid.uuid4().bytes).digest()
         self.repository.save_published_batch(
             batch=batch,
             status="published",
             links=(
                 GuestLinkDraft(
                     sender_id=self.sender_id,
-                    token_digest=hashlib.sha256(uuid.uuid4().bytes).digest(),
+                    token_digest=self.token_digest,
                     expires_at=NOW + timedelta(days=30),
                 ),
             ),
@@ -171,6 +179,25 @@ class Slice:
         )
         self.session.flush()
         return frozen.obligations[0].id
+
+    def report_payment(self, obligation_id: uuid.UUID, minute: int):
+        """The guest pressing *Tôi đã chuyển*, and nothing else after it.
+
+        Same two repository calls `POST /g/{token}/da-chuyen` makes, so this is
+        the state a real sender can put the ledger into on their own: a claim
+        on the record, with no `ReceiptConfirmation` anywhere.
+        """
+        assert self.token_digest is not None, "publish first: the claim needs a link"
+        now = NOW + timedelta(minutes=minute)
+        target = self.repository.get_payment_report_target(
+            self.token_digest, obligation_id, now
+        )
+        assert target is not None
+        record = self.repository.save_payment_report(
+            target=target, idempotency_key=uuid.uuid4(), now=now
+        )
+        self.session.flush()
+        return record
 
     def confirm_receipt(self, obligation_id: uuid.UUID, amount_vnd: int, minute: int):
         target = self.repository.get_receipt_target(obligation_id)
@@ -271,6 +298,95 @@ def test_a_partial_receipt_leaves_only_the_remainder_owed(slice_: Slice):
     assert summary.settled_vnd + summary.outstanding_vnd == summary.spend_vnd
 
 
+def test_saying_you_transferred_settles_nothing_by_itself(slice_: Slice):
+    """Nobody clears their own debt by pressing a button.
+
+    `POST /g/{token}/da-chuyen` writes a `PaymentReport`: the sender's claim
+    that they sent the money. Only a `ReceiptConfirmation` -- the other side
+    saying it arrived -- may move this screen.
+
+    This is the case the file spent its first draft only asserting from the
+    positive side. Every test above drives the ledger through
+    `confirm_receipt`, which passes `payment_report_id=None`, so no
+    `PaymentReport` row had ever existed in this file and a summary that
+    counted reports as payments would have passed all of them. The precondition
+    is not hypothetical: the guest route that writes this row is live, and the
+    obvious repair for "the board still says chưa gửi" is exactly the query
+    this test forbids.
+    """
+    _, confirmation = slice_.confirm_expense()
+    obligation_id = slice_.publish(confirmation.expense_version_id)
+    before = slice_.summary(slice_.sender_id)
+
+    report = slice_.report_payment(obligation_id, minute=7)
+
+    # Without this the test is vacuous: it would pass against a summary that
+    # sums reports, simply because there was nothing to sum.
+    assert report.amount_vnd == SHARE_VND, "the claim covers the whole debt"
+    assert report.receipt_amounts_vnd == (), "and nobody has confirmed anything"
+
+    after = slice_.summary(slice_.sender_id)
+
+    assert after.outstanding_vnd == before.outstanding_vnd == SHARE_VND
+    assert after.settled_vnd == before.settled_vnd == 0
+    assert after.movements == (), "a claim is not an arrival"
+
+
+def test_confirming_more_than_was_owed_never_makes_the_debt_negative(slice_: Slice):
+    """Over-confirmation is a state the ledger permits, so the screen must survive it.
+
+    Nothing stops a recipient confirming twice -- there is no cap in
+    `save_receipt_confirmation`, and the ledger is append-only, so a mistaken
+    second confirmation stays there for good. Unclamped, this person's debt
+    would read as -50.000đ and `settled` would climb to 200.000đ on a dinner
+    that cost them 150.000đ: money that was never spent, shown as paid, for the
+    rest of the account's life.
+    """
+    _, confirmation = slice_.confirm_expense()
+    obligation_id = slice_.publish(confirmation.expense_version_id)
+
+    slice_.confirm_receipt(obligation_id, SHARE_VND, minute=7)
+    # The same arrival confirmed a second time, for part of the amount.
+    slice_.confirm_receipt(obligation_id, 50_000, minute=8)
+
+    summary = slice_.summary(slice_.sender_id)
+
+    assert summary.outstanding_vnd >= 0, "a debt does not go below nothing"
+    assert summary.outstanding_vnd == 0
+    assert summary.spend_vnd == SHARE_VND
+    assert summary.settled_vnd == SHARE_VND, "settled cannot exceed what was spent"
+    assert summary.settled_vnd + summary.outstanding_vnd == summary.spend_vnd
+
+
+def test_every_money_figure_arrives_as_a_python_int(slice_: Slice):
+    """Law 1, checked at the boundary that breaks it.
+
+    PostgreSQL sums a `bigint` column as `numeric`; psycopg hands that back as
+    `Decimal`; FastAPI serialises a `Decimal` as `750000.0`. The value stays
+    right and the type goes wrong, so every assertion on amounts elsewhere in
+    this file still passes -- `Decimal("150000") == 150000` is true. Only the
+    type says it happened.
+
+    `type(...) is int`, not `isinstance`: `bool` and `Decimal` both compare
+    equal to integers in places, and this asserts what the driver returned, not
+    what it is worth.
+    """
+    _, confirmation = slice_.confirm_expense()
+    obligation_id = slice_.publish(confirmation.expense_version_id)
+    slice_.confirm_receipt(obligation_id, 40_000, minute=7)
+
+    summary = slice_.summary(slice_.sender_id)
+
+    for field in ("spend_vnd", "settled_vnd", "outstanding_vnd"):
+        value = getattr(summary, field)
+        assert type(value) is int, f"{field} came back as {type(value).__name__}: {value!r}"
+
+    (movement,) = summary.movements
+    assert type(movement.amount_vnd) is int, (
+        f"movement amount came back as {type(movement.amount_vnd).__name__}"
+    )
+
+
 def test_a_confirmed_receipt_clears_the_debt_and_appears_as_an_outgoing_movement(
     slice_: Slice,
 ):
@@ -279,6 +395,10 @@ def test_a_confirmed_receipt_clears_the_debt_and_appears_as_an_outgoing_movement
     The sender saying they transferred is a claim; the recipient confirming
     arrival is the event. A screen that settled on the report would tell
     somebody their debt was cleared because they themselves said so.
+
+    Only the first half of that is asserted here; the negative half lives in
+    `test_saying_you_transferred_settles_nothing_by_itself`, because this test
+    creates no `PaymentReport` and so cannot see it counted.
     """
     _, confirmation = slice_.confirm_expense()
     obligation_id = slice_.publish(confirmation.expense_version_id)
