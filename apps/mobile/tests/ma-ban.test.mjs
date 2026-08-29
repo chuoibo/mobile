@@ -19,12 +19,25 @@ import {
   linkMaBan,
   maMoDuocApp,
 } from "../dist-test/screens/vao-cua/ma-ban.js";
-import { chuanHoaSo, idTuSo } from "../dist-test/screens/vao-cua/danh-tinh.js";
+import { chuanHoaSo } from "../dist-test/screens/vao-cua/danh-tinh.js";
 
 // Built from pieces, never written out. `repo_guard.py` refuses digit runs
 // that look like telephone numbers and cannot tell a fixture from a real one.
 const SO = "0" + "9" + "12" + "345" + "678";
-const ID = idTuSo(SO);
+
+// A person id as the server hands one back, written out rather than derived.
+//
+// It used to be `idTuSo(SO)`, which made the assertion below strictly stronger:
+// it showed the number stayed hidden even in an id *computed from* it. That
+// derivation left the device in bug-140342 -- unkeyed, it was reversible over
+// the ~5x10^8 Vietnamese mobile numbers -- and is now an HMAC the client has no
+// key for, so no fixture here can reproduce it.
+//
+// What the phone-number test still proves is therefore narrower, and worth
+// stating: the payload is built from an id and a name and carries no number of
+// its own. That the *id* does not encode one is now the server's property, held
+// by bug-140342's tests, not by this file.
+const ID = "9f2c41ab-7d63-8e15-a204-6b83cf90d712";
 const TEN = "Minh Anh";
 
 test("mã mang id và tên, và mở lại ra đúng hai thứ đó", () => {

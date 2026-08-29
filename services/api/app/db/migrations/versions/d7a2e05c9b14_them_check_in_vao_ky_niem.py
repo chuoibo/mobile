@@ -16,8 +16,20 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "8f1c6a4b2e70"
-down_revision: str | Sequence[str] | None = "7c3a8f2d1e6b"
+# Renumbered on rebase, and the old id is deliberately not reused.
+#
+# The first draft of this file hung off `7c3a8f2d1e6b`, which is also the
+# parent of `9e4b1c67d305` (the outing tables). That is two alembic heads off
+# one parent, and `upgrade head` on a shared database took this fork: the
+# database ended up stamped `8f1c6a4b2e70` with no `outings` table and no
+# revision in any branch that explained why.
+#
+# Rebasing onto the real head fixes the fork. Reusing the id would not fix the
+# databases already stamped with it -- they would read as "up to date" while
+# missing every table between `7c3a8f2d1e6b` and here. A fresh id makes those
+# databases fail with "Can't locate revision", which is the true answer.
+revision: str = "d7a2e05c9b14"
+down_revision: str | Sequence[str] | None = "c5f141903a2b"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
