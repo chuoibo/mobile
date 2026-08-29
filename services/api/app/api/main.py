@@ -12,7 +12,10 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.cors import install_cors
 from app.api.errors import ApiProblem
-from app.api.guest_privacy import GuestPrivacyHeadersMiddleware
+from app.api.guest_privacy import (
+    GuestPrivacyHeadersMiddleware,
+    guest_aware_server_error_response,
+)
 from app.api.idempotency import (
     IdempotencyMiddleware,
     IdempotencyStore,
@@ -118,6 +121,14 @@ def create_app(
     # As a decorator on each handler this was already wrong on three of the
     # seven guest routes.
     application.add_middleware(GuestPrivacyHeadersMiddleware)
+
+    # The one guest answer the middleware above cannot reach. Starlette's
+    # `ServerErrorMiddleware` is prepended ahead of every middleware installed
+    # here, so an unhandled exception unwinds past that layer and its 500 goes
+    # out from above it -- bare. Handling `Exception` here runs *inside* that
+    # outermost layer, which is the only place a crash page under `/g` can still
+    # be stamped. Non-guest crashes keep Starlette's own answer, unchanged.
+    application.add_exception_handler(Exception, guest_aware_server_error_response)
 
     # Installed last, which is what puts it outermost: `add_middleware`
     # prepends, and the first entry wraps everything after it.
