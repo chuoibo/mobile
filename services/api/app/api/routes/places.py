@@ -14,14 +14,24 @@ group, which the screen has to be able to say.
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
+from app.domain.place_search import PlaceSearchError, ground_search
 from app.places.catalog import CATEGORIES, GROUP, PLACES, GroupProfile
-from app.places.reasons import PlaceReason, ReasonRow, gemini_reasons
+from app.places.reasons import (
+    PlaceReason,
+    ReasonRow,
+    gemini_reasons,
+    ungrounded_numbers,
+)
 from app.places.scoring import score_place
+from app.places.search import MAX_QUERY_CHARS, echoes_the_query, gemini_search
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["places"])
 
@@ -102,6 +112,55 @@ class PlacesResponse(BaseModel):
     group: GroupSummary
 
 
+class Understood(BaseModel):
+    """What the model took the sentence to mean, in closed vocabularies only.
+
+    Sent so the screen can show its reading back and be told it is wrong. Every
+    field is either a number the server has re-typed or a token drawn from the
+    catalogue: there is no free text here, so this cannot become a second place
+    for model prose to reach a card without a label.
+    """
+
+    budget_per_person_vnd: int | None
+    group_size: int | None
+    max_distance_km: float | None
+    categories: list[str]
+    traits: list[str]
+
+
+class PlaceSearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=MAX_QUERY_CHARS)
+
+    @field_validator("query")
+    @classmethod
+    def _reject_blank(cls, value: str) -> str:
+        """Refused here, so no prompt is ever built from an empty search.
+
+        A whitespace-only query passes `min_length` and would otherwise cost a
+        model call to be told nothing.
+        """
+
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("query must not be blank")
+        return trimmed
+
+
+class PlaceSearchResponse(BaseModel):
+    """`source` is a claim about the whole answer, not about one card.
+
+    `none` means no model answer survived, and the honest rendering is an empty
+    list with a message saying so. `match.source` on each card is the narrower
+    claim about who wrote that one sentence.
+    """
+
+    query: str
+    understood: Understood | None
+    places: list[Place]
+    source: Literal["ai", "none"]
+    group: GroupSummary
+
+
 # ---------------------------------------------------------------------------
 # Reason writer: injected, memoised, and allowed to fail
 # ---------------------------------------------------------------------------
@@ -138,6 +197,18 @@ def get_reason_writer():
     return cached_gemini_reasons
 
 
+def get_place_searcher():
+    """Seam for tests, and deliberately not memoised like the reason writer.
+
+    A reason is a pure function of a fixed catalogue and a fixed group, so
+    caching it is free. A search is a function of what somebody typed, and a
+    cache keyed on that is a cache of other people's sentences sitting in
+    process memory for no gain.
+    """
+
+    return gemini_search
+
+
 # ---------------------------------------------------------------------------
 
 
@@ -158,6 +229,31 @@ def _fallback_reason(place: dict[str, Any], group: GroupProfile) -> str:
         f"Khoảng {band}/người, cách {place['distance_km']}km. "
         f"Điểm dưới đây do máy tính từ ngân sách, sở thích và khoảng cách của nhóm; "
         f"chưa có nhận xét của AI cho chỗ này."
+    )
+
+
+def _card(
+    place: dict[str, Any],
+    reason: str | None,
+    verdict: Literal["hop", "tam", "khong-hop"] | None,
+) -> Place:
+    """One card, scored once.
+
+    Shared by browse and search on purpose rather than for tidiness: two call
+    sites computing a score separately is how the same place ends up showing
+    two different numbers on two screens for one group.
+    """
+
+    score, factors = score_place(place, GROUP)
+    return Place(
+        **{key: value for key, value in place.items()},
+        match=Match(
+            score=score,
+            reason=reason if reason else _fallback_reason(place, GROUP),
+            source="ai" if reason else "none",
+            verdict=verdict,
+            factors=[MatchFactor(**factor) for factor in factors],
+        ),
     )
 
 
@@ -208,18 +304,12 @@ def list_places(
 
     out: list[Place] = []
     for place in selected:
-        score, factors = score_place(place, GROUP)
         reason = written.get(place["id"])
         out.append(
-            Place(
-                **{key: value for key, value in place.items()},
-                match=Match(
-                    score=score,
-                    reason=reason.reason if reason else _fallback_reason(place, GROUP),
-                    source="ai" if reason else "none",
-                    verdict=reason.verdict if reason else None,
-                    factors=[MatchFactor(**factor) for factor in factors],
-                ),
+            _card(
+                place,
+                reason.reason if reason else None,
+                reason.verdict if reason else None,
             )
         )
 
@@ -245,5 +335,76 @@ def list_places(
     return PlacesResponse(
         places=out,
         categories=[Category(**category_row) for category_row in CATEGORIES],
+        group=GroupSummary(**GROUP),
+    )
+
+
+@router.post("/places/search", response_model=PlaceSearchResponse)
+def search_places(
+    request: PlaceSearchRequest,
+    place_searcher: Annotated[Any, Depends(get_place_searcher)],
+) -> PlaceSearchResponse:
+    """F12 -- "quán nướng ngoài trời cho 6 người dưới 300k" becomes real places.
+
+    The model reads the sentence and answers with identifiers. Everything a
+    caller ends up looking at is assembled here from the seed catalogue, so a
+    model that was confused, wrong, or doing what an injected instruction told
+    it can still only pick rows that exist -- and if it picks one that does not,
+    `ground_search` refuses the whole answer rather than serving the rest.
+
+    Every failure lands on the same honest empty answer: 200, no places,
+    `source: "none"`. There is deliberately no fallback to the keyword matching
+    `GET /places` does, because a plausible list served while the feature is
+    broken is a broken feature that nobody can see is broken.
+    """
+
+    query = request.query
+    unavailable = PlaceSearchResponse(
+        query=query,
+        understood=None,
+        places=[],
+        source="none",
+        group=GroupSummary(**GROUP),
+    )
+
+    try:
+        raw = place_searcher(query)
+    except Exception as error:  # noqa: BLE001 - a search box must not 500 on this
+        logger.warning("place search: searcher failed (%s)", type(error).__name__)
+        return unavailable
+    if raw is None:
+        return unavailable
+
+    try:
+        grounded = ground_search(raw, PLACES, CATEGORIES)
+    except PlaceSearchError as error:
+        # The code, never the answer. What provoked the refusal is model output
+        # shaped by caller text, and neither belongs in a log line.
+        logger.warning("place search: answer refused (%s)", error.code)
+        return unavailable
+
+    out: list[Place] = []
+    for item in grounded["results"]:
+        place = item["place"]
+        reason = item["reason"]
+        # Two reused gates, different blast radius, both per-row here because a
+        # bad *sentence* about a real place is not a bad answer -- unlike a
+        # place that does not exist, which `ground_search` already refused above.
+        if reason is not None and ungrounded_numbers(reason, place, GROUP):
+            logger.warning("place search: dropped ungrounded reason for %s", place["id"])
+            reason = None
+        if echoes_the_query(reason, query):
+            logger.warning("place search: dropped echoed reason for %s", place["id"])
+            reason = None
+        out.append(_card(place, reason, verdict=None))
+
+    # Not re-sorted. `GET /places` orders by open-now and score because it is a
+    # catalogue; this is a search, and relevance to the sentence is the model's
+    # answer, which sorting here would quietly discard.
+    return PlaceSearchResponse(
+        query=query,
+        understood=Understood(**grounded["understood"]),
+        places=out,
+        source="ai",
         group=GroupSummary(**GROUP),
     )
