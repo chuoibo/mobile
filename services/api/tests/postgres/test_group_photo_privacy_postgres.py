@@ -207,7 +207,12 @@ def test_an_invited_person_cannot_put_a_photo_on_a_wall_they_have_not_joined(
             return await client.post(
                 f"/contexts/{context.id}/memories",
                 headers=_headers(invitee.id),
-                json={"image_url": "https://anh.example/la.jpg", "caption": "Chen vào"},
+                # Well formed on purpose: a malformed url dies at the schema
+                # with a 422 and stops proving that membership is the gate.
+                json={
+                    "image_url": f"/contexts/{context.id}/photos/{uuid.uuid4()}",
+                    "caption": "Chen vào",
+                },
             )
 
     response = anyio.run(exchange)

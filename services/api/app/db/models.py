@@ -958,6 +958,7 @@ __all__ = [
     "PayerAcknowledgement",
     "PaymentReport",
     "ReceiptConfirmation",
+    "UploadedImage",
     "VerificationScope",
 ]
 
@@ -1366,6 +1367,65 @@ class OutingInvite(Base):
     )
     revoked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+
+
+class UploadedImage(Base):
+    """One sanitized image with exactly one private owner."""
+
+    __tablename__ = "uploaded_images"
+    __table_args__ = (
+        CheckConstraint(
+            "num_nonnulls(context_id, owner_person_id) = 1",
+            name="image_has_one_owner",
+        ),
+        CheckConstraint(
+            "content_type IN ('image/jpeg', 'image/png')",
+            name="content_type_allowed",
+        ),
+        CheckConstraint(
+            "byte_size > 0 AND width > 0 AND height > 0",
+            name="image_dimensions_positive",
+        ),
+        Index(
+            "ix_uploaded_images_context",
+            "context_id",
+            desc("created_at"),
+            postgresql_where=text("context_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_uploaded_images_avatar",
+            "owner_person_id",
+            desc("created_at"),
+            postgresql_where=text("owner_person_id IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    storage_key: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    context_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("contexts.id", name="fk_uploaded_images_context"),
+        nullable=True,
+    )
+    owner_person_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_uploaded_images_owner"),
+        nullable=True,
+    )
+    uploaded_by_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_uploaded_images_uploaded_by"),
+        nullable=False,
+    )
+    content_type: Mapped[str] = mapped_column(Text, nullable=False)
+    byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    width: Mapped[int] = mapped_column(Integer, nullable=False)
+    height: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
 

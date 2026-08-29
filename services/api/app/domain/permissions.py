@@ -156,6 +156,16 @@ _TABLE: dict[str, dict] = {
         "roles": {"group_admin", "member"},
         "requires": ("is_self",),
     },
+    # A guessed person id never makes a face public. Reading an avatar requires
+    # an ACTIVE group shared with its subject; the self-case is trivially shared.
+    "set_own_avatar": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_self",),
+    },
+    "view_person_avatar": {
+        "roles": {"group_admin", "member"},
+        "requires": ("shares_a_group_with_subject",),
+    },
     "invite_person_stub_claim": {"roles": {"member"}, "requires": ()},
     "challenge_person_stub_claim": {"roles": {"member"}, "requires": ()},
     # Section 9.2: an admin does not adjudicate identity. Only the platform

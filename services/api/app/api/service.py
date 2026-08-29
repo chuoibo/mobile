@@ -31,6 +31,7 @@ from app.api.repository import (
     PersonRecord,
     RecapOutingRecord,
     StopCheckinRecord,
+    UploadedImageRecord,
 )
 from app.api.schemas import (
     AllocationProposal,
@@ -96,6 +97,7 @@ from app.api.schemas import (
     StopCheckinResponse,
     SuggestionBasis,
     SuggestionStop,
+    UploadedImageResponse,
 )
 from app.domain import permissions
 from app.domain.allocator import allocate
@@ -119,6 +121,8 @@ from app.domain.suggestion import (
     ground_suggestion,
     summarise_history,
 )
+from app.media.images import ImageRejected, sanitize_image
+from app.media.storage import PhotoStorage, new_storage_key
 from app.payments.banks import describe_bank
 from app.payments.vietqr import VietQRError, build_payload
 from app.places.catalog import find_place
@@ -207,6 +211,44 @@ def _require_permission(
     reason = permissions.denial_reason(action, facts)
     if reason is not None:
         raise ApiProblem(403, "permission_denied", reason)
+
+
+def _image_rejection_problem(exc: ImageRejected) -> ApiProblem:
+    status_code = {
+        "image_too_large": 413,
+        "image_dimensions_too_large": 413,
+        "not_an_image": 415,
+    }[exc.code]
+    return ApiProblem(status_code, exc.code, exc.detail)
+
+
+def _require_photo_url_context(
+    context_id: uuid.UUID, image_url: str | None
+) -> None:
+    if image_url is None:
+        return
+    photo_context_id = uuid.UUID(image_url.split("/", maxsplit=3)[2])
+    if photo_context_id != context_id:
+        raise ApiProblem(
+            422,
+            "photo_context_mismatch",
+            "Photo URL context does not match the requested context",
+        )
+
+
+def _uploaded_image_response(
+    record: UploadedImageRecord, url: str
+) -> UploadedImageResponse:
+    return UploadedImageResponse(
+        id=record.id,
+        context_id=record.context_id,
+        url=url,
+        content_type=record.content_type,
+        byte_size=record.byte_size,
+        width=record.width,
+        height=record.height,
+        created_at=record.created_at,
+    )
 
 
 def _bank_recipient_response(record: BankRecipientRecord) -> BankRecipientResponse:
@@ -456,8 +498,14 @@ def _group_budget_per_person_vnd() -> int | None:
 
 
 class ApiService:
-    def __init__(self, repository: ApiRepository):
+    def __init__(
+        self,
+        repository: ApiRepository,
+        *,
+        photo_storage: PhotoStorage | None = None,
+    ):
         self.repository = repository
+        self.photo_storage = PhotoStorage() if photo_storage is None else photo_storage
 
     def register_person(
         self, person_id: uuid.UUID, display_name: str, actor: Actor
@@ -752,6 +800,105 @@ class ApiService:
             transfer_count=plan["transfer_count"],
         )
 
+    def _store_uploaded_image(
+        self,
+        raw: bytes,
+        *,
+        context_id: uuid.UUID | None,
+        owner_person_id: uuid.UUID | None,
+        uploaded_by_id: uuid.UUID,
+    ) -> UploadedImageRecord:
+        try:
+            sanitized = sanitize_image(raw)
+        except ImageRejected as exc:
+            raise _image_rejection_problem(exc) from None
+
+        storage_key = new_storage_key()
+        self.photo_storage.write(storage_key, sanitized.data)
+        return self.repository.create_uploaded_image(
+            storage_key=storage_key,
+            context_id=context_id,
+            owner_person_id=owner_person_id,
+            uploaded_by_id=uploaded_by_id,
+            content_type=sanitized.content_type,
+            byte_size=len(sanitized.data),
+            width=sanitized.width,
+            height=sanitized.height,
+            now=_now(),
+        )
+
+    def upload_context_photo(
+        self, context_id: uuid.UUID, raw: bytes, actor: Actor
+    ) -> UploadedImageResponse:
+        _require_permission(
+            "post_group_memory",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        record = self._store_uploaded_image(
+            raw,
+            context_id=context_id,
+            owner_person_id=None,
+            uploaded_by_id=actor.id,
+        )
+        return _uploaded_image_response(
+            record, f"/contexts/{context_id}/photos/{record.id}"
+        )
+
+    def read_context_photo(
+        self, context_id: uuid.UUID, image_id: uuid.UUID, actor: Actor
+    ) -> tuple[bytes, str]:
+        _require_permission(
+            "view_group_memories",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        record = self.repository.get_context_image(context_id, image_id)
+        if record is None:
+            raise ApiProblem(404, "photo_not_found", "Photo does not exist")
+        try:
+            content = self.photo_storage.read(record.storage_key)
+        except FileNotFoundError:
+            raise ApiProblem(404, "photo_not_found", "Photo does not exist") from None
+        return content, record.content_type
+
+    def set_person_avatar(
+        self, person_id: uuid.UUID, raw: bytes, actor: Actor
+    ) -> UploadedImageResponse:
+        _require_permission(
+            "set_own_avatar",
+            actor,
+            {"is_self": actor.id == person_id},
+        )
+        record = self._store_uploaded_image(
+            raw,
+            context_id=None,
+            owner_person_id=person_id,
+            uploaded_by_id=actor.id,
+        )
+        return _uploaded_image_response(record, f"/people/{person_id}/avatar")
+
+    def read_person_avatar(
+        self, person_id: uuid.UUID, actor: Actor
+    ) -> tuple[bytes, str]:
+        _require_permission(
+            "view_person_avatar",
+            actor,
+            {
+                "shares_a_group_with_subject": (
+                    self.repository.shares_active_context(actor.id, person_id)
+                )
+            },
+        )
+        record = self.repository.get_latest_avatar(person_id)
+        if record is None:
+            raise ApiProblem(404, "avatar_not_found", "Avatar does not exist")
+        try:
+            content = self.photo_storage.read(record.storage_key)
+        except FileNotFoundError:
+            raise ApiProblem(404, "avatar_not_found", "Avatar does not exist") from None
+        return content, record.content_type
+
     def post_context_memory(
         self,
         context_id: uuid.UUID,
@@ -763,6 +910,7 @@ class ApiService:
             actor,
             {"is_group_member": self.repository.is_member(context_id, actor.id)},
         )
+        _require_photo_url_context(context_id, request.image_url)
         record = self.repository.create_memory(
             context_id=context_id,
             author_id=actor.id,
@@ -1322,6 +1470,7 @@ class ApiService:
                 "Message payload does not match its kind",
             )
 
+        _require_photo_url_context(context_id, request.image_url)
         record = self.repository.create_message(
             context_id=context_id,
             author_id=actor.id,

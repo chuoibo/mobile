@@ -24,6 +24,17 @@ from pydantic import (
 MoneyVnd = Annotated[int, Field(strict=True)]
 PositiveMoneyVnd = Annotated[int, Field(strict=True, gt=0)]
 NonNegativeMoneyVnd = Annotated[int, Field(strict=True, ge=0)]
+RelativePhotoUrl = Annotated[
+    StrictStr,
+    Field(
+        pattern=(
+            r"\A/contexts/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-"
+            r"[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/photos/"
+            r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+            r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\z"
+        )
+    ),
+]
 
 
 class ApiModel(BaseModel):
@@ -615,8 +626,19 @@ class GroupSuggestionResponse(ApiModel):
     source: Literal["ai", "none"]
 
 
+class UploadedImageResponse(ApiModel):
+    id: UUID
+    context_id: UUID | None
+    url: str
+    content_type: str
+    byte_size: int
+    width: int
+    height: int
+    created_at: datetime
+
+
 class MemoryCreateRequest(ApiModel):
-    image_url: Annotated[StrictStr, Field(min_length=1)]
+    image_url: RelativePhotoUrl
     caption: str | None = None
 
 
@@ -683,7 +705,7 @@ class MemoryListResponse(ApiModel):
 class MessageCreateRequest(ApiModel):
     kind: Literal["text", "image", "ai_card"]
     body: Annotated[StrictStr, Field(max_length=4000)] | None = None
-    image_url: Annotated[StrictStr, Field(max_length=2000)] | None = None
+    image_url: RelativePhotoUrl | None = None
     card: dict | None = None
 
 

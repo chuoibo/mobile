@@ -37,6 +37,7 @@ from app.api.routes import (
     obligations,
     outings,
     people,
+    photos,
     places,
     recap,
     receipts,
@@ -84,6 +85,7 @@ def create_app(
     application.include_router(bills.router)
     application.include_router(contexts.router)
     application.include_router(memories.router)
+    application.include_router(photos.router)
     application.include_router(outings.router)
     application.include_router(messages.router)
     application.include_router(batches.router)

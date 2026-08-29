@@ -15,7 +15,7 @@ from typing import Protocol
 
 from sqlalchemy import Date, cast, func, select, tuple_
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.api.errors import RepositoryConflict
 from app.api.limits import OBJECTION_LIMIT, REPORT_LIMIT
@@ -63,6 +63,7 @@ from app.db.models import (
     PaymentReport,
     Person,
     ReceiptConfirmation,
+    UploadedImage,
     VerificationScope,
 )
 from app.domain.capability import capability_scope
@@ -147,6 +148,20 @@ class MemoryRecord:
     place_name: str | None
     lat: float | None
     lng: float | None
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class UploadedImageRecord:
+    id: uuid.UUID
+    storage_key: str
+    context_id: uuid.UUID | None
+    owner_person_id: uuid.UUID | None
+    uploaded_by_id: uuid.UUID
+    content_type: str
+    byte_size: int
+    width: int
+    height: int
     created_at: datetime
 
 
@@ -584,6 +599,10 @@ class ApiRepository(Protocol):
 
     def is_member(self, context_id: uuid.UUID, person_id: uuid.UUID) -> bool: ...
 
+    def shares_active_context(
+        self, viewer_id: uuid.UUID, subject_id: uuid.UUID
+    ) -> bool: ...
+
     def membership_role(
         self, context_id: uuid.UUID, person_id: uuid.UUID
     ) -> str | None: ...
@@ -681,6 +700,26 @@ class ApiRepository(Protocol):
         invited_by_id: uuid.UUID,
         now: datetime,
     ) -> MembershipRecord: ...
+
+    def create_uploaded_image(
+        self,
+        *,
+        storage_key: str,
+        context_id: uuid.UUID | None,
+        owner_person_id: uuid.UUID | None,
+        uploaded_by_id: uuid.UUID,
+        content_type: str,
+        byte_size: int,
+        width: int,
+        height: int,
+        now: datetime,
+    ) -> UploadedImageRecord: ...
+
+    def get_context_image(
+        self, context_id: uuid.UUID, image_id: uuid.UUID
+    ) -> UploadedImageRecord | None: ...
+
+    def get_latest_avatar(self, person_id: uuid.UUID) -> UploadedImageRecord | None: ...
 
     def create_memory(
         self,
@@ -948,6 +987,21 @@ class SqlAlchemyApiRepository:
             lat=memory.lat,
             lng=memory.lng,
             created_at=memory.created_at,
+        )
+
+    @staticmethod
+    def _uploaded_image_record(image: UploadedImage) -> UploadedImageRecord:
+        return UploadedImageRecord(
+            id=image.id,
+            storage_key=image.storage_key,
+            context_id=image.context_id,
+            owner_person_id=image.owner_person_id,
+            uploaded_by_id=image.uploaded_by_id,
+            content_type=image.content_type,
+            byte_size=image.byte_size,
+            width=image.width,
+            height=image.height,
+            created_at=image.created_at,
         )
 
     @staticmethod
@@ -1291,6 +1345,30 @@ class SqlAlchemyApiRepository:
             )
             is not None
         )
+
+    def shares_active_context(
+        self, viewer_id: uuid.UUID, subject_id: uuid.UUID
+    ) -> bool:
+        if viewer_id == subject_id:
+            return True
+
+        viewer_membership = aliased(Membership)
+        subject_membership = aliased(Membership)
+        shared_context = (
+            select(viewer_membership.id)
+            .join(
+                subject_membership,
+                subject_membership.context_id == viewer_membership.context_id,
+            )
+            .where(
+                viewer_membership.person_id == viewer_id,
+                viewer_membership.state == MembershipState.ACTIVE,
+                subject_membership.person_id == subject_id,
+                subject_membership.state == MembershipState.ACTIVE,
+            )
+            .exists()
+        )
+        return bool(self.session.scalar(select(shared_context)))
 
     def membership_role(
         self, context_id: uuid.UUID, person_id: uuid.UUID
@@ -1698,6 +1776,54 @@ class SqlAlchemyApiRepository:
         self.session.add(membership)
         self.session.flush()
         return self._membership_record(membership)
+
+    def create_uploaded_image(
+        self,
+        *,
+        storage_key: str,
+        context_id: uuid.UUID | None,
+        owner_person_id: uuid.UUID | None,
+        uploaded_by_id: uuid.UUID,
+        content_type: str,
+        byte_size: int,
+        width: int,
+        height: int,
+        now: datetime,
+    ) -> UploadedImageRecord:
+        image = UploadedImage(
+            storage_key=storage_key,
+            context_id=context_id,
+            owner_person_id=owner_person_id,
+            uploaded_by_id=uploaded_by_id,
+            content_type=content_type,
+            byte_size=byte_size,
+            width=width,
+            height=height,
+            created_at=now,
+        )
+        self.session.add(image)
+        self.session.flush()
+        return self._uploaded_image_record(image)
+
+    def get_context_image(
+        self, context_id: uuid.UUID, image_id: uuid.UUID
+    ) -> UploadedImageRecord | None:
+        image = self.session.scalar(
+            select(UploadedImage).where(
+                UploadedImage.context_id == context_id,
+                UploadedImage.id == image_id,
+            )
+        )
+        return None if image is None else self._uploaded_image_record(image)
+
+    def get_latest_avatar(self, person_id: uuid.UUID) -> UploadedImageRecord | None:
+        image = self.session.scalar(
+            select(UploadedImage)
+            .where(UploadedImage.owner_person_id == person_id)
+            .order_by(UploadedImage.created_at.desc(), UploadedImage.id.desc())
+            .limit(1)
+        )
+        return None if image is None else self._uploaded_image_record(image)
 
     def create_memory(
         self,
@@ -3424,4 +3550,5 @@ __all__ = [
     "ReceiptTarget",
     "SqlAlchemyApiRepository",
     "StoredGuestLink",
+    "UploadedImageRecord",
 ]
