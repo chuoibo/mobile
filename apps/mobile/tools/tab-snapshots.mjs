@@ -1,8 +1,8 @@
 /** Snapshot the tab screens the organiser walk never reaches.
  *
  * `screen-snapshots.mjs` drives the expense flow -- camera to settlement --
- * and that is half the demo. The other half is the shell: Khám phá, Tin nhắn,
- * Cá nhân. `navigation/lien-ket.ts` was written precisely so those could be
+ * and that is half the demo. The other half is the shell: Khám phá, Lên plan,
+ * Tin nhắn, Cá nhân. `navigation/lien-ket.ts` was written precisely so those could be
  * reached by a URL, and its own header says why:
  *
  *     Every automated check of a screen -- the anti-pattern detector, a
@@ -11,7 +11,7 @@
  *     all of them.
  *
  * The fragment landed; nothing ever used it to produce a scannable file. So
- * the three screens the demo actually opens on had never been through the
+ * the four screens the demo actually opens on had never been through the
  * detector at all, while the eight expense screens had been through it
  * repeatedly. This file closes that gap and nothing more.
  *
@@ -28,11 +28,13 @@
  *
  *     cd apps/mobile && npm run build:check && node tools/tab-snapshots.mjs
  *
- * Not covered, and stated because an uncovered screen and a clean screen look
- * identical from the outside: **Lên plan**. It boots through a chain of
- * `POST /contexts`, `GET .../recap` and the outings routes, and a stub deep
- * enough to satisfy all of them is a second implementation of the server. It
- * is left to a live-server run rather than faked here.
+ * **Lên plan** used to be excluded here, on the argument that stubbing its
+ * `POST /contexts` + outings + recap chain amounted to reimplementing the
+ * server. That argument was wrong twice. The chain is two routes past what Tin
+ * nhắn already stubs, and the cost of leaving it out was not "less coverage":
+ * it was a tab shipping as `kind: "built"` that no detector had ever seen,
+ * indistinguishable from a clean one in every report. It is covered now, and
+ * `tests/quet-du-tab.test.mjs` fails if a future tab is dropped the same way.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -70,6 +72,7 @@ const NGUOI = "minh";
  */
 const SCREENS = [
   { step: "kham-pha", tab: "kham-pha", needle: "Tiệm Nướng Xóm Lào" },
+  { step: "len-plan", tab: "len-plan", needle: "Đà Lạt cuối tuần" },
   { step: "tin-nhan", tab: "tin-nhan", needle: "Tối nay ăn gì?" },
   { step: "ca-nhan", tab: "ca-nhan", needle: "Giao dịch gần đây" },
 ];
@@ -112,7 +115,7 @@ function place(over = {}) {
 }
 
 /**
- * Everything the three screens ask the server for, keyed by path shape.
+ * Everything the four screens ask the server for, keyed by path shape.
  *
  * Runs inside the page, installed before the app boots. Anything not matched
  * here falls through to the real fetch, which for `api.build-check.invalid`
@@ -159,6 +162,18 @@ export function installTabStubs(apiBase, fixtures) {
       if (method === "POST") return json({ ok: true }, 201);
       return json({ members: fixtures.members });
     }
+    // Lên plan. The list is what the tab opens on; the recap is a second,
+    // separate read for the "đã tiêu" half of the budget line. Both are
+    // stubbed because a 404 on either renders a different screen than the one
+    // this file claims to snapshot -- the list turns into "Chưa đọc được danh
+    // sách chuyến", and the recap turns the budget row into its refusal text.
+    // The needle only catches the first of those two.
+    if (route.endsWith("/outings")) {
+      return json({ context_id: fixtures.contextId, outings: fixtures.outings });
+    }
+    if (route.endsWith("/recap")) {
+      return json(fixtures.recap);
+    }
     if (route.endsWith("/messages")) {
       if (method === "POST") return json(fixtures.messages[0], 201);
       return json({
@@ -197,6 +212,10 @@ async function main() {
 
   const contextId = "1aa0be7f-9c3d-4e1a-8b2f-a7c5d9e3f1b6";
   const personId = "2bb1cf8e-7d4a-4f2b-9c3e-b8d6e0f4a2c7";
+  // Shared by the outings list and the recap: `LenPlan` keys spend by outing
+  // id, so two different ids here would render "chưa tiêu gì" on a trip the
+  // recap says has money in it, and nothing would fail.
+  const outingId = "8ff7ad4c-9b0e-4d8f-8a7c-b2c0d4e8f6a1";
   const fixtures = {
     contextId,
     personId,
@@ -261,6 +280,73 @@ async function main() {
         cursor: "c2",
       },
     ],
+    // Two outings so the list renders as a list. One carries a timeline and a
+    // finished spend, the other is a bare trip nobody has planned yet: the
+    // budget row draws differently for each, and a one-row fixture would only
+    // ever exercise whichever branch it happened to land on.
+    outings: [
+      {
+        id: outingId,
+        context_id: contextId,
+        created_by_id: personId,
+        title: "Đà Lạt cuối tuần",
+        starts_on: "2026-09-07",
+        ends_on: "2026-09-08",
+        headcount: 7,
+        budget_per_person_vnd: 2_500_000,
+        created_at: "2026-08-29T04:00:00Z",
+        stops: [
+          {
+            id: "9cc8da5f-0e1b-4a9c-8d0f-c5e3f7a1b9d4",
+            outing_id: outingId,
+            position: 0,
+            at: "09:30",
+            label: "Cà phê sáng",
+            place_name: "Cafe Túi Mơ To",
+          },
+          {
+            id: "0dd9eb6a-1f2c-4b0d-9e1a-d6f4a8b2c0e5",
+            outing_id: outingId,
+            position: 1,
+            at: "19:00",
+            label: "Ăn tối",
+            place_name: "Lẩu Gà Lá É Tao Ngộ",
+          },
+        ],
+      },
+      {
+        id: "1ee0fc7b-2a3d-4c1e-8f2b-e7a5b9c3d1f6",
+        context_id: contextId,
+        created_by_id: personId,
+        title: "Cắm trại Tà Năng",
+        starts_on: "2026-10-03",
+        ends_on: "2026-10-04",
+        headcount: 5,
+        budget_per_person_vnd: 1_200_000,
+        created_at: "2026-08-29T05:00:00Z",
+        stops: [],
+      },
+    ],
+    // F34, and only the first outing appears: the recap route lists trips the
+    // ledger has money for, so the second one having no entry here is the
+    // "chưa tiêu gì" case rather than a gap in the fixture.
+    recap: {
+      context_id: contextId,
+      split_total_vnd: 4_260_000,
+      outings: [
+        {
+          outing_id: outingId,
+          title: "Đà Lạt cuối tuần",
+          starts_on: "2026-09-07",
+          ends_on: "2026-09-08",
+          headcount: 7,
+          stops: [],
+          split_total_vnd: 4_260_000,
+          expense_count: 3,
+          memory_count: 2,
+        },
+      ],
+    },
     finance: {
       person_id: personId,
       display_name: "Minh",
