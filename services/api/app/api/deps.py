@@ -43,6 +43,19 @@ class Companion(Protocol):
     ) -> dict: ...
 
 
+class Suggester(Protocol):
+    """A model backend that returns an untrusted, raw F32 suggestion card.
+
+    Takes the server's own history digest, never a conversation: a proactive
+    card is built from what the group did, not from what anybody just said.
+    Returning `None` is an allowed answer and means "no suggestion right now".
+    """
+
+    def __call__(
+        self, history: dict, places: list[dict]
+    ) -> dict | None: ...
+
+
 def _csv(value: str | None) -> list[str]:
     if value is None:
         return []
@@ -99,3 +112,16 @@ def get_companion() -> Companion:
     from app.api.companion_gemini import GeminiCompanion
 
     return GeminiCompanion()
+
+
+def get_suggester() -> Suggester:
+    """Seam for tests, and the F32 backend for everyone else.
+
+    Returned as a plain function rather than a memoised object: a suggestion is
+    a function of a group's history, and caching one keyed on anything coarser
+    would serve one group's evening to another.
+    """
+
+    from app.api.suggestion_gemini import gemini_suggestion
+
+    return gemini_suggestion

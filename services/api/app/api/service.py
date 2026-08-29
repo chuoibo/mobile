@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 import uuid
 from collections import defaultdict
@@ -11,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 from app.api import companion_places
 from app.api.cursors import CursorError, decode_cursor, encode_cursor
-from app.api.deps import Actor, Companion
+from app.api.deps import Actor, Companion, Suggester
 from app.api.errors import ApiProblem, RepositoryConflict
 from app.api.limits import OBJECTION_KINDS, QUOTA_CONSUMING_OBJECTIONS
 from app.api.repository import (
@@ -60,6 +61,7 @@ from app.api.schemas import (
     ExpenseInput,
     ExpenseProposalResponse,
     GroupRecapResponse,
+    GroupSuggestionResponse,
     MemberRoleRequest,
     MembershipInviteRequest,
     MembershipListResponse,
@@ -91,6 +93,8 @@ from app.api.schemas import (
     ReceiptConfirmationResponse,
     SettlementTransferProposal,
     StopCheckinResponse,
+    SuggestionBasis,
+    SuggestionStop,
 )
 from app.domain import permissions
 from app.domain.allocator import allocate
@@ -109,6 +113,11 @@ from app.domain.ledger import (
     obligations_from_allocations,
     settlement_plan,
 )
+from app.domain.suggestion import (
+    SuggestionError,
+    ground_suggestion,
+    summarise_history,
+)
 from app.payments.banks import describe_bank
 from app.payments.vietqr import VietQRError, build_payload
 from app.places.catalog import find_place
@@ -120,7 +129,13 @@ from app.web.objection_view import (
     build_wrong_amount_view,
 )
 
+logger = logging.getLogger(__name__)
+
 CONTEXT_WINDOW = 40
+#: How far back F32 reads check-ins when working out what kind of place a
+#: group keeps choosing. A ceiling rather than a window: the digest is a
+#: shape, and one more year of arrivals does not change it.
+SUGGESTION_HISTORY_LIMIT = 100
 OUTING_INVITE_TTL = timedelta(days=7)
 
 
@@ -787,6 +802,123 @@ class ApiService:
             # Summed here rather than by a sixth query: the per-trip figures on
             # the screen have to add back up to the total above them.
             split_total_vnd=sum(outing.split_total_vnd for outing in outings),
+        )
+
+    def group_suggestion(
+        self,
+        context_id: uuid.UUID,
+        actor: Actor,
+        suggester: Suggester,
+    ) -> GroupSuggestionResponse:
+        """F32 -- the companion proposes an evening nobody asked it for.
+
+        Built from this group's own past: the trips that are over and what they
+        cost (the same recomputed figures the memory wall reads, never a stored
+        total), plus the catalogue categories of the places they actually
+        checked in at. Both reads are scoped to `context_id` by the repository,
+        so there is no path here to a second group's history -- which matters
+        more than usual, because this response is the one screen in the product
+        that summarises a group in five numbers.
+
+        Every figure the screen shows as *evidence* is computed here.
+        `basis` never passes through the model, and the model is not asked to
+        restate it: a number written by a model, printed under a number derived
+        from the ledger, is the fabrication this whole surface exists to stop.
+
+        The model's only remaining job is to pick place identifiers and say why.
+        `ground_suggestion` refuses the entire card if it invented one, and
+        every failure lands on the same honest answer: 200, `suggested: false`,
+        with the reason it did not speak. There is no hand-written fallback
+        card, because a plausible suggestion served while the feature is broken
+        is a broken feature that nobody can see is broken.
+        """
+
+        _require_permission(
+            "view_group_suggestion",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+
+        # The server's own wall-clock day in Vietnam, exactly as the memory
+        # wall reads it: a trip that ended yesterday is history for everybody,
+        # including a phone whose clock is set wrong.
+        today = _now().astimezone(ZoneInfo(WALL_CLOCK_ZONE)).date()
+        trips = [
+            {
+                "title": record.outing.title,
+                "split_total_vnd": record.split_total_vnd,
+                "headcount": record.outing.headcount,
+            }
+            for record in self.repository.group_recap(context_id, today=today)
+        ]
+
+        places = companion_places.load_place_catalogue()
+        category_of = {
+            place["id"]: place.get("category")
+            for place in places
+            if isinstance(place.get("id"), str)
+        }
+        # Check-ins carry a catalogue `place_id`; photographs do not, and a
+        # caption is not evidence of a category. Rows whose place is no longer
+        # in the catalogue are dropped rather than counted under a stale id.
+        visits = [
+            {"category": category_of[memory.place_id]}
+            for memory in self.repository.list_memories(
+                context_id, limit=SUGGESTION_HISTORY_LIMIT, kind="checkin"
+            ).memories
+            if memory.place_id in category_of
+            and category_of[memory.place_id] is not None
+        ]
+
+        history = summarise_history(trips, visits)
+        basis = SuggestionBasis(**history)
+
+        def _silent(reason: str) -> GroupSuggestionResponse:
+            return GroupSuggestionResponse(
+                context_id=context_id,
+                suggested=False,
+                reason=reason,
+                title=None,
+                when_text=None,
+                stops=[],
+                basis=basis,
+                source="none",
+            )
+
+        # Nothing to reason from is not a failure, and inventing a first outing
+        # for a group that has never been anywhere would be the product
+        # asserting a past that did not happen.
+        if history["outing_count"] == 0:
+            return _silent("no_history")
+
+        try:
+            raw = suggester(history, places)
+        except Exception as error:  # noqa: BLE001 - a home screen must not 500
+            logger.warning(
+                "group suggestion: backend failed (%s)", type(error).__name__
+            )
+            return _silent("unavailable")
+        if raw is None:
+            return _silent("unavailable")
+
+        try:
+            grounded = ground_suggestion(raw, places)
+        except SuggestionError as error:
+            # The code, never the card. What provoked the refusal is model
+            # output shaped by a private group's own text.
+            logger.warning("group suggestion: card refused (%s)", error.code)
+            return _silent("ungrounded")
+
+        payload = grounded["payload"]
+        return GroupSuggestionResponse(
+            context_id=context_id,
+            suggested=True,
+            reason="ok",
+            title=payload["title"],
+            when_text=payload["when_text"],
+            stops=[SuggestionStop(**stop) for stop in payload["stops"]],
+            basis=basis,
+            source="ai",
         )
 
     def replace_outing_timeline(

@@ -196,19 +196,28 @@ def test_the_invented_identifier_is_caught_before_the_display_limit_truncates_it
     assert raised.value.code == "suggestion_place_not_in_catalogue"
 
 
-def test_the_invented_identifier_is_caught_before_deduplication_hides_it():
-    """Deduplication is the other way a late check loses sight of a bad id.
+def test_the_limit_counts_distinct_places_not_repeated_mentions():
+    """Deduplication runs before the cut, so a repeat cannot cost a real stop.
 
-    Here the fabricated stop is the last of many repeats, so a module that
-    deduplicated first and validated the survivors would be looking at a
-    shorter list than the model actually sent.
+    Written this way on purpose. Deduplication cannot hide a fabricated
+    identifier -- collapsing duplicates never removes a *unique* id -- so a
+    case claiming it does would be a test that cannot fail for the reason it
+    states. What the order genuinely decides is this: truncating first would
+    spend limit slots on repeats and serve a short card built from a long
+    answer.
     """
 
-    repeats = [_stop("p-nuong") for _ in range(MAX_STOPS + 3)]
+    stops = [
+        _stop("p-nuong"),
+        _stop("p-nuong"),
+        *[_stop(place["id"]) for place in PLACES[1:]],
+    ]
 
-    with pytest.raises(SuggestionError) as raised:
-        ground_suggestion(_card(*repeats, _stop("p-bia-ra")), PLACES)
-    assert raised.value.code == "suggestion_place_not_in_catalogue"
+    grounded = ground_suggestion(_card(*stops), PLACES)
+    served = [stop["place"]["id"] for stop in grounded["payload"]["stops"]]
+
+    assert len(served) == MAX_STOPS
+    assert len(set(served)) == MAX_STOPS
 
 
 def test_repeated_identifiers_collapse_to_the_first_mention():
