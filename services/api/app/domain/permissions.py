@@ -177,6 +177,13 @@ _TABLE: dict[str, dict] = {
         "roles": {"group_admin", "member"},
         "requires": ("is_invitee",),
     },
+    # Approval must come from somebody who is currently ACTIVE in the group
+    # and distinct from the requester. Without `is_not_self`, the bearer would
+    # satisfy the same circular predicate that caused the original escalation.
+    "approve_link_join_request": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member", "is_not_self"),
+    },
     "leave_context": {
         "roles": {"group_admin", "member"},
         "requires": ("is_group_member", "is_self"),
