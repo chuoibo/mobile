@@ -152,7 +152,7 @@ test("blockingProblem: nhóm rỗng, món không ai nhận, món 0đ, hợp lệ
 
   assert.equal(
     blockingProblem(TWO, [], ok),
-    "Chưa có ai trong nhóm. Thêm người bằng nút + ở trên.",
+    "Chưa chọn ai đã ăn bữa này. Chạm tên người trong danh sách nhóm ở trên.",
   );
 
   const orphan = toggle(toggle(ok, "mon-0", HA), "mon-0", NAM);

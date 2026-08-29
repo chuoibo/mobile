@@ -156,7 +156,12 @@ export function blockingProblem(
   a: Assignment,
 ): string | null {
   if (participantIds.length === 0) {
-    return "Chưa có ai trong nhóm. Thêm người bằng nút + ở trên.";
+    // Names the control that is actually on screen. The "+" this used to point
+    // at stopped being rendered in #113, which opens the group list by default
+    // once nobody is on the bill -- exactly the state this message fires in.
+    // "Chưa có ai trong nhóm" was wrong twice over: the group is not empty, it
+    // is right above with every name tappable; it is the bill that has nobody.
+    return "Chưa chọn ai đã ăn bữa này. Chạm tên người trong danh sách nhóm ở trên.";
   }
   const fromReceipt = receiptBlocking(reading);
   if (fromReceipt !== null) return fromReceipt;
