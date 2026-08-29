@@ -96,9 +96,15 @@ export const CREATE_ACTIONS: CreateAction[] = [
   },
   {
     id: "dang-ky-niem",
-    label: "Đăng kỷ niệm",
-    hint: "Ảnh và khoảnh khắc của chuyến vừa rồi",
-    built: false,
+    // Renamed from "Đăng kỷ niệm" because what exists is the wall, not the
+    // posting. F30's read side is built -- `screens/ky-niem/KyNiem.tsx` opens
+    // `GET /contexts/{id}/recap` and shows the trips that are over, where they
+    // went and what they cost. Uploading a photo (F35) is not built and there
+    // is no photo store to put one in, so a menu row saying "Đăng" would
+    // promise the half that does not exist. The label names the half that does.
+    label: "Kỷ niệm nhóm",
+    hint: "Xem lại chuyến đã đi, chỗ đã tới, tiền đã chia",
+    built: true,
   },
   {
     id: "tao-nhom",

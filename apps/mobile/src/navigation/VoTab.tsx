@@ -19,6 +19,7 @@ import { radius, space, type, usePalette } from "../theme";
 import { CaNhan } from "../screens/ca-nhan/CaNhan";
 import { TinNhan } from "../screens/chat/TinNhan";
 import { KhamPha } from "../screens/kham-pha/KhamPha";
+import { KyNiem } from "../screens/ky-niem/KyNiem";
 import { LenPlan } from "../screens/len-plan/LenPlan";
 import { Nhom } from "../screens/vao-cua/Nhom";
 import { MenuTao } from "./MenuTao";
@@ -27,12 +28,26 @@ import { useInertBackground } from "./modal";
 import { CREATE_ACTIONS, DEFAULT_TAB, type CreateActionId } from "./tabs";
 import type { DemoPerson } from "./nhom-demo";
 
-export function VoTab({ nguoi, tabDau, moNhomNgay, renderKhoanChi }: {
+export function VoTab({
+  nguoi,
+  tabDau,
+  moNhomNgay,
+  moKyNiemNgay,
+  nhomId,
+  renderKhoanChi,
+}: {
   nguoi: DemoPerson | null;
   /** Open the F03/F04 group screen immediately, from `#vao=nhom`. It sits
    *  behind the [+] menu, so nothing that loads a URL cold can otherwise
    *  reach it -- see `lien-ket.ts` for why that is treated as a defect. */
   moNhomNgay?: boolean;
+  /** Open the F30 memory wall immediately, from `#vao=ky-niem`. Same reason:
+   *  it lives behind the [+] menu, so a detector run, a screenshot pass or an
+   *  accessibility sweep could not reach it at all without this. */
+  moKyNiemNgay?: boolean;
+  /** Which group the wall should read, from `#nhom=<uuid>`. Null lets the
+   *  screen find the demo group itself. */
+  nhomId?: string | null;
   /** Which tab to open on, from the link that opened the app. Optional and
    *  null-tolerant so the shell keeps working for any caller that does not
    *  care; `AppRoot` passes the one named in the URL on web, so a screenshot
@@ -52,6 +67,9 @@ export function VoTab({ nguoi, tabDau, moNhomNgay, renderKhoanChi }: {
   // again -- see `screens/vao-cua/Nhom.tsx` on why the group outlives the app's
   // memory of it.
   const [luongNhom, setLuongNhom] = useState(moNhomNgay ?? false);
+  // F30. Full screen like the two flows above, and for the same reason: it is
+  // a place you go and come back from, not a tab you switch between.
+  const [luongKyNiem, setLuongKyNiem] = useState(moKyNiemNgay ?? false);
   // What to say when someone opens a create action that is still a shell.
   const [thongBao, setThongBao] = useState<string | null>(null);
   // The screen and the bar go inert while the [+] sheet is open, so Tab cannot
@@ -72,6 +90,10 @@ export function VoTab({ nguoi, tabDau, moNhomNgay, renderKhoanChi }: {
       setLuongNhom(true);
       return;
     }
+    if (id === "dang-ky-niem") {
+      setLuongKyNiem(true);
+      return;
+    }
     const action = CREATE_ACTIONS.find((a) => a.id === id);
     setThongBao(`"${action?.label}" chưa dựng — mới có chỗ trong menu.`);
   }
@@ -88,6 +110,19 @@ export function VoTab({ nguoi, tabDau, moNhomNgay, renderKhoanChi }: {
       <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
         <StatusBar style={scheme === "dark" ? "light" : "dark"} />
         <Nhom nguoi={nguoi} onDong={() => setLuongNhom(false)} />
+      </SafeAreaView>
+    );
+  }
+
+  if (luongKyNiem) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
+        <StatusBar style={scheme === "dark" ? "light" : "dark"} />
+        <KyNiem
+          nguoi={nguoi}
+          contextId={nhomId ?? null}
+          onDong={() => setLuongKyNiem(false)}
+        />
       </SafeAreaView>
     );
   }

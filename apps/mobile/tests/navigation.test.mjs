@@ -78,7 +78,7 @@ test("nút [+] mở đúng bốn mục", () => {
   assert.equal(CREATE_ACTIONS.length, 4);
   assert.deepEqual(
     CREATE_ACTIONS.map((a) => a.label),
-    ["Tạo chuyến", "Tạo khoản chi", "Đăng kỷ niệm", "Tạo nhóm"],
+    ["Tạo chuyến", "Tạo khoản chi", "Kỷ niệm nhóm", "Tạo nhóm"],
   );
 });
 
@@ -88,16 +88,23 @@ test("mỗi mục có một dòng giải thích, không phải bốn động t�
   }
 });
 
-test("đúng ba mục được đánh dấu đã nối: tạo chuyến, khoản chi, tạo nhóm", () => {
+test("cả bốn mục đã nối sau khi gộp #130 và #131", () => {
   // This is the assertion that keeps the menu honest. If a later change wires
   // up another action, this test fails and forces the flag to be updated
   // rather than letting shells quietly keep claiming to work -- or letting a
   // working feature keep wearing the "vỏ" mark.
   //
-  // Order follows CREATE_ACTIONS. `tao-chuyen` is F13/F15 (Lên plan).
-  // `tao-nhom` is F03/F04. The remaining one is still a shell and still says so.
+  // Resolution of the #130 x #131 merge conflict. Each PR flipped a
+  // different action to built and each rewrote this list to three; the union
+  // is four. Written by QA to answer "does the combination hold", not shipped
+  // as the authors' resolution.
   const built = CREATE_ACTIONS.filter((a) => a.built);
-  assert.deepEqual(built.map((a) => a.id), ["tao-chuyen", "tao-khoan-chi", "tao-nhom"]);
+  assert.deepEqual(built.map((a) => a.id), [
+    "tao-chuyen",
+    "tao-khoan-chi",
+    "dang-ky-niem",
+    "tao-nhom",
+  ]);
 });
 
 /* ------------------------------------------------------------ nhóm demo --- */

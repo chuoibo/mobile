@@ -34,6 +34,11 @@
     "src/screens/chat/ONhap.tsx",
     "src/navigation/lien-ket.ts",
     "src/screens/ca-nhan/tai-chinh.ts",
+    // F30's date arithmetic. Compiled because the rule under test -- a trip's
+    // calendar days must not be shifted by the reading machine's timezone -- is
+    // invisible at +07 and at UTC, and only shows up when the test runs itself
+    // in a negative offset. That is a property of this module, not of a screen.
+    "src/screens/ky-niem/ky-uc.ts",
     // F01's number rules. The derivation itself moved to the server in
     // bug-140342 -- an unkeyed digest over 5x10^8 numbers is reversible -- so
     // what is compiled here is what the device still decides on its own: which

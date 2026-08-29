@@ -7,6 +7,7 @@ import secrets
 import uuid
 from collections import defaultdict
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from app.api import companion_places
 from app.api.cursors import CursorError, decode_cursor, encode_cursor
@@ -14,6 +15,7 @@ from app.api.deps import Actor, Companion
 from app.api.errors import ApiProblem, RepositoryConflict
 from app.api.limits import OBJECTION_KINDS, QUOTA_CONSUMING_OBJECTIONS
 from app.api.repository import (
+    WALL_CLOCK_ZONE,
     ApiRepository,
     BankRecipientRecord,
     BillRecord,
@@ -55,6 +57,7 @@ from app.api.schemas import (
     ExpenseConfirmationResponse,
     ExpenseInput,
     ExpenseProposalResponse,
+    GroupRecapResponse,
     MemberRoleRequest,
     MembershipInviteRequest,
     MembershipListResponse,
@@ -80,6 +83,7 @@ from app.api.schemas import (
     PaymentReportResponse,
     PublishedGuestLink,
     PublishedObligation,
+    RecapOutingResponse,
     ReceiptConfirmationRequest,
     ReceiptConfirmationResponse,
     SettlementTransferProposal,
@@ -729,6 +733,46 @@ class ApiService:
                 _wire_outing(record)
                 for record in self.repository.list_outings(context_id)
             ],
+        )
+
+    def group_recap(self, context_id: uuid.UUID, actor: Actor) -> GroupRecapResponse:
+        """The memory wall: trips that are over, and what they cost.
+
+        Reuses `view_group_memories` rather than minting a permission. This is
+        the memory wall's own read -- a different name for the same act would
+        make it possible to be a member who can see the photos but not the
+        trip they were taken on, which is a distinction nobody asked for.
+        """
+        _require_permission(
+            "view_group_memories",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        # The server's own wall-clock day in Vietnam, not the caller's. A trip
+        # that ended yesterday is a memory for everyone, including a phone whose
+        # clock is set wrong.
+        today = _now().astimezone(ZoneInfo(WALL_CLOCK_ZONE)).date()
+        records = self.repository.group_recap(context_id, today=today)
+        outings = [
+            RecapOutingResponse(
+                outing_id=record.outing.id,
+                title=record.outing.title,
+                starts_on=record.outing.starts_on,
+                ends_on=record.outing.ends_on,
+                headcount=record.outing.headcount,
+                stops=_wire_outing(record.outing).stops,
+                split_total_vnd=record.split_total_vnd,
+                expense_count=record.expense_count,
+                memory_count=record.memory_count,
+            )
+            for record in records
+        ]
+        return GroupRecapResponse(
+            context_id=context_id,
+            outings=outings,
+            # Summed here rather than by a sixth query: the per-trip figures on
+            # the screen have to add back up to the total above them.
+            split_total_vnd=sum(outing.split_total_vnd for outing in outings),
         )
 
     def replace_outing_timeline(
