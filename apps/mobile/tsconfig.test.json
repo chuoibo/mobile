@@ -22,6 +22,13 @@
     "src/navigation/tabs.ts",
     "src/navigation/nhom-demo.ts",
     "src/screens/kham-pha/places.ts",
+    // F12's search box. `tim-kiem.ts` is the request and the reading of the
+    // reply; `CauAiHieu.tsx` is compiled too because the requirement rd-fe-15
+    // carries is that the model's reading is *on screen*, and whether a value
+    // reached the markup is not a fact a source read can establish. See
+    // `tim-dia-diem.test.mjs` and `hieu-cau-web.test.mjs`.
+    "src/screens/kham-pha/tim-kiem.ts",
+    "src/screens/kham-pha/CauAiHieu.tsx",
     "src/screens/chat/uuid5.ts",
     "src/screens/chat/tin-nhan.ts",
     "src/screens/chat/ke-hoach.ts",
