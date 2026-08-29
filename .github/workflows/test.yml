@@ -119,6 +119,44 @@ jobs:
           print("migration renders")
           PY
 
+  contract:
+    name: client sends the headers the API demands
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: present
+        # Same rule as `shared` below. `apps/mobile` absent is an absence and
+        # skipping is honest; `apps/mobile` present with no `src` would make
+        # the checker find zero call sites and report a clean tree, which is
+        # the one reason this job must never be green.
+        run: |
+          if [ ! -d apps/mobile ]; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::apps/mobile is not on this branch, skipping"
+          elif [ -d apps/mobile/src ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::apps/mobile exists but src/ is missing -- refusing to skip"
+            exit 1
+          fi
+      - if: steps.present.outputs.found == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - if: steps.present.outputs.found == 'true'
+        name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r services/api/requirements-dev.txt
+      - if: steps.present.outputs.found == 'true'
+        name: The checker can be red
+        # Before the real run, not after. A scanner that has lost its ability
+        # to fail prints exactly what a clean tree prints.
+        run: python3 scripts/check_actor_headers.py --selftest
+      - if: steps.present.outputs.found == 'true'
+        name: Every route wanting X-Actor-ID is called with it
+        run: python3 scripts/check_actor_headers.py
+
   docker:
     name: api image builds and serves
     runs-on: ubuntu-latest

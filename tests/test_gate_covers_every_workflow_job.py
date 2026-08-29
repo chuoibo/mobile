@@ -58,6 +58,7 @@ COVERED_BY: dict[str, tuple[str, ...]] = {
     "repo-guard": ("guard",),
     "lint": ("ruff",),
     "api": ("api", "migration"),
+    "contract": ("contract",),
     "docker": ("docker",),
     "shared": ("shared",),
     "mobile": ("mobile",),
