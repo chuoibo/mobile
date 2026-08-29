@@ -20,6 +20,12 @@ import {
 } from "../../api";
 import type { DemoPerson } from "../../navigation/nhom-demo";
 import { khoiDongNhom, type NhomState } from "../chat/nhom";
+// The recap read, imported rather than re-implemented. `ky-uc.ts` sets the
+// precedent by importing `khoaGhi` out of the chat lane for the same reason: a
+// second copy of a route call is a copy that drifts the day the route changes.
+// What is deliberately NOT imported is that file's money formatter, which the
+// two screens keep separately on purpose (see its header).
+import { layKyUc } from "../ky-niem/ky-uc";
 import { space, type, usePalette } from "../../theme";
 import { Button, Card, Screen } from "../../ui/Kit";
 import { CoLoi, DangTai, TrongRong } from "../../ui/TrangThai";
@@ -31,6 +37,13 @@ import {
   type ChangGui,
   type CheckIn,
 } from "./buoi-di";
+import {
+  doNganSach,
+  nguonDaTieu,
+  nhanDaTieu,
+  nhanKetLuan,
+  type NguonDaTieu,
+} from "./ngan-sach";
 import { DongThoiGian } from "./DongThoiGian";
 import { TaoBuoiDi } from "./TaoBuoiDi";
 
@@ -41,6 +54,10 @@ type DsMan =
   | { kind: "loi"; loi: string };
 
 type CuaSo = { pha: "ds" } | { pha: "tao" } | { pha: "tg"; buoi: BuoiDi };
+/** F34. How the recap read went. A failed read is its own case rather than an
+ *  empty map, because an empty map means "no trip has finished" and that is a
+ *  sentence this screen prints. */
+type SoDaTieu = { kind: "xong"; theo: ReadonlyMap<string, number> } | { kind: "loi" };
 
 export function LenPlan({ nguoi }: { nguoi: DemoPerson | null }) {
   const [nhom, setNhom] = useState<NhomMan>(nguoi ? { kind: "dang-tai" } : { kind: "chua-chon" });
@@ -53,6 +70,11 @@ export function LenPlan({ nguoi }: { nguoi: DemoPerson | null }) {
   // the server returns them from a separate route -- folding them into `BuoiDi`
   // would make every list read look like it carried arrivals when it does not.
   const [checkins, setCheckins] = useState<CheckIn[]>([]);
+  // F34. Spend per outing, read from the ledger through the recap route and
+  // keyed by outing id. Never merged into `BuoiDi`: the outings list route does
+  // not carry a spend figure, and folding one in would make every read look
+  // like it had money in it when only the recap does.
+  const [daTieu, setDaTieu] = useState<SoDaTieu>({ kind: "xong", theo: new Map() });
   const soLanThu = useRef<Record<string, Attempt>>({});
 
   const taiNhom = useCallback(() => {
@@ -93,6 +115,34 @@ export function LenPlan({ nguoi }: { nguoi: DemoPerson | null }) {
   }, [nguoi, nhom]);
 
   useEffect(() => taiDs(), [taiDs]);
+
+  // F34. The spend side of "đã tiêu X / ngân sách Y". Read separately from the
+  // outings list because it comes from a separate route, and read at all only
+  // because money law 2 forbids the alternative: the phone could add the
+  // group's expenses up itself, and then this screen and Cá nhân would be two
+  // implementations of one sum, disagreeing about one dinner.
+  //
+  // A failure here does not take the list down. A trip you can still open and
+  // plan is worth more than a blank screen, and the card says in words that the
+  // spend figure is the part that is missing.
+  useEffect(() => {
+    if (!nguoi || nhom.kind !== "xong") return;
+    let huy = false;
+    const contextId = nhom.contextId;
+    layKyUc(contextId, nguoi.personId)
+      .then((ky) => {
+        if (huy) return;
+        const theo = new Map<string, number>();
+        for (const chuyen of ky.outings) theo.set(chuyen.outing_id, chuyen.split_total_vnd);
+        setDaTieu({ kind: "xong", theo });
+      })
+      .catch(() => {
+        if (!huy) setDaTieu({ kind: "loi" });
+      });
+    return () => {
+      huy = true;
+    };
+  }, [nguoi, nhom]);
 
   // F46. Read arrivals when a timeline opens, and clear them when it closes so
   // the next outing cannot briefly render the previous one's check-ins.
@@ -285,6 +335,7 @@ export function LenPlan({ nguoi }: { nguoi: DemoPerson | null }) {
               <TheBuoi
                 key={o.id}
                 buoi={o}
+                nguon={nguonDaTieu(daTieu, o.id)}
                 onMo={() => {
                   setLoiGhi(null);
                   setCuaSo({ pha: "tg", buoi: o });
@@ -307,8 +358,17 @@ export function LenPlan({ nguoi }: { nguoi: DemoPerson | null }) {
   );
 }
 
-function TheBuoi({ buoi, onMo }: { buoi: BuoiDi; onMo: () => void }) {
+export function TheBuoi({
+  buoi,
+  nguon,
+  onMo,
+}: {
+  buoi: BuoiDi;
+  nguon: NguonDaTieu;
+  onMo: () => void;
+}) {
   const c = usePalette();
+  const y = doNganSach(buoi, nguon);
   return (
     <Pressable
       onPress={onMo}
@@ -337,6 +397,46 @@ function TheBuoi({ buoi, onMo }: { buoi: BuoiDi; onMo: () => void }) {
           <Text style={{ ...type.amountSmall, color: c.ink }}>
             {nhanNganSach(buoi.budget_per_person_vnd)}
           </Text>
+        </View>
+
+        {/* F34. Spend against budget. Sits under the per-person reference
+            rather than replacing it: the reference is what the group agreed,
+            and it stays legible after the trip is over and the total lands. */}
+        <View
+          style={{
+            borderTopWidth: 1,
+            borderTopColor: c.line,
+            paddingTop: space.sm,
+            gap: space.xs,
+          }}
+        >
+          <Text
+            style={{
+              ...type.amountSmall,
+              color: y.kind === "vuot" ? c.warn : c.ink,
+            }}
+          >
+            {nhanDaTieu(y)}
+          </Text>
+          <Text
+            style={{
+              ...type.label,
+              color: y.kind === "vuot" ? c.warn : c.inkSoft,
+              fontWeight: y.kind === "vuot" ? "700" : "400",
+            }}
+          >
+            {y.kind === "vuot" ? `Vượt ngân sách. ${nhanKetLuan(y)}` : nhanKetLuan(y)}
+          </Text>
+          {y.kind !== "chua-co-so" ? (
+            // The rule the number obeys, said out loud. There is no
+            // `expenses.outing_id`, so the server counts what was spent on the
+            // trip's days. A dinner split three days after everyone got home
+            // belongs to no trip, and somebody comparing this against their own
+            // memory deserves to know that before they call it a bug.
+            <Text style={{ ...type.micro, color: c.inkFaint }}>
+              Tính theo các khoản chi rơi vào ngày của chuyến.
+            </Text>
+          ) : null}
         </View>
       </Card>
     </Pressable>
