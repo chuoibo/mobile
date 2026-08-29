@@ -27,6 +27,7 @@
 import React from "react";
 import { Text, View } from "react-native";
 import { radius, space, type, usePalette } from "../../theme";
+import { thanLoiMayChu } from "../../ui/loi-may-chu";
 import { hieuDuocGi, type TimKiemState, type Understood } from "./tim-kiem";
 import { type Category } from "./places";
 
@@ -161,7 +162,11 @@ export function TimKhongDuoc({ state, baseUrl }: { state: TimKiemState; baseUrl:
     diaChi = state.url;
   } else if (state.kind === "may-chu-loi") {
     tieuDe = `Máy chủ trả lỗi ${state.status}`;
-    than = state.detail;
+    // The clause is this screen's own: somebody typed a sentence and pressed a
+    // button, so "it is not your sentence" is the thing they are about to
+    // wonder. `ChuaCoDuLieu` says the same lead without it, because on the
+    // catalogue nobody typed anything. See `ui/loi-may-chu.ts` (bug-185426).
+    than = thanLoiMayChu(state.status, state.detail, "Câu bạn viết không phải nguyên nhân.");
     diaChi = state.url;
   } else if (state.kind === "du-lieu-sai") {
     tieuDe = "Kết quả tìm kiếm không đúng dạng";

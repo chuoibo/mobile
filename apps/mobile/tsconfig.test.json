@@ -17,6 +17,11 @@
     "src/camera/bill-photo.ts",
     "src/ui/direction.ts",
     "src/ui/a11y.ts",
+    // bug-185426. The copy shown when the server itself refuses. Compiled on
+    // its own line because the rule it carries -- a 5xx body never becomes the
+    // sentence, and never reaches the screen uncut -- is assertable without a
+    // renderer, and the excerpt half is the one worth pinning directly.
+    "src/ui/loi-may-chu.ts",
     "src/ui/qr.ts",
     "src/ui/vietqr.ts",
     "src/navigation/tabs.ts",
@@ -29,6 +34,11 @@
     // `tim-dia-diem.test.mjs` and `hieu-cau-web.test.mjs`.
     "src/screens/kham-pha/tim-kiem.ts",
     "src/screens/kham-pha/CauAiHieu.tsx",
+    // The catalogue screen itself, for `ChuaCoDuLieu`. Its 5xx card is the
+    // second copy of the same dead end `CauAiHieu.tsx` renders for search, and
+    // bug-185426 was present in both -- so both are rendered and read, rather
+    // than one being trusted to stand for the other.
+    "src/screens/kham-pha/KhamPha.tsx",
     "src/screens/chat/uuid5.ts",
     "src/screens/chat/tin-nhan.ts",
     "src/screens/chat/ke-hoach.ts",
