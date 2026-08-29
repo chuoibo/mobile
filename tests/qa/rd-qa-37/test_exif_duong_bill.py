@@ -22,12 +22,18 @@ candidate fix and taking it away again:
     3 passed                      # + sanitize_image() wired into scan_receipt
     3 failed                      # fix reverted, tree clean again
 
-They are marked `xfail(strict=True)` rather than left failing, because a
+They were marked `xfail(strict=True)` rather than left failing, because a
 permanently red suite is one everybody learns to scroll past -- and the hole
-these describe is not this lane's to close. Strict is what makes the marker
+these describe was not that lane's to close. Strict is what made the marker
 self-clearing: the day `/receipts/scan` sanitizes, these XPASS, strict turns
 that into a failure, and whoever fixed it is told to delete the marker and keep
-the guard. Drop the marker locally to watch them go red on demand.
+the guard.
+
+That day is rd-be-20. `run_receipt_skill` now calls `sanitize_image` before
+handing anything to the reader, these three XPASSed, and the markers are gone
+per the instruction above -- the guards themselves are untouched, so they now
+hold the fix in place instead of describing its absence. Removing the call
+turns all three red again, which is the property that made them worth keeping.
 """
 
 from __future__ import annotations
@@ -114,14 +120,6 @@ def gui(client: TestClient, data: bytes, name: str = "bill.jpg") -> object:
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "main @ 0889408: POST /receipts/scan never calls app.media.images.sanitize_image, "
-        "so EXIF crosses the boundary intact. Proven red-before / green-after / red-again "
-        "in rd-qa-37. When this XPASSes the hole is closed: delete this marker."
-    ),
-)
 def test_gps_khong_duoc_di_ra_ngoai(recorder):
     """The coordinate in a user's photo must not reach the model."""
     raw = anh_co_gps()
@@ -141,14 +139,6 @@ def test_gps_khong_duoc_di_ra_ngoai(recorder):
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "main @ 0889408: POST /receipts/scan never calls app.media.images.sanitize_image, "
-        "so EXIF crosses the boundary intact. Proven red-before / green-after / red-again "
-        "in rd-qa-37. When this XPASSes the hole is closed: delete this marker."
-    ),
-)
 def test_byte_khong_duoc_di_qua_nguyen_ven(recorder):
     """Identical bytes in and out means nothing re-encoded them."""
     raw = anh_co_gps()
@@ -163,14 +153,6 @@ def test_byte_khong_duoc_di_qua_nguyen_ven(recorder):
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "main @ 0889408: POST /receipts/scan never calls app.media.images.sanitize_image, "
-        "so EXIF crosses the boundary intact. Proven red-before / green-after / red-again "
-        "in rd-qa-37. When this XPASSes the hole is closed: delete this marker."
-    ),
-)
 def test_orientation_duoc_ap_truoc_khi_gui(recorder):
     """A sideways bill must be uprighted before a model is asked to read it."""
     raw = anh_co_gps(orientation=6)
