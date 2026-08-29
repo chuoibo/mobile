@@ -36,10 +36,15 @@ import { TABS } from "./tabs";
  * the F30/F35 memory wall, both of which live behind the [+] menu inside the
  * shell. All three are unreachable to anything that loads a URL cold -- the
  * same hole this file was written to close for the four tabs, reappearing the
- * moment a screen was put behind a button. */
-export type ManVaoCua = "dang-ky" | "nhom" | "ky-niem";
+ * moment a screen was put behind a button.
+ *
+ * `ban-be` is the F03/F04 friend screen, which sits behind a button on the Cá
+ * nhân tab. It is here for the same reason and one more: the gate that
+ * measures it drives a real DOM, and a screen a URL cannot name is a screen no
+ * detector, screenshot pass or accessibility sweep can reach at all. */
+export type ManVaoCua = "dang-ky" | "nhom" | "ky-niem" | "ban-be";
 
-const MAN_VAO_CUA: ManVaoCua[] = ["dang-ky", "nhom", "ky-niem"];
+const MAN_VAO_CUA: ManVaoCua[] = ["dang-ky", "nhom", "ky-niem", "ban-be"];
 
 export type DiemDen = {
   /** Which tab to open on, or null to use the default. */
@@ -153,12 +158,13 @@ export function docDiemDen(hash: string, search = ""): DiemDen {
     //
     // `dia-diem` enters for the same reason `vao=nhom` does: the card it names
     // is inside the shell, so stopping at the opening screen would mean the
-    // link silently does nothing.
+    // link silently does nothing. `ban-be` is the same shape again.
     boQuaMoDau:
       tab !== null ||
       nguoi !== null ||
       vao === "nhom" ||
       vao === "ky-niem" ||
+      vao === "ban-be" ||
       diaDiem !== null,
   };
 }

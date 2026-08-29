@@ -122,6 +122,12 @@
     // `focusable` compiles just as well as `tabIndex` and reaches the DOM as
     // nothing. See `vung-cuon-ban-phim.test.mjs`.
     "src/screens/ca-nhan/CaNhan.tsx",
+    // F03/F04's client half. The shape check is compiled so a test can pin it
+    // against the server's own regex, and the refusal tables so a test can pin
+    // every key against a code the server can really raise -- the check
+    // `PUBLISH_REFUSALS` did not have when it shipped naming two codes that
+    // existed nowhere in `services/api/app`.
+    "src/screens/ca-nhan/ban-be.ts",
     // F13/F15 outing screens. Compiled so a test can run the pure rules under
     // bare node and render the two forms through react-native-web, the same
     // substitution Expo's web build performs, and read the markup a browser
