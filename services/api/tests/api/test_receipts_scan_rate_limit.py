@@ -257,15 +257,18 @@ def test_spending_the_search_ceiling_leaves_the_scan_ceiling_whole(client, reade
     client.app.dependency_overrides[get_place_searcher] = lambda: SilentSearcher()
 
     search_codes = [
-        client.post("/places/search", json={"query": "quán nướng"}, headers=HEADERS)
-        .status_code
+        client.post(
+            "/places/search", json={"query": "quán nướng"}, headers=HEADERS
+        ).status_code
         for _ in range(SEARCH_LIMIT_PER_WINDOW + 1)
     ]
     assert search_codes == [200] * SEARCH_LIMIT_PER_WINDOW + [429], (
         "the search ceiling has to be genuinely spent, or this proves nothing"
     )
 
-    scan_codes = [scan(client).status_code for _ in range(RECEIPT_SCAN_LIMIT_PER_WINDOW)]
+    scan_codes = [
+        scan(client).status_code for _ in range(RECEIPT_SCAN_LIMIT_PER_WINDOW)
+    ]
 
     assert scan_codes == [200] * RECEIPT_SCAN_LIMIT_PER_WINDOW
     assert len(reader.calls) == RECEIPT_SCAN_LIMIT_PER_WINDOW
