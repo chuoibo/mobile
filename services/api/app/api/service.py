@@ -8,8 +8,9 @@ import uuid
 from collections import defaultdict
 from datetime import UTC, datetime
 
+from app.api import companion_places
 from app.api.cursors import CursorError, decode_cursor, encode_cursor
-from app.api.deps import Actor
+from app.api.deps import Actor, Companion
 from app.api.errors import ApiProblem, RepositoryConflict
 from app.api.limits import OBJECTION_KINDS, QUOTA_CONSUMING_OBJECTIONS
 from app.api.repository import (
@@ -42,6 +43,7 @@ from app.api.schemas import (
     BillSplitRequest,
     BillSplitResponse,
     BillSurchargeResponse,
+    CompanionTurnResponse,
     ContextBalanceEntry,
     ContextBalancesResponse,
     ContextCreateRequest,
@@ -73,6 +75,7 @@ from app.domain.bank_account import BankAccountError, normalise_destination
 from app.domain.bill import BillError, allocator_input_from_bill
 from app.domain.capability import CapabilityScopeError, capability_scope
 from app.domain.collection import CollectionError, transition, unmet_publish_gates
+from app.domain.companion import CompanionError, ground_card, plan_turn
 from app.domain.contract import AllocationError
 from app.domain.expense import component_rollups
 from app.domain.ledger import (
@@ -92,6 +95,8 @@ from app.web.objection_view import (
     build_not_me_view,
     build_wrong_amount_view,
 )
+
+CONTEXT_WINDOW = 40
 
 
 def _now() -> datetime:
@@ -304,6 +309,17 @@ def _wire_message(record: MessageRecord) -> MessageResponse:
         created_at=record.created_at,
         cursor=encode_cursor(record.created_at, record.id),
     )
+
+
+def _group_budget_per_person_vnd() -> int | None:
+    """Read the optional catalogue budget without creating a second source."""
+
+    try:
+        from app.places.catalog import GROUP
+    except ImportError:
+        return None
+    budget = GROUP.get("budget_per_person_vnd")
+    return budget if isinstance(budget, int) else None
 
 
 class ApiService:
@@ -640,6 +656,111 @@ class ApiService:
             messages=messages,
             next_cursor=messages[-1].cursor if messages else None,
             has_more=page.has_more,
+        )
+
+    def take_companion_turn(
+        self,
+        context_id: uuid.UUID,
+        actor: Actor,
+        companion: Companion,
+    ) -> CompanionTurnResponse:
+        """Let the companion suggest one grounded card, or stay silent.
+
+        The speaking decision receives metadata only, and this workflow has one
+        write capability: creating an AI message after grounding succeeds. It
+        cannot create expenses or obligations on behalf of a model.
+        """
+
+        _require_permission(
+            "invoke_group_companion",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+
+        page = self.repository.list_messages(context_id, limit=CONTEXT_WINDOW)
+        messages = list(reversed(page.messages))
+        metadata = [
+            {
+                "id": str(message.id),
+                "author_kind": "ai" if message.kind == "ai_card" else "human",
+                "created_at": message.created_at.isoformat(),
+            }
+            for message in messages
+        ]
+        decision = plan_turn(
+            {"messages": metadata, "now": _now().isoformat()}
+        )
+        if not decision["may_speak"]:
+            return CompanionTurnResponse(
+                context_id=context_id,
+                spoke=False,
+                reason=decision["reason"],
+                message=None,
+            )
+
+        model_conversation = [
+            {
+                "id": str(message.id),
+                "author_id": (
+                    str(message.author_id) if message.author_id is not None else None
+                ),
+                "author_kind": "ai" if message.kind == "ai_card" else "human",
+                "kind": message.kind,
+                "body": message.body,
+                "image_url": message.image_url,
+                "card": message.card,
+                "created_at": message.created_at.isoformat(),
+            }
+            for message in messages
+        ]
+        members = []
+        for membership in self.repository.list_members(context_id):
+            person = self.repository.get_person(membership.person_id)
+            if person is not None:
+                members.append(
+                    {"id": str(person.id), "display_name": person.display_name}
+                )
+        places = companion_places.load_place_catalogue()
+
+        try:
+            raw = companion.reply(
+                conversation=model_conversation,
+                members=members,
+                places=places,
+                budget_per_person_vnd=_group_budget_per_person_vnd(),
+            )
+        except (CompanionError, RuntimeError):
+            return CompanionTurnResponse(
+                context_id=context_id,
+                spoke=False,
+                reason="unavailable",
+                message=None,
+            )
+
+        try:
+            grounded = ground_card(raw, places)
+        except CompanionError:
+            return CompanionTurnResponse(
+                context_id=context_id,
+                spoke=False,
+                reason="ungrounded",
+                message=None,
+            )
+
+        record = self.repository.create_message(
+            context_id=context_id,
+            author_id=None,
+            kind="ai_card",
+            body=None,
+            image_url=None,
+            card=grounded,
+            now=_now(),
+        )
+        return CompanionTurnResponse(
+            context_id=context_id,
+            spoke=True,
+            reason="ok",
+            message=_wire_message(record),
         )
 
     def set_context_member_role(

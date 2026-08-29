@@ -361,6 +361,13 @@ class MessageResponse(ApiModel):
     cursor: str
 
 
+class CompanionTurnResponse(ApiModel):
+    context_id: UUID
+    spoke: bool
+    reason: str
+    message: MessageResponse | None
+
+
 class MessageListResponse(ApiModel):
     context_id: UUID
     messages: list[MessageResponse]
