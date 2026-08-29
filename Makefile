@@ -40,7 +40,7 @@ DC = $(COMPOSE) -p $(PROJECT)
 WAIT_TIMEOUT ?= 300
 
 .DEFAULT_GOAL := help
-.PHONY: help gate test-db up down clean logs ps migrate db-check seed demo smoke
+.PHONY: help gate gate-merge test-db up down clean logs ps migrate db-check seed demo smoke
 
 # `demo` phải gọi đúng bộ container mà `up` vừa dựng. Trên nhánh này biến đó là
 # $(COMPOSE); PR #60 (đang mở, cùng lane) đổi nó thành $(DC) = compose kèm
@@ -80,6 +80,16 @@ help: ## In danh sách lệnh
 # không test được nếu không có make, còn script thì tests/ gọi được.
 gate: ## Chạy các cổng của CI ngay tại máy — ONLY="api mobile" chọn chặng, STRICT=1 coi bỏ-qua là hỏng
 	@scripts/gate.sh $(if $(STRICT),--strict) $(ONLY)
+
+# `gate` trả lời "nhánh tôi có lành không". Trước khi merge, câu hỏi là câu
+# khác: "main có lành không SAU KHI gộp tôi vào" — và hai câu đó lệch nhau mỗi
+# lần main nhích, tức là liên tục. Git im lặng ở đúng chỗ lệch: nó báo xung đột
+# khi hai nhánh sửa cùng dòng, không báo gì khi một nhánh siết luật còn nhánh
+# kia thêm người gọi luật đó. test.yml lại chỉ chạy `push: branches: [main]`,
+# nên ngay cả lúc Actions còn sống, cây gộp cũng chỉ được kiểm SAU khi đã là
+# main. Đây là chỗ bịt lại.
+gate-merge: ## Chạy cổng trên KẾT QUẢ GỘP vào main — PR=210 hoặc REF=nhánh, BASE=ref khác, ONLY="api" chọn chặng
+	@scripts/gate_merge.sh $(if $(BASE),--base $(BASE)) $(or $(PR),$(REF)) $(if $(ONLY),-- $(ONLY))
 
 # Tầng duy nhất chứng minh SQL, index, view và trigger thật. 224 ca, 17 giây,
 # và trước hôm nay gần như không ai chạy: phải tự biết chuỗi kết nối, mà máy
