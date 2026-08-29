@@ -41,6 +41,12 @@ against a live server, and this one deliberately needs no connection so it can
 run in a hook, in CI, and on a laptop with nothing started.
 
 Exit 0 when there is exactly one head, 1 otherwise.
+
+Takes an optional path to a versions directory, defaulting to this repository's.
+That argument exists so `tests/test_alembic_heads.py` can run THIS entry point
+-- exit code, stderr and all -- against trees built to be forked, instead of
+re-implementing the head arithmetic in the test and proving only that the copy
+agrees with itself.
 """
 
 from __future__ import annotations
@@ -97,19 +103,10 @@ def doc_migrations(versions_dir: Path) -> dict[str, dict]:
     return found
 
 
-def main() -> int:
-    if not VERSIONS_DIR.is_dir():
-        print(f"check_alembic_heads: khong thay {VERSIONS_DIR}", file=sys.stderr)
-        return 1
-
-    migrations = doc_migrations(VERSIONS_DIR)
-    if not migrations:
-        print("check_alembic_heads: khong co migration nao.", file=sys.stderr)
-        return 1
-
-    # A head is a revision nothing else points down to. `down_revision` may be
-    # a tuple on a merge revision, which is a legitimate way to have one head
-    # again after a fork -- so every element counts as a parent.
+def find_heads(migrations: dict[str, dict]) -> list[str]:
+    """Revisions nothing else points down to."""
+    # `down_revision` may be a tuple on a merge revision, which is a legitimate
+    # way to have one head again after a fork -- so every element is a parent.
     parents: set[str] = set()
     for meta in migrations.values():
         down = meta["down"]
@@ -118,7 +115,23 @@ def main() -> int:
         elif isinstance(down, (tuple, list)):
             parents.update(x for x in down if isinstance(x, str))
 
-    heads = sorted(set(migrations) - parents)
+    return sorted(set(migrations) - parents)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = sys.argv[1:] if argv is None else argv
+    versions_dir = Path(args[0]) if args else VERSIONS_DIR
+
+    if not versions_dir.is_dir():
+        print(f"check_alembic_heads: khong thay {versions_dir}", file=sys.stderr)
+        return 1
+
+    migrations = doc_migrations(versions_dir)
+    if not migrations:
+        print("check_alembic_heads: khong co migration nao.", file=sys.stderr)
+        return 1
+
+    heads = find_heads(migrations)
 
     if len(heads) == 1:
         print(f"Alembic guard: mot head duy nhat ({heads[0]}).")
