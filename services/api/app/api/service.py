@@ -327,6 +327,7 @@ def _wire_membership(record: MembershipRecord) -> MembershipResponse:
         id=record.id,
         context_id=record.context_id,
         person_id=record.person_id,
+        display_name=record.display_name,
         state=record.state,
         role=record.role,
         invited_by_id=record.invited_by_id,
