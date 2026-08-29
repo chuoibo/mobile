@@ -225,9 +225,35 @@ def _image_rejection_problem(exc: ImageRejected) -> ApiProblem:
 def _require_photo_url_context(
     context_id: uuid.UUID, image_url: str | None
 ) -> None:
+    """Refuse a photo url that points into another group's storage.
+
+    The schema already pins `image_url` to `/contexts/{uuid}/photos/{uuid}`,
+    so a malformed value should not arrive here. "Should not" is not a gate:
+    this parses defensively rather than inheriting the promise of the layer
+    above it, because the day that promise moves, a bad request body becomes a
+    500 instead of a 422.
+    """
+
     if image_url is None:
         return
-    photo_context_id = uuid.UUID(image_url.split("/", maxsplit=3)[2])
+    # ["", "contexts", <context id>, "photos", <photo id>]
+    parts = image_url.split("/")
+    try:
+        if (
+            len(parts) != 5
+            or parts[0]
+            or parts[1] != "contexts"
+            or parts[3] != "photos"
+        ):
+            raise ValueError(image_url)
+        photo_context_id = uuid.UUID(parts[2])
+        uuid.UUID(parts[4])
+    except ValueError:
+        raise ApiProblem(
+            422,
+            "photo_url_invalid",
+            "Photo URL is not a path into this product's photo storage",
+        ) from None
     if photo_context_id != context_id:
         raise ApiProblem(
             422,
