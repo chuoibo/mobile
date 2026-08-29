@@ -16,6 +16,7 @@ form: the same key twice must leave one record behind.
 
 from __future__ import annotations
 
+import json
 import uuid
 from contextlib import contextmanager
 
@@ -38,6 +39,7 @@ from app.api.idempotency import (
     Reserved,
     SqlAlchemyIdempotencyStore,
     StoredResponse,
+    request_fingerprint,
 )
 from app.api.main import create_app
 from app.api.repository import SqlAlchemyApiRepository
@@ -209,6 +211,16 @@ class _Client:
             {"context_id": context_id},
         )
 
+    def put(self, path, **kwargs):
+        async def send():
+            transport = httpx.ASGITransport(app=self.app)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://testserver"
+            ) as client:
+                return await client.put(path, **kwargs)
+
+        return anyio.run(send)
+
     def count_expense_versions(self, expense_id: uuid.UUID) -> int:
         return self.connection.scalar(
             text(
@@ -216,6 +228,32 @@ class _Client:
                 " where expense_id = :expense_id"
             ),
             {"expense_id": expense_id},
+        )
+
+    def count_contexts_named(self, display_name: str) -> int:
+        return self.connection.scalar(
+            text("select count(*) from contexts where display_name = :display_name"),
+            {"display_name": display_name},
+        )
+
+    def stored_fingerprint(self, scope: str, key: str) -> str:
+        return self.connection.scalar(
+            text(
+                "select request_fingerprint from idempotency_keys"
+                " where scope = :scope and idempotency_key = :key"
+            ),
+            {"scope": scope, "key": key},
+        )
+
+    def rewrite_fingerprint(self, scope: str, key: str, fingerprint: str) -> None:
+        """Put the row back the way a server that hashed raw bytes left it."""
+
+        self.connection.execute(
+            text(
+                "update idempotency_keys set request_fingerprint = :fingerprint"
+                " where scope = :scope and idempotency_key = :key"
+            ),
+            {"scope": scope, "key": key, "fingerprint": fingerprint},
         )
 
 
@@ -558,3 +596,165 @@ def test_a_second_confirmation_under_its_own_key_still_writes_its_own_version(
     assert second.json()["expense_version_id"] != first.json()["expense_version_id"]
     assert second.json()["version_number"] == first.json()["version_number"] + 1
     assert live_client.count_expense_versions(expense_id) == 2
+
+
+# ---------------------------------------------------------------------------
+# One key, two encoders
+# ---------------------------------------------------------------------------
+#
+# The seed script writes every group through the HTTP API with Python's
+# `json.dumps`; the app retries the same key with JavaScript's `JSON.stringify`.
+# Those produce different bytes for the same value, so a digest taken over the
+# bytes refused the app's request as reuse. On a seeded machine -- which is
+# every demo machine -- the group screen showed the server's English refusal
+# where the member list belonged.
+#
+# Proved here rather than against the fake because the recovery path writes:
+# a row left by the older server is rewritten in place, and a dict cannot show
+# that the update landed on the row the next request reads.
+
+GROUP_NAME = "Team Đà Lạt"
+SEED_PERSON = uuid.UUID("4dd00000-dddd-4ddd-8ddd-0000d0000001")
+
+
+def _seed_headers(key: str) -> dict:
+    return {
+        "X-Actor-ID": str(SEED_PERSON),
+        "X-Actor-Roles": "group_admin,member",
+        "Content-Type": "application/json",
+        IDEMPOTENCY_HEADER: key,
+    }
+
+
+def _python_bytes(payload: dict) -> bytes:
+    """`json.dumps`: non-ASCII escaped, a space after every separator."""
+
+    return json.dumps(payload).encode("utf-8")
+
+
+def _javascript_bytes(payload: dict) -> bytes:
+    """`JSON.stringify`: literal UTF-8, no spaces."""
+
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode(
+        "utf-8"
+    )
+
+
+def _register_seed_person(live_client) -> None:
+    registered = live_client.put(
+        f"/people/{SEED_PERSON}",
+        json={"display_name": "Minh"},
+        headers={
+            "X-Actor-ID": str(SEED_PERSON),
+            "X-Actor-Roles": "group_admin,member",
+        },
+    )
+    assert registered.status_code in (200, 201), registered.text
+
+
+def test_the_app_replays_the_group_the_seed_created_instead_of_being_refused(
+    live_client,
+):
+    """The reported bug, end to end, on the route it was reported against."""
+
+    _register_seed_person(live_client)
+    key = str(uuid.uuid4())
+    payload = {"display_name": GROUP_NAME}
+    assert _python_bytes(payload) != _javascript_bytes(payload)
+
+    from_seed = live_client.post(
+        "/contexts", content=_python_bytes(payload), headers=_seed_headers(key)
+    )
+    from_app = live_client.post(
+        "/contexts", content=_javascript_bytes(payload), headers=_seed_headers(key)
+    )
+
+    assert from_seed.status_code == 201, from_seed.text
+    assert from_app.status_code == 201, from_app.text
+    assert from_app.json() == from_seed.json()
+    assert from_app.headers.get(REPLAY_HEADER) == "true"
+    # Replayed, not re-run. A second row here would be the other half of the
+    # bug: a duplicate "Team Đà Lạt" beside the one holding all the history.
+    assert live_client.count_contexts_named(GROUP_NAME) == 1
+
+
+def test_a_key_reserved_by_the_older_server_is_recognised_and_upgraded(live_client):
+    """The machines that are already broken, which a fresh schema never shows.
+
+    Their `idempotency_keys` rows hold a digest of raw bytes. Canonicalising
+    without recognising those rows would refuse the seed script itself on every
+    machine it had ever run on -- turning a bug that blocks one screen into one
+    that blocks re-seeding at all.
+    """
+
+    _register_seed_person(live_client)
+    key = str(uuid.uuid4())
+    payload = {"display_name": GROUP_NAME}
+    scope = str(SEED_PERSON)
+
+    from_seed = live_client.post(
+        "/contexts", content=_python_bytes(payload), headers=_seed_headers(key)
+    )
+    assert from_seed.status_code == 201, from_seed.text
+
+    # Rewind the row to what the previous version of this file wrote.
+    legacy = request_fingerprint(
+        method="POST", path="/contexts", query=b"", body=_python_bytes(payload)
+    )
+    live_client.rewrite_fingerprint(scope, key, legacy)
+    assert live_client.stored_fingerprint(scope, key) == legacy
+
+    # Re-running the seed must still replay rather than be refused as reuse.
+    reseeded = live_client.post(
+        "/contexts", content=_python_bytes(payload), headers=_seed_headers(key)
+    )
+    assert reseeded.status_code == 201, reseeded.text
+    assert reseeded.headers.get(REPLAY_HEADER) == "true"
+
+    # ...and it healed the row, so the app's spelling now replays too.
+    assert live_client.stored_fingerprint(scope, key) != legacy
+    from_app = live_client.post(
+        "/contexts", content=_javascript_bytes(payload), headers=_seed_headers(key)
+    )
+    assert from_app.status_code == 201, from_app.text
+    assert from_app.headers.get(REPLAY_HEADER) == "true"
+    assert live_client.count_contexts_named(GROUP_NAME) == 1
+
+
+def test_an_older_row_for_a_genuinely_different_request_is_still_refused(live_client):
+    """The control. Recognising old rows must not mean accepting any old row.
+
+    Without this, `reserve` could return the stored answer whenever the digests
+    disagree -- which would replay one group's creation in answer to another's.
+    """
+
+    _register_seed_person(live_client)
+    key = str(uuid.uuid4())
+    scope = str(SEED_PERSON)
+
+    created = live_client.post(
+        "/contexts",
+        content=_python_bytes({"display_name": GROUP_NAME}),
+        headers=_seed_headers(key),
+    )
+    assert created.status_code == 201, created.text
+    live_client.rewrite_fingerprint(
+        scope,
+        key,
+        request_fingerprint(
+            method="POST",
+            path="/contexts",
+            query=b"",
+            body=_python_bytes({"display_name": GROUP_NAME}),
+        ),
+    )
+
+    refused = live_client.post(
+        "/contexts",
+        content=_python_bytes({"display_name": "Nhóm khác"}),
+        headers=_seed_headers(key),
+    )
+
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["code"] == "idempotency_key_reuse"
+    assert live_client.count_contexts_named("Nhóm khác") == 0
