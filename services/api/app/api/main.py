@@ -21,6 +21,7 @@ from app.api.idempotency import (
 from app.api.routes import (
     bank_recipients,
     batches,
+    bills,
     contexts,
     expenses,
     guests,
@@ -62,6 +63,7 @@ def create_app(
         name="static",
     )
     application.include_router(expenses.router)
+    application.include_router(bills.router)
     application.include_router(contexts.router)
     application.include_router(messages.router)
     application.include_router(batches.router)

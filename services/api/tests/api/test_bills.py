@@ -21,10 +21,7 @@ from __future__ import annotations
 import unittest.mock
 import uuid
 
-import pytest
-
-from app.api.repository import BillItemRecord, BillRecord, BillShareRecord
-from tests.api.helpers import ADVANCER_ID, CONTEXT_ID, OTHER_ID, SENDER_ID, actor_headers
+from tests.api.helpers import ADVANCER_ID, CONTEXT_ID, SENDER_ID, actor_headers
 
 OUTSIDER_ID = uuid.UUID("5ee00000-eeee-4eee-8eee-0000e0000001")
 OTHER_CONTEXT_ID = uuid.UUID("6ff00000-ffff-4fff-8fff-0000f0000001")
@@ -111,13 +108,27 @@ class TestBillDraftCreation:
     def test_a_fresh_draft_reports_itself_as_unconfirmed(self, client):
         assert create_bill(client)["assignment_state"] == "ai_suggested"
 
+    def test_the_confidence_score_stays_off_the_wire(self, client):
+        """ADR-0009 decision 4: a percentage invites an interface to
+        auto-accept above a threshold, and rd-qa-03 measured why that is
+        wrong -- the number tracked how legible the print was, not whether
+        the money was right. It is stored and it gates server-side;
+        `needs_review` is what a client gets to branch on."""
+
+        response = client.post(
+            "/bills", headers=actor_headers(), json=bill_payload()
+        )
+
+        assert "confidence" not in response.json()
+        assert "88" not in response.text
+
     def test_a_draft_creates_no_obligation(self, client, repository):
         """Scanning a bill is not spending money. The ledger only accepts an
         expense version, and nothing on this path writes one."""
 
         create_bill(client)
 
-        assert repository.confirmations == {}
+        assert repository.confirmed == {}
 
 
 class TestAssignmentConfirmation:
@@ -355,7 +366,7 @@ class TestGroupBoundary:
             "/bills", headers=self._outsider_headers(), json=bill_payload()
         )
 
-        assert response.status_code in (403, 404), response.text
+        assert response.status_code == 403, response.text
 
     def test_an_outsider_cannot_read_the_dishes_of_another_group(self, client):
         bill = create_bill(client)
@@ -364,7 +375,7 @@ class TestGroupBoundary:
             f"/bills/{bill['id']}", headers=self._outsider_headers()
         )
 
-        assert response.status_code in (403, 404), response.text
+        assert response.status_code == 403, response.text
         assert "Phở bò" not in response.text
 
     def test_an_outsider_cannot_reassign_who_ate_what(self, client):
@@ -380,7 +391,7 @@ class TestGroupBoundary:
             },
         )
 
-        assert response.status_code in (403, 404), response.text
+        assert response.status_code == 403, response.text
 
     def test_an_outsider_cannot_split_another_groups_bill(self, client):
         bill = create_bill(client)
@@ -389,7 +400,7 @@ class TestGroupBoundary:
             f"/bills/{bill['id']}/split", headers=self._outsider_headers(), json={}
         )
 
-        assert response.status_code in (403, 404), response.text
+        assert response.status_code == 403, response.text
         assert "65000" not in response.text
 
 

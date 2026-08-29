@@ -22,6 +22,7 @@ from pydantic import (
 
 MoneyVnd = Annotated[int, Field(strict=True)]
 PositiveMoneyVnd = Annotated[int, Field(strict=True, gt=0)]
+NonNegativeMoneyVnd = Annotated[int, Field(strict=True, ge=0)]
 
 
 class ApiModel(BaseModel):
@@ -97,6 +98,75 @@ class ExpenseConfirmationResponse(ApiModel):
     total_amount_vnd: MoneyVnd
     payer_acknowledgement: Literal["pending", "acknowledged"]
     allocations: dict[UUID, MoneyVnd]
+
+
+class BillItemCreateRequest(ApiModel):
+    item_key: Annotated[StrictStr, Field(max_length=64)]
+    name: StrictStr
+    quantity: Annotated[int, Field(strict=True, gt=0)]
+    unit_price_vnd: MoneyVnd | None
+    line_total_vnd: PositiveMoneyVnd
+    suggested_participant_ids: list[UUID]
+
+
+class BillCreateRequest(ApiModel):
+    context_id: UUID
+    printed_total_vnd: NonNegativeMoneyVnd | None
+    items_total_vnd: NonNegativeMoneyVnd
+    confidence: Annotated[int, Field(strict=True, ge=0, le=100)]
+    needs_review: StrictBool
+    items: list[BillItemCreateRequest]
+
+
+class BillAssignment(ApiModel):
+    item_key: Annotated[StrictStr, Field(max_length=64)]
+    participant_ids: list[UUID]
+
+
+class BillAssignmentsRequest(ApiModel):
+    assignments: list[BillAssignment]
+
+
+class BillSplitRequest(ApiModel):
+    for_ledger: StrictBool = False
+    paid_by_id: UUID | None = None
+
+
+class BillShareResponse(ApiModel):
+    participant_id: UUID
+    source: Literal["ai_suggested", "confirmed"]
+    decided_by_id: UUID | None
+    decided_at: datetime | None
+
+
+class BillItemResponse(ApiModel):
+    item_key: StrictStr
+    name: StrictStr
+    quantity: Annotated[int, Field(strict=True, gt=0)]
+    unit_price_vnd: MoneyVnd | None
+    line_total_vnd: PositiveMoneyVnd
+    position: Annotated[int, Field(strict=True, ge=0)]
+    shares: list[BillShareResponse]
+
+
+class BillResponse(ApiModel):
+    id: UUID
+    context_id: UUID
+    printed_total_vnd: NonNegativeMoneyVnd | None
+    items_total_vnd: NonNegativeMoneyVnd
+    needs_review: StrictBool
+    created_by_id: UUID
+    created_at: datetime
+    assignment_state: Literal["confirmed", "ai_suggested"]
+    suggested_item_keys: list[StrictStr]
+    items: list[BillItemResponse]
+
+
+class BillSplitResponse(ApiModel):
+    allocation: AllocationProposal
+    assignment_state: Literal["confirmed", "ai_suggested"]
+    suggested_item_keys: list[StrictStr]
+    total_amount_vnd: MoneyVnd
 
 
 class PersonRegistrationRequest(ApiModel):
