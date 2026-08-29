@@ -49,6 +49,7 @@ from app.db.models import (
     Membership,
     MembershipRole,
     MembershipState,
+    Memory,
     Message,
     MessageKind,
     PayerAcknowledgement,
@@ -95,6 +96,22 @@ class MembershipRecord:
     joined_at: datetime | None
     left_at: datetime | None
     created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryRecord:
+    id: uuid.UUID
+    context_id: uuid.UUID
+    author_id: uuid.UUID
+    image_url: str
+    caption: str | None
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryPage:
+    memories: tuple[MemoryRecord, ...]
+    has_more: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -464,6 +481,24 @@ class ApiRepository(Protocol):
         self, context_id: uuid.UUID, person_id: uuid.UUID, role: str
     ) -> MembershipRecord | None: ...
 
+    def create_memory(
+        self,
+        *,
+        context_id: uuid.UUID,
+        author_id: uuid.UUID,
+        image_url: str,
+        caption: str | None,
+        now: datetime,
+    ) -> MemoryRecord: ...
+
+    def list_memories(
+        self,
+        context_id: uuid.UUID,
+        *,
+        limit: int,
+        before: tuple[datetime, uuid.UUID] | None = None,
+    ) -> MemoryPage: ...
+
     def create_message(
         self,
         *,
@@ -669,6 +704,17 @@ class SqlAlchemyApiRepository:
             joined_at=membership.joined_at,
             left_at=membership.left_at,
             created_at=membership.created_at,
+        )
+
+    @staticmethod
+    def _memory_record(memory: Memory) -> MemoryRecord:
+        return MemoryRecord(
+            id=memory.id,
+            context_id=memory.context_id,
+            author_id=memory.author_id,
+            image_url=memory.image_url,
+            caption=memory.caption,
+            created_at=memory.created_at,
         )
 
     @staticmethod
@@ -978,6 +1024,47 @@ class SqlAlchemyApiRepository:
         membership.role = MembershipRole(role)
         self.session.flush()
         return self._membership_record(membership)
+
+    def create_memory(
+        self,
+        *,
+        context_id: uuid.UUID,
+        author_id: uuid.UUID,
+        image_url: str,
+        caption: str | None,
+        now: datetime,
+    ) -> MemoryRecord:
+        memory = Memory(
+            context_id=context_id,
+            author_id=author_id,
+            image_url=image_url,
+            caption=caption,
+            created_at=now,
+        )
+        self.session.add(memory)
+        self.session.flush()
+        return self._memory_record(memory)
+
+    def list_memories(
+        self,
+        context_id: uuid.UUID,
+        *,
+        limit: int,
+        before: tuple[datetime, uuid.UUID] | None = None,
+    ) -> MemoryPage:
+        statement = select(Memory).where(Memory.context_id == context_id)
+        if before is not None:
+            statement = statement.where(
+                tuple_(Memory.created_at, Memory.id) < tuple_(*before)
+            )
+        statement = statement.order_by(Memory.created_at.desc(), Memory.id.desc())
+
+        rows = list(self.session.scalars(statement.limit(limit + 1)))
+        has_more = len(rows) > limit
+        return MemoryPage(
+            memories=tuple(self._memory_record(row) for row in rows[:limit]),
+            has_more=has_more,
+        )
 
     def create_message(
         self,
@@ -2602,6 +2689,8 @@ __all__ = [
     "GuestEnvelopeRecord",
     "GuestLinkDraft",
     "MembershipRecord",
+    "MemoryPage",
+    "MemoryRecord",
     "MessagePage",
     "MessageRecord",
     "ObligationDraft",
