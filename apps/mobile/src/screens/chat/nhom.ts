@@ -67,6 +67,7 @@
  * lands, `thanNhuSeed` should go and `JSON.stringify` should come back.
  */
 
+import { chiTietLoi } from "../../ui/loi-tren-man";
 import { DEMO_GROUP_NAME, DEMO_PEOPLE, personById } from "../../navigation/nhom-demo";
 import { KHONG_GIAN_DEMO, idNguoi, khoaGhi } from "./uuid5";
 
@@ -151,7 +152,7 @@ async function goi(
   try {
     res = await fetch(url, init);
   } catch (e) {
-    return { ok: false, state: hong(buoc, url, 0, (e as Error).message) };
+    return { ok: false, state: hong(buoc, url, 0, chiTietLoi(e)) };
   }
   if (choPhep409 && res.status === 409) {
     return { ok: true, status: 409, body: null };
@@ -165,7 +166,7 @@ async function goi(
     const body = text.trim() ? (JSON.parse(text) as unknown) : null;
     return { ok: true, status: res.status, body };
   } catch (e) {
-    return { ok: false, state: hong(buoc, url, res.status, (e as Error).message) };
+    return { ok: false, state: hong(buoc, url, res.status, chiTietLoi(e)) };
   }
 }
 
@@ -328,7 +329,7 @@ export async function khoiDongNhom(
     const members = body.members.map((m, i) => docThanhVien(m, `members[${i}]`));
     return { kind: "xong", contextId, tenNhom, members };
   } catch (e) {
-    return hong("doc-thanh-vien", dsUrl, ds.status, (e as Error).message);
+    return hong("doc-thanh-vien", dsUrl, ds.status, chiTietLoi(e));
   }
 }
 

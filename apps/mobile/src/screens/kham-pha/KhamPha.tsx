@@ -39,7 +39,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { radius, space, type, usePalette } from "../../theme";
 import { Button, Card, Choice, Field, Screen } from "../../ui/Kit";
-import { thanLoiMayChu } from "../../ui/loi-may-chu";
+import { themChiTiet, thanLoiMayChu } from "../../ui/loi-may-chu";
 import { AnhDiaDiem, Ruy, RuyDongCua } from "./AnhDiaDiem";
 import { HuyHieuMatch } from "./NhanAi";
 import { CauAiHieu, KhongCoKetQua, TimKhongDuoc } from "./CauAiHieu";
@@ -334,7 +334,7 @@ export function ChuaCoDuLieu({ state }: { state: PlacesState }) {
     diaChi = state.url;
   } else if (state.kind === "khong-noi-duoc") {
     tieuDe = "Không mở được máy chủ";
-    than = `Không kết nối được tới API. Chi tiết: ${state.detail}`;
+    than = themChiTiet("Không kết nối được tới API.", state.detail);
     diaChi = state.url;
   } else if (state.kind === "may-chu-loi") {
     tieuDe = `Máy chủ trả lỗi ${state.status}`;
@@ -342,7 +342,7 @@ export function ChuaCoDuLieu({ state }: { state: PlacesState }) {
     diaChi = state.url;
   } else if (state.kind === "du-lieu-sai") {
     tieuDe = "Dữ liệu địa điểm không đúng dạng";
-    than = `App từ chối hiển thị thay vì vẽ ra số sai. Chi tiết: ${state.detail}`;
+    than = themChiTiet("App từ chối hiển thị thay vì vẽ ra số sai.", state.detail);
     diaChi = state.url;
   }
 

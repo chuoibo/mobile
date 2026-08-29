@@ -44,6 +44,7 @@
  * wrote it. The only text that reaches a bubble comes from `message.card`.
  */
 
+import { chiTietLoi } from "../../ui/loi-tren-man";
 import { parseMessage, type MessageWire } from "./tin-nhan";
 
 declare const process: { env: Record<string, string | undefined> };
@@ -157,7 +158,7 @@ export function docThanAiTurn(raw: unknown, url: string): AiTurnState {
     try {
       return { kind: "da-noi", message: parseMessage(body.message, "ai-turn.message") };
     } catch (e) {
-      return { kind: "hong", url, status: 200, detail: (e as Error).message };
+      return { kind: "hong", url, status: 200, detail: chiTietLoi(e) };
     }
   }
 
@@ -203,7 +204,7 @@ export async function goiAiTurn(opts: {
       headers: headers(opts.actorId, opts.contextId, opts.idempotencyKey),
     });
   } catch (e) {
-    return { kind: "hong", url, status: 0, detail: (e as Error).message };
+    return { kind: "hong", url, status: 0, detail: chiTietLoi(e) };
   }
 
   if (res.status === 404 || res.status === 405) {
@@ -222,7 +223,7 @@ export async function goiAiTurn(opts: {
     if (!text.trim()) return { kind: "im-lang", reason: "no_content" };
     raw = JSON.parse(text) as unknown;
   } catch (e) {
-    return { kind: "hong", url, status: res.status, detail: (e as Error).message };
+    return { kind: "hong", url, status: res.status, detail: chiTietLoi(e) };
   }
   return docThanAiTurn(raw, url);
 }
