@@ -29,6 +29,42 @@
  * instead of doubling. Every failure names the step that died and the
  * address that was tried, because "không vào được nhóm" without either is
  * how an afternoon gets spent restarting a server that was fine.
+ *
+ * ---------------------------------------------------------------------------
+ * The replay in step 2 is byte-fragile, and the bytes are not ours to choose.
+ *
+ * The server fingerprints an idempotent write as
+ * `sha256(method + path + query + RAW BODY BYTES)` -- see
+ * `services/api/app/api/idempotency.py`, `request_fingerprint`. Raw bytes, not
+ * parsed JSON. Two encoders that agree on the value disagree on the bytes:
+ *
+ *   Python  json.dumps  -> {"display_name": "Team Đà Lạt"}
+ *   JS      JSON.stringify -> {"display_name":"Team Đà Lạt"}
+ *
+ * Same key, same meaning, different digest, so the second one is rejected
+ * `422 idempotency_key_reuse`. The seed script gets there first on every demo
+ * machine, which meant this screen could never open the group: it showed a
+ * raw English server string where the member list belongs. Measured, not
+ * guessed -- posting both byte strings under one key returns 201 and 422.
+ *
+ * Exactly one write is exposed: the group create. It is the only key both
+ * programs derive the same way -- `write:context` on each side. The seed keys
+ * a person by `write:person:<uuid>` where this file uses `write:<slug>`, and
+ * an invite by `write:invite:<uuid>` against `write:invite:<slug>`, so those
+ * never meet and keep `JSON.stringify`. Narrow the workaround to the write
+ * that needs it; a project-wide encoder swap would be a much larger claim
+ * than the evidence supports.
+ *
+ * There is no `GET /contexts`, so replay is the only route to the seeded
+ * group -- inventing a fresh key would create a SECOND "Team Đà Lạt" beside
+ * the one holding the members and the history. So the idempotent writes below
+ * are serialised by `thanNhuSeed`, which reproduces Python's default
+ * `json.dumps` output byte for byte.
+ *
+ * This is a workaround wearing its reason on its sleeve, not a design. The
+ * durable fix is server-side (fingerprint canonical JSON, or expose a way to
+ * look a context up) and has been reported to the backend lane. When that
+ * lands, `thanNhuSeed` should go and `JSON.stringify` should come back.
  */
 
 import { DEMO_GROUP_NAME, DEMO_PEOPLE, personById } from "../../navigation/nhom-demo";
@@ -155,6 +191,43 @@ function docThanhVien(raw: unknown, field: string): ThanhVien {
   };
 }
 
+/**
+ * Serialise a flat string object the way Python's `json.dumps` does by
+ * default, so an idempotent write from this client digests to the same
+ * fingerprint as the same write from `scripts/seed_demo_data.py`.
+ *
+ * Two differences from `JSON.stringify`, and both matter because the server
+ * hashes raw bytes:
+ *
+ *   - separators. Python writes `", "` between pairs and `": "` after a key;
+ *     `JSON.stringify` writes neither space.
+ *   - `ensure_ascii=True`. Python escapes every code point above U+007F as
+ *     `\uXXXX`; `JSON.stringify` emits it as UTF-8.
+ *
+ * Escaping walks UTF-16 code units, so an astral character becomes its two
+ * surrogates -- which is exactly what Python emits for one.
+ *
+ * Only for the idempotent writes. Anything without an `Idempotency-Key` is
+ * not fingerprinted and should keep using `JSON.stringify`.
+ */
+export function thanNhuSeed(obj: Record<string, string>): string {
+  const pairs = Object.entries(obj).map(([k, v]) => `${chuoiAscii(k)}: ${chuoiAscii(v)}`);
+  return `{${pairs.join(", ")}}`;
+}
+
+/** One JSON string literal, ASCII only. `JSON.stringify` already agrees with
+ *  Python on quotes, backslashes and the short control escapes, so the only
+ *  work left is pushing the non-ASCII code units into `\uXXXX`. */
+function chuoiAscii(s: string): string {
+  const chuan = JSON.stringify(s);
+  let ra = "";
+  for (const ch of chuan) {
+    const ma = ch.charCodeAt(0);
+    ra += ma > 0x7f ? `\\u${ma.toString(16).padStart(4, "0")}` : ch;
+  }
+  return ra;
+}
+
 async function datTen(
   base: string,
   slug: string,
@@ -200,7 +273,7 @@ export async function khoiDongNhom(
   const tao = await goi("tao-nhom", taoUrl, {
     method: "POST",
     headers: headers(minh.personId, undefined, khoaGhi("context")),
-    body: JSON.stringify({ display_name: DEMO_GROUP_NAME }),
+    body: thanNhuSeed({ display_name: DEMO_GROUP_NAME }),
   });
   if (!tao.ok) return tao.state;
   const taoBody = tao.body as { id?: unknown; display_name?: unknown } | null;

@@ -17,6 +17,7 @@ import { SafeAreaView, Text, View, useColorScheme } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { radius, space, type, usePalette } from "../theme";
 import { CaNhan } from "../screens/ca-nhan/CaNhan";
+import { TinNhan } from "../screens/chat/TinNhan";
 import { KhamPha } from "../screens/kham-pha/KhamPha";
 import { Nhom } from "../screens/vao-cua/Nhom";
 import { ManVo } from "./ManVo";
@@ -109,15 +110,7 @@ export function VoTab({ nguoi, tabDau, moNhomNgay, renderKhoanChi }: {
               work="chưa xếp"
             />
           ) : null}
-          {tab === "tin-nhan" ? (
-            <ManVo
-              title="Tin nhắn"
-              hint="Chat nhóm, AI gợi ý chỗ ăn ngay trong khung chat"
-              screen="TinNhan"
-              owner="frontend"
-              work="rd-fe-03"
-            />
-          ) : null}
+          {tab === "tin-nhan" ? <TinNhan nguoi={nguoi} /> : null}
           {tab === "ca-nhan" ? <CaNhan nguoi={nguoi} /> : null}
         </View>
 

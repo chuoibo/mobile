@@ -23,7 +23,7 @@ import {
   khoangGia,
   theTuCard,
 } from "../dist-test/screens/chat/ke-hoach.js";
-import { khoiDongNhom } from "../dist-test/screens/chat/nhom.js";
+import { khoiDongNhom, thanNhuSeed } from "../dist-test/screens/chat/nhom.js";
 import {
   cursorCuNhat,
   cursorMoiNhat,
@@ -493,6 +493,43 @@ test("POST /contexts gửi đúng khoá write:context", async () => {
     return res({ id: "p", display_name: "Minh" }, { status: 201 });
   }, () => khoiDongNhom("minh", { base: "http://x" }));
   assert.deepEqual(keys, ["a871a4f2-6a3c-5202-9bba-a3120e1f4c76"]);
+});
+
+/* The server fingerprints an idempotent write over RAW BODY BYTES
+ * (`app/api/idempotency.py`, `request_fingerprint`), so replaying the seed's
+ * `POST /contexts` requires reproducing the seed's bytes, not its meaning.
+ * The expectations below are not hand-typed: they are what
+ * `python3 -c "import json; json.dumps(...)"` actually printed. If Python
+ * ever changes its default separators or `ensure_ascii`, this goes red here
+ * rather than as a 422 on a demo machine. */
+test("thanNhuSeed dựng đúng byte mà json.dumps của Python in ra", () => {
+  assert.equal(
+    thanNhuSeed({ display_name: "Team Đà Lạt" }),
+    '{"display_name": "Team \\u0110\\u00e0 L\\u1ea1t"}',
+  );
+  // A space after the colon and after the comma; JSON.stringify writes neither.
+  assert.equal(thanNhuSeed({ a: "x", b: "ý" }), '{"a": "x", "b": "\\u00fd"}');
+  // Quotes and backslashes keep the escaping both encoders already agree on.
+  assert.equal(
+    thanNhuSeed({ display_name: 'Ngọc "quoted" \\ back' }),
+    '{"display_name": "Ng\\u1ecdc \\"quoted\\" \\\\ back"}',
+  );
+  // Pure ASCII is the case that hid this defect: both encoders agree except
+  // for the separators, so a name like "Minh" replays and "Ngọc" does not.
+  assert.equal(thanNhuSeed({ display_name: "Minh" }), '{"display_name": "Minh"}');
+});
+
+test("POST /contexts gửi thân theo byte của seed, không phải JSON.stringify", async () => {
+  const bodies = [];
+  await withFetch(async (url, init) => {
+    if ((init?.method ?? "GET") === "POST" && String(url).endsWith("/contexts")) {
+      bodies.push(init?.body);
+      return res("nope", { status: 500, ok: false });
+    }
+    return res({ id: "p", display_name: "Minh" }, { status: 201 });
+  }, () => khoiDongNhom("minh", { base: "http://x" }));
+  assert.deepEqual(bodies, ['{"display_name": "Team \\u0110\\u00e0 L\\u1ea1t"}']);
+  assert.notEqual(bodies[0], JSON.stringify({ display_name: "Team Đà Lạt" }));
 });
 
 /* ------------------------------------------------ copy + palette -------- */

@@ -53,7 +53,7 @@ export const TABS: Tab[] = [
     id: "tin-nhan",
     label: "Tin nhắn",
     a11yLabel: "Tin nhắn — chat nhóm và AI",
-    destination: { kind: "shell", screen: "TinNhan", owner: "frontend", work: "rd-fe-03" },
+    destination: { kind: "built", screen: "TinNhan" },
   },
   {
     id: "ca-nhan",

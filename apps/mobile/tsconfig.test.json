@@ -27,6 +27,11 @@
     "src/screens/chat/ke-hoach.ts",
     "src/screens/chat/ai.ts",
     "src/screens/chat/nhom.ts",
+    "src/screens/chat/TinNhan.tsx",
+    "src/screens/chat/BongBong.tsx",
+    "src/screens/chat/TheKeHoach.tsx",
+    "src/screens/chat/ChiTietKeHoach.tsx",
+    "src/screens/chat/ONhap.tsx",
     "src/navigation/lien-ket.ts",
     "src/screens/ca-nhan/tai-chinh.ts",
     // F01's identity derivation. Compiled because the properties that matter
