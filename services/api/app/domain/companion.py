@@ -132,13 +132,17 @@ def _ground_places(payload: dict, catalogue: dict[str, dict]) -> dict:
     selected = unique_ids[:MAX_PLACES]
     if not selected:
         raise CompanionError("companion_card_empty")
-    return {
-        "kind": "places",
-        "payload": {
-            "intro": intro,
-            "places": [dict(catalogue[place_id]) for place_id in selected],
-        },
+    payload = {
+        "intro": intro,
+        "places": [dict(catalogue[place_id]) for place_id in selected],
     }
+    # Counted against the deduplicated list: a repeated id is normalisation, not
+    # a place the card withheld, and a false "còn N chỗ nữa" teaches the group
+    # to ignore the notice.
+    omitted = len(unique_ids) - len(selected)
+    if omitted:
+        payload["omitted_place_count"] = omitted
+    return {"kind": "places", "payload": payload}
 
 
 def _ground_itinerary(payload: dict, catalogue: dict[str, dict]) -> dict:
@@ -165,20 +169,27 @@ def _ground_itinerary(payload: dict, catalogue: dict[str, dict]) -> dict:
     if not stops:
         raise CompanionError("companion_card_empty")
 
-    return {
-        "kind": "itinerary",
-        "payload": {
-            "title": title,
-            "stops": [
-                {
-                    "time_text": time_text,
-                    "note": note,
-                    "place": dict(catalogue[place_id]),
-                }
-                for place_id, time_text, note in stops[:MAX_STOPS]
-            ],
-        },
+    shown = stops[:MAX_STOPS]
+    payload = {
+        "title": title,
+        "stops": [
+            {
+                "time_text": time_text,
+                "note": note,
+                "place": dict(catalogue[place_id]),
+            }
+            for place_id, time_text, note in shown
+        ],
     }
+    # The model is asked for at most MAX_STOPS (see app/api/companion_gemini.py),
+    # so this slice is the fallback for a model that answered past its schema --
+    # not the routine path. Either way the card admits the cut: "ghi rõ từng
+    # khung giờ của cả hai ngày" is an ordinary request, and a second day that
+    # vanishes without a word reads as a complete plan.
+    omitted = len(stops) - len(shown)
+    if omitted:
+        payload["omitted_stop_count"] = omitted
+    return {"kind": "itinerary", "payload": payload}
 
 
 def ground_card(raw: dict, allowed_places: list[dict]) -> dict:
