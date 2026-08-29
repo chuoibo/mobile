@@ -12,6 +12,9 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   CREATE_ACTIONS,
@@ -70,6 +73,91 @@ test("màn còn là vỏ thì khai ra chủ và việc sẽ dựng nó", () => {
     if (tab.destination.kind !== "shell") continue;
     assert.ok(tab.destination.owner, `${tab.id} không nói ai dựng`);
     assert.ok(tab.destination.work, `${tab.id} không nói việc nào dựng`);
+  }
+});
+
+/* The tab side of the rule #138 gave the [+] menu.
+ *
+ * For CREATE_ACTIONS the claim (`built`) and the mechanism (`route`) are two
+ * fields that can disagree, and disagreeing is the failure. For TABS the claim
+ * is `destination.kind` -- and until now nothing held the mechanism, so the
+ * claim answered to nobody. It went stale exactly the way an unchecked claim
+ * does: `kham-pha` and `ca-nhan` sat at `kind: "shell"`, each naming a devops
+ * work item still owed, for the whole time `VoTab` was rendering their real
+ * screens. rd-do-fe-09 shipped Cá nhân in #96 and rd-be-05 shipped Khám phá in
+ * #81; the table said both were placeholders until rd-fe-16.
+ *
+ * Nothing about that was visible. `VoTab` renders by tab id and never consults
+ * `destination`, so no screen looked wrong to a person tapping around -- the
+ * only reader being lied to was the next engineer, plus the one rule that does
+ * read it (`misroutedActions`: a [+] row may not land on a shell tab), which
+ * would have refused a correct wiring to either tab.
+ *
+ * So the mechanism is read from `VoTab.tsx` itself rather than from a second
+ * field somebody has to remember to set. That keeps the two statements
+ * independent -- the shell's JSX is what actually decides what a tap shows --
+ * and means deleting a screen out of the shell reddens this file rather than
+ * leaving a tab pointing at a component that no longer renders.
+ */
+const VO_TAB_SRC = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "..", "src", "navigation", "VoTab.tsx"),
+  "utf8",
+);
+
+/** What the shell really renders, as `tab id -> component name`.
+ *
+ * Parsed from the source rather than imported, because the fact wanted here is
+ * a statement `VoTab` makes about itself. Importing the component would only
+ * prove it exists, which is the thing that was never in doubt. */
+function screensVoTabRenders() {
+  const found = new Map();
+  const pattern = /tab === "([a-z0-9-]+)"\s*\?\s*<([A-Za-z0-9_]+)/g;
+  let m;
+  while ((m = pattern.exec(VO_TAB_SRC)) !== null) found.set(m[1], m[2]);
+  return found;
+}
+
+test("phép đọc VoTab bắt được các nhánh render, không phải khớp rỗng", () => {
+  // Guard on the guard. A regex that silently stops matching would turn every
+  // assertion below into "no tabs render anything", which passes by vacuum --
+  // the failure mode this repo keeps finding in its own gates.
+  const rendered = screensVoTabRenders();
+  assert.ok(
+    rendered.size >= 4,
+    `chỉ đọc được ${rendered.size} nhánh render trong VoTab.tsx; regex hỏng hoặc shell đổi cách viết`,
+  );
+});
+
+test("tab nào shell render thật thì khai built, tab nào không thì khai vỏ", () => {
+  // Collected rather than asserted row by row, so one run names every stale
+  // tab instead of the first. `misroutedActions` states the reason on the
+  // menu side: a fix list is worth more than a fix.
+  const rendered = screensVoTabRenders();
+  const problems = [];
+  for (const tab of TABS) {
+    const component = rendered.get(tab.id);
+    if (component && tab.destination.kind !== "built") {
+      problems.push(`${tab.id}: VoTab render <${component} /> thật nhưng bảng còn khai là vỏ`);
+    }
+    if (!component && tab.destination.kind !== "shell") {
+      problems.push(`${tab.id}: bảng khai đã dựng nhưng VoTab không render màn nào cho nó`);
+    }
+  }
+  assert.deepEqual(problems, []);
+});
+
+test("tên màn trong bảng đúng bằng component shell render", () => {
+  // Catches the rebase that keeps `kind: "built"` while the screen underneath
+  // was renamed or swapped: reachable, built, and pointing at the wrong name.
+  const rendered = screensVoTabRenders();
+  for (const tab of TABS) {
+    const component = rendered.get(tab.id);
+    if (!component) continue;
+    assert.equal(
+      tab.destination.screen,
+      component,
+      `${tab.id}: bảng ghi "${tab.destination.screen}" nhưng VoTab render <${component} />`,
+    );
   }
 });
 
