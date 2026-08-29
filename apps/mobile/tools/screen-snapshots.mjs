@@ -25,7 +25,25 @@ const MOBILE_ROOT = path.resolve(HERE, "..");
 /** Same sentinel `build:check` inlines. The fetch stub keys off this prefix. */
 const API_BASE = "http://api.build-check.invalid";
 
-const STEPS = ["chup-bill", "ket-qua", "nhap", "de-xuat", "dot-thu", "chia-se"];
+const STEPS = ["chup-bill", "ket-qua", "goi-y", "nhap", "de-xuat", "dot-thu", "chia-se"];
+
+/**
+ * States of one screen that the linear walk does not reach.
+ *
+ * The matrix has two layouts and the walk only exercises the roomy one. Six
+ * people do not fit four 44pt columns beside a legible dish name on a 390pt
+ * phone, so the row collapses to a "k/N" chip, and an unscanned branch is an
+ * unmeasured one.
+ *
+ * The picker that chip opens is deliberately NOT in this list. `Modal` uses
+ * `animationType="slide"`, and stripping the scripts freezes that animation
+ * on its first frame: the markup is in the file and reports `position: fixed`
+ * at the right size, but it paints nothing, so a clean detector result for it
+ * would be a clean result for a blank overlay. It is captured as a live PNG
+ * instead -- see `pickerShot` -- which is evidence of what renders but is not
+ * a detector scan, and must not be described as one.
+ */
+const EXTRA = ["goi-y-dong"];
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -36,7 +54,7 @@ const MIME = {
   ".png": "image/png",
 };
 
-const CHROME =
+export const CHROME =
   process.env.PUPPETEER_EXECUTABLE_PATH ||
   "/home/lakiet/.cache/ms-playwright/chromium-1194/chrome-linux/chrome";
 
@@ -50,7 +68,7 @@ const CHROME =
  * non-Error as `String(problem)` -- so a broken JPEG surfaces as the visible
  * text `[object HTMLCanvasElement]` and the scan never starts.
  */
-const JPEG_B64 =
+export const JPEG_B64 =
   "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAgACADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDz+iiivlD+gAooooAKKKKACiiigD//2Q==";
 
 /**
@@ -61,7 +79,7 @@ const JPEG_B64 =
  * reading and the allocator gets a number that splits evenly across 3 people.
  * Money is integer dong throughout -- a float here would throw in `formatVnd`.
  */
-const SCAN_FIXTURE = {
+export const SCAN_FIXTURE = {
   items: [
     { name: "Lẩu thái", quantity: 1, unit_price_vnd: 280000, line_total_vnd: 280000 },
     { name: "Nước sâm", quantity: 2, unit_price_vnd: 25000, line_total_vnd: 50000 },
@@ -76,6 +94,11 @@ const SCAN_FIXTURE = {
   // nobody serves -- and the screens rendered a percentage off the back of it.
   // `false` is right for this fixture: the lines and the printed total agree.
   // It means no signal fired, not that the reading is correct.
+  //
+  // The other branch is not covered by the linear walk, so it has to be
+  // scanned by flipping this to `true` and re-running -- the pill changes both
+  // its words and its colours there, and a palette that has never been
+  // rendered has never been measured.
   needs_review: false,
   warnings: [],
 };
@@ -86,7 +109,7 @@ function flag(name, fallback) {
   return fallback;
 }
 
-function listen(server) {
+export function listen(server) {
   return new Promise((resolve, reject) => {
     server.once("error", reject);
     // Port 0: the OS picks an ephemeral one so two runs cannot collide.
@@ -94,7 +117,7 @@ function listen(server) {
   });
 }
 
-function closeServer(server) {
+export function closeServer(server) {
   return new Promise((resolve) => {
     if (!server.listening) {
       resolve();
@@ -105,7 +128,7 @@ function closeServer(server) {
 }
 
 /** Static file server for the Expo web export. No SPA fallback: the app is `/`. */
-function createStaticServer(root) {
+export function createStaticServer(root) {
   const resolvedRoot = path.resolve(root);
   return http.createServer((req, res) => {
     try {
@@ -145,7 +168,7 @@ function createStaticServer(root) {
  * does not open a file chooser. Puppeteer's `waitForFileChooser` listens for
  * the native activation, so a dispatched click is rewritten to `HTMLInputElement.click()`.
  */
-function installBeforeApp(apiBase, scanBody) {
+export function installBeforeApp(apiBase, scanBody) {
   const originalFetch = window.fetch.bind(window);
 
   const db = {
@@ -315,7 +338,7 @@ async function apiLog(page) {
   }
 }
 
-async function waitForScreen(page, step, needle, timeoutMs = 30000) {
+export async function waitForScreen(page, step, needle, timeoutMs = 30000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const text = await visibleText(page);
@@ -336,13 +359,39 @@ async function waitForScreen(page, step, needle, timeoutMs = 30000) {
   );
 }
 
-async function clickAria(page, label) {
+export async function clickAria(page, label) {
   const sel = `[aria-label="${label}"]`;
   await page.waitForSelector(sel, { visible: true, timeout: 15000 });
-  await page.click(sel);
+  // Scroll first, then fall back to a scripted click. The avatar strip is a
+  // horizontal ScrollView, so with six people the last few sit outside the
+  // clipped box: `page.click` needs a clickable point and there is none for
+  // an element scrolled off to the right. That is the strip working as
+  // intended, not a defect, but the walk still has to reach them.
+  // `inline: "nearest"`, and the document's own horizontal scroll put back
+  // afterwards. This used to centre horizontally, which walked into a real
+  // defect on the opening screen: measured at 390x844 the document is 445px
+  // wide against a 390px viewport, so centring the "Bỏ qua" control scrolled
+  // the whole page sideways, `page.click` landed on the background, and the
+  // walk sat on `MoDau` until it timed out. `page.click` does not throw in
+  // that case, so the JS fallback below never ran and the failure surfaced
+  // three steps later as "timed out waiting for Khám phá".
+  //
+  // `nearest` still scrolls an inner container -- which is what the avatar
+  // strip needed -- it just declines to move the page under the pointer.
+  await page.evaluate((s) => {
+    const el = document.querySelector(s);
+    if (!el) throw new Error(`no element ${s}`);
+    el.scrollIntoView({ block: "center", inline: "nearest" });
+    if (document.scrollingElement) document.scrollingElement.scrollLeft = 0;
+  }, sel);
+  try {
+    await page.click(sel);
+  } catch {
+    await page.evaluate((s) => document.querySelector(s).click(), sel);
+  }
 }
 
-async function clickButton(page, label) {
+export async function clickButton(page, label) {
   const found = await page.waitForFunction(
     (needle) => {
       const nodes = [...document.querySelectorAll("button, [role='button']")];
@@ -355,8 +404,12 @@ async function clickButton(page, label) {
   );
   const el = found.asElement();
   if (el) {
-    await el.click();
-    return;
+    try {
+      await el.click();
+      return;
+    } catch {
+      /* off-screen or clipped; the scripted click below still reaches it */
+    }
   }
   await page.evaluate((needle) => {
     const nodes = [...document.querySelectorAll("button, [role='button']")];
@@ -373,29 +426,37 @@ async function typePlaceholder(page, placeholder, value) {
   await page.type(sel, value, { delay: 15 });
 }
 
-async function addPerson(page, name) {
+/**
+ * Add one person on the matrix screen.
+ *
+ * Not `addPerson`: there the name field is always mounted, here it appears
+ * only after the "+" avatar is pressed and unmounts again on submit, so
+ * waiting for an empty input would wait for a node that has gone. The "+"
+ * carries `aria-label="Thêm"` while the confirm button's text is exactly
+ * "Thêm" and it has no aria-label, which is what keeps the two apart.
+ */
+export async function addPersonOnMatrix(page, name) {
+  await clickAria(page, "Thêm");
   const sel = 'input[placeholder="Hà"]';
-  await page.waitForFunction(
-    (s) => {
-      const el = document.querySelector(s);
-      return el && el.value === "";
-    },
-    { timeout: 10000 },
-    sel,
-  );
+  await page.waitForSelector(sel, { visible: true, timeout: 15000 });
   await page.click(sel);
   await page.type(sel, name, { delay: 15 });
-  await page.waitForFunction(() => {
-    const btn = [...document.querySelectorAll("button")].find(
-      (b) => b.textContent.trim() === "Thêm",
-    );
-    return btn && !btn.disabled;
-  });
   await clickButton(page, "Thêm");
   await page.waitForFunction(
     (n) => (document.body?.innerText ?? "").includes(n),
     { timeout: 10000 },
     name,
+  );
+}
+
+/** Wait until every avatar shows a figure the server sent, not the "..." placeholder. */
+export async function waitForPreview(page) {
+  await page.waitForFunction(
+    () => {
+      const text = document.body?.innerText ?? "";
+      return text.includes("Tổng cộng") && !text.includes("...");
+    },
+    { timeout: 20000 },
   );
 }
 
@@ -516,15 +577,67 @@ async function drive(page, outDir, jpegPath) {
   await waitForScreen(page, step, "Kết quả nhận diện", 45000);
   await snapshot(page, outDir, step);
 
-  step = "nhap";
+  step = "goi-y";
   await clickButton(page, "Tiếp tục");
+  await waitForScreen(page, step, "Gợi ý chia theo người");
+  // The roster is built here now, so the matrix has columns to draw. Ticking
+  // one box off before the snapshot is deliberate: a grid where every cell is
+  // on cannot show that an off cell is legible, and the off state is the one
+  // carrying a 3:1 border instead of a fill.
+  await addPersonOnMatrix(page, "Nam");
+  await addPersonOnMatrix(page, "Hà");
+  await addPersonOnMatrix(page, "Quyên");
+  await clickAria(page, "Nam, Lẩu thái");
+  await waitForPreview(page);
+  await snapshot(page, outDir, step);
+
+  // The crowded layout, and then the picker it opens. Three more names take
+  // the group past what the inline columns can hold.
+  for (const name of ["Bình", "Chi", "Dũng"]) await addPersonOnMatrix(page, name);
+  await page.waitForFunction(() => (document.body?.innerText ?? "").includes("/6"));
+  await waitForPreview(page);
+  await snapshot(page, outDir, "goi-y-dong");
+
+  await clickAria(page, "6 trên 6 người đã ăn Nước sâm");
+  await page.waitForFunction(
+    () => [...document.querySelectorAll("button, [role='button']")]
+      .some((b) => b.textContent.trim() === "Xong"),
+  );
+  // A live capture, not a snapshot: the slide animation does not survive
+  // script stripping. Written outside the repo -- the guard rejects new
+  // binaries, and nothing about a bill may enter git.
+  // Let the slide finish. Waiting for the button to exist only proves the
+  // overlay mounted; screenshotting there catches it mid-transform, still off
+  // the bottom of the screen, and the capture looks exactly like a picker
+  // that never opened.
+  await page.waitForFunction(() => {
+    const m = document.querySelector('[aria-modal="true"]');
+    if (!m) return false;
+    const r = m.getBoundingClientRect();
+    return r.top <= 1 && r.height > 100;
+  }, { timeout: 10000 });
+  const pickerShot = path.join(os.tmpdir(), "goi-y-chon-live.png");
+  await page.screenshot({ path: pickerShot });
+  console.log(`goi-y-chon (live png)  ${pickerShot}`);
+  await clickButton(page, "Xong");
+
+  // Back to four, so the rest of the walk sees the roster it expects.
+  for (const name of ["Bình", "Chi", "Dũng"]) {
+    await clickAria(page, name);
+    await clickButton(page, `Xoá ${name} khỏi nhóm`);
+    await page.waitForFunction(
+      (n) => !(document.body?.innerText ?? "").includes(n),
+      { timeout: 10000 },
+      name,
+    );
+  }
+
+  step = "nhap";
+  await clickButton(page, "Xem kết quả");
   await waitForScreen(page, step, "Khoản chi mới");
   await snapshot(page, outDir, step);
 
   await typePlaceholder(page, "bữa lẩu tối thứ bảy", "bữa lẩu tối thứ bảy");
-  await addPerson(page, "Nam");
-  await addPerson(page, "Hà");
-  await addPerson(page, "Quyên");
   await page.waitForFunction(() => {
     const radios = [...document.querySelectorAll('[role="radio"]')];
     return radios.some((r) => r.textContent.trim() === "Nam");
@@ -575,7 +688,7 @@ async function main() {
   }
 
   fs.mkdirSync(outDir, { recursive: true });
-  for (const step of STEPS) {
+  for (const step of [...STEPS, ...EXTRA]) {
     const stale = path.join(outDir, `${step}.html`);
     try {
       fs.unlinkSync(stale);
@@ -623,7 +736,7 @@ async function main() {
       throw err;
     }
 
-    const missing = STEPS.filter((s) => !fs.existsSync(path.join(outDir, `${s}.html`)));
+    const missing = [...STEPS, ...EXTRA].filter((s) => !fs.existsSync(path.join(outDir, `${s}.html`)));
     if (missing.length) {
       throw new Error(`Not all snapshots written: missing ${missing.join(", ")}`);
     }
@@ -644,7 +757,12 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+/* Exports above are for `tools/aria-probe.mjs`, which drives the same bundle
+ * through the same fetch stub to read attributes off the live DOM. Only run
+ * the snapshot walk when this file is the one that was invoked. */
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

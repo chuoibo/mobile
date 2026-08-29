@@ -91,6 +91,54 @@ function renderedSources(dir = SRC) {
   return found;
 }
 
+/** Style properties whose value is a fraction of the parent box, not a claim.
+ *
+ * Kept as an allow-list rather than inferred from the shape `prop: `…%``,
+ * because the shape alone would also excuse `label: `${pct}%``, which is
+ * exactly the thing being banned. A style property missing from this list
+ * costs a false positive -- loud, and fixed by adding a word. Inferring from
+ * shape would cost a false negative, which is silent.
+ */
+const LAYOUT_PROPS = [
+  "left",
+  "top",
+  "right",
+  "bottom",
+  "width",
+  "height",
+  "maxWidth",
+  "minWidth",
+  "maxHeight",
+  "minHeight",
+  "flexBasis",
+  "lineHeight",
+  "fontSize",
+  "borderRadius",
+  "translateX",
+  "translateY",
+].join("|");
+
+const CSS_PERCENT = new RegExp(`\\b(?:${LAYOUT_PROPS})\\s*:\\s*\`[^\`]*\``, "g");
+
+/** Does this source tell the user a percentage the machine computed?
+ *
+ * `}` immediately followed by `%` is a computed value with a percent sign
+ * after it, whatever the field ends up being called -- that bluntness is why
+ * the check survives a rename of `confidence`. But two characters cannot tell
+ * apart the two things that produce them:
+ *
+ *   <Text>AI suggested {reading.confidence}%</Text>   the machine rating itself
+ *   left: `${x}%`                                     a map pin at 40% of a box
+ *
+ * The first is the defect this gate exists for. The second is DaiBanDo.tsx
+ * placing pins, and it was failing this gate until the CSS values were taken
+ * out of the picture first. A gate that cries wolf over layout code gets
+ * deleted, and then it stops catching the pill too.
+ */
+function saysAPercentToTheUser(source) {
+  return /\}\s*%/.test(source.replace(CSS_PERCENT, ""));
+}
+
 /** Captured live. Do not tidy the numbers; the mismatch is the point. */
 const LIVE_SCAN = {
   items: [
@@ -295,7 +343,7 @@ test("câu chữ hiện ra màn hình không dùng em-dash", () => {
  * and this test is what keeps it from quietly ceasing to describe anything: a
  * block that goes missing fails rather than just stops being true.
  */
-import { DIRECTION_CONTRACT } from "../dist-test/ui/direction.js";
+import { DIRECTION_CONTRACT, DIRECTION_CONTRACT_GOI_Y } from "../dist-test/ui/direction.js";
 
 test("hợp đồng thiết kế còn đủ năm khối và dòng FINISH", () => {
   for (const block of ["THESIS:", "OWN-WORLD:", "STORY:", "FIRST VIEWPORT:", "FORM:", "FINISH:"]) {
@@ -308,6 +356,15 @@ test("hợp đồng thiết kế còn đủ năm khối và dòng FINISH", () =>
   // reading is not a contract.
   const words = DIRECTION_CONTRACT.split(/\s+/).length;
   assert.ok(words <= 150, `hợp đồng ${words} từ, quá 150 thì không ai đọc`);
+});
+
+test("hợp đồng màn gợi ý chia còn đủ năm khối và dòng FINISH", () => {
+  for (const block of ["THESIS:", "OWN-WORLD:", "STORY:", "FIRST VIEWPORT:", "FORM:", "FINISH:"]) {
+    assert.ok(DIRECTION_CONTRACT_GOI_Y.includes(block), `thiếu khối ${block}`);
+  }
+  assert.match(DIRECTION_CONTRACT_GOI_Y, /teal/);
+  const words = DIRECTION_CONTRACT_GOI_Y.split(/\s+/).length;
+  assert.ok(words <= 150, `hợp đồng gợi ý ${words} từ, quá 150 thì không ai đọc`);
 });
 
 test("không file nguồn nào chứa byte NUL", async () => {
@@ -401,15 +458,40 @@ test("không thành phần nào đọc .confidence hay in ra một phần trăm"
   // the percentage, because none of them render anything. This is the
   // assertion that would have gone red on the actual defect.
   //
-  // The third pattern is the one that generalises: `}` immediately followed by
-  // `%` is a computed value with a percent sign after it, whatever the field
-  // ends up being called. A literal "76%" passed as a width does not match it,
-  // which is why the check can be this blunt.
+  // The third pattern is the one that generalises; `saysAPercentToTheUser`
+  // carries it, along with the reason it cannot be applied to raw source.
   const sources = renderedSources();
   assert.equal(sources.length > 0, true, "không quét được file .tsx nào");
   for (const { name, source } of sources) {
     assert.equal(/\.confidence\b/.test(source), false, `${name} vẫn đọc .confidence`);
     assert.equal(/AI suggested/.test(source), false, `${name} vẫn in nhãn "AI suggested"`);
-    assert.equal(/\}\s*%/.test(source), false, `${name} vẫn in một phần trăm tính ra từ dữ liệu`);
+    assert.equal(
+      saysAPercentToTheUser(source),
+      false,
+      `${name} vẫn in một phần trăm tính ra từ dữ liệu`,
+    );
   }
+});
+
+test("cổng phân biệt phần trăm nói với người dùng và phần trăm toạ độ CSS", () => {
+  // Both halves are load-bearing. Only asserting the first would let the gate
+  // be "fixed" by deleting it; only asserting the second would let it be
+  // "fixed" by matching nothing at all.
+  const pill = "<Text>AI suggested {reading.confidence}%</Text>";
+  assert.equal(saysAPercentToTheUser(pill), true, "cổng phải bắt được pill thật");
+
+  // Renaming the field must not buy a way through, which is why the pattern
+  // keys on the shape and not on the word `confidence`.
+  const renamed = "<Text>{Math.round(r.doTinCay * 100)}% khớp</Text>";
+  assert.equal(saysAPercentToTheUser(renamed), true, "đổi tên trường không được lách cổng");
+
+  // DaiBanDo.tsx, verbatim in shape: a pin at a fraction of its parent box.
+  // Two characters identical to the pill, and no claim about data at all.
+  const toaDo = "style={{ position: 'absolute', left: `${x}%`, top: `${y}%` }}";
+  assert.equal(saysAPercentToTheUser(toaDo), false, "toạ độ CSS không phải lời khẳng định");
+
+  // A percentage built into a label is a claim wearing a style property's
+  // clothes, so the allow-list is by property name and not by shape.
+  const nhan = "label: `${pct}%`";
+  assert.equal(saysAPercentToTheUser(nhan), true, "phần trăm trong nhãn vẫn là lời khẳng định");
 });

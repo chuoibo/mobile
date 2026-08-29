@@ -9,14 +9,21 @@
   },
   "include": [
     "src/api.ts",
+    "src/assignment.ts",
     "src/participants.ts",
     "src/receipt.ts",
     "src/extraction.ts",
     "src/camera/access.ts",
     "src/camera/bill-photo.ts",
     "src/ui/direction.ts",
+    "src/ui/a11y.ts",
     "src/navigation/tabs.ts",
     "src/navigation/nhom-demo.ts",
-    "src/screens/kham-pha/places.ts"
+    "src/screens/kham-pha/places.ts",
+    // Two screens compiled rather than only logic modules, so a test can
+    // render them and read the markup react-native-web actually emits. See
+    // `tools/fixup-esm.mjs` for why that is the real DOM and not a mock.
+    "src/ui/Kit.tsx",
+    "src/screens/GoiYChia.tsx"
   ]
 }
