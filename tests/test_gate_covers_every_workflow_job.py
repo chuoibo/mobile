@@ -62,8 +62,15 @@ GATE = REPO_ROOT / "scripts" / "gate.sh"
 # calls exists at all. Folding them together is not a tidy-up -- it is how one
 # of them stops running, which is exactly what happened when both were briefly
 # named `contract` (see tests/test_gate_stage_bodies_are_unique.py).
+#
+# `repo-guard` maps to two stages because the job runs two scans that answer
+# different questions. `tree HEAD` asks what the branch is delivering;
+# `range base..head` asks what it ever committed. A secret added and then
+# deleted a commit later is invisible to the first and caught by the second,
+# so folding them into one stage would silently drop the only check that sees
+# it -- see tests/test_gate_guard_range_stage.py, which holds that line.
 COVERED_BY: dict[str, tuple[str, ...]] = {
-    "repo-guard": ("guard",),
+    "repo-guard": ("guard", "guard-range"),
     "lint": ("ruff",),
     "api": ("api", "migration", "client-routes"),
     "contract": ("contract",),
