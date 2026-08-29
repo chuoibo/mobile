@@ -32,6 +32,7 @@ import type { Envelope } from "./screens/ChiaSe";
 import type { Draft, Participant } from "./screens/NhapKhoanChi";
 import type { ReceiptScanWire } from "./receipt";
 import { makeIdFactory } from "./participants";
+import { maskAccount } from "./ui/vietqr";
 
 /** Where the API lives. Overridable so a phone can reach a laptop. */
 // Written as a plain `process.env.EXPO_PUBLIC_API_URL` on purpose, and it has
@@ -626,6 +627,34 @@ const OPEN_BATCH_REFUSALS: Record<string, string> = {
 };
 
 /**
+ * The two refusals that mean "nobody has told us where the money goes".
+ *
+ * Named as a set rather than checked inline because a screen has to act on
+ * them, not just print them. Both sentences above are accurate and both used to
+ * be a dead end: QA walked the flow, hit `UNREADY_RECIPIENT_CHOICE_REQUIRED`,
+ * and found three buttons on screen, none of which led to a place where a bank
+ * account could be entered. The app asked for a thing it had no screen to make.
+ *
+ * Deliberately excludes `valid_bank_recipient_snapshot_required`. That one is
+ * also about a bank account, and it is also raised near money, but the
+ * destination it complains about is frozen into a published round -- editing
+ * the live account does not thaw it. Offering the same door there would be
+ * offering a door that does not open.
+ */
+const RECIPIENT_MISSING_CODES = new Set([
+  "unready_recipient_choice_required",
+  "recipient_setup_incomplete",
+]);
+
+/** Whether this failure is "no bank destination on file", and so is fixable. */
+export function isBankRecipientMissing(problem: unknown): boolean {
+  return (
+    problem instanceof ApiError &&
+    RECIPIENT_MISSING_CODES.has(problem.code.toLowerCase())
+  );
+}
+
+/**
  * What the server's refusals to publish mean.
  *
  * The keys are the three gate codes returned by `unmet_publish_gates()` in
@@ -682,6 +711,116 @@ export type OpenedBatch = {
  * branch on the money path is worse than an absent one, because it reads as
  * handled. The refusal reaches the screen instead, with the reason attached.
  */
+/**
+ * What the server's refusals to store a destination mean.
+ *
+ * The three `INVALID_*` codes come from `app/domain/bank_account.py` and arrive
+ * upper-cased; `translated` lower-cases before looking them up. The screen
+ * checks the same three rules locally, so reaching one of these means the two
+ * copies have drifted -- and the sentence says which box to look at rather than
+ * "Bank destination is malformed", which is the server's own English and names
+ * no field at all.
+ *
+ * `permission_denied` is section 9.2, the one rule in the spec with no
+ * exception for an admin: nobody sets somebody else's bank account. It is not
+ * reachable from this app today, because the caller and the subject are the
+ * same id by construction. It is written down anyway: if that ever stops being
+ * true, the person holding the phone should read why rather than read a code.
+ */
+const BANK_RECIPIENT_REFUSALS: Record<string, string> = {
+  invalid_bank_bin:
+    "Ngân hàng này app không gửi đi được. Chọn lại từ danh sách.",
+  invalid_account_number:
+    "Số tài khoản sai định dạng. Chỉ chữ và số, tối đa 19 ký tự.",
+  invalid_account_name:
+    "Tên chủ tài khoản chưa hợp lệ. Nhập đúng như ngân hàng hiển thị.",
+  permission_denied:
+    "Chỉ chính chủ mới ghi được tài khoản nhận của mình. App đang gửi dưới tên người khác.",
+};
+
+/** A destination on its way to the server. Digits, not display. */
+export type BankDestination = {
+  bankBin: string;
+  accountNumber: string;
+  accountName: string;
+};
+
+/**
+ * A destination on its way back, with the number already masked.
+ *
+ * The server answers with `account_number` in full, and this deliberately does
+ * not carry it. An account number is somebody's, screens get photographed and
+ * screen-shared, and the surest way to keep a number off a screen that has no
+ * business showing it is for the value never to leave this function. The one
+ * screen that legitimately shows it in full is the form the person types it
+ * into, which has the digits in its own state and does not need them back.
+ */
+export type SavedBankRecipient = {
+  recipientId: string;
+  bankBin: string;
+  bankName: string;
+  /** False when the BIN is not in the shared directory, so nothing pretends. */
+  bankRecognised: boolean;
+  /** `maskAccount`ed. The full number is not returned by design. */
+  accountMasked: string;
+  accountName: string | null;
+};
+
+/**
+ * Tell the server where this person's money should land.
+ *
+ * `PUT /people/{id}/bank-recipient` rather than `POST /bank-recipients`: the
+ * subject is in the address, so a request that would change somebody else's
+ * account is a different URL rather than this one with a field edited. The
+ * server's permission check is unchanged and is still what enforces section
+ * 9.2 -- this only narrows what can be asked for by accident.
+ *
+ * `actorId` must be `personId`. The server allows this only on your own
+ * account, and passing anything else earns a 403 that the table above puts into
+ * Vietnamese. Kept as a separate parameter rather than assumed, because the
+ * moment there is a real gateway the two stop being the same thing.
+ *
+ * Nothing here logs. Not the number, not the name, not the response -- and the
+ * error path throws `ApiError` carrying only a code and one of the sentences
+ * above, never the body it sent.
+ */
+export async function saveBankRecipient(
+  personId: string,
+  destination: BankDestination,
+  actorId: string,
+  attempt: Attempt,
+): Promise<SavedBankRecipient> {
+  const result = await translated<{
+    recipient_id: string;
+    bank_bin: string;
+    bank_name: string;
+    bank_recognised: boolean;
+    account_number: string;
+    account_name: string | null;
+  }>(BANK_RECIPIENT_REFUSALS, `/people/${personId}/bank-recipient`, {
+    method: "PUT",
+    body: {
+      bank_bin: destination.bankBin,
+      account_number: destination.accountNumber,
+      account_name: destination.accountName,
+    },
+    actorId,
+    attempt,
+  });
+
+  return {
+    recipientId: result.recipient_id,
+    bankBin: result.bank_bin,
+    // The server's own name for the BIN, not the app's copy of the directory.
+    // `banks.test.mjs` holds the two copies together; when they do drift, the
+    // surface that decides where money goes is the one worth believing.
+    bankName: result.bank_name,
+    bankRecognised: result.bank_recognised,
+    accountMasked: maskAccount(result.account_number),
+    accountName: result.account_name,
+  };
+}
+
 export async function openBatch(
   proposal: PendingProposal,
   expenseVersionId: string,

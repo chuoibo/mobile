@@ -20,8 +20,14 @@ export type Proposal = {
   occasion: string;
 };
 
-export function DeXuat({ proposal, onConfirm, onBack }: {
+export function DeXuat({ proposal, onConfirm, onBack, taiKhoanNhan }: {
   proposal: Proposal; onConfirm: () => void; onBack: () => void;
+  /** One masked line naming where the advancer's money will land, once it is
+   *  known. Present only after the detour that stores it, and shown so that
+   *  pressing the button that was just refused is an informed press rather than
+   *  a hopeful one. Masked, never the full number: this screen is the one the
+   *  organiser holds up to the table. */
+  taiKhoanNhan?: string | null;
 }) {
   const c = usePalette();
   // Iterate people, not allocation keys: the key is an id, and only the
@@ -69,6 +75,19 @@ export function DeXuat({ proposal, onConfirm, onBack }: {
             <Text style={{ ...type.label, color: c.inkSoft }}>
               Chia không hết chẵn. {gainerNames.join(", ")} chịu thêm 1đ lẻ,
               vì {proposal.advancerId === proposal.roundingGainers[0] ? "là người trả trước" : "theo thứ tự cố định"}.
+            </Text>
+          </Card>
+        ) : null}
+
+        {taiKhoanNhan ? (
+          <Card style={{ backgroundColor: c.splitSoft, borderColor: c.split }}>
+            <Text style={{ ...type.label, color: c.split, fontWeight: "600" }}>
+              Đã ghi tài khoản nhận của {advancerName}
+            </Text>
+            <Text style={{ ...type.body, color: c.ink }}>{taiKhoanNhan}</Text>
+            <Text style={{ ...type.label, color: c.inkSoft }}>
+              Chỉ bốn số cuối hiện ở đây. Số đầy đủ nằm trong mã QR mà người
+              chuyển tiền quét.
             </Text>
           </Card>
         ) : null}

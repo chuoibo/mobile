@@ -33,6 +33,14 @@
     // masking rule and the amount cross-check are only observable in the
     // markup that actually reaches a browser.
     "src/ui/MaVietQr.tsx",
-    "src/screens/KetQuaThanhToan.tsx"
+    "src/screens/KetQuaThanhToan.tsx",
+    // The bank-destination form and the proposal screen that reports it back.
+    // Same reason again, and it is the sharpest case of it: the rule under test
+    // is "a full account number never reaches a screen the group reads", and
+    // that is a fact about markup. Reading the source would only show that
+    // `maskAccount` is called somewhere.
+    "src/screens/tai-khoan/kiem-tra.ts",
+    "src/screens/tai-khoan/TaiKhoanNhan.tsx",
+    "src/screens/DeXuat.tsx"
   ]
 }

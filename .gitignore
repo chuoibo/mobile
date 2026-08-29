@@ -289,3 +289,8 @@ dist-test/
 # rd-fe-08: local web export used for detector scans and screenshots
 apps/mobile/.rd-fe-08-web/
 apps/mobile/.impeccable/review/
+
+# rd-fe-10: hai bản web export dựng cạnh nhau để đo đỏ-trước/xanh-sau — bằng
+# chứng của một lần chạy, dựng lại được bằng một lệnh `expo export`.
+apps/mobile/.fe10-before/
+apps/mobile/.fe10-after/
