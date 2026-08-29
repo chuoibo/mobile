@@ -40,7 +40,7 @@ import os
 
 import pytest
 
-from app.domain.place_search import PlaceSearchError, ground_search
+from app.domain.place_search import VERDICTS, PlaceSearchError, ground_search
 from app.places.catalog import CATEGORIES, GROUP, PLACES
 from app.places.search import build_search_prompt, gemini_search
 
@@ -108,6 +108,45 @@ def test_the_understood_criteria_are_a_reading_of_the_sentence(grill_answer):
     assert understood["group_size"] in (None, 6)
     if understood["budget_per_person_vnd"] is not None:
         assert isinstance(understood["budget_per_person_vnd"], int)
+
+
+def test_the_model_actually_answers_with_the_verdict_it_is_asked_for(grill_answer):
+    """The half of bug-174904 no offline tier can make.
+
+    Every case in `tests/api/` hands the route a payload a person wrote, so all
+    of them stay green against a prompt that never asks for a verdict -- which
+    is exactly how search shipped writing sentences with no conclusion behind
+    them. Only a real model can say whether the prompt gets the field answered.
+
+    A run where the model returns prose and no verdict is not a crash: the pair
+    rule drops the prose, every card falls back to the server's own template,
+    and F12 quietly stops saying anything a model wrote. That is a degraded
+    feature nobody would see, so it is asserted here rather than hoped for.
+    """
+
+    results = grill_answer["results"]
+    assert results, "the model found nothing for a query the catalogue can answer"
+
+    answered = [item for item in results if item["verdict"] is not None]
+    assert answered, (
+        "not one row came back with a verdict from "
+        f"{VERDICTS}: the prompt asks for a field the model is not answering, "
+        "so every card on this screen would be served under source='none'"
+    )
+    for item in answered:
+        assert item["verdict"] in VERDICTS
+
+
+def test_no_live_row_carries_half_of_the_pair_the_app_refuses(grill_answer):
+    """The client rejects the whole response on either half. Checked on the
+    real answer, because a fake payload is the one thing that cannot lie about
+    what the model omits."""
+
+    for item in grill_answer["results"]:
+        assert (item["reason"] is None) == (item["verdict"] is None), (
+            f"{item['place']['id']} came back with reason={item['reason']!r} and "
+            f"verdict={item['verdict']!r} -- the app refuses that response"
+        )
 
 
 def test_an_injected_instruction_does_not_survive_contact_with_a_real_model():

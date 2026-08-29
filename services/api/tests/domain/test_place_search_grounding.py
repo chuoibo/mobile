@@ -94,8 +94,8 @@ def test_a_well_formed_answer_yields_catalogue_rows_in_the_model_order():
 
     out = ground(
         results=[
-            {"id": "p-oc", "reason": "Đông người vẫn ngồi được."},
-            {"id": "p-nuong", "reason": "Đồ nướng ngoài trời."},
+            {"id": "p-oc", "verdict": "hop", "reason": "Đông người vẫn ngồi được."},
+            {"id": "p-nuong", "verdict": "tam", "reason": "Đồ nướng ngoài trời."},
         ]
     )
 
@@ -264,9 +264,9 @@ def test_a_result_entry_without_a_string_identifier_is_malformed():
 def test_repeated_identifiers_collapse_to_the_first_mention():
     out = ground(
         results=[
-            {"id": "p-cafe", "reason": "Chill."},
-            {"id": "p-cafe", "reason": "Vẫn chill."},
-            {"id": "p-oc", "reason": "Đông vui."},
+            {"id": "p-cafe", "verdict": "hop", "reason": "Chill."},
+            {"id": "p-cafe", "verdict": "tam", "reason": "Vẫn chill."},
+            {"id": "p-oc", "verdict": "hop", "reason": "Đông vui."},
         ]
     )
     assert [item["place"]["id"] for item in out["results"]] == ["p-cafe", "p-oc"]
@@ -282,3 +282,75 @@ def test_more_results_than_the_limit_are_truncated_to_the_limit():
 def test_a_missing_or_blank_reason_is_absent_rather_than_invented():
     out = ground(results=[{"id": "p-nuong"}, {"id": "p-cafe", "reason": "   "}])
     assert [item["reason"] for item in out["results"]] == [None, None]
+
+
+# ---------------------------------------------------------------------------
+# The sentence and the conclusion travel as one (bug-174904)
+# ---------------------------------------------------------------------------
+#
+# A row's `reason` is prose a model wrote and its `verdict` is what that model
+# concluded. The screen shows the first only when it can also show the second,
+# because prose under an `ai` label with no conclusion behind it reads as a
+# model endorsement nobody gave. Grounding is where the two are tied together,
+# so no later caller has to remember to tie them.
+
+
+def test_a_verdict_from_the_closed_set_survives_grounding():
+    out = ground(
+        results=[
+            {"id": "p-nuong", "verdict": "hop", "reason": "Đồ nướng ngoài trời."},
+            {"id": "p-cafe", "verdict": "tam", "reason": "Yên nhưng hơi xa."},
+            {"id": "p-oc", "verdict": "khong-hop", "reason": "Không hợp nhóm này."},
+        ]
+    )
+    assert [item["verdict"] for item in out["results"]] == ["hop", "tam", "khong-hop"]
+
+
+def test_a_row_with_no_verdict_keeps_its_place_and_loses_its_sentence():
+    """Lenient about absence, and honest about what the absence costs.
+
+    A model that said nothing has not asserted anything false, so the row is
+    still a real answer to the search. What it cannot be is a row carrying a
+    sentence the product would have to attribute to a conclusion that is not
+    there.
+    """
+
+    out = ground(results=[{"id": "p-cafe", "reason": "Chỗ này yên, hợp ngồi lâu."}])
+    assert [item["place"]["id"] for item in out["results"]] == ["p-cafe"]
+    assert out["results"][0]["verdict"] is None
+    assert out["results"][0]["reason"] is None
+
+
+def test_a_verdict_outside_the_closed_set_costs_the_row_not_the_whole_answer():
+    """Unlike an invented identifier: an unusable token is not a fabricated fact.
+
+    The closed set is the same one `app/places/reasons.py` holds for the browse
+    prompt, on purpose -- two vocabularies for one field is one of them being
+    the weaker, and nobody finds out which until it is on a screen.
+    """
+
+    out = ground(
+        results=[
+            {"id": "p-cafe", "verdict": "rất hợp", "reason": "Hợp lắm."},
+            {"id": "p-nuong", "verdict": "hop", "reason": "Nướng ngon."},
+        ]
+    )
+    assert [item["place"]["id"] for item in out["results"]] == ["p-cafe", "p-nuong"]
+    assert [item["verdict"] for item in out["results"]] == [None, "hop"]
+    assert [item["reason"] for item in out["results"]] == [None, "Nướng ngon."]
+
+
+def test_a_verdict_with_no_sentence_behind_it_is_dropped_too():
+    """The pair, from the other side. A conclusion with nothing to justify it
+    is a badge with no words, and the app refuses that response as well."""
+
+    out = ground(results=[{"id": "p-cafe", "verdict": "hop"}])
+    assert out["results"][0]["verdict"] is None
+    assert out["results"][0]["reason"] is None
+
+
+@pytest.mark.parametrize("bad", [7, True, ["hop"], {"value": "hop"}])
+def test_a_verdict_that_is_not_a_string_costs_the_row_its_label(bad):
+    out = ground(results=[{"id": "p-cafe", "verdict": bad, "reason": "Hợp."}])
+    assert out["results"][0]["verdict"] is None
+    assert out["results"][0]["reason"] is None

@@ -242,7 +242,21 @@ def _card(
     Shared by browse and search on purpose rather than for tidiness: two call
     sites computing a score separately is how the same place ends up showing
     two different numbers on two screens for one group.
+
+    `reason` and `verdict` are one claim, held here rather than at the call
+    sites. Search used to pass `verdict=None` beside a sentence a model really
+    wrote, and the pair `source: "ai"` + `verdict: null` renders as "AI MATCH
+    95%" -- a percentage credited to a model that never gave an opinion, which
+    is the exact lie the two fields exist to prevent. The app refuses a
+    response containing either half of the pair, so half a pair is not a
+    cosmetic defect: it costs the caller the whole screen.
     """
+
+    # Either half missing drops both. A sentence with no conclusion behind it
+    # is served under the server's own template, which is the honest label.
+    if reason is None or verdict is None:
+        reason = None
+        verdict = None
 
     score, factors = score_place(place, GROUP)
     return Place(
@@ -396,7 +410,12 @@ def search_places(
         if echoes_the_query(reason, query):
             logger.warning("place search: dropped echoed reason for %s", place["id"])
             reason = None
-        out.append(_card(place, reason, verdict=None))
+        # The model's own conclusion, asked for in the prompt and checked
+        # against the closed set by `ground_search`. Passing `None` here is
+        # what shipped `source: "ai"` beside `verdict: null` and cost the app
+        # the whole response; `_card` now refuses to build that pair at all,
+        # so a gate above that drops the sentence drops the verdict with it.
+        out.append(_card(place, reason, item["verdict"]))
 
     # Not re-sorted. `GET /places` orders by open-now and score because it is a
     # catalogue; this is a search, and relevance to the sentence is the model's
