@@ -29,7 +29,7 @@ from alembic import op
 # missing every table between `7c3a8f2d1e6b` and here. A fresh id makes those
 # databases fail with "Can't locate revision", which is the true answer.
 revision: str = "d7a2e05c9b14"
-down_revision: str | Sequence[str] | None = "c5f141903a2b"
+down_revision: str | Sequence[str] | None = "d4a2e7b91c30"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
