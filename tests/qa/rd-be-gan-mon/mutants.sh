@@ -101,7 +101,17 @@ s = s.replace(old, "", 1)
 # 2. Only the first assignment inspected. A bill is many lines; the stranger
 #    lands on whichever dish they were tapped onto, not reliably the first.
 #    This is the mutation that found the blind spot in the first draft of the
-#    fake tests, where every stranger sat in item i1.
+#    fake tests, where every stranger sat in item i1 -- it left BOTH layers
+#    green until `..._on_a_later_dish_not_only_the_first` was added.
+#
+#    Expected live=green, and that is an exclusion on purpose rather than an
+#    unexamined gap: the live bill in `_bill_of_one_item` has a single line, so
+#    `[:1]` cannot change its meaning. "Iterate the whole request" is plain
+#    Python request handling with no SQL in it, and the fake is the layer that
+#    can express it. tests/postgres earns its runtime on what the fake CANNOT
+#    say -- that the real roster returns INVITED rows looking like members.
+#    Widening the live bill to two lines here would buy a second copy of a
+#    property already proven, at the cost of a slower live layer.
 mutant "only the first assignment checked" '
 old = """                participant_id
                 for assignment in request.assignments
@@ -114,7 +124,7 @@ new = """                participant_id
 assert old in s, "comprehension not found"
 assert s.count(old) == 1, "anchor is not unique"
 s = s.replace(old, new, 1)
-' red red
+' red green
 
 # 3. Gate runs, but after the write. The refusal still reaches the caller with
 #    the right code, so any test that only reads the response body stays green.
