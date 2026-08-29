@@ -7,6 +7,11 @@ fastapi==0.115.6
 google-genai==2.10.0
 httpx==0.28.1
 jinja2==3.1.5
+# The upload sanitiser strips every byte of metadata before an image touches
+# disk. It was declared only in pyproject.toml, which CI never installs, so
+# tests/media died at collection on the runner while staying green here -- this
+# machine had Pillow pulled in by something unrelated.
+pillow==12.2.0
 psycopg[binary]==3.2.3
 # FastAPI needs this for the guest payment-report form. It was missing, and
 # the suite passed locally only because another package had pulled it in.
