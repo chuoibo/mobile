@@ -440,12 +440,21 @@ async function main() {
   try {
     const port = await listen(server);
 
-    // Only now is the origin known, and `photo_url` has to be absolute: it
-    // goes into an `<Image>`, not through the fetch stub. The first row gets a
-    // photograph and the second deliberately does not, so `kham-pha.png` shows
-    // the loaded state and the waiting state in one frame.
-    vietPngThu(path.join(buildDir, "anh-thu-dia-diem.png"));
-    fixtures.places[0].photo_url = `http://127.0.0.1:${port}/anh-thu-dia-diem.png`;
+    // `photo_url` is a RELATIVE path, which is both the shape the photo route
+    // actually returns and the only shape the app will now dial: `Anh` refuses
+    // any address that is not on `EXPO_PUBLIC_API_URL`, so the old absolute
+    // `http://127.0.0.1:<port>/...` would be declined and this card would draw
+    // its stand-in -- turning this whole scan back into decoration without
+    // changing a line of it. Serving the bytes on the API origin instead keeps
+    // the scan honest AND makes it exercise the real resolution path.
+    //
+    // The first row gets a photograph and the second deliberately does not, so
+    // `kham-pha.png` shows the loaded state and the waiting state in one frame.
+    const anhThuFile = path.join(buildDir, "anh-thu-dia-diem.png");
+    vietPngThu(anhThuFile);
+    const anhThuBytes = fs.readFileSync(anhThuFile);
+    const anhThuUrl = `${API_BASE}/anh-thu-dia-diem.png`;
+    fixtures.places[0].photo_url = "/anh-thu-dia-diem.png";
     browser = await puppeteer.launch({
       executablePath: CHROME,
       headless: true,
@@ -464,6 +473,19 @@ async function main() {
       page.setDefaultTimeout(30000);
       const pageErrors = [];
       page.on("pageerror", (err) => pageErrors.push(String(err)));
+
+      // The photograph is the one request that does NOT go through the fetch
+      // stub: an <Image> loads it itself. `api.build-check.invalid` resolves
+      // nowhere on purpose, so it is answered here instead.
+      await page.setRequestInterception(true);
+      page.on("request", (req) => {
+        if (req.url() === anhThuUrl) {
+          req.respond({ status: 200, contentType: "image/png", body: anhThuBytes });
+          return;
+        }
+        req.continue();
+      });
+
       await page.evaluateOnNewDocument(installTabStubs, API_BASE, fixtures);
 
       // `AppRoot` reads the fragment once, at mount. Navigating from one
@@ -481,6 +503,35 @@ async function main() {
         if (pageErrors.length) console.error(`Page errors:\n${pageErrors.join("\n")}`);
         throw err;
       }
+
+      // Assert the photograph decoded, rather than trusting that it did.
+      // A refused address, a broken resolution, or an <Image> that quietly
+      // stopped rendering all leave a frame that looks exactly like the
+      // stand-in state this scan is also supposed to show -- so without this
+      // check the two are indistinguishable in the PNG and the scan reports
+      // success either way. `naturalWidth > 0` is the browser saying it got
+      // real pixels, not merely that an element exists.
+      if (step === "kham-pha") {
+        const daTai = await page.evaluate(async (src) => {
+          const imgs = [...document.querySelectorAll("img")];
+          const anh = imgs.find((i) => i.src === src || i.currentSrc === src);
+          if (!anh) return { found: false, srcs: imgs.map((i) => i.src).slice(0, 5) };
+          if (!anh.complete) await anh.decode().catch(() => {});
+          return { found: true, width: anh.naturalWidth, height: anh.naturalHeight };
+        }, anhThuUrl);
+        if (!daTai.found) {
+          throw new Error(
+            `kham-pha: khong tim thay <img> cho ${anhThuUrl}. ` +
+              `Cong origin tu choi dia chi nay, hoac <Image> khong con render. ` +
+              `src dang co: ${JSON.stringify(daTai.srcs)}`,
+          );
+        }
+        if (!daTai.width) {
+          throw new Error(`kham-pha: <img> ${anhThuUrl} khong giai ma duoc (naturalWidth=0)`);
+        }
+        console.log(`  anh dia diem da tai that: ${daTai.width}x${daTai.height}`);
+      }
+
       await snapshot(page, outDir, step);
       await page.close();
     }

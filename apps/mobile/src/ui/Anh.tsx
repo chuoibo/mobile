@@ -12,8 +12,17 @@
  * reserves that space whether or not a URL exists, and it clips. The content is
  * whichever of two things the frame can currently show:
  *
- *   - `uri` present and loaded  -> a real `<Image>`, `cover`, filling the frame.
- *   - no `uri`, still loading, or the load failed -> `cho`, the stand-in.
+ *   - `uri` present, allowed, and loaded -> a real `<Image>`, `cover`, filling
+ *     the frame.
+ *   - no `uri`, refused, still loading, or the load failed -> `cho`, the
+ *     stand-in.
+ *
+ * "Allowed" is the one that is not about layout. A `uri` here comes from the
+ * server, and on a memory or a message it is a string another *member* wrote --
+ * so pointing it at a host they control turns every reader's phone into a
+ * read-receipt with an IP attached. `nguonAnhAnToan` is what keeps this frame
+ * from dialling anything that is not our own API, and it runs here rather than
+ * in the callers so that no future screen can forget it.
  *
  * Nothing here decides what the stand-in looks like. That stays with the caller,
  * because each surface knows what it can honestly draw when it has no picture:
@@ -41,10 +50,18 @@ import React, { useState } from "react";
 import { Image, View } from "react-native";
 import type { StyleProp, ViewStyle } from "react-native";
 
+import { BASE_URL } from "../api";
+import { nguonAnhAnToan } from "./nguon-anh";
+
 /** What the frame is currently able to show. Exported because the tests assert
  *  on it directly, and because a caller may want to dim an overlay while the
- *  photo is still arriving. */
-export type TrangThaiAnh = "khong-co" | "dang-tai" | "hien" | "hong";
+ *  photo is still arriving.
+ *
+ *  `tu-choi` is separate from `hong` on purpose: `hong` means we asked and the
+ *  answer was bad, `tu-choi` means we never asked, because the address was not
+ *  on our API. Collapsing the two would hide the only state that says a request
+ *  was deliberately not made. */
+export type TrangThaiAnh = "khong-co" | "dang-tai" | "hien" | "hong" | "tu-choi";
 
 export function Anh({
   uri,
@@ -79,16 +96,33 @@ export function Anh({
   const [hong, setHong] = useState<string | null>(null);
   const [xong, setXong] = useState<string | null>(null);
 
-  const coAnh = typeof uri === "string" && uri.length > 0;
-  const veAnh = coAnh && hong !== uri;
+  // The gate, at the one place that can build an <Image>. Callers pass whatever
+  // the server sent; only an address on our own API survives this line, and a
+  // refused one produces no request at all. Doing it here rather than in each
+  // caller is the whole point: a screen added next month gets the rule without
+  // its author having to know the rule exists. See `nguon-anh.ts`.
+  const nguon = nguonAnhAnToan(uri, BASE_URL);
 
-  const trangThai: TrangThaiAnh = !coAnh
-    ? "khong-co"
-    : hong === uri
+  const coUri = typeof uri === "string" && uri.trim().length > 0;
+  const veAnh = nguon !== null && hong !== nguon;
+
+  const trangThai: TrangThaiAnh = nguon === null
+    ? coUri
+      ? "tu-choi"
+      : "khong-co"
+    : hong === nguon
       ? "hong"
-      : xong === uri
+      : xong === nguon
         ? "hien"
         : "dang-tai";
+
+  // Reported from the computed state rather than from inside `onLoad`/`onError`,
+  // so there is one answer to "what is this frame showing" instead of two that
+  // can disagree -- and so `tu-choi`, which has no event to hang it off because
+  // no request is ever made, gets reported at all.
+  React.useEffect(() => {
+    onTrangThai?.(trangThai);
+  }, [trangThai, onTrangThai]);
 
   return (
     <View
@@ -118,7 +152,7 @@ export function Anh({
 
       {veAnh ? (
         <Image
-          source={{ uri: uri as string }}
+          source={{ uri: nguon }}
           // Never `contain`: a photograph letterboxed inside a card reads as a
           // broken card, and the frame's whole job is to be filled.
           resizeMode="cover"
@@ -127,15 +161,11 @@ export function Anh({
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
           aria-hidden
-          onLoad={() => {
-            setXong(uri as string);
-            onTrangThai?.("hien");
-          }}
+          onLoad={() => setXong(nguon)}
           onError={() => {
             // No message, no code, no retry. The stand-in reappears and the
             // screen keeps working; see note 2.
-            setHong(uri as string);
-            onTrangThai?.("hong");
+            setHong(nguon);
           }}
         />
       ) : null}

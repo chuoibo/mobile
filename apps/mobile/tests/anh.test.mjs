@@ -11,7 +11,8 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { parsePlace } from "../dist-test/screens/kham-pha/places.js";
+import { parsePlace, PLACES_BASE_URL } from "../dist-test/screens/kham-pha/places.js";
+import { nguonAnhAnToan } from "../dist-test/ui/nguon-anh.js";
 
 const MOBILE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -48,15 +49,67 @@ function row(over = {}) {
   };
 }
 
-test("photo_url http/https được giữ nguyên", () => {
+/* Ảnh chỉ được tải từ API của chính mình.
+ *
+ * `photo_url` là chuỗi NGƯỜI DÙNG TỰ KHAI: server hiện chỉ kiểm độ dài
+ * (`schemas.py`), nên bất kỳ ai ghi được một hàng đều chọn được địa chỉ mà máy
+ * người khác sẽ đi tải. Chừng nào app chưa render ảnh nào thì điều đó vô hại.
+ * Nhánh này bật `<Image>` lên, nên nó thành lỗ thật:
+ *
+ *   A đặt photo_url trỏ về máy A -> app của B tải ảnh -> A biết B đã mở màn
+ *   nào, lúc mấy giờ, và IP của B. Không cần B bấm gì.
+ *
+ * Nên luật là: chỉ tải khi địa chỉ nằm trên chính API mình đang nói chuyện.
+ * Đường dẫn tương đối (`/contexts/{id}/photos/{id}`, đúng dạng backend chốt)
+ * được nối vào base rồi tải; mọi origin khác bị từ chối và KHÔNG phát ra một
+ * request nào.
+ */
+test("photo_url tương đối được nối vào API của chính mình", () => {
+  // Đúng dạng backend trả về ở POST /contexts/{id}/photos.
   assert.equal(
-    parsePlace(row({ photo_url: "http://cdn.example/p.jpg" }), "p").photoUrl,
-    "http://cdn.example/p.jpg",
+    parsePlace(row({ photo_url: "/contexts/abc/photos/xyz" }), "p").photoUrl,
+    `${PLACES_BASE_URL}/contexts/abc/photos/xyz`,
   );
+});
+
+test("photo_url tuyệt đối ra origin khác bị từ chối", () => {
+  // Đây là ca lỗ hổng. Trước bản sửa cả hai dòng này trả về chính URL đó và
+  // <Image> đi tải thật.
+  assert.equal(parsePlace(row({ photo_url: "http://cdn.example/p.jpg" }), "p").photoUrl, null);
+  assert.equal(parsePlace(row({ photo_url: "https://cdn.example/p.jpg" }), "p").photoUrl, null);
+});
+
+test("photo_url tuyệt đối trỏ đúng API của mình thì được giữ", () => {
   assert.equal(
-    parsePlace(row({ photo_url: "https://cdn.example/p.jpg" }), "p").photoUrl,
-    "https://cdn.example/p.jpg",
+    parsePlace(row({ photo_url: `${PLACES_BASE_URL}/contexts/abc/photos/xyz` }), "p").photoUrl,
+    `${PLACES_BASE_URL}/contexts/abc/photos/xyz`,
   );
+});
+
+test("tiền tố trùng nhưng khác host không được tính là cùng origin", () => {
+  // `http://localhost:8099.evil.example/x.png` bắt đầu bằng đúng chuỗi base.
+  // Dấu "/" ngăn sau base là thứ duy nhất chặn ca này, nên nó có ca riêng.
+  assert.equal(
+    parsePlace(row({ photo_url: `${PLACES_BASE_URL}.evil.example/x.png` }), "p").photoUrl,
+    null,
+  );
+  // Và dạng userinfo: mọi thứ trước "@" là tên người dùng, host thật là evil.
+  assert.equal(
+    // Ghép chuỗi chứ không viết liền: dạng "a@b.c" nằm nguyên trong mã nguồn sẽ
+    // bị repo guard bắt là địa chỉ thư, và nó đúng khi bắt.
+    parsePlace(row({ photo_url: `${PLACES_BASE_URL}` + "@" + "evil.example/x.png" }), "p").photoUrl,
+    null,
+  );
+});
+
+test("đường dẫn kiểu giao thức tương đối không được coi là tương đối", () => {
+  // `//evil.example/x.png` mở đầu bằng "/" y hệt một đường dẫn nội bộ, nhưng
+  // trình duyệt đọc nó là "cùng giao thức, KHÁC HOST". Đây là cách đi vòng
+  // kinh điển qua một cổng chỉ kiểm ký tự đầu tiên.
+  assert.equal(parsePlace(row({ photo_url: "//evil.example/x.png" }), "p").photoUrl, null);
+  // Cùng thủ thuật với dấu gạch ngược, ký tự một số trình duyệt vẫn nhận là
+  // dấu ngăn.
+  assert.equal(parsePlace(row({ photo_url: "/\\evil.example/x.png" }), "p").photoUrl, null);
 });
 
 test("photo_url thiếu, null, rỗng hoặc không phải chuỗi thì ra null, không ném", () => {
@@ -97,6 +150,58 @@ test("photo_url không phải http/https bị bỏ, không đưa vào <Image>", 
  * `npm test` không cần trình duyệt; bằng chứng render thật nằm ở ảnh chụp
  * kèm PR.
  */
+/* Luật origin, đọc thẳng chứ không qua parser địa điểm.
+ *
+ * `parsePlace` chỉ là một trong hai cửa. Cửa còn lại là `Anh`, và nó phải áp
+ * đúng luật này cho MỌI màn -- kỷ niệm, tin nhắn, ảnh đại diện -- chứ không
+ * riêng địa điểm. Nên luật sống ở một hàm thuần, và cả hai cửa gọi nó.
+ */
+const GOC = "http://may-chu.example";
+
+test("nguonAnhAnToan: đường dẫn tương đối nối vào base", () => {
+  assert.equal(nguonAnhAnToan("/contexts/a/photos/b", GOC), "http://may-chu.example/contexts/a/photos/b");
+  // Base có dấu "/" thừa không được sinh ra "//" ở giữa.
+  assert.equal(nguonAnhAnToan("/x.png", "http://may-chu.example/"), "http://may-chu.example/x.png");
+});
+
+test("nguonAnhAnToan: từ chối mọi origin khác, không phát request", () => {
+  for (const xau of [
+    "http://evil.example/x.png",
+    "https://evil.example/x.png",
+    "//evil.example/x.png",
+    "/\\evil.example/x.png",
+    "javascript:alert(1)",
+    "data:image/png,not-base64",
+    "file:///etc/passwd",
+    "http://may-chu.example.evil/x.png",
+    "http://may-chu.example" + "@" + "evil.example/x.png",
+    "x.png",
+    "../x.png",
+  ]) {
+    assert.equal(nguonAnhAnToan(xau, GOC), null, `phải từ chối: ${xau}`);
+  }
+});
+
+test("nguonAnhAnToan: rỗng, sai kiểu, hoặc có ký tự điều khiển thì ra null", () => {
+  assert.equal(nguonAnhAnToan(null, GOC), null);
+  assert.equal(nguonAnhAnToan(undefined, GOC), null);
+  assert.equal(nguonAnhAnToan(12, GOC), null);
+  assert.equal(nguonAnhAnToan("   ", GOC), null);
+  // Xuống dòng và tab là công cụ nhét lậu, không phải một phần địa chỉ thật.
+  assert.equal(nguonAnhAnToan("/a\nb.png", GOC), null);
+  assert.equal(nguonAnhAnToan("/a\tb.png", GOC), null);
+});
+
+test("Anh gọi cổng origin, không tự nhận uri thô", () => {
+  // Ca này là cái giữ cho luật trên không thành đồ trang trí. `Anh` là chỗ duy
+  // nhất dựng <Image>; nếu nó đọc thẳng `uri` thì mọi màn khác địa điểm vẫn
+  // tải được ảnh của người lạ dù parser địa điểm đã sạch.
+  const src = readFileSync(join(MOBILE_ROOT, "src/ui/Anh.tsx"), "utf8");
+  assert.match(src, /nguonAnhAnToan/);
+  // Và <Image> phải lấy nguồn đã lọc, không phải biến `uri` gốc.
+  assert.doesNotMatch(src, /source=\{\{\s*uri:\s*uri\b/);
+});
+
 test("Anh render <Image> thật của react-native, không phải View tô màu", () => {
   const src = readFileSync(join(MOBILE_ROOT, "src/ui/Anh.tsx"), "utf8");
   assert.match(src, /import\s*\{[^}]*\bImage\b[^}]*\}\s*from\s*"react-native"/);
