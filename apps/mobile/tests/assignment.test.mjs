@@ -41,7 +41,12 @@ function readingOf(lines, extras = {}) {
   return {
     lines,
     printedTotalVnd: null,
-    confidence: 92,
+    // `needsReview`, not the `confidence: 92` this used to carry. The route has
+    // never sent a confidence, so a fixture holding one was rehearsing a shape
+    // nothing produces. `true` is the shape a `BillReading` takes when nobody
+    // has told us the reading is quiet, which is what `readingFromWire` returns
+    // for anything other than an explicit `needs_review: false`.
+    needsReview: true,
     warnings: [],
     ...extras,
   };

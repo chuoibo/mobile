@@ -94,6 +94,11 @@ const SCAN_FIXTURE = {
   // nobody serves -- and the screens rendered a percentage off the back of it.
   // `false` is right for this fixture: the lines and the printed total agree.
   // It means no signal fired, not that the reading is correct.
+  //
+  // The other branch is not covered by the linear walk, so it has to be
+  // scanned by flipping this to `true` and re-running -- the pill changes both
+  // its words and its colours there, and a palette that has never been
+  // rendered has never been measured.
   needs_review: false,
   warnings: [],
 };
@@ -362,10 +367,22 @@ async function clickAria(page, label) {
   // clipped box: `page.click` needs a clickable point and there is none for
   // an element scrolled off to the right. That is the strip working as
   // intended, not a defect, but the walk still has to reach them.
+  // `inline: "nearest"`, and the document's own horizontal scroll put back
+  // afterwards. This used to centre horizontally, which walked into a real
+  // defect on the opening screen: measured at 390x844 the document is 445px
+  // wide against a 390px viewport, so centring the "Bỏ qua" control scrolled
+  // the whole page sideways, `page.click` landed on the background, and the
+  // walk sat on `MoDau` until it timed out. `page.click` does not throw in
+  // that case, so the JS fallback below never ran and the failure surfaced
+  // three steps later as "timed out waiting for Khám phá".
+  //
+  // `nearest` still scrolls an inner container -- which is what the avatar
+  // strip needed -- it just declines to move the page under the pointer.
   await page.evaluate((s) => {
     const el = document.querySelector(s);
     if (!el) throw new Error(`no element ${s}`);
-    el.scrollIntoView({ block: "center", inline: "center" });
+    el.scrollIntoView({ block: "center", inline: "nearest" });
+    if (document.scrollingElement) document.scrollingElement.scrollLeft = 0;
   }, sel);
   try {
     await page.click(sel);

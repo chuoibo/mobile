@@ -1,8 +1,8 @@
 /** Who ate what: a matrix the server will split, not a split the app computed.
  *
  * Leading tone is `split` (teal). `ai` (violet) is reserved for what the
- * machine produced: the reader's confidence, and the default "everyone shares
- * every line" which nobody has confirmed. Every dong under an avatar comes
+ * machine produced: here, the default "everyone shares every line" which
+ * nobody has confirmed. Every dong under an avatar comes
  * from `allocation.allocations`. Showing a stale number as if it were current
  * is a money error, not a display one -- hence the "..." while a preview is
  * in flight for a different signature.
@@ -27,7 +27,7 @@ import { itemsTotalVnd, type BillLine, type BillReading } from "../receipt";
 import { labelFor, type Roster } from "../participants";
 import type { SplitPreview } from "../api";
 import { radius, space, type, usePalette } from "../theme";
-import { Button, Card, Field } from "../ui/Kit";
+import { Button, Card, Field, ReadingNotice } from "../ui/Kit";
 
 const HIT = 44;
 const AVATAR = 56;
@@ -246,11 +246,11 @@ export function GoiYChia(props: {
           <>
             <Text style={{ ...type.label, color: c.inkSoft }}>Chọn người đã ăn món này</Text>
             {/* Said before the ticking starts, not after it. This sentence is
-                the one that stops the "AI suggested" pill from being read as
+                the one that stops the disclosure pill below from being read as
                 "the machine worked out who ate what": it did not, and cannot,
                 because it only ever saw the paper. Left inside the scroll view
                 on purpose -- it is an explanation, while the pill below is the
-                label spec section F22 requires to be on screen at all times. */}
+                disclosure that has to be on screen at all times. */}
             <Text style={{ ...type.label, color: c.inkSoft }}>
               AI đọc được các món trên bill. Ai đã ăn món nào thì AI không thấy,
               nên mặc định là cả nhóm ăn chung và bạn sửa lại cho đúng.
@@ -279,29 +279,24 @@ export function GoiYChia(props: {
 
       </ScrollView>
 
-      {/* Pinned, like the total below it, and for a stronger reason.
-          Spec section F22 requires the "AI suggested" label to be on screen
-          rather than merely present, and this pill was the last child of the
-          scroll view: with eight dishes on a 390pt phone it sat below the
-          fold, and the rendered detector measured it 100% covered by the
-          "Xem kết quả" button. A claim about a machine's confidence that only
-          appears if somebody scrolls past the thing it describes is not a
-          disclosure. The mockup stacks it against Tổng cộng too. */}
+      {/* Pinned, like the total below it, and for a stronger reason. The
+          disclosure about the reading has to be on screen rather than merely
+          present, and this pill was the last child of the scroll view: with
+          eight dishes on a 390pt phone it sat below the fold, and the rendered
+          detector measured it 100% covered by the "Xem kết quả" button. A
+          statement about what a machine produced, visible only to somebody who
+          scrolls past the thing it describes, is not a disclosure. The mockup
+          stacks it against Tổng cộng too.
+
+          What it says changed as well. It used to interpolate a field the
+          route has never sent, so what rendered was an English endorsement of
+          the reader trailed by a bare percent sign. ADR-0009 decision 4 refuses
+          the percentage: it would invite this screen to auto-accept above a
+          threshold, and it measured how legible the print was, not whether the
+          money was right. `ReadingNotice` keeps the pill and branches on the
+          one field the route does send. */}
       <View style={{ gap: space.sm }}>
-        <View
-          style={{
-            alignSelf: "stretch",
-            backgroundColor: c.split,
-            borderRadius: radius.pill,
-            paddingVertical: space.sm,
-            paddingHorizontal: space.md,
-            alignItems: "center",
-          }}
-        >
-          <Text style={{ ...type.label, color: c.splitInk, fontWeight: "600" }}>
-            AI suggested {reading.confidence}%
-          </Text>
-        </View>
+        <ReadingNotice reading={reading} stretch />
         <Text style={{ ...type.label, color: c.inkSoft, textAlign: "center" }}>
           Bạn có thể chỉnh tay trước khi xác nhận
         </Text>
