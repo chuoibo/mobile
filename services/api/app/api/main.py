@@ -27,6 +27,7 @@ from app.api.routes import (
     messages,
     obligations,
     people,
+    places,
     receipts,
 )
 from app.api.schemas import ErrorResponse
@@ -68,6 +69,7 @@ def create_app(
     application.include_router(obligations.router)
     application.include_router(bank_recipients.router)
     application.include_router(people.router)
+    application.include_router(places.router)
     application.include_router(receipts.router)
 
     # Middleware, not a decorator on each route: a write route added later is
