@@ -271,10 +271,67 @@ def test_a_finished_trip_reports_where_it_went_and_what_it_cost(
     assert trip["split_total_vnd"] == DINNER_VND
     assert trip["expense_count"] == 1
     assert body["split_total_vnd"] == DINNER_VND
-    # Law 1: integer đồng end to end. `520000.0` would still read as money on a
-    # screen, which is why this is asserted on the type and not on the value.
+    # The wire shape, and only the wire shape. These two cannot catch a
+    # `Decimal` leaving the driver: `split_total_vnd` is declared `int` on the
+    # response model, so pydantic has already coerced it by the time there is a
+    # body to read. Law 1 is proved against the repository instead, in
+    # `test_every_recap_money_figure_arrives_as_a_python_int` below.
     assert isinstance(trip["split_total_vnd"], int)
     assert isinstance(body["split_total_vnd"], int)
+
+
+def test_every_recap_money_figure_arrives_as_a_python_int(
+    postgres_session: Session, monkeypatch: pytest.MonkeyPatch
+):
+    """Law 1, asserted at the boundary that actually breaks it.
+
+    Item 3 of this module's docstring says only a real driver can prove the
+    `Decimal` case. Until this case existed, this file did not prove it. Every
+    other Law 1 assertion here reads `split_total_vnd` out of the HTTP body,
+    and the response model declares that field `int`, so pydantic coerces
+    `Decimal("520000")` to `520000` before any assertion runs. Deleting the
+    `int(...)` cast in `SqlAlchemyApiRepository.group_recap` left all sixteen
+    cases in this file green; the only thing that went red was a *different*
+    feature's test, raising `suggestion_history_not_integer_dong` from the
+    domain guard that the recap basis feeds.
+
+    So this reads the repository return value, which nothing has laundered.
+    `type(...) is int` and not `isinstance`: the value stays right while the
+    type goes wrong -- `Decimal("520000") == 520000` is true, which is exactly
+    why every value assertion in this file survives the bug.
+    """
+
+    app = _app(postgres_session, monkeypatch)
+    context, owner = _group(postgres_session)
+    friend = _person(postgres_session, "Quang Huy")
+    postgres_session.add(
+        Membership(
+            id=uuid.uuid4(),
+            context_id=context.id,
+            person_id=friend.id,
+            state=MembershipState.ACTIVE,
+            role=MembershipRole.MEMBER,
+            joined_at=NOW,
+        )
+    )
+    postgres_session.flush()
+    _outing(postgres_session, context, owner)
+    _split(app, context, owner, [friend], occurred_at="2030-08-22T19:00:00+07:00")
+
+    # NOW is 2030-08-27T12:00Z, i.e. the Vietnamese day the route would compute.
+    (trip,) = SqlAlchemyApiRepository(postgres_session).group_recap(
+        context.id, today=date(2030, 8, 27)
+    )
+
+    assert trip.split_total_vnd == DINNER_VND
+    assert type(trip.split_total_vnd) is int, (
+        f"split_total_vnd came back as {type(trip.split_total_vnd).__name__}: "
+        f"{trip.split_total_vnd!r}"
+    )
+    assert type(trip.expense_count) is int, (
+        f"expense_count came back as {type(trip.expense_count).__name__}: "
+        f"{trip.expense_count!r}"
+    )
 
 
 def test_a_supper_after_midnight_stays_on_its_vietnamese_day(
