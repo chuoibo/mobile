@@ -239,5 +239,105 @@ class ComposeProjectNameTests(unittest.TestCase):
         self.assertNotIn("variable is not set", result.stderr)
 
 
+class CaseFoldGapTests(MakeHarness):
+    """Compose lower-cases a project name; `make` used to hand it over as typed.
+
+    That gap turns the confirmation guard into decoration. `make` would print
+    `QA47`, demand `CONFIRM=QA47`, pass `-p QA47` -- and Compose would act on
+    `qa47`, a *different* stack that some other lane is working against. The
+    command is told to destroy A and destroys B, and every string the user was
+    shown along the way agreed with itself.
+    """
+
+    def test_uppercase_confirmed_verbatim_destroys_nothing(self):
+        """The exact keystrokes that used to delete somebody else's database.
+
+        A lane holds a stack named `qa47`. Someone types the name in caps and
+        confirms in caps -- which the old guard accepted, because it only ever
+        compared its own un-folded string against itself.
+        """
+
+        result = self.run_make("clean", MOBILE_PROJECT="QA47", CONFIRM="QA47")
+
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNothingDestroyed()
+
+    def test_the_name_clean_asks_for_is_the_name_it_passes_to_compose(self):
+        """Confirmation is only a guard if it names the thing that dies."""
+
+        result = self.run_make("clean", MOBILE_PROJECT="QA47", CONFIRM="qa47")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertComposeCalled("-p qa47 down -v")
+        self.assertEqual(
+            [call for call in self.compose_calls() if "-p QA47" in call],
+            [],
+            "make passed a project name Compose would have silently re-spelled",
+        )
+
+    def test_refusal_names_the_folded_project_so_the_retry_is_correct(self):
+        """Telling the user to type `QA47` sends them back into the same trap."""
+
+        result = self.run_make("clean", MOBILE_PROJECT="QA47")
+        text = result.stdout + result.stderr
+
+        self.assertIn("qa47", text)
+        self.assertNotIn("CONFIRM=QA47", text)
+
+    def test_compose_project_name_env_var_is_folded_too(self):
+        """The other way in to the same variable has the same hazard."""
+
+        result = self.run_make(
+            "clean", COMPOSE_PROJECT_NAME="QA47", CONFIRM="QA47"
+        )
+
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNothingDestroyed()
+
+
+@unittest.skipUnless(
+    _docker_compose_available(),
+    "docker compose not available -- case folding unverified against the real thing",
+)
+class CaseFoldMatchesComposeTests(unittest.TestCase):
+    """Only Compose can settle what Compose does to an upper-case name.
+
+    The stub above asserts `make` folds. This asserts it folds *the same way*
+    Compose does -- otherwise both halves are self-consistent and still wrong.
+    """
+
+    def test_make_and_compose_agree_on_an_uppercase_project(self):
+        env = dict(os.environ)
+        env.pop("COMPOSE_PROJECT_NAME", None)
+        env["MOBILE_PROJECT"] = "GATE60TDD"
+
+        rendered = subprocess.run(
+            ["docker", "compose", "config", "--format", "json"],
+            cwd=REPO_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        self.assertEqual(rendered.returncode, 0, rendered.stderr)
+        compose_name = json.loads(rendered.stdout)["name"]
+
+        printed = subprocess.run(
+            ["make", "help", "COMPOSE=/bin/true", "MOBILE_PROJECT=GATE60TDD"],
+            cwd=REPO_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        self.assertEqual(printed.returncode, 0, printed.stderr)
+
+        self.assertIn(
+            compose_name,
+            printed.stdout,
+            f"make never printed the project Compose resolves ({compose_name!r})",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

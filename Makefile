@@ -22,7 +22,12 @@ COMPOSE ?= docker compose
 # compose (COMPOSE_PROJECT_NAME đè lên `name:` trong file), nên con số `make`
 # in ra và con số docker thật sự dùng không bao giờ lệch nhau.
 MOBILE_PROJECT ?= mobile-local
-PROJECT := $(if $(COMPOSE_PROJECT_NAME),$(COMPOSE_PROJECT_NAME),$(MOBILE_PROJECT))
+# Fold to lower case the way Compose itself does. Without this, `make` prints
+# and confirms the name as typed while Compose quietly acts on the folded one:
+# `MOBILE_PROJECT=QA47 make clean CONFIRM=QA47` passed `-p QA47` and destroyed
+# `qa47`, a different lane's stack. A destructive command has to name the thing
+# it destroys, and the only way to be sure is to do the folding here.
+PROJECT := $(shell printf '%s' '$(if $(COMPOSE_PROJECT_NAME),$(COMPOSE_PROJECT_NAME),$(MOBILE_PROJECT))' | tr 'A-Z' 'a-z')
 export MOBILE_PROJECT
 
 # `-p` truyền thẳng, không dựa vào việc compose đọc được biến môi trường. Một
