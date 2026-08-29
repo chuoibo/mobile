@@ -37,7 +37,7 @@ import {
   saveBankRecipient,
 } from "../../dist-test/api.js";
 import { khoiDongNhom } from "../../dist-test/screens/chat/nhom.js";
-import { DEMO_PEOPLE } from "../../dist-test/navigation/nhom-demo.js";
+import { DEMO_PEOPLE, personById } from "../../dist-test/navigation/nhom-demo.js";
 
 /* Ba người này là thành viên THẬT của một nhóm THẬT, không phải id bịa ra.
  *
@@ -64,11 +64,34 @@ function tenCuaNguoi(personId, displayName) {
 }
 
 /**
- * Open the demo group and return its active roster.
+ * Open the demo group and return the three people this bill is split between.
  *
  * Throws rather than returning a failure state: every assertion below depends
  * on this, and a slice that carried on with an empty roster would report a
  * green split of nothing among nobody.
+ *
+ * The three are picked BY NAME out of the roster, not taken as "whatever the
+ * roster happens to hold". That distinction is the difference between a test
+ * that runs on this machine and a test that runs on the machine the demo
+ * happens on:
+ *
+ *   - `khoiDongNhom` creates-or-REPLAYS one group under a fixed idempotency
+ *     key, by design, so that chat, Lên plan and the expense flow all land in
+ *     the same "Team Đà Lạt". On a database where `seed_demo_data.py` has run,
+ *     that group already holds the seeded seven. Asking the roster for its
+ *     length there answers 7, or 9 once anyone has invited a friend.
+ *   - A bill is split between the people ON the bill, never between everyone
+ *     in the group. `_require_participants_are_members` agrees: it asks that
+ *     each participant BE an active member, not that the two sets be equal.
+ *     A test that demanded equality was asserting a rule the server does not
+ *     have, and the only way to keep it true was an empty database.
+ *
+ * So the count assertion is gone and a per-person one replaced it, which is
+ * strictly the stronger check: three active members who are the WRONG three
+ * satisfied `length === 3` and fail here. The old assertion's real content --
+ * that the invite-and-accept round actually put `trang` and `ngoc` in the
+ * group -- is still enforced, one named person at a time, and now says which
+ * one is missing instead of printing a number.
  */
 async function moNhom() {
   let state = null;
@@ -80,14 +103,21 @@ async function moNhom() {
       );
     }
   }
-  const nguoi = state.members
-    .filter((m) => m.state === "active")
-    .map((m) => ({ id: m.personId, name: tenCuaNguoi(m.personId, m.displayName) }));
-  assert.equal(
-    nguoi.length,
-    SLUGS.length,
-    `nhom co ${nguoi.length} thanh vien active, cho doi ${SLUGS.length}`,
+  const active = new Map(
+    state.members.filter((m) => m.state === "active").map((m) => [m.personId, m]),
   );
+  const nguoi = SLUGS.map((slug) => {
+    const person = personById(slug);
+    assert.ok(person, `khong co nguoi "${slug}" trong nhom demo`);
+    const thanhVien = active.get(person.personId);
+    assert.ok(
+      thanhVien,
+      `${person.name} (${person.personId}) khong phai thanh vien ACTIVE cua nhom ` +
+        `${state.contextId} -- roster active dang co ${active.size} nguoi. ` +
+        `May chu se tu choi ghi tien cho ho voi participant_not_in_context.`,
+    );
+    return { id: person.personId, name: tenCuaNguoi(person.personId, thanhVien.displayName) };
+  });
   return { contextId: state.contextId, nguoi };
 }
 
@@ -103,6 +133,56 @@ async function serverIsUp() {
   } catch {
     return false;
   }
+}
+
+/**
+ * Whether this person already has a bank destination on the server.
+ *
+ * Read rather than assumed: the tail of the slice below depends on the answer
+ * and the two kinds of database this file can be pointed at disagree about it.
+ * A fresh one says no; one where `scripts/seed_demo_data.py` has run says yes.
+ */
+async function daCoTaiKhoanNhan(personId) {
+  const res = await fetch(`${BASE_URL}/people/${personId}/bank-recipient`, {
+    headers: { "X-Actor-ID": personId, "X-Actor-Roles": "group_admin,member" },
+  });
+  if (res.status === 404) return false;
+  if (!res.ok) {
+    assert.fail(`khong doc duoc nguoi nhan cua ${personId}: HTTP ${res.status}`);
+  }
+  return true;
+}
+
+/**
+ * Refuse to run against a database that already holds somebody's data.
+ *
+ * Said out loud here, before the first write, rather than discovered 200 lines
+ * later. Two steps below only hold on a database nobody has used:
+ *
+ *   - the server's refusal to open a batch for an advancer with no bank
+ *     destination (section 8.4). Where the advancer already has one, that
+ *     assertion stops testing anything at all;
+ *   - `saveBankRecipient`, which REPLACES the destination already on file. On
+ *     the seeded demo group that overwrites a real demo account
+ *     ("MINH - DU LIEU DEMO", VietinBank) with this file's synthetic one --
+ *     a test quietly damaging the demo somebody else is about to give.
+ *
+ * `scripts/e2e_slice.sh` provisions a throwaway PostgreSQL for exactly this
+ * reason, and is how `make gate ONLY=e2e` runs this file, so the gate always
+ * takes the fresh-database branch and the refusal above is always exercised
+ * there. Pointing `EXPO_PUBLIC_API_URL` at the shared 8099 stack by hand is
+ * the case this guard catches.
+ *
+ * A failure and not a skip, on this file's own rule: a skip reads like a pass.
+ */
+async function doiDatabaseSach(nguoiUngTien) {
+  if (!(await daCoTaiKhoanNhan(nguoiUngTien.id))) return;
+  assert.fail(
+    `${nguoiUngTien.name} da co tai khoan nhan tien tren ${BASE_URL}, nen day la ` +
+      `mot database DA CO DU LIEU. Lat cat doc se ghi de len tai khoan do va ` +
+      `bo qua cong "nguoi nhan chua san sang". Chay 'scripts/e2e_slice.sh' ` +
+      `(hoac 'make gate ONLY=e2e') -- no tu dung mot PostgreSQL dung mot lan.`,
+  );
 }
 
 /** Set to anything non-empty when a skip must be read as a failure. */
@@ -141,6 +221,7 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
   // creator. Named off the roster rather than hard-coded so this keeps working
   // if the demo group's first member ever changes.
   const ungTien = nguoi.find((n) => n.name === "Minh") ?? nguoi[0];
+  await doiDatabaseSach(ungTien);
   const draft = {
     participants: nguoi,
     totalVnd: 300_000,

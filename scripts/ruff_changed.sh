@@ -51,11 +51,30 @@ head="${2:-}"
 # A gate that cannot find its tools must say so. Skipping here would report
 # green for a check that never ran, which is the failure mode this file exists
 # to remove -- not one to reproduce.
-if ! command -v ruff >/dev/null 2>&1; then
-  echo "::error::ruff is not installed -- refusing to report a check that did not run" >&2
-  echo "install it with: pip install -r services/api/requirements-dev.txt" >&2
-  exit 2
-fi
+#
+# And the tool has to be the RIGHT one. This used to take whatever `ruff` was
+# first on PATH, which on a developer machine is whatever their editor
+# installed. Measured 2026-08-30 over the 320 tracked Python files: the pinned
+# ruff 0.9.2 reports 31 findings, this machine's 0.15.15 reports 30, and the
+# one it cannot see is UP038 -- a rule later ruff REMOVED -- on
+# services/api/app/domain/place_search.py:105. So editing that file got ĐẠT
+# locally and would get HỎNG from CI. `scripts/ruff_pinned.sh` resolves the pin
+# and provisions it when absent; it exits 2 rather than hand back a different
+# version, because a verdict from the wrong tool is not the verdict.
+#
+# Resolved below rather than here, after the two early exits: `--list` answers
+# a question about files and a docs-only change has nothing to lint, and
+# neither should have to build a linter first.
+# Parameter expansion and two builtins, deliberately: `dirname` is an external
+# command, and tests/test_ruff_changed.py runs this with a PATH holding nothing
+# but bash and git to prove a toolless runner goes red. Calling `dirname` there
+# made this line silently produce the wrong directory instead of the honest
+# "cannot get the pinned ruff" -- a resolution bug hiding inside the very check
+# meant to catch missing tools. `cd` and `pwd` are builtins and need no PATH.
+_here="${BASH_SOURCE[0]%/*}"
+[ "$_here" = "${BASH_SOURCE[0]}" ] && _here="."
+RUFF_PINNED="$(cd "$_here" && pwd)/ruff_pinned.sh"
+unset _here
 
 if ! git rev-parse --verify --quiet "${base}^{commit}" >/dev/null; then
   echo "::error::cannot resolve base ref '${base}'" >&2
@@ -122,6 +141,17 @@ if [ "${#files[@]}" -eq 0 ]; then
   exit 0
 fi
 
+if ! RUFF="$("$RUFF_PINNED")"; then
+  echo "::error::không lấy được bản ruff đã ghim -- từ chối chấm bằng bản khác" >&2
+  exit 2
+fi
+
+# Named out loud on every run. The previous version printed the mismatch as a
+# CHÚ Ý inside gate.sh and passed anyway; saying which binary produced the
+# verdict is what makes the verdict checkable after the fact.
+_v="$("$RUFF" --version)"; _v="${_v#* }"
+echo "ruff ${_v%% *} (bản ghim) tại $RUFF"
+unset _v
 echo "ruff over ${#files[@]} changed Python file(s):"
 printf '  %s\n' "${files[@]}"
 
@@ -130,10 +160,10 @@ printf '  %s\n' "${files[@]}"
 status=0
 
 echo "--- ruff check ---"
-ruff check --no-cache "${files[@]}" || status=1
+"$RUFF" check --no-cache "${files[@]}" || status=1
 
 echo "--- ruff format --check ---"
-ruff format --check --no-cache "${files[@]}" || status=1
+"$RUFF" format --check --no-cache "${files[@]}" || status=1
 
 if [ "$status" -ne 0 ]; then
   echo "::error::ruff rejected files this change touches -- fix them, or narrow the change"
