@@ -26,6 +26,15 @@ const MOBILE_ROOT = path.resolve(HERE, "..");
 const API_BASE = "http://api.build-check.invalid";
 
 export const STEPS = [
+  // The screen the app opens on, and for most of its life the only screen in
+  // this walk that was pressed through rather than looked at: `drive` clicked
+  // "Bỏ qua" as its first act and the first file written was the viewfinder.
+  // Nothing said so. The tab gate in `tests/quet-du-tab.test.mjs` cannot say
+  // so either -- it checks `tabs.ts`, and `MoDau` is not a tab, so it fell
+  // through the one gate built to catch exactly this. A missing screen and a
+  // clean screen produce the same green, and this was the missing one on the
+  // screen every demo starts on.
+  "mo-dau",
   "chup-bill",
   "ket-qua",
   "goi-y",
@@ -88,6 +97,31 @@ const THEM_CHO_DONG = ["Ngọc", "Đức", "Linh"];
  * a detector scan, and must not be described as one.
  */
 export const EXTRA = ["goi-y-dong"];
+
+/**
+ * Waypoints the walk stops on without capturing, each with the reason.
+ *
+ * `mo-dau` is why this exists. It was a waypoint like these two -- `drive`
+ * paused on it, pressed a button, and moved on -- and because nothing
+ * required a waypoint to be either captured or explained, the screen the
+ * whole demo opens on went unscanned for its entire life and no output
+ * anywhere said a screen was missing.
+ *
+ * So a reason in a comment is no longer enough. `tests/di-qua-hay-chup.test.mjs`
+ * reads the `step = "..."` assignments out of `drive` and requires every one of
+ * them to appear in `STEPS`, in `EXTRA`, or here. Adding a stop to the walk now
+ * forces the choice to be written down, and the cost of skipping a screen is
+ * that somebody has to type why.
+ *
+ * A named exclusion is evidence of intent, not of coverage: these two screens
+ * are unmeasured, and this list is the record of that, not a dismissal of it.
+ */
+export const PASS_THROUGH = {
+  "vao-app": "Vỏ tab đáp xuống Khám phá — chụp ở tools/tab-snapshots.mjs (step kham-pha).",
+  "menu-tao":
+    "Sheet [+] là Modal animationType=\"slide\"; gỡ script làm nó đứng ở khung đầu và " +
+    "vẽ ra tấm trong suốt, nên bản chụp HTML sẽ sạch vì rỗng chứ không vì đẹp.",
+};
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -611,6 +645,14 @@ async function drive(page, outDir, jpegPath) {
   // Driving it rather than deep-linking is deliberate: this is the only place
   // that checks the shell actually hands over to these screens, which is
   // exactly what the rebase could have silently broken.
+  // Captured before anything is pressed, because pressing is what destroys it.
+  // The needle is the tagline rather than the wordmark: "Rủ Đi" is also the
+  // header of the shell this screen hands over to, so it would still be found
+  // one screen too late.
+  step = "mo-dau";
+  await waitForScreen(page, step, "AI đi chơi, chia bill thông minh");
+  await snapshot(page, outDir, step);
+
   step = "vao-app";
   await clickAria(page, "Bỏ qua, vào app mà chưa chọn người");
   await waitForScreen(page, step, "Khám phá");
