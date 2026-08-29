@@ -38,6 +38,7 @@ from app.api.routes import (
     receipts,
 )
 from app.api.schemas import ErrorResponse
+from app.api.search_rate_limit import build_search_limiter
 from app.db.session import get_session_factory
 
 WEB_ROOT = pathlib.Path(__file__).resolve().parents[1] / "web"
@@ -63,6 +64,12 @@ def create_app(
     idempotency_in_flight_wait_seconds: float | None = None,
 ) -> FastAPI:
     application = FastAPI(title="Group Expense API", version="0.1.0")
+
+    # Per application, not per module: `POST /places/search` spends real model
+    # quota, and the window that caps it has to outlive a request while not
+    # outliving the app that owns it. See `app/api/search_rate_limit.py`.
+    application.state.search_limiter = build_search_limiter()
+
     application.mount(
         "/static",
         StaticFiles(directory=str(WEB_ROOT / "static")),

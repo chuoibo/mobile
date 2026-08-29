@@ -17,9 +17,11 @@ from __future__ import annotations
 import logging
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field, field_validator
 
+from app.api.deps import Actor, get_actor
+from app.api.search_rate_limit import FixedWindowLimiter
 from app.domain.place_search import PlaceSearchError, ground_search
 from app.places.catalog import CATEGORIES, GROUP, PLACES, GroupProfile
 from app.places.reasons import (
@@ -197,6 +199,17 @@ def get_reason_writer():
     return cached_gemini_reasons
 
 
+def get_search_rate_limiter(request: Request) -> FixedWindowLimiter:
+    """Seam for tests, resolving the one object `create_app` built.
+
+    Read off the application rather than constructed here: a limiter built per
+    request counts to one and forgets, which is a limiter-shaped object that
+    limits nothing.
+    """
+
+    return request.app.state.search_limiter
+
+
 def get_place_searcher():
     """Seam for tests, and deliberately not memoised like the reason writer.
 
@@ -356,6 +369,8 @@ def list_places(
 @router.post("/places/search", response_model=PlaceSearchResponse)
 def search_places(
     request: PlaceSearchRequest,
+    actor: Annotated[Actor, Depends(get_actor)],
+    limiter: Annotated[FixedWindowLimiter, Depends(get_search_rate_limiter)],
     place_searcher: Annotated[Any, Depends(get_place_searcher)],
 ) -> PlaceSearchResponse:
     """F12 -- "quán nướng ngoài trời cho 6 người dưới 300k" becomes real places.
@@ -370,7 +385,19 @@ def search_places(
     `source: "none"`. There is deliberately no fallback to the keyword matching
     `GET /places` does, because a plausible list served while the feature is
     broken is a broken feature that nobody can see is broken.
+
+    Signed in, and metered (rd-be-13). Unlike every other route here, `actor`
+    authorises nothing: there is no aggregate to own and no row to hide, and
+    QA established structurally at rd-qa-18 that this handler has no path to
+    anybody else's data. What identity buys is a **meter**. The call costs
+    real Gemini quota, and open and uncounted it could be drained by a loop --
+    a failure that surfaces not as an alert but as search silently not working
+    for everyone at once. `get_actor` stops the anonymous caller; the window
+    stops the caller who merely invented a UUID, which in this slice is the
+    same person one header later.
     """
+
+    limiter.check(actor.id)
 
     query = request.query
     unavailable = PlaceSearchResponse(
