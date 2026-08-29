@@ -53,6 +53,19 @@ const THAN = [
   },
 ];
 
+/* The three refusals that carry no server body at all (bug-191433). They are on
+ * this page for the opposite reason the four above are: those got longer, these
+ * are the longest copy on the screen *without* an excerpt to blame, because the
+ * whole point of them is that the app explains the situation in its own words
+ * instead of forwarding `authentication_required` or the limiter's sentence. A
+ * paragraph of Vietnamese with no `Chi tiết:` line under it is a different
+ * shape to measure -- line length and card rhythm, not overflow from a blob. */
+const KHONG_CO_THAN = [
+  { kind: "chua-biet-la-ai" },
+  { kind: "bi-tu-choi", url: `${BASE}/places/search` },
+  { kind: "qua-nhieu-lan", query: "quán nướng ngoài trời cho 6 người dưới 300k" },
+];
+
 function Trang() {
   return React.createElement(
     Screen,
@@ -75,6 +88,9 @@ function Trang() {
           state: { kind: "may-chu-loi", url: `${BASE}/places`, ...t },
         }),
       ]),
+      KHONG_CO_THAN.map((state, i) =>
+        React.createElement(TimKhongDuoc, { key: `gate-${i}`, state, baseUrl: BASE }),
+      ),
     ),
   );
 }

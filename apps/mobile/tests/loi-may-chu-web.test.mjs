@@ -153,6 +153,54 @@ test("thân dài bị cắt, không đổ cả traceback ra màn", () => {
   assert.match(html, /…/);
 });
 
+/* ------------------------- ba cửa chặn không mượn lời máy chủ (bug-191433) - */
+
+test("cửa chặn actor và cửa đếm lượt nói bằng tiếng Việt, không mượn thân máy chủ", () => {
+  const truong = [
+    { state: { kind: "chua-biet-la-ai" }, phai: /Chưa biết bạn là ai/ },
+    {
+      state: { kind: "bi-tu-choi", url: "http://api.test.invalid/places/search" },
+      phai: /Máy chủ chưa nhận ra bạn/,
+    },
+    { state: { kind: "qua-nhieu-lan", query: "lẩu bò" }, phai: /Bạn vừa tìm hơi nhiều/ },
+  ];
+
+  for (const { state, phai } of truong) {
+    const html = words(
+      React.createElement(TimKhongDuoc, { state, baseUrl: "http://api.test.invalid" }),
+    );
+    assert.match(html, phai);
+    // Không có nhãn "Chi tiết:" vì không có thân nào để trích. Đây là điểm khác
+    // hẳn nhánh `may-chu-loi`: ba trạng thái này app tự viết từ đầu tới cuối.
+    assert.equal(/Chi tiết/.test(html), false, `nhãn trích rỗng: ${html}`);
+    // Và không chữ máy nào của máy chủ đi lọt.
+    for (const may of ["authentication_required", "search_rate_limited", "Too many searches"]) {
+      assert.equal(html.includes(may), false, `mã máy lên màn: ${may} trong ${html}`);
+    }
+  }
+});
+
+test("hai trạng thái không gọi mạng thì không in địa chỉ đã thử", () => {
+  // "Đã thử: <url>" dưới một thẻ chưa hề gửi request nào là chỉ sai đường: nó
+  // đẩy người ta đi kiểm một máy chủ chưa ai hỏi.
+  for (const state of [{ kind: "chua-biet-la-ai" }, { kind: "qua-nhieu-lan", query: "q" }]) {
+    const html = words(
+      React.createElement(TimKhongDuoc, { state, baseUrl: "http://api.test.invalid" }),
+    );
+    assert.equal(/Đã thử/.test(html), false, `địa chỉ thừa: ${html}`);
+    assert.equal(html.includes("api.test.invalid"), false, `địa chỉ thừa: ${html}`);
+  }
+
+  // Còn 401/403 thì CÓ, vì lượt gọi đó có thật và địa chỉ là manh mối lệch bản.
+  const tuChoi = words(
+    React.createElement(TimKhongDuoc, {
+      state: { kind: "bi-tu-choi", url: "http://api.test.invalid/places/search" },
+      baseUrl: "http://api.test.invalid",
+    }),
+  );
+  assert.match(tuChoi, /Đã thử/);
+});
+
 /* ----------------------------------------------------- phép cắt, trực tiếp - */
 
 test("trichThanLoi bóc thẻ, gộp khoảng trắng, và cắt có dấu ba chấm", () => {
