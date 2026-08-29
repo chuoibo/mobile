@@ -53,6 +53,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.schema import CreateSchema, DropSchema
 
 from app.api.deps import get_repository
+from app.api.errors import RepositoryConflict
 from app.api.main import create_app
 from app.api.repository import SqlAlchemyApiRepository
 from app.api.service import OUTING_INVITE_TTL, token_digest
@@ -260,6 +261,143 @@ def test_an_outstanding_link_stops_working_once_it_expires(
     assert _membership_of(postgres_session, context, outsider) is None, (
         "Link quá hạn bị từ chối nhưng vẫn tạo membership"
     )
+
+
+def test_a_link_still_inside_its_window_redeems(
+    postgres_session: Session, monkeypatch: pytest.MonkeyPatch
+):
+    """The control the expiry cases are worthless without.
+
+    Every other case here asserts a refusal, and refusals all pass at once if
+    the deadline comparison is simply always true. This is the case that goes
+    red when the fix stops distinguishing links and starts rejecting the lot --
+    which is the shape a too-eager expiry bug actually has in production.
+
+    One second short of the deadline on purpose: an in-date link at the very
+    edge is the one a `<=`/`<` slip would get wrong.
+    """
+    monkeypatch.setattr("app.api.service._now", lambda: NOW)
+    context, owner, outsider = _scene(postgres_session)
+    app = _http(postgres_session)
+
+    async def mint():
+        async with _client(app) as client:
+            outing = await _make_outing(client, context, owner)
+            return await client.post(
+                f"/outings/{outing.json()['id']}/invites",
+                json={"source": "link"},
+                headers=_headers(owner.id),
+            )
+
+    minted = anyio.run(mint)
+    assert minted.status_code == 201, minted.text
+    token = minted.json()["invite_token"]
+
+    monkeypatch.setattr(
+        "app.api.service._now",
+        lambda: NOW + OUTING_INVITE_TTL - timedelta(seconds=1),
+    )
+
+    async def redeem():
+        async with _client(app) as client:
+            return await client.post(
+                f"/outing-invites/{token}/accept", headers=_headers(outsider.id)
+            )
+
+    redeemed = anyio.run(redeem)
+
+    assert redeemed.status_code == 200, (
+        "Link CHƯA hết hạn bị từ chối -- hạn dùng đang chặn nhầm tất cả. "
+        f"HTTP {redeemed.status_code}: {redeemed.text}"
+    )
+    # A 200 that wrote nothing would pass a status-code-only assertion.
+    membership = _membership_of(postgres_session, context, outsider)
+    assert membership is not None, "Redeem trả 200 nhưng không có membership nào"
+    # Still INVITED, not ACTIVE: the link buys a request, not entry (bug-141903).
+    assert membership.state == MembershipState.INVITED, membership.state
+
+
+def test_the_repository_refuses_an_expired_link_even_when_nothing_checked_first(
+    postgres_session: Session, monkeypatch: pytest.MonkeyPatch
+):
+    """The repository copy of the deadline, pinned on its own.
+
+    `ApiService` reads the invite WITHOUT a lock and checks it there; the
+    repository then re-checks while holding `FOR UPDATE`. Going through HTTP
+    can never tell those two apart -- the service refuses first, so the
+    repository's copy is never reached and deleting it leaves the suite green.
+
+    This calls the adapter directly with a clock past the deadline, which is
+    also the real TOCTOU story: the row can expire between the unlocked read
+    and the write.
+    """
+    monkeypatch.setattr("app.api.service._now", lambda: NOW)
+    context, owner, outsider = _scene(postgres_session)
+    app = _http(postgres_session)
+
+    async def mint():
+        async with _client(app) as client:
+            outing = await _make_outing(client, context, owner)
+            return await client.post(
+                f"/outings/{outing.json()['id']}/invites",
+                json={"source": "link"},
+                headers=_headers(owner.id),
+            )
+
+    minted = anyio.run(mint)
+    assert minted.status_code == 201, minted.text
+    invite_id = uuid.UUID(minted.json()["id"])
+
+    repository = SqlAlchemyApiRepository(postgres_session)
+
+    # A real person on purpose: with a made-up id, dropping the deadline check
+    # would blow up on the accepter foreign key, and the test would still go red
+    # while proving nothing about the deadline.
+    with pytest.raises(RepositoryConflict) as raised:
+        repository.accept_outing_invite(
+            invite_id=invite_id,
+            accepted_by_id=outsider.id,
+            now=NOW + OUTING_INVITE_TTL + timedelta(seconds=1),
+        )
+
+    assert raised.value.code == "OUTING_INVITE_NOT_REDEEMABLE", raised.value.code
+    invite = postgres_session.get(OutingInvite, invite_id)
+    assert invite is not None and invite.accepted_at is None, (
+        "Repository ném lỗi nhưng vẫn đóng dấu accepted_at"
+    )
+
+
+def test_the_repository_still_redeems_a_link_inside_its_window(
+    postgres_session: Session, monkeypatch: pytest.MonkeyPatch
+):
+    """Same control, one layer down: the adapter must not refuse everything."""
+    monkeypatch.setattr("app.api.service._now", lambda: NOW)
+    context, owner, outsider = _scene(postgres_session)
+    app = _http(postgres_session)
+
+    async def mint():
+        async with _client(app) as client:
+            outing = await _make_outing(client, context, owner)
+            return await client.post(
+                f"/outings/{outing.json()['id']}/invites",
+                json={"source": "link"},
+                headers=_headers(owner.id),
+            )
+
+    minted = anyio.run(mint)
+    assert minted.status_code == 201, minted.text
+    invite_id = uuid.UUID(minted.json()["id"])
+
+    repository = SqlAlchemyApiRepository(postgres_session)
+
+    accepted = repository.accept_outing_invite(
+        invite_id=invite_id,
+        accepted_by_id=outsider.id,
+        now=NOW + OUTING_INVITE_TTL - timedelta(seconds=1),
+    )
+
+    assert accepted.accepted_by_id == outsider.id
+    assert accepted.accepted_at is not None
 
 
 def test_a_revoked_link_stops_working_immediately(
