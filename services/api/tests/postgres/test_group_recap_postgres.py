@@ -476,3 +476,86 @@ def test_a_non_member_cannot_read_the_wall(
     body = response.text
     # A refusal must not leak what it is refusing access to.
     assert "Đà Lạt" not in body
+
+
+def test_a_member_who_left_can_no_longer_read_the_wall(
+    postgres_session: Session, monkeypatch: pytest.MonkeyPatch
+):
+    """Leaving takes the history with it, not just the next trip.
+
+    The stranger case above cannot catch this. A stranger has no `memberships`
+    row at all, so every clause in `is_member` refuses them and none of them is
+    load-bearing. Somebody who left has a row, and only the row's own columns
+    stand between them and the group's whole travel and spending history.
+
+    `state` and `left_at` move together here -- `memberships` carries a check
+    constraint saying `(state = 'left') = (left_at IS NOT NULL)`, so a departed
+    row that still looks open is not a row this schema can hold. That makes
+    `left_at IS NULL` the clause this case pins; the invited case below is what
+    pins `state = 'active'`.
+    """
+
+    app = _app(postgres_session, monkeypatch)
+    context, owner = _group(postgres_session)
+    _outing(postgres_session, context, owner)
+    _split(app, context, owner, [], occurred_at="2030-08-22T19:00:00+07:00")
+    gone = _person(postgres_session, "Đã rời nhóm")
+    postgres_session.add(
+        Membership(
+            id=uuid.uuid4(),
+            context_id=context.id,
+            person_id=gone.id,
+            state=MembershipState.LEFT,
+            role=MembershipRole.MEMBER,
+            joined_at=NOW,
+            left_at=NOW,
+        )
+    )
+    postgres_session.flush()
+
+    response = _recap(app, context, gone)
+
+    assert response.status_code == 403, response.text
+    body = response.text
+    # Not just "no trips": the refusal must not name the trip, and must not
+    # carry the total the group split on it.
+    assert "Đà Lạt" not in body
+    assert str(DINNER_VND) not in body
+
+
+def test_an_invited_member_cannot_read_the_wall_yet(
+    postgres_session: Session, monkeypatch: pytest.MonkeyPatch
+):
+    """Being added to a group is not the same as being in it.
+
+    `INVITED` exists because membership is something that happens to you, and a
+    boundary somebody was placed inside without agreeing is not one. The row is
+    open -- `left_at` is NULL, as the check constraint requires for any state
+    that is not `left` -- so `state = 'active'` is the only clause refusing this
+    read. Drop it from `is_member` and this case is the one that goes red.
+    """
+
+    app = _app(postgres_session, monkeypatch)
+    context, owner = _group(postgres_session)
+    _outing(postgres_session, context, owner)
+    _split(app, context, owner, [], occurred_at="2030-08-22T19:00:00+07:00")
+    pending = _person(postgres_session, "Chưa nhận lời")
+    postgres_session.add(
+        Membership(
+            id=uuid.uuid4(),
+            context_id=context.id,
+            person_id=pending.id,
+            state=MembershipState.INVITED,
+            role=MembershipRole.MEMBER,
+            invited_by_id=owner.id,
+            joined_at=None,
+        )
+    )
+    postgres_session.flush()
+
+    response = _recap(app, context, pending)
+
+    assert response.status_code == 403, response.text
+    body = response.text
+    assert "Đà Lạt" not in body
+    assert str(DINNER_VND) not in body
