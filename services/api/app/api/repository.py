@@ -259,7 +259,10 @@ class FinanceMovement:
     counterparty_id: uuid.UUID
     counterparty_name: str | None
     context_id: uuid.UUID
-    context_name: str
+    #: `None` when the group id on the batch has no `contexts` row behind it.
+    #: That is a reachable state, not a broken one: the column is not a foreign
+    #: key and the expense flow never creates the group it posts against.
+    context_name: str | None
     #: What the money was for -- the description of the expense the obligation
     #: was built from. `None` when the sources carry no description.
     occasion: str | None
@@ -2273,7 +2276,7 @@ class SqlAlchemyApiRepository:
     ) -> PersonFinanceSummary:
         """Recompute one person's standing from the ledger. No stored totals.
 
-        Read in four passes rather than one join because they answer four
+        Read in several passes rather than one join because they answer
         different questions and a single query would have to pick one grain.
         Allocations are per expense version; obligations are per sender pair;
         joining them multiplies rows and quietly doubles money -- which is the
@@ -2282,30 +2285,60 @@ class SqlAlchemyApiRepository:
         """
         person = self.session.get(Person, person_id)
 
+        # Only the newest version of each expense counts. Corrections write a
+        # new version rather than overwriting, so an unfiltered sum adds the
+        # mistake to the fix -- the first draft of this method reported a
+        # corrected 100k dinner as 200k, and a wrong total still reads as a
+        # total. Same shape as the subquery `load_batch_inputs` already uses.
+        newest = (
+            select(
+                ExpenseVersion.expense_id.label("expense_id"),
+                func.max(ExpenseVersion.version_number).label("version_number"),
+            )
+            .group_by(ExpenseVersion.expense_id)
+            .subquery()
+        )
+        current_allocations = (
+            select(
+                ConfirmedAllocation.amount_vnd.label("amount_vnd"),
+                ExpenseVersion.expense_id.label("expense_id"),
+                ExpenseVersion.paid_by_id.label("paid_by_id"),
+            )
+            .select_from(ConfirmedAllocation)
+            .join(
+                ExpenseVersion,
+                ExpenseVersion.id == ConfirmedAllocation.expense_version_id,
+            )
+            .join(
+                newest,
+                (newest.c.expense_id == ExpenseVersion.expense_id)
+                & (newest.c.version_number == ExpenseVersion.version_number),
+            )
+            .where(ConfirmedAllocation.participant_id == person_id)
+            .subquery()
+        )
+
         # Spend: this person's own share of every confirmed expense. Invariant
         # 3 in one query -- nothing is read from a balance column because
         # there is no balance column.
-        spend_vnd = (
+        #
+        # `int(...)` rather than the driver's own answer: PostgreSQL sums a
+        # bigint column as `numeric`, which psycopg hands back as `Decimal`.
+        # Law 1 of this product is integer đồng end to end, and a Decimal that
+        # escapes here reaches JSON as `200000.0`.
+        spend_vnd = int(
             self.session.scalar(
-                select(func.coalesce(func.sum(ConfirmedAllocation.amount_vnd), 0)).where(
-                    ConfirmedAllocation.participant_id == person_id
-                )
+                select(func.coalesce(func.sum(current_allocations.c.amount_vnd), 0))
             )
             or 0
         )
-        expense_count = (
+        expense_count = int(
             self.session.scalar(
-                select(func.count(func.distinct(ExpenseVersion.expense_id)))
-                .select_from(ConfirmedAllocation)
-                .join(
-                    ExpenseVersion,
-                    ExpenseVersion.id == ConfirmedAllocation.expense_version_id,
-                )
-                .where(ConfirmedAllocation.participant_id == person_id)
+                select(func.count(func.distinct(current_allocations.c.expense_id)))
             )
             or 0
         )
-        group_count = (
+        group_count = int(
             self.session.scalar(
                 select(func.count(Membership.id)).where(
                     Membership.person_id == person_id,
@@ -2315,44 +2348,50 @@ class SqlAlchemyApiRepository:
             or 0
         )
 
-        # Outstanding: obligations this person has been *told about*. A batch
-        # still accruing or merely frozen has not reached them, and billing
-        # somebody for a round nobody has sent is how a demo shows a debt that
-        # does not exist yet.
-        announced = (
-            CollectionBatchStatus.PUBLISHED,
-            CollectionBatchStatus.COLLECTING,
-            CollectionBatchStatus.COMPLETED,
-            CollectionBatchStatus.CLOSED_WITH_EXCEPTIONS,
+        # What this person owes is decided at confirmation, not at publication.
+        #
+        # This used to read only obligations inside an announced batch, on the
+        # argument that a round nobody has sent is not yet a debt. That is
+        # wrong in the one moment this screen exists for: between splitting a
+        # bill and sending the round, the share is owed and nobody has paid
+        # anything -- and because `settled` is the remainder, the whole of a
+        # just-split dinner showed up under *Đã thanh toán*. The demo path ends
+        # on this screen, so the state it passes through is the state a viewer
+        # sees.
+        #
+        # A share is owed when somebody else fronted it. The payer's own share
+        # is spend and never debt: they handed the money to the restaurant, and
+        # no obligation row is ever written against them for it -- which is
+        # exactly why a query starting from obligations cannot tell the two
+        # apart.
+        owed_vnd = int(
+            self.session.scalar(
+                select(func.coalesce(func.sum(current_allocations.c.amount_vnd), 0)).where(
+                    current_allocations.c.paid_by_id != person_id
+                )
+            )
+            or 0
         )
-        sent_rows = self.session.execute(
-            select(CollectionObligation.id, CollectionObligation.amount_vnd)
-            .join(
-                CollectionBatchVersion,
-                CollectionBatchVersion.id == CollectionObligation.batch_version_id,
+        # Settled by arrival, never by self-report. A `PaymentReport` is the
+        # sender saying they transferred; `ReceiptConfirmation` is the other
+        # side saying it arrived. Counting reports would let anybody clear
+        # their own debt by pressing a button.
+        paid_vnd = int(
+            self.session.scalar(
+                select(func.coalesce(func.sum(ReceiptConfirmation.amount_vnd), 0))
+                .select_from(ReceiptConfirmation)
+                .join(
+                    CollectionObligation,
+                    CollectionObligation.id == ReceiptConfirmation.obligation_id,
+                )
+                .where(CollectionObligation.sender_id == person_id)
             )
-            .join(
-                CollectionBatch,
-                CollectionBatch.id == CollectionBatchVersion.batch_id,
-            )
-            .where(
-                CollectionObligation.sender_id == person_id,
-                CollectionBatch.status.in_(announced),
-            )
-        ).all()
-
-        outstanding_vnd = 0
-        for obligation_id, amount_vnd in sent_rows:
-            # Status comes from the one function that derives it, never from a
-            # second copy of the rule living here. `partially_confirmed` still
-            # owes the remainder, so the confirmed part is subtracted rather
-            # than the whole obligation being counted either way.
-            confirmations = self._receipt_amounts(obligation_id)
-            status = obligation_status(
-                amount_vnd, [{"amount_vnd": value} for value in confirmations]
-            )
-            if status in ("outstanding", "partially_confirmed"):
-                outstanding_vnd += amount_vnd - sum(confirmations)
+            or 0
+        )
+        # Clamped: an over-confirmation is a real state the ledger permits, and
+        # it must not turn into a negative debt that then inflates `settled`
+        # past what was ever spent.
+        outstanding_vnd = max(0, owed_vnd - paid_vnd)
 
         return PersonFinanceSummary(
             person_id=person_id,
@@ -2391,7 +2430,14 @@ class SqlAlchemyApiRepository:
                 CollectionBatchVersion.id == CollectionObligation.batch_version_id,
             )
             .join(CollectionBatch, CollectionBatch.id == CollectionBatchVersion.batch_id)
-            .join(Context, Context.id == CollectionBatch.context_id)
+            # OUTER, and this is not defensive padding. `collection_batches`
+            # .context_id carries no foreign key into `contexts`, and nothing
+            # in the vertical slice writes a context row -- the app posts
+            # expenses against a fixed synthetic group id that only
+            # `POST /contexts` would ever create. An inner join therefore
+            # dropped every movement for the app's own group and returned an
+            # empty list that looked exactly like "no transactions yet".
+            .outerjoin(Context, Context.id == CollectionBatch.context_id)
             .where(
                 (CollectionObligation.sender_id == person_id)
                 | (CollectionObligation.recipient_id == person_id)

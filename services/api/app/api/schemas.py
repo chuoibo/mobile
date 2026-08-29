@@ -256,7 +256,7 @@ class FinanceMovementView(ApiModel):
     counterparty_id: UUID
     counterparty_name: StrictStr | None
     context_id: UUID
-    context_name: StrictStr
+    context_name: StrictStr | None
     occasion: StrictStr | None
     occurred_at: datetime
 

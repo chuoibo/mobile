@@ -44,6 +44,7 @@ from app.api.repository import (
     ObligationDraft,
     PaymentReportRecord,
     PaymentReportTarget,
+    PersonFinanceSummary,
     PersonRecord,
     PublishObligation,
     ReceiptRecord,
@@ -102,6 +103,7 @@ class FakeRepository:
         self.receipts: dict[uuid.UUID, FakeReceipt] = {}
         self.people: dict[uuid.UUID, PersonRecord] = {}
         self.bills: dict[uuid.UUID, BillRecord] = {}
+        self.finances: dict[uuid.UUID, PersonFinanceSummary] = {}
         self.leak_guest_input = False
 
     @staticmethod
@@ -653,6 +655,30 @@ class FakeRepository:
                 if receipt.obligation_id == report.obligation_id
             ),
         )
+
+    def person_finance_summary(self, person_id, *, movement_limit):
+        """Whatever a test put there, handed back.
+
+        Deliberately not a reimplementation of the SQL. A fake that recomputed
+        these totals would be a second answer to the money question, and the
+        suite would then be checking the fake against itself. What the totals
+        should be is settled in `tests/postgres/test_person_finance_postgres.py`
+        against the real ledger; what this supports is the layer above -- who is
+        allowed to ask, and what the route does with the answer.
+        """
+        summary = self.finances.get(person_id)
+        if summary is None:
+            return PersonFinanceSummary(
+                person_id=person_id,
+                display_name=None,
+                spend_vnd=0,
+                settled_vnd=0,
+                outstanding_vnd=0,
+                expense_count=0,
+                group_count=0,
+                movements=(),
+            )
+        return replace(summary, movements=summary.movements[:movement_limit])
 
     def list_batch_obligations(self, batch_id):
         obligations = list(self.obligations.values())
