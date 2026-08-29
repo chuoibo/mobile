@@ -77,9 +77,7 @@ BILL_COT_SL = [
 ]
 
 # Same money, quantity simply not printed anywhere.
-BILL_KHONG_X = [
-    (t.replace(" x4", "").replace(" x2", ""), a) for t, a in BILL_LINES
-]
+BILL_KHONG_X = [(t.replace(" x4", "").replace(" x2", ""), a) for t, a in BILL_LINES]
 
 DAI_MON = [
     ("Gỏi cuốn tôm thịt", "45.000"),
@@ -111,7 +109,9 @@ def _paper(lines, size=(900, 1200)) -> Image.Image:
     y = 90
     for text, amount in lines:
         if text == "":
-            d.line([(70, y + 14), (size[0] - 70, y + 14)], fill=(150, 145, 135), width=2)
+            d.line(
+                [(70, y + 14), (size[0] - 70, y + 14)], fill=(150, 145, 135), width=2
+            )
             y += 46
             continue
         f = FONT_BIG if text.isupper() else FONT
@@ -128,7 +128,9 @@ def _paper_3cot(lines, size=(900, 1200)) -> Image.Image:
     y = 90
     for text, sl, amount in lines:
         if text == "":
-            d.line([(70, y + 14), (size[0] - 70, y + 14)], fill=(150, 145, 135), width=2)
+            d.line(
+                [(70, y + 14), (size[0] - 70, y + 14)], fill=(150, 145, 135), width=2
+            )
             y += 46
             continue
         f = FONT_BIG if text.isupper() else FONT
@@ -152,13 +154,21 @@ def _thermal() -> Image.Image:
     y = 138
     for name, amount in DAI_MON:
         d.text((30, y), name, fill=(25, 25, 25), font=FONT_S)
-        d.text((w - 30 - d.textlength(amount, font=FONT_S), y), amount,
-               fill=(25, 25, 25), font=FONT_S)
+        d.text(
+            (w - 30 - d.textlength(amount, font=FONT_S), y),
+            amount,
+            fill=(25, 25, 25),
+            font=FONT_S,
+        )
         y += 40
     d.line([(30, y + 8), (w - 30, y + 8)], fill=(120, 120, 120), width=2)
     d.text((30, y + 24), "TỔNG CỘNG", fill=(15, 15, 15), font=FONT_S_B)
-    d.text((w - 30 - d.textlength("1.490.000", font=FONT_S_B), y + 24), "1.490.000",
-           fill=(15, 15, 15), font=FONT_S_B)
+    d.text(
+        (w - 30 - d.textlength("1.490.000", font=FONT_S_B), y + 24),
+        "1.490.000",
+        fill=(15, 15, 15),
+        font=FONT_S_B,
+    )
     return img
 
 
@@ -179,9 +189,7 @@ def _chup_nghieng(flat: Image.Image, seed: int = 38) -> Image.Image:
 
     # A window on one side: brightness falls off across the sheet.
     grad = Image.linear_gradient("L").resize((W, H)).rotate(70, expand=False)
-    skewed = Image.composite(
-        skewed, Image.eval(skewed, lambda v: int(v * 0.72)), grad
-    )
+    skewed = Image.composite(skewed, Image.eval(skewed, lambda v: int(v * 0.72)), grad)
 
     skewed = skewed.filter(ImageFilter.GaussianBlur(radius=0.7))
     px = skewed.load()

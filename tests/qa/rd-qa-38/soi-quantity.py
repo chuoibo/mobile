@@ -45,7 +45,9 @@ def main() -> None:
     raw = pathlib.Path(args.anh).read_bytes()
     reader = GeminiReceiptReader()
     with ThreadPoolExecutor(max_workers=6) as pool:
-        ket = list(pool.map(lambda i: mot(reader, raw, args.sanitise, i), range(args.n)))
+        ket = list(
+            pool.map(lambda i: mot(reader, raw, args.sanitise, i), range(args.n))
+        )
 
     hinh_dang = Counter()
     for r in ket:
