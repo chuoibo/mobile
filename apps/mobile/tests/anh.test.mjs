@@ -182,14 +182,19 @@ test("photo_url không phải http/https bị bỏ, không đưa vào <Image>", 
  */
 const GOC = "http://may-chu.example";
 
-test("nguonAnhAnToan: đường dẫn tương đối nối vào base", () => {
-  assert.equal(nguonAnhAnToan("/contexts/a/photos/b", GOC), "http://may-chu.example/contexts/a/photos/b");
-  // Base có dấu "/" thừa không được sinh ra "//" ở giữa.
-  assert.equal(nguonAnhAnToan("/x.png", "http://may-chu.example/"), "http://may-chu.example/x.png");
-});
-
-test("nguonAnhAnToan: từ chối mọi origin khác, không phát request", () => {
-  for (const xau of [
+/** Địa chỉ KHÔNG được phép trở thành ảnh, dựng theo một base bất kỳ.
+ *
+ * Là hàm chứ không phải mảng hằng vì cùng bộ ca này phải chạy HAI lần với hai
+ * base khác nhau: `nguonAnhAnToan` được kiểm thẳng với `GOC`, còn `Anh` đi qua
+ * `BASE_URL` thật của app. Viết một lần để hai cửa không thể lệch nhau -- lần
+ * trước chúng đã lệch, và chỗ lệch là chỗ lọt.
+ *
+ * Hai ca cuối là hai ca mà một cổng viết bằng `startsWith(base)` để lọt hết:
+ * chuỗi bắt đầu đúng bằng base nhưng host thì của người khác. Chúng là lý do
+ * ca render phải chạy CẢ danh sách chứ không riêng một địa chỉ evil.example.
+ */
+function diaChiPhaiTuChoi(base) {
+  return [
     "http://evil.example/x.png",
     "https://evil.example/x.png",
     "//evil.example/x.png",
@@ -197,11 +202,22 @@ test("nguonAnhAnToan: từ chối mọi origin khác, không phát request", () 
     "javascript:alert(1)",
     "data:image/png,not-base64",
     "file:///etc/passwd",
-    "http://may-chu.example.evil/x.png",
-    "http://may-chu.example" + "@" + "evil.example/x.png",
     "x.png",
     "../x.png",
-  ]) {
+    // Tiền tố trùng, host khác.
+    base + ".evil.example/x.png",
+    base + "@" + "evil.example/x.png",
+  ];
+}
+
+test("nguonAnhAnToan: đường dẫn tương đối nối vào base", () => {
+  assert.equal(nguonAnhAnToan("/contexts/a/photos/b", GOC), "http://may-chu.example/contexts/a/photos/b");
+  // Base có dấu "/" thừa không được sinh ra "//" ở giữa.
+  assert.equal(nguonAnhAnToan("/x.png", "http://may-chu.example/"), "http://may-chu.example/x.png");
+});
+
+test("nguonAnhAnToan: từ chối mọi origin khác, không phát request", () => {
+  for (const xau of diaChiPhaiTuChoi(GOC)) {
     assert.equal(nguonAnhAnToan(xau, GOC), null, `phải từ chối: ${xau}`);
   }
 });
@@ -262,15 +278,23 @@ test("Anh không phát một request nào tới origin lạ", () => {
   // phép đo là "địa chỉ đó không xuất hiện ở đâu trong markup" -- không <img>,
   // và cũng không <link rel=preload> hay background-image, vì cả ba đều làm
   // trình duyệt đi tải thật.
-  const doc = "http://evil.example/theo-doi.png";
-  const html = veAnh(doc);
-  assert.deepEqual(anhTrongMarkup(html), [], "địa chỉ lạ không được thành <img>");
-  assert.ok(
-    !html.includes("evil.example"),
-    "địa chỉ lạ không được lọt vào markup dưới bất kỳ dạng nào (preload / background-image)",
-  );
-  // Và khung vẫn vẽ chỗ chờ, không để lại một ô trống.
-  assert.match(html, /data-cho="1"/);
+  //
+  // Chạy CẢ danh sách, không một địa chỉ. Bản trước chỉ thử
+  // "http://evil.example/..." nên nó chỉ đỏ khi phép lọc BIẾN MẤT hẳn; thay
+  // cổng bằng `uri.startsWith(BASE_URL)` thì nó vẫn xanh, trong khi
+  // "http://localhost:8099.evil.example/x.png" render ra <img> thật và máy
+  // người đọc đi gọi host của người lạ. rd-qa-36 nêu đúng chỗ này: ca phải đỏ
+  // khi phép LỌC yếu đi, không phải khi TÊN BIẾN đổi.
+  for (const doc of diaChiPhaiTuChoi(BASE_URL)) {
+    const html = veAnh(doc);
+    assert.deepEqual(anhTrongMarkup(html), [], `địa chỉ lạ không được thành <img>: ${doc}`);
+    assert.ok(
+      !html.includes(doc),
+      `địa chỉ lạ không được lọt vào markup dưới bất kỳ dạng nào (preload / background-image): ${doc}`,
+    );
+    // Và khung vẫn vẽ chỗ chờ, không để lại một ô trống.
+    assert.match(html, /data-cho="1"/);
+  }
 });
 
 test("chỗ chờ vẫn nằm dưới ảnh kể cả khi ảnh đã hiện", () => {
