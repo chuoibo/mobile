@@ -175,20 +175,20 @@ export function Anh({
   );
 }
 
-/**
- * The shapes the mockup actually uses, so three screens cannot drift apart.
+/* `KHUNG` used to sit here: an exported pair of `aspectRatio` values said to be
+ * the shapes "the mockup actually uses, so three screens cannot drift apart".
  *
- * These are frame geometry, not a new design token: `aspectRatio` is how much
- * of the screen the photograph is allowed to take, measured off `mockup.png`.
- * Kept here rather than inline so that when the photo API lands, the answer to
- * "what size will it be" is already written down and identical everywhere.
+ * It was removed because both halves of that claim were false, and a wrong
+ * source of truth is worse than none -- the next author to find it would size a
+ * new frame from it. Nothing imported it: the two surfaces it named size
+ * themselves with fixed heights, and neither number matches what it declared.
+ *
+ *   place card   KhamPha.tsx  height={124} on a 172-wide cell  -> 1.387, not 4/3
+ *   profile band CaNhan.tsx   height: 148  on a 390-wide screen -> 2.635, not 16/9
+ *
+ * If a shared frame geometry is wanted later, measure it off the screens that
+ * ship and give it a caller in the same commit. See rd-qa-36 (#202).
  */
-export const KHUNG = {
-  /** Place card in the Khám phá grid: a wide band above the name block. */
-  the: { aspectRatio: 4 / 3 },
-  /** The banner behind the profile header. */
-  bia: { aspectRatio: 16 / 9 },
-} as const;
 
 /** A round frame, for avatars. `borderRadius: 999` on a square, stated once. */
 export function khungTron(size: number): ViewStyle {

@@ -320,7 +320,9 @@ class ExpenseVersion(Base):
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
     previous_version_number: Mapped[int | None] = mapped_column(Integer)
     description: Mapped[str | None] = mapped_column(Text)
-    recorded_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    recorded_by_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False
+    )
     paid_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     payer_acknowledgement: Mapped[PayerAcknowledgement] = mapped_column(
         _enum_type(PayerAcknowledgement, "payer_acknowledgement"),
@@ -349,7 +351,9 @@ class ExpenseVersion(Base):
         BigInteger, nullable=False, default=0, server_default="0"
     )
     total_amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -366,15 +370,22 @@ class ExpenseItem(Base):
 
     __tablename__ = "expense_items"
     __table_args__ = (
-        UniqueConstraint("expense_version_id", "item_key", name="uq_expense_items_version_key"),
+        UniqueConstraint(
+            "expense_version_id", "item_key", name="uq_expense_items_version_key"
+        ),
         # ADR-0004 rejects a zero-amount line item (ZERO_AMOUNT) even though a
         # zero-amount expense total is fine.
         CheckConstraint("amount_vnd > 0", name="amount_positive"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
     expense_version_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("expense_versions.id"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("expense_versions.id"),
+        nullable=False,
+        index=True,
     )
     item_key: Mapped[str] = mapped_column(String(64), nullable=False)
     label: Mapped[str | None] = mapped_column(Text)
@@ -386,14 +397,20 @@ class ExpenseItemShare(Base):
 
     __tablename__ = "expense_item_shares"
     __table_args__ = (
-        UniqueConstraint("expense_item_id", "participant_id", name="uq_item_share_unique"),
+        UniqueConstraint(
+            "expense_item_id", "participant_id", name="uq_item_share_unique"
+        ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
     expense_item_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("expense_items.id"), nullable=False, index=True
     )
-    participant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    participant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False
+    )
 
 
 class ExpenseSurcharge(Base):
@@ -407,13 +424,20 @@ class ExpenseSurcharge(Base):
 
     __tablename__ = "expense_surcharges"
     __table_args__ = (
-        UniqueConstraint("expense_version_id", "surcharge_key", name="uq_surcharges_version_key"),
+        UniqueConstraint(
+            "expense_version_id", "surcharge_key", name="uq_surcharges_version_key"
+        ),
         CheckConstraint("amount_vnd > 0", name="amount_positive"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
     expense_version_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("expense_versions.id"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("expense_versions.id"),
+        nullable=False,
+        index=True,
     )
     surcharge_key: Mapped[str] = mapped_column(String(64), nullable=False)
     kind: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -428,7 +452,9 @@ class ExpenseDiscount(Base):
 
     __tablename__ = "expense_discounts"
     __table_args__ = (
-        UniqueConstraint("expense_version_id", "discount_key", name="uq_discounts_version_key"),
+        UniqueConstraint(
+            "expense_version_id", "discount_key", name="uq_discounts_version_key"
+        ),
         CheckConstraint("amount_vnd > 0", name="amount_positive"),
         # ADR-0004 SCOPE_TARGET_MISMATCH: an item-scoped discount needs a
         # target and a global one must not carry one.
@@ -439,9 +465,14 @@ class ExpenseDiscount(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
     expense_version_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("expense_versions.id"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("expense_versions.id"),
+        nullable=False,
+        index=True,
     )
     discount_key: Mapped[str] = mapped_column(String(64), nullable=False)
     amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
@@ -475,9 +506,13 @@ class ConfirmedAllocation(Base):
         nullable=False,
         index=True,
     )
-    participant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    participant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False
+    )
     amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    confirmed_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    confirmed_by_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False
+    )
     confirmed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -520,7 +555,10 @@ class CollectionBatchVersion(Base):
         ),
         ForeignKeyConstraint(
             ["batch_id", "previous_version_number"],
-            ["collection_batch_versions.batch_id", "collection_batch_versions.version_number"],
+            [
+                "collection_batch_versions.batch_id",
+                "collection_batch_versions.version_number",
+            ],
             name="fk_batch_versions_previous_version",
         ),
         CheckConstraint(
@@ -638,7 +676,10 @@ class CollectionObligation(Base):
         ),
         ForeignKeyConstraint(
             ["bank_recipient_snapshot_id", "batch_version_id"],
-            ["bank_recipient_snapshots.id", "bank_recipient_snapshots.batch_version_id"],
+            [
+                "bank_recipient_snapshots.id",
+                "bank_recipient_snapshots.batch_version_id",
+            ],
             name="fk_obligations_snapshot_same_batch_version",
         ),
         CheckConstraint("sender_id <> recipient_id", name="different_parties"),
@@ -743,7 +784,9 @@ class GuestLink(Base):
         default=GuestLinkStatus.ACTIVE,
         server_default=GuestLinkStatus.ACTIVE.value,
     )
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -813,7 +856,9 @@ class ReceiptConfirmation(Base):
         index=True,
     )
     payment_report_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
-    confirmed_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    confirmed_by_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False
+    )
     amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
     idempotency_key: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False, unique=True
@@ -836,7 +881,9 @@ class IdempotencyKey(Base):
 
     __tablename__ = "idempotency_keys"
     __table_args__ = (
-        UniqueConstraint("scope", "idempotency_key", name="uq_idempotency_keys_scope_key"),
+        UniqueConstraint(
+            "scope", "idempotency_key", name="uq_idempotency_keys_scope_key"
+        ),
         CheckConstraint(
             "(response_status IS NULL) = (completed_at IS NULL)",
             name="completion_is_all_or_nothing",
@@ -911,6 +958,7 @@ __all__ = [
     "PayerAcknowledgement",
     "PaymentReport",
     "ReceiptConfirmation",
+    "UploadedImage",
     "VerificationScope",
 ]
 
@@ -1001,7 +1049,8 @@ class Context(Base):
     )
     display_name: Mapped[str] = mapped_column(Text, nullable=False)
     created_by_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("people.id", name="fk_contexts_created_by"),
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_contexts_created_by"),
         nullable=False,
     )
     created_at: Mapped[datetime] = mapped_column(
@@ -1034,7 +1083,11 @@ class Membership(Base):
             unique=True,
             postgresql_where=text("left_at IS NULL"),
         ),
-        Index("ix_memberships_person_open", "person_id", postgresql_where=text("left_at IS NULL")),
+        Index(
+            "ix_memberships_person_open",
+            "person_id",
+            postgresql_where=text("left_at IS NULL"),
+        ),
         CheckConstraint(
             "(state = 'left') = (left_at IS NOT NULL)",
             # The convention adds the `ck_<table>_` prefix; naming it here too
@@ -1111,9 +1164,7 @@ class Outing(Base):
     __table_args__ = (
         CheckConstraint("ends_on >= starts_on", name="dates_in_order"),
         CheckConstraint("headcount > 0", name="headcount_positive"),
-        CheckConstraint(
-            "budget_per_person_vnd >= 0", name="budget_not_negative"
-        ),
+        CheckConstraint("budget_per_person_vnd >= 0", name="budget_not_negative"),
         CheckConstraint("title <> ''", name="title_not_blank"),
         Index(
             "ix_outings_context_schedule",
@@ -1157,12 +1208,8 @@ class OutingStop(Base):
 
     __tablename__ = "outing_stops"
     __table_args__ = (
-        UniqueConstraint(
-            "outing_id", "position", name="uq_outing_stops_position"
-        ),
-        CheckConstraint(
-            "minute_of_day BETWEEN 0 AND 1439", name="minute_in_day"
-        ),
+        UniqueConstraint("outing_id", "position", name="uq_outing_stops_position"),
+        CheckConstraint("minute_of_day BETWEEN 0 AND 1439", name="minute_in_day"),
         CheckConstraint("position >= 0", name="position_not_negative"),
         CheckConstraint("label <> ''", name="label_not_blank"),
     )
@@ -1215,9 +1262,7 @@ class OutingStopCheckin(Base):
         # a read-then-write in Python. Two phones pressing the button in the
         # same instant both pass an `if not exists` check; only one of them
         # gets past this index.
-        UniqueConstraint(
-            "stop_id", "person_id", name="uq_outing_stop_checkins_person"
-        ),
+        UniqueConstraint("stop_id", "person_id", name="uq_outing_stop_checkins_person"),
         # "Who has arrived at this stop" is the read the timeline screen makes,
         # once per stop it draws.
         Index("ix_outing_stop_checkins_stop", "stop_id", "created_at"),
@@ -1322,6 +1367,65 @@ class OutingInvite(Base):
     )
     revoked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+
+
+class UploadedImage(Base):
+    """One sanitized image with exactly one private owner."""
+
+    __tablename__ = "uploaded_images"
+    __table_args__ = (
+        CheckConstraint(
+            "num_nonnulls(context_id, owner_person_id) = 1",
+            name="image_has_one_owner",
+        ),
+        CheckConstraint(
+            "content_type IN ('image/jpeg', 'image/png')",
+            name="content_type_allowed",
+        ),
+        CheckConstraint(
+            "byte_size > 0 AND width > 0 AND height > 0",
+            name="image_dimensions_positive",
+        ),
+        Index(
+            "ix_uploaded_images_context",
+            "context_id",
+            desc("created_at"),
+            postgresql_where=text("context_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_uploaded_images_avatar",
+            "owner_person_id",
+            desc("created_at"),
+            postgresql_where=text("owner_person_id IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    storage_key: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    context_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("contexts.id", name="fk_uploaded_images_context"),
+        nullable=True,
+    )
+    owner_person_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_uploaded_images_owner"),
+        nullable=True,
+    )
+    uploaded_by_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_uploaded_images_uploaded_by"),
+        nullable=False,
+    )
+    content_type: Mapped[str] = mapped_column(Text, nullable=False)
+    byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    width: Mapped[int] = mapped_column(Integer, nullable=False)
+    height: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
 

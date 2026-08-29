@@ -15,7 +15,7 @@ from typing import Protocol
 
 from sqlalchemy import Date, cast, func, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.api.errors import RepositoryConflict
 from app.api.limits import OBJECTION_LIMIT, REPORT_LIMIT
@@ -65,6 +65,7 @@ from app.db.models import (
     PaymentReport,
     Person,
     ReceiptConfirmation,
+    UploadedImage,
     VerificationScope,
 )
 from app.domain.capability import capability_scope
@@ -151,6 +152,20 @@ class MemoryRecord:
     place_name: str | None
     lat: float | None
     lng: float | None
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class UploadedImageRecord:
+    id: uuid.UUID
+    storage_key: str
+    context_id: uuid.UUID | None
+    owner_person_id: uuid.UUID | None
+    uploaded_by_id: uuid.UUID
+    content_type: str
+    byte_size: int
+    width: int
+    height: int
     created_at: datetime
 
 
@@ -616,9 +631,7 @@ class ApiRepository(Protocol):
         self, membership_id: uuid.UUID, now: datetime
     ) -> MembershipRecord | None: ...
 
-    def get_membership(
-        self, membership_id: uuid.UUID
-    ) -> MembershipRecord | None: ...
+    def get_membership(self, membership_id: uuid.UUID) -> MembershipRecord | None: ...
 
     def leave_context(
         self, context_id: uuid.UUID, person_id: uuid.UUID, now: datetime
@@ -627,6 +640,10 @@ class ApiRepository(Protocol):
     def list_members(self, context_id: uuid.UUID) -> list[MembershipRecord]: ...
 
     def is_member(self, context_id: uuid.UUID, person_id: uuid.UUID) -> bool: ...
+
+    def shares_active_context(
+        self, viewer_id: uuid.UUID, subject_id: uuid.UUID
+    ) -> bool: ...
 
     def membership_role(
         self, context_id: uuid.UUID, person_id: uuid.UUID
@@ -696,9 +713,7 @@ class ApiRepository(Protocol):
         self, outing_id: uuid.UUID, person_id: uuid.UUID
     ) -> OutingInviteRecord | None: ...
 
-    def get_outing_invite(
-        self, invite_id: uuid.UUID
-    ) -> OutingInviteRecord | None: ...
+    def get_outing_invite(self, invite_id: uuid.UUID) -> OutingInviteRecord | None: ...
 
     def get_outing_invite_by_digest(
         self, token_digest: bytes
@@ -727,6 +742,26 @@ class ApiRepository(Protocol):
         invited_by_id: uuid.UUID,
         now: datetime,
     ) -> MembershipRecord: ...
+
+    def create_uploaded_image(
+        self,
+        *,
+        storage_key: str,
+        context_id: uuid.UUID | None,
+        owner_person_id: uuid.UUID | None,
+        uploaded_by_id: uuid.UUID,
+        content_type: str,
+        byte_size: int,
+        width: int,
+        height: int,
+        now: datetime,
+    ) -> UploadedImageRecord: ...
+
+    def get_context_image(
+        self, context_id: uuid.UUID, image_id: uuid.UUID
+    ) -> UploadedImageRecord | None: ...
+
+    def get_latest_avatar(self, person_id: uuid.UUID) -> UploadedImageRecord | None: ...
 
     def create_memory(
         self,
@@ -1030,6 +1065,21 @@ class SqlAlchemyApiRepository:
         )
 
     @staticmethod
+    def _uploaded_image_record(image: UploadedImage) -> UploadedImageRecord:
+        return UploadedImageRecord(
+            id=image.id,
+            storage_key=image.storage_key,
+            context_id=image.context_id,
+            owner_person_id=image.owner_person_id,
+            uploaded_by_id=image.uploaded_by_id,
+            content_type=image.content_type,
+            byte_size=image.byte_size,
+            width=image.width,
+            height=image.height,
+            created_at=image.created_at,
+        )
+
+    @staticmethod
     def _outing_stop_record(stop: OutingStop) -> OutingStopRecord:
         return OutingStopRecord(
             id=stop.id,
@@ -1117,11 +1167,7 @@ class SqlAlchemyApiRepository:
         if item_rows:
             share_rows = self.session.scalars(
                 select(BillItemShare)
-                .where(
-                    BillItemShare.bill_item_id.in_(
-                        [item.id for item in item_rows]
-                    )
-                )
+                .where(BillItemShare.bill_item_id.in_([item.id for item in item_rows]))
                 .order_by(
                     BillItemShare.bill_item_id,
                     BillItemShare.participant_id,
@@ -1205,9 +1251,7 @@ class SqlAlchemyApiRepository:
         found = {
             person_id: display_name
             for person_id, display_name in self.session.execute(
-                select(Person.id, Person.display_name).where(
-                    Person.id.in_(person_ids)
-                )
+                select(Person.id, Person.display_name).where(Person.id.in_(person_ids))
             )
         }
         return {
@@ -1296,9 +1340,7 @@ class SqlAlchemyApiRepository:
             raise
         return self._membership_record(membership)
 
-    def get_membership(
-        self, membership_id: uuid.UUID
-    ) -> MembershipRecord | None:
+    def get_membership(self, membership_id: uuid.UUID) -> MembershipRecord | None:
         membership = self.session.scalar(
             select(Membership).where(Membership.id == membership_id)
         )
@@ -1378,6 +1420,30 @@ class SqlAlchemyApiRepository:
             )
             is not None
         )
+
+    def shares_active_context(
+        self, viewer_id: uuid.UUID, subject_id: uuid.UUID
+    ) -> bool:
+        if viewer_id == subject_id:
+            return True
+
+        viewer_membership = aliased(Membership)
+        subject_membership = aliased(Membership)
+        shared_context = (
+            select(viewer_membership.id)
+            .join(
+                subject_membership,
+                subject_membership.context_id == viewer_membership.context_id,
+            )
+            .where(
+                viewer_membership.person_id == viewer_id,
+                viewer_membership.state == MembershipState.ACTIVE,
+                subject_membership.person_id == subject_id,
+                subject_membership.state == MembershipState.ACTIVE,
+            )
+            .exists()
+        )
+        return bool(self.session.scalar(select(shared_context)))
 
     def membership_role(
         self, context_id: uuid.UUID, person_id: uuid.UUID
@@ -1691,9 +1757,7 @@ class SqlAlchemyApiRepository:
         )
         return None if invite is None else self._outing_invite_record(invite)
 
-    def get_outing_invite(
-        self, invite_id: uuid.UUID
-    ) -> OutingInviteRecord | None:
+    def get_outing_invite(self, invite_id: uuid.UUID) -> OutingInviteRecord | None:
         invite = self.session.get(OutingInvite, invite_id)
         return None if invite is None else self._outing_invite_record(invite)
 
@@ -1787,6 +1851,54 @@ class SqlAlchemyApiRepository:
         self.session.add(membership)
         self.session.flush()
         return self._membership_record(membership)
+
+    def create_uploaded_image(
+        self,
+        *,
+        storage_key: str,
+        context_id: uuid.UUID | None,
+        owner_person_id: uuid.UUID | None,
+        uploaded_by_id: uuid.UUID,
+        content_type: str,
+        byte_size: int,
+        width: int,
+        height: int,
+        now: datetime,
+    ) -> UploadedImageRecord:
+        image = UploadedImage(
+            storage_key=storage_key,
+            context_id=context_id,
+            owner_person_id=owner_person_id,
+            uploaded_by_id=uploaded_by_id,
+            content_type=content_type,
+            byte_size=byte_size,
+            width=width,
+            height=height,
+            created_at=now,
+        )
+        self.session.add(image)
+        self.session.flush()
+        return self._uploaded_image_record(image)
+
+    def get_context_image(
+        self, context_id: uuid.UUID, image_id: uuid.UUID
+    ) -> UploadedImageRecord | None:
+        image = self.session.scalar(
+            select(UploadedImage).where(
+                UploadedImage.context_id == context_id,
+                UploadedImage.id == image_id,
+            )
+        )
+        return None if image is None else self._uploaded_image_record(image)
+
+    def get_latest_avatar(self, person_id: uuid.UUID) -> UploadedImageRecord | None:
+        image = self.session.scalar(
+            select(UploadedImage)
+            .where(UploadedImage.owner_person_id == person_id)
+            .order_by(UploadedImage.created_at.desc(), UploadedImage.id.desc())
+            .limit(1)
+        )
+        return None if image is None else self._uploaded_image_record(image)
 
     def create_memory(
         self,
@@ -1915,9 +2027,7 @@ class SqlAlchemyApiRepository:
                 tuple_(Message.created_at, Message.id) > tuple_(*after)
             ).order_by(Message.created_at.asc(), Message.id.asc())
         else:
-            statement = statement.order_by(
-                Message.created_at.desc(), Message.id.desc()
-            )
+            statement = statement.order_by(Message.created_at.desc(), Message.id.desc())
 
         rows = list(self.session.scalars(statement.limit(limit + 1)))
         has_more = len(rows) > limit
@@ -1925,6 +2035,7 @@ class SqlAlchemyApiRepository:
             messages=tuple(self._message_record(row) for row in rows[:limit]),
             has_more=has_more,
         )
+
     def create_bill(
         self,
         *,
@@ -2036,9 +2147,7 @@ class SqlAlchemyApiRepository:
 
         item_rows = list(
             self.session.scalars(
-                select(BillItem)
-                .where(BillItem.bill_id == bill_id)
-                .with_for_update()
+                select(BillItem).where(BillItem.bill_id == bill_id).with_for_update()
             )
         )
         items_by_key = {item.item_key: item for item in item_rows}
@@ -2048,9 +2157,7 @@ class SqlAlchemyApiRepository:
         if set(assignments_by_key) - set(items_by_key):
             raise RepositoryConflict("UNKNOWN_BILL_ITEM")
 
-        target_item_ids = [
-            items_by_key[item_key].id for item_key in assignments_by_key
-        ]
+        target_item_ids = [items_by_key[item_key].id for item_key in assignments_by_key]
         if target_item_ids:
             existing_shares = self.session.scalars(
                 select(BillItemShare)
@@ -3342,9 +3449,9 @@ class SqlAlchemyApiRepository:
         # apart.
         owed_vnd = int(
             self.session.scalar(
-                select(func.coalesce(func.sum(current_allocations.c.amount_vnd), 0)).where(
-                    current_allocations.c.paid_by_id != person_id
-                )
+                select(
+                    func.coalesce(func.sum(current_allocations.c.amount_vnd), 0)
+                ).where(current_allocations.c.paid_by_id != person_id)
             )
             or 0
         )
@@ -3405,7 +3512,9 @@ class SqlAlchemyApiRepository:
                 CollectionBatchVersion,
                 CollectionBatchVersion.id == CollectionObligation.batch_version_id,
             )
-            .join(CollectionBatch, CollectionBatch.id == CollectionBatchVersion.batch_id)
+            .join(
+                CollectionBatch, CollectionBatch.id == CollectionBatchVersion.batch_id
+            )
             # OUTER, and this is not defensive padding. `collection_batches`
             # .context_id carries no foreign key into `contexts`, and nothing
             # in the vertical slice writes a context row -- the app posts
@@ -3441,7 +3550,9 @@ class SqlAlchemyApiRepository:
                     direction="out" if outgoing else "in",
                     amount_vnd=amount_vnd,
                     counterparty_id=counterparty_id,
-                    counterparty_name=counterparty.display_name if counterparty else None,
+                    counterparty_name=counterparty.display_name
+                    if counterparty
+                    else None,
                     context_id=context_id,
                     context_name=context_name,
                     occasion=self._obligation_occasion(obligation_id),
@@ -3462,7 +3573,8 @@ class SqlAlchemyApiRepository:
             .select_from(CollectionObligationSource)
             .join(
                 ConfirmedAllocation,
-                ConfirmedAllocation.id == CollectionObligationSource.confirmed_allocation_id,
+                ConfirmedAllocation.id
+                == CollectionObligationSource.confirmed_allocation_id,
             )
             .join(
                 ExpenseVersion,
@@ -3744,4 +3856,5 @@ __all__ = [
     "ReceiptTarget",
     "SqlAlchemyApiRepository",
     "StoredGuestLink",
+    "UploadedImageRecord",
 ]
