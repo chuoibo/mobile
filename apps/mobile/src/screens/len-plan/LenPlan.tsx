@@ -10,6 +10,8 @@ import {
   ApiError,
   attemptFor,
   BASE_URL,
+  checkInChang,
+  docCheckIn,
   docDanhSachBuoiDi,
   luuDongThoiGian,
   taoBuoiDi,
@@ -27,6 +29,7 @@ import {
   type BodyTaoBuoiDi,
   type BuoiDi,
   type ChangGui,
+  type CheckIn,
 } from "./buoi-di";
 import { DongThoiGian } from "./DongThoiGian";
 import { TaoBuoiDi } from "./TaoBuoiDi";
@@ -45,6 +48,11 @@ export function LenPlan({ nguoi }: { nguoi: DemoPerson | null }) {
   const [cuaSo, setCuaSo] = useState<CuaSo>({ pha: "ds" });
   const [busy, setBusy] = useState(false);
   const [loiGhi, setLoiGhi] = useState<string | null>(null);
+  // F46. Arrivals for the outing currently open, refetched when it opens and
+  // after each check-in. Kept beside the outing rather than inside it because
+  // the server returns them from a separate route -- folding them into `BuoiDi`
+  // would make every list read look like it carried arrivals when it does not.
+  const [checkins, setCheckins] = useState<CheckIn[]>([]);
   const soLanThu = useRef<Record<string, Attempt>>({});
 
   const taiNhom = useCallback(() => {
@@ -85,6 +93,30 @@ export function LenPlan({ nguoi }: { nguoi: DemoPerson | null }) {
   }, [nguoi, nhom]);
 
   useEffect(() => taiDs(), [taiDs]);
+
+  // F46. Read arrivals when a timeline opens, and clear them when it closes so
+  // the next outing cannot briefly render the previous one's check-ins.
+  const buoiDangMo = cuaSo.pha === "tg" ? cuaSo.buoi.id : null;
+  const contextId = nhom.kind === "xong" ? nhom.contextId : null;
+  useEffect(() => {
+    if (!buoiDangMo || !contextId || !nguoi) {
+      setCheckins([]);
+      return;
+    }
+    let huy = false;
+    docCheckIn(buoiDangMo, nguoi.personId, contextId)
+      .then((r) => {
+        if (!huy) setCheckins(r.checkins);
+      })
+      // A timeline that cannot show arrivals is still a usable timeline, so
+      // this failure does not take the screen down with it.
+      .catch(() => {
+        if (!huy) setCheckins([]);
+      });
+    return () => {
+      huy = true;
+    };
+  }, [buoiDangMo, contextId, nguoi]);
 
   async function tao(body: BodyTaoBuoiDi) {
     if (!nguoi || nhom.kind !== "xong") return;
@@ -140,6 +172,31 @@ export function LenPlan({ nguoi }: { nguoi: DemoPerson | null }) {
     }
   }
 
+  async function checkIn(stopId: string) {
+    if (!nguoi || nhom.kind !== "xong" || cuaSo.pha !== "tg") return;
+    setBusy(true);
+    setLoiGhi(null);
+    try {
+      await checkInChang(
+        stopId,
+        nguoi.personId,
+        attemptFor(soLanThu.current, `checkin:${stopId}:${nguoi.personId}`),
+        nhom.contextId,
+      );
+      // Re-read rather than appending the created row: the list is what other
+      // members have done too, and this is the moment we are already talking
+      // to the server about this outing.
+      const lai = await docCheckIn(cuaSo.buoi.id, nguoi.personId, nhom.contextId);
+      setCheckins(lai.checkins);
+    } catch (err) {
+      setLoiGhi(
+        err instanceof ApiError ? err.message : "Chưa ghi được check-in. Thử lại sau một chút.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (cuaSo.pha === "tao") {
     return (
       <TaoBuoiDi
@@ -160,6 +217,11 @@ export function LenPlan({ nguoi }: { nguoi: DemoPerson | null }) {
         buoi={cuaSo.buoi}
         busy={busy}
         loi={loiGhi ?? undefined}
+        checkins={checkins}
+        toiId={nguoi?.personId ?? null}
+        // No group handle or no identity means no context to post into, so the
+        // button is absent rather than present and failing.
+        onCheckIn={nguoi && nhom.kind === "xong" ? checkIn : undefined}
         onLuu={luu}
         onQuayLai={() => {
           setLoiGhi(null);

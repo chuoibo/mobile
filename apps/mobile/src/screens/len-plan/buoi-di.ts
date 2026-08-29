@@ -13,10 +13,29 @@ const TITLE_MAX = 200;
 const HEADCOUNT_MAX = 1000;
 
 export type ChangDung = {
+  /** The stop's own address. `position` renumbers whenever the plan is
+   *  edited, so it cannot be what a check-in points at. */
+  id: string;
   position: number;
   at: string;
   label: string;
   place_name: string | null;
+};
+
+/** F46. One arrival: who, and when they said so.
+ *
+ *  There is no latitude, longitude or accuracy here, and the POST that
+ *  creates one sends no body at all. Check-in in this product is a person
+ *  pressing "đã tới", not a phone reporting where it is -- reading GPS is F47
+ *  and is not built. If a coordinate ever needs to exist, it gets a decision
+ *  first, not a field.
+ */
+export type CheckIn = {
+  id: string;
+  stop_id: string;
+  person_id: string;
+  display_name: string | null;
+  created_at: string;
 };
 
 /** One stop on its way to PUT /outings/{id}/timeline. No position: the
@@ -197,4 +216,56 @@ export function nhanNganSach(vnd: number): string {
 /** Integer đồng. The product of two integers in this range stays exact. */
 export function tongDuKien(budget: number, headcount: number): number {
   return budget * headcount;
+}
+
+/* ----------------------------------------------------------- F46 check-in */
+
+/** Arrivals bucketed by the stop they belong to, oldest first.
+ *
+ *  Grouping happens here rather than in the screen because the screen renders
+ *  one row per stop and would otherwise filter the whole list once per stop --
+ *  and, more to the point, because a bug in the bucketing would show one
+ *  person's arrival under somebody else's stop, which is the kind of thing a
+ *  test under bare node can catch and a rendered screen cannot.
+ */
+export function nhomCheckInTheoChang(
+  checkins: readonly CheckIn[],
+): Record<string, CheckIn[]> {
+  const theo: Record<string, CheckIn[]> = {};
+  for (const c of checkins) {
+    (theo[c.stop_id] ??= []).push(c);
+  }
+  for (const stopId of Object.keys(theo)) {
+    theo[stopId].sort((a, b) => a.created_at.localeCompare(b.created_at));
+  }
+  return theo;
+}
+
+/** Has this person already said they arrived here?
+ *
+ *  Drives the button's disabled state only. The rule itself is a unique index
+ *  in the database -- this is the courtesy of not offering a button that would
+ *  come back 409, never the thing that enforces one check-in per person.
+ */
+export function daCheckIn(
+  checkins: readonly CheckIn[],
+  personId: string | null,
+): boolean {
+  if (!personId) return false;
+  return checkins.some((c) => c.person_id === personId);
+}
+
+/** "Minh Anh đã tới" / "Minh Anh, Quyên đã tới" / "3 người đã tới".
+ *
+ *  Names up to two people and counts beyond that: a stop the whole group
+ *  reached would otherwise print a list that pushes the plan off screen.
+ *  A missing display name reads "Một người" rather than a raw id -- an id is
+ *  not a name, and printing one tells the reader nothing while looking like a
+ *  bug.
+ */
+export function nhanDaToi(checkins: readonly CheckIn[]): string | null {
+  if (checkins.length === 0) return null;
+  if (checkins.length > 2) return `${checkins.length} người đã tới`;
+  const ten = checkins.map((c) => c.display_name?.trim() || "Một người");
+  return `${ten.join(", ")} đã tới`;
 }

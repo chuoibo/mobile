@@ -7,13 +7,17 @@ import { ScrollView, Text, View } from "react-native";
 import { radius, space, type, usePalette } from "../../theme";
 import { Button, Card, Field, Screen } from "../../ui/Kit";
 import {
+  daCheckIn,
   kiemTraChang,
+  nhanDaToi,
   nhanKhoangNgay,
   nhanNganSach,
+  nhomCheckInTheoChang,
   sapXepChang,
   tongDuKien,
   type BuoiDi,
   type ChangGui,
+  type CheckIn,
 } from "./buoi-di";
 import { formatVnd } from "../../../../../packages/shared/money.mjs";
 
@@ -24,12 +28,23 @@ export function DongThoiGian({
   buoi,
   busy,
   loi,
+  checkins = [],
+  toiId = null,
+  onCheckIn,
   onLuu,
   onQuayLai,
 }: {
   buoi: BuoiDi;
   busy?: boolean;
   loi?: string;
+  /** F46. Every arrival on this outing, ungrouped. */
+  checkins?: readonly CheckIn[];
+  /** Who is looking, so their own stops can say so instead of offering the
+   *  button again. Null when the app has not identified anybody yet. */
+  toiId?: string | null;
+  /** Omitted when check-in is not available (no group handle, no identity),
+   *  which is what hides the button rather than showing a dead one. */
+  onCheckIn?: (stopId: string) => void;
   onLuu: (stops: ChangGui[]) => void;
   onQuayLai: () => void;
 }) {
@@ -42,6 +57,7 @@ export function DongThoiGian({
   const theoGio = sapXepChang(buoi.stops);
   const tong = tongDuKien(buoi.budget_per_person_vnd, buoi.headcount);
   const thongBao = loi ?? loiForm;
+  const theoChang = nhomCheckInTheoChang(checkins);
 
   function themChang() {
     const kq = kiemTraChang(gio, nhan);
@@ -108,11 +124,15 @@ export function DongThoiGian({
           <View style={{ gap: 0 }}>
             {theoGio.map((ch, i) => (
               <HangChang
-                key={`${ch.position}-${ch.at}-${ch.label}`}
+                key={ch.id}
                 at={ch.at}
                 label={ch.label}
                 placeName={ch.place_name}
                 cuoi={i === theoGio.length - 1}
+                checkins={theoChang[ch.id] ?? []}
+                daToi={daCheckIn(theoChang[ch.id] ?? [], toiId)}
+                busy={busy}
+                onCheckIn={onCheckIn ? () => onCheckIn(ch.id) : undefined}
               />
             ))}
           </View>
@@ -191,13 +211,26 @@ function HangChang({
   label,
   placeName,
   cuoi,
+  checkins,
+  daToi,
+  busy,
+  onCheckIn,
 }: {
   at: string;
   label: string;
   placeName: string | null;
   cuoi: boolean;
+  checkins: readonly CheckIn[];
+  daToi: boolean;
+  busy?: boolean;
+  onCheckIn?: () => void;
 }) {
   const c = usePalette();
+  const daToiText = nhanDaToi(checkins);
+  // A reached stop fills its dot. The line already carries the words, so this
+  // is redundancy for people scanning the shape of the plan rather than
+  // reading it -- never the only way the state is announced.
+  const coNguoiToi = checkins.length > 0;
   return (
     <View style={{ flexDirection: "row", gap: space.sm, minHeight: 44 }}>
       <Text
@@ -216,7 +249,9 @@ function HangChang({
             width: 10,
             height: 10,
             borderRadius: radius.pill,
-            backgroundColor: c.accent,
+            backgroundColor: coNguoiToi ? c.accent : "transparent",
+            borderWidth: coNguoiToi ? 0 : 2,
+            borderColor: c.accent,
             marginTop: 6,
           }}
         />
@@ -228,6 +263,19 @@ function HangChang({
         <Text style={{ ...type.body, fontWeight: "700", color: c.ink }}>{label}</Text>
         {placeName ? (
           <Text style={{ ...type.label, color: c.inkSoft }}>{placeName}</Text>
+        ) : null}
+        {daToiText ? (
+          <Text style={{ ...type.label, color: c.accent }}>{daToiText}</Text>
+        ) : null}
+        {onCheckIn ? (
+          <View style={{ alignSelf: "flex-start", marginTop: space.xs }}>
+            <Button
+              label={daToi ? "Bạn đã tới" : "Đã tới"}
+              tone="quiet"
+              disabled={daToi || busy}
+              onPress={onCheckIn}
+            />
+          </View>
         ) : null}
       </View>
     </View>
