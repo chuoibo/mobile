@@ -8,7 +8,7 @@
 import { CameraView } from "expo-camera";
 import React from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
-import type { CameraAccess } from "../camera";
+import type { CameraAccess, GiaiDoanDocBill } from "../camera";
 import { radius, space, type } from "../theme";
 
 const BLACK = "#000";
@@ -30,18 +30,22 @@ const CORNER = 28;
 const CORNER_STROKE = 3;
 const HIT = 44;
 
+const WELL_SCRIM = "rgba(0, 0, 0, 0.82)";
+
 export function ChupBill(props: {
   access: CameraAccess;
   cameraRef: React.RefObject<any>;
   busy: boolean;
   error: string | null;
+  /** Which half of the read is running, or `null` when nothing is. */
+  giaiDoan?: GiaiDoanDocBill | null;
   onShutter: () => void;
   onPickImage: () => void;
   onRequestPermission: () => void;
   onOpenSettings: () => void;
   onCancel: () => void;
 }): React.JSX.Element {
-  const { access, busy, error } = props;
+  const { access, busy, error, giaiDoan = null } = props;
   const live = access.nextAction === "mo-camera";
   const canShoot = live && !busy;
 
@@ -97,14 +101,19 @@ export function ChupBill(props: {
             is a real feature (frame-stability detection); if it is not going to
             be built, this line should become "AI sẽ nhận diện từng món ngay sau
             khi chụp". */}
-        <View style={{ alignItems: "center", gap: 4, paddingHorizontal: space.md }}>
-          <Text style={{ ...type.body, color: WHITE, fontWeight: "600", textAlign: "center" }}>
-            Đưa bill vào khung hình
-          </Text>
-          <Text style={{ ...type.label, color: WHITE_SOFT, textAlign: "center" }}>
-            AI sẽ tự động chụp và nhận diện
-          </Text>
-        </View>
+        {/* Hidden during the read. It is an instruction for framing a shot, and
+            leaving it up while the photo is already being read told a person to
+            line up a bill that had been taken several seconds ago. */}
+        {busy ? null : (
+          <View style={{ alignItems: "center", gap: 4, paddingHorizontal: space.md }}>
+            <Text style={{ ...type.body, color: WHITE, fontWeight: "600", textAlign: "center" }}>
+              Đưa bill vào khung hình
+            </Text>
+            <Text style={{ ...type.label, color: WHITE_SOFT, textAlign: "center" }}>
+              AI sẽ tự động chụp và nhận diện
+            </Text>
+          </View>
+        )}
 
         <View
           style={{
@@ -130,6 +139,11 @@ export function ChupBill(props: {
             />
           )}
           <CornerMarks />
+          {/* Over the well rather than under it. The wait used to be one dim
+              line below the frame while the viewfinder kept showing a live
+              picture, so the screen looked ready to take another photo during
+              the one moment it was busiest. */}
+          {busy ? <DangDocBill giaiDoan={giaiDoan} /> : null}
         </View>
 
 
@@ -147,11 +161,6 @@ export function ChupBill(props: {
           </View>
         ) : null}
 
-        {busy ? (
-          <Text style={{ ...type.label, color: WHITE_SOFT, textAlign: "center" }}>
-            Đang đọc bill...
-          </Text>
-        ) : null}
       </View>
 
       <View
@@ -247,6 +256,89 @@ export function ChupBill(props: {
       >
         Powered by Rủ Đi AI
       </Text>
+    </View>
+  );
+}
+
+/** Seconds since this component mounted, ticking once a second.
+ *
+ * Mounted with the wait and unmounted with it, so "since mount" is "since the
+ * shutter" without a start time having to be threaded down from the flow.
+ * The interval is cleared on unmount; a timer left running behind a screen
+ * that has gone is the leak that shows up as a warning in a demo.
+ */
+function useGiay(): number {
+  const [giay, setGiay] = React.useState(0);
+  React.useEffect(() => {
+    const timer = setInterval(() => setGiay((n) => n + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  return giay;
+}
+
+/**
+ * The wait between pressing the shutter and seeing the items.
+ *
+ * This is the longest unavoidable pause in the product: a photo is compressed,
+ * uploaded, and read by a model, and on a phone that is several seconds. The
+ * screen it replaced showed one static line, which is indistinguishable from a
+ * screen that has hung -- and the reflex when an app looks hung is to press the
+ * thing again, which here means taking a second photo.
+ *
+ * So three things move, and all three are real rather than decorative:
+ *
+ *  - the spinner, which says the UI thread is alive;
+ *  - the stage line, which changes when `withBillPhoto` actually crosses from
+ *    compressing to uploading, not on a timer;
+ *  - the seconds, which are counted, not estimated.
+ *
+ * There is no progress bar and no percentage. Nothing in this app knows how far
+ * through a bill the model is, and a bar that fills on a guess is a lie that
+ * gets believed -- `tests/receipt.test.mjs` gates the source against exactly
+ * that. The counter is the honest version of the same reassurance.
+ *
+ * `LAU` is where the copy stops promising it is nearly done and says what a
+ * long wait means instead. Ten seconds because that is roughly where the
+ * measured reads sit; past it, silence starts to read as failure.
+ */
+const LAU = 10;
+
+function DangDocBill({ giaiDoan }: { giaiDoan: GiaiDoanDocBill | null }) {
+  const giay = useGiay();
+  const chuanBi = giaiDoan === "chuan-bi-anh";
+  const tieuDe = chuanBi ? "Đang chuẩn bị ảnh bill" : "AI đang đọc từng món";
+  const than = chuanBi
+    ? "Thu nhỏ ảnh và xoá vị trí chụp trước khi gửi đi."
+    : "Ảnh đã gửi. Đang chờ máy chủ đọc xong tên món và số tiền.";
+
+  return (
+    <View
+      // `role="status"` and a polite live region: the spinner is invisible to a
+      // screen reader, so without this the app goes silent for several seconds
+      // at the one moment a person most needs to know it is working.
+      accessibilityLiveRegion="polite"
+      role="status"
+      style={{
+        position: "absolute",
+        inset: 0,
+        backgroundColor: WELL_SCRIM,
+        alignItems: "center",
+        justifyContent: "center",
+        padding: space.md,
+        gap: space.sm,
+      }}
+    >
+      <ActivityIndicator size="large" color={WHITE} />
+      <Text style={{ ...type.title, color: WHITE, textAlign: "center" }}>{tieuDe}</Text>
+      <Text style={{ ...type.label, color: WHITE_SOFT, textAlign: "center" }}>{than}</Text>
+      <Text style={{ ...type.label, color: WHITE_SOFT, textAlign: "center" }}>
+        Đã chờ {giay} giây
+      </Text>
+      {giay >= LAU ? (
+        <Text style={{ ...type.label, color: WHITE_FAINT, textAlign: "center" }}>
+          Bill nhiều món thì đọc lâu hơn. Giữ màn hình mở, đừng chụp lại vội.
+        </Text>
+      ) : null}
     </View>
   );
 }

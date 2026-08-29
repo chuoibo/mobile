@@ -89,6 +89,19 @@ export class BillPhotoError extends Error {
   }
 }
 
+/** Where a bill has got to on its way to being read.
+ *
+ * Two values because there are two waits, and they are the real boundaries in
+ * `withBillPhoto` rather than a progress bar's worth of invented steps. On a
+ * phone the first is short and the second is several seconds, so a screen that
+ * says only "đang xử lý" spends most of the wait describing the wrong thing.
+ *
+ * Deliberately not a percentage. Nothing here knows how far along the model is,
+ * and `tests/receipt.test.mjs` gates the app against printing a number the
+ * machine did not compute.
+ */
+export type GiaiDoanDocBill = "chuan-bi-anh" | "dang-gui";
+
 /** Capture (or pick) a bill, shrink it, run `use`, then delete every temp file.
  *
  * `use` gets the compressed photo and does whatever comes next -- normally
@@ -99,14 +112,22 @@ export class BillPhotoError extends Error {
  *
  * Returns whatever `use` returned, or `null` when the user cancelled the
  * picker. Cancelling is not an error and must not be rendered as one.
+ *
+ * `onStage` is called at the two points this function actually crosses, so a
+ * screen can name what is happening without either polling or guessing. It is
+ * optional because nothing about the file lifecycle depends on it, and it is
+ * called *after* the cancel check: a person who backed out of the picker never
+ * started, and announcing a stage for them would be the screen inventing work.
  */
 export async function withBillPhoto<T>(
   backend: PhotoBackend,
   source: "camera" | "thu-vien",
   use: (photo: BillPhoto) => Promise<T>,
+  onStage?: (stage: GiaiDoanDocBill) => void,
 ): Promise<T | null> {
   const captured = source === "camera" ? await backend.capture() : await backend.pick();
   if (captured === null) return null;
+  onStage?.("chuan-bi-anh");
 
   // Collected as we go rather than at the end: if `compress` throws, the
   // original still has to be deleted, and it is only reachable from here.
@@ -114,6 +135,7 @@ export async function withBillPhoto<T>(
   try {
     const photo = await compressForReading(backend, captured);
     if (photo.uri !== captured.uri) temps.push(photo.uri);
+    onStage?.("dang-gui");
     return await use(photo);
   } finally {
     // Sequential and individually guarded. One unlink failing must not leave

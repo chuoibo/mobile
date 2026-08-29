@@ -142,6 +142,76 @@ const IDEMPOTENCY_REFUSALS: Record<string, string> = {
     "App gửi một khoá không hợp lệ nên lệnh này chưa được ghi. Đây là lỗi của app.",
 };
 
+/**
+ * Vietnamese carries diacritics; a sentence with none of them is not Vietnamese.
+ *
+ * Crude on purpose. The question this answers is not "which language is this"
+ * but "did a person write this for a person", and every refusal sentence the
+ * API is designed to emit is Vietnamese prose. A machine string that gets this
+ * far -- `Internal Server Error`, `Field required`, a stringified list -- has
+ * no diacritic in it, and a real Vietnamese sentence long enough to be a
+ * refusal has several.
+ */
+const DAU_TIENG_VIET =
+  /[ăâđêôơưàáảãạằắẳẵặầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộờớởỡợùúủũụỳýỷỹỵ]/i;
+
+/**
+ * What a person reads when the server refuses, whatever the server sent.
+ *
+ * Two measured leaks live behind this function, and both put machine text in
+ * front of somebody standing over their own money:
+ *
+ *  - **`detail` is not always a string.** The API has one handler, for
+ *    `ApiProblem`, which does emit `{code, detail}` with a Vietnamese sentence.
+ *    Nothing handles FastAPI's own `RequestValidationError`, so a malformed
+ *    body comes back as `{"detail": [{type, loc, msg, input}, ...]}`. Measured
+ *    against `create_app()`: `POST /expenses {"nope": 1}` answered 422 with
+ *    three of those. Assigning that list to an `Error` message stringifies it,
+ *    and the banner rendered `[object Object],[object Object],[object Object]`.
+ *  - **The fallback was written for whoever was debugging.**
+ *    `` `${method} ${path} trả về ${response.status}` `` is a log line. It named
+ *    the route and the status and told a person nothing they could act on.
+ *
+ * The server's *good* sentences still win, and that is the half worth guarding:
+ * `SCAN_REFUSALS` and the publish table exist because those sentences are
+ * specific and correct. Replacing them with a generic apology would be the
+ * same defect facing the other way, so a string that reads as Vietnamese prose
+ * is passed through untouched and only the machine text is replaced.
+ *
+ * The status is used to choose the sentence and is never printed. A number is
+ * not a next step, and a person who reads "500" has learned nothing except
+ * that something is wrong, which the screen already told them.
+ */
+export function thongDiepNguoiDoc(status: number, detail: unknown): string {
+  if (typeof detail === "string" && detail.trim() !== "" && DAU_TIENG_VIET.test(detail)) {
+    return detail.trim();
+  }
+  if (status === 0) return `Không nối được ${BASE_URL}. Máy chủ có đang chạy không?`;
+  if (status === 401 || status === 403) {
+    return "Tài khoản đang dùng chưa được phép làm việc này trong nhóm. Nhờ người tạo nhóm cấp quyền rồi thử lại.";
+  }
+  if (status === 404) {
+    return "Máy chủ không có phần này. Nhiều khả năng app đang trỏ vào một bản API cũ hơn, kiểm tra lại địa chỉ máy chủ ghi ở cuối màn hình.";
+  }
+  if (status === 409) {
+    return "Lần bấm trước chưa chạy xong nên chưa biết máy chủ đã ghi hay chưa. Chờ một chút rồi mở lại màn hình để xem, đừng bấm lại ngay.";
+  }
+  if (status === 429) {
+    return "Máy chủ đang nhận quá nhiều yêu cầu cùng lúc. Chờ khoảng một phút rồi thử lại.";
+  }
+  if (status >= 400 && status < 500) {
+    // Includes 422, which is where the list-shaped detail comes from. A
+    // validation refusal means the app sent something the server does not
+    // accept, so it is not something the person holding the phone can fix by
+    // typing differently, and the copy must not send them looking.
+    return "App gửi lên một yêu cầu máy chủ không nhận, nên việc này chưa được ghi. Đây là lỗi của app chứ không phải do bạn nhập sai. Thử lại sau, và báo cho nhóm kỹ thuật nếu vẫn vậy.";
+  }
+  if (status >= 500) {
+    return "Máy chủ đang gặp sự cố nên chưa làm được việc này. Chưa có gì bị ghi sai, thử lại sau một chút.";
+  }
+  return "Chưa làm được việc này. Thử lại sau một chút.";
+}
+
 function actorHeaders(actorId: string): Record<string, string> {
   return {
     "Content-Type": "application/json",
@@ -199,16 +269,25 @@ async function call<T>(path: string, { method = "POST", body, actorId, attempt }
   if (!response.ok) {
     // The API returns {code, detail}. A proxy or a crash might not, so fall
     // back to the status rather than inventing a code.
+    //
+    // `detail` stays `unknown` all the way to `thongDiepNguoiDoc`. It used to
+    // be typed by assignment into a `string`, which is how a 422's list of
+    // validation objects reached an `Error` message and rendered as
+    // "[object Object]" -- see that function's header for the measurement.
     let code = `http_${response.status}`;
-    let detail = `${method} ${path} trả về ${response.status}`;
+    let detail: unknown = null;
     try {
       const problem = await response.json();
       if (problem?.code) code = problem.code;
       if (problem?.detail) detail = problem.detail;
     } catch {
-      /* not JSON; the status-based message is the honest one */
+      /* not JSON; there is nothing to read, so the status chooses the words */
     }
-    throw new ApiError(response.status, code, IDEMPOTENCY_REFUSALS[code.toLowerCase()] ?? detail);
+    throw new ApiError(
+      response.status,
+      code,
+      IDEMPOTENCY_REFUSALS[code.toLowerCase()] ?? thongDiepNguoiDoc(response.status, detail),
+    );
   }
   return (await response.json()) as T;
 }
@@ -885,15 +964,19 @@ export async function scanReceipt(
 
   if (!response.ok) {
     let code = `http_${response.status}`;
-    let detail = `Máy chủ trả về ${response.status} khi đang đọc bill.`;
+    let detail: unknown = null;
     try {
       const problem = await response.json();
       if (problem?.code) code = problem.code;
       if (problem?.detail) detail = problem.detail;
     } catch {
-      /* not JSON; the status-based sentence is the honest one */
+      /* not JSON; there is nothing to read, so the status chooses the words */
     }
-    throw new ApiError(response.status, code, SCAN_REFUSALS[code.toLowerCase()] ?? detail);
+    throw new ApiError(
+      response.status,
+      code,
+      SCAN_REFUSALS[code.toLowerCase()] ?? thongDiepNguoiDoc(response.status, detail),
+    );
   }
   // A cast, not a parse, like every other route in this file -- and the one
   // place where that has already cost something. `ReceiptScanWire` once

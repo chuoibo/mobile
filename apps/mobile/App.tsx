@@ -20,7 +20,7 @@
 import { useCameraPermissions, type CameraView } from "expo-camera";
 import { StatusBar } from "expo-status-bar";
 import React, { useEffect, useRef, useState } from "react";
-import { Pressable, SafeAreaView, Text, View, useColorScheme } from "react-native";
+import { Pressable, SafeAreaView, ScrollView, Text, View, useColorScheme } from "react-native";
 import { AppRoot } from "./src/navigation/AppRoot";
 import {
   attemptFor,
@@ -33,18 +33,21 @@ import {
   publishBatch,
   registerPeople,
   scanReceipt,
+  thongDiepNguoiDoc,
   type Attempt,
   type PendingProposal,
   BASE_URL,
   type PublishGates,
   type SplitPreview,
 } from "./src/api";
+import { CoLoi, DangTai, TrongRong } from "./src/ui/TrangThai";
 import {
   HAS_CAMERA,
   nativeBackend,
   openAppSettings,
   readAccess,
   withBillPhoto,
+  type GiaiDoanDocBill,
 } from "./src/camera";
 import { itemsTotalVnd, readingFromWire, type BillReading } from "./src/receipt";
 import {
@@ -204,6 +207,11 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
   const cameraRef = useRef<CameraView | null>(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [reading, setReading] = useState<BillReading | null>(null);
+  // Which half of the read is running. Reported by `withBillPhoto` as it
+  // crosses each boundary, never inferred from a clock: a stage line driven by
+  // a timer says "đang gửi" while compression is still going on a slow phone,
+  // which is the screen making something up.
+  const [giaiDoan, setGiaiDoan] = useState<GiaiDoanDocBill | null>(null);
   // Bumped on every accepted scan, and used as the result screen's `key`.
   // That screen keeps per-row drafts of half-typed numbers; without a new key
   // React reuses the mounted instance, and a rescan showed the previous bill's
@@ -230,9 +238,19 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
    */
   function scan(source: "camera" | "thu-vien") {
     return guard(async () => {
-      const wire = await withBillPhoto(nativeBackend(cameraRef), source, (photo) =>
-        scanReceipt(photo, SCAN_ACTOR_ID),
-      );
+      // Cleared in `finally` rather than after a success. A failed read that
+      // left the stage set would put "AI đang đọc" under an error message.
+      let wire;
+      try {
+        wire = await withBillPhoto(
+          nativeBackend(cameraRef),
+          source,
+          (photo) => scanReceipt(photo, SCAN_ACTOR_ID),
+          setGiaiDoan,
+        );
+      } finally {
+        setGiaiDoan(null);
+      }
       if (wire === null) return;
       setReading(readingFromWire(wire));
       setAssignment({});
@@ -369,6 +387,7 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
           access={access}
           cameraRef={cameraRef}
           busy={busy}
+          giaiDoan={giaiDoan}
           error={error}
           onShutter={() => scan("camera")}
           onPickImage={() => scan("thu-vien")}
@@ -639,9 +658,79 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
  * to anything that touches a server.
  */
 function manDo(): boolean {
+  return manThamSo() === "ket-qua-thanh-toan";
+}
+
+function manThamSo(): string | null {
   const loc = (globalThis as { location?: { search?: string } }).location;
-  if (!loc?.search) return false;
-  return new URLSearchParams(loc.search).get("man") === "ket-qua-thanh-toan";
+  if (!loc?.search) return null;
+  return new URLSearchParams(loc.search).get("man");
+}
+
+/**
+ * The three states, on one page, web only, for the detector and the camera.
+ *
+ * Same reason as `XemKetQuaThanhToan` above, and the same narrowness: one exact
+ * parameter value, nothing on native, no writes, no route from here into the
+ * product. What is new is *why* it has to exist for rd-fe-08 specifically.
+ *
+ * An empty state needs no data, a waiting state lasts about two seconds, and an
+ * error state needs the server to be down. None of the three survives long
+ * enough for a scan to catch it on the live flow, so without this page "the
+ * states were checked" would quietly mean "the states were read in the source",
+ * and `imp detect` on a `.tsx` file is close to blind -- it cannot compute
+ * contrast or line length on markup it never rendered.
+ *
+ * These are the real components with the real copy, not mock-ups of them. If
+ * the wording here looks wrong, it is wrong on the screens too.
+ */
+function XemTrangThai() {
+  const c = usePalette();
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
+      <StatusBar style="dark" />
+      <ScrollView contentContainerStyle={{ padding: space.md, gap: space.md }}>
+        <Text style={{ ...type.h1, color: c.ink }}>Ba trạng thái</Text>
+        <Text style={{ ...type.label, color: c.inkSoft }}>
+          Trang để soi và chụp ảnh. Không phải một màn của sản phẩm.
+        </Text>
+
+        <Text style={{ ...type.title, color: c.ink }}>Đang tải</Text>
+        <DangTai
+          noiDung="Đang hỏi máy chủ chỗ nào hợp với nhóm"
+          phu="Thường mất một, hai giây."
+        />
+
+        <Text style={{ ...type.title, color: c.ink }}>Rỗng</Text>
+        <TrongRong
+          tieuDe="Chưa có ai phải chuyển tiền"
+          than="Khoản chi này không sinh nghĩa vụ nào. Thường là vì chỉ có một người trong nhóm, hoặc người ứng tiền cũng là người duy nhất phải trả."
+        />
+        <TrongRong
+          tieuDe="Chưa có lời nhắn nào để gửi"
+          than="Đợt thu chưa được phát nên chưa sinh mã cho ai. Quay lại đợt thu, bấm phát, rồi mở lại màn này."
+          hanhDong={{ nhan: "Quay lại đợt thu", onPress: () => {} }}
+        />
+
+        <Text style={{ ...type.title, color: c.ink }}>Lỗi</Text>
+        {/* The exact sentences `thongDiepNguoiDoc` produces, so this page shows
+            what a person really reads rather than a friendlier rewrite of it. */}
+        <CoLoi
+          tieuDe="Không mở được máy chủ"
+          than={thongDiepNguoiDoc(0, null)}
+          viecTiepTheo="Kiểm tra máy chủ đang chạy chưa, rồi bấm thử lại."
+          diaChi={BASE_URL}
+          onThuLai={() => {}}
+        />
+        <CoLoi
+          tieuDe="Máy chủ đang gặp sự cố"
+          than={thongDiepNguoiDoc(500, { detail: "Internal Server Error" })}
+          viecTiepTheo="Chờ một chút rồi bấm thử lại. Không cần chụp lại bill."
+          onThuLai={() => {}}
+        />
+      </ScrollView>
+    </SafeAreaView>
+  );
 }
 
 function XemKetQuaThanhToan() {
@@ -691,7 +780,49 @@ function XemKetQuaThanhToan() {
  * import graph stays one-directional (`App` → `navigation`, never back) and
  * this file remains the only place that knows both halves exist.
  */
+/**
+ * The bill-reading wait, held still so it can be seen.
+ *
+ * The real `ChupBill` with `busy` pinned on, not a drawing of it: same
+ * component, same props the flow passes, same copy. On the live flow this state
+ * lasts about as long as a model takes to read a photo, which is too short to
+ * scan and too dependent on a camera to reach in a headless browser at all.
+ *
+ * `giaiDoan` comes from the query string so both halves are reachable, since
+ * they say different things and only one of them can be on screen at a time.
+ */
+function XemDocBill() {
+  const giaiDoan: GiaiDoanDocBill =
+    manThamSo() === "doc-bill-chuan-bi" ? "chuan-bi-anh" : "dang-gui";
+  // Hoisted out of the JSX below: a hook called in a prop position still runs
+  // unconditionally, but it reads like a conditional one and lint treats it so.
+  const cameraRef = useRef<CameraView | null>(null);
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#000" }}>
+      <StatusBar style="light" />
+      <ChupBill
+        access={{
+          state: "cho-phep",
+          nextAction: "mo-camera",
+          message: "Camera đã sẵn sàng.",
+        }}
+        cameraRef={cameraRef}
+        busy
+        giaiDoan={giaiDoan}
+        error={null}
+        onShutter={() => {}}
+        onPickImage={() => {}}
+        onRequestPermission={() => {}}
+        onOpenSettings={() => {}}
+        onCancel={() => {}}
+      />
+    </SafeAreaView>
+  );
+}
+
 export default function App() {
   if (manDo()) return <XemKetQuaThanhToan />;
+  if (manThamSo() === "trang-thai") return <XemTrangThai />;
+  if (manThamSo()?.startsWith("doc-bill")) return <XemDocBill />;
   return <AppRoot renderKhoanChi={(onExit) => <LuongKhoanChi onExit={onExit} />} />;
 }
