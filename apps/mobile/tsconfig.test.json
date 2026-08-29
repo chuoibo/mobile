@@ -41,6 +41,11 @@
     // `maskAccount` is called somewhere.
     "src/screens/tai-khoan/kiem-tra.ts",
     "src/screens/tai-khoan/TaiKhoanNhan.tsx",
-    "src/screens/DeXuat.tsx"
+    "src/screens/DeXuat.tsx",
+    // The tab bar and the map strip, for the same reason once more: both carry
+    // an ARIA role, and a role is only real once react-native-web has emitted
+    // it. `aria-vai-tro.test.mjs` reads the markup these produce.
+    "src/navigation/ThanhTab.tsx",
+    "src/screens/kham-pha/DaiBanDo.tsx"
   ]
 }
