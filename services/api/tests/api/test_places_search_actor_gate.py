@@ -150,7 +150,13 @@ def metered(client):
     """
 
     clock = Clock()
-    limiter = FixedWindowLimiter(limit=3, window_seconds=60, clock=clock)
+    limiter = FixedWindowLimiter(
+        limit=3,
+        window_seconds=60,
+        clock=clock,
+        code="search_rate_limited",
+        message="Too many searches.",
+    )
     client.app.dependency_overrides[get_search_rate_limiter] = lambda: limiter
     return clock
 
@@ -249,7 +255,13 @@ def test_one_person_hitting_the_wall_does_not_grow_memory_without_bound(metered)
     """
 
     clock = Clock()
-    limiter = FixedWindowLimiter(limit=3, window_seconds=60, clock=clock)
+    limiter = FixedWindowLimiter(
+        limit=3,
+        window_seconds=60,
+        clock=clock,
+        code="search_rate_limited",
+        message="Too many searches.",
+    )
 
     for _ in range(5_000):
         limiter.check(uuid.uuid4())
