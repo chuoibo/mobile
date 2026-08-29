@@ -271,6 +271,115 @@ class GateRuffEmptyScope(unittest.TestCase):
         )
         self.assertIn("HỎNG", gate.stdout, gate.stdout)
 
+    # --- what the skip must not swallow -----------------------------------
+    #
+    # The skip above decides from the changed-file list alone. `do_ruff` opens
+    # with an assertion that has no file list in it: `services/api/
+    # requirements-dev.txt` must carry a `ruff==` pin, because test.yml's lint
+    # job installs that exact version and fails with "::error::no ruff== pin"
+    # when it is gone.
+    #
+    # Deleting that pin edits a .txt file. No Python moves, so the scope is
+    # empty, so the stage skipped -- and the assertion written to catch exactly
+    # that deletion never ran. Measured on main, the same edit both times:
+    #
+    #   @ 23455e7 (pin check in, skip not yet)
+    #     không có dòng ruff== trong services/api/requirements-dev.txt
+    #     HỎNG    ruff (0s)                                          exit 1
+    #   @ ae45575 (both in)
+    #     BỎ QUA  ruff -- nhánh không đổi file Python nào so với origin/main
+    #     ĐẠT 0   HỎNG 0   BỎ QUA 1                                  exit 2
+    #
+    # The second run is not merely quieter, it is wrong: the branch did change
+    # something this stage is responsible for, and the gate answered that it
+    # did not. Under --strict it is red with a reason that sends the reader to
+    # the wrong file, which costs more than a plain red.
+
+    def delete_the_pin(self) -> None:
+        """The edit under test: remove the pin, touch no Python file."""
+        (self.repo / "services" / "api" / "requirements-dev.txt").write_text(
+            "pytest==8.3.3\n", encoding="utf-8"
+        )
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "go pin ruff")
+
+    def test_the_pin_assertion_bites_when_the_stage_actually_runs(self):
+        """The half that proves the assertion exists at all. Without it the
+        case below could be satisfied by a stage that is red for any reason."""
+        self.delete_the_pin()
+        self.commit_file("mo_dun.py", CLEAN_PY, "them python sach")
+        gate = self.run_gate("ruff")
+        combined = gate.stdout + gate.stderr
+        self.assertIn("không có dòng ruff==", combined, combined)
+        self.assertEqual(gate.returncode, 1, combined)
+
+    def test_a_deleted_pin_is_not_hidden_by_the_empty_scope_skip(self):
+        """The hole itself: the pin is gone, no Python is in scope, and the
+        stage must still say so rather than skip."""
+        self.delete_the_pin()
+        gate = self.run_gate("ruff")
+        combined = gate.stdout + gate.stderr
+        self.assertIn(
+            "không có dòng ruff==",
+            combined,
+            "the pin was deleted and the gate answered 'no Python changed' "
+            "instead -- the reader is sent to the wrong file:\n" + combined,
+        )
+        self.assertEqual(gate.returncode, 1, combined)
+
+    def test_a_deleted_pin_is_named_correctly_under_strict(self):
+        """--strict was already red here, but for the wrong reason. A red with
+        a wrong diagnosis costs more than a red at the right file."""
+        self.delete_the_pin()
+        gate = self.run_gate("--strict", "ruff")
+        combined = gate.stdout + gate.stderr
+        self.assertEqual(gate.returncode, 1, combined)
+        self.assertIn("không có dòng ruff==", combined, combined)
+        self.assertNotIn(
+            "nhánh không đổi file Python nào",
+            combined,
+            "--strict named the wrong cause:\n" + combined,
+        )
+
+    # --- the two outcomes the prereq already gets right --------------------
+    #
+    # Both were correct in the shipped code and neither had a test. They are
+    # the same rule as the case above -- a prereq may turn a run into a skip
+    # only when it is certain there is nothing to do -- so they belong here,
+    # where changing that rule is what breaks them.
+
+    def test_no_merge_base_runs_the_body_rather_than_skipping(self):
+        """No origin/main to compare against is an unanswerable question, and
+        an unanswerable question is a failure, not an absence."""
+        self.git("update-ref", "-d", "refs/remotes/origin/main")
+        gate = self.run_gate("ruff")
+        combined = gate.stdout + gate.stderr
+        # "BỎ QUA 0" is in the summary counts either way, so the skip list --
+        # printed only when something actually skipped -- is what separates the
+        # two outcomes.
+        self.assertIn("BỎ QUA 0", gate.stdout, combined)
+        self.assertNotIn("bỏ qua:", gate.stdout, combined)
+        self.assertIn("không tìm được merge base", combined, combined)
+        self.assertEqual(gate.returncode, 1, combined)
+
+    def test_a_broken_list_call_runs_the_body_rather_than_skipping(self):
+        """The prereq asks `ruff_changed.sh --list` what is in scope. If that
+        call errors it has learnt nothing, and "I could not tell" must not be
+        rendered as "there was nothing"."""
+        (self.repo / "scripts" / "ruff_changed.sh").write_text(
+            '#!/usr/bin/env bash\necho "vo hieu" >&2\nexit 3\n', encoding="utf-8"
+        )
+        self.commit_file("docs/ghi-chu.md", "chi la tai lieu\n", "them tai lieu")
+        gate = self.run_gate("ruff")
+        combined = gate.stdout + gate.stderr
+        self.assertIn("BỎ QUA 0", gate.stdout, combined)
+        self.assertNotIn(
+            "bỏ qua:",
+            gate.stdout,
+            "a broken scope query was rendered as an empty scope:\n" + combined,
+        )
+        self.assertEqual(gate.returncode, 1, combined)
+
 
 if __name__ == "__main__":
     unittest.main()
