@@ -40,7 +40,7 @@ DC = $(COMPOSE) -p $(PROJECT)
 WAIT_TIMEOUT ?= 300
 
 .DEFAULT_GOAL := help
-.PHONY: help up down clean logs ps migrate db-check seed demo smoke
+.PHONY: help gate up down clean logs ps migrate db-check seed demo smoke
 
 # `demo` phải gọi đúng bộ container mà `up` vừa dựng. Trên nhánh này biến đó là
 # $(COMPOSE); PR #60 (đang mở, cùng lane) đổi nó thành $(DC) = compose kèm
@@ -72,6 +72,14 @@ help: ## In danh sách lệnh
 	@echo "Muốn một bộ riêng, không đụng ai (QA soi một PR, thử migration bẩn):"
 	@echo "  MOBILE_PROJECT=qa47 MOBILE_API_PORT=8199 MOBILE_POSTGRES_PORT=5434 make up"
 	@echo "  MOBILE_PROJECT=qa47 make clean CONFIRM=qa47      # dọn đúng bộ đó thôi"
+
+# Đứng trước `up` vì nó trả lời câu hỏi đứng trước: "cây này có lành không".
+# GitHub Actions ngừng khởi động job từ 07:45Z ngày 29/08 vì billing — 100 run
+# gần nhất là 100 hỏng, 0 đạt — nên trong lúc đó đây là cổng DUY NHẤT còn chạy
+# được. Thân cổng nằm ở scripts/gate.sh chứ không viết thẳng vào recipe: recipe
+# không test được nếu không có make, còn script thì tests/ gọi được.
+gate: ## Chạy các cổng của CI ngay tại máy — ONLY="api mobile" chọn chặng, STRICT=1 coi bỏ-qua là hỏng
+	@scripts/gate.sh $(if $(STRICT),--strict) $(ONLY)
 
 up: ## Dựng ảnh, chạy migration, bật API, seed dữ liệu mẫu, rồi tự kiểm
 	@# Trước `docker build`, không phải sau: build mất vài phút, và một cảnh
