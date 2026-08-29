@@ -7,7 +7,7 @@ allowed to reach the allocator and masquerade as an ``AllocationError``.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -287,6 +287,115 @@ class ContextResponse(ApiModel):
     display_name: StrictStr
     created_by_id: UUID
     created_at: datetime
+
+
+class OutingCreateRequest(ApiModel):
+    title: Annotated[StrictStr, Field(min_length=1, max_length=200)]
+    starts_on: date
+    ends_on: date
+    headcount: Annotated[int, Field(strict=True, gt=0, le=1000)]
+    budget_per_person_vnd: NonNegativeMoneyVnd
+
+    @field_validator("title")
+    @classmethod
+    def _strip_title(cls, value: str) -> str:
+        title = value.strip()
+        if not title:
+            raise ValueError("title must not be blank")
+        return title
+
+    @model_validator(mode="after")
+    def _dates_are_in_order(self) -> OutingCreateRequest:
+        if self.ends_on < self.starts_on:
+            raise ValueError("ends_on must be on or after starts_on")
+        return self
+
+
+class OutingStopInput(ApiModel):
+    at: Annotated[
+        StrictStr,
+        Field(pattern=r"^([01][0-9]|2[0-3]):[0-5][0-9]$"),
+    ]
+    label: Annotated[StrictStr, Field(min_length=1, max_length=200)]
+    place_name: Annotated[StrictStr, Field(max_length=200)] | None = None
+
+    @field_validator("label")
+    @classmethod
+    def _strip_label(cls, value: str) -> str:
+        label = value.strip()
+        if not label:
+            raise ValueError("label must not be blank")
+        return label
+
+    @field_validator("place_name")
+    @classmethod
+    def _strip_place_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
+
+
+class OutingTimelineRequest(ApiModel):
+    stops: Annotated[list[OutingStopInput], Field(max_length=50)]
+
+
+class OutingStopResponse(ApiModel):
+    position: int
+    at: str
+    label: str
+    place_name: str | None
+
+
+class OutingResponse(ApiModel):
+    id: UUID
+    context_id: UUID
+    created_by_id: UUID
+    title: str
+    starts_on: date
+    ends_on: date
+    headcount: int
+    budget_per_person_vnd: int
+    created_at: datetime
+    stops: list[OutingStopResponse]
+
+
+class OutingListResponse(ApiModel):
+    context_id: UUID
+    outings: list[OutingResponse]
+
+
+class OutingInviteCreateRequest(ApiModel):
+    source: Literal["group", "friend", "link"]
+    person_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def _person_matches_source(self) -> OutingInviteCreateRequest:
+        if self.source == "link" and self.person_id is not None:
+            raise ValueError("a link invite must not name a person")
+        if self.source != "link" and self.person_id is None:
+            raise ValueError("a group or friend invite must name a person")
+        return self
+
+
+class OutingInviteResponse(ApiModel):
+    id: UUID
+    outing_id: UUID
+    source: Literal["group", "friend", "link"]
+    invited_person_id: UUID | None
+    invited_by_id: UUID
+    created_at: datetime
+    invite_token: str | None
+    invite_path: str | None
+
+
+# A link redeemer is not a member yet, so this response must reveal neither the
+# group name nor the trip name before the existing membership flow accepts them.
+class OutingInviteAcceptResponse(ApiModel):
+    invite_id: UUID
+    outing_id: UUID
+    context_id: UUID
+    membership_id: UUID
+    membership_state: Literal["invited", "active"]
 
 
 class MembershipInviteRequest(ApiModel):

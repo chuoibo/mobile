@@ -22,6 +22,8 @@ from app.api.repository import (
     MemoryRecord,
     MessageRecord,
     ObligationDraft,
+    OutingInviteRecord,
+    OutingRecord,
     PersonFinanceSummary,
     PersonRecord,
 )
@@ -66,6 +68,14 @@ from app.api.schemas import (
     MessageQuery,
     MessageResponse,
     ObligationResponse,
+    OutingCreateRequest,
+    OutingInviteAcceptResponse,
+    OutingInviteCreateRequest,
+    OutingInviteResponse,
+    OutingListResponse,
+    OutingResponse,
+    OutingStopResponse,
+    OutingTimelineRequest,
     PaymentReportRequest,
     PaymentReportResponse,
     PublishedGuestLink,
@@ -110,6 +120,19 @@ def _now() -> datetime:
 
 def token_digest(token: str) -> bytes:
     return hashlib.sha256(token.encode("utf-8")).digest()
+
+
+def _minute_of_day(value: str) -> int:
+    # A stop is a wall-clock time of day with no timezone, so it must never
+    # pass through a datetime that the server could shift.
+    hour, minute = value.split(":")
+    return int(hour) * 60 + int(minute)
+
+
+def _clock(minute: int) -> str:
+    # Convert the stored wall-clock value directly for the same timezone-free
+    # reason; this representation is stable in every server timezone.
+    return f"{minute // 60:02d}:{minute % 60:02d}"
 
 
 def _guest_actor(token: str) -> Actor:
@@ -311,6 +334,44 @@ def _wire_memory(record: MemoryRecord) -> MemoryResponse:
         caption=record.caption,
         created_at=record.created_at,
         cursor=encode_cursor(record.created_at, record.id),
+    )
+
+
+def _wire_outing(record: OutingRecord) -> OutingResponse:
+    return OutingResponse(
+        id=record.id,
+        context_id=record.context_id,
+        created_by_id=record.created_by_id,
+        title=record.title,
+        starts_on=record.starts_on,
+        ends_on=record.ends_on,
+        headcount=record.headcount,
+        budget_per_person_vnd=record.budget_per_person_vnd,
+        created_at=record.created_at,
+        stops=[
+            OutingStopResponse(
+                position=stop.position,
+                at=_clock(stop.minute_of_day),
+                label=stop.label,
+                place_name=stop.place_name,
+            )
+            for stop in record.stops
+        ],
+    )
+
+
+def _wire_outing_invite(
+    record: OutingInviteRecord, raw_token: str | None
+) -> OutingInviteResponse:
+    return OutingInviteResponse(
+        id=record.id,
+        outing_id=record.outing_id,
+        source=record.source,
+        invited_person_id=record.invited_person_id,
+        invited_by_id=record.invited_by_id,
+        created_at=record.created_at,
+        invite_token=raw_token,
+        invite_path=f"/outing-invites/{raw_token}" if raw_token is not None else None,
     )
 
 
@@ -611,6 +672,173 @@ class ApiService:
             now=_now(),
         )
         return _wire_memory(record)
+
+    def create_outing(
+        self,
+        context_id: uuid.UUID,
+        request: OutingCreateRequest,
+        actor: Actor,
+    ) -> OutingResponse:
+        _require_permission(
+            "create_outing",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        record = self.repository.create_outing(
+            context_id=context_id,
+            created_by_id=actor.id,
+            title=request.title,
+            starts_on=request.starts_on,
+            ends_on=request.ends_on,
+            headcount=request.headcount,
+            budget_per_person_vnd=request.budget_per_person_vnd,
+            now=_now(),
+        )
+        return _wire_outing(record)
+
+    def list_context_outings(
+        self, context_id: uuid.UUID, actor: Actor
+    ) -> OutingListResponse:
+        _require_permission(
+            "view_outings",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        return OutingListResponse(
+            context_id=context_id,
+            outings=[
+                _wire_outing(record)
+                for record in self.repository.list_outings(context_id)
+            ],
+        )
+
+    def replace_outing_timeline(
+        self,
+        outing_id: uuid.UUID,
+        request: OutingTimelineRequest,
+        actor: Actor,
+    ) -> OutingResponse:
+        record = self.repository.get_outing(outing_id)
+        if record is None:
+            raise ApiProblem(404, "outing_not_found", "Outing does not exist")
+        _require_permission(
+            "edit_outing_timeline",
+            actor,
+            {
+                "is_group_member": self.repository.is_member(
+                    record.context_id, actor.id
+                )
+            },
+        )
+        stops = [
+            {
+                "minute_of_day": _minute_of_day(stop.at),
+                "label": stop.label,
+                "place_name": stop.place_name,
+            }
+            for stop in request.stops
+        ]
+        return _wire_outing(
+            self.repository.replace_outing_stops(
+                outing_id=outing_id,
+                stops=stops,
+            )
+        )
+
+    def create_outing_invite(
+        self,
+        outing_id: uuid.UUID,
+        request: OutingInviteCreateRequest,
+        actor: Actor,
+    ) -> OutingInviteResponse:
+        outing = self.repository.get_outing(outing_id)
+        if outing is None:
+            raise ApiProblem(404, "outing_not_found", "Outing does not exist")
+        _require_permission(
+            "invite_to_outing",
+            actor,
+            {
+                "is_group_member": self.repository.is_member(
+                    outing.context_id, actor.id
+                )
+            },
+        )
+
+        raw_token: str | None = None
+        digest: bytes | None = None
+        invited_person_id = request.person_id
+        if request.source == "link":
+            raw_token = secrets.token_urlsafe(32)
+            digest = token_digest(raw_token)
+            invited_person_id = None
+        else:
+            # This friendly pre-check races with a concurrent insert; the
+            # partial unique index is the real duplicate guarantee behind it.
+            existing = self.repository.find_outing_invite_for_person(
+                outing_id, request.person_id
+            )
+            if existing is not None:
+                raise ApiProblem(
+                    409,
+                    "invite_already_exists",
+                    "Person is already invited to this outing",
+                )
+
+        record = self.repository.create_outing_invite(
+            outing_id=outing_id,
+            source=request.source,
+            invited_person_id=invited_person_id,
+            invited_by_id=actor.id,
+            token_digest=digest,
+            now=_now(),
+        )
+        # The raw token is returned exactly once and never persisted; only its
+        # digest crosses the repository boundary.
+        return _wire_outing_invite(record, raw_token)
+
+    def accept_outing_invite(
+        self, token: str, actor: Actor
+    ) -> OutingInviteAcceptResponse:
+        """Redeem a bearer link without granting access beyond INVITED.
+
+        A link can be forwarded to anybody, so INVITED is the ceiling created
+        here. Because `is_member` requires ACTIVE, the holder cannot read group
+        messages, memories, or balances until a human accepts them through the
+        existing `/memberships/{id}/accept` route.
+        """
+        invite = self.repository.get_outing_invite_by_digest(token_digest(token))
+        if invite is None:
+            raise ApiProblem(404, "invite_not_found", "Invite link is not valid")
+        if invite.accepted_at is not None:
+            raise ApiProblem(
+                409,
+                "invite_already_accepted",
+                "Invite link was already used",
+            )
+
+        outing = self.repository.get_outing(invite.outing_id)
+        if outing is None:
+            # Preserve the capability boundary even if referential integrity
+            # is broken: the token must not reveal whether an outing existed.
+            raise ApiProblem(404, "invite_not_found", "Invite link is not valid")
+        membership = self.repository.ensure_invited_membership(
+            context_id=outing.context_id,
+            person_id=actor.id,
+            invited_by_id=invite.invited_by_id,
+            now=_now(),
+        )
+        self.repository.accept_outing_invite(
+            invite_id=invite.id,
+            accepted_by_id=actor.id,
+            now=_now(),
+        )
+        return OutingInviteAcceptResponse(
+            invite_id=invite.id,
+            outing_id=invite.outing_id,
+            context_id=outing.context_id,
+            membership_id=membership.id,
+            membership_state=membership.state,
+        )
 
     def list_context_memories(
         self,

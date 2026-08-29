@@ -8,7 +8,7 @@ the corresponding tables at the PostgreSQL layer.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -16,6 +16,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     Enum,
     ForeignKey,
@@ -901,6 +902,10 @@ __all__ = [
     "Memory",
     "Message",
     "MessageKind",
+    "Outing",
+    "OutingInvite",
+    "OutingInviteSource",
+    "OutingStop",
     "PayerAcknowledgement",
     "PaymentReport",
     "ReceiptConfirmation",
@@ -924,6 +929,12 @@ class MembershipState(StrEnum):
 class MembershipRole(StrEnum):
     MEMBER = "member"
     ADMIN = "admin"
+
+
+class OutingInviteSource(StrEnum):
+    GROUP = "group"
+    FRIEND = "friend"
+    LINK = "link"
 
 
 class MessageKind(StrEnum):
@@ -1059,6 +1070,160 @@ class Membership(Base):
     )
     left_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class Outing(Base):
+    """A group's trip plan anchored to calendar dates.
+
+    The dates are plain `DATE` values with no timezone because trip dates are
+    calendar facts, not instants; a timestamp would shift by seven hours
+    between the phone that wrote it and a UTC server. The per-person budget is
+    integer dong and only a reference figure, so nothing may refuse an action
+    because a total exceeds it.
+    """
+
+    __tablename__ = "outings"
+    __table_args__ = (
+        CheckConstraint("ends_on >= starts_on", name="dates_in_order"),
+        CheckConstraint("headcount > 0", name="headcount_positive"),
+        CheckConstraint(
+            "budget_per_person_vnd >= 0", name="budget_not_negative"
+        ),
+        CheckConstraint("title <> ''", name="title_not_blank"),
+        Index(
+            "ix_outings_context_schedule",
+            "context_id",
+            "starts_on",
+            "id",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    context_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("contexts.id", name="fk_outings_context"),
+        nullable=False,
+    )
+    created_by_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_outings_created_by"),
+        nullable=False,
+    )
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    starts_on: Mapped[date] = mapped_column(Date, nullable=False)
+    ends_on: Mapped[date] = mapped_column(Date, nullable=False)
+    headcount: Mapped[int] = mapped_column(Integer, nullable=False)
+    budget_per_person_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class OutingStop(Base):
+    """One wall-clock stop in the order the group built its timeline.
+
+    `minute_of_day` is an integer rather than a timestamp or `TIME` because a
+    stop is a wall-clock time of day with no timezone at all. `position`, not
+    `minute_of_day`, is the sort key because F15 preserves builder order: a bar
+    placed before a cafe must stay before it even when its clock time is later.
+    """
+
+    __tablename__ = "outing_stops"
+    __table_args__ = (
+        UniqueConstraint(
+            "outing_id", "position", name="uq_outing_stops_position"
+        ),
+        CheckConstraint(
+            "minute_of_day BETWEEN 0 AND 1439", name="minute_in_day"
+        ),
+        CheckConstraint("position >= 0", name="position_not_negative"),
+        CheckConstraint("label <> ''", name="label_not_blank"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    outing_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("outings.id", name="fk_outing_stops_outing"),
+        nullable=False,
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    minute_of_day: Mapped[int] = mapped_column(Integer, nullable=False)
+    label: Mapped[str] = mapped_column(Text, nullable=False)
+    place_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class OutingInvite(Base):
+    """An outing invitation that never persists a bearer secret.
+
+    Link invites persist only a SHA-256 digest. The raw token is handed to the
+    minter exactly once and never stored, matching the existing guest-page
+    capability shape. The partial unique index turns inviting the same person
+    twice into a 409 instead of allowing a duplicate row.
+    """
+
+    __tablename__ = "outing_invites"
+    __table_args__ = (
+        CheckConstraint(
+            "(source = 'link') = (token_digest IS NOT NULL)",
+            name="link_carries_digest",
+        ),
+        CheckConstraint(
+            "(source = 'link') = (invited_person_id IS NULL)",
+            name="link_names_nobody",
+        ),
+        CheckConstraint(
+            "(accepted_at IS NULL) = (accepted_by_id IS NULL)",
+            name="acceptance_is_whole",
+        ),
+        Index(
+            "uq_outing_invites_person",
+            "outing_id",
+            "invited_person_id",
+            unique=True,
+            postgresql_where=text("invited_person_id IS NOT NULL"),
+        ),
+        Index("ix_outing_invites_outing", "outing_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    outing_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("outings.id", name="fk_outing_invites_outing"),
+        nullable=False,
+    )
+    source: Mapped[OutingInviteSource] = mapped_column(
+        _enum_type(OutingInviteSource, "outing_invite_source"), nullable=False
+    )
+    invited_person_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_outing_invites_person"),
+        nullable=True,
+    )
+    invited_by_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_outing_invites_inviter"),
+        nullable=False,
+    )
+    token_digest: Mapped[bytes | None] = mapped_column(
+        LargeBinary(32), nullable=True, unique=True
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    accepted_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_outing_invites_accepter"),
+        nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

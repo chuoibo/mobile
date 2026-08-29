@@ -162,6 +162,12 @@ _TABLE: dict[str, dict] = {
     # does -- because in a group dispute the attacker is a group member.
     "adjudicate_person_stub_claim": {"roles": {"platform_moderator"}, "requires": ()},
     # --- group logistics ------------------------------------------------
+    # These four actions require group membership, not outing ownership: the
+    # trip belongs to the group, so any member may adjust its plan.
+    "create_outing": {"roles": {"group_admin", "member"}, "requires": ("is_group_member",)},
+    "view_outings": {"roles": {"group_admin", "member"}, "requires": ("is_group_member",)},
+    "edit_outing_timeline": {"roles": {"group_admin", "member"}, "requires": ("is_group_member",)},
+    "invite_to_outing": {"roles": {"group_admin", "member"}, "requires": ("is_group_member",)},
     "create_context": {"roles": {"group_admin", "member"}, "requires": ()},
     "invite_context_member": {
         "roles": {"group_admin"},
