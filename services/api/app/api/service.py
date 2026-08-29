@@ -282,8 +282,7 @@ def _wire_bill(record: BillRecord) -> BillResponse:
         key=lambda key: key.encode("utf-8"),
     )
     all_confirmed = bool(record.items) and all(
-        item.shares
-        and all(share.source == "confirmed" for share in item.shares)
+        item.shares and all(share.source == "confirmed" for share in item.shares)
         for item in record.items
     )
     return BillResponse(
@@ -839,17 +838,13 @@ class ApiService:
         today = _now().astimezone(ZoneInfo(WALL_CLOCK_ZONE)).date()
         records = self.repository.group_recap(context_id, today=today)
         outings = [
-            _wire_recap_outing(record)
-            for record in records
-            if not record.in_progress
+            _wire_recap_outing(record) for record in records if not record.in_progress
         ]
         return GroupRecapResponse(
             context_id=context_id,
             outings=outings,
             in_progress=[
-                _wire_recap_outing(record)
-                for record in records
-                if record.in_progress
+                _wire_recap_outing(record) for record in records if record.in_progress
             ],
             # Summed here rather than by a sixth query: the per-trip figures on
             # the screen have to add back up to the total above them. Finished
@@ -988,11 +983,7 @@ class ApiService:
         _require_permission(
             "edit_outing_timeline",
             actor,
-            {
-                "is_group_member": self.repository.is_member(
-                    record.context_id, actor.id
-                )
-            },
+            {"is_group_member": self.repository.is_member(record.context_id, actor.id)},
         )
         stops = [
             {
@@ -1009,9 +1000,7 @@ class ApiService:
             )
         )
 
-    def check_in_to_stop(
-        self, stop_id: uuid.UUID, actor: Actor
-    ) -> StopCheckinResponse:
+    def check_in_to_stop(self, stop_id: uuid.UUID, actor: Actor) -> StopCheckinResponse:
         found = self.repository.get_outing_stop(stop_id)
         if found is None:
             raise ApiProblem(404, "stop_not_found", "Stop does not exist")
@@ -1019,11 +1008,7 @@ class ApiService:
         _require_permission(
             "check_in_to_stop",
             actor,
-            {
-                "is_group_member": self.repository.is_member(
-                    outing.context_id, actor.id
-                )
-            },
+            {"is_group_member": self.repository.is_member(outing.context_id, actor.id)},
         )
         try:
             record = self.repository.create_stop_checkin(
@@ -1050,11 +1035,7 @@ class ApiService:
         _require_permission(
             "view_stop_checkins",
             actor,
-            {
-                "is_group_member": self.repository.is_member(
-                    outing.context_id, actor.id
-                )
-            },
+            {"is_group_member": self.repository.is_member(outing.context_id, actor.id)},
         )
         return OutingCheckinListResponse(
             outing_id=outing_id,
@@ -1086,11 +1067,7 @@ class ApiService:
         _require_permission(
             "invite_to_outing",
             actor,
-            {
-                "is_group_member": self.repository.is_member(
-                    outing.context_id, actor.id
-                )
-            },
+            {"is_group_member": self.repository.is_member(outing.context_id, actor.id)},
         )
 
         raw_token: str | None = None
@@ -1206,11 +1183,7 @@ class ApiService:
         _require_permission(
             "revoke_outing_invite",
             actor,
-            {
-                "is_group_member": self.repository.is_member(
-                    outing.context_id, actor.id
-                )
-            },
+            {"is_group_member": self.repository.is_member(outing.context_id, actor.id)},
         )
         if invite.accepted_at is not None:
             raise ApiProblem(
@@ -1324,19 +1297,23 @@ class ApiService:
         )
 
         payload_is_valid = (
-            request.kind == "text"
-            and request.body is not None
-            and request.image_url is None
-            and request.card is None
-        ) or (
-            request.kind == "image"
-            and request.image_url is not None
-            and request.card is None
-        ) or (
-            request.kind == "ai_card"
-            and request.card is not None
-            and request.image_url is None
-            and request.body is None
+            (
+                request.kind == "text"
+                and request.body is not None
+                and request.image_url is None
+                and request.card is None
+            )
+            or (
+                request.kind == "image"
+                and request.image_url is not None
+                and request.card is None
+            )
+            or (
+                request.kind == "ai_card"
+                and request.card is not None
+                and request.image_url is None
+                and request.body is None
+            )
         )
         if not payload_is_valid:
             raise ApiProblem(
@@ -1378,7 +1355,9 @@ class ApiService:
             before = decode_cursor(query.before) if query.before is not None else None
             after = decode_cursor(query.after) if query.after is not None else None
         except CursorError as exc:
-            raise ApiProblem(422, "invalid_cursor", "Message cursor is invalid") from exc
+            raise ApiProblem(
+                422, "invalid_cursor", "Message cursor is invalid"
+            ) from exc
 
         page = self.repository.list_messages(
             context_id,
@@ -1423,9 +1402,7 @@ class ApiService:
             }
             for message in messages
         ]
-        decision = plan_turn(
-            {"messages": metadata, "now": _now().isoformat()}
-        )
+        decision = plan_turn({"messages": metadata, "now": _now().isoformat()})
         if not decision["may_speak"]:
             return CompanionTurnResponse(
                 context_id=context_id,
@@ -1469,9 +1446,7 @@ class ApiService:
             # The exception type, never the exception text: a backend error
             # carries both the prompt (the group's own words) and the API key
             # often enough that the message itself is the classic leak.
-            logger.warning(
-                "companion turn: backend failed (%s)", type(error).__name__
-            )
+            logger.warning("companion turn: backend failed (%s)", type(error).__name__)
             return CompanionTurnResponse(
                 context_id=context_id,
                 spoke=False,
@@ -1519,9 +1494,7 @@ class ApiService:
             "set_member_role",
             actor,
             {
-                "is_group_admin": self.repository.membership_role(
-                    context_id, actor.id
-                )
+                "is_group_admin": self.repository.membership_role(context_id, actor.id)
                 == "admin"
             },
         )
@@ -1624,12 +1597,8 @@ class ApiService:
             )
         except RepositoryConflict as exc:
             if exc.code == "BILL_NOT_FOUND":
-                raise ApiProblem(
-                    404, "bill_not_found", "Bill does not exist"
-                ) from exc
-            raise ApiProblem(
-                409, exc.code, "Bill assignment conflicted"
-            ) from exc
+                raise ApiProblem(404, "bill_not_found", "Bill does not exist") from exc
+            raise ApiProblem(409, exc.code, "Bill assignment conflicted") from exc
         return _wire_bill(record)
 
     def split_bill(
@@ -1649,9 +1618,7 @@ class ApiService:
         }
         if not participant_ids:
             participant_ids = {
-                share.participant_id
-                for item in record.items
-                for share in item.shares
+                share.participant_id for item in record.items for share in item.shares
             }
 
         try:

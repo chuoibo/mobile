@@ -51,9 +51,7 @@ class Suggester(Protocol):
     Returning `None` is an allowed answer and means "no suggestion right now".
     """
 
-    def __call__(
-        self, history: dict, places: list[dict]
-    ) -> dict | None: ...
+    def __call__(self, history: dict, places: list[dict]) -> dict | None: ...
 
 
 def _csv(value: str | None) -> list[str]:

@@ -164,10 +164,22 @@ _TABLE: dict[str, dict] = {
     # --- group logistics ------------------------------------------------
     # These four actions require group membership, not outing ownership: the
     # trip belongs to the group, so any member may adjust its plan.
-    "create_outing": {"roles": {"group_admin", "member"}, "requires": ("is_group_member",)},
-    "view_outings": {"roles": {"group_admin", "member"}, "requires": ("is_group_member",)},
-    "edit_outing_timeline": {"roles": {"group_admin", "member"}, "requires": ("is_group_member",)},
-    "invite_to_outing": {"roles": {"group_admin", "member"}, "requires": ("is_group_member",)},
+    "create_outing": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    "view_outings": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    "edit_outing_timeline": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    "invite_to_outing": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
     # F46. Arriving somewhere with the group is a group fact, so the gate is
     # the same ACTIVE membership the rest of this block uses: `is_group_member`
     # is satisfied only by an ACTIVE row, which is why an INVITED link holder
