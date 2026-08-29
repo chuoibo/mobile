@@ -23,7 +23,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MOBILE_ROOT = path.resolve(HERE, "..");
 
 /** Same sentinel `build:check` inlines. The fetch stub keys off this prefix. */
-const API_BASE = "http://api.build-check.invalid";
+export const API_BASE = "http://api.build-check.invalid";
 
 export const STEPS = [
   // The screen the app opens on, and for most of its life the only screen in
@@ -60,7 +60,7 @@ export const STEPS = [
  * anybody's: no real account number goes into Git, and the repo guard's
  * long-number rule is right to refuse one that looks real.
  */
-const VIETQR_FIXTURE =
+export const VIETQR_FIXTURE =
   "00020101021138480010A00000072701180006970415010412340208QRIBFTTA53037045802VN62130809RUDI DEMO6304CFD6";
 
 /**
