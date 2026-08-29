@@ -99,7 +99,7 @@ export function CheckIn({ place, nguoi, nhom }: {
         <Text style={{ ...type.label, color: c.inkSoft }}>
           {nguoi === null
             ? "Chưa biết bạn là ai nên chưa check-in được. Quay ra màn mở đầu và đăng ký bằng số điện thoại, hoặc chọn một người trong danh sách demo."
-            : "Chưa có nhóm nào đang mở trong phiên này. Bấm [+] ở thanh dưới rồi \"Tạo nhóm\" — check-in là mốc của một nhóm, không phải của một người."}
+            : "Chưa có nhóm nào đang mở trong phiên này. Bấm [+] ở thanh dưới rồi \"Tạo nhóm\". Check-in là mốc của một nhóm, không phải của một người."}
         </Text>
       </Card>
     );
@@ -163,7 +163,7 @@ export function CheckIn({ place, nguoi, nhom }: {
             <Dong key={k.id} k={k} />
           ))}
           <Text style={{ ...type.micro, color: c.inkFaint }}>
-            Chỉ ghi thời điểm, chưa ghi tên người check-in — app chưa có đường
+            Chỉ ghi thời điểm, chưa ghi tên người check-in, vì app chưa có đường
             tra tên từ mã tài khoản của người khác.
           </Text>
         </View>

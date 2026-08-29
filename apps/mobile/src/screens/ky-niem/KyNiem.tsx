@@ -241,7 +241,7 @@ function Tuong({ ky, nhomVuaTao }: { ky: KyUc; nhomVuaTao: boolean }) {
         </Text>
         <Text style={{ ...type.label, color: c.inkSoft }}>
           {nhomVuaTao
-            ? "Máy chủ chưa có nhóm demo nào nên app vừa lập một nhóm rỗng. Tường trống ở đây là vì chưa ai seed dữ liệu, không phải vì nhóm chưa đi đâu — chạy `make demo` rồi mở lại."
+            ? "Máy chủ chưa có nhóm demo nào nên app vừa lập một nhóm rỗng. Tường trống ở đây là vì chưa ai seed dữ liệu, không phải vì nhóm chưa đi đâu. Chạy `make demo` rồi mở lại."
             : "Tường kỷ niệm gom lại những buổi đi chơi đã kết thúc. Một chuyến còn ở phía trước nằm ở tab Lên plan, và nó chuyển sang đây sau ngày cuối cùng của chuyến."}
         </Text>
       </Card>
@@ -417,7 +417,7 @@ function ConThieu() {
       <Text style={{ ...type.label, color: c.inkSoft }}>Chưa dựng trên màn này</Text>
       <Text style={{ ...type.micro, color: c.inkFaint }}>
         Ảnh, video và check-in của mockup chưa có kho lưu nào đứng sau, nên không được vẽ
-        ra ở đây. Thả tim, bình luận và lưu khoảnh khắc cũng chưa có bảng nào — bốn thứ đó
+        ra ở đây. Thả tim, bình luận và lưu khoảnh khắc cũng chưa có bảng nào. Bốn thứ đó
         là việc còn lại của trụ cột 5, không phải thứ đang ẩn đi.
       </Text>
     </Card>
