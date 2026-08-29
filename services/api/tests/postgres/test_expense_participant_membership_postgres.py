@@ -31,6 +31,8 @@ from app.api.deps import Actor
 from app.api.errors import ApiProblem
 from app.api.repository import SqlAlchemyApiRepository
 from app.api.schemas import (
+    BillAssignment,
+    BillAssignmentsRequest,
     BillSplitRequest,
     ExpenseConfirmationRequest,
     ExpenseInput,
@@ -282,3 +284,74 @@ def test_nothing_is_written_when_a_participant_is_refused(postgres_session: Sess
         ConfirmedAllocation.participant_id == friend.id
     )
     assert charged.count() == 0
+
+
+def test_a_dish_cannot_be_assigned_to_a_member_who_never_accepted(
+    postgres_session: Session,
+):
+    """`confirm_bill_assignments` is the other path that writes a name.
+
+    The fake in `tests/api` cannot fail this one. Its roster is a set of pairs
+    and every row it returns reads `state="active"`, so an invited person is
+    indistinguishable from a member there. The real `list_members` filters on
+    `left_at IS NULL` and not on `state`, which means it hands `INVITED` rows
+    to the service and the `state == "active"` filter is the only thing
+    standing between an unaccepted invitation and a dish with somebody's name
+    on it.
+
+    Assigning is the step where a guess becomes a decision: the stored share
+    carries `decided_by_id`, so the row asserts that a person agreed. Writing
+    that against someone who never agreed to be in the group is the same
+    mistake as billing them, one screen earlier.
+    """
+    from app.db.models import BillItemShare
+
+    context_id, payer, invited = _group_of_two(postgres_session)
+    _membership(postgres_session, context_id, invited.id, MembershipState.INVITED)
+
+    repository = SqlAlchemyApiRepository(postgres_session)
+    bill = repository.create_bill(
+        context_id=context_id,
+        created_by_id=payer.id,
+        printed_total_vnd=TOTAL_VND,
+        items_total_vnd=TOTAL_VND,
+        confidence=88,
+        needs_review=False,
+        items=[
+            {
+                "item_key": "i1",
+                "name": "Phở bò",
+                "quantity": 1,
+                "unit_price_vnd": TOTAL_VND,
+                "line_total_vnd": TOTAL_VND,
+                "position": 0,
+                "suggested_participant_ids": [payer.id],
+            }
+        ],
+        surcharges=[],
+        discounts=[],
+        now=NOW,
+    )
+    postgres_session.flush()
+
+    with pytest.raises(ApiProblem) as refused:
+        ApiService(repository).confirm_bill_assignments(
+            bill.id,
+            BillAssignmentsRequest(
+                assignments=[
+                    BillAssignment(item_key="i1", participant_ids=[invited.id])
+                ]
+            ),
+            Actor(id=payer.id, roles=ROLES, context_ids=frozenset({context_id})),
+        )
+
+    assert refused.value.code == "participant_not_in_context"
+    postgres_session.flush()
+
+    # Read the table rather than the returned object: a refusal that rolled
+    # back after writing would still raise, and the row is the thing that
+    # would have reappeared on the next `GET /bills/{id}`.
+    claimed = postgres_session.query(BillItemShare).filter(
+        BillItemShare.participant_id == invited.id
+    )
+    assert claimed.count() == 0
