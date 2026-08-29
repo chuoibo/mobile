@@ -114,11 +114,19 @@ export function Button({ label, onPress, tone = "primary", disabled }: {
   );
 }
 
-export function Field({ label, value, onChangeText, keyboardType, placeholder, onSubmitEditing }: {
+export function Field({ label, value, onChangeText, keyboardType, placeholder, onSubmitEditing, maxLength, hint }: {
   label: string; value: string; onChangeText: (t: string) => void;
   keyboardType?: "default" | "number-pad"; placeholder?: string;
   /** Called when the person presses Enter / Done. */
   onSubmitEditing?: () => void;
+  /** Hard cap on what can be typed, for fields whose server refuses longer
+   *  input. Stopping the keystroke is kinder than accepting 400 characters and
+   *  answering with a validation error about the 301st. */
+  maxLength?: number;
+  /** One quiet line under the input, for a constraint or a worked example.
+   *  Separate from `placeholder` on purpose: this one survives typing, and a
+   *  rule someone needs while composing has to still be there once they start. */
+  hint?: string;
 }) {
   const c = usePalette();
   return (
@@ -165,6 +173,7 @@ export function Field({ label, value, onChangeText, keyboardType, placeholder, o
         // defend. Separation from typed `ink` still holds: 5.13:1 against
         // white versus 15.79:1 for entered text.
         placeholderTextColor={c.inkFaint}
+        maxLength={maxLength}
         style={{
           ...type.body, color: c.ink, backgroundColor: c.card,
           // `lineStrong`: an input is a control, and its box is what tells
@@ -173,6 +182,10 @@ export function Field({ label, value, onChangeText, keyboardType, placeholder, o
           paddingHorizontal: space.md, paddingVertical: 12,
         }}
       />
+      {/* `inkSoft`, not `inkFaint`. A hint carrying a rule is text somebody has
+          to be able to read, so it sits at the token that clears the 4.5:1
+          floor on `card` rather than at the faint step used for diagnostics. */}
+      {hint ? <Text style={{ ...type.micro, color: c.inkSoft }}>{hint}</Text> : null}
     </View>
   );
 }
