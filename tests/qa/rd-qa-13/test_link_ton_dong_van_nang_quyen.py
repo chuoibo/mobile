@@ -42,6 +42,21 @@ the file -- including the two that say nothing about how the redeem is answered.
 The probe could not go green even when the product was right. The redeem status
 is now recorded, not judged, and each case asserts the end state instead.
 
+AND THE COST OF THAT, WHICH IS WHY THERE IS A THIRD CASE (rd-qa-20)
+
+Recording rather than judging bought tolerance and paid for it in reach. Once
+#132 landed, the legacy row is refused at redeem, `membership_id` stays None,
+the escalation call is skipped -- and the two cases above still pass, having
+never touched `/memberships/{id}/accept` at all. Measured, not reasoned: on
+32c02e0 rebased onto main e2736ad the redeem answers 404 in both cases and the
+file reports `2 passed`. Green by not running.
+
+So the two cases above now describe expiry (the door shuts earlier), and
+`test_a_live_link_bearer_cannot_promote_themselves_to_active` carries the
+original claim on a link that is still inside its window. `_walk(con_han=True)`
+asserts it reached the escalation call, so that case cannot go quiet the way
+these two did.
+
 Run:
     cd services/api && MOBILE_TEST_DATABASE_URL=... MOBILE_REQUIRE_POSTGRES_TESTS=1 \
       python3 -m pytest ../../tests/qa/rd-qa-13 -q
@@ -51,7 +66,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import anyio
 import httpx
@@ -158,8 +173,19 @@ def _outing(app, owner: Person, context: Context) -> dict:
     return response.json()
 
 
-def _outstanding_link(session: Session, outing_id: str, owner: Person) -> OutingInvite:
-    """The row a pre-#124 mint left behind. Nothing revokes it."""
+def _outstanding_link(
+    session: Session, outing_id: str, owner: Person, *, con_han: bool = False
+) -> OutingInvite:
+    """The row a pre-#124 mint left behind. Nothing revokes it.
+
+    `con_han=False` is the legacy row: expiry equal to `created_at`, which is
+    what #132's backfill wrote for every link minted before the column existed.
+
+    `con_han=True` is a link that is still inside its window. That distinction
+    is the whole reason this helper takes an argument: after #132 the legacy row
+    is refused at the door, so a file that only ever built legacy rows stops
+    reaching the self-promotion route it exists to test. See `_walk`.
+    """
     columns = dict(
         id=uuid.uuid4(),
         outing_id=uuid.UUID(outing_id),
@@ -178,7 +204,7 @@ def _outstanding_link(session: Session, outing_id: str, owner: Person) -> Outing
     # would make the file uncollectable on any build before it; leaving it out
     # makes the INSERT fail with NotNullViolation on any build after it.
     if hasattr(OutingInvite, "expires_at"):
-        columns["expires_at"] = NOW
+        columns["expires_at"] = NOW + timedelta(days=7) if con_han else NOW
     invite = OutingInvite(**columns)
     session.add(invite)
     session.flush()
@@ -203,17 +229,29 @@ class Walk:
     stranger_states: list[str]
 
 
-def _walk(postgres_session: Session, monkeypatch: pytest.MonkeyPatch) -> Walk:
+def _walk(
+    postgres_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    con_han: bool = False,
+) -> Walk:
     """Redeem an outstanding link as a stranger, then try to self-promote.
 
     Returns every response the two steps produced so each claim can be asserted
     in its own test -- a single test would stop at the first violation and hide
     whether the promotion actually bought any data.
+
+    `con_han=True` demands that the redeem actually succeed. That is not a
+    second opinion about how a redeem should be answered -- it is the guard that
+    keeps this file honest. Measured on 32c02e0 rebased onto main e2736ad: with
+    the legacy row the redeem answers 404, `membership_id` stays None, the
+    escalation call is skipped, and BOTH cases below still pass while never
+    touching `/memberships/{id}/accept`. The file went green by not running.
     """
     context, owner, stranger = _scene(postgres_session)
     app = _http(postgres_session, monkeypatch)
     outing = _outing(app, owner, context)
-    _outstanding_link(postgres_session, outing["id"], owner)
+    _outstanding_link(postgres_session, outing["id"], owner, con_han=con_han)
 
     async def exchange():
         async with _client(app) as client:
@@ -258,6 +296,20 @@ def _walk(postgres_session: Session, monkeypatch: pytest.MonkeyPatch) -> Walk:
         assert 400 <= redeemed.status_code < 500, (
             "Redeeming an outstanding link neither succeeded nor was refused. "
             f"Got {redeemed.status_code}: {redeemed.text}"
+        )
+
+    if con_han:
+        # The path assertion. A link inside its window MUST reach an INVITED
+        # membership, because that membership id is the only input the
+        # self-promotion route takes -- without it the interesting call is
+        # simply not made, and every assertion downstream becomes a statement
+        # about a request that never happened.
+        assert membership_id is not None, (
+            "A link still inside its window was refused at redeem "
+            f"({redeemed.status_code}), so this walk never reached "
+            "/memberships/{id}/accept and proves nothing about self-promotion. "
+            "Either the expiry window moved or the redeem route changed; fix "
+            f"the fixture rather than letting the case pass. Body: {redeemed.text}"
         )
 
     async def escalate():
@@ -341,4 +393,44 @@ def test_a_link_bearer_never_reads_the_groups_messages_or_balances(
     assert walk.balances.status_code == 403, (
         "The link bearer is reading the group's balances. "
         f"Got {walk.balances.status_code}"
+    )
+
+
+def test_a_live_link_bearer_cannot_promote_themselves_to_active(
+    postgres_session: Session, monkeypatch: pytest.MonkeyPatch
+):
+    """The same claim, on a link the door actually opens for.
+
+    The two cases above are about a *legacy* row, and after #132 that row is
+    refused at redeem. Their protection against self-promotion therefore rests
+    on a call that is never made: expiry closed the door one step earlier, which
+    is a real fix but a different one.
+
+    This case holds a link that is still inside its window, so the redeem
+    succeeds, an INVITED membership exists, and `/memberships/{id}/accept` is
+    genuinely exercised with the id the attacker was just handed. That is the
+    self-circular predicate from the module docstring, and this is the only case
+    in the file that can still go red if it comes back.
+    """
+    walk = _walk(postgres_session, monkeypatch, con_han=True)
+
+    # `con_han=True` already asserted the walk reached the escalation call, so
+    # this is a real response and not a skipped step wearing a green tick.
+    assert walk.accepted is not None
+    assert walk.accepted.status_code == 403, (
+        "A bearer of a LIVE link promoted THEMSELVES from INVITED to ACTIVE. "
+        f"Got {walk.accepted.status_code}: {walk.accepted.text}"
+    )
+    assert "ACTIVE" not in walk.stranger_states, (
+        "A live-link bearer holds an ACTIVE membership nobody in the group "
+        f"chose. Rows for the bearer: {walk.stranger_states}"
+    )
+    # And the consequence, so a fix that only changes the status code cannot
+    # satisfy this case while the data stays readable.
+    assert walk.after.status_code == 403, (
+        "The live-link bearer is reading the group's messages. "
+        f"Got {walk.after.status_code}: {walk.after.text}"
+    )
+    assert SECRET_MESSAGE not in walk.after.text, (
+        "Group message leaked to a live-link bearer"
     )
