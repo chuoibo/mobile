@@ -379,14 +379,27 @@ def test_the_clean_path_never_reaches_the_salvage(monkeypatch):
     assert parse_reasons(text, one_row(NUONG["id"]), GROUP)[NUONG["id"]].verdict == "hop"
 
 
-def test_a_document_of_nothing_but_open_braces_terminates():
-    """The rescan is bounded, so a pathological body cannot hang the route.
+def test_the_rescan_gives_up_instead_of_walking_every_brace(monkeypatch):
+    """`_MAX_SALVAGE_MISSES` is enforced, counted rather than assumed.
 
-    `GET /places` is on the hero path and has one job when the model misbehaves:
-    come back, honestly empty.
+    Resynchronising at the next `{` is O(braces) attempts, and each attempt can
+    scan to the end of the document before it fails, so an unbounded rescan is
+    quadratic in a body that is not a batch at all. The first version of this
+    test just asserted the result was empty and took 0.01s either way -- it
+    passed with the bound deleted, which made it decorative. Counting the
+    decode attempts is what actually holds the bound in place.
     """
 
+    attempts = []
+    real_raw_decode = json.JSONDecoder.raw_decode
+
+    def counting(self, s, idx=0):
+        attempts.append(idx)
+        return real_raw_decode(self, s, idx)
+
+    monkeypatch.setattr(json.JSONDecoder, "raw_decode", counting)
     assert parse_reasons("{" * 5000, three_rows(), GROUP) == {}
+    assert len(attempts) < 100, f"rescan tried {len(attempts)} times on 5000 braces"
 
 
 # ---------------------------------------------------------------------------
