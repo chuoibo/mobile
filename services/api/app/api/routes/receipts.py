@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, UploadFile
@@ -13,6 +14,14 @@ from app.api.schemas import ErrorResponse, ReceiptScanResponse
 from app.domain.receipt import ReceiptError
 
 router = APIRouter(tags=["receipts"])
+
+# Seven of the domain's refusal codes share one wire code and one sentence, so
+# the access log recorded the same `422` line for all of them -- and for a
+# malformed `X-Actor-ID` too. rd-qa-38 grepped the full logs of five failing
+# scans and found zero lines naming a cause. The code is the only thing written
+# down here: a bill photograph is private data and so is its transcription, so
+# neither the reading nor the image may ever reach a log line.
+_LOGGER = logging.getLogger(__name__)
 
 _UNSUPPORTED_IMAGE_DETAIL = "Định dạng ảnh không được hỗ trợ."
 _IMAGE_TOO_LARGE_DETAIL = "Ảnh bill vượt quá giới hạn 8 MB."
@@ -75,6 +84,9 @@ def scan_receipt(
         )
         return ReceiptScanResponse.model_validate(result)
     except ReceiptError as exc:
+        # Every refused scan, not only the catch-all ones: the named branches
+        # are distinguishable on the wire but were just as anonymous in the log.
+        _LOGGER.info("receipt scan refused: %s", exc.code)
         if exc.code == "UNSUPPORTED_IMAGE_TYPE":
             raise ApiProblem(
                 415,
