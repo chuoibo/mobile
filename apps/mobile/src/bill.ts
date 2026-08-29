@@ -225,8 +225,15 @@ export function laGoiY(bill: BillWire, itemKey: string): boolean {
  * lines confirmed and two still guesses reports `ai_suggested` at the top
  * level, and reading only that would tell a person none of their work landed.
  */
-export function moTaTrangThaiGan(bill: BillWire | null): string {
-  if (bill === null) {
+export function moTaTrangThaiGan(bill: BillWire | null | undefined): string {
+  // `== null`, so a prop that never arrived lands here rather than three lines
+  // down on `.suggested_item_keys`. `undefined` is not a third state meaning
+  // anything: it is the absence of a bill, same as `null`, and the version of
+  // this that tested `=== null` threw on every caller that omitted the prop.
+  // The same shape `readingFromWire` guards against -- a missing field read as
+  // an answer instead of as an absence -- except this one failed loudly, which
+  // is the lucky half of that family.
+  if (bill == null) {
     return "Chưa lưu được lên máy chủ. Các ô đã tích chỉ nằm trên máy này.";
   }
   const con = bill.suggested_item_keys.length;

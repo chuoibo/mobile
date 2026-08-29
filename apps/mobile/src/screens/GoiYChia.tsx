@@ -404,7 +404,7 @@ export function GoiYChia(props: {
         <Text
           style={{
             ...type.label,
-            color: props.bill === null ? c.warn : c.inkSoft,
+            color: props.bill == null ? c.warn : c.inkSoft,
             textAlign: "center",
           }}
         >
@@ -740,7 +740,7 @@ function SoDuNhom({
   roster: Roster;
 }): React.JSX.Element | null {
   const c = usePalette();
-  if (soDu === null || soDu.transfers.length === 0) return null;
+  if (soDu == null || soDu.transfers.length === 0) return null;
   return (
     <Card>
       <View style={{ gap: space.xs }}>
