@@ -126,7 +126,12 @@ class MigrationMatchesModels(unittest.TestCase):
             lambda m: 'name="' + "".join(re.findall(r'"([^"]*)"', m.group(1))) + '"',
             source,
         )
-        names = re.findall(r'name="([a-z0-9_]+)"', source)
+        # `(?<![a-z_])` so `table_name="memories"` is not harvested as a
+        # constraint called `memories`. It was, and the duplicate check below
+        # then failed the moment a second migration dropped an index on a
+        # table an earlier one had already dropped an index on -- a collision
+        # between two table references, not between two identifiers.
+        names = re.findall(r'(?<![a-z_])name="([a-z0-9_]+)"', source)
         self.assertGreater(len(names), 20, "expected the migration to name its constraints")
         self.assertEqual(sorted({n for n in names if len(n) > 63}), [])
         self.assertEqual(sorted({n for n in names if names.count(n) > 1}), [])

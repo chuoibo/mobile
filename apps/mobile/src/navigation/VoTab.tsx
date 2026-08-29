@@ -27,6 +27,8 @@ import { ThanhTab } from "./ThanhTab";
 import { useInertBackground } from "./modal";
 import { CREATE_ACTIONS, DEFAULT_TAB, type CreateActionId, type CreateFlowId } from "./tabs";
 import type { DemoPerson } from "./nhom-demo";
+import type { Nhom as NhomWire } from "../screens/vao-cua/cong-api";
+import type { TheBan } from "../screens/vao-cua/ma-ban";
 
 export function VoTab({
   nguoi,
@@ -34,6 +36,8 @@ export function VoTab({
   moNhomNgay,
   moKyNiemNgay,
   nhomId,
+  banQuetDuoc,
+  diaDiemDau,
   renderKhoanChi,
 }: {
   nguoi: DemoPerson | null;
@@ -53,6 +57,12 @@ export function VoTab({
    *  care; `AppRoot` passes the one named in the URL on web, so a screenshot
    *  tool can reach a tab it cannot tap. Null uses the default. */
   tabDau?: string | null;
+  /** F05. A friend read off a scanned code, passed through to the group
+   *  screen so the card is already filled when it opens. */
+  banQuetDuoc?: TheBan | null;
+  /** F46. A place id from the link, opened as a detail card so the check-in
+   *  on it is reachable without a tap. Passed straight through to Khám phá. */
+  diaDiemDau?: string | null;
   /** The organiser flow, handed in with the way back out of it. */
   renderKhoanChi: (onExit: () => void) => React.ReactNode;
 }) {
@@ -70,6 +80,16 @@ export function VoTab({
   // F30. Full screen like the two flows above, and for the same reason: it is
   // a place you go and come back from, not a tab you switch between.
   const [luongKyNiem, setLuongKyNiem] = useState(moKyNiemNgay ?? false);
+  // The group handle, lifted out of the group screen.
+  //
+  // It used to live inside `Nhom.tsx` and die when that screen closed, which
+  // made every other tab unable to name the group the person had just opened.
+  // F46 is what forced the issue: a check-in is posted to a context, and Khám
+  // phá had no way to learn one. Holding it here does not make it survive a
+  // reload -- there is still no storage, and `Nhom.tsx`'s header still says so
+  // -- but it does make it survive closing the screen, which is the difference
+  // between "the app forgot" and "the app never knew".
+  const [nhom, setNhom] = useState<NhomWire | null>(null);
   // What to say when someone opens a create action that is still a shell.
   const [thongBao, setThongBao] = useState<string | null>(null);
   // The screen and the bar go inert while the [+] sheet is open, so Tab cannot
@@ -116,7 +136,13 @@ export function VoTab({
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
         <StatusBar style={scheme === "dark" ? "light" : "dark"} />
-        <Nhom nguoi={nguoi} onDong={() => setLuongNhom(false)} />
+        <Nhom
+          nguoi={nguoi}
+          nhomDangCo={nhom}
+          onNhom={setNhom}
+          banQuetDuoc={banQuetDuoc ?? null}
+          onDong={() => setLuongNhom(false)}
+        />
       </SafeAreaView>
     );
   }
@@ -146,7 +172,9 @@ export function VoTab({
           somebody adds next silently reachable behind the sheet. */}
       <View ref={nenRef} style={{ flex: 1 }}>
         <View style={{ flex: 1 }}>
-          {tab === "kham-pha" ? <KhamPha /> : null}
+          {tab === "kham-pha" ? (
+            <KhamPha nguoi={nguoi} nhom={nhom} diaDiemDau={diaDiemDau ?? null} />
+          ) : null}
           {tab === "len-plan" ? <LenPlan nguoi={nguoi} /> : null}
           {tab === "tin-nhan" ? <TinNhan nguoi={nguoi} /> : null}
           {tab === "ca-nhan" ? <CaNhan nguoi={nguoi} /> : null}

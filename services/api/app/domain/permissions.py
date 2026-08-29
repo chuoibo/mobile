@@ -168,6 +168,18 @@ _TABLE: dict[str, dict] = {
     "view_outings": {"roles": {"group_admin", "member"}, "requires": ("is_group_member",)},
     "edit_outing_timeline": {"roles": {"group_admin", "member"}, "requires": ("is_group_member",)},
     "invite_to_outing": {"roles": {"group_admin", "member"}, "requires": ("is_group_member",)},
+    # F46. Arriving somewhere with the group is a group fact, so the gate is
+    # the same ACTIVE membership the rest of this block uses: `is_group_member`
+    # is satisfied only by an ACTIVE row, which is why an INVITED link holder
+    # can neither record an arrival nor read who else has arrived.
+    "check_in_to_stop": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    "view_stop_checkins": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
     # Revocation is a group decision, so ACTIVE membership is the gate; an
     # INVITED link holder fails is_group_member.
     "revoke_outing_invite": {
