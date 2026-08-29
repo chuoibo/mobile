@@ -65,12 +65,13 @@ REPO_ROOT="$PWD"
 
 # Every stage, in run order: cheapest and most likely to fail first, so a
 # broken tree is reported in seconds rather than after a docker build.
-STAGES=(guard ruff api migration shared mobile docker postgres)
+STAGES=(guard ruff contract api migration shared mobile docker postgres)
 
 stage_help() {
   case "$1" in
     guard)     echo "repo_guard.py tree HEAD (repo-guard.yml)" ;;
     ruff)      echo "ruff on the files this branch changes, uncommitted ones included (test.yml: lint)" ;;
+    contract)  echo "every route wanting X-Actor-ID is called with it (test.yml: contract)" ;;
     api)       echo "pytest services/api/tests tests (test.yml: api)" ;;
     migration) echo "alembic upgrade head --sql, no database (test.yml: api, inline)" ;;
     shared)    echo "node packages/shared/money.test.mjs (test.yml: shared)" ;;
@@ -143,6 +144,17 @@ do_ruff() {
   fi
   echo "so với merge base $base"
   scripts/ruff_changed.sh "$base"
+}
+
+do_contract() {
+  # Runs before `api` on purpose. It is seconds, and it answers a question no
+  # other stage here asks: the two sides of one HTTP contract are checked by
+  # two suites that each mock the other, so a route that starts demanding a
+  # header leaves both suites green and the screen dead. See the file header.
+  echo "--- self-test: the checker has to be able to be red"
+  python3 scripts/check_actor_headers.py --selftest || return 1
+  echo "--- client vs OpenAPI"
+  python3 scripts/check_actor_headers.py
 }
 
 do_api() { python3 -m pytest services/api/tests tests -q; }
@@ -236,6 +248,15 @@ check_prereq() {
   case "$1" in
     ruff)
       git rev-parse --git-dir >/dev/null 2>&1 || { echo "không phải git repo"; return 1; } ;;
+    contract)
+      # Needs both sides of the contract. Without `apps/mobile` there is no
+      # client to check and skipping is the honest answer; with it present but
+      # no `src`, the checker itself would find nothing and report green, so
+      # that case is a defect and refuses to skip.
+      [ -d apps/mobile ] || { echo "apps/mobile không có trên nhánh này"; return 1; }
+      [ -d apps/mobile/src ] || return 2
+      python3 -c "import fastapi" 2>/dev/null || {
+        echo "chưa cài fastapi (pip install -r services/api/requirements-dev.txt)"; return 1; } ;;
     shared)
       have node || { echo "không có node"; return 1; }
       [ -d packages/shared ] || { echo "packages/shared không có trên nhánh này"; return 1; }
@@ -262,6 +283,7 @@ check_prereq() {
 # The "present but broken" message, kept next to the rule it enforces.
 broken_why() {
   case "$1" in
+    contract) echo "apps/mobile có mặt nhưng thiếu src/ -- từ chối bỏ qua" ;;
     shared) echo "packages/shared có mặt nhưng thiếu money.test.mjs -- từ chối bỏ qua" ;;
     mobile) echo "apps/mobile có mặt nhưng thiếu package-lock.json -- từ chối bỏ qua" ;;
     *) echo "thiếu file mà chặng này cần -- từ chối bỏ qua" ;;
