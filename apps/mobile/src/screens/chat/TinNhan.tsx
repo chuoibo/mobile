@@ -27,12 +27,22 @@ import { DEMO_PEOPLE, type DemoPerson } from "../../navigation/nhom-demo";
 import { radius, space, type, usePalette } from "../../theme";
 import { Card } from "../../ui/Kit";
 import { goiAiTurn, type AiTurnState } from "./ai";
+import {
+  cardBoPhieu,
+  cardMoBinhChon,
+  diaDiemDaGoiY,
+  tongHopBinhChon,
+  type KetQuaBinhChon,
+} from "./binh-chon";
 import { BongBong, type NguoiHienThi } from "./BongBong";
 import { ChiTietKeHoach } from "./ChiTietKeHoach";
-import { keHoachTuCard, type KeHoach } from "./ke-hoach";
+import { keHoachTuCard, type DiaDiem, type KeHoach } from "./ke-hoach";
+import { MoBinhChon } from "./MoBinhChon";
 import { khoiDongNhom, type NhomState, type ThanhVien } from "./nhom";
 import { ONhap } from "./ONhap";
+import { TheBinhChon } from "./TheBinhChon";
 import {
+  guiTheAi,
   guiTinNhan,
   khuTrungTheoId,
   napTinCuHon,
@@ -64,12 +74,22 @@ export function TinNhan({ nguoi }: { nguoi: DemoPerson | null }) {
   const [thongBao, setThongBao] = useState<string | null>(null);
   const [aiYen, setAiYen] = useState<AiYen | null>(null);
   const [keHoachDangXem, setKeHoachDangXem] = useState<KeHoach | null>(null);
+  const [dangMoBinhChon, setDangMoBinhChon] = useState(false);
+  const [dangBoPhieu, setDangBoPhieu] = useState(false);
 
   const cuonRef = useRef<ScrollView>(null);
   const dangGoiAi = useRef(false);
   const messages = tin.kind === "co-tin" ? tin.messages : [];
   const cuoiTin = messages[messages.length - 1]?.id;
   const keHoachMoi = keHoachGanNhat(messages);
+
+  // Counted once, here, from the whole thread. Every surface below reads the
+  // same array, so the chat bubble and the Plan tab can never print two
+  // different counts for one ballot.
+  const binhChon = tongHopBinhChon(messages, nguoi?.personId ?? null);
+  const binhChonTheoTin = new Map(binhChon.map((b) => [b.messageId, b]));
+  const diaDiem = diaDiemDaGoiY(messages);
+  const soThanhVien = nhom.kind === "xong" ? nhom.members.length : 0;
 
   useEffect(() => {
     if (!nguoi) {
@@ -107,8 +127,17 @@ export function TinNhan({ nguoi }: { nguoi: DemoPerson | null }) {
     return <ChiTietKeHoach keHoach={keHoachDangXem} onBack={() => setKeHoachDangXem(null)} />;
   }
 
-  if (chip === "plan" && keHoachMoi) {
-    return <ChiTietKeHoach keHoach={keHoachMoi} onBack={() => setChip("chat")} />;
+  if (dangMoBinhChon) {
+    return (
+      <MoBinhChon
+        diaDiem={diaDiem}
+        dangGui={dangBoPhieu}
+        onMo={(cauHoi, chon) => {
+          void moBinhChon(cauHoi, chon);
+        }}
+        onHuy={() => setDangMoBinhChon(false)}
+      />
+    );
   }
 
   async function gui() {
@@ -130,6 +159,61 @@ export function TinNhan({ nguoi }: { nguoi: DemoPerson | null }) {
     setNhap("");
     setTin((truoc) => noiTinMoi(truoc, sent.message, nhom.contextId));
     void goiAiSauKhiGui(nhom.contextId, nguoi.personId);
+  }
+
+  /**
+   * Open a poll by writing one real `ai_card` into the thread.
+   *
+   * No AI turn is kicked off afterwards, unlike `gui`. A poll is the group
+   * asking each other, not asking the companion, and a machine paragraph
+   * landing under a fresh ballot reads as the machine campaigning for one of
+   * the options.
+   */
+  async function moBinhChon(
+    cauHoi: string,
+    chon: { optionId: string; nhan: string; diaDiem: DiaDiem }[],
+  ) {
+    if (!nguoi || nhom.kind !== "xong" || dangBoPhieu) return;
+    setDangBoPhieu(true);
+    const sent = await guiTheAi({
+      contextId: nhom.contextId,
+      actorId: nguoi.personId,
+      card: cardMoBinhChon({ pollId: taoKhoa(), cauHoi, luaChon: chon }),
+      idempotencyKey: taoKhoa(),
+    });
+    setDangBoPhieu(false);
+    if (sent.kind !== "xong") {
+      setThongBao(cauGuiHong(sent));
+      return;
+    }
+    setDangMoBinhChon(false);
+    setChip("chat");
+    setTin((truoc) => noiTinMoi(truoc, sent.message, nhom.contextId));
+  }
+
+  /**
+   * Cast one ballot, also as a real message.
+   *
+   * Nothing is written to local state ahead of the server's answer. An
+   * optimistic tick would be a vote on screen that no other phone can see,
+   * and the number beside it would be wrong for exactly as long as the
+   * request takes -- on a slow link, long enough to be read aloud.
+   */
+  async function boPhieu(pollId: string, optionId: string) {
+    if (!nguoi || nhom.kind !== "xong" || dangBoPhieu) return;
+    setDangBoPhieu(true);
+    const sent = await guiTheAi({
+      contextId: nhom.contextId,
+      actorId: nguoi.personId,
+      card: cardBoPhieu(pollId, optionId),
+      idempotencyKey: taoKhoa(),
+    });
+    setDangBoPhieu(false);
+    if (sent.kind !== "xong") {
+      setThongBao(cauGuiHong(sent));
+      return;
+    }
+    setTin((truoc) => noiTinMoi(truoc, sent.message, nhom.contextId));
   }
 
   async function goiAiSauKhiGui(contextId: string, actorId: string) {
@@ -193,9 +277,29 @@ export function TinNhan({ nguoi }: { nguoi: DemoPerson | null }) {
             onXemCuHon={xemTinCuHon}
             onXemKeHoach={setKeHoachDangXem}
             aiYen={aiYen}
+            binhChonTheoTin={binhChonTheoTin}
+            soThanhVien={soThanhVien}
+            dangBoPhieu={dangBoPhieu}
+            onBoPhieu={(pollId, optionId) => {
+              void boPhieu(pollId, optionId);
+            }}
           />
         ) : null}
-        {chip === "plan" ? <TabPlan dangTai={tin.kind === "dang-tai"} /> : null}
+        {chip === "plan" ? (
+          <TabPlan
+            dangTai={tin.kind === "dang-tai"}
+            binhChon={binhChon}
+            soThanhVien={soThanhVien}
+            dangBoPhieu={dangBoPhieu}
+            coDiaDiem={diaDiem.length >= 2}
+            keHoach={keHoachMoi}
+            onBoPhieu={(pollId, optionId) => {
+              void boPhieu(pollId, optionId);
+            }}
+            onMoBinhChon={() => setDangMoBinhChon(true)}
+            onXemKeHoach={setKeHoachDangXem}
+          />
+        ) : null}
         {chip === "thanh-vien" ? <TabThanhVien nhom={nhom} /> : null}
         {chip === "file" ? <TabFile /> : null}
       </View>
@@ -319,6 +423,10 @@ function DongTin({
   onXemCuHon,
   onXemKeHoach,
   aiYen,
+  binhChonTheoTin,
+  soThanhVien,
+  dangBoPhieu,
+  onBoPhieu,
 }: {
   nhom: NhomMan;
   tin: TinMan;
@@ -328,6 +436,12 @@ function DongTin({
   onXemCuHon: () => void;
   onXemKeHoach: (k: KeHoach) => void;
   aiYen: AiYen | null;
+  /** Keyed by the id of the message that opened each poll, so the ballot is
+   *  drawn where the group actually opened it. */
+  binhChonTheoTin: Map<string, KetQuaBinhChon>;
+  soThanhVien: number;
+  dangBoPhieu: boolean;
+  onBoPhieu: (pollId: string, optionId: string) => void;
 }) {
   const c = usePalette();
 
@@ -387,7 +501,11 @@ function DongTin({
     );
   }
 
-  const messages = tin.kind === "co-tin" ? tin.messages : [];
+  // Ballots are cast as messages, but they are not conversation. Left in the
+  // stream every vote would draw a bubble reading "thẻ này không đọc được",
+  // so a busy poll would bury the thread under its own tally. They are
+  // already counted; here they are silent.
+  const messages = (tin.kind === "co-tin" ? tin.messages : []).filter((m) => !laPhieuBau(m));
   const hasMore = tin.kind === "co-tin" ? tin.hasMore : false;
 
   return (
@@ -438,16 +556,30 @@ function DongTin({
         aria-live="polite"
         style={{ gap: space.sm }}
       >
-        {messages.map((m, i) => (
-          <BongBong
-            key={m.id}
-            message={m}
-            nguoiGui={nguoiTheoAuthor(m.author_id)}
-            cuaMinh={Boolean(nguoi && m.author_id === nguoi.personId)}
-            dauChuoi={i === 0 || messages[i - 1]!.author_id !== m.author_id}
-            onXemKeHoach={onXemKeHoach}
-          />
-        ))}
+        {messages.map((m, i) => {
+          const kq = binhChonTheoTin.get(m.id);
+          if (kq) {
+            return (
+              <TheBinhChon
+                key={m.id}
+                ketQua={kq}
+                soThanhVien={soThanhVien}
+                dangGui={dangBoPhieu}
+                onChon={(optionId) => onBoPhieu(kq.pollId, optionId)}
+              />
+            );
+          }
+          return (
+            <BongBong
+              key={m.id}
+              message={m}
+              nguoiGui={nguoiTheoAuthor(m.author_id)}
+              cuaMinh={Boolean(nguoi && m.author_id === nguoi.personId)}
+              dauChuoi={i === 0 || messages[i - 1]!.author_id !== m.author_id}
+              onXemKeHoach={onXemKeHoach}
+            />
+          );
+        })}
       </View>
 
       {aiYen ? <BangAiYen yen={aiYen} /> : null}
@@ -455,7 +587,43 @@ function DongTin({
   );
 }
 
-function TabPlan({ dangTai }: { dangTai: boolean }) {
+/**
+ * The Plan tab, which is mockup screen 3: every poll the group has open,
+ * then the plan itself.
+ *
+ * The votes come first because that is the order the decision happens in.
+ * The tab used to jump straight into the timeline; it no longer does, so
+ * that a group with a vote running lands on the vote. The timeline is one
+ * tap away and draws the same `ChiTietKeHoach` it always did.
+ *
+ * The mockup's "Chốt plan với kết quả bình chọn" button and its "Kết thúc
+ * sau 2h" countdown are not drawn. There is no endpoint that closes a poll
+ * and no field that stores a deadline, so both would be paint: a button that
+ * settles nothing and a clock counting down to nothing. Same rule the
+ * reactions in `BongBong` are held to.
+ */
+function TabPlan({
+  dangTai,
+  binhChon,
+  soThanhVien,
+  dangBoPhieu,
+  coDiaDiem,
+  keHoach,
+  onBoPhieu,
+  onMoBinhChon,
+  onXemKeHoach,
+}: {
+  dangTai: boolean;
+  binhChon: KetQuaBinhChon[];
+  soThanhVien: number;
+  dangBoPhieu: boolean;
+  /** Whether the thread holds two or more places to put on a ballot. */
+  coDiaDiem: boolean;
+  keHoach: KeHoach | null;
+  onBoPhieu: (pollId: string, optionId: string) => void;
+  onMoBinhChon: () => void;
+  onXemKeHoach: (k: KeHoach) => void;
+}) {
   const c = usePalette();
   if (dangTai) {
     return (
@@ -466,16 +634,113 @@ function TabPlan({ dangTai }: { dangTai: boolean }) {
       </View>
     );
   }
+
   return (
-    <View style={{ padding: space.md }}>
-      <Card>
-        <Text style={{ ...type.body, color: c.ink }}>Chưa có kế hoạch nào trong nhóm này.</Text>
-        <Text style={{ ...type.label, color: c.inkSoft }}>
-          AI sẽ tự lên tiếng khi nhóm bàn đủ rõ chỗ đi và thời gian. Không có kế hoạch nào
-          được bịa sẵn.
+    <ScrollView
+      style={{ flex: 1 }}
+      contentContainerStyle={{ padding: space.md, gap: space.md, paddingBottom: space.xxl }}
+    >
+      <Text style={{ ...type.h1, color: c.ink }}>Bình chọn của nhóm</Text>
+
+      {binhChon.length === 0 ? (
+        <Card>
+          <Text style={{ ...type.body, color: c.ink }}>Chưa có bình chọn nào.</Text>
+          <Text style={{ ...type.label, color: c.inkSoft }}>
+            {coDiaDiem
+              ? "Mở một bình chọn từ những chỗ AI đã gợi ý trong nhóm."
+              : "Cần ít nhất hai chỗ AI đã gợi ý trong nhóm thì mới mở được bình chọn."}
+          </Text>
+        </Card>
+      ) : (
+        binhChon.map((kq) => (
+          <TheBinhChon
+            key={kq.pollId}
+            ketQua={kq}
+            soThanhVien={soThanhVien}
+            dangGui={dangBoPhieu}
+            onChon={(optionId) => onBoPhieu(kq.pollId, optionId)}
+          />
+        ))
+      )}
+
+      <Pressable
+        onPress={onMoBinhChon}
+        disabled={!coDiaDiem || dangBoPhieu}
+        accessibilityRole="button"
+        accessibilityLabel="Mở bình chọn mới"
+        aria-disabled={!coDiaDiem || dangBoPhieu}
+        style={({ pressed }) => ({
+          minHeight: 44,
+          borderRadius: radius.control,
+          borderWidth: 1,
+          borderColor: !coDiaDiem || dangBoPhieu ? c.line : c.accent,
+          backgroundColor: !coDiaDiem || dangBoPhieu ? c.line : c.accent,
+          alignItems: "center",
+          justifyContent: "center",
+          paddingHorizontal: space.md,
+          opacity: pressed && coDiaDiem && !dangBoPhieu ? 0.85 : 1,
+        })}
+      >
+        <Text
+          style={{
+            ...type.body,
+            fontWeight: "700",
+            color: !coDiaDiem || dangBoPhieu ? c.inkSoft : c.accentInk,
+          }}
+        >
+          Mở bình chọn mới
         </Text>
-      </Card>
-    </View>
+      </Pressable>
+
+      {/* A dead button with no reason beside it is the defect `ONhap` was
+          written around: people press it, nothing moves, and they conclude the
+          screen is broken rather than that the thread has nothing to vote on
+          yet. The empty state above says this too, but it disappears as soon
+          as one poll exists -- which is exactly when the button is still off. */}
+      {!coDiaDiem ? (
+        <Text style={{ ...type.micro, color: c.inkSoft }}>
+          Cần ít nhất hai chỗ AI đã gợi ý trong nhóm thì mới mở được bình chọn.
+        </Text>
+      ) : null}
+
+      <Text style={{ ...type.h1, color: c.ink }}>Kế hoạch</Text>
+
+      {keHoach ? (
+        <Card>
+          <Text style={{ ...type.title, color: c.ink }}>{keHoach.tieuDe}</Text>
+          <Text style={{ ...type.label, color: c.inkSoft }}>
+            {keHoach.chang.length} chặng do AI dựng từ chỗ nhóm đã bàn.
+          </Text>
+          <Pressable
+            onPress={() => onXemKeHoach(keHoach)}
+            accessibilityRole="button"
+            accessibilityLabel="Xem chi tiết kế hoạch"
+            style={({ pressed }) => ({
+              minHeight: 44,
+              borderRadius: radius.control,
+              borderWidth: 1,
+              borderColor: c.lineStrong,
+              alignItems: "center",
+              justifyContent: "center",
+              paddingHorizontal: space.md,
+              opacity: pressed ? 0.85 : 1,
+            })}
+          >
+            <Text style={{ ...type.body, fontWeight: "600", color: c.accent }}>
+              Xem chi tiết kế hoạch
+            </Text>
+          </Pressable>
+        </Card>
+      ) : (
+        <Card>
+          <Text style={{ ...type.body, color: c.ink }}>Chưa có kế hoạch nào trong nhóm này.</Text>
+          <Text style={{ ...type.label, color: c.inkSoft }}>
+            AI sẽ tự lên tiếng khi nhóm bàn đủ rõ chỗ đi và thời gian. Không có kế hoạch nào
+            được bịa sẵn.
+          </Text>
+        </Card>
+      )}
+    </ScrollView>
   );
 }
 
@@ -719,6 +984,14 @@ function keHoachGanNhat(messages: MessageWire[]): KeHoach | null {
     if (k) return k;
   }
   return null;
+}
+
+/** A ballot message, which the thread counts but does not draw. Read off the
+ *  wire shape rather than off a parsed card, so a malformed ballot is still
+ *  recognised as a ballot and still stays out of the conversation. */
+function laPhieuBau(m: MessageWire): boolean {
+  if (m.kind !== "ai_card" || m.card === null || typeof m.card !== "object") return false;
+  return (m.card as Record<string, unknown>).kind === "poll_vote";
 }
 
 function nguoiTheoAuthor(authorId: string | null): NguoiHienThi | null {

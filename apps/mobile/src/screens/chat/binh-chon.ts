@@ -43,7 +43,7 @@
  * checks the arithmetic without a renderer and without a server.
  */
 
-import { docDiaDiem, type DiaDiem } from "./ke-hoach";
+import { docDiaDiem, theTuCard, type DiaDiem } from "./ke-hoach";
 import type { MessageWire } from "./tin-nhan";
 
 /** One choice on the ballot. `diaDiem` is present when the option came from
@@ -302,6 +302,40 @@ export function tongHopBinhChon(messages: MessageWire[], toiLaAi: string | null)
       dangHoa: dienDau.length > 1,
       luaChonCuaToi,
     });
+  }
+  return ra;
+}
+
+/**
+ * Every place the companion has put on the table in this thread, oldest
+ * first, deduplicated by id.
+ *
+ * This is the ballot's supply of options, and the reason the compose screen
+ * has no free-text field. A typed option would be a place the server never
+ * asserted, and the group would then vote on -- and later go to -- somewhere
+ * that exists only in a chat message. Every row here came from a `places` or
+ * `itinerary` card, which the server grounds against its own catalogue, so
+ * `optionId` is a real place id that a later ballot and a later plan both
+ * resolve to the same row.
+ *
+ * Ordered by first mention rather than by name: the thread's order is the
+ * order the group already discussed them in, and re-sorting would quietly
+ * promote whichever place happens to start with an early letter.
+ */
+export function diaDiemDaGoiY(messages: MessageWire[]): DiaDiem[] {
+  const daThay = new Set<string>();
+  const ra: DiaDiem[] = [];
+  for (const m of messages) {
+    if (m.kind !== "ai_card" || m.card === null) continue;
+    const the = theTuCard(m.card);
+    if (!the) continue;
+    const trong =
+      the.kind === "places" ? the.diaDiem : the.kind === "itinerary" ? the.chang.map((ch) => ch.diaDiem) : [];
+    for (const d of trong) {
+      if (daThay.has(d.id)) continue;
+      daThay.add(d.id);
+      ra.push(d);
+    }
   }
   return ra;
 }

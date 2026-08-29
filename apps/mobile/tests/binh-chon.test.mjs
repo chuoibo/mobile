@@ -18,6 +18,7 @@ import {
   cardBoPhieu,
   cardMoBinhChon,
   cauKetQua,
+  diaDiemDaGoiY,
   phanTramTronVen,
   tongHopBinhChon,
 } from "../dist-test/screens/chat/binh-chon.js";
@@ -261,4 +262,58 @@ test("tin text và tin ảnh trong luồng không làm hỏng phép đếm", () 
   );
   assert.equal(kq.length, 1);
   assert.equal(kq[0].tongPhieu, 1);
+});
+
+/* --- diaDiemDaGoiY: where the ballot's options are allowed to come from ---
+ *
+ * The compose screen has no free-text field, so this function is the entire
+ * supply of things a group can vote on. If it ever returned something the
+ * server did not assert, the vote would be about a place that does not
+ * exist -- and unlike a wrong percentage, that error survives the vote and
+ * sends people somewhere. */
+
+function theDiaDiem(places) {
+  return { kind: "places", payload: { places } };
+}
+
+const QUAN_A = { id: "pl-a", name: "Tiệm nướng Xóm Lèo", address: "12 Xóm Lèo" };
+const QUAN_B = { id: "pl-b", name: "Lẩu gà lá é Tao Ngộ" };
+const QUAN_C = { id: "pl-c", name: "Bánh căn Nhà Chung" };
+
+test("gom địa điểm từ thẻ places và thẻ itinerary, theo thứ tự luồng", () => {
+  const ds = diaDiemDaGoiY([
+    tin(null, theDiaDiem([QUAN_A, QUAN_B])),
+    tin(null, {
+      kind: "itinerary",
+      payload: { title: "Đà Lạt 2N1Đ", stops: [{ time_text: "19:00", place: QUAN_C }] },
+    }),
+  ]);
+  assert.deepEqual(
+    ds.map((d) => d.id),
+    ["pl-a", "pl-b", "pl-c"],
+  );
+  assert.equal(ds[0].ten, "Tiệm nướng Xóm Lèo");
+  assert.equal(ds[0].diaChi, "12 Xóm Lèo");
+});
+
+test("một quán được nhắc lại chỉ ra một lựa chọn, giữ lần nhắc đầu", () => {
+  // Two rows with the same id would put the same restaurant on the ballot
+  // twice and split its votes between the copies.
+  const ds = diaDiemDaGoiY([
+    tin(null, theDiaDiem([QUAN_A, QUAN_B])),
+    tin(null, theDiaDiem([QUAN_B, QUAN_A])),
+  ]);
+  assert.deepEqual(
+    ds.map((d) => d.id),
+    ["pl-a", "pl-b"],
+  );
+});
+
+test("chữ người gõ không thành lựa chọn: chỉ thẻ máy chủ mới vào được lá phiếu", () => {
+  const ds = diaDiemDaGoiY([
+    { ...tin(AN, null), kind: "text", body: "quán Ốc Đêm ngon lắm, bầu đi" },
+    tin(AN, MO),
+    tin(AN, cardBoPhieu("p1", "o1")),
+  ]);
+  assert.deepEqual(ds, []);
 });

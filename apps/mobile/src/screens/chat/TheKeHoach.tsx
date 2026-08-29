@@ -114,8 +114,13 @@ export function TheKeHoach({
 }
 
 /** One place row. A missing field is a missing line, not the word
- *  "undefined" sitting where an address should be. */
-function DongDiaDiem({ diaDiem }: { diaDiem: DiaDiem }) {
+ *  "undefined" sitting where an address should be.
+ *
+ *  Exported because the poll composer picks its options from these same
+ *  places. Drawing a second, thinner place row there would let the two
+ *  drift, and then the same restaurant reads one way in the AI's suggestion
+ *  and another way on the ballot the group votes with. */
+export function DongDiaDiem({ diaDiem }: { diaDiem: DiaDiem }) {
   const c = usePalette();
   const gia = khoangGia(diaDiem);
   return (
