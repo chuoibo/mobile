@@ -444,9 +444,23 @@ class MemberRoleRequest(ApiModel):
 
 
 class MembershipResponse(ApiModel):
+    """One person's standing in one group, including who they are.
+
+    `display_name` is required rather than optional because the database makes
+    it so: `memberships.person_id` is a foreign key into `people`, whose
+    `display_name` is `NOT NULL`. An optional field would have invited every
+    client to invent its own placeholder, and a placeholder shared by two
+    unnamed people reads as one person on the screen whose job is telling them
+    apart.
+
+    Nothing may be derived from it. It repeats inside a group, it changes, and
+    identity stays the id.
+    """
+
     id: UUID
     context_id: UUID
     person_id: UUID
+    display_name: StrictStr
     state: Literal["invited", "active", "left"]
     role: Literal["member", "admin"]
     invited_by_id: UUID | None
