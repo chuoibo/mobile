@@ -308,6 +308,40 @@ INLINE_STEPS: dict[str, Covered] = {
         body_sha="65b54b7877a65de5",
         why="",
     ),
+    # --- test.yml: e2e ----------------------------------------------------
+    "test.yml::e2e::present": Covered(
+        kind=GATE_KIND,
+        stages=("e2e",),
+        body_sha="8e9d2b349a474504",
+        why="",
+    ),
+    "test.yml::e2e::Install the API and its client": Covered(
+        kind=SETUP_KIND,
+        stages=(),
+        # Same reasoning as the mobile job's `npm ci`: the gate's e2e
+        # prerequisite refuses to run without node_modules rather than
+        # installing them, because a gate that installs is a gate that can hide
+        # a broken lockfile.
+        why="pip install and npm ci from the pinned files; asserts nothing about the tree",
+        body_sha="6b7a8c6d1a215640",
+    ),
+    "test.yml::e2e::Fetch the database image the runner provisions from": Covered(
+        kind=SETUP_KIND,
+        stages=(),
+        # scripts/e2e_slice.sh deliberately refuses to pull, so that its
+        # runtime never depends on the network. On a laptop the image is
+        # already present because docker-compose.yml uses the same tag; only a
+        # fresh runner needs this, which is why it is here and not in the
+        # script.
+        why="docker pull of the database image; asserts nothing about the tree",
+        body_sha="30562f5f5da92903",
+    ),
+    "test.yml::e2e::Propose, confirm, batch, publish, guest page, receipt": Covered(
+        kind=GATE_KIND,
+        stages=("e2e",),
+        body_sha="1cc1857bf0badd70",
+        why="",
+    ),
 }
 
 
@@ -331,7 +365,9 @@ def _gate_stages() -> list[str]:
     stages = []
     for line in result.stdout.splitlines():
         parts = line.split()
-        if line.startswith("  ") and parts and re.fullmatch(r"[a-z-]+", parts[0]):
+        # Digits belong in the class: `[a-z-]+` dropped the `e2e` stage, so a
+        # GATE entry naming it read as naming a stage the gate does not have.
+        if line.startswith("  ") and parts and re.fullmatch(r"[a-z0-9-]+", parts[0]):
             stages.append(parts[0])
     return stages
 

@@ -130,7 +130,12 @@ def _declared_stages() -> list[str]:
     stages = []
     for line in result.stdout.splitlines():
         parts = line.split()
-        if line.startswith("  ") and parts and re.fullmatch(r"[a-z-]+", parts[0]):
+        # Digits belong in the class. `[a-z-]+` dropped `e2e` from this list
+        # silently, and a stage this parser cannot see is a stage every check
+        # built on the list treats as absent -- including the one asserting no
+        # stage is unclaimed. An enumeration that quietly returns less than
+        # everything is the failure this whole directory refuses.
+        if line.startswith("  ") and parts and re.fullmatch(r"[a-z0-9-]+", parts[0]):
             stages.append(parts[0])
     return stages
 
@@ -195,7 +200,7 @@ class GateStageBodiesAreUnique(unittest.TestCase):
             missing,
             [],
             f"scripts/gate.sh lists these stages but defines no body for them: "
-            f"{missing}. `\"do_$stage\"` would be a command-not-found.",
+            f'{missing}. `"do_$stage"` would be a command-not-found.',
         )
 
     def test_every_body_belongs_to_a_declared_stage(self):
@@ -206,7 +211,9 @@ class GateStageBodiesAreUnique(unittest.TestCase):
         gone with nothing to show for it.
         """
         declared = set(_declared_stages())
-        orphans = sorted(stage for stage in _effective_bodies() if stage not in declared)
+        orphans = sorted(
+            stage for stage in _effective_bodies() if stage not in declared
+        )
         self.assertEqual(
             orphans,
             [],
@@ -222,9 +229,7 @@ class GateStageBodiesAreUnique(unittest.TestCase):
         `scripts/check_actor_headers.py` was still there, still spelled out in
         the file, and no longer run by anything.
         """
-        invoked = {
-            name for line in _code_lines() for name in CHECKER.findall(line)
-        }
+        invoked = {name for line in _code_lines() for name in CHECKER.findall(line)}
         reachable = {
             name
             for body in _effective_bodies().values()

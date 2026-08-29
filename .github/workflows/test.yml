@@ -396,3 +396,79 @@ jobs:
         env:
           EXPO_NO_TELEMETRY: "1"
         run: npx expo export --platform all --output-dir "$RUNNER_TEMP/expo-export"
+
+  # The only job where the client and the server are both real.
+  #
+  # Every other job holds one side fixed and fakes the other: `api` runs on a
+  # fake repository, `mobile` injects a fake fetch, `contract` and the route
+  # check compare two files without executing either. A defect that lives in
+  # the seam between them -- a body key the client spells differently from the
+  # server, a field the server stopped returning -- is green in all of them.
+  #
+  # `apps/mobile/tests/e2e/vertical-slice.test.mjs` was written for exactly
+  # that seam and then ran nowhere. Measured 2026-08-30 at 1649c16: `npm test`
+  # prunes `tests/e2e` by construction, the mobile job above runs that same
+  # `npm test`, and `grep -rn test:e2e` over every .yml, .sh, .py, .json and
+  # .md in the repository found one definition in package.json and not one
+  # caller. The hero path this product is being built to demonstrate was
+  # checked when somebody remembered, and the QA reports record the times
+  # nobody did.
+  #
+  # The work is in `scripts/e2e_slice.sh` rather than inline here for the
+  # reason the whole gate exists: Actions has not started a job since 07:45Z on
+  # 2026-08-29, so a step written only in YAML is a step that runs nowhere.
+  # The script provisions its own PostgreSQL and its own uvicorn, pins
+  # EXPO_PUBLIC_API_URL at them, and sets MOBILE_REQUIRE_E2E=1 so an
+  # unreachable server is a failure rather than a skip.
+  e2e:
+    name: the vertical slice, client against a real API
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: present
+        # Same rule as the mobile job: skip an absence, fail a defect. The
+        # slice going missing must never be the thing that turns this green.
+        run: |
+          if [ ! -d apps/mobile ]; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::apps/mobile is not on this branch, skipping"
+          elif [ -f apps/mobile/tests/e2e/vertical-slice.test.mjs ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::apps/mobile exists but the vertical slice is missing -- refusing to skip"
+            exit 1
+          fi
+
+      - if: steps.present.outputs.found == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - if: steps.present.outputs.found == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+
+      - if: steps.present.outputs.found == 'true'
+        name: Install the API and its client
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r services/api/requirements-dev.txt
+          npm --prefix apps/mobile ci
+
+      - if: steps.present.outputs.found == 'true'
+        name: Fetch the database image the runner provisions from
+        # The script refuses to pull: a gate whose runtime depends on the
+        # network is a gate that goes red for reasons that are not the code.
+        # On a laptop the image is already there because docker-compose.yml
+        # uses the same tag; on a fresh runner it has to be fetched, and here
+        # is the honest place to do it.
+        run: docker pull postgres:16-alpine
+
+      - if: steps.present.outputs.found == 'true'
+        name: Propose, confirm, batch, publish, guest page, receipt
+        run: scripts/e2e_slice.sh
