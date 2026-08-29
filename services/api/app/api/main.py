@@ -30,6 +30,7 @@ from app.api.routes import (
     contexts,
     expenses,
     finance,
+    friends,
     guests,
     identity,
     memories,
@@ -82,6 +83,7 @@ def create_app(
         name="static",
     )
     application.include_router(expenses.router)
+    application.include_router(friends.router)
     application.include_router(bills.router)
     application.include_router(contexts.router)
     application.include_router(memories.router)
