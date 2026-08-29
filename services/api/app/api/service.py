@@ -768,6 +768,22 @@ class ApiService:
         digest: bytes | None = None
         invited_person_id = request.person_id
         if request.source == "link":
+            # bug-141903, step one: minting is off while the escalation behind
+            # it is open. A redeemed link creates its own INVITED row, and
+            # `accept_context_membership` proves only that the invitee is the
+            # accepter -- which the redeem step guaranteed one call earlier. The
+            # ceiling is therefore not INVITED but ACTIVE, and ACTIVE reads the
+            # group's messages, memory wall and balances.
+            #
+            # Refused after the permission check on purpose: an outsider must
+            # still learn nothing beyond "not yours", and 403 outranks this.
+            raise ApiProblem(
+                422,
+                "invite_link_disabled",
+                "Mời bằng link đang tắt trong lúc sửa lỗi phân quyền. "
+                "Hãy mời trực tiếp từ danh sách nhóm hoặc danh sách bạn bè.",
+            )
+        if request.source == "link":  # unreachable while the guard above stands
             raw_token = secrets.token_urlsafe(32)
             digest = token_digest(raw_token)
             invited_person_id = None
