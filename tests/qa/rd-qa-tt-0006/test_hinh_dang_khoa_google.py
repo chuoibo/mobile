@@ -101,10 +101,21 @@ class GoogleKeyShapeTests(ScanHelper):
 
     def test_finding_never_carries_the_value(self):
         # A gate that prints the secret it caught has leaked it into the log.
+        # Asserting only that the value is ABSENT would pass on an empty
+        # string, so the redaction marker is asserted present first.
         findings = self.scan_text(f"GEMINI_API_KEY={KEY}")
         self.assertEqual(len(findings), 1)
-        self.assertNotIn(KEY, findings[0].masked_match)
-        self.assertNotIn(KEY[4:], findings[0].masked_match)
+        rendered = findings[0].render()
+        self.assertIn("<redacted-secret>", rendered)
+        self.assertNotIn(KEY, rendered)
+        self.assertNotIn(KEY[4:], rendered)
+
+    def test_rule_stays_outside_the_allowlist(self):
+        # The claim #233 rests on: a secret can never be waved through by
+        # pinning it in .repo-guard-allowlist.json. Dropping the rule from
+        # SECRET_RULES silently reopens that door while the tree stays green.
+        self.assertIn("google-api-key", repo_guard.SECRET_RULES)
+        self.assertNotIn("google-api-key", repo_guard.ALLOWLISTABLE_RULES)
 
 
 if __name__ == "__main__":
