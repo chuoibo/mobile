@@ -90,7 +90,10 @@ function soThuc(value: unknown): number | null {
   return value;
 }
 
-function docDiaDiem(raw: unknown): DiaDiem | null {
+/** Exported for `binh-chon.ts`, whose place-backed options carry the same
+ *  server-owned place shape. A second copy of this parser would be a second
+ *  answer to "is this place readable", and the two would drift. */
+export function docDiaDiem(raw: unknown): DiaDiem | null {
   const o = asRecord(raw);
   if (!o) return null;
   const id = chuoi(o.id);

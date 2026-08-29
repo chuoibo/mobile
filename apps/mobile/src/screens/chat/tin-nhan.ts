@@ -335,3 +335,48 @@ export async function guiTinNhan(opts: {
     return { kind: "du-lieu-sai", url, detail: (e as Error).message };
   }
 }
+
+/**
+ * Post one `ai_card`. This is how F17 opens a poll and how it casts a ballot,
+ * because there is no `/polls` route to post either one to.
+ *
+ * `body` and `image_url` are sent as null: the server 422s
+ * `message_payload_invalid` when an `ai_card` carries either, the mirror of
+ * the rule `guiTinNhan` obeys above.
+ *
+ * Naming it "ai_card" while a person is the author reads wrong, and it is
+ * worth being precise about why it is not: `ai_card` is the wire's name for
+ * "this message is a structured card rather than prose". Authorship is a
+ * separate field, and the server fills it in from the actor header --
+ * `author_id=actor.id`, never from anything sent here. A ballot posted this
+ * way is attributed to the person who pressed the button and to nobody else,
+ * which is the property the vote count is built on.
+ */
+export async function guiTheAi(opts: {
+  contextId: string;
+  actorId: string;
+  card: Record<string, unknown>;
+  idempotencyKey: string;
+  base?: string;
+}): Promise<GuiTinState> {
+  const base = opts.base ?? TIN_BASE_URL;
+  const url = `${base.replace(/\/$/, "")}/contexts/${opts.contextId}/messages`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: headers(opts.actorId, opts.contextId, opts.idempotencyKey),
+      body: JSON.stringify({ kind: "ai_card", body: null, image_url: null, card: opts.card }),
+    });
+  } catch (e) {
+    return { kind: "khong-noi-duoc", url, detail: (e as Error).message };
+  }
+  if (!res.ok) {
+    return { kind: "may-chu-loi", url, status: res.status, detail: await docLoi(res) };
+  }
+  try {
+    return { kind: "xong", message: parseMessage(await res.json(), "message") };
+  } catch (e) {
+    return { kind: "du-lieu-sai", url, detail: (e as Error).message };
+  }
+}
