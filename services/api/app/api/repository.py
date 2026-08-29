@@ -559,6 +559,8 @@ class ApiRepository(Protocol):
         self, display_name: str, created_by_id: uuid.UUID
     ) -> ContextRecord: ...
 
+    def get_context(self, context_id: uuid.UUID) -> ContextRecord | None: ...
+
     def add_member(
         self,
         context_id: uuid.UUID,
@@ -1170,6 +1172,17 @@ class SqlAlchemyApiRepository:
         context = Context(display_name=display_name, created_by_id=created_by_id)
         self.session.add(context)
         self.session.flush()
+        return ContextRecord(
+            id=context.id,
+            display_name=context.display_name,
+            created_by_id=context.created_by_id,
+            created_at=context.created_at,
+        )
+
+    def get_context(self, context_id: uuid.UUID) -> ContextRecord | None:
+        context = self.session.get(Context, context_id)
+        if context is None:
+            return None
         return ContextRecord(
             id=context.id,
             display_name=context.display_name,
