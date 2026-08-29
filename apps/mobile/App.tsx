@@ -75,6 +75,7 @@ import { DeXuat, type Proposal } from "./src/screens/DeXuat";
 import { DotThu, type Obligation } from "./src/screens/DotThu";
 import { Draft, NhapKhoanChi } from "./src/screens/NhapKhoanChi";
 import { TaiKhoanNhan } from "./src/screens/tai-khoan/TaiKhoanNhan";
+import { FORM_TRONG } from "./src/screens/tai-khoan/kiem-tra";
 import {
   EMPTY_FORM,
   addParticipant,
@@ -899,9 +900,55 @@ function XemDocBill() {
   );
 }
 
+/* A destination that is not one. Invented digits, no bank behind them, and the
+ * only place they are ever rendered is a scan target that writes nothing. */
+// repo-guard: allow=long-number reason=synthetic-scan-fixture-account-number
+const SO_TAI_KHOAN_DO = "1904567890123";
+
+/**
+ * The bank-destination screen at both of its steps, from a URL, web only.
+ *
+ * Same reason as `XemTrangThai` above, and the sharper version of it. This
+ * screen is where somebody commits money to a destination that cannot be
+ * verified by anybody, and it sits four fields and a press past a live server,
+ * a 409, and eight presses of the flow. Without this it never gets scanned,
+ * and the review step -- the half that actually guards the money -- never gets
+ * scanned at all.
+ *
+ * `?man=tai-khoan-nhan` is the empty form, `?man=tai-khoan-nhan-duyet` is the
+ * review step. Nothing here writes: `onLuu` and `onBack` are empty, and there
+ * is no route from this page to anything that touches a server.
+ */
+function XemTaiKhoanNhan() {
+  const c = usePalette();
+  const duyet = manThamSo() === "tai-khoan-nhan-duyet";
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
+      <StatusBar style="dark" />
+      <TaiKhoanNhan
+        nguoiNhan={{ id: "p1", name: "Hà" }}
+        banDau={{
+          dangDuyet: duyet,
+          form: duyet
+            ? {
+                bin: "970436",
+                soTaiKhoan: SO_TAI_KHOAN_DO,
+                nhapLai: SO_TAI_KHOAN_DO,
+                tenChuTaiKhoan: "NGUYEN THI HA",
+              }
+            : FORM_TRONG,
+        }}
+        onLuu={() => {}}
+        onBack={() => {}}
+      />
+    </SafeAreaView>
+  );
+}
+
 export default function App() {
   if (manDo()) return <XemKetQuaThanhToan />;
   if (manThamSo() === "trang-thai") return <XemTrangThai />;
   if (manThamSo()?.startsWith("doc-bill")) return <XemDocBill />;
+  if (manThamSo()?.startsWith("tai-khoan-nhan")) return <XemTaiKhoanNhan />;
   return <AppRoot renderKhoanChi={(onExit) => <LuongKhoanChi onExit={onExit} />} />;
 }

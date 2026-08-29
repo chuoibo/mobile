@@ -67,21 +67,37 @@ export function nhomBon(so: string): string {
 export function TaiKhoanNhan({
   nguoiNhan,
   busy,
+  banDau,
   onLuu,
   onBack,
 }: {
   /** Whose account this is. The server only lets a person set their own. */
   nguoiNhan: { id: string; name: string };
   busy?: boolean;
+  /**
+   * Where to start. Used by the URL view only, and for one reason.
+   *
+   * The review step is the last screen anybody reads before money is committed
+   * to a destination, and it is four fields and a press past the opening
+   * screen. A detector renders a URL and cannot press anything, so without a
+   * way to mount straight into it, "the screen was scanned" would quietly mean
+   * "the empty form was scanned" -- and the empty form is the half that
+   * matters least. Same argument, and the same narrowness, as `XemTrangThai`
+   * in App.tsx.
+   *
+   * Initial state only: nothing reads it after mount, so it cannot be used to
+   * drive the screen from outside.
+   */
+  banDau?: { form: FormTaiKhoan; dangDuyet: boolean };
   onLuu: (dichDen: DichDen) => void;
   onBack: () => void;
 }) {
   const c = usePalette();
-  const [form, setForm] = useState<FormTaiKhoan>(FORM_TRONG);
+  const [form, setForm] = useState<FormTaiKhoan>(banDau?.form ?? FORM_TRONG);
   const [timNganHang, setTimNganHang] = useState("");
   // The review step is a step, not a dialog. A confirm dialog over a form is
   // read as "are you sure" and dismissed as one; this has to be read.
-  const [dangDuyet, setDangDuyet] = useState(false);
+  const [dangDuyet, setDangDuyet] = useState(banDau?.dangDuyet ?? false);
 
   const set = <K extends keyof FormTaiKhoan>(key: K, value: FormTaiKhoan[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
