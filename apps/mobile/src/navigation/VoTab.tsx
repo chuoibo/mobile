@@ -18,6 +18,7 @@ import { StatusBar } from "expo-status-bar";
 import { radius, space, type, usePalette } from "../theme";
 import { CaNhan } from "../screens/ca-nhan/CaNhan";
 import { KhamPha } from "../screens/kham-pha/KhamPha";
+import { Nhom } from "../screens/vao-cua/Nhom";
 import { ManVo } from "./ManVo";
 import { MenuTao } from "./MenuTao";
 import { ThanhTab } from "./ThanhTab";
@@ -40,6 +41,12 @@ export function VoTab({ nguoi, tabDau, renderKhoanChi }: {
   const [tab, setTab] = useState(tabDau ?? DEFAULT_TAB);
   const [menuMo, setMenuMo] = useState(false);
   const [luongKhoanChi, setLuongKhoanChi] = useState(false);
+  // F03/F04. Takes the whole screen for the same reason the expense flow does:
+  // it is a task with its own steps, and leaving the bar underneath would
+  // offer an exit that drops the handle to a group this app cannot look up
+  // again -- see `screens/vao-cua/Nhom.tsx` on why the group outlives the app's
+  // memory of it.
+  const [luongNhom, setLuongNhom] = useState(false);
   // What to say when someone opens a create action that is still a shell.
   const [thongBao, setThongBao] = useState<string | null>(null);
   // The screen and the bar go inert while the [+] sheet is open, so Tab cannot
@@ -52,6 +59,10 @@ export function VoTab({ nguoi, tabDau, renderKhoanChi }: {
       setLuongKhoanChi(true);
       return;
     }
+    if (id === "tao-nhom") {
+      setLuongNhom(true);
+      return;
+    }
     const action = CREATE_ACTIONS.find((a) => a.id === id);
     setThongBao(`"${action?.label}" chưa dựng — mới có chỗ trong menu.`);
   }
@@ -61,6 +72,15 @@ export function VoTab({ nguoi, tabDau, renderKhoanChi }: {
   // half-written expense without saying so.
   if (luongKhoanChi) {
     return <>{renderKhoanChi(() => setLuongKhoanChi(false))}</>;
+  }
+
+  if (luongNhom) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
+        <StatusBar style={scheme === "dark" ? "light" : "dark"} />
+        <Nhom nguoi={nguoi} onDong={() => setLuongNhom(false)} />
+      </SafeAreaView>
+    );
   }
 
   return (

@@ -24,6 +24,10 @@
     "src/screens/kham-pha/places.ts",
     "src/navigation/lien-ket.ts",
     "src/screens/ca-nhan/tai-chinh.ts",
+    // F01's identity derivation. Compiled because the properties that matter
+    // -- one telephone reaching one account, two telephones never reaching the
+    // same one -- are arithmetic, and arithmetic is checkable without a screen.
+    "src/screens/vao-cua/danh-tinh.ts",
     // Two screens compiled rather than only logic modules, so a test can
     // render them and read the markup react-native-web actually emits. See
     // `tools/fixup-esm.mjs` for why that is the real DOM and not a mock.
