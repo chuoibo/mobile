@@ -898,6 +898,7 @@ __all__ = [
     "GuestLink",
     "GuestLinkStatus",
     "IdempotencyKey",
+    "MembershipOrigin",
     "MembershipRole",
     "Memory",
     "Message",
@@ -929,6 +930,19 @@ class MembershipState(StrEnum):
 class MembershipRole(StrEnum):
     MEMBER = "member"
     ADMIN = "admin"
+
+
+class MembershipOrigin(StrEnum):
+    """Preserve why an invited membership exists.
+
+    A named invitation identifies someone chosen by an existing member, while
+    a link request proves only possession of a forwardable bearer token. The
+    `is_invitee` predicate is true in both cases, so it cannot distinguish
+    these different trust levels without durable provenance.
+    """
+
+    NAMED = "named"
+    LINK = "link"
 
 
 class OutingInviteSource(StrEnum):
@@ -1059,6 +1073,12 @@ class Membership(Base):
         nullable=False,
         server_default=MembershipRole.MEMBER.value,
         default=MembershipRole.MEMBER,
+    )
+    origin: Mapped[MembershipOrigin] = mapped_column(
+        _enum_type(MembershipOrigin, "membership_origin"),
+        nullable=False,
+        server_default=MembershipOrigin.NAMED.value,
+        default=MembershipOrigin.NAMED,
     )
     invited_by_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),

@@ -177,6 +177,22 @@ _TABLE: dict[str, dict] = {
         "roles": {"group_admin", "member"},
         "requires": ("is_invitee",),
     },
+    # Approval must come from somebody who is currently ACTIVE in the group and
+    # who is not the requester. `is_group_member` is what actually refuses the
+    # escalation today: a link redeemer holds an INVITED row, and INVITED is not
+    # ACTIVE, so they fail the first predicate before the second is consulted.
+    #
+    # `is_not_self` is therefore redundant right now, and honestly so: deleting
+    # it from this tuple breaks no test, because the partial unique index
+    # `uq_memberships_open_per_person` makes the state it guards unreachable --
+    # one person cannot hold both an ACTIVE row and an open INVITED row in the
+    # same group. It is kept as the predicate that would still stand if that
+    # index were ever relaxed, which is exactly the assumption rd-be-08 made
+    # about `is_invitee` and got wrong. Do not read it as tested.
+    "approve_link_join_request": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member", "is_not_self"),
+    },
     "leave_context": {
         "roles": {"group_admin", "member"},
         "requires": ("is_group_member", "is_self"),
