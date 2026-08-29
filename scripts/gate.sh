@@ -114,12 +114,36 @@ done
 [ ${#SELECTED[@]} -eq 0 ] && SELECTED=("${STAGES[@]}")
 
 PASSED=(); FAILED=(); SKIPPED=(); SKIP_WHY=()
+# Stages that failed WITHOUT running, and why. They write no log, so the
+# failure report at the end has nothing to print for them -- and printing
+# nothing under a header promising evidence is the exact shape this file was
+# written to stamp out. Recorded here so the report can say what happened.
+NORAN=(); NORAN_WHY=()
 LOG_DIR="$(mktemp -d)"
 
 banner() { printf '\n\033[1m=== %s ===\033[0m %s\n' "$1" "$(stage_help "$1")"; }
 pass() { PASSED+=("$1"); printf '\033[32mĐẠT\033[0m     %s (%ss)\n' "$1" "$2"; }
 fail() { FAILED+=("$1"); printf '\033[31mHỎNG\033[0m    %s (%ss)\n' "$1" "$2"; }
 skip() { SKIPPED+=("$1"); SKIP_WHY+=("$1: $2"); printf '\033[33mBỎ QUA\033[0m  %s -- %s\n' "$1" "$2"; }
+
+# A failure that never started. The reason goes to stderr for the reader
+# watching the run, and into NORAN_WHY for the report at the end -- once stdout
+# and stderr are separated, the stderr copy is the one that goes missing.
+fail_noran() {
+  echo "$2" >&2
+  NORAN+=("$1"); NORAN_WHY+=("$2")
+  fail "$1" 0
+}
+
+# Empty for a stage that ran. Callers use that to choose between printing a log
+# and explaining its absence.
+noran_why() {
+  local i=0
+  while [ "$i" -lt "${#NORAN[@]}" ]; do
+    [ "${NORAN[$i]}" = "$1" ] && { printf '%s' "${NORAN_WHY[$i]}"; return 0; }
+    i=$((i + 1))
+  done
+}
 
 # Stage output is teed to a file so a failure can be re-printed at the end: on
 # an eight-stage run the thing that broke has otherwise scrolled off.
@@ -342,14 +366,12 @@ for stage in "${SELECTED[@]}"; do
   why="$(check_prereq "$stage")"; prereq=$?
   if [ "$prereq" -eq 2 ]; then
     # Present but broken. Never a skip.
-    echo "$(broken_why "$stage")" >&2
-    fail "$stage" 0
+    fail_noran "$stage" "$(broken_why "$stage")"
     continue
   fi
   if [ "$prereq" -ne 0 ]; then
     if [ "$STRICT" -eq 1 ]; then
-      echo "strict: bỏ qua bị tính là hỏng -- $why" >&2
-      fail "$stage" 0
+      fail_noran "$stage" "strict: bỏ qua bị tính là hỏng -- $why"
     else
       skip "$stage" "$why"
     fi
@@ -391,13 +413,35 @@ if [ ${#PASSED[@]} -eq 0 ] && [ ${#FAILED[@]} -eq 0 ]; then
 fi
 
 if [ ${#FAILED[@]} -gt 0 ]; then
+  ran_and_logged=0
   for f in "${FAILED[@]}"; do
     echo
-    echo "---- 30 dòng cuối của chặng hỏng: $f ----"
-    [ -f "$LOG_DIR/$f.log" ] && tail -30 "$LOG_DIR/$f.log"
+    why="$(noran_why "$f")"
+    if [ -n "$why" ]; then
+      # Never started, so there is no log and never will be. Say that, rather
+      # than printing a header promising thirty lines and then nothing --
+      # silence under a promise of evidence reads as "ran, said nothing", which
+      # is the opposite of what happened.
+      echo "---- chặng hỏng: $f -- KHÔNG CHẠY, nên không có log ----"
+      echo "$why"
+    elif [ -f "$LOG_DIR/$f.log" ]; then
+      echo "---- 30 dòng cuối của chặng hỏng: $f ----"
+      tail -30 "$LOG_DIR/$f.log"
+      ran_and_logged=1
+    else
+      # Neither ran-with-a-log nor recorded as never-run: the bookkeeping above
+      # missed a path. Better to admit the gap than to print an empty block.
+      echo "---- chặng hỏng: $f -- KHÔNG CHẠY hay mất log, cổng không biết ----"
+      echo "Không có $LOG_DIR/$f.log và cũng không ghi được lý do. Đây là lỗi của chính scripts/gate.sh."
+    fi
   done
   echo
-  echo "Log đầy đủ: $LOG_DIR"
+  # Only point at the directory when something is actually in it.
+  if [ "$ran_and_logged" -eq 1 ]; then
+    echo "Log đầy đủ: $LOG_DIR"
+  else
+    echo "Không chặng hỏng nào chạy tới mức ghi log, nên $LOG_DIR rỗng."
+  fi
   exit 1
 fi
 
