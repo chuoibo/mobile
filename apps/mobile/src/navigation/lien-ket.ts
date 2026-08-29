@@ -31,13 +31,14 @@ import { TABS } from "./tabs";
 
 /** The entry-door screens, which are not tabs and so cannot be named by `tab`.
  *
- * `dang-ky` is F01's form; `nhom` is the F03/F04 group screen, which lives
- * behind the [+] menu inside the shell. Both are unreachable to anything that
- * loads a URL cold -- the same hole this file was written to close for the
- * four tabs, reappearing the moment a screen was put behind a button. */
-export type ManVaoCua = "dang-ky" | "nhom";
+ * `dang-ky` is F01's form; `nhom` is the F03/F04 group screen and `ky-niem` is
+ * the F30/F35 memory wall, both of which live behind the [+] menu inside the
+ * shell. All three are unreachable to anything that loads a URL cold -- the
+ * same hole this file was written to close for the four tabs, reappearing the
+ * moment a screen was put behind a button. */
+export type ManVaoCua = "dang-ky" | "nhom" | "ky-niem";
 
-const MAN_VAO_CUA: ManVaoCua[] = ["dang-ky", "nhom"];
+const MAN_VAO_CUA: ManVaoCua[] = ["dang-ky", "nhom", "ky-niem"];
 
 export type DiemDen = {
   /** Which tab to open on, or null to use the default. */
@@ -49,6 +50,14 @@ export type DiemDen = {
    *  two keys with one name is how a detector run ends up describing the wrong
    *  screen while exiting 0. */
   vao: ManVaoCua | null;
+  /** A specific group to open, from `nhom=<uuid>`.
+   *
+   * Only a well-formed UUID is accepted, and a malformed one becomes null
+   * rather than being passed through: this value goes straight into a request
+   * path, and a screen that asks the server about `../../etc` is a screen
+   * writing somebody else's URL. Null means "find the demo group", which is
+   * what every link that does not care should get. */
+  nhomId: string | null;
   /** Whether the fragment asked to skip the opening screen at all. */
   boQuaMoDau: boolean;
 };
@@ -57,8 +66,11 @@ export const KHONG_CO_DIEM_DEN: DiemDen = {
   tab: null,
   nguoi: null,
   vao: null,
+  nhomId: null,
   boQuaMoDau: false,
 };
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Parse a location fragment into a destination.
@@ -85,19 +97,24 @@ export function docDiemDen(hash: string, search = ""): DiemDen {
   const vaoAsked = params.get("vao");
   const vao = MAN_VAO_CUA.find((m) => m === vaoAsked) ?? null;
 
+  const nhomAsked = params.get("nhom");
+  const nhomId = nhomAsked && UUID_RE.test(nhomAsked) ? nhomAsked : null;
+
   return {
     tab,
     nguoi,
     vao,
+    nhomId,
     // A recognised tab is enough to enter: opening the app on a named screen
     // with nobody signed in is a real state, and the screens render it.
     //
     // `vao=dang-ky` is deliberately NOT enough. That screen sits before the
     // shell and registers somebody; skipping the opening screen to reach it
     // would mean a link could put a person straight into a form that writes to
-    // `people`. `vao=nhom` does enter, because the group screen lives inside
-    // the shell and has nothing to show outside it.
-    boQuaMoDau: tab !== null || nguoi !== null || vao === "nhom",
+    // `people`. `vao=nhom` and `vao=ky-niem` do enter, because both live inside
+    // the shell and have nothing to show outside it.
+    boQuaMoDau:
+      tab !== null || nguoi !== null || vao === "nhom" || vao === "ky-niem",
   };
 }
 

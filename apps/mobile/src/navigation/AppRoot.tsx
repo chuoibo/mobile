@@ -60,6 +60,8 @@ export function AppRoot({ renderKhoanChi }: {
       nguoi={nguoi}
       tabDau={diemDen.tab ?? DEFAULT_TAB}
       moNhomNgay={diemDen.vao === "nhom"}
+      moKyNiemNgay={diemDen.vao === "ky-niem"}
+      nhomId={diemDen.nhomId}
       renderKhoanChi={renderKhoanChi}
     />
   );

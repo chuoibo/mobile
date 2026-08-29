@@ -78,7 +78,7 @@ test("nút [+] mở đúng bốn mục", () => {
   assert.equal(CREATE_ACTIONS.length, 4);
   assert.deepEqual(
     CREATE_ACTIONS.map((a) => a.label),
-    ["Tạo chuyến", "Tạo khoản chi", "Đăng kỷ niệm", "Tạo nhóm"],
+    ["Tạo chuyến", "Tạo khoản chi", "Kỷ niệm nhóm", "Tạo nhóm"],
   );
 });
 
@@ -88,7 +88,7 @@ test("mỗi mục có một dòng giải thích, không phải bốn động t�
   }
 });
 
-test("đúng hai mục được đánh dấu đã nối: khoản chi và tạo nhóm", () => {
+test("đúng ba mục được đánh dấu đã nối: khoản chi, kỷ niệm và tạo nhóm", () => {
   // This is the assertion that keeps the menu honest. If a later change wires
   // up another action, this test fails and forces the flag to be updated
   // rather than letting shells quietly keep claiming to work -- or letting a
@@ -97,9 +97,20 @@ test("đúng hai mục được đánh dấu đã nối: khoản chi và tạo n
   // `tao-nhom` joined the list with F03/F04: the action opens
   // `screens/vao-cua/Nhom.tsx`, which sends `POST /contexts`,
   // `PUT /people/{id}` and `POST /contexts/{id}/members` against the real API.
-  // The other two are still shells and still say so.
+  // `dang-ky-niem` joined with F30: the action opens
+  // `screens/ky-niem/KyNiem.tsx`, which reads `GET /contexts/{id}/recap` and
+  // renders the trips that are over with the money recomputed from the ledger.
+  // Its label moved from "Đăng kỷ niệm" to "Kỷ niệm nhóm" in the same change,
+  // because posting a photo is the half that is *not* built and a row promising
+  // it would be the shell-wearing-real-clothes this test exists to prevent.
+  //
+  // "Tạo chuyến" is the last one still a shell, and still says so.
   const built = CREATE_ACTIONS.filter((a) => a.built);
-  assert.deepEqual(built.map((a) => a.id), ["tao-khoan-chi", "tao-nhom"]);
+  assert.deepEqual(built.map((a) => a.id), [
+    "tao-khoan-chi",
+    "dang-ky-niem",
+    "tao-nhom",
+  ]);
 });
 
 /* ------------------------------------------------------------ nhóm demo --- */

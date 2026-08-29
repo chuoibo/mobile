@@ -55,6 +55,7 @@ import urllib.error
 import urllib.request
 import uuid
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import psycopg
 
@@ -62,6 +63,12 @@ API_BASE = os.environ.get("MOBILE_SEED_API_BASE_URL", "http://api:8000").rstrip(
 DATABASE_URL = os.environ.get("MOBILE_DATABASE_URL")
 
 GROUP_NAME = "Team Đà Lạt"
+
+# Trip dates are wall-clock Vietnamese days. The expenses are backdated from an
+# instant, so the two have to be reconciled in one named zone rather than in
+# whatever the container's clock happens to be -- `GET /contexts/{id}/recap`
+# matches a trip to its spending by exactly these days.
+VIETNAM = ZoneInfo("Asia/Ho_Chi_Minh")
 
 # Ids are derived, never written out: a UUID literal padded with zeroes is a
 # long digit run and the repo guard blocks those on sight. It cannot tell a
@@ -224,12 +231,24 @@ def check_complete(connection: psycopg.Connection, context_id: uuid.UUID) -> Non
 
     found = batch_count(connection, context_id)
     expected = len(outings(datetime.now(UTC)))
-    if found == expected:
+    # Counted separately from the batches, and both must be complete.
+    #
+    # The trips arrived after the collection rounds did, so a group seeded by an
+    # older copy of this script has all three batches and no `outings` rows at
+    # all. Checking only the batches would call that dataset finished and hand
+    # the demo an empty memory wall beside a group that has visibly been to Đà
+    # Lạt twice -- the same "a run started, so it must have finished" mistake
+    # this function was written for, one table over.
+    trips = connection.execute(
+        "SELECT COUNT(*) FROM outings WHERE context_id = %s", (context_id,)
+    ).fetchone()[0]
+    if found == expected and trips == expected:
         return
     raise SeedFailed(
         f"nhóm '{GROUP_NAME}' ({context_id}) mới dựng dở: có {found}/{expected} "
-        "đợt thu. Một lần chạy trước đã tạo nhóm rồi chết giữa chừng, nên đây "
-        "KHÔNG phải bộ dữ liệu demo dùng được.\n"
+        f"đợt thu và {trips}/{expected} buổi đi chơi. Một lần chạy trước đã tạo "
+        "nhóm rồi chết giữa chừng (hoặc chạy bằng bản script cũ chưa biết tới "
+        "bảng `outings`), nên đây KHÔNG phải bộ dữ liệu demo dùng được.\n"
         "Không xoá nhóm đó bằng SQL được: `confirmed_allocations` là bảng "
         "append-only, trigger chặn cả DELETE — sổ cái đang làm đúng việc của "
         "nó. Hai đường đi được:\n"
@@ -306,6 +325,15 @@ def outings(now: datetime) -> list[dict]:
             "label": "Chuyến Đà Lạt tháng 6",
             "days_ago": 75,
             "due_in_days": 2,
+            # `nights` backdates `starts_on`; the expenses land on `ends_on`.
+            # Two nights, which is what the homestay line above was paid for.
+            "nights": 2,
+            "budget_per_person_vnd": 900_000,
+            "stops": [
+                {"at": "07:30", "label": "Xe khách Sài Gòn – Đà Lạt", "place_name": None},
+                {"at": "14:00", "label": "Nhận phòng", "place_name": "Homestay Cỏ Hồng"},
+                {"at": "19:00", "label": "Ăn tối", "place_name": "Tiệm Nướng Xóm Lèo"},
+            ],
             "expenses": [
                 {
                     "slug": "homestay",
@@ -333,6 +361,13 @@ def outings(now: datetime) -> list[dict]:
             "label": "Chuyến Đà Lạt tháng 8",
             "days_ago": 12,
             "due_in_days": 3,
+            "nights": 1,
+            "budget_per_person_vnd": 600_000,
+            "stops": [
+                {"at": "08:00", "label": "Cà phê sáng", "place_name": "Mê Linh Coffee"},
+                {"at": "11:30", "label": "Săn mây", "place_name": "Cầu Đất"},
+                {"at": "18:30", "label": "Lẩu nấm", "place_name": "Lẩu Nấm Ba Toa"},
+            ],
             "expenses": [
                 {
                     "slug": "lau-nam",
@@ -361,6 +396,15 @@ def outings(now: datetime) -> list[dict]:
             "label": "Bữa nướng cuối tuần",
             "days_ago": 2,
             "due_in_days": 5,
+            # A single evening, so the trip is one day long: `starts_on` and
+            # `ends_on` are the same date. The recap has to handle that -- a
+            # `starts_on < ends_on` assumption would drop this one silently.
+            "nights": 0,
+            "budget_per_person_vnd": 200_000,
+            "stops": [
+                {"at": "17:00", "label": "Đi chợ", "place_name": None},
+                {"at": "19:00", "label": "Nướng sân thượng", "place_name": None},
+            ],
             "expenses": [
                 {
                     "slug": "bbq",
@@ -571,6 +615,49 @@ def confirm_receipts(context_id: uuid.UUID, outing: dict, batch: dict) -> None:
         )
 
 
+def record_outing(context_id: uuid.UUID, outing: dict, occurred_at: datetime) -> None:
+    """Create the `outings` row and its timeline for one past trip.
+
+    Until this existed the three "outings" in this file were only a way of
+    grouping expenses into separate batches -- the word appeared in the script
+    and nowhere in the database. F13/F15 gave trips a table, and the memory wall
+    (F30) reads it, so a demo without these rows shows an empty wall next to a
+    group that has visibly been to Đà Lạt twice.
+
+    The dates are Vietnam's calendar days, taken from the same instant the
+    expenses are backdated to. Using the UTC date instead would put a trip on
+    the wrong day for seven hours out of every twenty-four, and `GET
+    /contexts/{id}/recap` matches spending to a trip by exactly these days --
+    so the bug would show up as a trip that cost nothing, on some runs only.
+    """
+
+    on_day = occurred_at.astimezone(VIETNAM).date()
+    created = call(
+        "POST",
+        f"/contexts/{context_id}/outings",
+        body={
+            "title": outing["label"],
+            "starts_on": (on_day - timedelta(days=outing["nights"])).isoformat(),
+            "ends_on": on_day.isoformat(),
+            "headcount": len(PEOPLE),
+            "budget_per_person_vnd": outing["budget_per_person_vnd"],
+        },
+        actor=MINH,
+        roles=OWNER_ROLES,
+        context_id=context_id,
+        write_key=idempotency_key(f"outing:{outing['slug']}"),
+    )
+    call(
+        "PUT",
+        f"/outings/{created['id']}/timeline",
+        body={"stops": outing["stops"]},
+        actor=MINH,
+        roles=OWNER_ROLES,
+        context_id=context_id,
+        write_key=idempotency_key(f"timeline:{outing['slug']}"),
+    )
+
+
 def build(now: datetime) -> tuple[uuid.UUID, list[str]]:
     register_people()
     register_destinations()
@@ -579,6 +666,7 @@ def build(now: datetime) -> tuple[uuid.UUID, list[str]]:
     guest_paths: list[str] = []
     for outing in outings(now):
         occurred_at = now - timedelta(days=outing["days_ago"])
+        record_outing(context_id, outing, occurred_at)
         version_ids = [
             record_expense(context_id, spec, occurred_at) for spec in outing["expenses"]
         ]
