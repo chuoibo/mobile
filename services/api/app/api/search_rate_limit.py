@@ -1,5 +1,12 @@
 """How much of the project's model quota one identity may spend per minute.
 
+Two routes spend that quota and both are metered here: `POST /places/search`
+and `POST /receipts/scan`. The scan arrived second and unmetered, which is the
+worse of the two to leave open -- it ships a photograph to a vision model, so
+a loop against it drains the shared key faster than a loop against search.
+The file is still named for search because that is the route it was written
+for; the ceilings and the refusal wording are per caller, set at construction.
+
 `POST /places/search` calls Gemini on every request, and until rd-be-13 it did
 so for anyone who could reach the port. Requiring an actor closes the anonymous
 half of that, but only half: `X-Actor-ID` is asserted by a trusted gateway that
@@ -31,9 +38,12 @@ from uuid import UUID
 from app.api.errors import ApiProblem
 
 __all__ = [
+    "RECEIPT_SCAN_LIMIT_PER_WINDOW",
+    "RECEIPT_SCAN_WINDOW_SECONDS",
     "SEARCH_LIMIT_PER_WINDOW",
     "SEARCH_WINDOW_SECONDS",
     "FixedWindowLimiter",
+    "build_receipt_scan_limiter",
     "build_search_limiter",
 ]
 
@@ -43,6 +53,24 @@ SEARCH_WINDOW_SECONDS = 60
 # minute; a shell loop reaches it in under a second. Raising this is a decision
 # about how much of a shared, paid quota one unverified header may spend.
 SEARCH_LIMIT_PER_WINDOW = 12
+
+RECEIPT_SCAN_WINDOW_SECONDS = 60
+
+# Set by the asymmetry, not by what looks tidy. Against the thing this exists
+# to stop -- a loop -- the choice barely matters: a loop issues hundreds of
+# requests a second, so any ceiling in the tens caps the minute's spend at a
+# small constant, and 10 versus 30 is the difference between two amounts that
+# are both negligible. Against a real person the choice matters a lot. Someone
+# re-shooting a bill that keeps coming out blurred, then a second bill, with
+# the client retrying underneath them, reaches low double digits in a minute;
+# refused at that point they watch the feature fail with nothing they can do.
+#
+# So the ceiling sits well above any plausible human burst and far below loop
+# scale. This started at 10, chosen by intuition, and the suite disproved it:
+# `tests/qa/rd-qa-38` drives one actor past 10 scans in a single window doing
+# nothing unreasonable. That is evidence about real bursts, not a test being
+# awkward, and the number moved because of it.
+RECEIPT_SCAN_LIMIT_PER_WINDOW = 30
 
 # Below this many tracked identities the map is not worth walking. Above it,
 # the sweep threshold doubles from whatever survived, so the O(n) walk happens
@@ -75,10 +103,19 @@ class FixedWindowLimiter:
         *,
         limit: int,
         window_seconds: int,
+        code: str,
+        message: str,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.limit = limit
         self.window_seconds = window_seconds
+        # Required, not defaulted to the search wording. This class had both
+        # hardcoded while it had one caller; the second caller would then have
+        # answered a refused receipt scan with `search_rate_limited` and "Too
+        # many searches", naming a feature the person was not using. A default
+        # here is that bug with a place to hide.
+        self.code = code
+        self.message = message
         self._clock = clock
         # key -> (window opened at, calls admitted in that window)
         self._windows: dict[UUID, tuple[float, int]] = {}
@@ -101,12 +138,7 @@ class FixedWindowLimiter:
                 # `opened_at` written back unchanged, which is the whole point:
                 # `now` here would be the indefinite ban. See the class docstring.
                 self._windows[key] = (opened_at, used)
-                raise ApiProblem(
-                    429,
-                    "search_rate_limited",
-                    f"Too many searches; at most {self.limit} per "
-                    f"{self.window_seconds} seconds.",
-                )
+                raise ApiProblem(429, self.code, self.message)
 
             self._windows[key] = (opened_at, used + 1)
             # Two triggers, because size alone is not enough. Size handles the
@@ -150,5 +182,30 @@ def build_search_limiter() -> FixedWindowLimiter:
     """
 
     return FixedWindowLimiter(
-        limit=SEARCH_LIMIT_PER_WINDOW, window_seconds=SEARCH_WINDOW_SECONDS
+        limit=SEARCH_LIMIT_PER_WINDOW,
+        window_seconds=SEARCH_WINDOW_SECONDS,
+        code="search_rate_limited",
+        message=(
+            f"Too many searches; at most {SEARCH_LIMIT_PER_WINDOW} per "
+            f"{SEARCH_WINDOW_SECONDS} seconds."
+        ),
+    )
+
+
+def build_receipt_scan_limiter() -> FixedWindowLimiter:
+    """The scan ceiling the app ships with, built once per application.
+
+    Same lifetime argument as `build_search_limiter`, and a separate object on
+    purpose: sharing one window between the two routes would let a burst of
+    searches eat the scan budget of the person who never searched.
+    """
+
+    return FixedWindowLimiter(
+        limit=RECEIPT_SCAN_LIMIT_PER_WINDOW,
+        window_seconds=RECEIPT_SCAN_WINDOW_SECONDS,
+        code="scan_rate_limited",
+        message=(
+            f"Quá nhiều lượt đọc bill; tối đa {RECEIPT_SCAN_LIMIT_PER_WINDOW} "
+            f"lượt mỗi {RECEIPT_SCAN_WINDOW_SECONDS} giây. Thử lại sau ít phút."
+        ),
     )

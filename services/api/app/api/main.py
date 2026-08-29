@@ -45,7 +45,10 @@ from app.api.routes import (
     suggestions,
 )
 from app.api.schemas import ErrorResponse
-from app.api.search_rate_limit import build_search_limiter
+from app.api.search_rate_limit import (
+    build_receipt_scan_limiter,
+    build_search_limiter,
+)
 from app.db.session import get_session_factory
 
 WEB_ROOT = pathlib.Path(__file__).resolve().parents[1] / "web"
@@ -76,6 +79,9 @@ def create_app(
     # quota, and the window that caps it has to outlive a request while not
     # outliving the app that owns it. See `app/api/search_rate_limit.py`.
     application.state.search_limiter = build_search_limiter()
+    # `POST /receipts/scan` spends the same key on a vision call. Its own
+    # window, not a share of the one above: see `build_receipt_scan_limiter`.
+    application.state.receipt_scan_limiter = build_receipt_scan_limiter()
 
     application.mount(
         "/static",
