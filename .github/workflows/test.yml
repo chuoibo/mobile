@@ -1,11 +1,24 @@
 name: test
 
-# Runs on every push and every pull request. Before this existed, CI checked
-# only the repo guard, so 4214 subtests sat in the repository without ever
-# gating anything -- and two bugs got merged that the suite would have caught:
-# a migration that could not compile, and 12,629 dependency files.
+# Runs on every pull request and on main. Before this existed, CI checked only
+# the repo guard, so 4214 subtests sat in the repository without ever gating
+# anything -- and two bugs got merged that the suite would have caught: a
+# migration that could not compile, and 12,629 dependency files.
+#
+# `pull_request` was removed in 1e7e65b to cut Actions minutes and restored
+# here, because what it actually cut was the gate on the one event where a
+# person makes an irreversible decision. Between the two commits every
+# pull-request run in this repository was the repo guard and nothing else --
+# 90 of them -- while the suite, ruff, the bundle, the image and the 293
+# PostgreSQL cases ran only after the merge, reporting defects already on main.
+# `tests/test_workflows_gate_pull_requests.py` holds the line.
+#
+# This does not double the spend: with `push` restricted to main, a commit on a
+# branch fires the pull_request run only, and `concurrency` below cancels the
+# superseded one.
 
 on:
+  pull_request:
   push:
     branches: [main]
   workflow_dispatch:
