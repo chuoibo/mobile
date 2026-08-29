@@ -396,6 +396,8 @@ class OutingInviteResponse(ApiModel):
     invited_person_id: UUID | None
     invited_by_id: UUID
     created_at: datetime
+    expires_at: datetime
+    revoked_at: datetime | None
     invite_token: str | None
     invite_path: str | None
 

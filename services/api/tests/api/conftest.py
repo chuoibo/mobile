@@ -42,6 +42,7 @@ from app.api.repository import (
     GuestEnvelopeRecord,
     GuestLinkDraft,
     ObligationDraft,
+    OutingInviteRecord,
     PaymentReportRecord,
     PaymentReportTarget,
     PersonFinanceSummary,
@@ -109,6 +110,8 @@ class FakeRepository:
         self.bills: dict[uuid.UUID, BillRecord] = {}
         self.finances: dict[uuid.UUID, PersonFinanceSummary] = {}
         self.active_memberships: set[tuple[uuid.UUID, uuid.UUID]] = set()
+        self.outing_invites: dict[uuid.UUID, OutingInviteRecord] = {}
+        self.outing_invite_ids_by_digest: dict[bytes, uuid.UUID] = {}
         self.leak_guest_input = False
 
     @staticmethod
@@ -166,6 +169,82 @@ class FakeRepository:
 
     def is_member(self, context_id, person_id):
         return (context_id, person_id) in self.active_memberships
+
+    def create_outing_invite(
+        self,
+        *,
+        outing_id,
+        source,
+        invited_person_id,
+        invited_by_id,
+        token_digest,
+        expires_at,
+        now,
+    ):
+        record = OutingInviteRecord(
+            id=uuid.uuid4(),
+            outing_id=outing_id,
+            source=source,
+            invited_person_id=invited_person_id,
+            invited_by_id=invited_by_id,
+            accepted_at=None,
+            accepted_by_id=None,
+            created_at=now,
+            expires_at=expires_at,
+            revoked_at=None,
+        )
+        self.outing_invites[record.id] = record
+        if token_digest is not None:
+            self.outing_invite_ids_by_digest[token_digest] = record.id
+        return record
+
+    def find_outing_invite_for_person(self, outing_id, person_id):
+        return next(
+            (
+                invite
+                for invite in self.outing_invites.values()
+                if invite.outing_id == outing_id
+                and invite.invited_person_id == person_id
+            ),
+            None,
+        )
+
+    def get_outing_invite(self, invite_id):
+        return self.outing_invites.get(invite_id)
+
+    def get_outing_invite_by_digest(self, token_digest):
+        invite_id = self.outing_invite_ids_by_digest.get(token_digest)
+        if invite_id is None:
+            return None
+        return self.outing_invites.get(invite_id)
+
+    def accept_outing_invite(self, *, invite_id, accepted_by_id, now):
+        invite = self.outing_invites.get(invite_id)
+        if invite is None:
+            raise RepositoryConflict("OUTING_INVITE_NOT_FOUND")
+        if invite.accepted_at is not None:
+            raise RepositoryConflict("OUTING_INVITE_ALREADY_ACCEPTED")
+        if invite.revoked_at is not None or invite.expires_at <= now:
+            raise RepositoryConflict("OUTING_INVITE_NOT_REDEEMABLE")
+        accepted = replace(
+            invite,
+            accepted_at=now,
+            accepted_by_id=accepted_by_id,
+        )
+        self.outing_invites[invite_id] = accepted
+        return accepted
+
+    def revoke_outing_invite(self, *, invite_id, now):
+        invite = self.outing_invites.get(invite_id)
+        if invite is None:
+            raise RepositoryConflict("OUTING_INVITE_NOT_FOUND")
+        if invite.accepted_at is not None:
+            raise RepositoryConflict("OUTING_INVITE_ALREADY_ACCEPTED")
+        if invite.revoked_at is not None:
+            return invite
+        revoked = replace(invite, revoked_at=now)
+        self.outing_invites[invite_id] = revoked
+        return revoked
 
     def create_bill(
         self,

@@ -88,6 +88,22 @@ def create_outing_invite(
 
 
 @router.post(
+    "/outings/{outing_id}/invites/{invite_id}/revoke",
+    response_model=OutingInviteResponse,
+    responses=ERRORS,
+)
+def revoke_outing_invite(
+    outing_id: UUID,
+    invite_id: UUID,
+    actor: Annotated[Actor, Depends(get_actor)],
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+) -> OutingInviteResponse:
+    return ApiService(repository).revoke_outing_invite(
+        outing_id, invite_id, actor
+    )
+
+
+@router.post(
     "/outing-invites/{token}/accept",
     response_model=OutingInviteAcceptResponse,
     responses=ERRORS,
