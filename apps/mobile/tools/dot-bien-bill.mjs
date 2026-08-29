@@ -62,20 +62,20 @@ const DOT_BIEN = [
     // report as "KHÔNG BIÊN DỊCH ĐƯỢC" and prove nothing either way.
     tu:
       "  if (bill == null) {\n" +
-      "    return \"Chưa lưu được lên máy chủ. Các ô đã tích chỉ nằm trên máy này.\";\n" +
+      "    return \"Chưa lưu được. Ô đã tích chỉ ở máy này.\";\n" +
       "  }\n" +
       "  const con = bill.suggested_item_keys.length;\n" +
       "  if (con === 0) {\n" +
-      "    return \"Đã lưu. Ai ăn món gì là do nhóm chốt, không phải máy đoán.\";\n" +
+      "    return \"Đã lưu. Nhóm đã chốt ai ăn món gì.\";\n" +
       "  }\n" +
       "  if (con === bill.items.length) {",
     thanh:
       "  if (bill === null) {\n" +
-      "    return \"Chưa lưu được lên máy chủ. Các ô đã tích chỉ nằm trên máy này.\";\n" +
+      "    return \"Chưa lưu được. Ô đã tích chỉ ở máy này.\";\n" +
       "  }\n" +
       "  const con = bill!.suggested_item_keys.length;\n" +
       "  if (con === 0) {\n" +
-      "    return \"Đã lưu. Ai ăn món gì là do nhóm chốt, không phải máy đoán.\";\n" +
+      "    return \"Đã lưu. Nhóm đã chốt ai ăn món gì.\";\n" +
       "  }\n" +
       "  if (con === bill!.items.length) {",
   },
