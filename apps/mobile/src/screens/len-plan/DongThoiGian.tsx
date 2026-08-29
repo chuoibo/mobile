@@ -3,7 +3,7 @@
  *  did not invent them, and nobody is settling a bill.
  */
 import React, { useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import { radius, space, type, usePalette } from "../../theme";
 import { Button, Card, Field, Screen } from "../../ui/Kit";
 import {
@@ -91,23 +91,11 @@ export function DongThoiGian({
         contentContainerStyle={{ gap: space.md, paddingBottom: space.sm }}
         keyboardShouldPersistTaps="handled"
       >
-        <Pressable
-          onPress={onQuayLai}
-          accessibilityRole="button"
-          accessibilityLabel="Quay lại danh sách chuyến"
-          style={({ pressed }) => ({
-            alignSelf: "flex-start",
-            minHeight: 44,
-            minWidth: 44,
-            justifyContent: "center",
-            opacity: pressed ? 0.85 : 1,
-          })}
-        >
-          <Text style={{ ...type.body, fontWeight: "600", color: c.accent }}>
-            Quay lại
-          </Text>
-        </Pressable>
-
+        {/* No second "back" here. `Screen` pins the footer outside the
+            scroller, so "Quay lại danh sách" is on screen the whole time; a
+            link above the card as well put two back affordances in the tab
+            order and made a screen reader announce the same destination
+            twice. */}
         <Card>
           <TheChuyen buoi={buoi} tong={tong} />
         </Card>
@@ -168,11 +156,11 @@ export function DongThoiGian({
 function TheChuyen({ buoi, tong }: { buoi: BuoiDi; tong: number }) {
   const c = usePalette();
   return (
+    // Neither the trip name nor the date range is repeated here: `Screen`
+    // already prints both as the heading and its hint, and rendering them
+    // again put the same two lines on screen twice, once inside a card that
+    // is supposed to carry what the heading does NOT say.
     <View style={{ gap: space.xs }}>
-      <Text style={{ ...type.title, color: c.ink }}>{buoi.title}</Text>
-      <Text style={{ ...type.label, color: c.inkSoft, fontVariant: ["tabular-nums"] }}>
-        {nhanKhoangNgay(buoi.starts_on, buoi.ends_on)}
-      </Text>
       <View
         style={{
           flexDirection: "row",
