@@ -86,6 +86,52 @@ class PatternScannerTests(ScanHelper):
             self.assertNotIn(credential, rendered)
         self.assertEqual(rendered.count("<redacted-secret>"), 4)
 
+    def test_google_api_key_is_blocked_and_masked(self):
+        # Built by concatenation for the reason the tests above are: a literal
+        # key in this file would be a real finding in this file.
+        #
+        # GEMINI_API_KEY is the one credential this repository actually holds,
+        # and until 2026-08-30 the guard knew only AWS and GitHub shapes --
+        # neither of which this project uses. Staged as a `.env` line, a Python
+        # literal and a line of prose, a correctly shaped key gave "passed
+        # staged diff: 3 file scan(s)" and exit 0.
+        key = "AIza" + "Sy" + "Qb7" + "kR2mZ" + "9tLxW4nHvJ0cU8gAeP1dS6" + "vT4"
+        self.assertEqual(len(key), 39, "canary must be a real-shaped key")
+
+        findings = self.scan_text("GEMINI_API_KEY=" + key)
+
+        self.assertEqual([finding.rule for finding in findings], ["google-api-key"])
+        rendered = "\n".join(finding.render() for finding in findings)
+        self.assertNotIn(key, rendered)
+        self.assertIn("<redacted-secret>", rendered)
+
+    def test_google_api_key_fixtures_marked_fake_are_not_flagged(self):
+        # The exemption that keeps this rule alive. Fixtures need a key of the
+        # real shape -- tests/test_stack_carries_gemini_key.py exists to prove
+        # the key reaches the container -- and `google-api-key` is a secret
+        # rule, so the allowlist is deliberately closed to it. Without this the
+        # rule reported 4 findings on a clean tree and would have been switched
+        # off within a day.
+        for marker in ("FAKE" + "fake" * 2, "SENTINEL" + "sentinel"):
+            with self.subTest(marker=marker):
+                body = (marker * 6)[:35]
+                key = "AIza" + body
+                self.assertEqual(len(key), 39)
+                self.assertEqual(self.scan_text("GEMINI_API_KEY=" + key), [])
+
+    def test_google_api_key_exemption_only_reads_the_generated_body(self):
+        # The asymmetry the exemption rests on: Google generates the 35-char
+        # body, the committer does not. So a marker in freely chosen text --
+        # the variable name, a nearby comment -- must NOT buy an exemption for
+        # a body that looks generated. Only the body itself counts.
+        key = "AIza" + "Sy" + "Qb7" + "kR2mZ" + "9tLxW4nHvJ0cU8gAeP1dS6" + "vT4"
+        findings = self.scan_text("FAKE_EXAMPLE_DUMMY_KEY = " + key + "  # placeholder")
+        self.assertEqual(
+            [finding.rule for finding in findings],
+            ["google-api-key"],
+            "a marker outside the generated body must not exempt the key",
+        )
+
     def test_secret_rules_cannot_be_allowlisted(self):
         payload = {
             "version": 1,
@@ -188,9 +234,7 @@ class PatternScannerTests(ScanHelper):
                 self.assertEqual(len(matches), 1)
                 rendered = matches[0].render()
                 self.assertIn("<redacted-base64-fragments>", rendered)
-                counted = int(
-                    rendered.split("aggregate-bytes=", 1)[1].split(",", 1)[0]
-                )
+                counted = int(rendered.split("aggregate-bytes=", 1)[1].split(",", 1)[0])
                 self.assertGreater(
                     counted,
                     repo_guard.MAX_AGGREGATE_BASE64_BYTES,
@@ -269,9 +313,7 @@ class PatternScannerTests(ScanHelper):
         )
         fragment = "Aa0_____"
         self.assertEqual(len(fragment), repo_guard.MIN_BASE64_FRAGMENT_BYTES)
-        aggregate_at_threshold = "\n".join(
-            fragment for _index in range(fragment_count)
-        )
+        aggregate_at_threshold = "\n".join(fragment for _index in range(fragment_count))
         aggregate_over_threshold = "\n".join(
             [
                 *(fragment for _index in range(fragment_count - 1)),
@@ -754,16 +796,12 @@ class LockfileDigestAllowanceTests(ScanHelper):
                 repo_guard.ArtifactAllowance(
                     path=path,
                     sha256=digest,
-                    rules=frozenset(
-                        {"aggregate-base64-fragments", "long-number"}
-                    ),
+                    rules=frozenset({"aggregate-base64-fragments", "long-number"}),
                 ),
             )
         )
 
-        allowed = repo_guard.content_findings(
-            path, raw, 1, config, digest, None, None
-        )
+        allowed = repo_guard.content_findings(path, raw, 1, config, digest, None, None)
         changed = repo_guard.content_findings(
             path,
             raw + b" ",

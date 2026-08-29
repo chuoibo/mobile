@@ -26,9 +26,11 @@ import pytest
 
 from app.api.deps import get_receipt_reader
 from app.api.main import create_app
+from app.api.routes.places import get_place_searcher
 from app.api.routes.receipts import get_receipt_scan_limiter
 from app.api.search_rate_limit import (
     RECEIPT_SCAN_LIMIT_PER_WINDOW,
+    SEARCH_LIMIT_PER_WINDOW,
     FixedWindowLimiter,
 )
 
@@ -211,3 +213,57 @@ def test_each_application_carries_its_own_scan_window(client):
     other = create_app()
 
     assert client.app.state.receipt_scan_limiter is not other.state.receipt_scan_limiter
+
+
+class SilentSearcher:
+    """Stands in for Gemini on the neighbouring paid route."""
+
+    def __call__(self, query: str) -> dict:
+        del query
+        return {
+            "understood": {
+                "budget_per_person_vnd": 300_000,
+                "group_size": 6,
+                "max_distance_km": 5,
+                "categories": ["quan-an-local"],
+                "traits": ["Ngoài trời"],
+            },
+            "results": [
+                {"id": "p-tiem-nuong-xom-lao", "reason": "Đồ nướng, ngồi ngoài trời."}
+            ],
+        }
+
+
+def test_spending_the_search_ceiling_leaves_the_scan_ceiling_whole(client, reader):
+    """The two paid routes are metered apart, and this is the only case saying so.
+
+    Every other case in this file, and every case in the search file, stays
+    green if the two routes count into ONE window: scans alone still stop at
+    their own ceiling, searches alone still stop at theirs, and each app still
+    builds its own pair of limiters. A shared window is only visible when one
+    identity uses both routes -- and then the searches quietly spend the scan
+    allowance, so somebody who has photographed two bills is refused the third
+    in a sentence blaming how much they have been scanning.
+
+    Established by mutation, not by argument. Sharing one window store between
+    the two limiters inside ``create_app`` -- ceilings untouched, objects still
+    distinct, per-app isolation intact -- left all 1486 cases in the repository
+    green. Three blunter spellings of the same bug were each caught only by an
+    assertion pinning a ceiling number, which is why none of them counted.
+    """
+
+    client.app.dependency_overrides[get_place_searcher] = lambda: SilentSearcher()
+
+    search_codes = [
+        client.post("/places/search", json={"query": "quán nướng"}, headers=HEADERS)
+        .status_code
+        for _ in range(SEARCH_LIMIT_PER_WINDOW + 1)
+    ]
+    assert search_codes == [200] * SEARCH_LIMIT_PER_WINDOW + [429], (
+        "the search ceiling has to be genuinely spent, or this proves nothing"
+    )
+
+    scan_codes = [scan(client).status_code for _ in range(RECEIPT_SCAN_LIMIT_PER_WINDOW)]
+
+    assert scan_codes == [200] * RECEIPT_SCAN_LIMIT_PER_WINDOW
+    assert len(reader.calls) == RECEIPT_SCAN_LIMIT_PER_WINDOW
