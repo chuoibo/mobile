@@ -21,7 +21,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { radius, space, type, usePalette } from "../../theme";
-import { Card } from "../../ui/Kit";
+import { Button, Card } from "../../ui/Kit";
 import { Gradient, HERO_SUNSET } from "../../navigation/Gradient";
 import { DEMO_GROUP_NAME, type DemoPerson } from "../../navigation/nhom-demo";
 import { Anh, khungTron } from "../../ui/Anh";
@@ -46,9 +46,16 @@ type Trang =
 
 export function CaNhan({
   nguoi,
+  onKetBan,
   doc = layTaiChinh,
 }: {
   nguoi: DemoPerson | null;
+  /** Open the F03/F04 friend screen. Handed in by the shell rather than
+   *  imported, because that screen takes over the whole viewport and only the
+   *  shell knows how to give it back. Optional so the older callers -- and the
+   *  screen's own tests -- keep compiling; a missing handler hides the row
+   *  rather than rendering a button that does nothing. */
+  onKetBan?: () => void;
   /** Injected so the screen can be exercised without a server. */
   doc?: typeof layTaiChinh;
 }) {
@@ -120,6 +127,7 @@ export function CaNhan({
         <TaiChinh trang={trang} onThuLai={lamMoi} coNguoi={Boolean(nguoi)} />
         <GiaoDich trang={trang} />
         <NhomCuaBan trang={trang} />
+        <CuaKetBan nguoi={nguoi} onKetBan={onKetBan} />
         <MaKetBan nguoi={nguoi} ten={tenHienThi(nguoi, trang)} />
       </View>
     </ScrollView>
@@ -545,6 +553,44 @@ function DongGiaoDich({ m }: { m: Movement }) {
         <Text style={{ ...type.micro, color: c.inkFaint }}>{ngayNgan(m.occurred_at)}</Text>
       </View>
     </View>
+  );
+}
+
+/**
+ * F03/F04. The door to the friend screen.
+ *
+ * It sits directly above "Mã kết bạn của bạn" because the two are the same
+ * act from opposite ends: the code below is how somebody adds *you* with a
+ * camera, this is how you add *them* with a number you already have. Before
+ * this row existed, `POST /friends/lookup` and the four routes beside it had
+ * shipped and no screen in the app called any of them -- which by this team's
+ * way of counting means the feature was not there.
+ *
+ * Renders nothing without a handler or without a person. A button that opens
+ * a screen which cannot say who is asking would send `X-Actor-ID: undefined`
+ * and read as a broken feature rather than as one that needs signing in.
+ */
+function CuaKetBan({
+  nguoi,
+  onKetBan,
+}: {
+  nguoi: DemoPerson | null;
+  onKetBan?: () => void;
+}) {
+  const c = usePalette();
+  if (!nguoi || !onKetBan) return null;
+  return (
+    <Card>
+      <Text style={{ ...type.title, color: c.ink }}>Bạn bè</Text>
+      <Text style={{ ...type.label, color: c.inkSoft }}>
+        Tìm bạn bằng số điện thoại và gửi lời mời. Lời mời chỉ thành kết bạn khi người
+        kia đồng ý, nên ở đây bạn xem được cả hai chiều: ai đang chờ bạn trả lời, và
+        bạn đang chờ ai.
+      </Text>
+      <View style={{ marginTop: space.xs }}>
+        <Button label="Mở màn kết bạn" onPress={onKetBan} tone="ghost" />
+      </View>
+    </Card>
   );
 }
 
