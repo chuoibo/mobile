@@ -27,6 +27,21 @@ own docstring in `tests/postgres/test_outings_postgres.py` promises:
 
 Red on 42228d6 means the promise is not kept. Green means bước 2 landed.
 
+WHAT THIS FILE DELIBERATELY DOES NOT ASSERT (bug-153233)
+
+There is more than one way to keep that promise, and a build is free to pick
+either. #128 lets the stale token through to an INVITED membership (200) and
+then refuses the self-promotion; #132 refuses the stale token outright (404) so
+the membership is never written at all. Both keep the bearer out of the group's
+messages and balances -- which is the whole claim.
+
+An earlier revision of `_walk` hard-coded `assert redeemed.status_code == 200`
+before reading `membership_id`. That made the helper pick one of the two, so a
+build that shut the door *earlier* failed here, at the helper, in every case in
+the file -- including the two that say nothing about how the redeem is answered.
+The probe could not go green even when the product was right. The redeem status
+is now recorded, not judged, and each case asserts the end state instead.
+
 Run:
     cd services/api && MOBILE_TEST_DATABASE_URL=... MOBILE_REQUIRE_POSTGRES_TESTS=1 \
       python3 -m pytest ../../tests/qa/rd-qa-13 -q
@@ -35,11 +50,13 @@ Run:
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
 import anyio
 import httpx
 import pytest
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_repository
@@ -143,7 +160,7 @@ def _outing(app, owner: Person, context: Context) -> dict:
 
 def _outstanding_link(session: Session, outing_id: str, owner: Person) -> OutingInvite:
     """The row a pre-#124 mint left behind. Nothing revokes it."""
-    invite = OutingInvite(
+    columns = dict(
         id=uuid.uuid4(),
         outing_id=uuid.UUID(outing_id),
         source=OutingInviteSource.LINK,
@@ -154,12 +171,39 @@ def _outstanding_link(session: Session, outing_id: str, owner: Person) -> Outing
         accepted_by_id=None,
         created_at=NOW,
     )
+    # `expires_at` arrives NOT NULL with migration d4a2e7b91c30 (#132), which
+    # backfills every row that predates the column to `created_at` -- dead on
+    # arrival. Writing that same value keeps this row describing the same legacy
+    # link on both sides of the migration. Naming the column unconditionally
+    # would make the file uncollectable on any build before it; leaving it out
+    # makes the INSERT fail with NotNullViolation on any build after it.
+    if hasattr(OutingInvite, "expires_at"):
+        columns["expires_at"] = NOW
+    invite = OutingInvite(**columns)
     session.add(invite)
     session.flush()
     return invite
 
 
-def _walk(postgres_session: Session, monkeypatch: pytest.MonkeyPatch):
+@dataclass
+class Walk:
+    """What the two live routes produced, with no verdict attached.
+
+    `accepted` is None on a build that refuses the stale token, because there is
+    then no membership id to promote -- the door shut one step earlier. Cases
+    that would otherwise have nothing left to check in that branch assert
+    `stranger_states` instead, which is read back from the table and is a real
+    claim on either path.
+    """
+
+    redeemed: httpx.Response
+    accepted: httpx.Response | None
+    after: httpx.Response
+    balances: httpx.Response
+    stranger_states: list[str]
+
+
+def _walk(postgres_session: Session, monkeypatch: pytest.MonkeyPatch) -> Walk:
     """Redeem an outstanding link as a stranger, then try to self-promote.
 
     Returns every response the two steps produced so each claim can be asserted
@@ -197,19 +241,33 @@ def _walk(postgres_session: Session, monkeypatch: pytest.MonkeyPatch):
     # passes just as happily on a blank page.
     assert before.status_code == 403, before.text
 
-    assert redeemed.status_code == 200, (
-        "PR #124 refuses to MINT a link; it does not refuse to redeem one that "
-        f"already exists. Got {redeemed.status_code}: {redeemed.text}"
-    )
-    membership_id = redeemed.json()["membership_id"]
-    assert redeemed.json()["membership_state"].upper() == "INVITED"
+    # Record which of the two shapes this build answered with; do not grade it.
+    # Whichever it is, the walk continues to the reads below, because the claim
+    # every case here makes is about what the bearer ends up able to see.
+    membership_id: str | None = None
+    if redeemed.status_code == 200:
+        body = redeemed.json()
+        assert body["membership_state"].upper() == "INVITED", (
+            "A redeemed link handed out something other than INVITED: "
+            f"{body['membership_state']}"
+        )
+        membership_id = body["membership_id"]
+    else:
+        # A refusal is fine; a crash is not, and a 5xx would let a broken route
+        # masquerade as a closed door for the rest of this file.
+        assert 400 <= redeemed.status_code < 500, (
+            "Redeeming an outstanding link neither succeeded nor was refused. "
+            f"Got {redeemed.status_code}: {redeemed.text}"
+        )
 
     async def escalate():
         async with _client(app) as client:
-            accepted = await client.post(
-                f"/memberships/{membership_id}/accept",
-                headers=_headers(stranger.id),
-            )
+            accepted = None
+            if membership_id is not None:
+                accepted = await client.post(
+                    f"/memberships/{membership_id}/accept",
+                    headers=_headers(stranger.id),
+                )
             after = await client.get(
                 f"/contexts/{context.id}/messages", headers=_headers(stranger.id)
             )
@@ -219,7 +277,20 @@ def _walk(postgres_session: Session, monkeypatch: pytest.MonkeyPatch):
             return accepted, after, balances
 
     accepted, after, balances = anyio.run(escalate)
-    return redeemed, accepted, after, balances
+
+    # Read the membership rows back from the table rather than trusting the
+    # identity map the routes just wrote through.
+    postgres_session.expire_all()
+    stranger_states = [
+        getattr(membership.state, "name", str(membership.state)).upper()
+        for membership in postgres_session.execute(
+            select(Membership).where(
+                Membership.context_id == context.id,
+                Membership.person_id == stranger.id,
+            )
+        ).scalars()
+    ]
+    return Walk(redeemed, accepted, after, balances, stranger_states)
 
 
 def test_a_link_bearer_cannot_promote_themselves_to_active(
@@ -231,11 +302,22 @@ def test_a_link_bearer_cannot_promote_themselves_to_active(
     self-circular: it asks a question the attacker just supplied the answer to.
     Nobody in the group ever chose this person.
     """
-    _, accepted, _, _ = _walk(postgres_session, monkeypatch)
+    walk = _walk(postgres_session, monkeypatch)
 
-    assert accepted.status_code == 403, (
-        "A link bearer promoted THEMSELVES from INVITED to ACTIVE. "
-        f"Got {accepted.status_code}: {accepted.text}"
+    if walk.accepted is not None:
+        assert walk.accepted.status_code == 403, (
+            "A link bearer promoted THEMSELVES from INVITED to ACTIVE. "
+            f"Got {walk.accepted.status_code}: {walk.accepted.text}"
+        )
+
+    # The end state, asserted from the table. A build that refuses the redeem
+    # never reaches the branch above, and a case that only checked the branch
+    # above would pass there by having nothing left to look at. This line makes
+    # the same claim on both paths: nobody in the group chose this person, so no
+    # ACTIVE row may exist for them.
+    assert "ACTIVE" not in walk.stranger_states, (
+        "A link bearer holds an ACTIVE membership nobody in the group chose. "
+        f"Rows for the bearer: {walk.stranger_states}"
     )
 
 
@@ -247,13 +329,16 @@ def test_a_link_bearer_never_reads_the_groups_messages_or_balances(
     Stated separately so a fix that only changes a status code cannot satisfy
     the escalation test while the data stays readable.
     """
-    _, _, after, balances = _walk(postgres_session, monkeypatch)
+    walk = _walk(postgres_session, monkeypatch)
 
-    assert after.status_code == 403, (
+    assert walk.after.status_code == 403, (
         "The link bearer is reading the group's messages. "
-        f"Got {after.status_code}: {after.text}"
+        f"Got {walk.after.status_code}: {walk.after.text}"
     )
-    assert SECRET_MESSAGE not in after.text, "Group message leaked to a link bearer"
-    assert balances.status_code == 403, (
-        f"The link bearer is reading the group's balances. Got {balances.status_code}"
+    assert SECRET_MESSAGE not in walk.after.text, (
+        "Group message leaked to a link bearer"
+    )
+    assert walk.balances.status_code == 403, (
+        "The link bearer is reading the group's balances. "
+        f"Got {walk.balances.status_code}"
     )
