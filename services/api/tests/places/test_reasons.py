@@ -235,6 +235,174 @@ def test_garbage_from_the_model_yields_no_reasons_and_no_exception(text):
 
 
 # ---------------------------------------------------------------------------
+# Recovering a batch the document parser cannot read
+#
+# `tests/places/test_reasons_batch_robustness.py` holds the captured payload
+# and the story. These are the ways a *fix* for it goes wrong: a salvage path
+# that quietly stops applying the checks the clean path applies is worse than
+# the bug, because now the screen carries an `ai` label on something nobody
+# validated. Each case below is a gate that a lenient parser would fail.
+# ---------------------------------------------------------------------------
+
+HILL = "p-the-hill-rooftop"
+CAFE = "p-an-cafe-da-lat"
+
+
+def broken_item(place_id: str) -> str:
+    """An item whose reason quotes a trait without escaping the quote marks.
+
+    The failure Gemini actually produces, minimised.
+    """
+
+    return (
+        f'{{"id": "{place_id}", "verdict": "khong-hop", '
+        f'"reason": "Đặc điểm "yên tĩnh" không hợp nhóm đông."}}'
+    )
+
+
+def good_item(place_id: str, reason: str, verdict: str = "khong-hop") -> str:
+    return json.dumps(
+        {"id": place_id, "verdict": verdict, "reason": reason}, ensure_ascii=False
+    )
+
+
+def three_rows() -> list[ReasonRow]:
+    return [ReasonRow(place=BY_ID[pid]) for pid in (NUONG["id"], CAFE, HILL)]
+
+
+def test_good_items_after_a_broken_one_are_recovered_too():
+    """Not just the prefix before the break.
+
+    A fix that decodes until the first error and stops would pass the captured
+    fixture -- its one good item happens to come first -- and still lose most
+    of a real batch, where the broken reason lands in the middle.
+    """
+
+    text = "\n".join(
+        [
+            "[",
+            good_item(NUONG["id"], "Đồ nướng ngoài trời, 200-250k vừa túi.", "hop")
+            + ",",
+            broken_item(CAFE) + ",",
+            good_item(HILL, "320-450k vượt ngân sách 250k, lại 5.2km."),
+            "]",
+        ]
+    )
+    kept = parse_reasons(text, three_rows(), GROUP)
+    assert set(kept) == {NUONG["id"], HILL}
+    assert kept[HILL].verdict == "khong-hop"
+
+
+def test_a_recovered_item_still_faces_the_fabrication_gate():
+    """The invented-number gate is not skipped on the recovery path.
+
+    This is the one that matters for money-adjacent copy: a salvaged reason
+    claiming a figure nobody supplied must be dropped exactly as it would be in
+    a clean batch, or the fix has traded a blank card for a false one.
+    """
+
+    text = "\n".join(
+        [
+            "[",
+            broken_item(CAFE) + ",",
+            good_item(HILL, "Quán đạt 3 sao Michelin năm 2019.", "hop"),
+            "]",
+        ]
+    )
+    assert parse_reasons(text, three_rows(), GROUP) == {}
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        '{"id": "p-khong-ton-tai", "verdict": "hop", "reason": "Chỗ này tuyệt."}',
+        '{"id": "p-the-hill-rooftop", "verdict": "tuyet-voi", "reason": "Hay lắm."}',
+        '{"id": "p-the-hill-rooftop", "verdict": "hop", "reason": "   "}',
+        '{"id": "p-the-hill-rooftop", "reason": "Hợp đấy."}',
+    ],
+)
+def test_recovery_does_not_relax_field_validation(item):
+    """Unknown place, verdict outside the closed set, empty or missing reason.
+
+    All four are dropped in a clean batch. Arriving via the recovery path
+    changes nothing about them.
+    """
+
+    text = f"[\n{broken_item(CAFE)},\n{item}\n]"
+    assert parse_reasons(text, three_rows(), GROUP) == {}
+
+
+def test_prose_that_merely_contains_a_brace_recovers_nothing():
+    """The resync must not turn arbitrary text into reasons.
+
+    Stepping to the next `{` after a failure is how items are recovered; a
+    document that is not a batch at all has to come back empty rather than
+    yield whatever the scan happens to trip over.
+    """
+
+    text = 'Xin lỗi, tôi không thể trả lời. {"id": nope} { { {'
+    assert parse_reasons(text, three_rows(), GROUP) == {}
+
+
+def test_a_response_cut_off_mid_array_keeps_what_arrived():
+    """Truncation was total loss for the same reason the stray quote was.
+
+    Not the failure that was measured -- `finishReason` was `STOP` on all three
+    real cases -- but the same all-or-nothing parse caused it, so the fix
+    covers it and this records that it does.
+    """
+
+    text = (
+        "[\n"
+        + good_item(NUONG["id"], "Đồ nướng ngoài trời, 1.2km thôi.", "hop")
+        + ',\n{"id": "p-the-hill-rooftop", "verdict": "khong-'
+    )
+    kept = parse_reasons(text, three_rows(), GROUP)
+    assert set(kept) == {NUONG["id"]}
+
+
+def test_the_clean_path_never_reaches_the_salvage(monkeypatch):
+    """Structural: a well-formed batch is decoded by `json.loads`, full stop.
+
+    Recovery is a fallback, and a fallback that starts running on the happy
+    path is just a lenient parser wearing a different name. Booby-trap it and
+    the normal case must still come out whole.
+    """
+
+    def explode(_text):
+        raise AssertionError("salvage ran on a document that parsed cleanly")
+
+    monkeypatch.setattr("app.places.reasons._salvage_objects", explode)
+    text = model_says(
+        [{"id": NUONG["id"], "verdict": "hop", "reason": "Đúng 200-250k, 1.2km."}]
+    )
+    assert parse_reasons(text, one_row(NUONG["id"]), GROUP)[NUONG["id"]].verdict == "hop"
+
+
+def test_the_rescan_gives_up_instead_of_walking_every_brace(monkeypatch):
+    """`_MAX_SALVAGE_MISSES` is enforced, counted rather than assumed.
+
+    Resynchronising at the next `{` is O(braces) attempts, and each attempt can
+    scan to the end of the document before it fails, so an unbounded rescan is
+    quadratic in a body that is not a batch at all. The first version of this
+    test just asserted the result was empty and took 0.01s either way -- it
+    passed with the bound deleted, which made it decorative. Counting the
+    decode attempts is what actually holds the bound in place.
+    """
+
+    attempts = []
+    real_raw_decode = json.JSONDecoder.raw_decode
+
+    def counting(self, s, idx=0):
+        attempts.append(idx)
+        return real_raw_decode(self, s, idx)
+
+    monkeypatch.setattr(json.JSONDecoder, "raw_decode", counting)
+    assert parse_reasons("{" * 5000, three_rows(), GROUP) == {}
+    assert len(attempts) < 100, f"rescan tried {len(attempts)} times on 5000 braces"
+
+
+# ---------------------------------------------------------------------------
 # The call itself
 # ---------------------------------------------------------------------------
 

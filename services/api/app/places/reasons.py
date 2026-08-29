@@ -30,6 +30,14 @@ The gate catches invented *numbers*, which is the fabrication that does
 concrete damage on a screen about money. It does not catch an invented
 adjective, and this docstring is the wrong place to pretend otherwise.
 
+**Collateral damage.** Both gates above drop one place and leave the rest
+alone, which is only worth anything if the batch survives long enough to reach
+them. It did not: the model quotes a trait inside a reason string without
+escaping the quote marks in roughly one call in ten, and `json.loads` on the
+whole array used to turn that into twelve cards with no AI label. Decoding is
+therefore item-by-item on the recovery path -- see `_salvage_objects`. Every
+drop in this module costs exactly the row that earned it.
+
 Key handling: `GEMINI_API_KEY` travels in a header, never in a URL, and is
 never logged, echoed, or put in an exception message. Failures report the HTTP
 status and the exception type -- nothing that could carry the key or the
@@ -236,6 +244,52 @@ def ungrounded_numbers(
     return stray
 
 
+# How many `{` that fail to decode we are willing to step over before giving
+# up on a document. Bounds the rescan on a response that is not really a list
+# of items at all; a genuine batch misses once per broken reason.
+_MAX_SALVAGE_MISSES = 32
+
+
+def _salvage_objects(text: str) -> list[Any]:
+    """Top-level JSON objects still readable in a document that will not parse.
+
+    Measured, not hypothetical: over 23 real calls, 3 came back with a trait
+    quoted inside a reason string and the quote marks left unescaped --
+
+        "reason": "Quán cafe này có đặc điểm "yên tĩnh" không phù hợp..."
+
+    -- with `finishReason: STOP` and a well-formed closing `]`. Not truncation,
+    just one bad string. `json.loads` on the whole array dies at that quote,
+    which used to take the eleven well-formed siblings down with it and leave
+    the screen with no AI label on any card.
+
+    So each object is decoded on its own terms with `raw_decode`, and a failure
+    resynchronises at the next `{` instead of ending the document. This is a
+    *recovery* path, not a lenient parser: every object it returns still goes
+    through the same field, verdict and grounding checks as one that arrived in
+    a clean batch. Nothing is repaired or guessed at -- an item that will not
+    decode is dropped, and only that item.
+    """
+
+    decoder = json.JSONDecoder()
+    found: list[Any] = []
+    misses = 0
+    at = 0
+    while misses <= _MAX_SALVAGE_MISSES:
+        start = text.find("{", at)
+        if start < 0:
+            break
+        try:
+            obj, end = decoder.raw_decode(text, start)
+        except ValueError:
+            misses += 1
+            at = start + 1
+            continue
+        found.append(obj)
+        at = end
+    return found
+
+
 def parse_reasons(
     text: str, rows: list[ReasonRow], group: GroupProfile
 ) -> dict[str, PlaceReason]:
@@ -244,13 +298,28 @@ def parse_reasons(
     Silently lossy on purpose. A row the model skipped, mislabelled, or made up
     a number for simply does not get an AI reason; it does not get a
     substituted one, and it does not take the other eleven down with it.
+
+    That last clause used to be true per *item* and false per *batch*: a single
+    unescaped quote anywhere in the array cost every reason in it. The strict
+    whole-document parse is still tried first and still owns the happy path;
+    only when it raises does `_salvage_objects` pick the readable items back
+    out, and they face exactly the same checks either way.
     """
 
     try:
-        parsed = json.loads(text)
+        parsed: Any = json.loads(text)
     except json.JSONDecodeError:
-        logger.warning("Gemini places: response was not JSON")
-        return {}
+        parsed = _salvage_objects(text)
+        if not parsed:
+            logger.warning("Gemini places: response was not JSON")
+            return {}
+        # Counts only. The response body can carry model text and is never
+        # logged, on the same rule that keeps the key out of the logs.
+        logger.warning(
+            "Gemini places: response was not valid JSON, recovered %d item(s) of %d asked",
+            len(parsed),
+            len(rows),
+        )
     if not isinstance(parsed, list):
         logger.warning("Gemini places: response was not a JSON array")
         return {}
