@@ -1,7 +1,7 @@
 /** What [+] opens: the four things a group starts from the bar.
  *
- * One of the four reaches real behaviour today. The other three are drawn to
- * the same spec and marked `vỏ`, because the alternative -- four identical
+ * Three of the four reach real behaviour today. The remaining one is drawn
+ * to the same spec and marked `vỏ`, because the alternative -- four identical
  * rows, three of which do nothing -- is the failure the brief names outright:
  * a shell is fine, a shell hiding that it is one is not. The mark is a word,
  * not a disabled state, because a disabled row cannot be pressed and so cannot
