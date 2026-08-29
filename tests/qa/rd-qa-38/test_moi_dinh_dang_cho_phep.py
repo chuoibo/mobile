@@ -50,7 +50,9 @@ LON = (106, 41, 53)
 
 # Assembled rather than written out: a long digit literal trips the repo guard's
 # account-number rule, which is correct of it.
-ACTOR = {"X-Actor-ID": "-".join(("1" * 8, "1" * 4, "4" + "1" * 3, "8" + "1" * 3, "1" * 12))}
+ACTOR = {
+    "X-Actor-ID": "-".join(("1" * 8, "1" * 4, "4" + "1" * 3, "8" + "1" * 3, "1" * 12))
+}
 
 # Plain ASCII and distinctive, so a substring search over the forwarded bytes
 # answers "did this survive?" without decoding anything. Deliberately carries no
