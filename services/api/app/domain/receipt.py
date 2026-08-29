@@ -154,12 +154,39 @@ def normalize_vnd(text: str) -> int:
 
 
 def _read_quantity(item: dict) -> int:
+    """Read a printed count, treating "none was printed" as one of the item.
+
+    The model has three ways of saying a line prints no quantity column --
+    omitting the key, sending ``null``, sending an empty or blank string -- and
+    only the first used to be accepted. The other two raised INVALID_QUANTITY,
+    which ``read_receipt`` applies to the WHOLE document, so one blank on one
+    line threw away every correctly-read line beside it. rd-qa-38 measured that
+    on the hero path: 153 of 153 observed failures were this one code, and none
+    of them were a picture the model had misread.
+
+    Reading a blank as 1 cannot move money. ``line_total_text`` is transcribed
+    independently and the bill total is the sum of those line totals, so no
+    count chosen here enters an amount. A count is used only to cross-check a
+    printed unit price and to derive one when the bill printed none, where 1
+    makes the derivation ``line_total // 1`` -- the identity, inventing no
+    number. That is why this widening is safe while "x4" had to be read exactly
+    (#213): 4 genuinely divides a real total.
+
+    Widening "not printed" must not widen "printed and unreadable" -- "vài",
+    "0" and "2.5" are still refusals, and a non-string that is not ``None``
+    (4, [], True) is a broken contract rather than a blank.
+    """
+
     if "quantity_text" not in item:
         return 1
     quantity_text = item["quantity_text"]
+    if quantity_text is None:
+        return 1
     if not isinstance(quantity_text, str):
         raise ReceiptError("INVALID_QUANTITY")
     stripped = quantity_text.strip()
+    if not stripped:
+        return 1
     if _PLAIN_PATTERN.fullmatch(stripped) is None:
         marker = _QUANTITY_MARKER_PATTERN.fullmatch(stripped)
         if marker is None:

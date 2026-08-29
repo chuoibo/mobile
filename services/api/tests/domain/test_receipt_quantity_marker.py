@@ -152,8 +152,11 @@ class MarkersThisModuleRefuses(unittest.TestCase):
             "0x",
             "x",
             "xx",
-            "",
-            "   ",
+            # "" and "   " used to sit here. rd-qa-38 measured what that cost on
+            # the hero path -- a blank is how the model says "this line prints
+            # no quantity", and refusing it threw away the whole bill. They now
+            # read as 1; see test_the_blank_forms_moved_to_reading_as_one below
+            # and tests/domain/test_receipt_quantity_absent.py.
             "-1",
             "x-1",
             "2.5",
@@ -167,3 +170,15 @@ class MarkersThisModuleRefuses(unittest.TestCase):
                 with self.assertRaises(ReceiptError) as caught:
                     read_receipt(one(text))
                 self.assertEqual(caught.exception.code, "INVALID_QUANTITY")
+
+    def test_the_blank_forms_moved_to_reading_as_one(self):
+        """Kept here so the move out of the list above is deliberate, not lost.
+
+        Refusing a blank is a one-character change away, and this file is where
+        someone would make it. Reading 1 invents no number: the line total is
+        transcribed on its own, so `line_total // 1` is the identity.
+        """
+
+        for text in ["", "   "]:
+            with self.subTest(quantity_text=text):
+                self.assertEqual(read_receipt(one(text))["items"][0]["quantity"], 1)
