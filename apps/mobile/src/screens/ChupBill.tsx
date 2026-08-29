@@ -329,7 +329,13 @@ function DangDocBill({ giaiDoan }: { giaiDoan: GiaiDoanDocBill | null }) {
       }}
     >
       <ActivityIndicator size="large" color={WHITE} />
-      <Text style={{ ...type.title, color: WHITE, textAlign: "center" }}>{tieuDe}</Text>
+      {/* `type.h1`, not `type.title`. This overlay covers the whole screen, so
+          this line is the screen title while it shows, and DESIGN.md gives the
+          `h1` step to "tiêu đề màn" -- `title` is the card step. Rendering it at
+          the card step left the screen running 13/16/20, a 1.5:1 spread that
+          reads as one size in three weights. Same mistake `theme.ts` documents
+          having found elsewhere; this screen was still making it. */}
+      <Text style={{ ...type.h1, color: WHITE, textAlign: "center" }}>{tieuDe}</Text>
       <Text style={{ ...type.label, color: WHITE_SOFT, textAlign: "center" }}>{than}</Text>
       <Text style={{ ...type.label, color: WHITE_SOFT, textAlign: "center" }}>
         Đã chờ {giay} giây

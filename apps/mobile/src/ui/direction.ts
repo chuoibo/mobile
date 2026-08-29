@@ -119,3 +119,81 @@ cua thu bam duoc la "lineStrong". Gio o moi bong bong, co "micro". Bam >= 44.
 
 FINISH: build fully, then hand off to the finish reviewer with captures.
 `.trim();
+
+/** The direction contract for the group vote (rd-fe-13, F17).
+ *
+ * An EXTENSION of the chat world, not a new one. The vote lives inside the
+ * thread because that is where the argument it settles is happening, and a
+ * decision moved to its own tab stops being part of the conversation.
+ *
+ * The one hard rule this surface exists to hold: a TIE IS A RESULT. The
+ * mockup crowns a single winner, which is the easy case. When two options
+ * tie, this screen says so and crowns neither. Picking one -- by list order,
+ * by who voted first, by anything -- would be the app casting the deciding
+ * vote, and nobody asked it to. Hiding the tie behind a rounded percentage
+ * would be worse: it would look decided.
+ */
+export const DIRECTION_CONTRACT_BINH_CHON = `
+THESIS: Nhom tu quyet, may chi dem. Man nay dem phieu that va noi ro ket qua,
+ke ca khi ket qua la HOA.
+
+OWN-WORLD: The gioi Ru Di, khong them mau. Dan tim "ai" vi cau hoi thuong do
+Ru Di dat ra tu the dia diem no vua goi y. KHONG dan teal: teal nghia la tien
+dang duoc chia, ma o day chua ai tra dong nao.
+
+STORY: AI goi y may quan, ai do mo binh chon tu chinh nhung the do. Moi nguoi
+bam mot lua chon, doi y thi bam lai. Ai cung thay so phieu, ngay lap tuc.
+
+FIRST VIEWPORT: Cau hoi in dam, roi tung lua chon mot hang: vong tron chon,
+ten quan, thanh phan tram, so phieu. Hang dang dan co vien tim va vuong mien.
+Chan the: "N/M thanh vien da bo phieu".
+
+FORM: So phieu la su that, phan tram chi la nhan. Phan tram lam tron theo du
+lon nhat nen tong luon dung 100. Hoa thi hien chip "Hoa" va KHONG vuong mien
+cho ai. Vong bam >= 44. Thanh phan tram khong bao gio la thu duy nhat mang
+thong tin -- so phieu luon in ra bang chu.
+
+FINISH: build fully, then hand off to the finish reviewer with captures.
+`.trim();
+
+/** The direction contract for the outing screens (rd-fe-12, F13 + F15).
+ *
+ * An EXTENSION again: no new colour, radius or type step. The one decision
+ * worth writing down is the lead tone, because two of the three carry a
+ * meaning that would be wrong here.
+ *
+ * DESIGN.md gives teal "split" to money being divided or settled, and purple
+ * "ai" to what a machine produced. A budget per person on this screen is
+ * neither: nobody owes it, and a person typed it. Leading teal would say the
+ * group is settling up on a screen where no money has moved, and leading
+ * purple would say the plan was generated when a member wrote it. So the lead
+ * is orange "accent", the same tone the tab bar and every other
+ * human-authored action already use.
+ *
+ * That is also why the budget is never drawn in "warn". The brief calls it a
+ * reference figure rather than a cap, and a red number is an assertion that
+ * something is wrong -- here, nothing is.
+ */
+export const DIRECTION_CONTRACT_BUOI_DI = `
+THESIS: Mot dia diem da chon chua phai mot chuyen di. Man nay bien no thanh
+chuyen di: co ten, co ngay, co so nguoi, va co gio giac bam vao duoc.
+
+OWN-WORLD: The gioi Ru Di, khong them mau. Dan cam "accent". KHONG dan teal,
+vi teal trong he nay nghia la tien dang duoc chia hay quyet toan, ma o day
+chua ai no ai dong nao. KHONG dan tim, vi tim nghia la may sinh ra, ma lich
+trinh nay do nguoi trong nhom go.
+
+STORY: Tu Kham pha bam sang, ten quan da nam san trong o dau tien. Dien ten,
+khoang ngay, so nguoi, ngan sach. Tao xong thi chuyen hien ra rong, va tung
+chang duoc them vao theo gio.
+
+FIRST VIEWPORT: Tieu de man, the chuyen dang mo voi ten va khoang ngay, hang
+"N nguoi" va "ngan sach moi nguoi", roi dau duong thoi gian. Nut tao ghim
+duoi.
+
+FORM: Duong thoi gian la mot ray doc: cham tron ben trai, gio chu so tabular,
+nhan va ten quan ben phai. Ngan sach dinh dang tien Viet co dau cham nghin,
+kem chu "tham chieu"; khong to mau canh bao du vuot. Bam >= 44.
+
+FINISH: build fully, then hand off to the finish reviewer with captures.
+`.trim();

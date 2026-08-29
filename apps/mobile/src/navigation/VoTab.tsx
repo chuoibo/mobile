@@ -20,8 +20,8 @@ import { CaNhan } from "../screens/ca-nhan/CaNhan";
 import { TinNhan } from "../screens/chat/TinNhan";
 import { KhamPha } from "../screens/kham-pha/KhamPha";
 import { KyNiem } from "../screens/ky-niem/KyNiem";
+import { LenPlan } from "../screens/len-plan/LenPlan";
 import { Nhom } from "../screens/vao-cua/Nhom";
-import { ManVo } from "./ManVo";
 import { MenuTao } from "./MenuTao";
 import { ThanhTab } from "./ThanhTab";
 import { useInertBackground } from "./modal";
@@ -82,6 +82,10 @@ export function VoTab({
       setLuongKhoanChi(true);
       return;
     }
+    if (id === "tao-chuyen") {
+      setTab("len-plan");
+      return;
+    }
     if (id === "tao-nhom") {
       setLuongNhom(true);
       return;
@@ -136,15 +140,7 @@ export function VoTab({
       <View ref={nenRef} style={{ flex: 1 }}>
         <View style={{ flex: 1 }}>
           {tab === "kham-pha" ? <KhamPha /> : null}
-          {tab === "len-plan" ? (
-            <ManVo
-              title="Lên plan"
-              hint="Chuyến đi của nhóm, ngày giờ và ai đi"
-              screen="LenPlan"
-              owner="frontend"
-              work="chưa xếp"
-            />
-          ) : null}
+          {tab === "len-plan" ? <LenPlan nguoi={nguoi} /> : null}
           {tab === "tin-nhan" ? <TinNhan nguoi={nguoi} /> : null}
           {tab === "ca-nhan" ? <CaNhan nguoi={nguoi} /> : null}
         </View>

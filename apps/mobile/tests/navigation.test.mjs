@@ -88,25 +88,34 @@ test("mỗi mục có một dòng giải thích, không phải bốn động t�
   }
 });
 
-test("đúng ba mục được đánh dấu đã nối: khoản chi, kỷ niệm và tạo nhóm", () => {
+test("cả bốn mục đều đã nối: tạo chuyến, khoản chi, kỷ niệm, tạo nhóm", () => {
   // This is the assertion that keeps the menu honest. If a later change wires
   // up another action, this test fails and forces the flag to be updated
   // rather than letting shells quietly keep claiming to work -- or letting a
   // working feature keep wearing the "vỏ" mark.
   //
-  // `tao-nhom` joined the list with F03/F04: the action opens
-  // `screens/vao-cua/Nhom.tsx`, which sends `POST /contexts`,
-  // `PUT /people/{id}` and `POST /contexts/{id}/members` against the real API.
-  // `dang-ky-niem` joined with F30: the action opens
-  // `screens/ky-niem/KyNiem.tsx`, which reads `GET /contexts/{id}/recap` and
-  // renders the trips that are over with the money recomputed from the ledger.
-  // Its label moved from "Đăng kỷ niệm" to "Kỷ niệm nhóm" in the same change,
-  // because posting a photo is the half that is *not* built and a row promising
-  // it would be the shell-wearing-real-clothes this test exists to prevent.
+  // Order follows CREATE_ACTIONS:
+  // - `tao-chuyen` joined with F13/F15: the action opens the Lên plan tab,
+  //   which creates a real outing and its timeline.
+  // - `tao-khoan-chi` has been wired since the hero slice: bill to allocation.
+  // - `dang-ky-niem` joined with F30: the action opens
+  //   `screens/ky-niem/KyNiem.tsx`, which reads `GET /contexts/{id}/recap` and
+  //   renders the trips that are over with the money recomputed from the
+  //   ledger. Its label moved from "Đăng kỷ niệm" to "Kỷ niệm nhóm" in the same
+  //   change, because posting a photo (F35) is the half that is *not* built and
+  //   a row promising it would be the shell-wearing-real-clothes this test
+  //   exists to prevent.
+  // - `tao-nhom` joined with F03/F04: the action opens
+  //   `screens/vao-cua/Nhom.tsx`, which sends `POST /contexts`,
+  //   `PUT /people/{id}` and `POST /contexts/{id}/members` against the real API.
   //
-  // "Tạo chuyến" is the last one still a shell, and still says so.
+  // All four are wired now, so this list no longer has a shell to catch. What
+  // it still catches is the other direction: a fifth action appearing without
+  // a flag, or one of these four losing its screen in a refactor. Asserting the
+  // full list rather than a count is what makes that failure name the culprit.
   const built = CREATE_ACTIONS.filter((a) => a.built);
   assert.deepEqual(built.map((a) => a.id), [
+    "tao-chuyen",
     "tao-khoan-chi",
     "dang-ky-niem",
     "tao-nhom",

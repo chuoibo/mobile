@@ -898,6 +898,7 @@ __all__ = [
     "GuestLink",
     "GuestLinkStatus",
     "IdempotencyKey",
+    "MembershipOrigin",
     "MembershipRole",
     "Memory",
     "Message",
@@ -929,6 +930,19 @@ class MembershipState(StrEnum):
 class MembershipRole(StrEnum):
     MEMBER = "member"
     ADMIN = "admin"
+
+
+class MembershipOrigin(StrEnum):
+    """Preserve why an invited membership exists.
+
+    A named invitation identifies someone chosen by an existing member, while
+    a link request proves only possession of a forwardable bearer token. The
+    `is_invitee` predicate is true in both cases, so it cannot distinguish
+    these different trust levels without durable provenance.
+    """
+
+    NAMED = "named"
+    LINK = "link"
 
 
 class OutingInviteSource(StrEnum):
@@ -1060,6 +1074,12 @@ class Membership(Base):
         server_default=MembershipRole.MEMBER.value,
         default=MembershipRole.MEMBER,
     )
+    origin: Mapped[MembershipOrigin] = mapped_column(
+        _enum_type(MembershipOrigin, "membership_origin"),
+        nullable=False,
+        server_default=MembershipOrigin.NAMED.value,
+        default=MembershipOrigin.NAMED,
+    )
     invited_by_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("people.id", name="fk_memberships_invited_by"),
@@ -1183,6 +1203,10 @@ class OutingInvite(Base):
             "(accepted_at IS NULL) = (accepted_by_id IS NULL)",
             name="acceptance_is_whole",
         ),
+        CheckConstraint(
+            "expires_at >= created_at",
+            name="expiry_after_creation",
+        ),
         Index(
             "uq_outing_invites_person",
             "outing_id",
@@ -1227,6 +1251,12 @@ class OutingInvite(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
 

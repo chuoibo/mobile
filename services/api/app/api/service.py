@@ -6,7 +6,7 @@ import hashlib
 import secrets
 import uuid
 from collections import defaultdict
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from app.api import companion_places
@@ -116,6 +116,7 @@ from app.web.objection_view import (
 )
 
 CONTEXT_WINDOW = 40
+OUTING_INVITE_TTL = timedelta(days=7)
 
 
 def _now() -> datetime:
@@ -374,6 +375,8 @@ def _wire_outing_invite(
         invited_person_id=record.invited_person_id,
         invited_by_id=record.invited_by_id,
         created_at=record.created_at,
+        expires_at=record.expires_at,
+        revoked_at=record.revoked_at,
         invite_token=raw_token,
         invite_path=f"/outing-invites/{raw_token}" if raw_token is not None else None,
     )
@@ -544,6 +547,34 @@ class ApiService:
     def accept_context_membership(
         self, membership_id: uuid.UUID, actor: Actor
     ) -> MembershipResponse:
+        """Apply the authorization predicate warranted by invitation provenance.
+
+        A named invite carries an existing member's identity choice, so the
+        invitee may consent. A bearer link identifies only its holder, so a
+        different person who is already active in the group must approve it.
+        """
+        membership = self.repository.get_membership(membership_id)
+        if membership is None:
+            raise ApiProblem(404, "membership_not_found", "Membership does not exist")
+
+        if membership.origin == "link":
+            _require_permission(
+                "approve_link_join_request",
+                actor,
+                {
+                    "is_group_member": self.repository.is_member(
+                        membership.context_id, actor.id
+                    ),
+                    "is_not_self": actor.id != membership.person_id,
+                },
+            )
+        else:
+            _require_permission(
+                "accept_context_membership",
+                actor,
+                {"is_invitee": membership.person_id == actor.id},
+            )
+
         try:
             membership = self.repository.accept_membership(membership_id, _now())
         except RepositoryConflict as exc:
@@ -552,15 +583,6 @@ class ApiService:
             ) from exc
         if membership is None:
             raise ApiProblem(404, "membership_not_found", "Membership does not exist")
-
-        # The transition is flushed before this check because the requested
-        # repository contract exposes no separate membership lookup. A denial
-        # raises from the request transaction, so PostgreSQL rolls it back.
-        _require_permission(
-            "accept_context_membership",
-            actor,
-            {"is_invitee": membership.person_id == actor.id},
-        )
         return _wire_membership(membership)
 
     def leave_context(
@@ -812,22 +834,6 @@ class ApiService:
         digest: bytes | None = None
         invited_person_id = request.person_id
         if request.source == "link":
-            # bug-141903, step one: minting is off while the escalation behind
-            # it is open. A redeemed link creates its own INVITED row, and
-            # `accept_context_membership` proves only that the invitee is the
-            # accepter -- which the redeem step guaranteed one call earlier. The
-            # ceiling is therefore not INVITED but ACTIVE, and ACTIVE reads the
-            # group's messages, memory wall and balances.
-            #
-            # Refused after the permission check on purpose: an outsider must
-            # still learn nothing beyond "not yours", and 403 outranks this.
-            raise ApiProblem(
-                422,
-                "invite_link_disabled",
-                "Mời bằng link đang tắt trong lúc sửa lỗi phân quyền. "
-                "Hãy mời trực tiếp từ danh sách nhóm hoặc danh sách bạn bè.",
-            )
-        if request.source == "link":  # unreachable while the guard above stands
             raw_token = secrets.token_urlsafe(32)
             digest = token_digest(raw_token)
             invited_person_id = None
@@ -844,13 +850,15 @@ class ApiService:
                     "Person is already invited to this outing",
                 )
 
+        now = _now()
         record = self.repository.create_outing_invite(
             outing_id=outing_id,
             source=request.source,
             invited_person_id=invited_person_id,
             invited_by_id=actor.id,
             token_digest=digest,
-            now=_now(),
+            expires_at=now + OUTING_INVITE_TTL,
+            now=now,
         )
         # The raw token is returned exactly once and never persisted; only its
         # digest crosses the repository boundary.
@@ -859,12 +867,11 @@ class ApiService:
     def accept_outing_invite(
         self, token: str, actor: Actor
     ) -> OutingInviteAcceptResponse:
-        """Redeem a bearer link without granting access beyond INVITED.
+        """Redeem a bearer link into a request capped at INVITED.
 
-        A link can be forwarded to anybody, so INVITED is the ceiling created
-        here. Because `is_member` requires ACTIVE, the holder cannot read group
-        messages, memories, or balances until a human accepts them through the
-        existing `/memberships/{id}/accept` route.
+        A forwardable link identifies its holder as the person requesting
+        entry, not as an approver. A different person who is already ACTIVE in
+        the group must approve the request before group data becomes visible.
         """
         invite = self.repository.get_outing_invite_by_digest(token_digest(token))
         if invite is None:
@@ -875,22 +882,44 @@ class ApiService:
                 "invite_already_accepted",
                 "Invite link was already used",
             )
+        now = _now()
+        if invite.revoked_at is not None or invite.expires_at <= now:
+            raise ApiProblem(404, "invite_not_found", "Invite link is not valid")
 
         outing = self.repository.get_outing(invite.outing_id)
         if outing is None:
             # Preserve the capability boundary even if referential integrity
             # is broken: the token must not reveal whether an outing existed.
             raise ApiProblem(404, "invite_not_found", "Invite link is not valid")
+        try:
+            self.repository.accept_outing_invite(
+                invite_id=invite.id,
+                accepted_by_id=actor.id,
+                now=now,
+            )
+        except RepositoryConflict as exc:
+            if exc.code == "OUTING_INVITE_ALREADY_ACCEPTED":
+                raise ApiProblem(
+                    409,
+                    "invite_already_accepted",
+                    "Invite link was already used",
+                ) from exc
+            if exc.code in {
+                "OUTING_INVITE_NOT_FOUND",
+                "OUTING_INVITE_NOT_REDEEMABLE",
+            }:
+                raise ApiProblem(
+                    404,
+                    "invite_not_found",
+                    "Invite link is not valid",
+                ) from exc
+            raise
+
         membership = self.repository.ensure_invited_membership(
             context_id=outing.context_id,
             person_id=actor.id,
             invited_by_id=invite.invited_by_id,
-            now=_now(),
-        )
-        self.repository.accept_outing_invite(
-            invite_id=invite.id,
-            accepted_by_id=actor.id,
-            now=_now(),
+            now=now,
         )
         return OutingInviteAcceptResponse(
             invite_id=invite.id,
@@ -899,6 +928,53 @@ class ApiService:
             membership_id=membership.id,
             membership_state=membership.state,
         )
+
+    def revoke_outing_invite(
+        self,
+        outing_id: uuid.UUID,
+        invite_id: uuid.UUID,
+        actor: Actor,
+    ) -> OutingInviteResponse:
+        outing = self.repository.get_outing(outing_id)
+        invite = self.repository.get_outing_invite(invite_id)
+        if outing is None or invite is None or invite.outing_id != outing_id:
+            raise ApiProblem(404, "invite_not_found", "Invite link is not valid")
+
+        _require_permission(
+            "revoke_outing_invite",
+            actor,
+            {
+                "is_group_member": self.repository.is_member(
+                    outing.context_id, actor.id
+                )
+            },
+        )
+        if invite.accepted_at is not None:
+            raise ApiProblem(
+                409,
+                "invite_already_accepted",
+                "Invite link was already used",
+            )
+        try:
+            revoked = self.repository.revoke_outing_invite(
+                invite_id=invite.id,
+                now=_now(),
+            )
+        except RepositoryConflict as exc:
+            if exc.code == "OUTING_INVITE_ALREADY_ACCEPTED":
+                raise ApiProblem(
+                    409,
+                    "invite_already_accepted",
+                    "Invite link was already used",
+                ) from exc
+            if exc.code == "OUTING_INVITE_NOT_FOUND":
+                raise ApiProblem(
+                    404,
+                    "invite_not_found",
+                    "Invite link is not valid",
+                ) from exc
+            raise
+        return _wire_outing_invite(revoked, None)
 
     def list_context_memories(
         self,

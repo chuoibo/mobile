@@ -47,6 +47,7 @@ from app.db.models import (
     GuestLink,
     GuestLinkStatus,
     Membership,
+    MembershipOrigin,
     MembershipRole,
     MembershipState,
     Memory,
@@ -109,6 +110,7 @@ class MembershipRecord:
     person_id: uuid.UUID
     state: str
     role: str
+    origin: str
     invited_by_id: uuid.UUID | None
     joined_at: datetime | None
     left_at: datetime | None
@@ -180,6 +182,8 @@ class OutingInviteRecord:
     accepted_at: datetime | None
     accepted_by_id: uuid.UUID | None
     created_at: datetime
+    expires_at: datetime
+    revoked_at: datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -533,6 +537,10 @@ class ApiRepository(Protocol):
         self, membership_id: uuid.UUID, now: datetime
     ) -> MembershipRecord | None: ...
 
+    def get_membership(
+        self, membership_id: uuid.UUID
+    ) -> MembershipRecord | None: ...
+
     def leave_context(
         self, context_id: uuid.UUID, person_id: uuid.UUID, now: datetime
     ) -> MembershipRecord | None: ...
@@ -585,11 +593,16 @@ class ApiRepository(Protocol):
         invited_person_id: uuid.UUID | None,
         invited_by_id: uuid.UUID,
         token_digest: bytes | None,
+        expires_at: datetime,
         now: datetime,
     ) -> OutingInviteRecord: ...
 
     def find_outing_invite_for_person(
         self, outing_id: uuid.UUID, person_id: uuid.UUID
+    ) -> OutingInviteRecord | None: ...
+
+    def get_outing_invite(
+        self, invite_id: uuid.UUID
     ) -> OutingInviteRecord | None: ...
 
     def get_outing_invite_by_digest(
@@ -601,6 +614,13 @@ class ApiRepository(Protocol):
         *,
         invite_id: uuid.UUID,
         accepted_by_id: uuid.UUID,
+        now: datetime,
+    ) -> OutingInviteRecord: ...
+
+    def revoke_outing_invite(
+        self,
+        *,
+        invite_id: uuid.UUID,
         now: datetime,
     ) -> OutingInviteRecord: ...
 
@@ -832,6 +852,7 @@ class SqlAlchemyApiRepository:
             person_id=membership.person_id,
             state=membership.state.value,
             role=membership.role.value,
+            origin=membership.origin.value,
             invited_by_id=membership.invited_by_id,
             joined_at=membership.joined_at,
             left_at=membership.left_at,
@@ -888,6 +909,8 @@ class SqlAlchemyApiRepository:
             accepted_at=invite.accepted_at,
             accepted_by_id=invite.accepted_by_id,
             created_at=invite.created_at,
+            expires_at=invite.expires_at,
+            revoked_at=invite.revoked_at,
         )
 
     @staticmethod
@@ -1086,6 +1109,7 @@ class SqlAlchemyApiRepository:
             person_id=person_id,
             state=MembershipState.INVITED,
             role=MembershipRole(role),
+            origin=MembershipOrigin.NAMED,
             invited_by_id=invited_by_id,
         )
         try:
@@ -1101,11 +1125,22 @@ class SqlAlchemyApiRepository:
             raise
         return self._membership_record(membership)
 
+    def get_membership(
+        self, membership_id: uuid.UUID
+    ) -> MembershipRecord | None:
+        membership = self.session.scalar(
+            select(Membership).where(Membership.id == membership_id)
+        )
+        return None if membership is None else self._membership_record(membership)
+
     def accept_membership(
         self, membership_id: uuid.UUID, now: datetime
     ) -> MembershipRecord | None:
         membership = self.session.scalar(
-            select(Membership).where(Membership.id == membership_id).with_for_update()
+            select(Membership)
+            .where(Membership.id == membership_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
         if membership is None:
             return None
@@ -1389,6 +1424,7 @@ class SqlAlchemyApiRepository:
         invited_person_id: uuid.UUID | None,
         invited_by_id: uuid.UUID,
         token_digest: bytes | None,
+        expires_at: datetime,
         now: datetime,
     ) -> OutingInviteRecord:
         invite = OutingInvite(
@@ -1398,6 +1434,7 @@ class SqlAlchemyApiRepository:
             invited_by_id=invited_by_id,
             token_digest=token_digest,
             created_at=now,
+            expires_at=expires_at,
         )
         self.session.add(invite)
         self.session.flush()
@@ -1414,6 +1451,12 @@ class SqlAlchemyApiRepository:
             )
             .limit(1)
         )
+        return None if invite is None else self._outing_invite_record(invite)
+
+    def get_outing_invite(
+        self, invite_id: uuid.UUID
+    ) -> OutingInviteRecord | None:
+        invite = self.session.get(OutingInvite, invite_id)
         return None if invite is None else self._outing_invite_record(invite)
 
     def get_outing_invite_by_digest(
@@ -1437,11 +1480,38 @@ class SqlAlchemyApiRepository:
             select(OutingInvite)
             .where(OutingInvite.id == invite_id)
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
         if invite is None:
             raise RepositoryConflict("OUTING_INVITE_NOT_FOUND")
+        if invite.accepted_at is not None:
+            raise RepositoryConflict("OUTING_INVITE_ALREADY_ACCEPTED")
+        if invite.revoked_at is not None or invite.expires_at <= now:
+            raise RepositoryConflict("OUTING_INVITE_NOT_REDEEMABLE")
         invite.accepted_at = now
         invite.accepted_by_id = accepted_by_id
+        self.session.flush()
+        return self._outing_invite_record(invite)
+
+    def revoke_outing_invite(
+        self,
+        *,
+        invite_id: uuid.UUID,
+        now: datetime,
+    ) -> OutingInviteRecord:
+        invite = self.session.scalar(
+            select(OutingInvite)
+            .where(OutingInvite.id == invite_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if invite is None:
+            raise RepositoryConflict("OUTING_INVITE_NOT_FOUND")
+        if invite.accepted_at is not None:
+            raise RepositoryConflict("OUTING_INVITE_ALREADY_ACCEPTED")
+        if invite.revoked_at is not None:
+            return self._outing_invite_record(invite)
+        invite.revoked_at = now
         self.session.flush()
         return self._outing_invite_record(invite)
 
@@ -1470,6 +1540,7 @@ class SqlAlchemyApiRepository:
             person_id=person_id,
             state=MembershipState.INVITED,
             role=MembershipRole.MEMBER,
+            origin=MembershipOrigin.LINK,
             invited_by_id=invited_by_id,
             joined_at=None,
             left_at=None,
