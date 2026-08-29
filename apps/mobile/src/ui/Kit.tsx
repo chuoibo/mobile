@@ -6,10 +6,20 @@
  */
 import React from "react";
 import { Pressable, Text, TextInput, View, ViewStyle } from "react-native";
+import { BillReading, disclosure } from "../receipt";
 import { Palette, radius, space, type, usePalette } from "../theme";
 
-export function Screen({ title, hint, children, footer }: {
+export function Screen({ title, hint, children, footer, gap = space.md }: {
   title: string; hint?: string; children: React.ReactNode; footer?: React.ReactNode;
+  /** Distance between top-level blocks in the body.
+   *
+   * `space.md` is also the page gutter and the padding inside a `Card`, so a
+   * screen whose blocks are separate sections rather than one continuous list
+   * reads as flat: the step between two sections is the same as the step
+   * inside one card, and the eye cannot find where a section starts. Those
+   * screens pass `space.lg`. Defaulted so every screen that was tuned against
+   * the old value renders byte-identically. */
+  gap?: number;
 }) {
   const c = usePalette();
   return (
@@ -21,7 +31,7 @@ export function Screen({ title, hint, children, footer }: {
         <Text style={{ ...type.h1, color: c.ink }}>{title}</Text>
         {hint ? <Text style={{ ...type.label, color: c.inkSoft }}>{hint}</Text> : null}
       </View>
-      <View style={{ flex: 1, gap: space.md }}>{children}</View>
+      <View style={{ flex: 1, gap }}>{children}</View>
       {footer ? <View style={{ gap: space.sm }}>{footer}</View> : null}
     </View>
   );
@@ -40,11 +50,18 @@ export function Card({ children, style }: { children: React.ReactNode; style?: V
 }
 
 export function Button({ label, onPress, tone = "primary", disabled }: {
-  label: string; onPress: () => void; tone?: "primary" | "ghost" | "quiet"; disabled?: boolean;
+  label: string; onPress: () => void;
+  tone?: "primary" | "split" | "ghost" | "quiet"; disabled?: boolean;
 }) {
   const c = usePalette();
   const skin: Record<string, ViewStyle> = {
     primary: { backgroundColor: c.accent, borderColor: c.accent },
+    // Teal, and it is not a second brand colour. DESIGN.md's tone rule gives
+    // each of the three a meaning, and `split` means money being divided or
+    // settled. The bill-reading screens are that flow, and the mockup draws
+    // their confirm button teal for the same reason; an orange one there
+    // would say "brand action" on a screen whose whole subject is the bill.
+    split: { backgroundColor: c.split, borderColor: c.split },
     ghost: { backgroundColor: "transparent", borderColor: c.accent },
     // No fill, so this border is the whole affordance rather than trim.
     // It was `line` at 1.21:1 on the page ground, which WCAG 1.4.11 asks
@@ -75,7 +92,10 @@ export function Button({ label, onPress, tone = "primary", disabled }: {
   const inert: ViewStyle = { backgroundColor: c.line, borderColor: c.line };
   const ink = disabled
     ? c.inkSoft
-    : tone === "primary" ? c.accentInk : tone === "ghost" ? c.accent : c.inkSoft;
+    : tone === "primary" ? c.accentInk
+    : tone === "split" ? c.splitInk
+    : tone === "ghost" ? c.accent
+    : c.inkSoft;
   return (
     <Pressable
       onPress={onPress}
@@ -140,6 +160,58 @@ export function Row({ left, right, muted }: { left: string; right: string; muted
     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", gap: space.sm }}>
       <Text style={{ ...type.body, color: muted ? c.inkSoft : c.ink, flexShrink: 1 }}>{left}</Text>
       <Text style={{ ...type.amountSmall, color: muted ? c.inkSoft : c.ink }}>{right}</Text>
+    </View>
+  );
+}
+
+/**
+ * What the app is willing to say about a machine reading, in the mockup's pill.
+ *
+ * The mockup draws a pill here and it stays a pill; what changed is what is
+ * written inside it. It used to interpolate a scan field the server has never
+ * sent, so what actually rendered was an English endorsement of the machine
+ * followed by a bare percent sign with no number in front of it, sitting above
+ * a table of somebody's dinner money. ADR-0009 decision 4 refuses the
+ * percentage outright: a number invites an interface to auto-accept above a
+ * threshold, and the number it would have shown measured legibility, not
+ * whether the money was right.
+ *
+ * So the slot keeps its place in the layout and the sentence tells the truth.
+ * The words come from `disclosure()` in `receipt.ts`, which both screens share
+ * and which is tested without rendering anything.
+ *
+ * `stretch` is layout only: the results screen sits it inline under the list,
+ * the split screen pins it full width above the total. Same words either way.
+ */
+export function ReadingNotice({ reading, stretch }: {
+  reading: BillReading;
+  stretch?: boolean;
+}) {
+  const c = usePalette();
+  const { tone, text } = disclosure(reading);
+  // `warn` on `accentSoft` computes 4.66:1, `split` on `splitSoft` 4.83:1;
+  // both clear the 4.5:1 WCAG asks of this text size. The review tone also
+  // carries an edge, so the difference between "look at this" and "here is a
+  // count" survives being read in sunlight or by someone who cannot separate
+  // the two hues.
+  const review = tone === "review";
+  return (
+    <View
+      accessibilityRole="text"
+      style={{
+        alignSelf: stretch ? "stretch" : "flex-start",
+        alignItems: stretch ? "center" : "flex-start",
+        backgroundColor: review ? c.accentSoft : c.splitSoft,
+        borderColor: review ? c.warn : c.splitSoft,
+        borderWidth: 1,
+        borderRadius: radius.pill,
+        paddingVertical: stretch ? space.sm : 6,
+        paddingHorizontal: stretch ? space.md : space.sm,
+      }}
+    >
+      <Text style={{ ...type.label, color: review ? c.warn : c.split, fontWeight: "600" }}>
+        {text}
+      </Text>
     </View>
   );
 }

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <title>Rủ Đi</title>
+    <!-- The `react-native-web` recommended style reset:
+         https://necolas.github.io/react-native-web/docs/setup/#root-element -->
+    <style id="expo-reset">
+      /* These styles make the body full-height */
+      html,
+      body {
+        height: 100%;
+      }
+      /* These styles disable body scrolling if you are using <ScrollView> */
+      body {
+        overflow: hidden;
+      }
+      /* These styles make the root element full-height */
+      #root {
+        display: flex;
+        height: 100%;
+        flex: 1;
+      }
+      /* react-native-web renders Pressable as a <button>, and a <button> with
+         no font-size of its own inherits the UA default of 13.3333px rather
+         than the page's. Those wrappers carry no text -- the label is a child
+         <div> with a real size -- so the value is never seen, but it is real
+         in the cascade and a computed-style scan counts it as a type step
+         between 13 and 16. Normalising it is the same class of fix as the
+         react-native-web reset above. */
+      button,
+      input,
+      textarea,
+      select {
+        font-size: inherit;
+      }
+    </style>
+  </head>
+
+  <body>
+<!--
+impeccable:direction rd-fe-03 -- man "Chup bill" va man "Ket qua nhan dien".
+
+First child of <body> so it survives into the built output and a reviewer can
+audit the artifact against what it promised. Mirrored in src/ui/direction.ts,
+which is the copy the screens are written against; a test in
+tests/receipt.test.mjs fails if a block goes missing from that one.
+
+THESIS: May doc bill; nguoi chiu trach nhiem ve con so. Man hinh cho thay ca hai.
+
+OWN-WORLD: Ke thua the gioi Ru Di. Man 1 dan bang den cua khung ngam. Man 2 dan
+bang teal "split" theo DESIGN.md, nen nut chinh teal chu khong cam. Tim chi danh
+dau phan may sinh ra.
+
+STORY: Dua bill vao khung, may doc, moi con so go lai duoc, khoang lech so voi
+dong Tong cong in tren giay hien ngay.
+
+FIRST VIEWPORT: Man 1 chi co bon goc khung ngam, mot cau huong dan, mot nut tron
+trang. Man 2 mo bang chip "Da nhan dien N mon", roi den bang nhap duoc.
+
+FORM: Bang thay vi the. Chu so tabular. Cham vao con so la sua duoc no. Tong cong
+va khoang lech ghim ngoai vung cuon.
+
+FINISH: build fully, then hand off to the finish reviewer with captures.
+-->
+    <noscript>
+      Bật JavaScript để dùng ứng dụng này.
+    </noscript>
+    <!-- The root element for your Expo app. -->
+    <div id="root"></div>
+  </body>
+</html>
