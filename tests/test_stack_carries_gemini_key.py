@@ -11,17 +11,31 @@ rendered. Only the hero feature was silently dead, and it failed in the one
 shape that reads as the user's own fault (see
 ``services/api/tests/api/test_receipts_scan_unconfigured.py``).
 
-Two independent things are pinned here, because fixing either alone still
+Three independent things are pinned here, because fixing any one alone still
 ships a demo that dies:
 
   1. the variable crosses into the container, and its value comes from the
      host rather than from a committed literal;
   2. a stack built without the key says so at build time, naming the variable,
-     instead of letting the first bill photo discover it.
+     instead of letting the first bill photo discover it;
+  3. the warning agrees with Compose about where a key may live. Compose reads
+     the shell environment AND ``.env`` at the repo root; the check read only
+     the first, so it called the documented setup -- the key in ``.env``, which
+     is what ``.env.example`` and the warning's own advice instruct -- a
+     missing key, while that key sat in the container working. A gate that
+     fires on correct behaviour is a gate somebody switches off, and then it is
+     not there on the day it would have been right.
 
 The YAML cases parse the file directly so they gate on a machine with no
 Docker. The Compose-backed cases check the one thing a parser cannot -- how
 Compose itself interpolates -- and skip out loud when Docker is absent.
+
+Every case controls the ``.env`` it is judged against, via a temporary repo
+root for the script and ``--env-file`` for Compose. Cases that merely unset the
+shell variable were asserting "no key anywhere" while leaving half of what is
+read untouched, so they answered differently depending on whether the person
+running them had configured a key -- green on a fresh clone, red for anyone who
+had followed the instructions.
 """
 
 from __future__ import annotations
@@ -121,14 +135,33 @@ class TheKeyReachesTheContainerTests(unittest.TestCase):
         )
 
 
-class TheKeyCheckerTests(unittest.TestCase):
-    """The warning itself, exercised directly.
+class KeyCheckerHarness(unittest.TestCase):
+    """Runs the warning script against a `.env` these cases control.
 
-    It lives in a script rather than inline in a recipe so it can be run --
-    and asserted on -- without Docker and without starting the shared stack.
+    The script resolves `.env` relative to itself, the way Compose resolves it
+    relative to docker-compose.yml. A copy of the script inside a temporary
+    `scripts/` directory is therefore a complete fake repo root: the cases can
+    say what `.env` contains without writing to the real one.
+
+    That isolation is the point, not tidiness. These cases used to run at the
+    real repo root and merely unset the shell variable, which asserts "no key
+    anywhere" while leaving `.env` -- the other half of what the script now
+    reads -- untouched. A premise that is only half enforced gives an answer
+    that depends on whether the person running the suite happens to have a key
+    configured, and that is the defect this file exists to pin.
     """
 
     SCRIPT = REPO_ROOT / "scripts" / "check_ai_key.sh"
+
+    def setUp(self) -> None:
+        self.root = Path(tempfile.mkdtemp(prefix="ai-key-"))
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        (self.root / "scripts").mkdir()
+        self.script = self.root / "scripts" / "check_ai_key.sh"
+        shutil.copy2(self.SCRIPT, self.script)
+
+    def write_env(self, text: str) -> None:
+        (self.root / ".env").write_text(text, encoding="utf-8")
 
     def run_check(self, *args: str, key=None) -> subprocess.CompletedProcess:
         env = dict(os.environ)
@@ -136,13 +169,21 @@ class TheKeyCheckerTests(unittest.TestCase):
         if key is not None:
             env[KEY] = key
         return subprocess.run(
-            [str(self.SCRIPT), *args],
-            cwd=REPO_ROOT,
+            [str(self.script), *args],
+            cwd=self.root,
             env=env,
             capture_output=True,
             text=True,
             timeout=60,
         )
+
+
+class TheKeyCheckerTests(KeyCheckerHarness):
+    """The warning itself, exercised directly, with no `.env` in reach.
+
+    It lives in a script rather than inline in a recipe so it can be run --
+    and asserted on -- without Docker and without starting the shared stack.
+    """
 
     def said(self, **kwargs) -> str:
         result = self.run_check(**kwargs)
@@ -152,7 +193,7 @@ class TheKeyCheckerTests(unittest.TestCase):
         self.assertIn(KEY, self.said())
 
     def test_a_missing_key_says_which_feature_goes_dark(self):
-        """"GEMINI_API_KEY is unset" alone does not tell anyone what breaks."""
+        """ "GEMINI_API_KEY is unset" alone does not tell anyone what breaks."""
         self.assertIn("bill", self.said().lower())
 
     def test_a_missing_key_warns_rather_than_refusing(self):
@@ -191,6 +232,109 @@ class TheKeyCheckerTests(unittest.TestCase):
         self.assertIn(KEY, self.run_check().stderr)
 
 
+class AKeyInDotEnvIsAConfiguredKeyTests(KeyCheckerHarness):
+    """Doing what the instructions say must not trip the alarm.
+
+    `.env.example`, and the warning's own closing advice, both tell a newcomer
+    to put the key in `.env` at the repo root. Compose reads it from there and
+    hands it to the container. The check read only the shell environment, so
+    the newcomer who followed the instructions exactly got told the key was
+    missing while the key was in the container working.
+
+    A gate that fires on correct behaviour is a gate somebody switches off, and
+    then it is absent on the day it would have been right. So both directions
+    are pinned here: silence when a key is genuinely reachable, and the warning
+    intact for every shape of `.env` that does NOT actually configure one.
+
+    Precedence is Compose's, measured against `docker compose config` -- a
+    shell variable that is set, even to empty, wins over the file.
+    """
+
+    A_KEY = "AIzaSyFAKEfakeFAKEfakeFAKEfakeFAKEfake1"
+
+    def said(self, *args: str, key=None) -> str:
+        result = self.run_check(*args, key=key)
+        return result.stdout + result.stderr
+
+    def test_a_key_that_only_dot_env_knows_about_is_not_missing(self):
+        self.write_env(f"{KEY}={self.A_KEY}\n")
+
+        self.assertEqual(self.said(), "")
+
+    def test_the_brief_form_is_quiet_about_a_dot_env_key_too(self):
+        """`smoke` repeats the warning; it must not repeat a false one."""
+        self.write_env(f"{KEY}={self.A_KEY}\n")
+
+        self.assertEqual(self.said("--brief"), "")
+
+    def test_a_quoted_value_counts_because_compose_unquotes_it(self):
+        self.write_env(f'{KEY}="{self.A_KEY}"\n')
+
+        self.assertEqual(self.said(), "")
+
+    def test_an_export_prefixed_line_counts(self):
+        """`export FOO=bar` is legal dotenv and people write `.env` that way."""
+        self.write_env(f"export {KEY}={self.A_KEY}\n")
+
+        self.assertEqual(self.said(), "")
+
+    def test_the_key_is_found_among_the_other_settings(self):
+        """The real `.env` carries database URLs and ports around it."""
+        self.write_env(
+            "MOBILE_API_PORT=8099\n"
+            f"# {KEY} used to be spelled MOBILE_{KEY}\n"
+            f"{KEY}={self.A_KEY}\n"
+            "MOBILE_PUBLIC_BASE_URL=http://localhost:8099\n"
+        )
+
+        self.assertEqual(self.said(), "")
+
+    def test_an_empty_assignment_is_still_a_missing_key(self):
+        """`.env.example` ships `GEMINI_API_KEY=`. Copying it configures nothing."""
+        self.write_env(f"{KEY}=\n")
+
+        self.assertIn(KEY, self.said())
+
+    def test_a_dot_env_without_the_variable_is_still_a_missing_key(self):
+        self.write_env("MOBILE_API_PORT=8099\n")
+
+        self.assertIn(KEY, self.said())
+
+    def test_a_commented_out_key_does_not_count_as_configured(self):
+        """Otherwise the check answers "is the name mentioned", not "is it set"."""
+        self.write_env(f"# {KEY}={self.A_KEY}\n")
+
+        self.assertIn(KEY, self.said())
+
+    def test_the_last_assignment_wins_the_way_dotenv_reads_it(self):
+        self.write_env(f"{KEY}={self.A_KEY}\n{KEY}=\n")
+
+        self.assertIn(KEY, self.said())
+
+    def test_a_shell_variable_blanked_on_purpose_beats_dot_env(self):
+        """`GEMINI_API_KEY= make up` is how you tell Compose to ignore the file.
+
+        The container gets an empty key in that case, so the warning is right
+        to fire. Disagreeing with Compose in either direction is the bug.
+        """
+        self.write_env(f"{KEY}={self.A_KEY}\n")
+
+        self.assertIn(KEY, self.said(key=""))
+
+    def test_the_dot_env_value_is_never_printed(self):
+        """Reading the file must not become a new way for the key to reach a log."""
+        sentinel = "AIzaSySENTINELsentinelSENTINELsentinel12"
+        self.write_env(f"{KEY}={sentinel}\n{KEY}=\n")
+
+        self.assertNotIn(sentinel, self.said())
+
+    def test_a_reachable_key_does_not_turn_the_check_into_a_failure(self):
+        """Silence has to mean exit 0, or `make up` dies for the configured."""
+        self.write_env(f"{KEY}={self.A_KEY}\n")
+
+        self.assertEqual(self.run_check().returncode, 0)
+
+
 class MakeUpWarnsBeforeItBuildsTests(unittest.TestCase):
     """The criterion verbatim: warn at build time, not at the first bill photo.
 
@@ -211,13 +355,21 @@ class MakeUpWarnsBeforeItBuildsTests(unittest.TestCase):
         self.log = self.workdir / "calls.log"
 
     def run_make(self, *targets: str, key=None, merged=False):
+        """`key=None` means "configured nowhere", spelled the way Compose reads it.
+
+        These cases run `make` at the real repo root, so they cannot delete a
+        developer's real `.env` to create the keyless case. They do not need
+        to: a shell variable that is set to empty beats `.env` in Compose's
+        precedence, so an explicit blank is exactly "the container gets no
+        key" -- and it is the same premise whether or not the machine running
+        the suite has a key configured. Unsetting instead would make these
+        cases pass or fail on the contents of an untracked file.
+        """
         env = dict(os.environ)
         env["COMPOSE_CALL_LOG"] = str(self.log)
         env.pop("COMPOSE_PROJECT_NAME", None)
         env.pop("MOBILE_PROJECT", None)
-        env.pop(KEY, None)
-        if key is not None:
-            env[KEY] = key
+        env[KEY] = "" if key is None else key
         return subprocess.run(
             ["make", *targets, f"COMPOSE={self.stub}"],
             cwd=REPO_ROOT,
@@ -274,28 +426,40 @@ def _docker_compose_available() -> bool:
 
 
 class ComposeInterpolationTests(unittest.TestCase):
-    """Only Compose can answer what Compose actually puts in the container."""
+    """Only Compose can answer what Compose actually puts in the container.
+
+    Every case here passes `--env-file`, so the env file under test is one this
+    file wrote and nothing is inherited from the repo root. Without that, the
+    keyless cases were keyless only on a machine that had no `.env` -- they
+    read as green on a fresh clone and failed for anyone who had configured a
+    key the documented way, which is the wrong direction for a suite to fail in.
+    """
 
     def setUp(self) -> None:
         if not _docker_compose_available():
-            self.skipTest(
-                "docker compose not available -- key propagation unverified"
-            )
+            self.skipTest("docker compose not available -- key propagation unverified")
+        self.workdir = Path(tempfile.mkdtemp(prefix="compose-env-"))
+        self.addCleanup(shutil.rmtree, self.workdir, ignore_errors=True)
 
-    def rendered_api_env(self, **env_overrides: str) -> dict:
+    def run_compose(self, *args: str, env_file: str = "", **env_overrides: str):
+        env_path = self.workdir / "env"
+        env_path.write_text(env_file, encoding="utf-8")
         env = dict(os.environ)
         env.pop("COMPOSE_PROJECT_NAME", None)
         env.pop("MOBILE_PROJECT", None)
         env.pop(KEY, None)
         env.update(env_overrides)
-        result = subprocess.run(
-            ["docker", "compose", "config", "--format", "json"],
+        return subprocess.run(
+            ["docker", "compose", "--env-file", str(env_path), *args],
             cwd=REPO_ROOT,
             env=env,
             capture_output=True,
             text=True,
             timeout=120,
         )
+
+    def rendered_api_env(self, **kwargs: str) -> dict:
+        result = self.run_compose("config", "--format", "json", **kwargs)
         self.assertEqual(result.returncode, 0, result.stderr)
         config = json.loads(result.stdout)
         return dict(config["services"]["api"]["environment"])
@@ -305,23 +469,35 @@ class ComposeInterpolationTests(unittest.TestCase):
 
         self.assertEqual(self.rendered_api_env(GEMINI_API_KEY=sentinel)[KEY], sentinel)
 
+    def test_the_env_file_route_lands_in_the_api_container_too(self):
+        """The route `.env.example` documents, proven end to end.
+
+        This is why `scripts/check_ai_key.sh` has to read `.env` as well as the
+        shell: a key filed here is a working key, and warning about it is a
+        false alarm.
+        """
+        sentinel = "AIzaSySENTINELsentinelSENTINELsentinel12"
+
+        self.assertEqual(
+            self.rendered_api_env(env_file=f"{KEY}={sentinel}\n")[KEY], sentinel
+        )
+
+    def test_a_shell_blank_beats_the_env_file(self):
+        """The precedence the checker copies, taken from Compose rather than docs."""
+        self.assertEqual(
+            self.rendered_api_env(
+                env_file=f"{KEY}=AIzaSyFAKEfakeFAKEfakeFAKEfakeFAKEfake1\n",
+                GEMINI_API_KEY="",
+            )[KEY],
+            "",
+        )
+
     def test_the_variable_is_present_even_when_the_host_has_none(self):
         """Absent-vs-empty must not be two code paths inside the container."""
         self.assertEqual(self.rendered_api_env().get(KEY), "")
 
     def test_an_unset_key_produces_no_compose_warning(self):
-        env = dict(os.environ)
-        env.pop("COMPOSE_PROJECT_NAME", None)
-        env.pop("MOBILE_PROJECT", None)
-        env.pop(KEY, None)
-        result = subprocess.run(
-            ["docker", "compose", "config"],
-            cwd=REPO_ROOT,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
+        result = self.run_compose("config")
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("variable is not set", result.stderr)
