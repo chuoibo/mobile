@@ -31,6 +31,12 @@ import type { Obligation } from "./screens/DotThu";
 import type { Envelope } from "./screens/ChiaSe";
 import type { Draft, Participant } from "./screens/NhapKhoanChi";
 import type { ReceiptScanWire } from "./receipt";
+import {
+  sapXepChang,
+  type BodyTaoBuoiDi,
+  type BuoiDi,
+  type ChangGui,
+} from "./screens/len-plan/buoi-di";
 import { makeIdFactory } from "./participants";
 import { maskAccount } from "./ui/vietqr";
 
@@ -1183,3 +1189,66 @@ const SCAN_REFUSALS: Record<string, string> = {
     "Bộ đọc bill đang không trả lời. Thử lại sau một chút, hoặc nhập tay các món ở bước sau.",
   permission_denied: "Tài khoản này chưa được phép đọc bill trong nhóm.",
 };
+
+/* ------------------------------------------------------- outings (F13/F15) */
+
+export type { BodyTaoBuoiDi, BuoiDi, ChangGui };
+
+/**
+ * Create an outing in a real group.
+ *
+ * `CONTEXT_ID` in this file has no row in `contexts`, so posting under it is a
+ * 403. Callers pass the id `khoiDongNhom` actually returned.
+ */
+export async function taoBuoiDi(
+  contextId: string,
+  body: BodyTaoBuoiDi,
+  actorId: string,
+  attempt: Attempt,
+): Promise<BuoiDi> {
+  return call<BuoiDi>(`/contexts/${contextId}/outings`, {
+    method: "POST",
+    body,
+    actorId,
+    attempt,
+    contexts: contextId,
+  });
+}
+
+/** List the group's outings. Membership is a query, not the actor header. */
+export async function docDanhSachBuoiDi(
+  contextId: string,
+  actorId: string,
+): Promise<{ context_id: string; outings: BuoiDi[] }> {
+  return call<{ context_id: string; outings: BuoiDi[] }>(
+    `/contexts/${contextId}/outings`,
+    { method: "GET", actorId, contexts: contextId },
+  );
+}
+
+/**
+ * Replace the timeline. Sorted here, not by the server: the server stores
+ * the array it was given, in that order, so position only matches clock
+ * time if we sort first.
+ */
+export async function luuDongThoiGian(
+  outingId: string,
+  stops: ChangGui[],
+  actorId: string,
+  attempt: Attempt,
+  contextId: string,
+): Promise<BuoiDi> {
+  return call<BuoiDi>(`/outings/${outingId}/timeline`, {
+    method: "PUT",
+    body: {
+      stops: sapXepChang(stops).map((stop) => ({
+        at: stop.at,
+        label: stop.label,
+        place_name: stop.place_name,
+      })),
+    },
+    actorId,
+    attempt,
+    contexts: contextId,
+  });
+}

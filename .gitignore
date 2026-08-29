@@ -294,3 +294,7 @@ apps/mobile/.impeccable/review/
 # chứng của một lần chạy, dựng lại được bằng một lệnh `expo export`.
 apps/mobile/.fe10-before/
 apps/mobile/.fe10-after/
+
+# rd-fe-12: bản web export dựng để quét detector và chụp màn "Lên plan". Là
+# bằng chứng của một lần chạy, dựng lại được bằng một lệnh `expo export`.
+apps/mobile/.fe12-web/
