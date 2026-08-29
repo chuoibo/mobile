@@ -1788,7 +1788,21 @@ class ApiService:
         request: BillAssignmentsRequest,
         actor: Actor,
     ) -> BillResponse:
-        self._bill_for_actor(bill_id, actor)
+        record = self._bill_for_actor(bill_id, actor)
+        # Same rule as `confirm_expense`, on the other path that writes a name.
+        # The check above proves the actor may touch this bill; the ids that
+        # end up owning dishes come from the body. Refusing here rather than at
+        # `split` matters because a stored share is already an answer: it comes
+        # back out of `GET /bills/{id}` as somebody's dish, carrying a
+        # `decided_by_id` that says a person agreed to it.
+        self._require_participants_are_members(
+            record.context_id,
+            [
+                participant_id
+                for assignment in request.assignments
+                for participant_id in assignment.participant_ids
+            ],
+        )
         try:
             record = self.repository.confirm_bill_assignments(
                 bill_id=bill_id,
