@@ -24,11 +24,11 @@ import {
   type Assignment,
 } from "../assignment";
 import { itemsTotalVnd, type BillLine, type BillReading } from "../receipt";
-import { labelFor, type Roster } from "../participants";
+import { availableMembers, labelFor, type GroupMember, type Roster } from "../participants";
 import type { SplitPreview } from "../api";
 import { radius, space, type, usePalette } from "../theme";
 import { toggleState } from "../ui/a11y";
-import { Button, Card, Field, ReadingNotice } from "../ui/Kit";
+import { Button, Card, ReadingNotice } from "../ui/Kit";
 
 const HIT = 44;
 const AVATAR = 56;
@@ -42,15 +42,27 @@ const COL = 44;
  * fit, five collapse to the "k/N" chip. The mockup is four. */
 const INNER_AT_390 = 346;
 
+/** The scrolling region holding the matrix. Exported so the test that asserts
+ *  it carries a keyboard tab-stop names the same element the screen does. */
+export const VUNG_CUON_MA_TRAN = "vung-cuon-ma-tran";
+
 export function GoiYChia(props: {
   reading: BillReading;
   roster: Roster;
+  /** The group this bill belongs to. Adding somebody picks from here.
+   *
+   * It used to be a text box, and that was bug-125301: typing "Hải" minted a
+   * fresh UUID instead of finding Hải, so the split was recorded to the dong
+   * against a stranger who shared his name and the real Hải's screen never
+   * moved. A name is not an identity. Nobody reaches this screen without a
+   * group, so there is nothing for a text box to be good for. */
+  nhom: GroupMember[];
   assignment: Assignment;
   preview: { signature: string; split: SplitPreview } | null;
   onBack: () => void;
   onReset: () => void;
   onToggle: (lineId: string, personId: string) => void;
-  onAddPerson: (name: string) => void;
+  onAddMember: (member: GroupMember) => void;
   onRemovePerson: (id: string) => void;
   onSeeResults: () => void;
 }): React.JSX.Element {
@@ -68,7 +80,6 @@ export function GoiYChia(props: {
 
   const [mode, setMode] = useState<"mon" | "phan-tram">("mon");
   const [adding, setAdding] = useState(false);
-  const [pending, setPending] = useState("");
   const [removing, setRemoving] = useState<string | null>(null);
   const [openLine, setOpenLine] = useState<string | null>(null);
   const [tableWidth, setTableWidth] = useState(INNER_AT_390);
@@ -77,13 +88,13 @@ export function GoiYChia(props: {
   const colsFit = rest < COL ? 0 : Math.floor(rest / COL);
   const collapsed = people.length > colsFit;
 
-  function addPending() {
-    const name = pending.trim();
-    if (!name) return;
-    props.onAddPerson(name);
-    setPending("");
-    setAdding(false);
-  }
+  const conLai = availableMembers(roster, props.nhom);
+  // Open by default when nobody is on the bill yet. The reported dead end was
+  // an empty matrix reading "Chưa có ai trong nhóm. Thêm người bằng nút + ở
+  // trên." above a table with no columns -- a screen whose only useful action
+  // was hidden behind a press. With nobody added there is nothing else this
+  // screen can be for, so the group is already on it.
+  const moiThem = adding || people.length === 0;
 
   return (
     <View style={{ flex: 1, backgroundColor: c.ground, padding: space.md, gap: space.md }}>
@@ -172,27 +183,33 @@ export function GoiYChia(props: {
             </Pressable>
           );
         })}
-        <Pressable
-          onPress={() => { setAdding(true); setRemoving(null); }}
-          accessibilityRole="button"
-          accessibilityLabel="Thêm"
-          style={{ alignItems: "center", width: space.xxl + space.lg, gap: space.xs }}
-        >
-          <View
-            style={{
-              width: AVATAR,
-              height: AVATAR,
-              borderRadius: radius.pill,
-              borderWidth: 1,
-              borderColor: c.lineStrong,
-              alignItems: "center",
-              justifyContent: "center",
-            }}
+        {/* Only when it has something to reveal. With nobody on the bill the
+            list below is already open, and with the whole group added there is
+            nobody left to offer -- a "+" that opens an empty panel reads as a
+            broken button. */}
+        {people.length > 0 && conLai.length > 0 ? (
+          <Pressable
+            onPress={() => { setAdding(!adding); setRemoving(null); }}
+            accessibilityRole="button"
+            accessibilityLabel={adding ? "Đóng danh sách nhóm" : "Thêm người từ nhóm"}
+            style={{ alignItems: "center", width: space.xxl + space.lg, gap: space.xs }}
           >
-            <Text style={{ ...type.h1, color: c.ink }}>+</Text>
-          </View>
-          <Text style={{ ...type.label, color: c.inkSoft }}>Thêm</Text>
-        </Pressable>
+            <View
+              style={{
+                width: AVATAR,
+                height: AVATAR,
+                borderRadius: radius.pill,
+                borderWidth: 1,
+                borderColor: c.lineStrong,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Text style={{ ...type.h1, color: c.ink }}>{adding ? "−" : "+"}</Text>
+            </View>
+            <Text style={{ ...type.label, color: c.inkSoft }}>Thêm</Text>
+          </Pressable>
+        ) : null}
       </ScrollView>
 
       {removing !== null ? (
@@ -206,15 +223,66 @@ export function GoiYChia(props: {
         />
       ) : null}
 
-      {adding ? (
+      {moiThem ? (
         <View style={{ gap: space.sm }}>
-          <Field
-            label="Tên người"
-            value={pending}
-            onChangeText={setPending}
-            placeholder="Hà"
-          />
-          <Button label="Thêm" tone="split" disabled={!pending.trim()} onPress={addPending} />
+          <Text style={{ ...type.label, color: c.inkSoft }}>
+            {people.length === 0
+              ? "Ai đã ăn bữa này? Chọn trong nhóm."
+              : "Còn lại trong nhóm"}
+          </Text>
+          {conLai.length === 0 ? (
+            <Text style={{ ...type.label, color: c.inkSoft }}>
+              Cả nhóm đã có mặt trong bữa này.
+            </Text>
+          ) : (
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.xs }}>
+              {conLai.map((member) => (
+                <Pressable
+                  key={member.id}
+                  onPress={() => {
+                    props.onAddMember(member);
+                    // Stay open. Adding the first person makes the roster
+                    // non-empty, which is the condition that was holding this
+                    // list open -- so without this, picking one person closed
+                    // the list and the next one cost a trip back through "+".
+                    // A group eats together; picking three in a row is the
+                    // normal case, not the exception.
+                    setAdding(true);
+                    setRemoving(null);
+                  }}
+                  accessibilityRole="button"
+                  // Named with the person, not with the slot. The label is what
+                  // a screen reader reads and what the test asserts on, and it
+                  // has to say which of seven this is.
+                  accessibilityLabel={`Thêm ${member.name} vào nhóm`}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: space.xs,
+                    minHeight: HIT,
+                    paddingHorizontal: space.sm,
+                    borderRadius: radius.pill,
+                    borderWidth: 1,
+                    borderColor: c.lineStrong,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: CHECK,
+                      height: CHECK,
+                      borderRadius: radius.pill,
+                      backgroundColor: c.splitSoft,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Text style={{ ...type.micro, color: c.split }}>{initial(member.name)}</Text>
+                  </View>
+                  <Text style={{ ...type.body, color: c.ink }}>{member.name}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
         </View>
       ) : null}
 
@@ -237,6 +305,20 @@ export function GoiYChia(props: {
         style={{ flex: 1 }}
         contentContainerStyle={{ gap: space.md, paddingBottom: space.lg }}
         keyboardShouldPersistTaps="handled"
+        // A keyboard tab-stop on the scroller itself. axe reported
+        // `scrollable-region-focusable` (serious, WCAG 2.1.1) here and on none
+        // of the other four screens, and the reason is the state this screen
+        // opens in: with nobody on the bill the matrix renders no checkboxes at
+        // all, so the region holds nothing focusable and no key scrolls it --
+        // the dishes below the fold cannot be reached without a pointer. Same
+        // fix and same reasoning as the Cá nhân tab; `tabIndex` rather than
+        // `focusable`, which react-native-web 0.21 deprecates and warns on.
+        // Native ignores it, correctly: a touch screen has no tab ring.
+        tabIndex={0}
+        // A handle for the test that guards the line above. Without it the
+        // assertion would have to find this div by class name, which is a
+        // hash react-native-web is free to change.
+        nativeID={VUNG_CUON_MA_TRAN}
       >
         {mode === "phan-tram" ? (
           <Card>

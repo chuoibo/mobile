@@ -60,6 +60,59 @@ export function addParticipant(
   };
 }
 
+/**
+ * Somebody the group already has an identity for.
+ *
+ * The distinction from `Participant` is the whole point of this type: a
+ * participant is a row on this bill, a member is a person the database has
+ * heard of. `id` is the `people` row, never a slug and never minted here.
+ */
+export type GroupMember = { id: string; name: string };
+
+/**
+ * The group, in the shape the split screen adds people from.
+ *
+ * The demo group carries two ids per person -- a readable slug and the seeded
+ * `people` row -- and only one of them may leave the app. Picking the wrong
+ * one is silent: every screen still renders, the allocator still balances to
+ * the dong, and the money lands on somebody who does not exist. So the
+ * projection is one function rather than a `.map` at each call site.
+ */
+export function groupMembers(
+  people: { personId: string; name: string }[],
+): GroupMember[] {
+  return people.map((person) => ({ id: person.personId, name: person.name }));
+}
+
+/** Members not on this bill yet. */
+export function availableMembers(roster: Roster, members: GroupMember[]): GroupMember[] {
+  const already = new Set(roster.participants.map((person) => person.id));
+  return members.filter((member) => !already.has(member.id));
+}
+
+/**
+ * Put a known member on the bill, keeping the id they already had.
+ *
+ * This is the fix for bug-125301 in one line: the id comes in with the person
+ * instead of being minted from what somebody typed. Typing "Hải" used to
+ * produce a fresh UUID, so the ledger recorded a correct split against a
+ * stranger who happened to share a name, and the real Hải's screen never
+ * moved. Names are not identity; a name typed twice is two people, and a
+ * person's row is theirs before this screen ever opens.
+ *
+ * Adding twice is a no-op rather than a second column: the caller is a list of
+ * buttons, and a double tap must not put somebody on the bill twice.
+ */
+export function addMember(roster: Roster, member: GroupMember): Roster {
+  if (roster.participants.some((person) => person.id === member.id)) return roster;
+  return {
+    participants: [...roster.participants, { id: member.id, name: member.name }],
+    // Same rule as `addParticipant`: adding somebody cannot change who was
+    // already chosen to have paid.
+    advancerId: roster.advancerId,
+  };
+}
+
 export function removeParticipant(roster: Roster, id: string): Roster {
   return {
     participants: roster.participants.filter((person) => person.id !== id),

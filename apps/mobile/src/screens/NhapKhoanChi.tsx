@@ -24,13 +24,14 @@
 import React from "react";
 import { ScrollView, Text, View } from "react-native";
 import {
-  addParticipant,
+  addMember,
   advancer,
+  availableMembers,
   duplicateNames,
   labelFor,
-  makeIdFactory,
   removeParticipant,
   type DraftForm,
+  type GroupMember,
 } from "../participants";
 import {
   MAX_AMOUNT_VND,
@@ -49,29 +50,29 @@ export type Draft = {
   occasion: string;
 };
 
-/** Monotonic, never reused, never derived from anything the user can reorder.
- *  Module-level so ids stay unique across remounts of the screen. */
-const nextParticipantId = makeIdFactory();
-
 export function NhapKhoanChi({
   form,
+  nhom,
   onForm,
   onNext,
   onSeeProposal,
 }: {
   form: DraftForm;
+  /** The group. Same source and same reason as on the split screen: this
+   *  screen writes to the very same roster, so a text box here would re-open
+   *  bug-125301 through the manual door. See `participants.addMember`. */
+  nhom: GroupMember[];
   onForm: (next: DraftForm) => void;
   onNext: (draft: Draft) => void;
   /** Offline only: look at what the bot read out of a chat thread. */
   onSeeProposal?: () => void;
 }) {
   const c = usePalette();
-  const { occasion, pending, amount, roster } = form;
+  const { occasion, amount, roster } = form;
   const participants = roster.participants;
   const advancerId = roster.advancerId;
 
   const setOccasion = (value: string) => onForm({ ...form, occasion: value });
-  const setPending = (value: string) => onForm({ ...form, pending: value });
   const setAmount = (value: string) => onForm({ ...form, amount: value });
   const setAdvancerId = (id: string | null) =>
     onForm({ ...form, roster: { ...roster, advancerId: id } });
@@ -83,9 +84,10 @@ export function NhapKhoanChi({
   const chosen = advancer(roster) !== null;
   const ready = participants.length > 0 && totalVnd > 0 && chosen;
 
-  function addPending() {
-    if (!pending.trim()) return;
-    onForm({ ...form, pending: "", roster: addParticipant(roster, pending, nextParticipantId) });
+  const conLai = availableMembers(roster, nhom);
+
+  function themNguoi(member: GroupMember) {
+    onForm({ ...form, roster: addMember(roster, member) });
   }
 
   function dropPerson(id: string) {
@@ -145,13 +147,21 @@ export function NhapKhoanChi({
         </Card>
 
         <Card>
-          <Field
-            label="Thêm người"
-            value={pending}
-            onChangeText={setPending}
-            placeholder="Hà"
-          />
-          <Button label="Thêm" tone="quiet" disabled={!pending.trim()} onPress={addPending} />
+          <Text style={{ ...type.label, color: c.inkSoft }}>
+            {conLai.length === 0 ? "Cả nhóm đã có mặt." : "Ai có mặt"}
+          </Text>
+          {conLai.length > 0 ? (
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.xs }}>
+              {conLai.map((member) => (
+                <Button
+                  key={member.id}
+                  label={`+ ${member.name}`}
+                  tone="quiet"
+                  onPress={() => themNguoi(member)}
+                />
+              ))}
+            </View>
+          ) : null}
           {participants.length === 0 ? (
             <Text style={{ ...type.label, color: c.inkSoft }}>Chưa có ai.</Text>
           ) : (

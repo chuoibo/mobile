@@ -100,16 +100,23 @@ const ROSTER = {
 
 const IDS = ROSTER.participants.map((p) => p.id);
 
+/** The group these two came from. Since bug-125301 the screen adds people by
+ *  picking a member rather than by taking a typed name, so it needs the group
+ *  it is splitting for. Nam and Hà are already on the bill, so nothing here is
+ *  offered as addable and the markup under test is unchanged. */
+const NHOM = ROSTER.participants.map((p) => ({ id: p.id, name: p.name }));
+
 function splitScreen(assignment) {
   return render(GoiYChia, {
     reading: READING,
     roster: ROSTER,
+    nhom: NHOM,
     assignment,
     preview: null,
     onBack: () => {},
     onReset: () => {},
     onToggle: () => {},
-    onAddPerson: () => {},
+    onAddMember: () => {},
     onRemovePerson: () => {},
     onSeeResults: () => {},
   });
