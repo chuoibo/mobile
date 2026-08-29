@@ -51,9 +51,41 @@ export const CAU_KHONG_RO = "Có gì đó hỏng ở bước này mà máy chưa
  * would pass a "did we set an error?" check while showing nothing.
  */
 export function moTaLoi(problem: unknown): string {
-  if (problem instanceof Error) {
-    const cau = problem.message.trim();
-    if (cau !== "") return cau;
-  }
-  return CAU_KHONG_RO;
+  const cau = chiTietLoi(problem);
+  return cau !== "" ? cau : CAU_KHONG_RO;
+}
+
+/**
+ * The app's own words out of a caught value, or an empty string.
+ *
+ * The difference from `moTaLoi` is the caller, not the safety. `moTaLoi` feeds
+ * a line that is the WHOLE explanation, so it must always say something.
+ * `chiTietLoi` feeds a "Chi tiết:" clause hanging off a sentence the screen
+ * already wrote, and there the honest answer to "what else do we know" is
+ * often nothing. Returning `CAU_KHONG_RO` into that slot would print
+ * "Không kết nối được tới API. Chi tiết: Có gì đó hỏng ở bước này..." -- two
+ * apologies where one sentence belongs. So this one is allowed to say nothing,
+ * and `themChiTiet` in `loi-may-chu.ts` drops the label when it does.
+ *
+ * Sixteen call sites used to spell this `(e as Error).message`, which is a
+ * *cast*: TypeScript believes it and the runtime does not. Measured, the three
+ * ways it broke were all reachable from one `throw`:
+ *
+ *   - a string, a bare object, or the `HTMLCanvasElement` that
+ *     `expo-image-manipulator` rejects with  ->  `detail` is `undefined`, and
+ *     the screen prints "Chi tiết: undefined"
+ *   - `null` or `undefined`  ->  reading `.message` THROWS inside the catch,
+ *     so the error handler is the second thing to fail
+ *   - an `Error` whose `.message` somebody set to a DOM node  ->
+ *     "Chi tiết: [object HTMLCanvasElement]", which is bug-010822 again, on a
+ *     screen the fix for it never touched
+ *
+ * Hence the two guards below rather than one. `instanceof Error` alone still
+ * lets the third case through, because `.message` is only a string by
+ * convention -- nothing enforces it, and `.trim()` on a canvas throws.
+ */
+export function chiTietLoi(problem: unknown): string {
+  if (!(problem instanceof Error)) return "";
+  const cau: unknown = problem.message;
+  return typeof cau === "string" ? cau.trim() : "";
 }

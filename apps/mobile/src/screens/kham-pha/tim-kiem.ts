@@ -44,6 +44,7 @@
  * information the server withheld on purpose.
  */
 
+import { chiTietLoi } from "../../ui/loi-tren-man";
 import { parsePlace, PLACES_BASE_URL, type Category, type Place } from "./places";
 
 /** The server's own cap (`app/places/search.py`, `MAX_QUERY_CHARS`). Mirrored,
@@ -233,7 +234,7 @@ export async function askSearch(
       body: JSON.stringify({ query: trimmed }),
     });
   } catch (e) {
-    return { kind: "khong-noi-duoc", url, detail: (e as Error).message };
+    return { kind: "khong-noi-duoc", url, detail: chiTietLoi(e) };
   }
 
   if (res.status === 404) return { kind: "chua-co-endpoint", url, work: SEARCH_WORK_ITEM };
@@ -263,7 +264,7 @@ export async function askSearch(
   try {
     return parseSearch(await res.json(), trimmed);
   } catch (e) {
-    return { kind: "du-lieu-sai", url, detail: (e as Error).message };
+    return { kind: "du-lieu-sai", url, detail: chiTietLoi(e) };
   }
 }
 

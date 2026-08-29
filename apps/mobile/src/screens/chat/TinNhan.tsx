@@ -26,6 +26,7 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { DEMO_PEOPLE, type DemoPerson } from "../../navigation/nhom-demo";
 import { radius, space, type, usePalette } from "../../theme";
 import { Card } from "../../ui/Kit";
+import { themChiTiet } from "../../ui/loi-may-chu";
 import { goiAiTurn, type AiTurnState } from "./ai";
 import {
   cardBoPhieu,
@@ -242,7 +243,7 @@ export function TinNhan({ nguoi }: { nguoi: DemoPerson | null }) {
       setAiYen({ giong: "binh-tinh", cau: s.cau });
       return;
     }
-    setAiYen({ giong: "loi", cau: `Máy chủ trả lỗi ${s.status}. ${s.detail}` });
+    setAiYen({ giong: "loi", cau: themChiTiet(`Máy chủ trả lỗi ${s.status}.`, s.detail) });
   }
 
   async function xemTinCuHon() {
