@@ -23,7 +23,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MOBILE_ROOT = path.resolve(HERE, "..");
 
 /** Same sentinel `build:check` inlines. The fetch stub keys off this prefix. */
-const API_BASE = "http://api.build-check.invalid";
+export const API_BASE = "http://api.build-check.invalid";
 
 export const STEPS = [
   // The screen the app opens on, and for most of its life the only screen in
@@ -60,7 +60,7 @@ export const STEPS = [
  * anybody's: no real account number goes into Git, and the repo guard's
  * long-number rule is right to refuse one that looks real.
  */
-const VIETQR_FIXTURE =
+export const VIETQR_FIXTURE =
   "00020101021138480010A00000072701180006970415010412340208QRIBFTTA53037045802VN62130809RUDI DEMO6304CFD6";
 
 /**
@@ -253,6 +253,9 @@ export function installBeforeApp(apiBase, scanBody, vietqrPayload) {
     expenseId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
     versionId: "vvvvvvvv-vvvv-4vvv-8vvv-vvvvvvvvvvvv",
     batchId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    billId: "d1111111-dddd-4ddd-8ddd-dddddddddddd",
+    /** The stored bill, once `POST /bills` has been called. */
+    bill: null,
     allocations: {},
     obligations: [],
     lastPath: "",
@@ -381,6 +384,122 @@ export function installBeforeApp(apiBase, scanBody, vietqrPayload) {
 
     if (method === "POST" && /^\/obligations\/[^/]+\/confirm-receipt$/.test(path)) {
       return json({ obligation_status: "confirmed" });
+    }
+
+    /* ------------------------------------------------------------ /bills --
+     *
+     * Added because the walk started 404ing here the moment the app learned to
+     * store a bill, and a 404 on this route does not degrade quietly: `api.ts`
+     * turns it into an ApiError, the shell paints "Máy chủ trả về 404", and
+     * `waitForScreen` treats that banner as a hard stop. So the scan was not
+     * measuring a worse version of the screen -- it was refusing to reach it.
+     *
+     * These three mirror `routes/bills.py` and `BillResponse` in schemas.py,
+     * not what the client happens to want back. A stub that invents a friendlier
+     * shape than the server sends is how a screen passes here and breaks live.
+     */
+    if (method === "POST" && path === "/bills") {
+      db.bill = {
+        id: db.billId,
+        context_id: parsed.context_id,
+        printed_total_vnd: parsed.printed_total_vnd,
+        items_total_vnd: parsed.items_total_vnd,
+        needs_review: parsed.needs_review,
+        created_by_id: parsed.items[0]?.suggested_participant_ids?.[0] ?? null,
+        created_at: "2026-08-30T00:00:00Z",
+        // A freshly stored bill is entirely the reader's guess, and the server
+        // says so on both fields. Returning `confirmed` here would let the
+        // screen claim the group had decided something nobody had touched.
+        assignment_state: "ai_suggested",
+        suggested_item_keys: parsed.items.map((item) => item.item_key),
+        items: parsed.items.map((item, position) => ({
+          item_key: item.item_key,
+          name: item.name,
+          quantity: item.quantity,
+          unit_price_vnd: item.unit_price_vnd,
+          line_total_vnd: item.line_total_vnd,
+          position,
+          shares: item.suggested_participant_ids.map((id) => ({
+            participant_id: id,
+            source: "ai_suggested",
+            decided_by_id: null,
+            decided_at: null,
+          })),
+        })),
+        surcharges: [],
+        discounts: [],
+      };
+      return json(db.bill, 201);
+    }
+
+    const billGet = /^\/bills\/([^/]+)$/.exec(path);
+    if (method === "GET" && billGet) {
+      return db.bill === null
+        ? json({ code: "bill_not_found", detail: "no bill" }, 404)
+        : json(db.bill);
+    }
+
+    const billAssign = /^\/bills\/([^/]+)\/assignments$/.exec(path);
+    if (method === "PUT" && billAssign) {
+      if (db.bill === null) {
+        return json({ code: "bill_not_found", detail: "no bill" }, 404);
+      }
+      const gan = new Map(
+        (parsed?.assignments ?? []).map((a) => [a.item_key, a.participant_ids]),
+      );
+      db.bill = {
+        ...db.bill,
+        assignment_state: "confirmed",
+        // Emptied, because every line just got decided. This is the field the
+        // screen branches on, so getting it wrong here would hide the very
+        // state change the walk exists to render.
+        suggested_item_keys: [],
+        items: db.bill.items.map((item) => ({
+          ...item,
+          shares: (gan.get(item.item_key) ?? []).map((id) => ({
+            participant_id: id,
+            source: "confirmed",
+            decided_by_id: id,
+            decided_at: "2026-08-30T00:00:00Z",
+          })),
+        })),
+      };
+      return json(db.bill);
+    }
+
+    /* Net position for the group, in the shape `ContextBalancesResponse` uses.
+     *
+     * `sender_id` / `recipient_id`, which is worth stating because the obvious
+     * guess is `from_id` / `to_id` and a stub carrying the guess would agree
+     * with a client carrying the same guess -- two wrongs rendering a green
+     * scan over a screen that shows blank names against the real server. */
+    const balances = /^\/contexts\/([^/]+)\/balances$/.exec(path);
+    if (method === "GET" && balances) {
+      const nguoi = db.bill === null
+        ? []
+        : [
+            ...new Set(
+              db.bill.items.flatMap((item) =>
+                item.shares.map((share) => share.participant_id),
+              ),
+            ),
+          ];
+      // Two people is the smallest group that can owe anything, so below that
+      // the honest answer is a settled group rather than an invented debt.
+      if (nguoi.length < 2) {
+        return json({ balances: [], transfers: [], proven_minimal: true, transfer_count: 0 });
+      }
+      return json({
+        balances: [
+          { person_id: nguoi[0], net_vnd: -120000 },
+          { person_id: nguoi[1], net_vnd: 120000 },
+        ],
+        transfers: [
+          { sender_id: nguoi[0], recipient_id: nguoi[1], amount_vnd: 120000 },
+        ],
+        proven_minimal: true,
+        transfer_count: 1,
+      });
     }
 
     return json({ code: "unstubbed", detail: `no stub for ${method} ${path}` }, 404);

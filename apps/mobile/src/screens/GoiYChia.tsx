@@ -23,6 +23,7 @@ import {
   signature,
   type Assignment,
 } from "../assignment";
+import { moTaTrangThaiGan, type BillWire, type SoDu } from "../bill";
 import { itemsTotalVnd, type BillLine, type BillReading } from "../receipt";
 import { availableMembers, labelFor, type GroupMember, type Roster } from "../participants";
 import type { SplitPreview } from "../api";
@@ -59,6 +60,16 @@ export function GoiYChia(props: {
   nhom: GroupMember[];
   assignment: Assignment;
   preview: { signature: string; split: SplitPreview } | null;
+  /** The stored bill, or `null` while the write has not landed.
+   *
+   * Read for two things and nothing else: whether these ticks exist anywhere
+   * but this phone, and which lines the server still counts as the reader's
+   * guess. The matrix itself stays local -- a screen that waited on a bill id
+   * before letting somebody tick a box would be down whenever the network is.
+   */
+  bill: BillWire | null;
+  /** The group's net position before this bill. `null` when not loaded. */
+  soDu: SoDu | null;
   onBack: () => void;
   onReset: () => void;
   onToggle: (lineId: string, personId: string) => void;
@@ -362,6 +373,8 @@ export function GoiYChia(props: {
           </>
         )}
 
+        <SoDuNhom soDu={props.soDu} roster={roster} />
+
       </ScrollView>
 
       {/* Pinned, like the total below it, and for a stronger reason. The
@@ -382,8 +395,20 @@ export function GoiYChia(props: {
           one field the route does send. */}
       <View style={{ gap: space.sm }}>
         <ReadingNotice reading={reading} stretch />
-        <Text style={{ ...type.label, color: c.inkSoft, textAlign: "center" }}>
-          Bạn có thể chỉnh tay trước khi xác nhận
+        {/* Two different facts, deliberately not merged into one reassuring
+            line. `ReadingNotice` above is about the reading -- whether the
+            machine trusts what it transcribed off the paper. This one is about
+            the ticks: whether they exist anywhere but this phone, and how many
+            lines are still the reader's guess rather than somebody's decision.
+            A bill can be read perfectly and stored nowhere. */}
+        <Text
+          style={{
+            ...type.label,
+            color: props.bill == null ? c.warn : c.inkSoft,
+            textAlign: "center",
+          }}
+        >
+          {moTaTrangThaiGan(props.bill)}
         </Text>
 
         <View
@@ -692,6 +717,55 @@ function LinePicker({
         <Button label="Xong" tone="split" onPress={onClose} />
       </View>
     </Modal>
+  );
+}
+
+/** Where the group stood before this dinner, in plain sentences.
+ *
+ * Renders nothing at all when there is nothing to say -- no panel, no empty
+ * card, no spinner. A settled group is the normal case, and a box announcing
+ * "0đ" on every clean bill is noise sitting where a person is trying to read a
+ * table.
+ *
+ * Every number here is `net_vnd` off the ledger, printed. Nothing on this
+ * screen adds them up or nets them against the bill above: the money in this
+ * panel and the money in that matrix answer different questions, and a total
+ * spanning both would be a third number the server never computed.
+ */
+function SoDuNhom({
+  soDu,
+  roster,
+}: {
+  soDu: SoDu | null;
+  roster: Roster;
+}): React.JSX.Element | null {
+  const c = usePalette();
+  if (soDu == null || soDu.transfers.length === 0) return null;
+  return (
+    <Card>
+      <View style={{ gap: space.xs }}>
+        <Text style={{ ...type.label, color: c.inkSoft }}>
+          Trước bữa này, nhóm còn nợ nhau
+        </Text>
+        {soDu.transfers.map((row) => (
+          <Text
+            key={`${row.fromId}-${row.toId}`}
+            style={{ ...type.body, color: c.ink }}
+          >
+            {labelFor(roster, row.fromId)} trả {labelFor(roster, row.toId)}{" "}
+            {formatVnd(row.amountVnd)}đ
+          </Text>
+        ))}
+        {/* Said only when the server proved it, and never upgraded to a claim
+            when it did not. "Ít nhất có thể" over a list nobody proved minimal
+            is a small lie that costs trust on a money screen for nothing. */}
+        <Text style={{ ...type.label, color: c.inkSoft }}>
+          {soDu.provenMinimal
+            ? "Đây là số lần chuyển ít nhất có thể."
+            : "Có thể còn cách chuyển gọn hơn."}
+        </Text>
+      </View>
+    </Card>
   );
 }
 

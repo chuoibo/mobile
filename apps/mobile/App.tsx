@@ -26,8 +26,10 @@ import {
   attemptFor,
   confirmExpense,
   confirmReceipt,
+  docSoDu,
   isBankRecipientMissing,
   loadBoard,
+  luuGanMon,
   openBatch,
   previewSplit,
   proposeSplit,
@@ -35,14 +37,17 @@ import {
   registerPeople,
   saveBankRecipient,
   scanReceipt,
+  taoBill,
   thongDiepNguoiDoc,
   type Attempt,
   type PendingProposal,
   BASE_URL,
+  CONTEXT_ID,
   type PublishGates,
   type SavedBankRecipient,
   type SplitPreview,
 } from "./src/api";
+import type { BillWire, SoDu } from "./src/bill";
 import { CoLoi, DangTai, TrongRong } from "./src/ui/TrangThai";
 import { moTaLoi } from "./src/ui/loi-tren-man";
 import {
@@ -258,6 +263,20 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
     signature: string;
     split: SplitPreview;
   } | null>(null);
+  /**
+   * The stored bill, once the reading has been written to the server.
+   *
+   * Held next to `assignment` rather than inside `GoiYChia` for the same
+   * reason: the screen unmounts on every step change, and a bill id owned
+   * there would be lost on the way back to fix a misread price -- leaving the
+   * next "Tiếp tục" to store a second bill for the same dinner.
+   *
+   * `null` means the write has not landed. The matrix still works in that
+   * state, and says so: what it cannot do is claim the group's ticks are
+   * saved anywhere.
+   */
+  const [bill, setBill] = useState<BillWire | null>(null);
+  const [soDu, setSoDu] = useState<SoDu | null>(null);
 
   /**
    * Take (or pick) one photo, have it read, and show what came back.
@@ -348,6 +367,34 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
    * signature that is no longer current is dropped, so a slow round-trip
    * cannot overwrite a newer one.
    */
+  /**
+   * The group's standing position, loaded when the matrix opens.
+   *
+   * Deliberately *before* this bill rather than after it. What a person wants
+   * to know while ticking boxes is the debt this dinner is landing on top of,
+   * and by the time the split is confirmed they have left this screen. It also
+   * keeps the panel honest about what it is: `/contexts/{id}/balances` is the
+   * ledger's net position, which does not include a bill nobody has confirmed
+   * yet, and labelling it "trước bữa này" is the only way to show it without
+   * implying otherwise.
+   *
+   * A failure is silent here, and that is a considered choice rather than a
+   * swallowed error: this panel is context beside the task, not the task. A
+   * red banner over the matrix because a secondary read timed out would block
+   * work the person can still do, and `SoDuNhom` renders nothing when it has
+   * nothing, so the screen simply does not show the panel.
+   */
+  useEffect(() => {
+    if (step !== "goi-y") return;
+    const nguoiDoc = form.roster.participants[0]?.id;
+    if (nguoiDoc === undefined) return;
+    let cancelled = false;
+    docSoDu(CONTEXT_ID, nguoiDoc)
+      .then((ket) => { if (!cancelled) setSoDu(ket); })
+      .catch(() => { if (!cancelled) setSoDu(null); });
+    return () => { cancelled = true; };
+  }, [step, form.roster, bill]);
+
   useEffect(() => {
     if (step !== "goi-y" || reading === null) return;
     const ids = form.roster.participants.map((person) => person.id);
@@ -465,9 +512,30 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
             // other side. Nothing is divided here: the allocator on the server
             // is still the only thing in this product that splits money.
             const ids = form.roster.participants.map((person) => person.id);
+            const ganMon = syncLines(assignment, reading.lines, ids);
             setForm((f) => ({ ...f, amount: String(itemsTotalVnd(reading)) }));
-            setAssignment((a) => syncLines(a, reading.lines, ids));
+            setAssignment(ganMon);
             setStep("goi-y");
+            // Store the reading as a bill, and do it without holding the
+            // screen. The matrix is usable the moment it paints; what the
+            // write buys is that the ticks survive the app closing, and
+            // waiting on a round-trip before showing a table nobody needs the
+            // server to draw would be paying for that in the wrong place.
+            //
+            // A failure here is reported and not fatal: `bill` stays null, the
+            // matrix keeps working, and the screen says the ticks are not
+            // saved rather than pretending they are.
+            const nguoiTao = ids[0];
+            if (nguoiTao === undefined) return;
+            taoBill(
+              reading,
+              CONTEXT_ID,
+              ganMon,
+              nguoiTao,
+              attemptFor(attempts.current, `tao-bill:${signature(reading, ids, ganMon)}`),
+            )
+              .then(setBill)
+              .catch((problem) => setError(moTaLoi(problem)));
           }}
         />
       )}
@@ -479,6 +547,8 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
           nhom={NHOM_DEMO}
           assignment={assignment}
           preview={preview}
+          bill={bill}
+          soDu={soDu}
           onBack={() => { setError(null); setStep("ket-qua"); }}
           onReset={() => {
             setAssignment(
@@ -511,6 +581,32 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
               amount: String(itemsTotalVnd(reading)),
             }));
             setStep("nhap");
+            // Turn the ticks into decisions on the way out. This is what moves
+            // the bill off `ai_suggested`: until it runs, every share the
+            // server holds is still labelled as the machine's guess, however
+            // many boxes a person ticked.
+            //
+            // Nothing here waits on it either, and nothing downstream reads
+            // the result -- the split a person is about to confirm comes from
+            // the allocator over `POST /expenses`, exactly as before. Writing
+            // the decisions is a separate promise about a separate question:
+            // who claimed what.
+            const ids = form.roster.participants.map((person) => person.id);
+            const nguoiChot = ids[0];
+            if (bill === null || nguoiChot === undefined) return;
+            luuGanMon(
+              bill.id,
+              reading,
+              assignment,
+              nguoiChot,
+              CONTEXT_ID,
+              attemptFor(
+                attempts.current,
+                `gan-mon:${bill.id}:${signature(reading, ids, assignment)}`,
+              ),
+            )
+              .then(setBill)
+              .catch((problem) => setError(moTaLoi(problem)));
           }}
         />
       )}
