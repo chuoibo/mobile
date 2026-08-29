@@ -65,7 +65,7 @@ REPO_ROOT="$PWD"
 
 # Every stage, in run order: cheapest and most likely to fail first, so a
 # broken tree is reported in seconds rather than after a docker build.
-STAGES=(guard ruff api migration shared mobile docker postgres)
+STAGES=(guard ruff api migration contract shared mobile docker postgres)
 
 stage_help() {
   case "$1" in
@@ -73,6 +73,7 @@ stage_help() {
     ruff)      echo "ruff on the files this branch changes, uncommitted ones included (test.yml: lint)" ;;
     api)       echo "pytest services/api/tests tests (test.yml: api)" ;;
     migration) echo "alembic upgrade head --sql, no database (test.yml: api, inline)" ;;
+    contract)  echo "every route apps/mobile calls exists in the API (test.yml: api, inline)" ;;
     shared)    echo "node packages/shared/money.test.mjs (test.yml: shared)" ;;
     mobile)    echo "tsc, npm test with MOBILE_REQUIRE_WEB_A11Y=1, expo export --platform all (test.yml: mobile)" ;;
     docker)    echo "image pinned, builds, non-root, no dev tooling, serves /healthz (test.yml: docker)" ;;
@@ -164,6 +165,14 @@ PY
   )
 }
 
+do_contract() {
+  # Reads the rendered OpenAPI and the client source. No database, no server,
+  # no npm -- the two halves of a request compared where nothing else compares
+  # them. Proven on 2026-08-29: with `/batches/current/publish` back in
+  # api.ts, `tsc --noEmit` exited 0 and `npm test` passed 493 of 493.
+  python3 scripts/check_api_contract.py
+}
+
 do_shared() { node packages/shared/money.test.mjs; }
 
 do_mobile() {
@@ -236,6 +245,9 @@ check_prereq() {
   case "$1" in
     ruff)
       git rev-parse --git-dir >/dev/null 2>&1 || { echo "không phải git repo"; return 1; } ;;
+    contract)
+      [ -d apps/mobile/src ] || { echo "apps/mobile không có trên nhánh này"; return 1; }
+      [ -d services/api ] || { echo "services/api không có trên nhánh này"; return 1; } ;;
     shared)
       have node || { echo "không có node"; return 1; }
       [ -d packages/shared ] || { echo "packages/shared không có trên nhánh này"; return 1; }

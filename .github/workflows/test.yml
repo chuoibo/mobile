@@ -102,6 +102,23 @@ jobs:
       - name: Test
         run: python -m pytest services/api/tests tests -q
 
+      - name: Every route the app calls exists
+        # The two halves of a request are tested separately and never against
+        # each other: the API suite calls the API, the mobile suite injects a
+        # fake fetch. A path the client gets wrong is invisible to both.
+        # Measured 2026-08-29 with `/batches/current/publish` put back into
+        # src/api.ts: `tsc --noEmit` exited 0, `npm test` passed 493 of 493,
+        # and this step is the only thing that goes red.
+        #
+        # An absent client is an absence and skipping is honest; a client that
+        # is present is checked. Same rule as the mobile job below.
+        run: |
+          if [ ! -d apps/mobile/src ]; then
+            echo "::notice::apps/mobile is not on this branch, skipping"
+          else
+            python scripts/check_api_contract.py
+          fi
+
       - name: Migration renders to DDL
         # No database needed. This is the check that was missing when five
         # foreign-key names ran past PostgreSQL's 63-character limit and the
