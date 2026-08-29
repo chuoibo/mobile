@@ -330,7 +330,7 @@ export function ChuaCoDuLieu({ state }: { state: PlacesState }) {
 
   if (state.kind === "chua-co-endpoint") {
     tieuDe = "Máy chủ này chưa có danh mục địa điểm";
-    than = `Máy chủ đang chạy nhưng không có route GET /places. Route đó có trong ${state.work}, nên nhiều khả năng app đang trỏ vào một bản API cũ hơn — không phải app thiếu gì.`;
+    than = `Máy chủ đang chạy nhưng không có route GET /places. Route đó có trong ${state.work}, nên nhiều khả năng app đang trỏ vào một bản API cũ hơn, không phải app thiếu gì.`;
     diaChi = state.url;
   } else if (state.kind === "khong-noi-duoc") {
     tieuDe = "Không mở được máy chủ";
@@ -359,7 +359,7 @@ export function ChuaCoDuLieu({ state }: { state: PlacesState }) {
           the name in copy would put the token in the bundle and cost the gate
           its meaning. The address below is the part a person can act on. */}
       <Text style={{ ...type.micro, color: c.inkFaint }}>
-        API app đang trỏ tới: {PLACES_BASE_URL} — đổi trong .env rồi mở lại app.
+        API app đang trỏ tới: {PLACES_BASE_URL}. Đổi trong .env rồi mở lại app.
       </Text>
     </Card>
   );

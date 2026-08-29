@@ -78,7 +78,7 @@ export function MaCuaToi({ personId, ten }: { personId: string; ten: string }) {
       <Text style={{ ...type.micro, color: c.inkSoft, textAlign: "center" }}>
         {moDuoc
           ? "Bạn của bạn quét mã này bằng camera điện thoại là mở thẳng vào app."
-          : "Trên điện thoại mã trỏ về ru-di.app — tên miền đó chưa đăng ký, nên " +
+          : "Trên điện thoại mã trỏ về ru-di.app. Tên miền đó chưa đăng ký, nên " +
             "quét ở đây chỉ đọc ra mã chứ chưa mở được gì. Trên bản web thì mở được."}
       </Text>
 

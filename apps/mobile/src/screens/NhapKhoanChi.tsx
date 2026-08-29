@@ -112,7 +112,7 @@ export function NhapKhoanChi({
                   QA caught it with three Nams on screen and a banner
                   insisting there were two. */}
               Có người trùng tên: {duplicated.join(", ")}. Chia tiền vẫn đúng vì
-              mỗi người có mã riêng, và danh sách đã đánh số để phân biệt — thêm
+              mỗi người có mã riêng, và danh sách đã đánh số để phân biệt. Thêm
               gì đó vào tên sẽ dễ đọc hơn.
             </Text>
           ) : null}

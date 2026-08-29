@@ -61,8 +61,8 @@ const VIEWPORTS = [
 
 const BO_QUA = "Bỏ qua, vào app mà chưa chọn người";
 const TAB_LABELS = {
-  "kham-pha": "Khám phá — gợi ý chỗ đi cho nhóm",
-  "ca-nhan": "Cá nhân — hồ sơ và tài chính của bạn",
+  "kham-pha": "Khám phá: gợi ý chỗ đi cho nhóm",
+  "ca-nhan": "Cá nhân: hồ sơ và tài chính của bạn",
 };
 
 const chromeBin = findChrome();

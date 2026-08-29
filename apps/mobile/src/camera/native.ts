@@ -39,7 +39,7 @@ export function nativeBackend(camera: { current: CameraView | null }): PhotoBack
     async capture(): Promise<TempPhoto> {
       const view = camera.current;
       if (view === null) {
-        throw new Error("Camera chưa sẵn sàng — thử lại sau một nhịp.");
+        throw new Error("Camera chưa sẵn sàng, thử lại sau một nhịp.");
       }
       const shot = await view.takePictureAsync({
         // Full quality here, compression in the next step. Compressing twice
