@@ -40,7 +40,7 @@ DC = $(COMPOSE) -p $(PROJECT)
 WAIT_TIMEOUT ?= 300
 
 .DEFAULT_GOAL := help
-.PHONY: help gate up down clean logs ps migrate db-check seed demo smoke
+.PHONY: help gate test-db up down clean logs ps migrate db-check seed demo smoke
 
 # `demo` phải gọi đúng bộ container mà `up` vừa dựng. Trên nhánh này biến đó là
 # $(COMPOSE); PR #60 (đang mở, cùng lane) đổi nó thành $(DC) = compose kèm
@@ -80,6 +80,15 @@ help: ## In danh sách lệnh
 # không test được nếu không có make, còn script thì tests/ gọi được.
 gate: ## Chạy các cổng của CI ngay tại máy — ONLY="api mobile" chọn chặng, STRICT=1 coi bỏ-qua là hỏng
 	@scripts/gate.sh $(if $(STRICT),--strict) $(ONLY)
+
+# Tầng duy nhất chứng minh SQL, index, view và trigger thật. 224 ca, 17 giây,
+# và trước hôm nay gần như không ai chạy: phải tự biết chuỗi kết nối, mà máy
+# này có mười container Postgres của năm worktree nên đoán nhầm là chuyện
+# thường. Nay nó tự dựng database riêng rồi tự xoá, KHÔNG đụng bộ `make up`
+# của bất kỳ lane nào — nên không cần `make up` trước, và chạy được song song
+# với người khác.
+test-db: ## Chạy tầng PostgreSQL thật trên database dùng một lần — ARGS="-k ten" lọc ca
+	@scripts/postgres_tier.sh $(ARGS)
 
 up: ## Dựng ảnh, chạy migration, bật API, seed dữ liệu mẫu, rồi tự kiểm
 	@# Trước `docker build`, không phải sau: build mất vài phút, và một cảnh
