@@ -25,6 +25,7 @@ import anyio
 import pytest
 
 from app.api.deps import get_receipt_reader
+from app.api.errors import ApiProblem
 from app.api.main import create_app
 from app.api.routes.places import get_place_searcher
 from app.api.routes.receipts import get_receipt_scan_limiter
@@ -32,6 +33,7 @@ from app.api.search_rate_limit import (
     RECEIPT_SCAN_LIMIT_PER_WINDOW,
     SEARCH_LIMIT_PER_WINDOW,
     FixedWindowLimiter,
+    build_receipt_scan_limiter,
 )
 
 from .conftest import ASGITestClient
@@ -267,3 +269,70 @@ def test_spending_the_search_ceiling_leaves_the_scan_ceiling_whole(client, reade
 
     assert scan_codes == [200] * RECEIPT_SCAN_LIMIT_PER_WINDOW
     assert len(reader.calls) == RECEIPT_SCAN_LIMIT_PER_WINDOW
+
+
+# The burst one real person produces in one minute. Not chosen to look tidy:
+# `#227` shipped 10 first and the suite disproved it -- `tests/qa/rd-qa-38`
+# drives one actor past 10 scans in a single window doing nothing unreasonable,
+# and the measured peak of the whole suite on the shared process-level limiter
+# is 23. Twenty sits above the disproved region and below the shipped ceiling.
+HUMAN_BURST_PER_MINUTE = 20
+
+# Five, because `tests/qa/qa-tt-0005` admits any window up to 300 seconds. A
+# window at that ceiling has to roll at least once inside this span, so five
+# consecutive minutes is what it takes to tell a per-minute cap apart from a
+# five-minute budget. Fewer minutes and the two are indistinguishable.
+CONSECUTIVE_MINUTES = 5
+
+
+def test_the_human_burst_gets_through_in_every_minute_not_just_the_first():
+    """The ceiling has to be a rate, and no gate in the repository said so.
+
+    `tests/qa/qa-tt-0005` bounds the two numbers **separately** -- the limit
+    lands in (20, 60] and the window in [60, 300] -- and never their ratio. So
+    the pair (30, 300) satisfies both bounds while being a fivefold tightening
+    of the real ceiling: 30 scans per five minutes rather than per minute.
+    Measured, not argued: raising `RECEIPT_SCAN_WINDOW_SECONDS` from 60 to 300
+    with the limit untouched leaves the entire repository at 1527 passed, the
+    same count as the clean tree. Nothing anywhere goes red.
+
+    What that costs is the hero path. Someone photographing a blurry bill,
+    re-shooting it, then starting a second bill spends their whole budget in
+    the first minute and is refused for the next four -- the exact failure the
+    ceiling was raised from 10 to 30 to avoid, reintroduced through the
+    denominator instead of the numerator.
+
+    Configuration is read off the shipped limiter rather than re-imported from
+    the constants, so a ship wired to numbers nobody intended still fails here.
+    The clock is the one thing substituted: `FixedWindowLimiter` takes one by
+    construction, and a gate that waited out five real minutes would be a gate
+    nobody runs. That the shipped object reads a real clock is covered above,
+    by `test_the_shipped_route_meters_without_any_test_installing_a_limiter`.
+    """
+
+    shipped = build_receipt_scan_limiter()
+    clock = Clock()
+    probe = FixedWindowLimiter(
+        limit=shipped.limit,
+        window_seconds=shipped.window_seconds,
+        code=shipped.code,
+        message=shipped.message,
+        clock=clock,
+    )
+    person = uuid.uuid4()
+
+    for minute in range(1, CONSECUTIVE_MINUTES + 1):
+        for attempt in range(1, HUMAN_BURST_PER_MINUTE + 1):
+            try:
+                probe.check(person)
+            except ApiProblem as exc:  # pragma: no cover - only when red
+                raise AssertionError(
+                    f"scan {attempt} of minute {minute} was refused. A ceiling "
+                    f"of {shipped.limit} per {shipped.window_seconds}s is "
+                    f"{shipped.limit * 60 / shipped.window_seconds:.0f} scans "
+                    f"per minute, below the {HUMAN_BURST_PER_MINUTE} one person "
+                    "produces re-shooting a blurry bill. Both numbers are "
+                    "individually inside the band qa-tt-0005 allows; it is "
+                    "their ratio that is not a ceiling any more"
+                ) from exc
+        clock.advance(61)
