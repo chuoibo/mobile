@@ -62,6 +62,8 @@ import {
 import { ChupBill } from "./src/screens/ChupBill";
 import { GoiYChia } from "./src/screens/GoiYChia";
 import { KetQuaNhanDien } from "./src/screens/KetQuaNhanDien";
+import { KetQuaThanhToan } from "./src/screens/KetQuaThanhToan";
+import { MaVietQr } from "./src/ui/MaVietQr";
 import { ChiaSe, type Envelope } from "./src/screens/ChiaSe";
 import { DeXuat, type Proposal } from "./src/screens/DeXuat";
 import { DotThu, type Obligation } from "./src/screens/DotThu";
@@ -74,8 +76,24 @@ import {
   type DraftForm,
 } from "./src/participants";
 import { space, type, usePalette } from "./src/theme";
+import {
+  DEMO_ADVANCER_ID,
+  DEMO_ALLOCATIONS,
+  DEMO_ENVELOPES,
+  DEMO_ITEM_COUNT,
+  DEMO_OBLIGATIONS,
+  DEMO_ROSTER,
+} from "./src/fixtures/thanh-toan-demo";
 
-type Step = "chup-bill" | "ket-qua" | "goi-y" | "nhap" | "de-xuat" | "dot-thu" | "chia-se";
+type Step =
+  | "chup-bill"
+  | "ket-qua"
+  | "goi-y"
+  | "nhap"
+  | "de-xuat"
+  | "dot-thu"
+  | "ket-qua-tt"
+  | "chia-se";
 
 /**
  * Who the app says it is when it asks for a bill to be read.
@@ -157,6 +175,10 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
   const [obligations, setObligations] = useState<Obligation[]>([]);
   const [envelopes, setEnvelopes] = useState<Envelope[]>([]);
   const [published, setPublished] = useState(false);
+  // Whose code the settlement screen is showing. One at a time, on purpose:
+  // a wall of codes is a wall of other people's bank accounts, and the person
+  // holding the phone only ever needs their own.
+  const [nguoiDangChon, setNguoiDangChon] = useState<string | null>(null);
   // Spec section 8.3. Reported by the batch, never assumed by the screen.
   const [gates, setGates] = useState<PublishGates>({ payerAcknowledged: false });
   const [error, setError] = useState<string | null>(null);
@@ -498,16 +520,22 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
           published={published}
           gates={gates}
           onPublish={() => guard(async () => {
-            setEnvelopes(
-              await publishBatch(
-                batchId!,
-                gates,
-                proposal!.advancerId,
-                attemptFor(attempts.current, `phat:${batchId}`),
-                proposal!.participants,
-              ),
+            const sent = await publishBatch(
+              batchId!,
+              gates,
+              proposal!.advancerId,
+              attemptFor(attempts.current, `phat:${batchId}`),
+              proposal!.participants,
             );
+            setEnvelopes(sent);
             setPublished(true);
+            // Publishing is the moment the codes come into existence, so it is
+            // the first moment the settlement screen has anything to draw.
+            // Landing on the first envelope rather than on nothing: the common
+            // case is one person owing one person, and asking them to pick
+            // themselves out of a list of one is a step for the sake of it.
+            setNguoiDangChon(sent[0]?.senderId ?? null);
+            setStep("ket-qua-tt");
           })}
           onShare={() => setStep("chia-se")}
           busy={busy}
@@ -521,6 +549,46 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
             );
             await refreshBoard();
           })}
+        />
+      )}
+
+      {step === "ket-qua-tt" && proposal && (
+        <KetQuaThanhToan
+          roster={form.roster}
+          // Straight from the server's allocator, not from anything this file
+          // added up. `proposal.allocations` is what `POST /expenses` returned
+          // and what `confirm` was checked against.
+          allocations={proposal.allocations}
+          obligations={obligations}
+          envelopes={envelopes}
+          advancerId={proposal.advancerId}
+          itemCount={reading === null ? 0 : reading.lines.length}
+          nguoiDangChon={nguoiDangChon}
+          onChonNguoi={setNguoiDangChon}
+          renderMaQr={(senderId) => {
+            const envelope = envelopes.find((e) => e.senderId === senderId);
+            if (envelope === undefined) return null;
+            // One card per debt. A sender with two recipients gets two codes,
+            // each labelled with who it pays, because scanning the wrong one
+            // sends the right amount to the wrong person.
+            return envelope.obligations.map((debt) => (
+              <MaVietQr
+                key={debt.obligationId}
+                payload={debt.vietqrPayload}
+                // The amount from the obligation list, not from the payload.
+                // Passing the payload's own number would make the check inside
+                // `MaVietQr` compare a value against itself and always agree.
+                expectedAmountVnd={debt.amountVnd}
+                recipientName={
+                  obligations.find((o) => o.id === debt.obligationId)?.recipient ??
+                  "người nhận"
+                }
+              />
+            ));
+          }}
+          onShare={() => setStep("chia-se")}
+          onDone={() => setStep("dot-thu")}
+          onBack={() => setStep("dot-thu")}
         />
       )}
 
@@ -557,6 +625,66 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
 }
 
 /**
+ * The settlement screen on frozen data, reachable from a URL, web only.
+ *
+ * Same reason as `tabTuUrl` in `AppRoot`, which the comment there spells out:
+ * a detector renders a URL and cannot press anything. The real screen is eight
+ * presses and a live server past the opening screen, so without this it never
+ * gets scanned, and "the app was checked" quietly means "the opening screen
+ * was checked".
+ *
+ * Narrow on purpose. One exact parameter value, nothing on native, no writes,
+ * and every number comes from a fixture that says out loud it is one. It is
+ * not a demo mode and not a way into the product: there is no route from here
+ * to anything that touches a server.
+ */
+function manDo(): boolean {
+  const loc = (globalThis as { location?: { search?: string } }).location;
+  if (!loc?.search) return false;
+  return new URLSearchParams(loc.search).get("man") === "ket-qua-thanh-toan";
+}
+
+function XemKetQuaThanhToan() {
+  const c = usePalette();
+  const [nguoiDangChon, setNguoiDangChon] = useState<string | null>(
+    DEMO_ENVELOPES[0]?.senderId ?? null,
+  );
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
+      <StatusBar style="dark" />
+      <KetQuaThanhToan
+        roster={DEMO_ROSTER}
+        allocations={DEMO_ALLOCATIONS}
+        obligations={DEMO_OBLIGATIONS}
+        envelopes={DEMO_ENVELOPES}
+        advancerId={DEMO_ADVANCER_ID}
+        itemCount={DEMO_ITEM_COUNT}
+        nguoiDangChon={nguoiDangChon}
+        onChonNguoi={setNguoiDangChon}
+        renderMaQr={(senderId) => {
+          const envelope = DEMO_ENVELOPES.find((e) => e.senderId === senderId);
+          if (envelope === undefined) return null;
+          return envelope.obligations.map((debt) => (
+            <MaVietQr
+              key={debt.obligationId}
+              payload={debt.vietqrPayload}
+              expectedAmountVnd={debt.amountVnd}
+              recipientName={
+                DEMO_OBLIGATIONS.find((o) => o.id === debt.obligationId)?.recipient ??
+                "người nhận"
+              }
+            />
+          ));
+        }}
+        onShare={() => {}}
+        onDone={() => {}}
+        onBack={() => {}}
+      />
+    </SafeAreaView>
+  );
+}
+
+/**
  * The app root: the opening screen, then the five-tab shell.
  *
  * The flow above is passed down rather than imported by the shell, so the
@@ -564,5 +692,6 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
  * this file remains the only place that knows both halves exist.
  */
 export default function App() {
+  if (manDo()) return <XemKetQuaThanhToan />;
   return <AppRoot renderKhoanChi={(onExit) => <LuongKhoanChi onExit={onExit} />} />;
 }

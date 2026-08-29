@@ -11,7 +11,29 @@ import { formatVnd } from "../../../../packages/shared/money.mjs";
 import { radius, space, type, usePalette } from "../theme";
 import { Button, Card, Screen } from "../ui/Kit";
 
-export type Envelope = { senderId: string; senderName: string; amountVnd: number; url: string; opened: boolean };
+/** One debt inside an envelope, with the code that pays it.
+ *
+ * `vietqrPayload` is the EMVCo string `POST /batches/{id}/publish` built with
+ * `app/payments/vietqr.py`. It is carried, never rebuilt: the app has no bank
+ * account numbers of its own and no business deciding what a transfer says.
+ */
+export type EnvelopeObligation = {
+  obligationId: string;
+  amountVnd: number;
+  vietqrPayload: string;
+};
+
+export type Envelope = {
+  senderId: string;
+  senderName: string;
+  amountVnd: number;
+  url: string;
+  opened: boolean;
+  /** Per debt, because one person can owe two people out of one round, and
+   *  each debt carries its own code. The share screen sums them; the
+   *  settlement screen shows them one at a time. */
+  obligations: EnvelopeObligation[];
+};
 
 export function ChiaSe({ envelopes, onDone }: { envelopes: Envelope[]; onDone: () => void }) {
   const c = usePalette();

@@ -723,7 +723,11 @@ async function sendPublish(
       // One link can cover several obligations -- one person can owe two
       // different people out of the same round. The link is per sender, not
       // per debt, and each debt carries its own VietQR string.
-      obligations: { obligation_id: string; amount_vnd: number }[];
+      obligations: {
+        obligation_id: string;
+        amount_vnd: number;
+        vietqr_payload: string;
+      }[];
     }[];
   }>(PUBLISH_REFUSALS, `/batches/${batchId}/publish`, {
     body: {
@@ -748,6 +752,15 @@ async function sendPublish(
     amountVnd: link.obligations.reduce((sum, row) => sum + row.amount_vnd, 0),
     url: BASE_URL + link.path,
     opened: false,
+    // Carried through untouched. The settlement screen draws the code from
+    // this string and cross-checks the amount inside it against the amount
+    // beside it; both of those need the server's own bytes, not a copy the
+    // app assembled from fields it happened to keep.
+    obligations: link.obligations.map((row) => ({
+      obligationId: row.obligation_id,
+      amountVnd: row.amount_vnd,
+      vietqrPayload: row.vietqr_payload,
+    })),
   }));
 }
 

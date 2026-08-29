@@ -55,3 +55,31 @@ mo bang chon toan man.
 
 FINISH: build fully, then hand off to the finish reviewer with captures.
 `.trim();
+
+/** The direction contract for the settlement screen (rd-fe-05).
+ *
+ * Its own contract for the same reason the previous two have theirs: the
+ * failure mode is different again. The bill screens are about reading a number
+ * correctly, the matrix is about attributing it to the right person, and this
+ * one is about a number LEAVING somebody's bank account. Nothing on it may be
+ * computed here, and nothing on it may look more settled than it is.
+ */
+export const DIRECTION_CONTRACT_KET_QUA = `
+THESIS: Toi chuyen bao nhieu, cho ai, bang cach nao. Ba cau tra loi, dung thu
+tu do. Moi con so tren man deu do may chu gui ve; app khong cong tru gi.
+
+OWN-WORLD: The gioi Ru Di, khong them mau. Dan bang teal "split" -- day la buoc
+quyet toan. Khong dung tim "ai": khong con gi tren man nay do may doan.
+
+STORY: Tong hoa don o tren. Roi phan cua tung nguoi. Roi ai chuyen cho ai. Roi
+mot ma quet duy nhat, cua dung nguoi dang chon. Di tu nhom ve mot nguoi.
+
+FIRST VIEWPORT: So tong co display tren nen kem, dong "N mon - M nguoi", roi
+the "So tien moi nguoi phai tra" voi ba dong dau nhin thay duoc.
+
+FORM: The trang tren nen kem, so tabular canh phai. QR la o vuong den trang co
+le trang 4 module, khong bo goc, khong long logo vao giua. So tai khoan che het
+tru bon so cuoi.
+
+FINISH: build fully, then hand off to the finish reviewer with captures.
+`.trim();
