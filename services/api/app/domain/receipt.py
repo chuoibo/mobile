@@ -1,0 +1,319 @@
+"""Pure normalization for receipt readings produced by a vision backend.
+
+The backend copies text from the receipt. This module deterministically turns
+that text into integer dong while preserving independently observed amounts.
+It performs no I/O and never asks a model to reconcile receipt arithmetic.
+"""
+
+from __future__ import annotations
+
+import math
+import re
+
+from .contract import MAX_AMOUNT_VND
+
+__all__ = [
+    "CONFIDENCE_FLOOR",
+    "CONFIDENCE_REVIEW",
+    "DOCUMENT_TYPE_OTHER",
+    "DOCUMENT_TYPE_PRICE_LIST",
+    "DOCUMENT_TYPE_RECEIPT",
+    "ReceiptError",
+    "normalize_vnd",
+    "read_receipt",
+    "read_scanned_document",
+]
+
+
+CONFIDENCE_FLOOR = 50
+CONFIDENCE_REVIEW = 90
+
+# What the reader is asked to decide before it transcribes anything. Only the
+# first value is admissible; the other two exist so the reader has somewhere to
+# put a photograph that is not a bill, instead of being forced to describe one.
+DOCUMENT_TYPE_RECEIPT = "receipt"
+DOCUMENT_TYPE_PRICE_LIST = "price_list"
+DOCUMENT_TYPE_OTHER = "other"
+
+
+_CURRENCY_MARKER = r"(?:VND|VNĐ|đ|₫|d)"
+_SUFFIX_PATTERN = re.compile(
+    r"^(?P<number>.+?)\s*(?P<suffix>nghìn|ngàn|triệu|tr|k)$",
+    re.IGNORECASE,
+)
+_GROUPED_PATTERN = re.compile(
+    r"\d{1,3}(?P<separator>[., ])\d{3}(?:(?P=separator)\d{3})*"
+)
+_PLAIN_PATTERN = re.compile(r"\d+")
+_FRACTIONAL_PATTERN = re.compile(r"(?P<whole>\d+)[.,](?P<fraction>\d+)")
+
+
+class ReceiptError(Exception):
+    """Report one stable receipt-reading failure."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+def _unreadable() -> ReceiptError:
+    return ReceiptError("UNREADABLE_AMOUNT")
+
+
+def _strip_currency_marker(value: str) -> str:
+    leading = re.fullmatch(
+        rf"\s*{_CURRENCY_MARKER}\s*(?P<amount>.*?)\s*", value, re.IGNORECASE
+    )
+    if leading is not None:
+        value = leading.group("amount")
+
+    trailing = re.fullmatch(
+        rf"\s*(?P<amount>.*?)\s*{_CURRENCY_MARKER}\s*", value, re.IGNORECASE
+    )
+    if trailing is not None:
+        value = trailing.group("amount")
+    return value.strip()
+
+
+def _checked_amount(value: int) -> int:
+    if value < 0 or value > MAX_AMOUNT_VND:
+        raise _unreadable()
+    return value
+
+
+def _parse_amount_digits(value: str) -> int:
+    significant = value.lstrip("0") or "0"
+    if len(significant) > len(str(MAX_AMOUNT_VND)):
+        raise _unreadable()
+    return int(significant)
+
+
+def _parse_suffixed(number: str, multiplier: int) -> int:
+    if _GROUPED_PATTERN.fullmatch(number):
+        raise _unreadable()
+
+    if _PLAIN_PATTERN.fullmatch(number):
+        return _checked_amount(_parse_amount_digits(number) * multiplier)
+
+    match = _FRACTIONAL_PATTERN.fullmatch(number)
+    if match is None:
+        raise _unreadable()
+
+    whole = match.group("whole")
+    fraction = match.group("fraction")
+    scale_digits = 6 if multiplier == 1_000_000 else 3
+    if len(fraction) > scale_digits and any(
+        digit != "0" for digit in fraction[scale_digits:]
+    ):
+        raise _unreadable()
+    fraction_head = fraction[:scale_digits]
+    fractional_amount = int(fraction_head) * 10 ** (scale_digits - len(fraction_head))
+    amount = _parse_amount_digits(whole) * multiplier + fractional_amount
+    return _checked_amount(amount)
+
+
+def normalize_vnd(text: str) -> int:
+    """Read one unambiguous Vietnamese amount as an exact integer dong."""
+
+    if not isinstance(text, str):
+        raise _unreadable()
+
+    value = re.sub(r"\s+", " ", text.replace("\u00a0", " ").replace("\u202f", " "))
+    value = _strip_currency_marker(value.strip())
+    if not value:
+        raise _unreadable()
+
+    suffix = _SUFFIX_PATTERN.fullmatch(value)
+    if suffix is not None:
+        suffix_text = suffix.group("suffix").casefold()
+        multiplier = 1_000_000 if suffix_text in {"tr", "triệu"} else 1_000
+        return _parse_suffixed(suffix.group("number").strip(), multiplier)
+
+    if _PLAIN_PATTERN.fullmatch(value):
+        return _checked_amount(_parse_amount_digits(value))
+
+    grouped = _GROUPED_PATTERN.fullmatch(value)
+    if grouped is not None:
+        separator = grouped.group("separator")
+        return _checked_amount(_parse_amount_digits(value.replace(separator, "")))
+
+    raise _unreadable()
+
+
+def _read_quantity(item: dict) -> int:
+    if "quantity_text" not in item:
+        return 1
+    quantity_text = item["quantity_text"]
+    if not isinstance(quantity_text, str):
+        raise ReceiptError("INVALID_QUANTITY")
+    stripped = quantity_text.strip()
+    if _PLAIN_PATTERN.fullmatch(stripped) is None:
+        raise ReceiptError("INVALID_QUANTITY")
+    try:
+        quantity = int(stripped)
+    except ValueError:
+        raise ReceiptError("INVALID_QUANTITY") from None
+    if quantity <= 0:
+        raise ReceiptError("INVALID_QUANTITY")
+    return quantity
+
+
+def _read_confidence(raw: dict) -> int:
+    if "confidence" not in raw:
+        raise ReceiptError("INVALID_CONFIDENCE")
+    confidence = raw["confidence"]
+    if type(confidence) not in {int, float}:
+        raise ReceiptError("INVALID_CONFIDENCE")
+    if not 0 <= confidence <= 1:
+        raise ReceiptError("INVALID_CONFIDENCE")
+    if type(confidence) is float and not math.isfinite(confidence):
+        raise ReceiptError("INVALID_CONFIDENCE")
+    return int(confidence * 100)
+
+
+def read_scanned_document(raw: dict) -> dict:
+    """Admit only a legible receipt, then normalize it.
+
+    Kept separate from ``read_receipt`` because the two answer different
+    questions. This one asks whether the photograph may be turned into money at
+    all; ``read_receipt`` asks what the transcribed strings mean. Splitting them
+    also leaves the normalizer callable on its own, which the rd-qa-03
+    regression file does.
+
+    The order of the two refusals is the whole design. Legibility first: under
+    ``CONFIDENCE_FLOOR`` the document type is exactly as untrustworthy as the
+    amounts, and a real bill photographed too badly to read comes back labelled
+    "other" because the model could not see it either. "Chụp lại" is the true
+    instruction there; "this is not a receipt" would send that person looking
+    for a different piece of paper.
+
+    Then the type, fail-closed: only the exact string ``receipt`` opens the
+    gate. A reading with no ``document_type``, or one this module does not
+    recognise, is refused -- a backend that did not answer the question has
+    established nothing, and the default it would fall back to is the very
+    assumption that produced 340.000 dong from a menu.
+    """
+
+    if not isinstance(raw, dict):
+        raise ReceiptError("INVALID_RECEIPT")
+
+    if _read_confidence(raw) < CONFIDENCE_FLOOR:
+        raise ReceiptError("RECEIPT_TOO_BLURRY")
+
+    document_type = raw.get("document_type")
+    if document_type == DOCUMENT_TYPE_RECEIPT:
+        return read_receipt(raw)
+    if document_type == DOCUMENT_TYPE_PRICE_LIST:
+        raise ReceiptError("NOT_A_RECEIPT_PRICE_LIST")
+    raise ReceiptError("NOT_A_RECEIPT")
+
+
+def read_receipt(raw: dict) -> dict:
+    """Normalize one raw reading without reconciling independent amounts."""
+
+    if not isinstance(raw, dict):
+        raise ReceiptError("INVALID_RECEIPT")
+    if "items" not in raw or not isinstance(raw["items"], list):
+        raise ReceiptError("INVALID_RECEIPT")
+
+    confidence = _read_confidence(raw)
+    if confidence < CONFIDENCE_FLOOR:
+        raise ReceiptError("RECEIPT_TOO_BLURRY")
+    if not raw["items"]:
+        raise ReceiptError("NO_ITEMS_READ")
+    if "total_text" not in raw:
+        raise ReceiptError("INVALID_RECEIPT")
+
+    items: list[dict] = []
+    warnings: list[str] = []
+    if confidence < CONFIDENCE_REVIEW:
+        warnings.append(
+            "Ảnh bill chưa đủ rõ; hãy kiểm tra từng món và số tiền trước khi xác nhận."
+        )
+
+    for raw_item in raw["items"]:
+        if not isinstance(raw_item, dict):
+            raise ReceiptError("INVALID_RECEIPT_ITEM")
+        name = raw_item.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise ReceiptError("INVALID_RECEIPT_ITEM")
+        if "line_total_text" not in raw_item:
+            raise ReceiptError("INVALID_RECEIPT_ITEM")
+
+        quantity = _read_quantity(raw_item)
+        line_total_vnd = normalize_vnd(raw_item["line_total_text"])
+        unit_price_text = raw_item.get("unit_price_text")
+        if unit_price_text is not None:
+            unit_price_vnd = normalize_vnd(unit_price_text)
+            if unit_price_vnd * quantity != line_total_vnd:
+                warnings.append(
+                    f'Đơn giá in trên bill của "{name}" nhân số lượng '
+                    "không khớp thành tiền; giữ nguyên cả hai số."
+                )
+        elif line_total_vnd % quantity == 0:
+            unit_price_vnd = line_total_vnd // quantity
+        else:
+            unit_price_vnd = None
+
+        items.append(
+            {
+                "name": name,
+                "quantity": quantity,
+                "unit_price_vnd": unit_price_vnd,
+                "line_total_vnd": line_total_vnd,
+            }
+        )
+
+    items_total_vnd = sum(item["line_total_vnd"] for item in items)
+    total_text = raw["total_text"]
+    if total_text is None:
+        total_vnd = None
+        totals_agree = None
+        total_difference_vnd = None
+        warnings.append(
+            "Không đọc thấy tổng in trên bill để đối chiếu với tổng các dòng."
+        )
+    else:
+        total_vnd = normalize_vnd(total_text)
+        total_difference_vnd = total_vnd - items_total_vnd
+        totals_agree = total_difference_vnd == 0
+        if not totals_agree:
+            # Two different failures used to arrive as one identical sentence.
+            # A bill that does not add up and a reading that misread four lines
+            # both produce a difference, but they need opposite actions: query
+            # the restaurant, or re-check every line against the paper. The
+            # amount is stated identically either way; only the attribution
+            # changes, because confidence can say whether the reading was clear
+            # enough for the difference to be worth believing.
+            if confidence < CONFIDENCE_REVIEW:
+                warnings.append(
+                    "Tổng in trên bill chênh "
+                    f"{total_difference_vnd:+d} đồng so với tổng các dòng, "
+                    "nhưng ảnh chưa đủ rõ nên chênh lệch này có thể do đọc sai "
+                    "dòng chứ không phải do bill; đối chiếu từng dòng với tờ "
+                    "giấy trước khi xác nhận."
+                )
+            else:
+                warnings.append(
+                    "Tổng in trên bill chênh "
+                    f"{total_difference_vnd:+d} đồng so với tổng các dòng; "
+                    "giữ nguyên cả hai số."
+                )
+
+    return {
+        "items": items,
+        "items_total_vnd": items_total_vnd,
+        "total_vnd": total_vnd,
+        "totals_agree": totals_agree,
+        "total_difference_vnd": total_difference_vnd,
+        "confidence": confidence,
+        # Derived from the warnings rather than listed alongside them. This is
+        # the only field the app branches on to demand per-item confirmation,
+        # so a warning that ships without it is a warning nothing surfaces --
+        # which is the rd-qa-03 complaint one layer up. Found live: the mockup
+        # bill read at confidence 0.98 with 151.000 dong unaccounted for
+        # between the lines and the printed total, warned about it, and asked
+        # nobody to look.
+        "needs_review": bool(warnings),
+        "warnings": warnings,
+    }

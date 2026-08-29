@@ -48,12 +48,34 @@ def test_low_confidence_reading_is_not_returned_as_plain_fact():
     Observed live at Gaussian blur r=12: confidence 0.30-0.40, eight item
     amounts returned, every one of them wrong, HTTP 200, and the only warning
     was the generic totals-disagree line that a correct read also produces.
-    """
-    result = receipt.read_receipt(_reading(confidence=0.30, total_text=None))
 
-    assert result["confidence"] == 30
+    The guard landed STRONGER than this file originally proposed. rd-qa-03 asked
+    for a warning alongside the numbers; the shipped gate refuses outright below
+    CONFIDENCE_FLOOR and returns no items at all, because handing over an
+    invented list for the user to "just confirm" anchors them on numbers nobody
+    read off the paper. Refusing is the strictest way to satisfy the assertion
+    this test is named for, so the case is kept and its expectation tightened.
+    """
+    with pytest.raises(receipt.ReceiptError) as caught:
+        receipt.read_receipt(_reading(confidence=0.30, total_text=None))
+
+    assert caught.value.code == "RECEIPT_TOO_BLURRY"
+
+
+def test_a_read_above_the_floor_is_still_never_silent():
+    """The original rd-qa-03 concern, applied where results ARE returned.
+
+    Between the floor and the review bar the product does answer, so the
+    "cannot tell a sure number from a guess" complaint still applies there.
+    """
+    result = receipt.read_receipt(
+        _reading(confidence=receipt.CONFIDENCE_FLOOR / 100, total_text="135.000")
+    )
+
+    assert result["confidence"] == receipt.CONFIDENCE_FLOOR
+    assert result["needs_review"] is True
     assert result["warnings"], (
-        "Đọc ở mức tin cậy 30% mà không kèm cảnh báo nào: màn hình không thể "
+        "Đọc ngay trên sàn mà không kèm cảnh báo nào: màn hình không thể "
         "phân biệt số đọc chắc với số đoán mò."
     )
 

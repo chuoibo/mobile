@@ -25,6 +25,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    desc,
     func,
     text,
 )
@@ -727,6 +728,9 @@ __all__ = [
     "GuestLink",
     "GuestLinkStatus",
     "IdempotencyKey",
+    "MembershipRole",
+    "Message",
+    "MessageKind",
     "PayerAcknowledgement",
     "PaymentReport",
     "ReceiptConfirmation",
@@ -745,6 +749,17 @@ class MembershipState(StrEnum):
     INVITED = "invited"
     ACTIVE = "active"
     LEFT = "left"
+
+
+class MembershipRole(StrEnum):
+    MEMBER = "member"
+    ADMIN = "admin"
+
+
+class MessageKind(StrEnum):
+    TEXT = "text"
+    IMAGE = "image"
+    AI_CARD = "ai_card"
 
 
 class Person(Base):
@@ -858,6 +873,12 @@ class Membership(Base):
         nullable=False,
         default=MembershipState.INVITED,
     )
+    role: Mapped[MembershipRole] = mapped_column(
+        _enum_type(MembershipRole, "membership_role"),
+        nullable=False,
+        server_default=MembershipRole.MEMBER.value,
+        default=MembershipRole.MEMBER,
+    )
     invited_by_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("people.id", name="fk_memberships_invited_by"),
@@ -868,6 +889,63 @@ class Membership(Base):
     )
     left_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class Message(Base):
+    """One immutable entry in a context's conversation feed."""
+
+    __tablename__ = "messages"
+    __table_args__ = (
+        CheckConstraint(
+            "(kind = 'text' AND body IS NOT NULL AND image_url IS NULL "
+            "AND card IS NULL) OR "
+            "(kind = 'image' AND image_url IS NOT NULL AND card IS NULL) OR "
+            "(kind = 'ai_card' AND card IS NOT NULL AND image_url IS NULL "
+            "AND body IS NULL)",
+            name="payload_matches_kind",
+        ),
+        CheckConstraint(
+            "kind = 'ai_card' OR author_id IS NOT NULL",
+            name="human_kinds_have_author",
+        ),
+        Index(
+            "ix_messages_context_feed",
+            "context_id",
+            desc("created_at"),
+            desc("id"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    context_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("contexts.id", name="fk_messages_context_id"),
+        nullable=False,
+    )
+    author_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_messages_author_id"),
+        nullable=True,
+    )
+    kind: Mapped[MessageKind] = mapped_column(
+        _enum_type(MessageKind, "message_kind"), nullable=False
+    )
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # `none_as_null` is not decoration. SQLAlchemy defaults it to False, which
+    # stores Python `None` as the JSON value `null` rather than SQL NULL -- so
+    # `card IS NULL` is false for a text message, and the payload check
+    # constraint below rejects every ordinary message. psycopg prints both as
+    # `null` in the error detail, so the two are indistinguishable in the log
+    # that is supposed to explain the rejection.
+    card: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

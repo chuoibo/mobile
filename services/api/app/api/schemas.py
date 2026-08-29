@@ -133,11 +133,16 @@ class MembershipInviteRequest(ApiModel):
     person_id: UUID
 
 
+class MemberRoleRequest(ApiModel):
+    role: Literal["member", "admin"]
+
+
 class MembershipResponse(ApiModel):
     id: UUID
     context_id: UUID
     person_id: UUID
     state: Literal["invited", "active", "left"]
+    role: Literal["member", "admin"]
     invited_by_id: UUID | None
     joined_at: datetime | None
     left_at: datetime | None
@@ -147,6 +152,38 @@ class MembershipResponse(ApiModel):
 class MembershipListResponse(ApiModel):
     context_id: UUID
     members: list[MembershipResponse]
+
+
+class MessageCreateRequest(ApiModel):
+    kind: Literal["text", "image", "ai_card"]
+    body: Annotated[StrictStr, Field(max_length=4000)] | None = None
+    image_url: Annotated[StrictStr, Field(max_length=2000)] | None = None
+    card: dict | None = None
+
+
+class MessageQuery(ApiModel):
+    limit: int = Field(default=50, ge=1, le=100)
+    before: str | None = None
+    after: str | None = None
+
+
+class MessageResponse(ApiModel):
+    id: UUID
+    context_id: UUID
+    author_id: UUID | None
+    kind: Literal["text", "image", "ai_card"]
+    body: str | None
+    image_url: str | None
+    card: dict | None
+    created_at: datetime
+    cursor: str
+
+
+class MessageListResponse(ApiModel):
+    context_id: UUID
+    messages: list[MessageResponse]
+    next_cursor: str | None
+    has_more: bool
 
 
 class BatchCreateRequest(ApiModel):
@@ -212,6 +249,34 @@ class PaymentReportResponse(ApiModel):
     obligation_status: Literal[
         "outstanding", "partially_confirmed", "confirmed", "over_confirmed"
     ]
+
+
+class ReceiptItem(ApiModel):
+    name: StrictStr
+    quantity: Annotated[int, Field(strict=True, gt=0)]
+    unit_price_vnd: MoneyVnd | None = None
+    line_total_vnd: MoneyVnd
+
+
+class ReceiptScanResponse(ApiModel):
+    """What a scan is allowed to tell the client.
+
+    No ``confidence``. ADR-0009 decision 4 refuses a confidence score on the
+    grounds that a percentage invites an interface to auto-accept above a
+    threshold, and rd-qa-03 measured the reason live: the number tracked how
+    legible the print was, not whether the money was right, so a menu scored
+    95-100 and a reading that got four lines wrong scored 70-75. The signal the
+    client is meant to branch on is ``needs_review``; the rest is words a person
+    reads. The number still exists server-side, where it gates.
+    """
+
+    items: list[ReceiptItem]
+    items_total_vnd: MoneyVnd
+    total_vnd: MoneyVnd | None = None
+    totals_agree: StrictBool | None = None
+    total_difference_vnd: MoneyVnd | None = None
+    needs_review: StrictBool
+    warnings: list[StrictStr] = Field(default_factory=list)
 
 
 class ReceiptConfirmationRequest(ApiModel):

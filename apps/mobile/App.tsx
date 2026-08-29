@@ -4,11 +4,24 @@
  * build a Home screen or a tab shell before the actions are known, and this
  * flow is a line, not a graph. A router can arrive when there is a second
  * entry point to route to.
+ *
+ * That second entry point has now arrived. The flow below is unchanged and
+ * still a line; what changed is that it is no longer the whole app. It is
+ * reached from the shell's [+] menu as "Tạo khoản chi", and it is handed the
+ * way back out as `onExit` rather than reaching for the shell itself -- the
+ * shell knows about this flow, this flow does not know about the shell.
+ *
+ * The line now starts at the camera. "Tạo khoản chi" in the [+] menu says
+ * "Chụp bill hoặc nhập tay", and this is the file where that sentence is kept
+ * true: the flow opens on the viewfinder, and "Huỷ" there drops to the manual
+ * form rather than out of the flow -- the two halves of that promise, in the
+ * order the mockup puts them.
  */
 import { useCameraPermissions, type CameraView } from "expo-camera";
 import { StatusBar } from "expo-status-bar";
 import React, { useRef, useState } from "react";
-import { SafeAreaView, Text, View, useColorScheme } from "react-native";
+import { Pressable, SafeAreaView, Text, View, useColorScheme } from "react-native";
+import { AppRoot } from "./src/navigation/AppRoot";
 import {
   attemptFor,
   confirmExpense,
@@ -44,6 +57,31 @@ import { space, type, usePalette } from "./src/theme";
 type Step = "chup-bill" | "ket-qua" | "nhap" | "de-xuat" | "dot-thu" | "chia-se";
 
 /**
+ * Who the app says it is when it asks for a bill to be read.
+ *
+ * `POST /receipts/scan` wants an actor like every other route, and the bill is
+ * read before anybody has typed a single name -- there is no roster yet to
+ * borrow an id from. So one id is minted per launch and used for the scan
+ * only. It never reaches an expense, an obligation or an envelope: nothing is
+ * stored against it, because reading a photo writes nothing.
+ *
+ * Module-level rather than in state, so a re-render mid-upload cannot change
+ * who is asking halfway through.
+ */
+const SCAN_ACTOR_ID = makeIdFactory()();
+
+/**
+ * The two screens that own their whole pane.
+ *
+ * Both draw their own top-left control -- "Huỷ" on the viewfinder, "Chụp lại"
+ * on the reading -- so the flow's own "← Đóng" row is not drawn above them.
+ * Two back-controls in the same corner is one too many, and on the viewfinder
+ * the row also painted a cream strip along the top of a black screen, which
+ * read as the camera failing to reach the top of the phone.
+ */
+const TOAN_MAN: Step[] = ["chup-bill", "ket-qua"];
+
+/**
  * What a press is trying to write, as a string.
  *
  * This is the name an attempt is filed under, so it decides when a key is
@@ -58,21 +96,7 @@ function expenseIntent(d: Draft): string {
   return `khoan-chi:${d.advancerId}:${d.totalVnd}:${d.occasion}:${who}`;
 }
 
-/**
- * Who the app says it is when it asks for a bill to be read.
- *
- * `POST /receipts/scan` wants an actor like every other route, and the bill is
- * read before anybody has typed a single name -- there is no roster yet to
- * borrow an id from. So one id is minted per launch and used for the scan
- * only. It never reaches an expense, an obligation or an envelope: nothing is
- * stored against it, because reading a photo writes nothing.
- *
- * Module-level rather than in state, so a re-render mid-upload cannot change
- * who is asking halfway through.
- */
-const SCAN_ACTOR_ID = makeIdFactory()();
-
-export default function App() {
+function LuongKhoanChi({ onExit }: { onExit: () => void }) {
   const c = usePalette();
   const scheme = useColorScheme();
   // The bill comes first. This is the hero path: photograph the paper, let the
@@ -189,11 +213,38 @@ export default function App() {
   // and the server line sat in it, which read as the camera screen failing to
   // reach the bottom of the phone.
   const dark = step === "chup-bill";
+  const tuVe = TOAN_MAN.includes(step);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: dark ? "#000" : c.ground }}>
       <StatusBar style={dark || scheme === "dark" ? "light" : "dark"} />
 
+      {/* The way back to the tabs. The flow keeps its own "Sửa lại" for moving
+          between steps; this is the separate question of leaving entirely, so
+          it sits above the steps rather than inside any one of them.
+
+          Not drawn over the two screens that already carry a top-left control
+          of their own -- see `TOAN_MAN`. From those, the way out of the flow
+          is one step further along: "Huỷ" reaches the manual form, and the
+          row is there. */}
+      {tuVe ? null : (
+        <View style={{ paddingHorizontal: space.md, paddingTop: space.sm }}>
+          <Pressable
+            onPress={onExit}
+            accessibilityRole="button"
+            accessibilityLabel="Đóng khoản chi, quay lại các tab"
+            style={({ pressed }) => ({
+              alignSelf: "flex-start",
+              minHeight: 44,
+              justifyContent: "center",
+              paddingRight: space.sm,
+              opacity: pressed ? 0.6 : 1,
+            })}
+          >
+            <Text style={{ ...type.body, color: c.accent }}>← Đóng</Text>
+          </Pressable>
+        </View>
+      )}
 
       {step === "chup-bill" && (
         <ChupBill
@@ -209,7 +260,8 @@ export default function App() {
           onOpenSettings={() => guard(openAppSettings)}
           // Not every group has a paper bill, and not every phone will open a
           // camera. Cancelling drops into the manual form rather than into a
-          // dead end.
+          // dead end -- and the manual form is where "← Đóng" lives, so this
+          // is also the way back out to the tabs.
           onCancel={() => { setError(null); setStep("nhap"); }}
         />
       )}
@@ -357,4 +409,15 @@ export default function App() {
       </View>
     </SafeAreaView>
   );
+}
+
+/**
+ * The app root: the opening screen, then the five-tab shell.
+ *
+ * The flow above is passed down rather than imported by the shell, so the
+ * import graph stays one-directional (`App` → `navigation`, never back) and
+ * this file remains the only place that knows both halves exist.
+ */
+export default function App() {
+  return <AppRoot renderKhoanChi={(onExit) => <LuongKhoanChi onExit={onExit} />} />;
 }

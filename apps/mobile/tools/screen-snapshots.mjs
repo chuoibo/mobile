@@ -482,6 +482,22 @@ async function failAt(page, step, err) {
 async function drive(page, outDir, jpegPath) {
   let step = "chup-bill";
 
+  // The flow no longer starts the app. Since the five-tab shell landed on
+  // main, the bundle opens on `MoDau` and the expense flow is reached from
+  // the [+] menu -- so getting to the viewfinder is three presses, not zero.
+  // Driving it rather than deep-linking is deliberate: this is the only place
+  // that checks the shell actually hands over to these screens, which is
+  // exactly what the rebase could have silently broken.
+  step = "vao-app";
+  await clickAria(page, "Bỏ qua, vào app mà chưa chọn người");
+  await waitForScreen(page, step, "Khám phá");
+
+  step = "menu-tao";
+  await clickAria(page, "Tạo mới");
+  await waitForScreen(page, step, "Tạo khoản chi");
+
+  step = "chup-bill";
+  await clickAria(page, "Tạo khoản chi. Chụp bill hoặc nhập tay, AI chia tiền");
   await waitForScreen(page, step, "Chụp bill");
   await snapshot(page, outDir, step);
 
