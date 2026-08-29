@@ -134,15 +134,33 @@ class TheGateDoesNotAccuseTheInnocent(unittest.TestCase):
     """Ba ca này đều đã bị buộc tội oan một lần. Chúng ở đây để đừng lần nữa."""
 
     def test_a_url_builder_alone_is_not_a_call_site(self):
-        """`messagesUrl()` không có header, và đúng là không nên có."""
-        hits = _analyse(
-            """
+        """`messagesUrl()` không có header, và đúng là không nên có.
+
+        Khẳng định thẳng vào cờ `requester` chứ không chỉ vào danh sách vi phạm.
+        Một đột biến tắt phép lọc "chỉ dựng url" cho thấy vì sao: `_analyse` ở
+        trên tự lọc lại, nên nếu chỉ so danh sách rỗng thì ca này vẫn xanh
+        trong khi cổng thật đã hỏng. Ca dưới đây hỏi đúng thứ nó nói là hỏi.
+        """
+        import check_actor_headers as mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            target = pathlib.Path(tmp) / "mau.ts"
+            target.write_text(
+                """
 export function messagesUrl(base: string, contextId: string): string {
   return `${base.replace(/\\/$/, "")}/contexts/${contextId}/messages`;
 }
-"""
+""",
+                encoding="utf-8",
+            )
+            (region,) = mod.build_graph([target])
+
+        self.assertEqual(region.name, "messagesUrl")
+        self.assertIn("/contexts/{}/messages", region.paths)
+        self.assertFalse(
+            region.requester,
+            "hàm chỉ dựng url mà bị coi là chỗ gọi thì cổng sẽ đòi header ở đó",
         )
-        self.assertEqual(hits, [])
 
     def test_actor_reaches_through_four_hops(self):
         """`checkIn -> translated -> call -> actorHeaders`, đúng chuỗi của api.ts."""
