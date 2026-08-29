@@ -12,6 +12,11 @@
  * a client that quietly accepts what the server rejects sends somebody back to
  * a form with no idea which field is wrong.
  *
+ * That test also asserts the *inventory* of server rules, not just the ones
+ * named below, so adding a rule to `bank_account.py` fails until it is mirrored
+ * here or written off on purpose. If you are here because that test went red
+ * after a server change, mirroring the new rule is the fix.
+ *
  * Nothing here claims the account belongs to anybody. There is no verification
  * source to ask, and spec section 8.5 forbids the claim outright. The only real
  * check is the holder name the sender's own banking app shows them before they

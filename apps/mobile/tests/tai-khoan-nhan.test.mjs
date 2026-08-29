@@ -10,6 +10,11 @@
  *      malformed" and no indication of which field. So the regexes are read out
  *      of `app/domain/bank_account.py` and compared, the same arrangement
  *      `banks.test.mjs` uses for the bank directory.
+ *
+ *      Both halves of that are asserted: each rule against its opposite number,
+ *      *and* the inventory of rules itself. Comparing three pairs cannot notice
+ *      a fourth rule appearing on the server, and "the server grew a rule the
+ *      client never heard about" is drift that reads as three green checks.
  *   2. **A full account number never reaches a screen the group reads.** That
  *      is a fact about markup, so these render through react-native-web -- the
  *      substitution Expo's web build performs -- and read the DOM. Asserting
@@ -87,13 +92,17 @@ function pythonRegex(name) {
   return found[1];
 }
 
-/** Pull the same literal out of the TypeScript source. */
+/** Pull the same literal out of the TypeScript source.
+ *
+ *  Trailing flags are matched but discarded: `/\s+/g` and `re.compile(r"\s+")`
+ *  are the same rule, and `g` only says the client calls `.replace` on it.
+ */
 function clientRegex(name) {
   const source = readFileSync(
     join(MOBILE, "src", "screens", "tai-khoan", "kiem-tra.ts"),
     "utf8",
   );
-  const found = source.match(new RegExp(`^const ${name} = /([^/]+)/;$`, "m"));
+  const found = source.match(new RegExp(`^const ${name} = /([^/]+)/[a-z]*;$`, "m"));
   assert.ok(found !== null, `could not find \`const ${name} = /.../\` in kiem-tra.ts`);
   return found[1];
 }
@@ -114,6 +123,83 @@ test("the name length cap matches the server's ACCOUNT_NAME_MAX", () => {
   const found = source.match(/^ACCOUNT_NAME_MAX = (\d+)$/m);
   assert.ok(found !== null, "could not find ACCOUNT_NAME_MAX in bank_account.py");
   assert.equal(TEN_TOI_DA, Number(found[1]));
+});
+
+test("the client strips the same whitespace the server strips", () => {
+  // The fourth copied rule, and the one whose drift is hardest to see. Both
+  // sides normalise before validating, so this regex decides which characters
+  // are invisible rather than which are legal -- and a client that erases more
+  // than the server erases sends a number the server then refuses.
+  //
+  // Not hypothetical: a number copied out of a banking app or a web page
+  // routinely carries U+00A0. `\s+` eats it, `[ ]+` does not.
+  assert.equal(clientRegex("KHOANG_TRANG"), pythonRegex("_WHITESPACE"));
+});
+
+/* Everything above compares a rule this file already knows the name of, which
+ * leaves the case nobody notices: the server grows a *new* rule and the client
+ * never hears about it. Three passing comparisons look identical whether the
+ * server has three rules or four.
+ *
+ * So the inventory itself is asserted. Adding a rule to `bank_account.py` now
+ * fails here until somebody either mirrors it in `kiem-tra.ts` or writes down
+ * why the client does not need it. That is a deliberate speed bump on the
+ * server's file, and it is the cheaper end of the trade: the alternative is a
+ * form that accepts what the API refuses, and a person retyping a correct
+ * account number to find out which of four boxes is wrong.
+ */
+const LUAT_DA_BIET = {
+  regexes: {
+    _BANK_BIN: "BANK_BIN",
+    _ACCOUNT_NUMBER: "SO_TAI_KHOAN",
+    _WHITESPACE: "KHOANG_TRANG",
+  },
+  // Module-level integer constants. `_account_name` reads this one as a cap.
+  hangSo: ["ACCOUNT_NAME_MAX"],
+};
+
+test("the server declares no shape rule the client has not mirrored", () => {
+  const source = readFileSync(
+    join(REPO, "services", "api", "app", "domain", "bank_account.py"),
+    "utf8",
+  );
+  const found = [...source.matchAll(/^(\w+) = re\.compile\(/gm)].map((m) => m[1]);
+  assert.deepEqual(
+    found.sort(),
+    Object.keys(LUAT_DA_BIET.regexes).sort(),
+    "bank_account.py declares a different set of regexes than this test mirrors. " +
+      "If a rule was added, mirror it in kiem-tra.ts and add it to LUAT_DA_BIET; " +
+      "if one was removed or renamed, the client is validating against a rule " +
+      "the server no longer has",
+  );
+});
+
+test("every mirrored regex still agrees, by name, in both directions", () => {
+  // The per-rule tests above name their pairs one at a time and would keep
+  // passing if a pair were quietly dropped from this file. This one is driven
+  // by the inventory, so a rule cannot fall out of the comparison silently.
+  for (const [python, client] of Object.entries(LUAT_DA_BIET.regexes)) {
+    assert.equal(
+      clientRegex(client),
+      pythonRegex(python),
+      `${client} in kiem-tra.ts and ${python} in bank_account.py have drifted`,
+    );
+  }
+});
+
+test("the server declares no numeric cap the client has not mirrored", () => {
+  const source = readFileSync(
+    join(REPO, "services", "api", "app", "domain", "bank_account.py"),
+    "utf8",
+  );
+  const found = [...source.matchAll(/^([A-Z][A-Z0-9_]*) = \d+$/gm)].map((m) => m[1]);
+  assert.deepEqual(
+    found.sort(),
+    [...LUAT_DA_BIET.hangSo].sort(),
+    "bank_account.py declares a different set of numeric caps than this test " +
+      "mirrors; a cap the client does not know about is a length the form will " +
+      "accept and the API will refuse",
+  );
 });
 
 // ---------------------------------------------------------------------------
