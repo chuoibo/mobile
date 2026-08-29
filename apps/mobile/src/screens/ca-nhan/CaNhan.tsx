@@ -77,6 +77,19 @@ export function CaNhan({
     <ScrollView
       style={{ flex: 1, backgroundColor: c.ground }}
       contentContainerStyle={{ paddingBottom: space.xl }}
+      // A keyboard tab-stop on the scroller itself, which this screen needs and
+      // the other tabs do not. Every other tab holds buttons, and a scrollable
+      // region containing a focusable child is already reachable by keyboard.
+      // This screen is entirely static -- numbers, rows and labels, nothing
+      // pressable -- so without a tab-stop there is no key that scrolls it, and
+      // the transaction list and "Nhóm của bạn" below the fold cannot be read at
+      // all. Measured: axe `scrollable-region-focusable` (serious) fired here
+      // and on none of the other four tabs.
+      //
+      // `tabIndex` rather than `focusable`: the latter is deprecated in
+      // react-native-web 0.21 and warns. Native ignores the prop, which is
+      // correct -- a touch screen has no tab ring to join.
+      tabIndex={0}
       refreshControl={
         <RefreshControl refreshing={dangLamMoi} onRefresh={lamMoi} tintColor={c.accent} />
       }
