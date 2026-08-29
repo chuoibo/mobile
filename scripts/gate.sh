@@ -202,19 +202,35 @@ do_guard-range() {
   python3 scripts/repo_guard.py range "$base" HEAD
 }
 
+# The `ruff` stage's scopeless half: an assertion that is true or false no
+# matter which files this branch changed. test.yml's lint job does not install
+# whatever ruff it finds -- it reads this pin and fails with "::error::no ruff==
+# pin" when there is none, so CI always lints with the version everybody agreed
+# on.
+#
+# It is a function of its own because `check_prereq ruff` has to consult it
+# before it is allowed to turn this stage into a skip. It did not, and that is
+# the hole the two changes opened between them: the prereq decides from the
+# changed-Python-file list alone, and deleting the pin edits a .txt file. No
+# Python moves, so the scope is empty, so the stage skipped -- so the assertion
+# written to catch exactly that deletion never ran. Measured on main, the same
+# edit both times:
+#
+#   @ 23455e7 (pin check in, empty-scope skip not yet)
+#     không có dòng ruff== ...        HỎNG    ruff (0s)          exit 1
+#   @ ae45575 (both in)
+#     BỎ QUA  ruff -- nhánh không đổi file Python nào ...        exit 2
+#
+# Anything added to do_ruff that does not depend on the changed-file list
+# belongs on this side of the line too, or the skip will swallow it the same
+# way. tests/test_gate_ruff_empty_scope.py holds both halves.
+ruff_pin() {
+  grep -E '^ruff==' services/api/requirements-dev.txt 2>/dev/null || true
+}
+
 do_ruff() {
-  # test.yml's lint job does not install whatever ruff it finds: it reads the
-  # `ruff==` pin out of services/api/requirements-dev.txt and fails with
-  # "::error::no ruff== pin" when there is none, so CI always lints with the
-  # version everybody agreed on.
-  #
-  # That assertion ran nowhere else. Measured 2026-08-30: `ruff_changed.sh`
-  # checks that a ruff exists on PATH and never looks at the pin, and no test
-  # under tests/ or services/api/tests greps for `ruff==` at all. Delete the
-  # pin and CI is the only thing that notices -- which, while Actions cannot
-  # start a job, means nothing notices.
   local pin
-  pin="$(grep -E '^ruff==' services/api/requirements-dev.txt 2>/dev/null || true)"
+  pin="$(ruff_pin)"
   if [ -z "$pin" ]; then
     echo "không có dòng ruff== trong services/api/requirements-dev.txt" >&2
     echo "CI cài ruff từ pin đó; mất pin thì mỗi máy lint bằng một bản khác nhau." >&2
@@ -393,9 +409,20 @@ check_prereq() {
       rbase="$(guard_range_base)"
       [ -n "$rbase" ] || return 0
       rlist="$(scripts/ruff_changed.sh --list "$rbase" 2>/dev/null)" || return 0
-      [ -n "$rlist" ] || {
-        echo "nhánh không đổi file Python nào so với origin/main -- ruff không kiểm được gì"
-        return 1; } ;;
+      [ -n "$rlist" ] && return 0
+      # An empty scope means ruff itself has nothing to lint. It does NOT mean
+      # the stage has nothing to do: `do_ruff` opens with an assertion that has
+      # no file list in it at all, and skipping here hid it for a whole day --
+      # see ruff_pin() above for the measurement. So the last question before
+      # skipping is the scopeless one, and a missing pin sends the run into the
+      # body, where it fails with the name of the file that is actually wrong.
+      #
+      # Deliberately not answered here with `return 1`: a prereq failure is a
+      # skip line and no log. The pin deserves a HỎNG with its reason printed,
+      # which only the stage body can produce.
+      [ -n "$(ruff_pin)" ] || return 0
+      echo "nhánh không đổi file Python nào so với origin/main -- ruff không kiểm được gì"
+      return 1 ;;
     guard-range)
       git rev-parse --git-dir >/dev/null 2>&1 || { echo "không phải git repo"; return 1; }
       # No base: let the body fail loudly rather than skipping quietly here.
