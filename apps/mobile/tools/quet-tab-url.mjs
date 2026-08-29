@@ -45,6 +45,31 @@
  * rather than the scanner: a screen stuck on its error panel is quiet, short,
  * and scores zero findings. Every tab must print text that only the loaded
  * screen prints before its number is allowed to count.
+ *
+ * ## `text-occlusion` under a pinned button is almost always a false positive
+ *
+ * Read this before "fixing" one. The rule compares raw bounding boxes and does
+ * not subtract the clip of a scroll container, so ANY content that has scrolled
+ * past the bottom of a scroller reports as covered by whatever is pinned below
+ * it -- the tab bar, or a screen's own "Đóng" button. Four of these have now
+ * been measured on this project and four out of four were the same artifact:
+ *
+ *     ca-nhan   "Giao dịch gần đây"    41%   khung cuộn kết thúc 777, chữ 800-823
+ *     ban-be    "Phạm Hoàng Anh Thư"  100%   khung cuộn kết thúc 764, chữ 784-802
+ *     ban-be    "Bạn bè từ 22/08"     100%   cùng khung, cùng nút "Đóng" 780-828
+ *     dia-diem  "Hợp vì ngân sách..."  96%   khung cuộn kết thúc 702, chữ 709-733
+ *
+ * In every one the text is BELOW its scroller's bottom edge, is clipped rather
+ * than painted, and scrolls into view perfectly well above the button. Nothing
+ * was wrong on any of the four screens.
+ *
+ * So measure before touching layout: `node tools/do-hinh-hoc.mjs <man> "<chữ>"`
+ * prints the text box, every scroll container, and every button box. If the
+ * text's `top` is past the scroller's `bottom`, it is this artifact and the
+ * correct action is to leave the screen alone. No detector ignore is added for
+ * it either -- the ignore config is shared with other lanes, and silencing a
+ * rule project-wide to quiet four known-benign hits would also silence the
+ * real occlusions it is there to catch.
  */
 import { spawn } from "node:child_process";
 import fs from "node:fs";
