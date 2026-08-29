@@ -181,7 +181,7 @@ export function ChiTietDiaDiem({ place, nguoi, nhom, onQuayLai }: {
           accessibilityRole="alert"
           style={{ ...type.micro, color: c.inkFaint, paddingHorizontal: space.md, paddingBottom: space.sm }}
         >
-          Đánh dấu này chỉ nằm trong phiên đang mở — chưa có chỗ lưu trên máy chủ.
+          Đánh dấu này chỉ nằm trong phiên đang mở, chưa có chỗ lưu trên máy chủ.
         </Text>
       ) : null}
     </View>

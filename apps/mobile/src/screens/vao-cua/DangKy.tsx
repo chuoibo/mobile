@@ -208,7 +208,7 @@ export function DangKy({ onXong, onQuayLai }: {
           {so.trim() !== "" && chuanHoaSo(so) === null ? (
             <Text style={{ ...type.label, color: c.inkSoft }}>
               Chưa đúng dạng số di động Việt Nam: 10 số bắt đầu bằng 03, 05, 07,
-              08 hoặc 09 — hoặc viết theo dạng +84 rồi 9 số còn lại.
+              08 hoặc 09, hoặc viết theo dạng +84 rồi 9 số còn lại.
             </Text>
           ) : null}
         </View>

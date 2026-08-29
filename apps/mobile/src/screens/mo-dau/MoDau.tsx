@@ -176,7 +176,7 @@ export function MoDau({ onVao, onBoQua, onSoDienThoai }: {
               the person watching to distrust the parts that do work. Both
               halves are named separately now. */}
           <Text style={{ ...type.label, fontWeight: "500", color: ON_SUNSET, textAlign: "center" }}>
-            Google và Apple chưa nối thật — bấm vào sẽ mở danh sách{" "}
+            Google và Apple chưa nối thật: bấm vào sẽ mở danh sách{" "}
             {DEMO_GROUP_NAME} để chọn nhanh một người. Đăng nhập bằng số điện
             thoại là thật: nó tạo tài khoản trên máy chủ.
           </Text>
