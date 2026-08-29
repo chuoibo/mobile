@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Protocol
 
-from sqlalchemy import func, select, tuple_
+from sqlalchemy import Date, cast, func, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -66,6 +66,19 @@ from app.domain.capability import capability_scope
 from app.domain.ledger import obligation_status
 from app.payments.vietqr import build_payload
 from app.web.qr import payload_to_png_data_uri
+
+# A trip's `starts_on`/`ends_on` are wall-clock Vietnamese calendar days; an
+# expense's `occurred_at` is an instant. Folding the instant with whatever
+# timezone the database session happens to carry is the bug this constant
+# exists to prevent: under UTC a 01:00 supper on the last night of the trip
+# lands on the previous day, and under a UTC server it can fall out of the trip
+# entirely. The product's days are Vietnam's days, so name the zone.
+WALL_CLOCK_ZONE = "Asia/Ho_Chi_Minh"
+
+
+def _wall_clock_date(column):
+    """The Vietnamese calendar day of a timestamptz column, session-TZ-proof."""
+    return cast(func.timezone(WALL_CLOCK_ZONE, column), Date)
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,6 +151,23 @@ class OutingRecord:
     budget_per_person_vnd: int
     created_at: datetime
     stops: tuple[OutingStopRecord, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RecapOutingRecord:
+    """One finished trip, with its money recomputed rather than stored.
+
+    `split_total_vnd` is not a column. It is the sum of the confirmed
+    allocations of the expenses that happened inside the trip's days, summed on
+    the request that asks -- invariant 3 for the memory wall. Storing a total
+    on `outings` would have been one join cheaper and would have started
+    drifting the first time somebody corrected an expense.
+    """
+
+    outing: OutingRecord
+    split_total_vnd: int
+    expense_count: int
+    memory_count: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -535,6 +565,10 @@ class ApiRepository(Protocol):
     def get_outing(self, outing_id: uuid.UUID) -> OutingRecord | None: ...
 
     def list_outings(self, context_id: uuid.UUID) -> tuple[OutingRecord, ...]: ...
+
+    def group_recap(
+        self, context_id: uuid.UUID, *, today: date
+    ) -> tuple[RecapOutingRecord, ...]: ...
 
     def replace_outing_stops(
         self,
@@ -1201,6 +1235,116 @@ class SqlAlchemyApiRepository:
             .order_by(Outing.starts_on, Outing.id)
         )
         return tuple(self._outing_record(outing) for outing in outings)
+
+    def group_recap(
+        self, context_id: uuid.UUID, *, today: date
+    ) -> tuple[RecapOutingRecord, ...]:
+        """Finished trips of one group, newest first, money read back from the ledger.
+
+        There is no `expenses.outing_id`, so a trip claims the spending that
+        happened on its days. That rule is stated on the screen rather than
+        hidden here, because it is a rule and not a fact: a dinner split three
+        days after the group got home belongs to nobody's trip.
+
+        Two passes rather than one join. Allocations are per participant and
+        memories are per photo; counting both in a single grouped query
+        multiplies one by the other, and an inflated photo count is the kind of
+        wrong number that still looks like a number.
+        """
+        finished = (
+            select(Outing)
+            .where(Outing.context_id == context_id, Outing.ends_on < today)
+            .order_by(Outing.ends_on.desc(), Outing.id)
+        )
+        outings = tuple(self.session.scalars(finished))
+        if not outings:
+            return ()
+
+        # Only the newest version of each expense counts. A correction writes a
+        # new version instead of overwriting, so an unfiltered sum adds the
+        # mistake to the fix -- same subquery shape `person_finance_summary`
+        # and `load_batch_inputs` already use, for the same reason.
+        newest = (
+            select(
+                ExpenseVersion.expense_id.label("expense_id"),
+                func.max(ExpenseVersion.version_number).label("version_number"),
+            )
+            .group_by(ExpenseVersion.expense_id)
+            .subquery()
+        )
+        ledger = (
+            select(
+                Expense.id.label("expense_id"),
+                ConfirmedAllocation.amount_vnd.label("amount_vnd"),
+                _wall_clock_date(ExpenseVersion.occurred_at).label("on_date"),
+            )
+            .select_from(ConfirmedAllocation)
+            .join(
+                ExpenseVersion,
+                ExpenseVersion.id == ConfirmedAllocation.expense_version_id,
+            )
+            .join(
+                newest,
+                (newest.c.expense_id == ExpenseVersion.expense_id)
+                & (newest.c.version_number == ExpenseVersion.version_number),
+            )
+            .join(Expense, Expense.id == ExpenseVersion.expense_id)
+            .where(Expense.context_id == context_id)
+            .subquery()
+        )
+        money = {
+            row.outing_id: (int(row.split_total_vnd or 0), int(row.expense_count or 0))
+            for row in self.session.execute(
+                select(
+                    Outing.id.label("outing_id"),
+                    # `int(...)`, and not the driver's answer: PostgreSQL sums a
+                    # bigint as `numeric`, which psycopg returns as `Decimal`,
+                    # and a Decimal that escapes reaches JSON as `520000.0`.
+                    # Law 1 is integer đồng end to end.
+                    func.coalesce(func.sum(ledger.c.amount_vnd), 0).label(
+                        "split_total_vnd"
+                    ),
+                    func.count(func.distinct(ledger.c.expense_id)).label(
+                        "expense_count"
+                    ),
+                )
+                .select_from(Outing)
+                .outerjoin(
+                    ledger,
+                    ledger.c.on_date.between(Outing.starts_on, Outing.ends_on),
+                )
+                .where(Outing.id.in_([outing.id for outing in outings]))
+                .group_by(Outing.id)
+            )
+        }
+        photos = {
+            row.outing_id: int(row.memory_count or 0)
+            for row in self.session.execute(
+                select(
+                    Outing.id.label("outing_id"),
+                    func.count(Memory.id).label("memory_count"),
+                )
+                .select_from(Outing)
+                .outerjoin(
+                    Memory,
+                    (Memory.context_id == Outing.context_id)
+                    & _wall_clock_date(Memory.created_at).between(
+                        Outing.starts_on, Outing.ends_on
+                    ),
+                )
+                .where(Outing.id.in_([outing.id for outing in outings]))
+                .group_by(Outing.id)
+            )
+        }
+        return tuple(
+            RecapOutingRecord(
+                outing=self._outing_record(outing),
+                split_total_vnd=money.get(outing.id, (0, 0))[0],
+                expense_count=money.get(outing.id, (0, 0))[1],
+                memory_count=photos.get(outing.id, 0),
+            )
+            for outing in outings
+        )
 
     def replace_outing_stops(
         self,

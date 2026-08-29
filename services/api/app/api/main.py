@@ -33,6 +33,7 @@ from app.api.routes import (
     outings,
     people,
     places,
+    recap,
     receipts,
 )
 from app.api.schemas import ErrorResponse
@@ -80,6 +81,7 @@ def create_app(
     application.include_router(identity.router)
     application.include_router(places.router)
     application.include_router(finance.router)
+    application.include_router(recap.router)
     application.include_router(receipts.router)
 
     # Middleware, not a decorator on each route: a write route added later is
