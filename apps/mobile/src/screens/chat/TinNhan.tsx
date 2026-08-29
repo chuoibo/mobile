@@ -39,7 +39,7 @@ import { BongBong, type NguoiHienThi } from "./BongBong";
 import { ChiTietKeHoach } from "./ChiTietKeHoach";
 import { keHoachTuCard, type DiaDiem, type KeHoach } from "./ke-hoach";
 import { MoBinhChon } from "./MoBinhChon";
-import { khoiDongNhom, type NhomState, type ThanhVien } from "./nhom";
+import { cauBuocNhom, khoiDongNhom, type NhomMan, type ThanhVien } from "./nhom";
 import { ONhap } from "./ONhap";
 import { TheBinhChon } from "./TheBinhChon";
 import {
@@ -55,7 +55,6 @@ import {
 
 type ChipId = "chat" | "plan" | "thanh-vien" | "file";
 
-type NhomMan = { kind: "dang-tai" } | { kind: "chua-chon" } | NhomState;
 type TinMan = { kind: "dang-tai" } | TinNhanState;
 
 const CHIPS: { id: ChipId; label: string }[] = [
@@ -1010,15 +1009,6 @@ function nhanTrangThai(state: ThanhVien["state"]): string {
   if (state === "invited") return "Đã mời";
   if (state === "left") return "Đã rời";
   return "Đang trong nhóm";
-}
-
-function cauBuocNhom(buoc: string): string {
-  if (buoc === "dat-ten") return "Không ghi được tên người";
-  if (buoc === "tao-nhom") return "Không tạo được nhóm";
-  if (buoc === "moi") return "Không mời được vào nhóm";
-  if (buoc === "chap-nhan") return "Không nhận lời mời được";
-  if (buoc === "doc-thanh-vien") return "Không đọc được danh sách thành viên";
-  return "Không vào được nhóm";
 }
 
 function cauTinHong(s: Exclude<TinNhanState, { kind: "co-tin" } | { kind: "rong" }>): string {

@@ -71,15 +71,27 @@ declare const process: { env: Record<string, string | undefined> };
 
 export const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8099";
 
-/**
- * The group this app acts inside.
+/* There is deliberately no `CONTEXT_ID` constant in this file any more.
  *
- * `contexts` exists as a table now, but nothing in this flow creates one yet,
- * so a fixed synthetic id stands in. Fixed rather than generated per launch:
- * an expense and the batch that collects it have to agree on the group, and a
- * value that changes on reload splits one group into two without saying so.
+ * It used to hold `1aa00000-aaaa-…`, minted when nothing created a group, and
+ * it never had a row in `contexts`. Two comments in this repository said so
+ * outright while every expense in the app was still filed under it. That was
+ * survivable only while the server took the caller's word for the group:
+ * `propose` allocates and writes nothing, so it answered 200 and the split
+ * screen looked right.
+ *
+ * `_require_participants_are_members` (service.py) closed that. A context with
+ * no row has no members, so every participant is a stranger and `confirm`
+ * answers `422 participant_not_in_context` -- for everyone, on the one path
+ * this product exists to demonstrate. The same id also went out as
+ * `X-Actor-Contexts`, which `confirm_expense` and `create_batch` check against
+ * the expense's own context, so a body fixed without the header would only
+ * have traded the 422 for a 403.
+ *
+ * So the group is now a parameter, the way `taoBuoiDi` and `docSoDu` already
+ * took it: callers pass the id `khoiDongNhom` returned, and a group that does
+ * not exist cannot be spelled by accident.
  */
-export const CONTEXT_ID = "1aa00000-aaaa-4aaa-8aaa-0000a0000001";
 
 export class ApiError extends Error {
   constructor(
@@ -232,9 +244,9 @@ export function thongDiepNguoiDoc(status: number, detail: unknown): string {
 function actorHeaders(
   actorId: string,
   roles = "member,advancer,recipient,batch_owner",
-  contexts = CONTEXT_ID,
+  contexts?: string,
 ): Record<string, string> {
-  return {
+  const headers: Record<string, string> = {
     "Content-Type": "application/json",
     // A trusted gateway is supposed to write these; there is no gateway yet,
     // so the app writes them. That is exactly why this must not be reachable
@@ -242,8 +254,15 @@ function actorHeaders(
     // anybody. Said here rather than left to be discovered.
     "X-Actor-ID": actorId,
     "X-Actor-Roles": roles,
-    "X-Actor-Contexts": contexts,
   };
+  // Omitted rather than defaulted. The default used to be the synthetic
+  // `CONTEXT_ID`, which meant every person-scoped call claimed membership of a
+  // group that did not exist, and -- worse -- a group-scoped call that forgot
+  // to name its group inherited that claim instead of failing. `deps.py` reads
+  // a missing header as "no contexts", which is the truthful answer for a
+  // route about a person.
+  if (contexts !== undefined) headers["X-Actor-Contexts"] = contexts;
+  return headers;
 }
 
 type CallOptions = {
@@ -268,7 +287,15 @@ type CallOptions = {
    * have to be reproduced when real sessions arrive.
    */
   roles?: string;
-  /** Which groups this actor claims to be in. Defaults to the demo group. */
+  /** Which groups this actor claims to be in.
+   *
+   *  No default. It used to default to the synthetic `CONTEXT_ID`, so a call
+   *  that forgot to name its group silently claimed membership of one that did
+   *  not exist. Omitted means the header is not sent, which `deps.py` reads as
+   *  "no contexts" -- the truthful answer for a route about a person.
+   *
+   *  Only carried when `actorId` is set: the headers are built together, and
+   *  a group claim with nobody making it is not a claim. */
   contexts?: string;
 };
 
@@ -473,6 +500,7 @@ const ALLOCATOR_REFUSALS: Record<string, string> = {
 };
 
 function expenseBody(input: {
+  contextId: string;
   occasion: string;
   actorId: string;
   payerId: string;
@@ -482,7 +510,7 @@ function expenseBody(input: {
   occurredAt: number;
 }): ExpenseInput {
   return {
-    context_id: CONTEXT_ID,
+    context_id: input.contextId,
     description: input.occasion,
     recorded_by_id: input.actorId,
     paid_by_id: input.payerId,
@@ -507,6 +535,13 @@ type ExpenseResponse = {
 export type PendingProposal = Proposal & {
   expenseId: string;
   serverProposal: ExpenseInput;
+  /** The group this bill was proposed under.
+   *
+   *  Carried on the proposal rather than asked for again at `confirm` and
+   *  `openBatch`. Those two are the calls the server checks the group on, and
+   *  a second parameter is a second chance to name a different one -- which is
+   *  how an expense allocated inside one group gets written into another. */
+  contextId: string;
 };
 
 export type SplitPreview = {
@@ -524,6 +559,7 @@ export type SplitPreview = {
  */
 export async function previewSplit(
   input: {
+    contextId: string;
     participantIds: string[];
     totalVnd: number;
     items: ExpenseItemWire[];
@@ -533,6 +569,7 @@ export async function previewSplit(
   attempt: Attempt,
 ): Promise<SplitPreview> {
   const body = expenseBody({
+    contextId: input.contextId,
     occasion: input.occasion,
     actorId: input.payerId,
     payerId: input.payerId,
@@ -541,6 +578,10 @@ export async function previewSplit(
     items: input.items,
     occurredAt: attempt.at,
   });
+  // No `contexts`, and no `actorId` to hang one on: `POST /expenses` is the
+  // one write this client sends anonymously, on purpose (see `call`, on the
+  // shared idempotency scope). The group travels in the body, which is where
+  // the allocator reads it. `confirm` is where the server starts checking it.
   const result = await translated<ExpenseResponse>(ALLOCATOR_REFUSALS, "/expenses", {
     body,
     attempt,
@@ -553,11 +594,13 @@ export async function previewSplit(
 }
 
 export async function proposeSplit(
+  contextId: string,
   draft: Draft,
   attempt: Attempt,
   items: ExpenseItemWire[] = [],
 ): Promise<PendingProposal> {
   const body = expenseBody({
+    contextId,
     occasion: draft.occasion,
     actorId: draft.advancerId,
     payerId: draft.advancerId,
@@ -566,6 +609,7 @@ export async function proposeSplit(
     items,
     occurredAt: attempt.at,
   });
+  // Anonymous like `previewSplit`, and for the reason spelled out there.
   const result = await translated<ExpenseResponse>(ALLOCATOR_REFUSALS, "/expenses", {
     body,
     attempt,
@@ -580,6 +624,7 @@ export async function proposeSplit(
     occasion: draft.occasion,
     expenseId: result.expense_id,
     serverProposal: result.proposal,
+    contextId,
   };
 }
 
@@ -606,6 +651,7 @@ export async function confirmExpense(
     },
     actorId: proposal.advancerId,
     attempt,
+    contexts: proposal.contextId,
   });
   return {
     expenseVersionId: result.expense_version_id,
@@ -882,7 +928,7 @@ export async function openBatch(
     }[];
   }>(OPEN_BATCH_REFUSALS, "/batches", {
     body: {
-      context_id: CONTEXT_ID,
+      context_id: proposal.contextId,
       expense_version_ids: [expenseVersionId],
       // Counted from the attempt, so a retry asks for the same due date rather
       // than one seven days from whenever the connection came back.
@@ -890,6 +936,7 @@ export async function openBatch(
     },
     actorId: proposal.advancerId,
     attempt,
+    contexts: proposal.contextId,
   });
 
   return {
@@ -1033,7 +1080,19 @@ async function sendPublish(
 }
 
 /** The collection board, including anything a guest has objected to. */
+/**
+ * Read the collection board.
+ *
+ * `contextId` leads, the way `docSoDu` and `taoBill` take it, because the
+ * server's check on this route is fail-closed against `X-Actor-Contexts`:
+ * `view_collection_board` compares the batch's own group against the header
+ * and refuses when it is not there. It used to be satisfied by the synthetic
+ * default in `actorHeaders`, which matched only because the batch had been
+ * opened under the same synthetic id. With the group real on both sides, the
+ * header has to name it.
+ */
 export async function loadBoard(
+  contextId: string,
   batchId: string,
   actorId: string,
   roster: Participant[] = [],
@@ -1048,7 +1107,7 @@ export async function loadBoard(
       obligation_status: Obligation["status"];
       disputed: boolean;
     }[];
-  }>(`/batches/${batchId}/obligations`, { method: "GET", actorId });
+  }>(`/batches/${batchId}/obligations`, { method: "GET", actorId, contexts: contextId });
 
   return {
     disputedCount: result.disputed_count,
@@ -1561,8 +1620,9 @@ export type { BodyTaoBuoiDi, BuoiDi, ChangGui, CheckIn };
 /**
  * Create an outing in a real group.
  *
- * `CONTEXT_ID` in this file has no row in `contexts`, so posting under it is a
- * 403. Callers pass the id `khoiDongNhom` actually returned.
+ * The group is a parameter, not a constant: callers pass the id
+ * `khoiDongNhom` actually returned. This file used to hold a synthetic
+ * `CONTEXT_ID` with no row in `contexts`, and posting under it was a 403.
  */
 export async function taoBuoiDi(
   contextId: string,

@@ -81,6 +81,15 @@ export type ThanhVien = {
   id: string;
   contextId: string;
   personId: string;
+  /** The name the server holds for this person.
+   *
+   *  `MembershipResponse.display_name` is `NOT NULL` on the server because
+   *  `people.display_name` is, so a live reply always carries it. Optional
+   *  here anyway: the fixtures in this repo's own tests predate the field, and
+   *  a parser that throws on a member without a name would turn "an old fake"
+   *  into "the group could not be opened". Callers fall back to the demo
+   *  roster and then to a neutral label. */
+  displayName?: string;
   state: "invited" | "active" | "left";
   role: "member" | "admin";
 };
@@ -99,6 +108,26 @@ export type NhomState =
       status: number;
       detail: string;
     };
+
+/** The group as a screen sees it, including the two states that are not the
+ *  server's answer: nobody signed in yet, and the request still in flight.
+ *  Shared rather than redeclared per screen -- chat, Lên plan and the expense
+ *  flow all hold exactly this. */
+export type NhomMan = { kind: "dang-tai" } | { kind: "chua-chon" } | NhomState;
+
+/** Which step of opening the group failed, in a sentence.
+ *
+ * Exported so the expense flow says the same thing chat says. It was private
+ * to `TinNhan.tsx` until a second screen needed it, and a second copy is a
+ * copy that drifts the day a step is renamed. */
+export function cauBuocNhom(buoc: string): string {
+  if (buoc === "dat-ten") return "Không ghi được tên người";
+  if (buoc === "tao-nhom") return "Không tạo được nhóm";
+  if (buoc === "moi") return "Không mời được vào nhóm";
+  if (buoc === "chap-nhan") return "Không nhận lời mời được";
+  if (buoc === "doc-thanh-vien") return "Không đọc được danh sách thành viên";
+  return "Không vào được nhóm";
+}
 
 const MINH_SLUG = "minh";
 
@@ -187,6 +216,9 @@ function docThanhVien(raw: unknown, field: string): ThanhVien {
     id: m.id,
     contextId: m.context_id,
     personId: m.person_id,
+    ...(typeof m.display_name === "string" && m.display_name.length > 0
+      ? { displayName: m.display_name }
+      : {}),
     state,
     role,
   };
