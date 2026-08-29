@@ -74,6 +74,10 @@ class FakeReport:
     obligation_id: uuid.UUID
     amount_vnd: int
     idempotency_key: uuid.UUID
+    #: When the sender said it. Kept because the collection board shows the
+    #: claim beside the payment status, so a fake that dropped the timestamp
+    #: could not tell "reported at 9:04" from "never reported".
+    reported_at: datetime
 
 
 @dataclass(slots=True)
@@ -648,7 +652,6 @@ class FakeRepository:
                 link.status = "revoked"
 
     def save_payment_report(self, *, target, idempotency_key, now):
-        del now
         existing = next(
             (
                 report
@@ -671,6 +674,7 @@ class FakeRepository:
                 obligation_id=target.obligation_id,
                 amount_vnd=target.amount_vnd,
                 idempotency_key=idempotency_key,
+                reported_at=now,
             )
             self.reports[report.id] = report
         return PaymentReportRecord(
@@ -725,6 +729,13 @@ class FakeRepository:
                 for receipt in self.receipts.values()
                 if receipt.obligation_id == item.id
             ]
+            # Earliest, matching the SQL: a repeat report is the same claim
+            # said again, not a later one.
+            claims = [
+                report.reported_at
+                for report in self.reports.values()
+                if report.obligation_id == item.id
+            ]
             key = str(item.id)
             rows.append(
                 BatchObligationRow(
@@ -737,6 +748,7 @@ class FakeRepository:
                     ),
                     disputed=key in disputes,
                     disputed_reason=disputes.get(key),
+                    payment_reported_at=min(claims) if claims else None,
                 )
             )
         return BatchBoard(context_id=CONTEXT_ID, obligations=tuple(rows))

@@ -532,11 +532,21 @@ class BankRecipientResponse(ApiModel):
 class BatchObligationView(ApiModel):
     """One obligation on the collection board.
 
-    Two independent facts, deliberately kept apart. `obligation_status` says
-    whether the money arrived; `disputed` says whether anybody disagrees. They
-    were one field once, and that let the recipient close an argument by
-    confirming receipt -- a click belonging to exactly the party the objection
-    was against.
+    Three independent facts, deliberately kept apart, each created by a
+    different person:
+
+    * `payment_reported_at` -- the SENDER said they transferred it, at that
+      time. One person's account of what they did.
+    * `obligation_status` -- the RECIPIENT confirmed the money arrived. Still
+      derived from receipt events only; a claim never moves it.
+    * `disputed` -- somebody objects to the number.
+
+    None of the three is evidence from a bank. Status and dispute were one
+    field once, and that let the recipient close an argument by confirming
+    receipt -- a click belonging to exactly the party the objection was
+    against. The claim is kept out of status for the mirror-image reason:
+    folding it in would let the sender close their own obligation by saying
+    so.
     """
 
     obligation_id: UUID
@@ -548,6 +558,10 @@ class BatchObligationView(ApiModel):
     ]
     disputed: bool = False
     disputed_reason: StrictStr | None = None
+    # `None` means nobody has said anything, and the key is always present so
+    # that "no claim" and "a build older than this field" are not the same
+    # thing on the wire.
+    payment_reported_at: datetime | None = None
 
 
 class BatchObligationsResponse(ApiModel):
@@ -558,6 +572,11 @@ class BatchObligationsResponse(ApiModel):
     # counts OPEN objections at any payment status: an obligation that was
     # paid and is still argued about still needs a person.
     disputed_count: int
+    # How many obligations carry a sender's claim, at any payment status --
+    # including ones already confirmed. Counting only the unconfirmed ones
+    # would quietly make this a second opinion about payment status, which is
+    # the exact blending the two fields exist to prevent.
+    payment_reported_count: int = 0
 
 
 class ErrorResponse(ApiModel):
