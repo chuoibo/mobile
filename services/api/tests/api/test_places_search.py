@@ -19,11 +19,12 @@ from __future__ import annotations
 import pytest
 
 from app.api.routes.places import get_place_searcher
-from app.places.catalog import GROUP, PLACES
+from app.places.catalog import CATEGORIES, GROUP, PLACES
 from app.places.scoring import score_place
 
 BY_ID = {place["id"]: place for place in PLACES}
 REAL_IDS = [place["id"] for place in PLACES]
+REAL_CATEGORY_IDS = [category["id"] for category in CATEGORIES]
 
 
 def searcher_returning(raw):
@@ -266,6 +267,107 @@ def test_an_oversized_query_is_refused_rather_than_pasted_into_a_prompt(client):
     response = client.post("/places/search", json={"query": "a" * 5000})
     assert response.status_code == 422, response.text
     assert asked == [], "a 5000-character payload reached the prompt builder"
+
+
+# ---------------------------------------------------------------------------
+# The handle, not the gate (rd-be-12)
+# ---------------------------------------------------------------------------
+#
+# Every other grounding case above and in `tests/domain/` calls the gate with a
+# catalogue the test itself built. So they all check that `ground_search`
+# decides correctly about the list it was handed, and none of them checks
+# *which list the route hands it*. Those are different claims: the gate can be
+# perfect while the route feeds it an empty list, a subset, or someone else's
+# categories, and every one of those cases stays green.
+#
+# The pair below pins the handle from both sides, which is what makes it a
+# bound rather than a smoke test. The first half says nothing real is missing
+# from what the route passes; the second says nothing unreal was added. Neither
+# half alone is enough -- an empty list passes the second on its own, and a
+# catalogue with an extra invented row passes the first.
+
+
+@pytest.mark.parametrize("category_id", REAL_CATEGORY_IDS)
+def test_the_route_hands_the_gate_every_category_the_catalogue_publishes(
+    client, category_id
+):
+    """A category the app itself ships must survive its own grounding gate.
+
+    Parametrised over the real catalogue rather than one hand-picked id on
+    purpose. A route that passed `[CATEGORIES[0]]` -- or any other plausible
+    subset -- answers correctly for the id the rest of this file happens to
+    use, and refuses the other three while every existing case stays green.
+    """
+
+    use(
+        client,
+        {
+            "understood": understood(categories=[category_id]),
+            "results": [{"id": "p-lung-chung-cafe", "reason": "Hợp."}],
+        },
+    )
+
+    body = post(client).json()
+    assert body["source"] == "ai", (
+        f"category {category_id!r} ships in the catalogue but the route refused "
+        "the answer that used it -- the route is not passing the real categories"
+    )
+    assert body["understood"]["categories"] == [category_id]
+
+
+def test_a_category_the_catalogue_does_not_publish_still_costs_the_whole_answer(
+    client,
+):
+    """The other side of the bound: the route may not widen the gate either.
+
+    `quan-nhau-san-thuong` is exactly the kind of id a model invents -- it reads
+    like the four real ones. Serving it would mean the screen offers a filter
+    the catalogue cannot fill.
+    """
+
+    assert "quan-nhau-san-thuong" not in REAL_CATEGORY_IDS
+
+    use(
+        client,
+        {
+            "understood": understood(categories=["quan-nhau-san-thuong"]),
+            "results": [{"id": "p-lung-chung-cafe", "reason": "Hợp."}],
+        },
+    )
+
+    body = post(client).json()
+    assert body["source"] == "none"
+    assert body["places"] == []
+    assert body["understood"] is None
+    assert "quan-nhau-san-thuong" not in response_text(body)
+
+
+@pytest.mark.parametrize("place_id", REAL_IDS)
+def test_the_route_hands_the_gate_every_place_the_catalogue_publishes(
+    client, place_id
+):
+    """Same bound on the other argument, for the same reason.
+
+    `allowed_places=[]` is caught by the happy-path case at the top of this
+    file, but a *subset* is not: the cases above only ever name three of the
+    twelve rows, so a route passing those three would stay green while nine
+    real places became unreachable through search.
+    """
+
+    use(
+        client,
+        {
+            "understood": understood(),
+            "results": [{"id": place_id, "reason": "Hợp."}],
+        },
+    )
+
+    body = post(client).json()
+    assert body["source"] == "ai", (
+        f"place {place_id!r} ships in the catalogue but the route refused the "
+        "answer that named it -- the route is not passing the real catalogue"
+    )
+    assert [place["id"] for place in body["places"]] == [place_id]
 
 
 def response_text(body) -> str:
