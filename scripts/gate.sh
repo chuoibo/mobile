@@ -65,11 +65,12 @@ REPO_ROOT="$PWD"
 
 # Every stage, in run order: cheapest and most likely to fail first, so a
 # broken tree is reported in seconds rather than after a docker build.
-STAGES=(guard ruff contract client-routes api migration shared mobile docker postgres)
+STAGES=(guard guard-range ruff contract client-routes api migration shared mobile docker postgres)
 
 stage_help() {
   case "$1" in
     guard)     echo "repo_guard.py tree HEAD (repo-guard.yml)" ;;
+    guard-range) echo "repo_guard.py range on every commit this branch adds (repo-guard.yml)" ;;
     ruff)      echo "ruff on the files this branch changes, uncommitted ones included (test.yml: lint)" ;;
     contract)  echo "every route wanting X-Actor-ID is called with it (test.yml: contract)" ;;
     client-routes) echo "every route apps/mobile calls exists in the API (test.yml: api, inline)" ;;
@@ -152,6 +153,54 @@ have() { command -v "$1" >/dev/null 2>&1; }
 # --- stage bodies ---------------------------------------------------------
 
 do_guard() { python3 scripts/repo_guard.py tree HEAD; }
+
+# The merge base with origin/main, or empty. Shared with check_prereq so the
+# "nothing to scan" case can be reported as a skip rather than discovered
+# halfway through the stage body.
+guard_range_base() {
+  local base
+  base="$(git merge-base origin/main HEAD 2>/dev/null)" || base=""
+  if [ -z "$base" ]; then
+    git fetch --no-tags --quiet origin main 2>/dev/null || true
+    base="$(git merge-base origin/main HEAD 2>/dev/null)" || base=""
+  fi
+  printf '%s' "$base"
+}
+
+do_guard-range() {
+  # `guard` scans the tree at HEAD. That is not the same question, and the gap
+  # between them is the whole reason repo-guard.yml runs both.
+  #
+  # A secret committed and then deleted in a later commit on the same branch is
+  # absent from the tree at HEAD and present forever in history. Measured on
+  # 2026-08-29 against a branch built exactly that way: `tree HEAD` passed with
+  # 632 file scans and exit 0, `scripts/gate.sh guard` printed DAT, and
+  # `range` found it -- one finding across 1265 file scans, exit 1.
+  #
+  # Three things could catch that, and while Actions is down none of them do.
+  # The pre-commit hook is bypassed by `--no-verify` and absent entirely until
+  # somebody runs scripts/setup-hooks.sh, which CLAUDE.md already says is
+  # discipline rather than enforcement. The workflow step cannot start. So the
+  # range form ran nowhere, on a repository whose stated rule is that bill
+  # photos, account numbers and real participant names never enter Git at all
+  # -- and where .gitignore is explicitly not a safe place to put them.
+  #
+  # `history` is deliberately not what this runs. It fails on main today
+  # (findings predating the guard, from the 12,629-file era scripts/setup-hooks.sh
+  # describes), so wiring it here would produce a stage that is red for
+  # everyone forever and gets switched off within a day.
+  local base count
+  base="$(guard_range_base)"
+  if [ -z "$base" ]; then
+    # Same choice `do_ruff` makes, for the same reason: without a base there is
+    # no answer, and a stage that cannot answer must not report that it did.
+    echo "không tìm được merge base với origin/main" >&2
+    return 1
+  fi
+  count="$(git rev-list --count "$base"..HEAD)"
+  echo "quét $count commit nhánh này thêm vào, so với merge base $base"
+  python3 scripts/repo_guard.py range "$base" HEAD
+}
 
 do_ruff() {
   # The one-argument form compares <base> against the WORKING TREE, so this
@@ -293,6 +342,19 @@ check_prereq() {
   case "$1" in
     ruff)
       git rev-parse --git-dir >/dev/null 2>&1 || { echo "không phải git repo"; return 1; } ;;
+    guard-range)
+      git rev-parse --git-dir >/dev/null 2>&1 || { echo "không phải git repo"; return 1; }
+      # No base: let the body fail loudly rather than skipping quietly here.
+      # An unanswerable question is a failure, not an absence.
+      local base; base="$(guard_range_base)"
+      [ -n "$base" ] || return 0
+      # An empty range scans zero files and exits 0 -- "passed commit range: 0
+      # file scan(s)". That is a pass this file must never hand out: it is the
+      # green-because-nothing-ran shape, reproduced inside the stage meant to
+      # stop it. On `main` itself there genuinely is nothing to scan, so the
+      # honest answer is a skip with a reason, and --strict makes it loud.
+      [ "$(git rev-list --count "$base"..HEAD)" -gt 0 ] || {
+        echo "nhánh không thêm commit nào trên origin/main -- không có gì để quét"; return 1; } ;;
     contract)
       # Needs both sides of the contract. Without `apps/mobile` there is no
       # client to check and skipping is the honest answer; with it present but
