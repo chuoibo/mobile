@@ -81,7 +81,24 @@ services:
     <<: *api-image
     command:
       ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
-    environment: *api-env
+    environment:
+      <<: *api-env
+      # Compose forwards NOTHING from the host by itself: a variable crosses
+      # into a container only because it is listed here. It was not, so every
+      # stack `make up` built read bills with no credential -- and answered
+      # `422 receipt_unreadable` in 2.5ms, which is what a blurry photo gets.
+      # A misconfigured server that impersonates a bad photo is the worst way
+      # for this to fail; see scripts/check_ai_key.sh for the rest of that.
+      #
+      # `:-` and not `:?`. An unset key must render an empty string rather
+      # than break `docker compose config` for the whole repo -- the money
+      # path does not need this key. Empty and absent take the same branch in
+      # `vision_gemini.py`, so there is no third state to reason about.
+      #
+      # Listed on `api` alone, not in the `x-api-env` anchor: `migrate`,
+      # `seed` and `demo` share that anchor and none of them read a bill. A
+      # credential belongs in exactly the processes that use it.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     # Cố ý KHÔNG đặt MOBILE_PUBLIC_BASE_URL ở đây. `.env.example` có khai nó,
     # nhưng `grep -rn MOBILE_PUBLIC_BASE_URL services/` không ra dòng code nào
     # đọc: publish trả về `path` tương đối, người gửi tự ghép host. Đặt một

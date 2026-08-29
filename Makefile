@@ -49,6 +49,11 @@ WAIT_TIMEOUT ?= 300
 # không tranh nhau cùng một dòng.
 DEMO_COMPOSE = $(if $(DC),$(DC),$(COMPOSE))
 
+# Cảnh báo khi thiếu khoá AI. Để trong script chứ không viết thẳng vào recipe
+# vì recipe không test được nếu không dựng Docker; script thì chạy và kiểm
+# được một mình (tests/test_stack_carries_gemini_key.py).
+KEY_CHECK = sh scripts/check_ai_key.sh
+
 help: ## In danh sách lệnh
 	@echo "Lệnh có sẵn:"
 	@grep -E '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -66,6 +71,10 @@ help: ## In danh sách lệnh
 	@echo "  MOBILE_PROJECT=qa47 make clean CONFIRM=qa47      # dọn đúng bộ đó thôi"
 
 up: ## Dựng ảnh, chạy migration, bật API, seed dữ liệu mẫu, rồi tự kiểm
+	@# Trước `docker build`, không phải sau: build mất vài phút, và một cảnh
+	@# báo in ra sau đó thì đã trôi khỏi màn hình. In ở đây thì còn kịp Ctrl-C.
+	@# Cảnh báo, không chặn — xem đầu file scripts/check_ai_key.sh.
+	@$(KEY_CHECK)
 	@echo "Project compose: $(PROJECT) (dùng chung cho mọi worktree trên máy này)"
 	@$(DC) up -d --build --wait --wait-timeout $(WAIT_TIMEOUT) || { \
 	  echo >&2; \
@@ -131,6 +140,11 @@ demo: ## Dựng hệ rồi nạp dữ liệu demo "Team Đà Lạt" — 7 ngư�
 	$(DEMO_COMPOSE) run --rm --no-deps demo
 
 smoke: ## Gọi thật /healthz qua cổng đã publish và in địa chỉ ra
+	@# `smoke` là việc cuối `up` chạy, nên nó giữ màn hình cuối cùng. Nhắc lại
+	@# ở đây để cảnh báo không bị chôn dưới log build. Nó cũng đúng chỗ khi gọi
+	@# riêng: `smoke` trả lời "bộ này dùng được không", và "API sống nhưng
+	@# không đọc được bill" là đúng loại câu trả lời đó.
+	@$(KEY_CHECK) --brief
 	@addr="$$($(DC) port api 8000 2>/dev/null)"; \
 	if [ -z "$$addr" ]; then \
 	  echo "API chưa chạy. Chạy 'make up' trước." >&2; exit 1; \
