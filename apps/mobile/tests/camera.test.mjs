@@ -157,16 +157,31 @@ test("UPLOAD HỎNG thì ảnh tạm vẫn bị xoá — đây mới là chỗ r
   ]);
 });
 
-test("nén hỏng thì ảnh gốc vẫn bị xoá", async () => {
+test("nén hỏng thì ảnh gốc vẫn bị xoá, và lỗi ra ngoài là câu của mình", async () => {
+  // This used to assert `/manipulator chết/`, i.e. that the platform's own
+  // English string travelled out of here untouched. bug-010822 is exactly that
+  // habit reaching a screen, so the expectation is now inverted: what leaves
+  // this function is a sentence we wrote, and the platform error is kept where
+  // a log can still reach it. The subject of the test -- the temp file is
+  // deleted even on the failing path -- is unchanged and still the last line.
+  const goc = new Error("manipulator chết");
   const backend = fakeBackend({
     async compress() {
-      throw new Error("manipulator chết");
+      throw goc;
     },
   });
-  await assert.rejects(
-    withBillPhoto(backend, "camera", async () => "không bao giờ tới đây"),
-    /manipulator chết/,
+  const problem = await withBillPhoto(backend, "camera", async () => "không bao giờ tới đây").then(
+    () => assert.fail("nén hỏng mà pipeline vẫn đi qua được"),
+    (err) => err,
   );
+
+  assert.ok(problem instanceof BillPhotoError);
+  assert.equal(problem.code, "khong-doc-duoc");
+  assert.doesNotMatch(problem.message, /manipulator/);
+  // Kept, not discarded: whoever debugs this later needs the real cause, and
+  // `cause` is the one place it can live without being rendered.
+  assert.equal(problem.cause, goc);
+
   assert.deepEqual(backend.calls.discarded, ["file:///cache/gốc.jpg"]);
 });
 
