@@ -173,6 +173,26 @@ FINISH: build fully, then hand off to the finish reviewer with captures.
  * That is also why the budget is never drawn in "warn". The brief calls it a
  * reference figure rather than a cap, and a red number is an assertion that
  * something is wrong -- here, nothing is.
+ *
+ * AMENDED BY rd-fe-17 (F34), and the amendment is to that last paragraph.
+ *
+ * "Here, nothing is" was true of rd-fe-12 because the screen had no spend
+ * figure: a budget on its own can be large or small but it cannot be exceeded,
+ * so red would have been an assertion with nothing behind it. F34 puts the
+ * ledger's own `split_total_vnd` next to it, and once a measured total is
+ * larger than the figure the group agreed on, something IS wrong, and it is
+ * exactly the kind of wrong this product exists to surface early.
+ *
+ * So "warn" is now earned, under one condition and no other: the ledger
+ * returned a total for this trip AND that total is greater than
+ * `budget_per_person_vnd * headcount`. The budget by itself is still never
+ * drawn in warn, an unread or absent spend figure is never drawn in warn, and
+ * no new colour enters the world -- "warn" is already in the palette, and this
+ * is still an extension rather than a second identity.
+ *
+ * Colour is never the only carrier. The overspend is written out in words and
+ * đồng ("Vượt ngân sách. Vượt 1.200.000đ"), because red is invisible to some
+ * of the people holding this phone and survives no screenshot at all.
  */
 export const DIRECTION_CONTRACT_BUOI_DI = `
 THESIS: Mot dia diem da chon chua phai mot chuyen di. Man nay bien no thanh
@@ -193,7 +213,15 @@ duoi.
 
 FORM: Duong thoi gian la mot ray doc: cham tron ben trai, gio chu so tabular,
 nhan va ten quan ben phai. Ngan sach dinh dang tien Viet co dau cham nghin,
-kem chu "tham chieu"; khong to mau canh bao du vuot. Bam >= 44.
+kem chu "tham chieu". Bam >= 44.
+
+NGAN SACH (rd-fe-17, F34): duoi hang tham chieu la mot khoi ngan cach bang
+mot duong ke, ghi "Da tieu X / ngan sach Y" roi mot dong ket luan. So da tieu
+doc tu so cai qua recap, khong tinh lai tren may. Chi to "warn" khi so cai CO
+so va so do LON HON ngan sach; ban than ngan sach va truong hop thieu so thi
+khong bao gio to warn. Khong phan tram, khong thanh bar: ca hai deu can phep
+chia, ma luat tien cam so thuc ke ca o gia tri trung gian. Muc vuot luon
+viet ra bang chu va bang dong, mau chi la kenh thu hai.
 
 FINISH: build fully, then hand off to the finish reviewer with captures.
 `.trim();
