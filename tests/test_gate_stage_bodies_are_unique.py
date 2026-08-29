@@ -55,6 +55,24 @@ DEF = re.compile(r"^do_([A-Za-z0-9_-]+)\(\)")
 # question is whether a *gate check* became unreachable.
 CHECKER = re.compile(r"scripts/(check_[A-Za-z0-9_]+\.(?:py|sh))")
 
+# gate stage -> the checker its body must invoke.
+#
+# The uniqueness assertions below catch a checker that has been *shadowed* by a
+# second definition. They do not catch one that has been *replaced*, because a
+# checker deleted from the file is no longer a name anything can look for. That
+# gap was found by mutation and this table is what closes it: point `contract`
+# at the route checker and the mutation is red here, on the stage that changed.
+#
+# Not every checker in `scripts/` belongs here -- `check_server_routes.py` asks
+# a running server and is driven from the Makefile, so the gate does not call
+# it. The rule is the narrower one, held in both directions below: a checker
+# `gate.sh` invokes is a checker this table has to name.
+STAGE_CHECKERS: dict[str, str] = {
+    "contract": "check_actor_headers.py",
+    "client-routes": "check_api_contract.py",
+    "docker": "check_dockerfile_pinning.sh",
+}
+
 
 def _stage_bodies() -> list[tuple[str, str]]:
     """Every `do_<stage>()` definition in file order, as (stage, body).
@@ -219,6 +237,50 @@ class GateStageBodiesAreUnique(unittest.TestCase):
             f"scripts/gate.sh invokes these checkers from somewhere no stage "
             f"reaches: {stranded}. The usual cause is a second definition of a "
             "stage further down the file shadowing the one that called them.",
+        )
+
+    def test_each_stage_still_invokes_the_checker_it_is_named_for(self):
+        """A stage that swapped bodies with another one keeps its name.
+
+        That is the whole shape of the bug: `gate.sh contract` went on printing
+        the actor-header description and exiting 0 while running a different
+        check entirely. Nothing about the name, the description or the exit code
+        changes when this happens, so the mapping is asserted directly.
+        """
+        bodies = _effective_bodies()
+        for stage, checker in sorted(STAGE_CHECKERS.items()):
+            with self.subTest(stage=stage):
+                self.assertIn(
+                    stage,
+                    bodies,
+                    f"scripts/gate.sh has no do_{stage}() any more, but this "
+                    f"file still expects it to run {checker}. If the stage was "
+                    "renamed, rename it here too; if it was dropped, say so by "
+                    "dropping it here.",
+                )
+                self.assertIn(
+                    checker,
+                    CHECKER.findall(bodies[stage]),
+                    f"the `{stage}` stage no longer invokes {checker}. A stage "
+                    "that keeps its name and its description while running a "
+                    "different check reports on a question it never asked.",
+                )
+
+    def test_no_checker_is_invoked_without_being_recorded(self):
+        """Keeps the table above from going stale by omission.
+
+        Without this, a new checker-backed stage could be added and simply not
+        listed, and the mapping test would pass by not looking at it.
+        """
+        invoked = {name for line in _code_lines() for name in CHECKER.findall(line)}
+        unrecorded = sorted(invoked - set(STAGE_CHECKERS.values()))
+        self.assertEqual(
+            unrecorded,
+            [],
+            f"scripts/gate.sh invokes these checkers that STAGE_CHECKERS in "
+            f"this file does not name: {unrecorded}. Add the stage that runs "
+            "each one, so a later edit that points a stage somewhere else is "
+            "caught here rather than by whoever notices the gate went quiet.",
         )
 
 
