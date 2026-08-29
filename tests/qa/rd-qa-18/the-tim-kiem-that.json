@@ -1,0 +1,58 @@
+{
+  "id": "p-lung-chung-cafe",
+  "name": "Lưng Chừng Cafe",
+  "category": "cafe",
+  "kinds": [
+    "Cafe",
+    "View đồi"
+  ],
+  "rating": 4.6,
+  "rating_count": 156,
+  "distance_km": 1.6,
+  "price_min_vnd": 180000,
+  "price_max_vnd": 230000,
+  "address": "12 Khe Sanh, P.10, TP. Đà Lạt, Lâm Đồng",
+  "open_now": true,
+  "open_hours": "07:00 – 22:00",
+  "travel_minutes": 20,
+  "photo_count": 24,
+  "traits": [
+    "Chill",
+    "Sống ảo",
+    "Nhẹ nhàng",
+    "View đẹp",
+    "Ngoài trời"
+  ],
+  "group_fit": {
+    "min_people": 2,
+    "max_people": 8,
+    "relation": "Bạn bè, cặp đôi"
+  },
+  "flag": null,
+  "lat": 11.9512,
+  "lng": 108.4451,
+  "match": {
+    "score": 81,
+    "reason": "Địa điểm này là quán cafe, có không gian chill và view đẹp đúng như yêu cầu, phù hợp cho nhóm 6 người và mở cửa tối nay.",
+    "source": "ai",
+    "verdict": null,
+    "factors": [
+      {
+        "label": "Budget",
+        "detail": "~205k/người so với ~250k nhóm định"
+      },
+      {
+        "label": "Sở thích",
+        "detail": "Chill, Ngoài trời, View đẹp"
+      },
+      {
+        "label": "Nhóm",
+        "detail": "nhóm 6 người, quán hợp 2-8 người"
+      },
+      {
+        "label": "Khoảng cách",
+        "detail": "1.6km, đi khoảng 20 phút"
+      }
+    ]
+  }
+}
