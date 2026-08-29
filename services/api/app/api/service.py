@@ -1349,11 +1349,16 @@ class ApiService:
     def list_batch_obligations(
         self, batch_id: uuid.UUID, actor: Actor
     ) -> BatchObligationsResponse:
-        """The collection board, disputes and all.
+        """The collection board: what arrived, what is argued about, what was
+        claimed.
 
         Section 8.2 says an objection stops collection on that obligation.
         That is only true if somebody on the collecting side can see it, and
-        until now there was nowhere for them to look.
+        until now there was nowhere for them to look. The same hole swallowed
+        the sender's "I transferred it": the guest page told them to wait for
+        a confirmation, and the person expected to give it saw a row identical
+        to one nobody had touched. All three facts are reported side by side
+        and none of them is merged into another.
         """
         board = self.repository.list_batch_obligations(batch_id)
         if board is None:
@@ -1383,10 +1388,14 @@ class ApiService:
                     obligation_status=row.status,
                     disputed=row.disputed,
                     disputed_reason=row.disputed_reason,
+                    payment_reported_at=row.payment_reported_at,
                 )
                 for row in rows
             ],
             disputed_count=sum(1 for row in rows if row.disputed),
+            payment_reported_count=sum(
+                1 for row in rows if row.payment_reported_at is not None
+            ),
         )
 
     def record_objection(

@@ -223,6 +223,15 @@ class BatchObligationRow:
     #: the person confirming receipt is the person being objected to.
     disputed: bool
     disputed_reason: str | None
+    #: When the sender said they had transferred it, or `None` if they never
+    #: did. A CLAIM by one person, carried next to `status` and never folded
+    #: into it: the guest page promises "waiting for NAM to confirm", and
+    #: before this the board had nowhere to read that promise back from, so
+    #: somebody who had done everything asked of them looked identical to
+    #: somebody who had done nothing. It is not evidence from a bank, and no
+    #: value here may ever move `status` -- that stays derived from
+    #: `ReceiptConfirmation` alone.
+    payment_reported_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -2179,6 +2188,26 @@ class SqlAlchemyApiRepository:
                     # obligation does not overwrite why it was first raised.
                     disputes.setdefault(str(target), row.get("reason"))
 
+        # The senders' own claims, one aggregate rather than a query per row.
+        # MIN, not MAX: a guest gets three reports, and every retry after the
+        # first is the same claim repeated rather than a new fact. Taking the
+        # latest would make the time on the board drift each time somebody
+        # pressed the button again while nothing about the claim had changed.
+        claims: dict[uuid.UUID, datetime] = dict(
+            self.session.execute(
+                select(
+                    PaymentReport.obligation_id,
+                    func.min(PaymentReport.reported_at),
+                )
+                .join(
+                    CollectionObligation,
+                    CollectionObligation.id == PaymentReport.obligation_id,
+                )
+                .where(CollectionObligation.batch_version_id == version.id)
+                .group_by(PaymentReport.obligation_id)
+            ).all()
+        )
+
         rows = []
         for obligation in obligations:
             key = str(obligation.id)
@@ -2197,6 +2226,7 @@ class SqlAlchemyApiRepository:
                     ),
                     disputed=key in disputes,
                     disputed_reason=disputes.get(key),
+                    payment_reported_at=claims.get(obligation.id),
                 )
             )
         return BatchBoard(context_id=batch.context_id, obligations=tuple(rows))

@@ -66,7 +66,9 @@ class LifecycleState:
     obligation_id: uuid.UUID
     source_allocation_id: uuid.UUID
     token_digest: bytes
-    payment_report_id: uuid.UUID
+    #: `None` only when the caller asked for a lifecycle in which the sender
+    #: never said anything -- the state the board has to render as "no claim".
+    payment_report_id: uuid.UUID | None
     receipt_confirmation_ids: tuple[uuid.UUID, uuid.UUID]
 
 
@@ -117,6 +119,7 @@ def _persist_lifecycle(
     session: Session,
     *,
     confirm_receipts: bool = True,
+    file_payment_report: bool = True,
     guest_token: str = GUEST_TOKEN,
 ) -> LifecycleState:
     repository = SqlAlchemyApiRepository(session)
@@ -219,26 +222,29 @@ def _persist_lifecycle(
     assert envelope is not None
     assert envelope.envelope["obligations"][0]["account_number"] == ORIGINAL_ACCOUNT
 
-    report_target = repository.get_payment_report_target(
-        token_digest,
-        frozen.obligations[0].id,
-        NOW + timedelta(minutes=4),
-    )
-    assert report_target is not None
-    assert report_target.active_capability is True
-    assert report_target.reports_used == 0
-    report_key = uuid.uuid4()
-    report = repository.save_payment_report(
-        target=report_target,
-        idempotency_key=report_key,
-        now=NOW + timedelta(minutes=5),
-    )
-    repeated_report = repository.save_payment_report(
-        target=report_target,
-        idempotency_key=report_key,
-        now=NOW + timedelta(minutes=6),
-    )
-    assert repeated_report.id == report.id
+    report_id: uuid.UUID | None = None
+    if file_payment_report:
+        report_target = repository.get_payment_report_target(
+            token_digest,
+            frozen.obligations[0].id,
+            NOW + timedelta(minutes=4),
+        )
+        assert report_target is not None
+        assert report_target.active_capability is True
+        assert report_target.reports_used == 0
+        report_key = uuid.uuid4()
+        report = repository.save_payment_report(
+            target=report_target,
+            idempotency_key=report_key,
+            now=NOW + timedelta(minutes=5),
+        )
+        repeated_report = repository.save_payment_report(
+            target=report_target,
+            idempotency_key=report_key,
+            now=NOW + timedelta(minutes=6),
+        )
+        assert repeated_report.id == report.id
+        report_id = report.id
 
     receipt_target = repository.get_receipt_target(frozen.obligations[0].id)
     assert receipt_target is not None
@@ -256,7 +262,7 @@ def _persist_lifecycle(
             obligation_id=frozen.obligations[0].id,
             source_allocation_id=source.id,
             token_digest=token_digest,
-            payment_report_id=report.id,
+            payment_report_id=report_id,
             receipt_confirmation_ids=(),
         )
     first_receipt_key = uuid.uuid4()
@@ -264,7 +270,7 @@ def _persist_lifecycle(
         target=receipt_target,
         confirmed_by_id=recipient_id,
         amount_vnd=15_000,
-        payment_report_id=report.id,
+        payment_report_id=report_id,
         idempotency_key=first_receipt_key,
         now=NOW + timedelta(minutes=7),
     )
@@ -272,7 +278,7 @@ def _persist_lifecycle(
         target=receipt_target,
         confirmed_by_id=recipient_id,
         amount_vnd=15_000,
-        payment_report_id=report.id,
+        payment_report_id=report_id,
         idempotency_key=first_receipt_key,
         now=NOW + timedelta(minutes=8),
     )
@@ -299,7 +305,7 @@ def _persist_lifecycle(
         obligation_id=frozen.obligations[0].id,
         source_allocation_id=source.id,
         token_digest=token_digest,
-        payment_report_id=report.id,
+        payment_report_id=report_id,
         receipt_confirmation_ids=(first_receipt.id, second_receipt.id),
     )
 
@@ -721,3 +727,149 @@ def test_asking_for_the_calculation_never_makes_an_obligation_disputed(
     assert block["disputed"] is False
     assert block["evidence_requested"] is True
     assert envelope.envelope["objections_used"] == 0
+
+
+def test_the_board_reads_back_the_senders_claim_from_postgres(
+    postgres_session: Session,
+):
+    """The claim is a row in `payment_reports`, not a column on the obligation.
+
+    Reading it back means a join and a per-obligation aggregate, and neither
+    exists in a dict-backed fake. `_persist_lifecycle` files one report at
+    NOW+5 and immediately retries it with the same idempotency key, so this
+    also proves the retry does not become a second, later claim.
+    """
+    state = _persist_lifecycle(postgres_session, confirm_receipts=False)
+    repository = SqlAlchemyApiRepository(postgres_session)
+
+    board = repository.list_batch_obligations(state.batch_id)
+    assert board is not None
+    target = [
+        row for row in board.obligations if row.obligation_id == state.obligation_id
+    ]
+    assert target, "the obligation vanished from the board"
+    assert target[0].payment_reported_at == NOW + timedelta(minutes=5)
+    # Two independent facts. Saying it does not make it arrive.
+    assert target[0].status == "outstanding"
+
+
+def test_a_second_claim_does_not_move_the_time_the_first_one_was_made(
+    postgres_session: Session,
+):
+    """A guest gets three reports. Ordering by `reported_at` and taking the
+    latest would make the board's timestamp drift every time somebody pressed
+    the button again, without anything new being claimed."""
+    state = _persist_lifecycle(postgres_session, confirm_receipts=False)
+    repository = SqlAlchemyApiRepository(postgres_session)
+
+    target = repository.get_payment_report_target(
+        state.token_digest, state.obligation_id, NOW + timedelta(minutes=10)
+    )
+    assert target is not None
+    assert target.reports_used == 1, "the lifecycle stopped filing exactly one report"
+    repository.save_payment_report(
+        target=target,
+        idempotency_key=uuid.uuid4(),
+        now=NOW + timedelta(minutes=11),
+    )
+    postgres_session.flush()
+
+    board = repository.list_batch_obligations(state.batch_id)
+    assert board is not None
+    row = [
+        item for item in board.obligations if item.obligation_id == state.obligation_id
+    ][0]
+    assert row.payment_reported_at == NOW + timedelta(minutes=5)
+
+
+def test_the_guest_pressing_the_button_changes_the_advancers_next_refresh(
+    postgres_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The acceptance case, over HTTP, on real PostgreSQL.
+
+    The repository tests above prove the query. This proves the whole promise:
+    a guest presses "I transferred it" on their page, and the very next read of
+    the collection board by the person who advanced the money is different from
+    the one before it. That round trip crosses the guest route, the board
+    route, the permission check, the response model and two tables, and the
+    fake can stand in for none of it.
+    """
+    state = _persist_lifecycle(
+        postgres_session, confirm_receipts=False, file_payment_report=False
+    )
+    repository = SqlAlchemyApiRepository(postgres_session)
+
+    async def run_sync_inline(function, *args, **kwargs):
+        del kwargs
+        return function(*args)
+
+    monkeypatch.setattr(anyio.to_thread, "run_sync", run_sync_inline)
+    monkeypatch.setattr("app.api.service._now", lambda: NOW + timedelta(minutes=10))
+    app = create_app()
+    app.dependency_overrides[get_repository] = lambda: repository
+    board_headers = {
+        "X-Actor-ID": str(state.owner_id),
+        "X-Actor-Roles": "member,advancer,recipient,batch_owner",
+        "X-Actor-Contexts": str(state.context_id),
+    }
+
+    async def walk():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
+            before = await client.get(
+                f"/batches/{state.batch_id}/obligations", headers=board_headers
+            )
+            reported = await client.post(
+                f"/g/{GUEST_TOKEN}/da-chuyen",
+                data={"obligation_id": str(state.obligation_id)},
+            )
+            after = await client.get(
+                f"/batches/{state.batch_id}/obligations", headers=board_headers
+            )
+            return before, reported, after
+
+    before, reported, after = anyio.run(walk)
+
+    assert before.status_code == 200, before.text
+    assert before.json()["payment_reported_count"] == 0
+    assert before.json()["obligations"][0]["payment_reported_at"] is None
+
+    assert reported.status_code == 201, reported.text
+    # The guest's own answer still refuses to call it paid.
+    assert reported.json()["obligation_status"] == "outstanding"
+
+    assert after.status_code == 200, after.text
+    body = after.json()
+    row = [
+        item
+        for item in body["obligations"]
+        if item["obligation_id"] == str(state.obligation_id)
+    ][0]
+    assert row["payment_reported_at"] is not None, (
+        "the guest was told to wait for a confirmation and the person expected "
+        "to give it still sees nothing"
+    )
+    assert body["payment_reported_count"] == 1
+    # Said, not received. The board must show those as different things.
+    assert row["obligation_status"] == "outstanding"
+
+
+def test_an_unreported_obligation_carries_no_claim_in_postgres(
+    postgres_session: Session,
+):
+    """The negative half. Without it the query could return the same non-null
+    timestamp for every row and both tests above would still pass."""
+    state = _persist_lifecycle(
+        postgres_session, confirm_receipts=False, file_payment_report=False
+    )
+    repository = SqlAlchemyApiRepository(postgres_session)
+
+    board = repository.list_batch_obligations(state.batch_id)
+    assert board is not None
+    row = [
+        item for item in board.obligations if item.obligation_id == state.obligation_id
+    ][0]
+    assert row.payment_reported_at is None
