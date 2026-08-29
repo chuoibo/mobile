@@ -436,22 +436,34 @@ function DanhSach({
             <HangNguoi
               key={m.id}
               ten={m.other_display_name}
-              phu={`${m.other_display_name} muốn kết bạn với bạn`}
-            >
-              <View style={{ flexDirection: "row", gap: space.xs }}>
-                <NutNho
-                  nhan="Đồng ý"
-                  mau={c.accent}
-                  dam
-                  onPress={() => onTraLoi(m, "accept")}
-                />
-                <NutNho
-                  nhan="Từ chối"
-                  mau={c.inkSoft}
-                  onPress={() => onTraLoi(m, "decline")}
-                />
-              </View>
-            </HangNguoi>
+              // Not "<tên> muốn kết bạn với bạn". The name is already the line
+              // above, so repeating it said nothing and cost the row its width:
+              // measured at 390pt the name column fell to ~126px and rendered
+              // "Nguyễn Qu…" over a subtitle cut mid-word, on the one screen
+              // where somebody decides whether they know that person.
+              phu="Muốn kết bạn với bạn"
+              duoi={
+                <View style={{ flexDirection: "row", gap: space.xs }}>
+                  <NutNho
+                    nhan="Đồng ý"
+                    // The visible word stays "Đồng ý" and the spoken name says
+                    // which request it belongs to. Three pending invitations
+                    // otherwise announce three identical buttons. WCAG 2.5.3
+                    // holds because the visible label is inside the spoken one.
+                    doc={`Đồng ý kết bạn với ${m.other_display_name}`}
+                    mau={c.accent}
+                    dam
+                    onPress={() => onTraLoi(m, "accept")}
+                  />
+                  <NutNho
+                    nhan="Từ chối"
+                    doc={`Từ chối kết bạn với ${m.other_display_name}`}
+                    mau={c.inkSoft}
+                    onPress={() => onTraLoi(m, "decline")}
+                  />
+                </View>
+              }
+            />
           ))
         )}
       </Card>
@@ -505,24 +517,33 @@ function DanhSach({
  * item defaults to `min-width: auto` and refuses to shrink below its content,
  * so a long name pushes the column wider than the row and runs underneath the
  * buttons on its right. Measured on this same screen family in `CaNhan`.
+ *
+ * Actions go in `duoi`, on their own line, rather than beside the name. The
+ * side-by-side version was tried first and photographed: at 390pt the two
+ * buttons took ~140px of a 302px row, the name column shrank to ~126px, and
+ * "Nguyễn Quốc Thắng" rendered as "Nguyễn Qu…". Truncating somebody's name is
+ * bad anywhere and worst here, because the only question this row asks is
+ * whether the reader recognises that person. A line of vertical space is a
+ * cheaper price than a name nobody can read.
  */
 function HangNguoi({
   ten,
   phu,
-  children,
+  duoi,
 }: {
   ten: string;
   phu: string;
-  children?: React.ReactNode;
+  /** Controls for this person, drawn under the identity block at full width. */
+  duoi?: React.ReactNode;
 }) {
   const c = usePalette();
   return (
+    <View style={{ gap: space.xs, paddingVertical: space.xs }}>
     <View
       style={{
         flexDirection: "row",
         alignItems: "center",
         gap: space.sm,
-        paddingVertical: space.xs,
       }}
     >
       <Anh
@@ -550,7 +571,8 @@ function HangNguoi({
           {phu}
         </Text>
       </View>
-      {children ? <View style={{ flexShrink: 0 }}>{children}</View> : null}
+    </View>
+      {duoi ?? null}
     </View>
   );
 }
@@ -568,11 +590,17 @@ function HangNguoi({
  */
 function NutNho({
   nhan,
+  doc,
   mau,
   dam,
   onPress,
 }: {
   nhan: string;
+  /** What a screen reader says, when the visible word alone is ambiguous.
+   *  Must contain `nhan` verbatim: WCAG 2.5.3 asks that the visible label be
+   *  part of the accessible name, so somebody using voice control can say the
+   *  word they can see. */
+  doc?: string;
   mau: string;
   dam?: boolean;
   onPress: () => void;
@@ -582,7 +610,7 @@ function NutNho({
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={nhan}
+      accessibilityLabel={doc ?? nhan}
       style={({ pressed }) => ({
         minHeight: 44,
         justifyContent: "center",

@@ -474,7 +474,7 @@ if (reasons.length && !REQUIRED) {
       ]);
 
       await doiChu("Lời mời đang chờ bạn trả lời (1)", "danh sách lời mời đến");
-      await page.clickLabel("Đồng ý");
+      await page.clickLabel(`Đồng ý kết bạn với ${BINH.display_name}`);
       await doiChu("Bạn bè (1)", "danh sách bạn bè sau khi đồng ý");
 
       const calls = await cacLanGoi();
