@@ -17,7 +17,12 @@ import { fileURLToPath } from "node:url";
 
 import { DIRECTION_CONTRACT_NHOM_CHAT } from "../dist-test/ui/direction.js";
 import { AI_WORK_ITEM, cauAiChuaNoiDuoc, goiAiTurn } from "../dist-test/screens/chat/ai.js";
-import { dinhDangTienVnd, keHoachTuCard } from "../dist-test/screens/chat/ke-hoach.js";
+import {
+  dinhDangTienVnd,
+  keHoachTuCard,
+  khoangGia,
+  theTuCard,
+} from "../dist-test/screens/chat/ke-hoach.js";
 import { khoiDongNhom } from "../dist-test/screens/chat/nhom.js";
 import {
   cursorCuNhat,
@@ -183,42 +188,88 @@ test("URL lần đầu không mang before hay after", () => {
   assert.doesNotMatch(url, /after=/);
 });
 
-/* ------------------------------------------------ ke hoach -------------- */
+/* ------------------------------------------------ ke hoach --------------
+ *
+ * Every case below feeds the shape rd-be-04 actually emits, `{kind, payload}`,
+ * taken from docs/claude/2026-08-29/rd-be-04-hop-dong.md and from
+ * `ground_card` in app/domain/companion.py. The first draft of these tests fed
+ * a shape guessed from the mockup (`{tieuDe, ngay:[{nhan, chang}]}`) and
+ * passed against a parser that read the same guess, which proved only that
+ * two files agreed with each other.
+ */
 
-test("keHoachTuCard trả null với card rác, thiếu trường, mảng rỗng, null", () => {
-  assert.equal(keHoachTuCard(null), null);
-  assert.equal(keHoachTuCard(undefined), null);
-  assert.equal(keHoachTuCard("rác"), null);
-  assert.equal(keHoachTuCard([]), null);
-  assert.equal(keHoachTuCard({}), null);
-  assert.equal(keHoachTuCard({ tieuDe: "Đà Lạt" }), null);
-  assert.equal(keHoachTuCard({ tieuDe: "Đà Lạt", ngay: [] }), null);
-  assert.equal(keHoachTuCard({ ngay: [{ nhan: "Ngày 1", chang: [{ gio: "08:00", ten: "Ăn" }] }] }), null);
+/** A catalogue place as `ground_card` copies it: server fields, snake_case. */
+function place(over = {}) {
+  return {
+    id: "pl-1",
+    name: "Quán Gió",
+    address: "12 Trần Phú",
+    price_min_vnd: 120000,
+    price_max_vnd: 250000,
+    rating: 4.5,
+    distance_km: 1.2,
+    open_hours: "07:00 - 22:00",
+    category: "an-uong",
+    ...over,
+  };
+}
+
+test("theTuCard trả null với card rác, thiếu payload, kind lạ", () => {
+  assert.equal(theTuCard(null), null);
+  assert.equal(theTuCard(undefined), null);
+  assert.equal(theTuCard("rác"), null);
+  assert.equal(theTuCard([]), null);
+  assert.equal(theTuCard({}), null);
+  assert.equal(theTuCard({ kind: "text" }), null);
+  assert.equal(theTuCard({ kind: "text", payload: "chuỗi" }), null);
+  assert.equal(theTuCard({ kind: "text", payload: { text: "   " } }), null);
+  // A kind this client has never heard of means the server is newer than the
+  // app. There is no safe way to draw it, so it is refused rather than guessed.
+  assert.equal(theTuCard({ kind: "poll", payload: { question: "đi đâu" } }), null);
+  assert.equal(theTuCard({ kind: "places", payload: { places: [] } }), null);
+  assert.equal(theTuCard({ kind: "itinerary", payload: { title: "Đà Lạt", stops: [] } }), null);
+  assert.equal(theTuCard({ kind: "itinerary", payload: { stops: [{ time_text: "08:00", place: place() }] } }), null);
 });
 
-test("keHoachTuCard bỏ chặng thiếu gio hoặc ten thay vì vẽ undefined", () => {
+test("theTuCard đọc thẻ text và thẻ places", () => {
+  assert.deepEqual(theTuCard({ kind: "text", payload: { text: "Nhóm mình đi Đà Lạt nhé" } }), {
+    kind: "text",
+    text: "Nhóm mình đi Đà Lạt nhé",
+  });
+
+  const t = theTuCard({
+    kind: "places",
+    payload: { intro: "Ba chỗ gần chỗ mình ở", places: [place(), place({ id: "pl-2", name: "Bếp Nhà" })] },
+  });
+  assert.equal(t.kind, "places");
+  assert.equal(t.intro, "Ba chỗ gần chỗ mình ở");
+  assert.deepEqual(t.diaDiem.map((d) => d.ten), ["Quán Gió", "Bếp Nhà"]);
+  assert.equal(t.diaDiem[0].gioMo, "07:00 - 22:00");
+  assert.equal(t.diaDiem[0].danhGia, 4.5);
+});
+
+test("keHoachTuCard bỏ chặng thiếu time_text hoặc place thay vì vẽ undefined", () => {
   const ke = keHoachTuCard({
-    tieuDe: "Đà Lạt 2N1Đ",
-    ngay: [
-      {
-        nhan: "Ngày 1",
-        chang: [
-          { gio: "08:00", ten: "Ăn sáng" },
-          { gio: "09:00" },
-          { ten: "Thiếu giờ" },
-          { gio: "10:00", ten: "Cafe", ghiChu: "mang theo áo ấm" },
-        ],
-      },
-      { nhan: "Ngày trống", chang: [{ gio: "12:00" }] },
-    ],
+    kind: "itinerary",
+    payload: {
+      title: "Đà Lạt 2N1Đ",
+      stops: [
+        { time_text: "08:00", note: "ăn sáng", place: place({ id: "a", name: "Ăn sáng" }) },
+        { time_text: "09:00" },
+        { place: place({ id: "b", name: "Thiếu giờ" }) },
+        { time_text: "10:00", place: place({ id: "c", name: "Cafe" }) },
+        { time_text: "11:00", place: { id: "d" } },
+      ],
+    },
   });
   assert.equal(ke.tieuDe, "Đà Lạt 2N1Đ");
-  assert.equal(ke.ngay.length, 1);
-  assert.deepEqual(
-    ke.ngay[0].chang.map((c) => c.ten),
-    ["Ăn sáng", "Cafe"],
-  );
-  assert.equal(ke.ngay[0].chang.some((c) => c.gio === undefined || c.ten === undefined), false);
+  assert.deepEqual(ke.chang.map((c) => c.diaDiem.ten), ["Ăn sáng", "Cafe"]);
+  assert.equal(ke.chang.some((c) => c.gio === undefined || c.diaDiem === undefined), false);
+});
+
+test("keHoachTuCard chỉ nhận kind itinerary, không nhận text hay places", () => {
+  assert.equal(keHoachTuCard({ kind: "text", payload: { text: "chào" } }), null);
+  assert.equal(keHoachTuCard({ kind: "places", payload: { places: [place()] } }), null);
 });
 
 test("định dạng tiền 17500000 thành 17.500.000đ, không float", () => {
@@ -226,29 +277,56 @@ test("định dạng tiền 17500000 thành 17.500.000đ, không float", () => {
   assert.equal(dinhDangTienVnd(0), "0đ");
   assert.equal(dinhDangTienVnd(999), "999đ");
   assert.ok(!dinhDangTienVnd(17500000).includes(","));
-  // Deliberately short of nine digits. The repo guard blocks any longer run
-  // because it cannot tell a demo amount from a bank account number, and it
-  // counts the digits on both sides of the decimal point as one run -- so the
-  // tens-of-millions value used above, given a fractional part, reads as nine
-  // and is refused at commit time. (Writing that number out in this comment
-  // was itself refused, which is the guard working.) What the case proves is
-  // that a non-integer đồng gets dropped, and that holds at any scale.
-  const ke = keHoachTuCard({
-    tieuDe: "Đà Lạt",
-    tongDuTinhVnd: 1750000.5,
-    duTinhMoiNguoiVnd: 2500000,
-    ngay: [{ nhan: "Ngày 1", chang: [{ gio: "08:00", ten: "Ăn" }] }],
-  });
-  assert.equal(ke.tongDuTinhVnd, undefined);
-  assert.equal(ke.duTinhMoiNguoiVnd, 2500000);
 });
 
-/* ------------------------------------------------ AI turn --------------- */
+test("giá lẻ đồng bị bỏ, không làm tròn; khoảng giá không tự lấy trung bình", () => {
+  // A fractional đồng is a server defect, not something to round into a figure
+  // that looks fine. The field is dropped and the line disappears.
+  const t = theTuCard({
+    kind: "places",
+    payload: { places: [place({ price_min_vnd: 120000.5, price_max_vnd: 250000 })] },
+  });
+  assert.equal(t.diaDiem[0].giaMinVnd, undefined);
+  assert.equal(t.diaDiem[0].giaMaxVnd, 250000);
+  assert.equal(khoangGia(t.diaDiem[0]), "tới 250.000đ");
+
+  assert.equal(khoangGia({ id: "x", ten: "X", giaMinVnd: 120000, giaMaxVnd: 250000 }), "120.000đ - 250.000đ");
+  assert.equal(khoangGia({ id: "x", ten: "X", giaMinVnd: 90000, giaMaxVnd: 90000 }), "90.000đ");
+  assert.equal(khoangGia({ id: "x", ten: "X" }), null);
+  // The midpoint of a range the server gave as a range is a number the server
+  // never said. Nothing here may produce one.
+  assert.ok(!khoangGia({ id: "x", ten: "X", giaMinVnd: 100000, giaMaxVnd: 200000 }).includes("150.000"));
+});
+
+/* ------------------------------------------------ AI turn ---------------
+ *
+ * The wire here is CompanionTurnResponse from rd-be-04:
+ *   {context_id, spoke, reason, message: MessageResponse | null}
+ * with 200 for every outcome, silence included, so the client never has to
+ * read a status code to learn whether the companion spoke.
+ */
+
+function turn(over = {}) {
+  return { context_id: CTX, spoke: false, reason: "cooldown", message: null, ...over };
+}
+
+test("ai-turn không gửi thân request: máy chủ tự chọn cửa sổ 40 tin", async () => {
+  let seen;
+  await withFetch(
+    async (_url, init) => {
+      seen = init;
+      return res(turn());
+    },
+    () => goiAiTurn({ contextId: CTX, actorId: ACTOR, base: "http://x" }),
+  );
+  assert.equal(seen.method, "POST");
+  assert.equal(seen.body, undefined);
+});
 
 test("ai-turn 404 là chua-noi-duoc và câu có nhắc rd-be-04", async () => {
   const s = await withFetch(
     async () => res("", { status: 404, ok: false }),
-    () => goiAiTurn({ contextId: CTX, actorId: ACTOR, afterMessageId: "m-9", base: "http://x.invalid" }),
+    () => goiAiTurn({ contextId: CTX, actorId: ACTOR, base: "http://x.invalid" }),
   );
   assert.equal(s.kind, "chua-noi-duoc");
   assert.match(s.cau, /rd-be-04/);
@@ -261,7 +339,7 @@ test("ai-turn 404 là chua-noi-duoc và câu có nhắc rd-be-04", async () => {
 test("ai-turn 405 cũng là chua-noi-duoc, cùng giọng", async () => {
   const s = await withFetch(
     async () => res("", { status: 405, ok: false }),
-    () => goiAiTurn({ contextId: CTX, actorId: ACTOR, afterMessageId: "m-9", base: "http://x.invalid" }),
+    () => goiAiTurn({ contextId: CTX, actorId: ACTOR, base: "http://x.invalid" }),
   );
   assert.equal(s.kind, "chua-noi-duoc");
   assert.equal(s.cau, cauAiChuaNoiDuoc(s.url));
@@ -277,19 +355,83 @@ test("ai-turn 204 là im-lang, màn không hiện gì", async () => {
       },
       text: async () => "",
     }),
-    () => goiAiTurn({ contextId: CTX, actorId: ACTOR, afterMessageId: "m-9", base: "http://x" }),
+    () => goiAiTurn({ contextId: CTX, actorId: ACTOR, base: "http://x" }),
   );
   assert.equal(s.kind, "im-lang");
   assert.equal("cau" in s, false);
   assert.equal("message" in s, false);
 });
 
-test("ai-turn speak false cũng là im-lang", async () => {
+test("bốn lý do của plan_turn đều là im-lang, không hiện gì", async () => {
+  for (const reason of ["no_conversation", "already_spoke_last", "rate_limited", "cooldown"]) {
+    const s = await withFetch(
+      async () => res(turn({ reason })),
+      () => goiAiTurn({ contextId: CTX, actorId: ACTOR, base: "http://x" }),
+    );
+    assert.equal(s.kind, "im-lang", reason);
+    assert.equal(s.reason, reason);
+    assert.equal("cau" in s, false, reason);
+  }
+});
+
+test("unavailable KHÔNG được đọc thành im lặng: thiếu khoá phải nhìn thấy được", async () => {
+  // The tempting bug. `spoke:false, reason:"unavailable"` means the model call
+  // failed, most often because the deployment has no GEMINI_API_KEY. Folding
+  // it into `im-lang` makes a permanently broken AI look exactly like an AI
+  // that read the thread and had nothing to add, and nobody ever finds out.
   const s = await withFetch(
-    async () => res({ speak: false }),
-    () => goiAiTurn({ contextId: CTX, actorId: ACTOR, afterMessageId: "m-9", base: "http://x" }),
+    async () => res(turn({ reason: "unavailable" })),
+    () => goiAiTurn({ contextId: CTX, actorId: ACTOR, base: "http://x" }),
   );
-  assert.equal(s.kind, "im-lang");
+  assert.equal(s.kind, "khong-tra-loi-duoc");
+  assert.equal(s.reason, "unavailable");
+  assert.ok(s.cau.length > 0);
+  assert.ok(!s.cau.includes("—"), s.cau);
+  // The server never sends the exception text because it could carry the API
+  // key or the chat content, so nothing key-shaped can reach the sentence.
+  assert.ok(!/AIza|key|api[_-]?key/i.test(s.cau), s.cau);
+});
+
+test("ungrounded nói rõ AI nhắc địa điểm ngoài danh mục nên cả thẻ bị bỏ", async () => {
+  const s = await withFetch(
+    async () => res(turn({ reason: "ungrounded" })),
+    () => goiAiTurn({ contextId: CTX, actorId: ACTOR, base: "http://x" }),
+  );
+  assert.equal(s.kind, "khong-tra-loi-duoc");
+  assert.match(s.cau, /địa điểm/);
+  assert.ok(!s.cau.includes("—"), s.cau);
+});
+
+test("lý do lạ được coi là không trả lời được, không phải im lặng", async () => {
+  const s = await withFetch(
+    async () => res(turn({ reason: "chua_tung_thay" })),
+    () => goiAiTurn({ contextId: CTX, actorId: ACTOR, base: "http://x" }),
+  );
+  assert.equal(s.kind, "khong-tra-loi-duoc");
+});
+
+test("spoke true dựng thẻ từ message, không phải từ thân ngoài", async () => {
+  const card = { kind: "itinerary", payload: { title: "Đà Lạt 2N1Đ", stops: [{ time_text: "08:00", place: place() }] } };
+  const s = await withFetch(
+    async () =>
+      res(turn({ spoke: true, reason: "ok", message: msg({ id: "m-ai", kind: "ai_card", author_id: null, body: null, card }) })),
+    () => goiAiTurn({ contextId: CTX, actorId: ACTOR, base: "http://x" }),
+  );
+  assert.equal(s.kind, "da-noi");
+  assert.equal(s.message.kind, "ai_card");
+  // author_id null is deliberate on the server: the AI is not a Person.
+  assert.equal(s.message.author_id, null);
+  const ke = keHoachTuCard(s.message.card);
+  assert.equal(ke.tieuDe, "Đà Lạt 2N1Đ");
+  assert.equal(ke.chang.length, 1);
+});
+
+test("spoke true nhưng message rác là hong, không phải da-noi", async () => {
+  const s = await withFetch(
+    async () => res(turn({ spoke: true, reason: "ok", message: null })),
+    () => goiAiTurn({ contextId: CTX, actorId: ACTOR, base: "http://x" }),
+  );
+  assert.equal(s.kind, "hong");
 });
 
 /* ------------------------------------------------ nhóm 409 -------------- */
