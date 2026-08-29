@@ -78,17 +78,47 @@ function serverScanFields() {
   return fields;
 }
 
-/** Every component in the app, including the ones nested a directory down. */
+/** Every source in the app that can put words on a screen, nesting included.
+ *
+ * `.ts` as well as `.tsx`, and that is the point of this function rather than a
+ * detail of it. The first version filtered on `.tsx` alone, on the assumption
+ * that only a component renders. `places.ts` is the counterexample that was
+ * already in the tree when the assumption was made: `matchLabel()` assembles
+ * the label string there and `NhanAi.tsx` renders `{label.text}`, so the
+ * percentage a user reads occurs in no `.tsx` file anywhere. The gate ran green
+ * over three live percentages across two pull requests while reporting that no
+ * component printed one.
+ *
+ * The lesson generalises past this one file: a string does not become
+ * user-facing at the moment it is rendered, it becomes user-facing at the
+ * moment it is written. Scan where text is built, not only where it is shown.
+ */
 function renderedSources(dir = SRC) {
   const found = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) found.push(...renderedSources(path));
-    else if (entry.name.endsWith(".tsx")) {
-      found.push({ name: entry.name, source: readFileSync(path, "utf8") });
+    else if (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx")) {
+      found.push({ name: entry.name, source: withoutComments(readFileSync(path, "utf8")) });
     }
   }
   return found;
+}
+
+/** Code only. A comment cannot reach a screen.
+ *
+ * Not a nicety: the moment the scan widened to `.ts` it started reading
+ * `receipt.ts`, which explains the original "AI suggested %" defect in its own
+ * docblock, and reported that explanation as a fresh violation. A gate that
+ * goes red on the write-up of a bug is a gate that gets the write-up deleted.
+ *
+ * Deliberately conservative about what counts as a comment. Block comments go
+ * wholesale; a `//` goes only when it is not the `//` of a `scheme://`. Over-
+ * stripping would buy a false negative, and a false negative in this gate is
+ * silent -- the same trade `LAYOUT_PROPS` refuses by being an allow-list.
+ */
+function withoutComments(source) {
+  return source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:'"`\\])\/\/[^\n]*/g, "$1");
 }
 
 /** Style properties whose value is a fraction of the parent box, not a claim.
@@ -134,10 +164,49 @@ const CSS_PERCENT = new RegExp(`\\b(?:${LAYOUT_PROPS})\\s*:\\s*\`[^\`]*\``, "g")
  * placing pins, and it was failing this gate until the CSS values were taken
  * out of the picture first. A gate that cries wolf over layout code gets
  * deleted, and then it stops catching the pill too.
+ *
+ * What comes back is the snippet, not a yes/no, because one bit per file is too
+ * coarse to hold a known exception without also pardoning the next percentage
+ * added to the same file.
  */
-function saysAPercentToTheUser(source) {
-  return /\}\s*%/.test(source.replace(CSS_PERCENT, ""));
+function percentsToldToTheUser(source) {
+  const stripped = source.replace(CSS_PERCENT, "");
+  const shapes = /`[^`\n]*\}\s*%[^`\n]*`|\{[^{}\n]*\}\s*%/g;
+  return [...stripped.matchAll(shapes)].map((m) => m[0]);
 }
+
+function saysAPercentToTheUser(source) {
+  return percentsToldToTheUser(source).length > 0;
+}
+
+/** The percentages already on screen the day this gate learned to read `.ts`.
+ *
+ * Three exact strings, compared exactly, and that exactness is the only reason
+ * this list is not a hole in the gate. It cannot widen by accident: a new
+ * percentage anywhere -- including a fourth one inside `places.ts` itself -- is
+ * not in the list and goes red. Removing one goes red too, until the line here
+ * is deleted as well, so a label that stops shipping cannot leave a standing
+ * pardon behind it.
+ *
+ * They are listed rather than fixed because they are neither this lane's file
+ * nor this lane's decision. `places.ts` belongs to rd-be-05, and the two rules
+ * governing it disagree: ADR-0009 decision 4 and the Lead note of 2026-08-29
+ * ban a percentage on any screen, computable or not, while rd-be-05's own brief
+ * bans only a fabricated one -- and #81 shipped a number that arrives with its
+ * `factors` and is gated on `verdict === "hop"`. #81 branched before this gate
+ * existed, so its CI never saw the newer rule. That is a conflict between two
+ * decisions, and the tie is Lead's to break, not a thing to settle quietly by
+ * loosening a regular expression.
+ *
+ * When it is broken: banned -> rd-be-05 drops the `%` from these three labels
+ * and this list becomes empty. Allowed -> an ADR records why, and this list
+ * cites the ADR instead of citing an open question.
+ */
+const PHAN_TRAM_DANG_CHO_LEAD_CHOT = [
+  "places.ts: `ĐIỂM ${pct}%`",
+  "places.ts: `TẠM HỢP ${pct}%`",
+  "places.ts: `AI MATCH ${pct}%`",
+];
 
 /** Captured live. Do not tidy the numbers; the mismatch is the point. */
 const LIVE_SCAN = {
@@ -461,16 +530,56 @@ test("không thành phần nào đọc .confidence hay in ra một phần trăm"
   // The third pattern is the one that generalises; `saysAPercentToTheUser`
   // carries it, along with the reason it cannot be applied to raw source.
   const sources = renderedSources();
-  assert.equal(sources.length > 0, true, "không quét được file .tsx nào");
+  assert.equal(sources.length > 0, true, "không quét được file nguồn nào");
+  const found = [];
   for (const { name, source } of sources) {
     assert.equal(/\.confidence\b/.test(source), false, `${name} vẫn đọc .confidence`);
     assert.equal(/AI suggested/.test(source), false, `${name} vẫn in nhãn "AI suggested"`);
-    assert.equal(
-      saysAPercentToTheUser(source),
-      false,
-      `${name} vẫn in một phần trăm tính ra từ dữ liệu`,
-    );
+    for (const snippet of percentsToldToTheUser(source)) found.push(`${name}: ${snippet}`);
   }
+  // An exact set, not "none". PHAN_TRAM_DANG_CHO_LEAD_CHOT carries why three of
+  // these stand rather than get fixed here, and what breaks the tie.
+  assert.deepEqual(
+    found.sort(),
+    [...PHAN_TRAM_DANG_CHO_LEAD_CHOT].sort(),
+    "Danh sách phần trăm người dùng đọc được đã đổi.\n" +
+      "  Thêm một cái: ADR-0009 quyết định 4 cấm, và ghi chú Lead 2026-08-29 nói mở ADR\n" +
+      "  trước chứ đừng tự thêm lại. Đừng nới cổng cho qua.\n" +
+      "  Bớt một cái: xoá luôn dòng tương ứng trong PHAN_TRAM_DANG_CHO_LEAD_CHOT.",
+  );
+});
+
+test("cổng đọc mã chứ không đọc bình luận", () => {
+  // The first thing widening to `.ts` caught was `receipt.ts` recounting the
+  // original defect in its own docblock. A gate that goes red on the write-up
+  // of a bug is a gate that gets the write-up deleted.
+  const keLai = '/** từng in "AI suggested {r.confidence}%" cạnh một bảng tiền thật */';
+  assert.equal(withoutComments(keLai).includes("AI suggested"), false, "kể lại lỗi không phải lỗi");
+  assert.equal(saysAPercentToTheUser(withoutComments(keLai)), false);
+
+  // The same sentence as code is still the defect.
+  const that = "<Text>AI suggested {r.confidence}%</Text>";
+  assert.equal(saysAPercentToTheUser(withoutComments(that)), true, "mã thì vẫn phải đỏ");
+
+  // And the stripper must not be greedy: `//` after a scheme is not a comment.
+  // Eating it would only ever buy a false negative, which is the silent kind.
+  const url = 'const BASE = "http://localhost:8099/places";';
+  assert.equal(withoutComments(url).includes("8099/places"), true, "không được ăn mất URL");
+});
+
+test("cổng nhìn được cả .ts, không chỉ .tsx", () => {
+  // The blind spot this gate shipped with. `.tsx` alone assumed that only a
+  // component can put words on a screen, and `places.ts` is the counterexample
+  // already in the tree: `matchLabel()` assembles the label text there, and
+  // `NhanAi.tsx` renders `{label.text}`. The percentage a user reads appears in
+  // no `.tsx` file at all, so the scan ran green over three of them.
+  const names = renderedSources().map((s) => s.name);
+  assert.equal(
+    names.includes("places.ts"),
+    true,
+    "places.ts dựng chữ cho màn Khám phá mà cổng không quét: mọi phần trăm ở đó vô hình",
+  );
+  assert.equal(names.some((n) => n.endsWith(".tsx")), true, "vẫn phải quét .tsx");
 });
 
 test("cổng phân biệt phần trăm nói với người dùng và phần trăm toạ độ CSS", () => {
@@ -494,4 +603,16 @@ test("cổng phân biệt phần trăm nói với người dùng và phần tră
   // clothes, so the allow-list is by property name and not by shape.
   const nhan = "label: `${pct}%`";
   assert.equal(saysAPercentToTheUser(nhan), true, "phần trăm trong nhãn vẫn là lời khẳng định");
+
+  // The shape rd-be-05 ships, verbatim. It has to be caught by the matcher --
+  // if it were not, PHAN_TRAM_DANG_CHO_LEAD_CHOT would be describing something
+  // the gate cannot see, and the list would be decoration rather than a
+  // standing exception. Listed is not the same as invisible.
+  const nhanKhamPha = "return { text: `AI MATCH ${pct}%`, real: true };";
+  assert.equal(saysAPercentToTheUser(nhanKhamPha), true, "nhãn Khám phá phải bị cổng nhìn thấy");
+  assert.deepEqual(percentsToldToTheUser(nhanKhamPha), ["`AI MATCH ${pct}%`"]);
+
+  // Same file kind, same two characters, still just a fraction of a box.
+  const beRong = "const style = { width: `${w}%` };";
+  assert.equal(saysAPercentToTheUser(beRong), false, "bề rộng theo % không phải lời khẳng định");
 });
