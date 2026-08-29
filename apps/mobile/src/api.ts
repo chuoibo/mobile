@@ -30,7 +30,16 @@ import type { Proposal } from "./screens/DeXuat";
 import type { Obligation } from "./screens/DotThu";
 import type { Envelope } from "./screens/ChiaSe";
 import type { Draft, Participant } from "./screens/NhapKhoanChi";
-import type { ReceiptScanWire } from "./receipt";
+import type { BillReading, ReceiptScanWire } from "./receipt";
+import type { Assignment } from "./assignment";
+import {
+  assignmentsBody,
+  billCreateBody,
+  soDuFromWire,
+  type BillWire,
+  type SoDu,
+  type SoDuWire,
+} from "./bill";
 import {
   sapXepChang,
   type BodyTaoBuoiDi,
@@ -1644,4 +1653,94 @@ export async function docCheckIn(
     `/outings/${outingId}/checkins`,
     { method: "GET", actorId, contexts: contextId },
   );
+}
+
+/* --------------------------------------------------- a bill that persists */
+
+/**
+ * Store the reading as a bill, and get back the server's view of it.
+ *
+ * The write that was missing. Everything downstream of the matrix -- reopening
+ * a bill, seeing which lines are still the machine's guess, asking the group
+ * for balances -- needs the bill to have an id, and until this call existed it
+ * never got one: the matrix lived in React state and died with the screen.
+ *
+ * `attempt` matters more here than on a read. Two presses of "Tiếp tục" on a
+ * slow connection are one person asking once, and without the header each
+ * press leaves its own bill row -- two bills for one dinner, each holding half
+ * the group's ticks.
+ */
+export async function taoBill(
+  reading: BillReading,
+  contextId: string,
+  assignment: Assignment,
+  actorId: string,
+  attempt: Attempt,
+): Promise<BillWire> {
+  return call<BillWire>("/bills", {
+    body: billCreateBody(reading, contextId, assignment),
+    actorId,
+    attempt,
+    contexts: contextId,
+  });
+}
+
+/** Reopen a stored bill. Members of its group only, enforced server-side. */
+export async function docBill(
+  billId: string,
+  actorId: string,
+  contextId: string,
+): Promise<BillWire> {
+  return call<BillWire>(`/bills/${billId}`, {
+    method: "GET",
+    actorId,
+    contexts: contextId,
+  });
+}
+
+/**
+ * Turn this group's ticks into decisions.
+ *
+ * The response is the bill re-read, not an acknowledgement, and the caller is
+ * meant to replace its state with it. That is what moves `assignment_state`
+ * off `ai_suggested` and empties `suggested_item_keys`: the screen stops
+ * describing the matrix as a guess because the server has stopped calling it
+ * one, rather than because the app decided locally that it had saved.
+ */
+export async function luuGanMon(
+  billId: string,
+  reading: BillReading,
+  assignment: Assignment,
+  actorId: string,
+  contextId: string,
+  attempt: Attempt,
+): Promise<BillWire> {
+  return call<BillWire>(`/bills/${billId}/assignments`, {
+    method: "PUT",
+    body: assignmentsBody(reading, assignment),
+    actorId,
+    attempt,
+    contexts: contextId,
+  });
+}
+
+/**
+ * Who owes whom across this group, net of everything in the ledger.
+ *
+ * Not this bill's split. This is the group's whole position, which is the
+ * question a person actually has after a dinner -- one bill's numbers are
+ * already on the screen they just left. `transfers` are proposals needing
+ * consent, never obligations; `proven_minimal` says whether the server proved
+ * the list is the shortest, and is passed through rather than assumed.
+ */
+export async function docSoDu(
+  contextId: string,
+  actorId: string,
+): Promise<SoDu> {
+  const wire = await call<SoDuWire>(`/contexts/${contextId}/balances`, {
+    method: "GET",
+    actorId,
+    contexts: contextId,
+  });
+  return soDuFromWire(wire);
 }
