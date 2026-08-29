@@ -51,6 +51,11 @@
     // id. Compiled so a test can assert the client refuses a bad number
     // BEFORE it travels, which is a property of this file and not of the API.
     "src/screens/vao-cua/cong-api.ts",
+    // F05's friend code. Same reason as the line above, and one more: the
+    // property that matters most here is a *negative* one -- no telephone
+    // number reaches the payload -- and a negative is only worth asserting
+    // against the string the encoder actually produces.
+    "src/screens/vao-cua/ma-ban.ts",
     // Two screens compiled rather than only logic modules, so a test can
     // render them and read the markup react-native-web actually emits. See
     // `tools/fixup-esm.mjs` for why that is the real DOM and not a mock.

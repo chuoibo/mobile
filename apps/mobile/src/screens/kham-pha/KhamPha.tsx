@@ -30,6 +30,8 @@ import { Card, Choice, Field, Screen } from "../../ui/Kit";
 import { AnhDiaDiem, Ruy, RuyDongCua } from "./AnhDiaDiem";
 import { HuyHieuMatch } from "./NhanAi";
 import { ChiTietDiaDiem } from "./ChiTietDiaDiem";
+import type { NguoiDung } from "../../navigation/nhom-demo";
+import type { Nhom as NhomWire } from "../vao-cua/cong-api";
 import { DaiBanDo } from "./DaiBanDo";
 import {
   PLACES_BASE_URL,
@@ -47,7 +49,14 @@ import {
 
 const TAT_CA = "tat-ca";
 
-export function KhamPha() {
+export function KhamPha({ nguoi, nhom }: {
+  /** Who the app is acting as, passed down to the check-in card. Optional so
+   *  the screen still renders for any caller that does not care -- including
+   *  the detector runs, which load it cold. */
+  nguoi?: NguoiDung | null;
+  /** The group a check-in would belong to. `VoTab` holds it. */
+  nhom?: NhomWire | null;
+} = {}) {
   const c = usePalette();
   const [state, setState] = useState<PlacesState>({ kind: "dang-tai" });
   const [danhMuc, setDanhMuc] = useState<string>(TAT_CA);
@@ -80,7 +89,14 @@ export function KhamPha() {
   );
 
   if (dangXem) {
-    return <ChiTietDiaDiem place={dangXem} onQuayLai={() => setDangXem(null)} />;
+    return (
+      <ChiTietDiaDiem
+        place={dangXem}
+        nguoi={nguoi ?? null}
+        nhom={nhom ?? null}
+        onQuayLai={() => setDangXem(null)}
+      />
+    );
   }
 
   return (

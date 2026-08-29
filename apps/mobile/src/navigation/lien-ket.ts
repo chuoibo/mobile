@@ -26,6 +26,7 @@
  * runs silently -- they would still exit 0, still produce a report, and the
  * report would describe the opening screen while claiming to describe a tab.
  */
+import { docMaBan, type TheBan } from "../screens/vao-cua/ma-ban";
 import { DEMO_PEOPLE, type DemoPerson } from "./nhom-demo";
 import { TABS } from "./tabs";
 
@@ -58,6 +59,19 @@ export type DiemDen = {
    * writing somebody else's URL. Null means "find the demo group", which is
    * what every link that does not care should get. */
   nhomId: string | null;
+  /** F05. A friend read off a scanned code, or null.
+   *
+   *  This is the second entry point `VoTab`'s header predicted -- "a link into
+   *  a group" -- arriving for real. A person points their phone's own camera
+   *  at somebody's square, the phone opens this app at this fragment, and the
+   *  group screen comes up with that friend already identified. There is no
+   *  in-app scanner and this is why one is not needed on the web build.
+   *
+   *  It grants nothing. The card it opens is a name and a button that sends
+   *  the same `PUT /people/{id}` + `POST /contexts/{id}/members` pair the
+   *  typed form sends, authorised by the same `X-Actor-ID` as everything else.
+   *  A fragment cannot make somebody a member; only the group's admin can. */
+  ban: TheBan | null;
   /** Whether the fragment asked to skip the opening screen at all. */
   boQuaMoDau: boolean;
 };
@@ -67,6 +81,7 @@ export const KHONG_CO_DIEM_DEN: DiemDen = {
   nguoi: null,
   vao: null,
   nhomId: null,
+  ban: null,
   boQuaMoDau: false,
 };
 
@@ -95,7 +110,12 @@ export function docDiemDen(hash: string, search = ""): DiemDen {
   const nguoi = slug ? (DEMO_PEOPLE.find((p) => p.id === slug) ?? null) : null;
 
   const vaoAsked = params.get("vao");
-  const vao = MAN_VAO_CUA.find((m) => m === vaoAsked) ?? null;
+  // A scanned friend code implies the group screen without having to say so.
+  // The square is produced by `linkMaBan`, which writes `ban=` and nothing
+  // else; requiring `vao=nhom` beside it would mean a code that scans into the
+  // Khám phá tab with the friend silently dropped.
+  const ban = raw ? docMaBan("#" + raw) : null;
+  const vao = MAN_VAO_CUA.find((m) => m === vaoAsked) ?? (ban ? "nhom" : null);
 
   const nhomAsked = params.get("nhom");
   const nhomId = nhomAsked && UUID_RE.test(nhomAsked) ? nhomAsked : null;
@@ -105,6 +125,7 @@ export function docDiemDen(hash: string, search = ""): DiemDen {
     nguoi,
     vao,
     nhomId,
+    ban,
     // A recognised tab is enough to enter: opening the app on a named screen
     // with nobody signed in is a real state, and the screens render it.
     //
