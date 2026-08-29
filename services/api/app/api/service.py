@@ -28,6 +28,7 @@ from app.api.repository import (
     OutingRecord,
     PersonFinanceSummary,
     PersonRecord,
+    RecapOutingRecord,
     StopCheckinRecord,
 )
 from app.api.schemas import (
@@ -373,6 +374,27 @@ def _wire_outing(record: OutingRecord) -> OutingResponse:
             )
             for stop in record.stops
         ],
+    )
+
+
+def _wire_recap_outing(record: RecapOutingRecord) -> RecapOutingResponse:
+    """One trip on the recap, finished or under way.
+
+    Shared by both lists on purpose. A trip the group is still on has to arrive
+    in the same shape as one that is over, or the screen ends up with two ways
+    to read a trip's spending and two chances to read one of them wrong.
+    """
+
+    return RecapOutingResponse(
+        outing_id=record.outing.id,
+        title=record.outing.title,
+        starts_on=record.outing.starts_on,
+        ends_on=record.outing.ends_on,
+        headcount=record.outing.headcount,
+        stops=_wire_outing(record.outing).stops,
+        split_total_vnd=record.split_total_vnd,
+        expense_count=record.expense_count,
+        memory_count=record.memory_count,
     )
 
 
@@ -750,12 +772,20 @@ class ApiService:
         )
 
     def group_recap(self, context_id: uuid.UUID, actor: Actor) -> GroupRecapResponse:
-        """The memory wall: trips that are over, and what they cost.
+        """Trips that are over, and -- separately -- the one the group is on.
 
         Reuses `view_group_memories` rather than minting a permission. This is
         the memory wall's own read -- a different name for the same act would
         make it possible to be a member who can see the photos but not the
         trip they were taken on, which is a distinction nobody asked for.
+
+        The two lists are kept apart rather than merged with a flag, because
+        they answer different questions and one of them was already being
+        asked. `outings` is the memory wall and has a client reading it today;
+        putting a trip nobody has come home from yet into that list would show
+        an unfinished trip as a memory and silently change what the field
+        means. `in_progress` is budget awareness (F34), which is only worth
+        anything while the money is still moving.
         """
         _require_permission(
             "view_group_memories",
@@ -768,24 +798,23 @@ class ApiService:
         today = _now().astimezone(ZoneInfo(WALL_CLOCK_ZONE)).date()
         records = self.repository.group_recap(context_id, today=today)
         outings = [
-            RecapOutingResponse(
-                outing_id=record.outing.id,
-                title=record.outing.title,
-                starts_on=record.outing.starts_on,
-                ends_on=record.outing.ends_on,
-                headcount=record.outing.headcount,
-                stops=_wire_outing(record.outing).stops,
-                split_total_vnd=record.split_total_vnd,
-                expense_count=record.expense_count,
-                memory_count=record.memory_count,
-            )
+            _wire_recap_outing(record)
             for record in records
+            if not record.in_progress
         ]
         return GroupRecapResponse(
             context_id=context_id,
             outings=outings,
+            in_progress=[
+                _wire_recap_outing(record)
+                for record in records
+                if record.in_progress
+            ],
             # Summed here rather than by a sixth query: the per-trip figures on
-            # the screen have to add back up to the total above them.
+            # the screen have to add back up to the total above them. Finished
+            # trips only, and that is the point -- a memory wall whose total
+            # crept upward every time somebody bought lunch on the trip they
+            # are still on would stop matching the rows printed beneath it.
             split_total_vnd=sum(outing.split_total_vnd for outing in outings),
         )
 

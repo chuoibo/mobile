@@ -483,11 +483,16 @@ class ContextBalancesResponse(ApiModel):
 
 
 class RecapOutingResponse(ApiModel):
-    """One finished trip on the memory wall.
+    """One trip on the recap -- finished, or still under way.
 
     `split_total_vnd` is recomputed from the ledger per request. It counts the
     expenses that happened on this trip's days, which is a rule the screen
     states out loud -- there is no `expenses.outing_id` to be exact with.
+
+    For a trip still under way that same rule reads as "so far": the trip's
+    days run past today, and only the expenses already confirmed are in the
+    ledger to be counted. The figure is a running one, and it is recomputed
+    rather than accumulated, so it can go *down* when somebody corrects a bill.
     """
 
     outing_id: UUID
@@ -502,8 +507,24 @@ class RecapOutingResponse(ApiModel):
 
 
 class GroupRecapResponse(ApiModel):
+    """Two lists, deliberately not one.
+
+    `outings` is the memory wall: trips that have ended, newest first. It is
+    unchanged, because a client is already reading it.
+
+    `in_progress` is the trip the group is on right now -- started on or before
+    today, ending today or later. It is separate rather than flagged inside
+    `outings` so that adding it could not quietly turn an unfinished trip into
+    a memory.
+
+    `split_total_vnd` totals `outings` alone. A memory wall's total that drifted
+    upward through the day, as the group kept eating, would stop matching the
+    per-trip figures printed under it.
+    """
+
     context_id: UUID
     outings: list[RecapOutingResponse]
+    in_progress: list[RecapOutingResponse]
     split_total_vnd: int
 
 
