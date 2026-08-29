@@ -238,37 +238,11 @@ if [ ! -f "$REPORT" ]; then
   exit 1
 fi
 
-counts="$(python3 - "$REPORT" <<'PY'
-import sys, xml.etree.ElementTree as ET
-
-root = ET.parse(sys.argv[1]).getroot()
-suites = [root] if root.tag == "testsuite" else list(root)
-
-
-def total(name: str) -> int:
-    return sum(int(s.get(name, 0) or 0) for s in suites)
-
-
-ran = total("tests")
-skipped = total("skipped")
-print(ran, skipped, total("failures"), total("errors"))
-
-# Why each skip happened. A count alone sends the reader back to the log to
-# find out which cases went missing, and this is the report they need most.
-for suite in suites:
-    for case in suite.iter("testcase"):
-        for skip in case.findall("skipped"):
-            print(
-                "SKIP {}::{} -- {}".format(
-                    case.get("classname", "?"),
-                    case.get("name", "?"),
-                    (skip.get("message") or "").strip().splitlines()[0]
-                    if skip.get("message")
-                    else "không nêu lý do",
-                )
-            )
-PY
-)"
+# The tally lives in scripts/junit_tally.py, not here, so that the one
+# distinction it makes -- a real skip is a hole, an xfail is recorded intent
+# -- can be tested against a handwritten report instead of against three
+# minutes of live model calls. See its header for the bug that split them.
+counts="$(python3 "$REPO_ROOT/scripts/junit_tally.py" "$REPORT")"
 parse_rc=$?
 
 if [ "$parse_rc" -ne 0 ]; then
@@ -276,11 +250,11 @@ if [ "$parse_rc" -ne 0 ]; then
   exit 1
 fi
 
-read -r RAN SKIPPED FAILURES ERRORS <<<"$(printf '%s\n' "$counts" | head -1)"
+read -r RAN SKIPPED XFAILED FAILURES ERRORS <<<"$(printf '%s\n' "$counts" | head -1)"
 SKIP_LINES="$(printf '%s\n' "$counts" | tail -n +2)"
 
 echo
-echo "tầng AI sống: $RAN ca, $SKIPPED bỏ qua, $FAILURES hỏng, $ERRORS lỗi"
+echo "tầng AI sống: $RAN ca, $SKIPPED bỏ qua, $XFAILED xfail, $FAILURES hỏng, $ERRORS lỗi"
 
 if [ "$RAN" -eq 0 ]; then
   echo "KHÔNG ca nào chạy — đây chính là hình dạng 'xanh vì không chạy gì'." >&2

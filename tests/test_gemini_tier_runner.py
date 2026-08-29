@@ -138,6 +138,82 @@ class RunnerIsWiredIn(unittest.TestCase):
             )
 
 
+class TheTallyTellsASkipFromAnXfail(unittest.TestCase):
+    """The bug this stage hit on its own first real run against the model.
+
+    `scripts/gemini_tier.sh` read the `skipped` attribute of `<testsuite>` to
+    decide whether anything had actually run. pytest records an expected failure
+    as `<skipped type="pytest.xfail">`, so that attribute counts xfails too --
+    and the live tier carries exactly one, over a known place-injection defect
+    that has an owner, a reproduction and a deliberate mark. The stage went red
+    on `33 passed, 1 xfailed`, which is the tier passing.
+
+    A gate that fires on correct behaviour gets switched off, and a switched-off
+    gate is not there on the day it would have been right. So the tally was
+    pulled out into `scripts/junit_tally.py`, where the distinction can be
+    driven with a handwritten report: no key, no network, no three minutes.
+    """
+
+    TALLY = REPO_ROOT / "scripts" / "junit_tally.py"
+
+    REPORT = """<?xml version="1.0" encoding="utf-8"?>
+<testsuites><testsuite name="pytest" tests="4" errors="0" failures="0" skipped="2">
+  <testcase classname="t" name="passes"/>
+  <testcase classname="t" name="known_defect">
+    <skipped type="pytest.xfail" message="known defect from gating #81"/>
+  </testcase>
+  <testcase classname="t" name="never_ran">
+    <skipped type="pytest.skip" message="mockup not found: /nope.png"/>
+  </testcase>
+  <testcase classname="t" name="also_passes"/>
+</testsuite></testsuites>
+"""
+
+    def _tally(self, xml: str):
+        import tempfile
+
+        with tempfile.NamedTemporaryFile("w", suffix=".xml", delete=False) as handle:
+            handle.write(xml)
+            path = handle.name
+        try:
+            return subprocess.run(
+                ["python3", str(self.TALLY), path],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+        finally:
+            os.unlink(path)
+
+    def test_an_xfail_is_not_counted_as_a_case_that_did_not_run(self) -> None:
+        result = self._tally(self.REPORT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        ran, skipped, xfailed, failures, errors = result.stdout.splitlines()[0].split()
+        self.assertEqual(
+            (skipped, xfailed),
+            ("1", "1"),
+            "báo cáo có 1 skip thật và 1 xfail; gộp chúng lại là lỗi đã làm "
+            f"chặng đỏ trên một lần chạy ĐẠT\n{result.stdout}",
+        )
+        self.assertEqual(ran, "4")
+        self.assertEqual((failures, errors), ("0", "0"))
+
+    def test_it_names_the_case_that_did_not_run_and_not_the_xfail(self) -> None:
+        result = self._tally(self.REPORT)
+        skip_lines = result.stdout.splitlines()[1:]
+        self.assertEqual(len(skip_lines), 1, skip_lines)
+        self.assertIn("never_ran", skip_lines[0])
+        self.assertNotIn("known_defect", skip_lines[0])
+
+    def test_an_unreadable_report_is_an_error_not_an_empty_tally(self) -> None:
+        """Answering "0 skips" to a question that was never asked is the shape
+        of every false green in this repository."""
+        result = self._tally("this is not xml at all")
+        self.assertNotEqual(
+            result.returncode, 0, f"XML hỏng mà vẫn thoát 0\n{result.stdout}"
+        )
+
+
 class RunnerCannotGoQuiet(unittest.TestCase):
     def test_a_run_where_everything_skipped_is_red(self) -> None:
         """The defect, reproduced and then refused.
