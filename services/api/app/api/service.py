@@ -1788,7 +1788,19 @@ class ApiService:
         request: BillAssignmentsRequest,
         actor: Actor,
     ) -> BillResponse:
-        self._bill_for_actor(bill_id, actor)
+        bill = self._bill_for_actor(bill_id, actor)
+        # `_bill_for_actor` answers "may this actor write here". It says nothing
+        # about the ids in the body, and those are the ones money gets written
+        # against: these shares are stored `human_confirmed`, so they are the
+        # ledger-eligible kind. Same gate, same reason as `confirm_expense`.
+        self._require_participants_are_members(
+            bill.context_id,
+            [
+                participant_id
+                for assignment in request.assignments
+                for participant_id in assignment.participant_ids
+            ],
+        )
         try:
             record = self.repository.confirm_bill_assignments(
                 bill_id=bill_id,

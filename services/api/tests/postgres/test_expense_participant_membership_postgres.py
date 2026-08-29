@@ -31,6 +31,8 @@ from app.api.deps import Actor
 from app.api.errors import ApiProblem
 from app.api.repository import SqlAlchemyApiRepository
 from app.api.schemas import (
+    BillAssignment,
+    BillAssignmentsRequest,
     BillSplitRequest,
     ExpenseConfirmationRequest,
     ExpenseInput,
@@ -282,3 +284,123 @@ def test_nothing_is_written_when_a_participant_is_refused(postgres_session: Sess
         ConfirmedAllocation.participant_id == friend.id
     )
     assert charged.count() == 0
+
+
+def _bill_of_one_item(
+    session: Session, context_id: uuid.UUID, payer_id: uuid.UUID
+) -> uuid.UUID:
+    """One line, suggested to the payer, so the assignment under test is the
+    only thing that ever names anybody else."""
+
+    bill = SqlAlchemyApiRepository(session).create_bill(
+        context_id=context_id,
+        created_by_id=payer_id,
+        printed_total_vnd=TOTAL_VND,
+        items_total_vnd=TOTAL_VND,
+        confidence=88,
+        needs_review=False,
+        items=[
+            {
+                "item_key": "i1",
+                "name": "Phở bò",
+                "quantity": 1,
+                "unit_price_vnd": TOTAL_VND,
+                "line_total_vnd": TOTAL_VND,
+                "position": 0,
+                "suggested_participant_ids": [payer_id],
+            }
+        ],
+        surcharges=[],
+        discounts=[],
+        now=NOW,
+    )
+    session.flush()
+    return bill.id
+
+
+def _assign(
+    session: Session,
+    bill_id: uuid.UUID,
+    context_id: uuid.UUID,
+    actor_id: uuid.UUID,
+    participants: list[uuid.UUID],
+):
+    """Drive the real service, so the real `list_members` decides."""
+
+    service = ApiService(SqlAlchemyApiRepository(session))
+    return service.confirm_bill_assignments(
+        bill_id,
+        BillAssignmentsRequest(
+            assignments=[BillAssignment(item_key="i1", participant_ids=participants)]
+        ),
+        Actor(id=actor_id, roles=ROLES, context_ids=frozenset({context_id})),
+    )
+
+
+def test_assigning_a_dish_to_two_active_members_is_allowed(postgres_session: Session):
+    """Positive control. Without it, a service that refused every assignment
+    would leave the two cases below green while the demo path was dead."""
+
+    context_id, payer, friend = _group_of_two(postgres_session)
+    _membership(postgres_session, context_id, friend.id, MembershipState.ACTIVE)
+    bill_id = _bill_of_one_item(postgres_session, context_id, payer.id)
+
+    response = _assign(
+        postgres_session, bill_id, context_id, payer.id, [payer.id, friend.id]
+    )
+
+    item = next(item for item in response.items if item.item_key == "i1")
+    assert {share.participant_id for share in item.shares} == {payer.id, friend.id}
+    # A tap is a decision, and the stored row has to say so -- this is exactly
+    # the source that `for_ledger=True` later requires.
+    assert {share.source for share in item.shares} == {"confirmed"}
+
+
+def test_a_dish_cannot_be_assigned_to_someone_who_never_accepted(
+    postgres_session: Session,
+):
+    """The half only a real roster can show.
+
+    `list_members` filters `left_at IS NULL` and not `state`, so an `INVITED`
+    row comes back from SQL looking exactly like a member. The fake in
+    `tests/api` stamps every row `active`, so there this case cannot fail no
+    matter what the service does.
+    """
+
+    context_id, payer, friend = _group_of_two(postgres_session)
+    _membership(postgres_session, context_id, friend.id, MembershipState.INVITED)
+    bill_id = _bill_of_one_item(postgres_session, context_id, payer.id)
+
+    with pytest.raises(ApiProblem) as caught:
+        _assign(postgres_session, bill_id, context_id, payer.id, [payer.id, friend.id])
+
+    assert caught.value.status_code == 422
+    assert caught.value.code == "participant_not_in_context"
+    assert str(friend.id) in caught.value.detail
+
+
+def test_a_refused_assignment_leaves_the_stored_shares_untouched(
+    postgres_session: Session,
+):
+    """Refusal has to precede the write.
+
+    Read back with a fresh query rather than the response object: a service
+    that wrote the row and then raised would still hand back a plausible
+    exception, and only the table can tell the two apart.
+    """
+
+    context_id, payer, friend = _group_of_two(postgres_session)
+    _membership(
+        postgres_session, context_id, friend.id, MembershipState.LEFT, left_at=NOW
+    )
+    bill_id = _bill_of_one_item(postgres_session, context_id, payer.id)
+
+    with pytest.raises(ApiProblem):
+        _assign(postgres_session, bill_id, context_id, payer.id, [friend.id])
+    postgres_session.flush()
+
+    stored = SqlAlchemyApiRepository(postgres_session).get_bill(bill_id)
+    item = next(item for item in stored.items if item.item_key == "i1")
+    assert [share.participant_id for share in item.shares] == [payer.id]
+    # Still the AI's guess, never promoted by a refused request.
+    assert [share.source for share in item.shares] == ["ai_suggested"]
