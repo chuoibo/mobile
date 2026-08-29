@@ -34,6 +34,7 @@ from app.api.routes import (
     people,
     places,
     receipts,
+    votes,
 )
 from app.api.schemas import ErrorResponse
 from app.db.session import get_session_factory
@@ -81,6 +82,7 @@ def create_app(
     application.include_router(places.router)
     application.include_router(finance.router)
     application.include_router(receipts.router)
+    application.include_router(votes.router)
 
     # Middleware, not a decorator on each route: a write route added later is
     # covered the moment it is registered, with no list for anyone to forget.

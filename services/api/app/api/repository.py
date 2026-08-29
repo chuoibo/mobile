@@ -61,6 +61,9 @@ from app.db.models import (
     PaymentReport,
     Person,
     ReceiptConfirmation,
+    Vote,
+    VoteBallot,
+    VoteOption,
     VerificationScope,
 )
 from app.domain.capability import capability_scope
@@ -140,6 +143,39 @@ class OutingRecord:
     budget_per_person_vnd: int
     created_at: datetime
     stops: tuple[OutingStopRecord, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class VoteOptionRecord:
+    id: uuid.UUID
+    vote_id: uuid.UUID
+    position: int
+    label: str
+    place_name: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class VoteBallotRecord:
+    id: uuid.UUID
+    vote_id: uuid.UUID
+    option_id: uuid.UUID
+    voter_id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class VoteRecord:
+    id: uuid.UUID
+    context_id: uuid.UUID
+    outing_id: uuid.UUID | None
+    created_by_id: uuid.UUID
+    question: str
+    created_at: datetime
+    closed_at: datetime | None
+    closed_by_id: uuid.UUID | None
+    options: tuple[VoteOptionRecord, ...]
+    ballots: tuple[VoteBallotRecord, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -542,6 +578,38 @@ class ApiRepository(Protocol):
 
     def list_outings(self, context_id: uuid.UUID) -> tuple[OutingRecord, ...]: ...
 
+    def create_vote(
+        self,
+        *,
+        context_id: uuid.UUID,
+        outing_id: uuid.UUID | None,
+        created_by_id: uuid.UUID,
+        question: str,
+        options: list[dict],
+        now: datetime,
+    ) -> VoteRecord: ...
+
+    def get_vote(self, vote_id: uuid.UUID) -> VoteRecord | None: ...
+
+    def list_votes(self, context_id: uuid.UUID) -> tuple[VoteRecord, ...]: ...
+
+    def upsert_ballot(
+        self,
+        *,
+        vote_id: uuid.UUID,
+        option_id: uuid.UUID,
+        voter_id: uuid.UUID,
+        now: datetime,
+    ) -> tuple[VoteBallotRecord, bool]: ...
+
+    def close_vote(
+        self,
+        *,
+        vote_id: uuid.UUID,
+        closed_by_id: uuid.UUID,
+        now: datetime,
+    ) -> VoteRecord: ...
+
     def replace_outing_stops(
         self,
         *,
@@ -848,6 +916,51 @@ class SqlAlchemyApiRepository:
             budget_per_person_vnd=outing.budget_per_person_vnd,
             created_at=outing.created_at,
             stops=tuple(self._outing_stop_record(stop) for stop in stops),
+        )
+
+    @staticmethod
+    def _vote_option_record(option: VoteOption) -> VoteOptionRecord:
+        return VoteOptionRecord(
+            id=option.id,
+            vote_id=option.vote_id,
+            position=option.position,
+            label=option.label,
+            place_name=option.place_name,
+        )
+
+    @staticmethod
+    def _vote_ballot_record(ballot: VoteBallot) -> VoteBallotRecord:
+        return VoteBallotRecord(
+            id=ballot.id,
+            vote_id=ballot.vote_id,
+            option_id=ballot.option_id,
+            voter_id=ballot.voter_id,
+            created_at=ballot.created_at,
+            updated_at=ballot.updated_at,
+        )
+
+    def _vote_record(self, vote: Vote) -> VoteRecord:
+        options = self.session.scalars(
+            select(VoteOption)
+            .where(VoteOption.vote_id == vote.id)
+            .order_by(VoteOption.position)
+        )
+        ballots = self.session.scalars(
+            select(VoteBallot)
+            .where(VoteBallot.vote_id == vote.id)
+            .order_by(VoteBallot.created_at, VoteBallot.id)
+        )
+        return VoteRecord(
+            id=vote.id,
+            context_id=vote.context_id,
+            outing_id=vote.outing_id,
+            created_by_id=vote.created_by_id,
+            question=vote.question,
+            created_at=vote.created_at,
+            closed_at=vote.closed_at,
+            closed_by_id=vote.closed_by_id,
+            options=tuple(self._vote_option_record(option) for option in options),
+            ballots=tuple(self._vote_ballot_record(ballot) for ballot in ballots),
         )
 
     @staticmethod
@@ -1220,6 +1333,121 @@ class SqlAlchemyApiRepository:
             .order_by(Outing.starts_on, Outing.id)
         )
         return tuple(self._outing_record(outing) for outing in outings)
+
+    def create_vote(
+        self,
+        *,
+        context_id: uuid.UUID,
+        outing_id: uuid.UUID | None,
+        created_by_id: uuid.UUID,
+        question: str,
+        options: list[dict],
+        now: datetime,
+    ) -> VoteRecord:
+        vote = Vote(
+            context_id=context_id,
+            outing_id=outing_id,
+            created_by_id=created_by_id,
+            question=question,
+            created_at=now,
+        )
+        self.session.add(vote)
+        self.session.flush()
+        self.session.add_all(
+            [
+                VoteOption(
+                    vote_id=vote.id,
+                    position=position,
+                    label=option["label"],
+                    place_name=option["place_name"],
+                )
+                for position, option in enumerate(options)
+            ]
+        )
+        self.session.flush()
+        return self._vote_record(vote)
+
+    def get_vote(self, vote_id: uuid.UUID) -> VoteRecord | None:
+        vote = self.session.get(Vote, vote_id)
+        return None if vote is None else self._vote_record(vote)
+
+    def list_votes(self, context_id: uuid.UUID) -> tuple[VoteRecord, ...]:
+        votes = self.session.scalars(
+            select(Vote)
+            .where(Vote.context_id == context_id)
+            .order_by(Vote.created_at, Vote.id)
+        )
+        return tuple(self._vote_record(vote) for vote in votes)
+
+    def upsert_ballot(
+        self,
+        *,
+        vote_id: uuid.UUID,
+        option_id: uuid.UUID,
+        voter_id: uuid.UUID,
+        now: datetime,
+    ) -> tuple[VoteBallotRecord, bool]:
+        vote = self.session.scalar(
+            select(Vote).where(Vote.id == vote_id).with_for_update()
+        )
+        if vote is None:
+            raise RepositoryConflict("VOTE_NOT_FOUND")
+        if vote.closed_at is not None:
+            raise RepositoryConflict("VOTE_CLOSED")
+
+        known_option_id = self.session.scalar(
+            select(VoteOption.id)
+            .where(
+                VoteOption.vote_id == vote_id,
+                VoteOption.id == option_id,
+            )
+            .limit(1)
+        )
+        if known_option_id is None:
+            raise RepositoryConflict("UNKNOWN_OPTION")
+
+        ballot = self.session.scalar(
+            select(VoteBallot)
+            .where(
+                VoteBallot.vote_id == vote_id,
+                VoteBallot.voter_id == voter_id,
+            )
+            .with_for_update()
+        )
+        replaced_previous_ballot = ballot is not None
+        if ballot is None:
+            ballot = VoteBallot(
+                vote_id=vote_id,
+                option_id=option_id,
+                voter_id=voter_id,
+                created_at=now,
+                updated_at=now,
+            )
+            self.session.add(ballot)
+        else:
+            ballot.option_id = option_id
+            ballot.updated_at = now
+        self.session.flush()
+        return self._vote_ballot_record(ballot), replaced_previous_ballot
+
+    def close_vote(
+        self,
+        *,
+        vote_id: uuid.UUID,
+        closed_by_id: uuid.UUID,
+        now: datetime,
+    ) -> VoteRecord:
+        vote = self.session.scalar(
+            select(Vote).where(Vote.id == vote_id).with_for_update()
+        )
+        if vote is None:
+            raise RepositoryConflict("VOTE_NOT_FOUND")
+        if vote.closed_at is not None:
+            raise RepositoryConflict("VOTE_ALREADY_CLOSED")
+        vote.closed_at = now
+        vote.closed_by_id = closed_by_id
+        self.session.flush()
+        return self._vote_record(vote)
 
     def replace_outing_stops(
         self,
@@ -3039,4 +3267,7 @@ __all__ = [
     "ReceiptTarget",
     "SqlAlchemyApiRepository",
     "StoredGuestLink",
+    "VoteBallotRecord",
+    "VoteOptionRecord",
+    "VoteRecord",
 ]

@@ -168,6 +168,22 @@ _TABLE: dict[str, dict] = {
     "view_outings": {"roles": {"group_admin", "member"}, "requires": ("is_group_member",)},
     "edit_outing_timeline": {"roles": {"group_admin", "member"}, "requires": ("is_group_member",)},
     "invite_to_outing": {"roles": {"group_admin", "member"}, "requires": ("is_group_member",)},
+    "create_vote": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    "view_votes": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    "cast_vote_ballot": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    "close_vote": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member", "is_vote_creator"),
+    },
     "create_context": {"roles": {"group_admin", "member"}, "requires": ()},
     "invite_context_member": {
         "roles": {"group_admin"},

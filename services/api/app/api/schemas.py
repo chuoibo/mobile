@@ -376,6 +376,83 @@ class OutingListResponse(ApiModel):
     outings: list[OutingResponse]
 
 
+class VoteOptionInput(ApiModel):
+    label: Annotated[StrictStr, Field(min_length=1, max_length=200)]
+    place_name: Annotated[StrictStr, Field(max_length=200)] | None = None
+
+    @field_validator("label")
+    @classmethod
+    def _strip_label(cls, value: str) -> str:
+        label = value.strip()
+        if not label:
+            raise ValueError("label must not be blank")
+        return label
+
+    @field_validator("place_name")
+    @classmethod
+    def _strip_place_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
+
+
+class VoteCreateRequest(ApiModel):
+    question: Annotated[StrictStr, Field(min_length=1, max_length=300)]
+    options: Annotated[list[VoteOptionInput], Field(min_length=2, max_length=20)]
+    outing_id: UUID | None = None
+
+    @field_validator("question")
+    @classmethod
+    def _strip_question(cls, value: str) -> str:
+        question = value.strip()
+        if not question:
+            raise ValueError("question must not be blank")
+        return question
+
+
+class VoteBallotRequest(ApiModel):
+    option_id: UUID
+
+
+class VoteOptionResultResponse(ApiModel):
+    id: UUID
+    position: int
+    label: str
+    place_name: str | None
+    ballot_count: int
+
+
+class VoteResponse(ApiModel):
+    id: UUID
+    context_id: UUID
+    outing_id: UUID | None
+    created_by_id: UUID
+    question: str
+    created_at: datetime
+    closed_at: datetime | None
+    is_closed: bool
+    options: list[VoteOptionResultResponse]
+    total_ballots: int
+    leading_option_ids: list[UUID]
+    is_tie: bool
+    decided_option_id: UUID | None
+    my_option_id: UUID | None
+
+
+class VoteListResponse(ApiModel):
+    context_id: UUID
+    votes: list[VoteResponse]
+
+
+class VoteBallotResponse(ApiModel):
+    vote_id: UUID
+    option_id: UUID
+    voter_id: UUID
+    created_at: datetime
+    updated_at: datetime
+    replaced_previous_ballot: bool
+
+
 class OutingInviteCreateRequest(ApiModel):
     source: Literal["group", "friend", "link"]
     person_id: UUID | None = None

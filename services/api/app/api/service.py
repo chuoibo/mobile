@@ -26,6 +26,7 @@ from app.api.repository import (
     OutingRecord,
     PersonFinanceSummary,
     PersonRecord,
+    VoteRecord,
 )
 from app.api.schemas import (
     AllocationProposal,
@@ -83,6 +84,12 @@ from app.api.schemas import (
     ReceiptConfirmationRequest,
     ReceiptConfirmationResponse,
     SettlementTransferProposal,
+    VoteBallotRequest,
+    VoteBallotResponse,
+    VoteCreateRequest,
+    VoteListResponse,
+    VoteOptionResultResponse,
+    VoteResponse,
 )
 from app.domain import permissions
 from app.domain.allocator import allocate
@@ -101,6 +108,7 @@ from app.domain.ledger import (
     obligations_from_allocations,
     settlement_plan,
 )
+from app.domain.vote import tally
 from app.payments.banks import describe_bank
 from app.payments.vietqr import VietQRError, build_payload
 from app.web.guest_view import GuestViewError, build_guest_view
@@ -357,6 +365,52 @@ def _wire_outing(record: OutingRecord) -> OutingResponse:
             )
             for stop in record.stops
         ],
+    )
+
+
+def _wire_vote(record: VoteRecord, actor_id: uuid.UUID) -> VoteResponse:
+    result = tally(
+        options=[
+            {"id": option.id, "position": option.position}
+            for option in record.options
+        ],
+        ballots=[
+            {"voter_id": ballot.voter_id, "option_id": ballot.option_id}
+            for ballot in record.ballots
+        ],
+    )
+    my_option_id = next(
+        (
+            ballot.option_id
+            for ballot in record.ballots
+            if ballot.voter_id == actor_id
+        ),
+        None,
+    )
+    return VoteResponse(
+        id=record.id,
+        context_id=record.context_id,
+        outing_id=record.outing_id,
+        created_by_id=record.created_by_id,
+        question=record.question,
+        created_at=record.created_at,
+        closed_at=record.closed_at,
+        is_closed=record.closed_at is not None,
+        options=[
+            VoteOptionResultResponse(
+                id=option.id,
+                position=option.position,
+                label=option.label,
+                place_name=option.place_name,
+                ballot_count=result["counts"][option.id],
+            )
+            for option in record.options
+        ],
+        total_ballots=result["total_ballots"],
+        leading_option_ids=result["leading_option_ids"],
+        is_tie=result["is_tie"],
+        decided_option_id=result["decided_option_id"],
+        my_option_id=my_option_id,
     )
 
 
@@ -730,6 +784,169 @@ class ApiService:
                 for record in self.repository.list_outings(context_id)
             ],
         )
+
+    def create_vote(
+        self,
+        context_id: uuid.UUID,
+        request: VoteCreateRequest,
+        actor: Actor,
+    ) -> VoteResponse:
+        _require_permission(
+            "create_vote",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        if request.outing_id is not None:
+            outing = self.repository.get_outing(request.outing_id)
+            if outing is None:
+                raise ApiProblem(404, "outing_not_found", "Outing does not exist")
+            if outing.context_id != context_id:
+                raise ApiProblem(
+                    422,
+                    "outing_not_in_context",
+                    "Outing does not belong to this context",
+                )
+
+        record = self.repository.create_vote(
+            context_id=context_id,
+            outing_id=request.outing_id,
+            created_by_id=actor.id,
+            question=request.question,
+            options=[
+                {"label": option.label, "place_name": option.place_name}
+                for option in request.options
+            ],
+            now=_now(),
+        )
+        return _wire_vote(record, actor.id)
+
+    def list_context_votes(
+        self, context_id: uuid.UUID, actor: Actor
+    ) -> VoteListResponse:
+        _require_permission(
+            "view_votes",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        return VoteListResponse(
+            context_id=context_id,
+            votes=[
+                _wire_vote(record, actor.id)
+                for record in self.repository.list_votes(context_id)
+            ],
+        )
+
+    def get_vote_results(
+        self, vote_id: uuid.UUID, actor: Actor
+    ) -> VoteResponse:
+        record = self.repository.get_vote(vote_id)
+        if record is None:
+            raise ApiProblem(404, "vote_not_found", "Vote does not exist")
+        _require_permission(
+            "view_votes",
+            actor,
+            {
+                "is_group_member": self.repository.is_member(
+                    record.context_id, actor.id
+                )
+            },
+        )
+        return _wire_vote(record, actor.id)
+
+    def cast_vote_ballot(
+        self,
+        vote_id: uuid.UUID,
+        request: VoteBallotRequest,
+        actor: Actor,
+    ) -> VoteBallotResponse:
+        record = self.repository.get_vote(vote_id)
+        if record is None:
+            raise ApiProblem(404, "vote_not_found", "Vote does not exist")
+        _require_permission(
+            "cast_vote_ballot",
+            actor,
+            {
+                "is_group_member": self.repository.is_member(
+                    record.context_id, actor.id
+                )
+            },
+        )
+        if record.closed_at is not None:
+            raise ApiProblem(409, "vote_closed", "Vote is closed")
+        if request.option_id not in {option.id for option in record.options}:
+            raise ApiProblem(
+                422,
+                "unknown_option",
+                "Option does not belong to this vote",
+            )
+
+        try:
+            ballot, replaced_previous_ballot = self.repository.upsert_ballot(
+                vote_id=vote_id,
+                option_id=request.option_id,
+                voter_id=actor.id,
+                now=_now(),
+            )
+        except RepositoryConflict as exc:
+            if exc.code == "VOTE_NOT_FOUND":
+                raise ApiProblem(404, "vote_not_found", "Vote does not exist") from exc
+            if exc.code == "VOTE_CLOSED":
+                raise ApiProblem(409, "vote_closed", "Vote is closed") from exc
+            if exc.code == "UNKNOWN_OPTION":
+                raise ApiProblem(
+                    422,
+                    "unknown_option",
+                    "Option does not belong to this vote",
+                ) from exc
+            raise
+        return VoteBallotResponse(
+            vote_id=ballot.vote_id,
+            option_id=ballot.option_id,
+            voter_id=ballot.voter_id,
+            created_at=ballot.created_at,
+            updated_at=ballot.updated_at,
+            replaced_previous_ballot=replaced_previous_ballot,
+        )
+
+    def close_vote(
+        self, vote_id: uuid.UUID, actor: Actor
+    ) -> VoteResponse:
+        record = self.repository.get_vote(vote_id)
+        if record is None:
+            raise ApiProblem(404, "vote_not_found", "Vote does not exist")
+        _require_permission(
+            "close_vote",
+            actor,
+            {
+                "is_group_member": self.repository.is_member(
+                    record.context_id, actor.id
+                ),
+                "is_vote_creator": record.created_by_id == actor.id,
+            },
+        )
+        if record.closed_at is not None:
+            raise ApiProblem(
+                409,
+                "vote_already_closed",
+                "Vote is already closed",
+            )
+        try:
+            closed = self.repository.close_vote(
+                vote_id=vote_id,
+                closed_by_id=actor.id,
+                now=_now(),
+            )
+        except RepositoryConflict as exc:
+            if exc.code == "VOTE_NOT_FOUND":
+                raise ApiProblem(404, "vote_not_found", "Vote does not exist") from exc
+            if exc.code == "VOTE_ALREADY_CLOSED":
+                raise ApiProblem(
+                    409,
+                    "vote_already_closed",
+                    "Vote is already closed",
+                ) from exc
+            raise
+        return _wire_vote(closed, actor.id)
 
     def replace_outing_timeline(
         self,

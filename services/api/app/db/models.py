@@ -910,6 +910,9 @@ __all__ = [
     "PayerAcknowledgement",
     "PaymentReport",
     "ReceiptConfirmation",
+    "Vote",
+    "VoteBallot",
+    "VoteOption",
     "VerificationScope",
 ]
 
@@ -1247,6 +1250,127 @@ class OutingInvite(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class Vote(Base):
+    """A group question whose closure cannot be recorded only halfway.
+
+    Keeping the closing actor and instant paired prevents a row from looking
+    closed to one reader and open to another.  The optional outing link adds
+    planning context only; a vote never participates in the financial graph.
+    """
+
+    __tablename__ = "votes"
+    __table_args__ = (
+        CheckConstraint("question <> ''", name="question_not_blank"),
+        CheckConstraint(
+            "(closed_at IS NULL) = (closed_by_id IS NULL)",
+            name="closing_is_whole",
+        ),
+        Index(
+            "ix_votes_context_created",
+            "context_id",
+            "created_at",
+            "id",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    context_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("contexts.id", name="fk_votes_context"),
+        nullable=False,
+    )
+    outing_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("outings.id", name="fk_votes_outing"),
+        nullable=True,
+    )
+    created_by_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_votes_created_by"),
+        nullable=False,
+    )
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    closed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    closed_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_votes_closed_by"),
+        nullable=True,
+    )
+
+
+class VoteOption(Base):
+    """A stable choice order keeps tied leaders from moving between reads."""
+
+    __tablename__ = "vote_options"
+    __table_args__ = (
+        UniqueConstraint(
+            "vote_id", "position", name="uq_vote_options_position"
+        ),
+        CheckConstraint("position >= 0", name="position_not_negative"),
+        CheckConstraint("label <> ''", name="label_not_blank"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    vote_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("votes.id", name="fk_vote_options_vote"),
+        nullable=False,
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    label: Mapped[str] = mapped_column(Text, nullable=False)
+    place_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class VoteBallot(Base):
+    """A changed mind replaces one row so it can never become two votes.
+
+    The unique constraint is the authority for one-person-one-ballot even
+    under concurrent requests; tallying never depends on an in-memory check.
+    """
+
+    __tablename__ = "vote_ballots"
+    __table_args__ = (
+        UniqueConstraint(
+            "vote_id", "voter_id", name="uq_vote_ballots_one_per_person"
+        ),
+        Index("ix_vote_ballots_vote", "vote_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    vote_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("votes.id", name="fk_vote_ballots_vote"),
+        nullable=False,
+    )
+    option_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("vote_options.id", name="fk_vote_ballots_option"),
+        nullable=False,
+    )
+    voter_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_vote_ballots_voter"),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
     )
 
 
