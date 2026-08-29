@@ -34,6 +34,16 @@ import { radius, space, type, usePalette } from "../../theme";
 import { Card } from "../../ui/Kit";
 import { Gradient, HERO_SUNSET } from "../../navigation/Gradient";
 import { DEMO_GROUP_NAME, type NguoiDung } from "../../navigation/nhom-demo";
+import { Anh } from "../../ui/Anh";
+import { NutChonAnh } from "../../ui/NutChonAnh";
+import {
+  attemptFor,
+  docKyNiem,
+  taiAnhNhom,
+  themKyNiemAnh,
+  type Attempt,
+  type KyNiemWire,
+} from "../../api";
 import {
   KyUcError,
   khoangNgay,
@@ -57,6 +67,7 @@ export function KyNiem({
   onDong,
   doc = layKyUc,
   timNhom = timNhomDemo,
+  docAnh = docKyNiem,
 }: {
   nguoi: NguoiDung | null;
   /** Which group's wall, when the link named one. Null means "go and find it". */
@@ -66,6 +77,7 @@ export function KyNiem({
   /** Injected so the screen can be exercised without a server. */
   doc?: typeof layKyUc;
   timNhom?: typeof timNhomDemo;
+  docAnh?: typeof docKyNiem;
 }) {
   const c = usePalette();
   const [trang, setTrang] = useState<Trang>({ pha: "dang-tai" });
@@ -74,6 +86,16 @@ export function KyNiem({
   // wall is empty because nothing was ever seeded -- not because the group has
   // been nowhere. The two look identical on screen unless one of them says so.
   const [nhomVuaTao, setNhomVuaTao] = useState(false);
+  // Which group this wall ended up reading. Held in state rather than recomputed
+  // because the picker below has to upload into *the same* group the wall is
+  // showing, and `timNhom` is a network call -- asking it a second time at
+  // upload time could answer differently and hang the photo somewhere else.
+  const [nhomDangXem, setNhomDangXem] = useState<string | null>(contextId ?? null);
+  const [anh, setAnh] = useState<KyNiemWire[]>([]);
+  // Photos load beside the ledger, not inside its state machine. A wall whose
+  // recap failed should still be able to show and accept pictures, and a photo
+  // route that is down must not blank out the money figures that did arrive.
+  const [loiAnh, setLoiAnh] = useState<string | null>(null);
 
   const tai = useCallback(async () => {
     if (!nguoi) return;
@@ -84,6 +106,7 @@ export function KyNiem({
         nhom = tim.contextId;
         setNhomVuaTao(!tim.daCoSan);
       }
+      setNhomDangXem(nhom);
       setTrang({ pha: "xong", ky: await doc(nhom, nguoi.personId) });
     } catch (error) {
       const message =
@@ -92,6 +115,31 @@ export function KyNiem({
     }
   }, [nguoi, contextId, doc, timNhom]);
 
+  /** Re-read the wall. Called on mount, on pull-to-refresh, and after an upload.
+   *
+   * After an upload it is what makes the new photograph appear without the
+   * person having to leave the screen and come back. Re-reading rather than
+   * pushing the response onto the front of the list is deliberate: the server
+   * decides the wall's order and its cursor, and a locally prepended row is a
+   * second copy of that decision that disagrees the moment anybody else posts. */
+  const taiAnh = useCallback(async () => {
+    if (!nguoi || !nhomDangXem) return;
+    try {
+      setAnh(await docAnh(nhomDangXem, nguoi.personId));
+      setLoiAnh(null);
+    } catch (error) {
+      setLoiAnh(
+        error instanceof Error && error.message.trim() !== ""
+          ? error.message
+          : "Chưa đọc được ảnh của nhóm.",
+      );
+    }
+  }, [nguoi, nhomDangXem, docAnh]);
+
+  useEffect(() => {
+    void taiAnh();
+  }, [taiAnh]);
+
   useEffect(() => {
     void tai();
   }, [tai]);
@@ -99,8 +147,9 @@ export function KyNiem({
   const lamMoi = useCallback(async () => {
     setDangLamMoi(true);
     await tai();
+    await taiAnh();
     setDangLamMoi(false);
-  }, [tai]);
+  }, [tai, taiAnh]);
 
   const san = nguoi !== null;
 
@@ -127,6 +176,16 @@ export function KyNiem({
 
       <View style={{ padding: space.md, gap: space.md }}>
         {san ? null : <ChuaCoNhom />}
+
+        {san && nhomDangXem ? (
+          <TuongAnh
+            anh={anh}
+            loi={loiAnh}
+            contextId={nhomDangXem}
+            personId={nguoi.personId}
+            onThemXong={taiAnh}
+          />
+        ) : null}
 
         {trang.pha === "dang-tai" && san ? (
           <Card>
@@ -404,11 +463,182 @@ function O({ label, value, mau, nen }: { label: string; value: string; mau: stri
 }
 
 /**
+ * The photo wall the mockup leads with, now that there is a store behind it.
+ *
+ * This screen used to say, at its foot, that photographs had nowhere to live.
+ * That was true and is no longer: `POST /contexts/{id}/photos` writes into the
+ * group's own private storage, and every byte is decoded, stripped of its
+ * metadata and re-encoded on the way in. So the pictures here carry no GPS and
+ * no camera serial, which is the condition under which drawing them at all is
+ * defensible -- the objection was never that a wall is hard, it was that a photo
+ * of real people is a location record with faces attached.
+ *
+ * Two rules this grid does not get to relax:
+ *
+ *  - **Nothing is fetched off our own API.** Every frame is an `Anh`, and `Anh`
+ *    runs `nguonAnhAnToan` before it will build an `<Image>`. `image_url` is a
+ *    string a *member* wrote, and the server only started refusing foreign
+ *    addresses recently -- rows written before that are still in the database,
+ *    so the client-side refusal is not redundancy, it is the layer that covers
+ *    the rows the server's new check never saw.
+ *  - **A missing picture is a frame, not a hole.** A load that fails falls back
+ *    to the stand-in and stays there. It never shows a broken-image glyph and
+ *    never shows the server's reason.
+ *
+ * The grid is two columns at every width this app is used at. A third column on
+ * a phone puts a face at 110 pt, which is small enough that the wall stops being
+ * something you look at and becomes something you scroll past.
+ */
+function TuongAnh({
+  anh,
+  loi,
+  contextId,
+  personId,
+  onThemXong,
+}: {
+  anh: KyNiemWire[];
+  loi: string | null;
+  contextId: string;
+  personId: string;
+  onThemXong: () => void;
+}) {
+  const c = usePalette();
+  // Keyed per photo url, so a retry after a failed "hang it on the wall" sends
+  // the same key and replays rather than posting a second row -- and a genuinely
+  // different picture gets its own key. Held in a ref because a re-render
+  // between the press and the reply must not be able to lose it.
+  const soKhoa = React.useRef<Record<string, Attempt>>({});
+
+  const themAnh = useCallback(
+    async (photo: { uri: string }) => {
+      const daTai = await taiAnhNhom(contextId, photo, personId);
+      await themKyNiemAnh(
+        contextId,
+        daTai.url,
+        null,
+        personId,
+        attemptFor(soKhoa.current, `ky-niem:${daTai.url}`),
+      );
+    },
+    [contextId, personId],
+  );
+
+  return (
+    <Card>
+      <Text style={{ ...type.title, color: c.ink }}>Ảnh của nhóm</Text>
+      <Text style={{ ...type.label, color: c.inkSoft }}>
+        Ảnh ở đây chỉ thành viên trong nhóm mở được. Máy chủ xoá sạch thông tin ẩn trong
+        file trước khi lưu, nên tấm ảnh không mang theo toạ độ nơi chụp.
+      </Text>
+
+      <NutChonAnh
+        nhan="Thêm ảnh"
+        moTa="Chọn một tấm ảnh từ thư viện và thêm vào tường kỷ niệm của nhóm"
+        taiLen={themAnh}
+        onXong={onThemXong}
+      />
+
+      {loi ? (
+        <Text style={{ ...type.label, color: c.ink }} accessibilityRole="alert">
+          {loi}
+        </Text>
+      ) : null}
+
+      {anh.length === 0 && !loi ? (
+        <Text style={{ ...type.micro, color: c.inkFaint }}>
+          Chưa có tấm ảnh nào. Tấm đầu tiên bạn thêm sẽ hiện ngay ở đây.
+        </Text>
+      ) : null}
+
+      {anh.length > 0 ? (
+        <View
+          style={{
+            flexDirection: "row",
+            flexWrap: "wrap",
+            gap: space.sm,
+            marginTop: space.xs,
+          }}
+        >
+          {anh.map((m) => (
+            <Polaroid key={m.id} kyNiem={m} personId={personId} contextId={contextId} />
+          ))}
+        </View>
+      ) : null}
+    </Card>
+  );
+}
+
+/** One picture on the wall, in the mockup's polaroid shape.
+ *
+ * Takes the viewer and the group rather than only the row, because
+ * `GET /contexts/{cid}/photos/{pid}` is members-only: without a header the
+ * server answers 401 and the wall shows its stand-in for every photograph on
+ * it, which is indistinguishable from a group that has posted none. */
+function Polaroid({
+  kyNiem,
+  personId,
+  contextId,
+}: {
+  kyNiem: KyNiemWire;
+  personId: string;
+  contextId: string;
+}) {
+  const c = usePalette();
+  const chuThich = kyNiem.caption?.trim() ?? "";
+  return (
+    // `flexBasis` with `flexGrow: 0` rather than a percentage width: two items
+    // per row with the parent's gap between them, and a lone third item does not
+    // stretch to fill the row it starts.
+    <View
+      style={{
+        flexBasis: "47%",
+        flexGrow: 0,
+        borderRadius: radius.small,
+        overflow: "hidden",
+        backgroundColor: c.ground,
+        borderWidth: 1,
+        borderColor: c.line,
+      }}
+    >
+      <Anh
+        uri={kyNiem.image_url}
+        alt={chuThich ? `Ảnh kỷ niệm: ${chuThich}` : "Ảnh kỷ niệm của nhóm"}
+        nguoiXem={personId}
+        nhom={contextId}
+        // Square, because the wall reads as a wall only if the rows line up, and
+        // a mixed-orientation set of real photographs does not.
+        style={{ aspectRatio: 1, width: "100%" }}
+        cho={
+          // Not a grey rectangle. This is what a frame shows while its photo is
+          // still arriving or after it refused to load, and the group's own
+          // sunset says "a picture belongs here" rather than "something broke".
+          <Gradient colors={HERO_SUNSET} style={{ flex: 1 }} />
+        }
+      />
+      {chuThich ? (
+        <Text
+          numberOfLines={2}
+          style={{ ...type.micro, color: c.inkSoft, padding: space.xs }}
+        >
+          {chuThich}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+/**
  * What the mockup draws that this screen cannot yet fill.
  *
  * Named here in one place rather than sprinkled as greyed-out buttons. A
  * disabled heart icon still says "reactions exist and yours did not register";
  * a sentence says the table was never built.
+ *
+ * Photographs left this list when `TuongAnh` above started working. Video,
+ * reactions and comments are still here because they are still true: there is
+ * no video store, no reactions table and no comments table. Check-ins have a
+ * route and a table (F46) but no surface on this screen yet, which is a
+ * different kind of missing and is said as one.
  */
 function ConThieu() {
   const c = usePalette();
@@ -416,9 +646,9 @@ function ConThieu() {
     <Card>
       <Text style={{ ...type.label, color: c.inkSoft }}>Chưa dựng trên màn này</Text>
       <Text style={{ ...type.micro, color: c.inkFaint }}>
-        Ảnh, video và check-in của mockup chưa có kho lưu nào đứng sau, nên không được vẽ
-        ra ở đây. Thả tim, bình luận và lưu khoảnh khắc cũng chưa có bảng nào. Bốn thứ đó
-        là việc còn lại của trụ cột 5, không phải thứ đang ẩn đi.
+        Video chưa có kho lưu nào đứng sau. Thả tim và bình luận cũng chưa có bảng nào.
+        Check-in đã có trong máy chủ nhưng chưa được vẽ lên tường này. Bốn thứ đó là việc
+        còn lại của trụ cột 5, không phải thứ đang ẩn đi.
       </Text>
     </Card>
   );

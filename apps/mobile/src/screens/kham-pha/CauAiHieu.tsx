@@ -27,7 +27,7 @@
 import React from "react";
 import { Text, View } from "react-native";
 import { radius, space, type, usePalette } from "../../theme";
-import { thanLoiMayChu } from "../../ui/loi-may-chu";
+import { themChiTiet, thanLoiMayChu } from "../../ui/loi-may-chu";
 import { hieuDuocGi, type TimKiemState, type Understood } from "./tim-kiem";
 import { type Category } from "./places";
 
@@ -176,7 +176,7 @@ export function TimKhongDuoc({ state, baseUrl }: { state: TimKiemState; baseUrl:
     diaChi = state.url;
   } else if (state.kind === "khong-noi-duoc") {
     tieuDe = "Không mở được máy chủ";
-    than = `Không kết nối được tới API. Chi tiết: ${state.detail}`;
+    than = themChiTiet("Không kết nối được tới API.", state.detail);
     diaChi = state.url;
   } else if (state.kind === "may-chu-loi") {
     tieuDe = `Máy chủ trả lỗi ${state.status}`;
@@ -188,7 +188,7 @@ export function TimKhongDuoc({ state, baseUrl }: { state: TimKiemState; baseUrl:
     diaChi = state.url;
   } else if (state.kind === "du-lieu-sai") {
     tieuDe = "Kết quả tìm kiếm không đúng dạng";
-    than = `App từ chối hiển thị thay vì vẽ ra kết quả sai. Chi tiết: ${state.detail}`;
+    than = themChiTiet("App từ chối hiển thị thay vì vẽ ra kết quả sai.", state.detail);
     diaChi = state.url;
   }
 

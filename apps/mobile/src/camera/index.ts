@@ -53,5 +53,15 @@ export {
   type TempPhoto,
 } from "./bill-photo";
 
-export { nativeBackend, HAS_CAMERA } from "./native";
+export {
+  voiAnhDaChon,
+  nenLai,
+  AnhNhomError,
+  CANH_DAI_NHAT,
+  CHAT_LUONG,
+  NHIEU_BYTE_NHAT,
+  type GiaiDoanTaiAnh,
+} from "./anh-nhom";
+
+export { nativeBackend, backendThuVien, HAS_CAMERA } from "./native";
 export { openAppSettings } from "./settings";

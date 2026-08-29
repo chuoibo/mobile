@@ -29,6 +29,8 @@
  * looking at a phone.
  */
 
+import { chiTietLoi } from "../../ui/loi-tren-man";
+
 declare const process: { env: Record<string, string | undefined> };
 
 export const TIN_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8099";
@@ -273,7 +275,7 @@ export async function napTinNhan(opts: NapOpts): Promise<TinNhanState> {
   try {
     res = await fetch(url, { headers: headers(opts.actorId, opts.contextId) });
   } catch (e) {
-    return { kind: "khong-noi-duoc", url, detail: (e as Error).message };
+    return { kind: "khong-noi-duoc", url, detail: chiTietLoi(e) };
   }
 
   if (res.status === 403) {
@@ -303,7 +305,7 @@ export async function napTinNhan(opts: NapOpts): Promise<TinNhanState> {
     if (merged.length === 0) return { kind: "rong", contextId: opts.contextId };
     return { kind: "co-tin", messages: merged, hasMore, contextId: opts.contextId };
   } catch (e) {
-    return { kind: "du-lieu-sai", url, detail: (e as Error).message };
+    return { kind: "du-lieu-sai", url, detail: chiTietLoi(e) };
   }
 }
 
@@ -344,7 +346,7 @@ export async function guiTinNhan(opts: {
       body: JSON.stringify({ kind: "text", body: opts.body, image_url: null, card: null }),
     });
   } catch (e) {
-    return { kind: "khong-noi-duoc", url, detail: (e as Error).message };
+    return { kind: "khong-noi-duoc", url, detail: chiTietLoi(e) };
   }
   if (!res.ok) {
     return { kind: "may-chu-loi", url, status: res.status, detail: await docLoi(res) };
@@ -352,7 +354,7 @@ export async function guiTinNhan(opts: {
   try {
     return { kind: "xong", message: parseMessage(await res.json(), "message") };
   } catch (e) {
-    return { kind: "du-lieu-sai", url, detail: (e as Error).message };
+    return { kind: "du-lieu-sai", url, detail: chiTietLoi(e) };
   }
 }
 
@@ -389,7 +391,7 @@ export async function guiTheAi(opts: {
       body: JSON.stringify({ kind: "ai_card", body: null, image_url: null, card: opts.card }),
     });
   } catch (e) {
-    return { kind: "khong-noi-duoc", url, detail: (e as Error).message };
+    return { kind: "khong-noi-duoc", url, detail: chiTietLoi(e) };
   }
   if (!res.ok) {
     return { kind: "may-chu-loi", url, status: res.status, detail: await docLoi(res) };
@@ -397,6 +399,6 @@ export async function guiTheAi(opts: {
   try {
     return { kind: "xong", message: parseMessage(await res.json(), "message") };
   } catch (e) {
-    return { kind: "du-lieu-sai", url, detail: (e as Error).message };
+    return { kind: "du-lieu-sai", url, detail: chiTietLoi(e) };
   }
 }

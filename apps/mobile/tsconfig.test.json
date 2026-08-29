@@ -15,6 +15,22 @@
     "src/extraction.ts",
     "src/camera/access.ts",
     "src/camera/bill-photo.ts",
+    // rd-fe-25. The pick-compress-upload-cleanup lifecycle for photographs the
+    // group KEEPS, as opposed to a bill that is read and thrown away. Compiled
+    // rather than read as source because the three claims that matter are all
+    // negative -- a cancelled picker sends nothing, a failed upload leaves no
+    // temp file behind, and no thrown value of any shape reaches the screen as
+    // `[object ...]` -- and a negative is only settled by running the real
+    // function over the values libraries really throw. See
+    // `tests/tai-anh-len.test.mjs`.
+    "src/camera/anh-nhom.ts",
+    // The button those bytes leave through. Compiled so a test can render it
+    // and read the markup react-native-web actually emits: the claim is that
+    // an upload in flight is BOTH announced and unpressable, and `disabled`
+    // and `aria-busy` are only real once they have reached the DOM.
+    // `accessibilityState` compiles just as well and arrives as nothing --
+    // that is the whole subject of `tests/aria-state.test.mjs`.
+    "src/ui/NutChonAnh.tsx",
     "src/ui/direction.ts",
     "src/ui/a11y.ts",
     // Which image addresses the app will dial. Compiled on its own line because
@@ -122,6 +138,12 @@
     // `focusable` compiles just as well as `tabIndex` and reaches the DOM as
     // nothing. See `vung-cuon-ban-phim.test.mjs`.
     "src/screens/ca-nhan/CaNhan.tsx",
+    // F03/F04's client half. The shape check is compiled so a test can pin it
+    // against the server's own regex, and the refusal tables so a test can pin
+    // every key against a code the server can really raise -- the check
+    // `PUBLISH_REFUSALS` did not have when it shipped naming two codes that
+    // existed nowhere in `services/api/app`.
+    "src/screens/ca-nhan/ban-be.ts",
     // F13/F15 outing screens. Compiled so a test can run the pure rules under
     // bare node and render the two forms through react-native-web, the same
     // substitution Expo's web build performs, and read the markup a browser

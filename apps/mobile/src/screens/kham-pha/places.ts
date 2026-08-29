@@ -36,6 +36,7 @@
  * a model verdict of `hop`. Everything else says less. The test file pins each
  * case, because this is the exact spot where a demo starts lying politely.
  */
+import { chiTietLoi } from "../../ui/loi-tren-man";
 import { nguonAnhAnToan } from "../../ui/nguon-anh";
 
 /** Where the API lives. Same read as `api.ts`, and it has to stay this exact
@@ -330,7 +331,7 @@ export async function fetchPlaces(
   try {
     res = await doFetch(url, { headers: { Accept: "application/json" } });
   } catch (e) {
-    return { kind: "khong-noi-duoc", url, detail: (e as Error).message };
+    return { kind: "khong-noi-duoc", url, detail: chiTietLoi(e) };
   }
 
   // 404 still gets its own state now that the route exists: the server is up
@@ -351,7 +352,7 @@ export async function fetchPlaces(
     const parsed = parseCatalogue(await res.json());
     return { kind: "co-du-lieu", places: parsed.places, categories: parsed.categories };
   } catch (e) {
-    return { kind: "du-lieu-sai", url, detail: (e as Error).message };
+    return { kind: "du-lieu-sai", url, detail: chiTietLoi(e) };
   }
 }
 

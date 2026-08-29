@@ -55,7 +55,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import puppeteer from "file:///home/lakiet/.claude/node_modules/puppeteer-core/lib/puppeteer/puppeteer-core.js";
 
 import { CHROME, closeServer, createStaticServer, listen } from "./screen-snapshots.mjs";
-import { API_BASE, NGUOI, SCREENS, installTabStubs, taoFixtures } from "./tab-snapshots.mjs";
+import { API_BASE, NGUOI, moiMan, installTabStubs, taoFixtures } from "./tab-snapshots.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MOBILE_ROOT = path.resolve(HERE, "..");
@@ -266,7 +266,7 @@ async function main() {
     const tenSach = ghi("__canary-sach.html", CANARY_SACH);
     const trang = fs.readFileSync(indexPath, "utf8") === indexHtml ? trangCoStub(indexHtml, fixtures) : null;
     if (trang === null) throw new Error("index.html doi giua chung");
-    for (const { step } of SCREENS) ghi(`__quet-${step}.html`, trang);
+    for (const { step } of moiMan()) ghi(`__quet-${step}.html`, trang);
 
     // The canaries decide whether any number below is allowed to mean anything.
     console.log(`== doi chung may quet (viewport ${VIEWPORT}) ==`);
@@ -298,10 +298,10 @@ async function main() {
       args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
     });
 
-    console.log(`\n== bon tab, tren trang that ==`);
+    console.log(`\n== nam man, tren trang that ==`);
     const bangKe = [];
-    for (const { step, tab, needle } of SCREENS) {
-      const url = `${goc}/__quet-${step}.html#tab=${tab}&nguoi=${NGUOI}`;
+    for (const { step, frag, needle } of moiMan()) {
+      const url = `${goc}/__quet-${step}.html#${frag}`;
 
       const man = await kiemManHinh(browser, url, needle);
       if (!man.co) {
@@ -330,7 +330,7 @@ async function main() {
       path.join(outDir, "ket-qua.json"),
       JSON.stringify({ viewport: VIEWPORT, canaryXau: xau.findings.length, man: bangKe }, null, 2),
     );
-    console.log(`\ntong findings tren 4 tab: ${bad}`);
+    console.log(`\ntong findings tren cac man: ${bad}`);
     console.log(`chi tiet: ${path.join(outDir, "ket-qua.json")}`);
   } finally {
     if (browser) await browser.close();

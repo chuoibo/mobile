@@ -65,6 +65,27 @@ export function cauMayChuLoi(status: number): string {
  */
 export function thanLoiMayChu(status: number, detail: string, them: string = ""): string {
   const dau = them ? `${cauMayChuLoi(status)} ${them}` : cauMayChuLoi(status);
+  return themChiTiet(dau, detail);
+}
+
+/**
+ * A sentence the screen wrote, plus the machine's own words when there are any.
+ *
+ * Extracted out of `thanLoiMayChu` because the other four dead ends on Khám phá
+ * and the AI line in chat interpolated `${state.detail}` straight into their
+ * body text. That was survivable only while `detail` was guaranteed non-empty,
+ * and rd-fe-26 removed that guarantee on purpose: `chiTietLoi` now returns ""
+ * for a thrown value that explains nothing, where the old `(e as Error).message`
+ * returned the string "undefined". Interpolating the new "" would leave a label
+ * with nothing after it -- "Chi tiết:" and then the edge of the card, which
+ * reads as a screen that got cut off mid-sentence.
+ *
+ * So the label is a property of having something to say, not of the code path.
+ * The excerpt goes through `trichThanLoi`, which is what stops a 5xx body from
+ * arriving at full width (bug-185426); those four sites were interpolating it
+ * uncapped.
+ */
+export function themChiTiet(cau: string, detail: string): string {
   const trich = trichThanLoi(detail);
-  return trich ? `${dau} Chi tiết: ${trich}` : dau;
+  return trich ? `${cau} Chi tiết: ${trich}` : cau;
 }
