@@ -50,6 +50,7 @@ import {
   availableMembers,
   groupMembers,
 } from "../dist-test/participants.js";
+import { blockingProblem } from "../dist-test/assignment.js";
 
 /* --------------------------------------------------------------- markup --- */
 
@@ -183,6 +184,40 @@ test("nhóm rỗng thì màn chia mời chọn từng người trong nhóm, khô
       `không mời được ${member.name}: ${JSON.stringify(ten)}`,
     );
   }
+});
+
+/* Nửa còn lại của chính bản sửa trên, và là nửa bị bỏ quên.
+ *
+ * #113 mở sẵn danh sách nhóm khi chưa ai lên bill, nên nút "+" KHÔNG còn được
+ * render ở trạng thái đó (`people.length > 0 && conLai.length > 0`). Nhưng câu
+ * chặn thì vẫn nguyên văn "Thêm người bằng nút + ở trên." Người dùng đọc câu
+ * đó rồi đi tìm một nút đã bị gỡ khỏi màn.
+ *
+ * Đây là cùng một khuyết tật mà `screen-snapshots.mjs` đâm phải: nó lái luồng
+ * bằng `[aria-label="Thêm"]` và treo 15 giây ở đó, nên 5 trong 7 màn của
+ * đường đi chính lặng lẽ ngừng được quét từ #113.
+ *
+ * Bất biến được gác: câu chặn chỉ được nêu tên thứ CÓ trên màn lúc nó hiện. */
+test("câu chặn của màn chia không sai khiến bấm một nút không có trên màn", () => {
+  const html = manChia(RONG);
+  const ten = labels(html);
+  const cau = blockingProblem(READING, [], {});
+
+  const coNutCong = ten.some(
+    (l) => l === "Thêm người từ nhóm" || l === "Đóng danh sách nhóm",
+  );
+  if (!coNutCong) {
+    assert.ok(
+      !/nút \+/.test(cau),
+      `màn rỗng không render nút "+" nào, mà câu chặn vẫn bảo người dùng bấm nó: ${JSON.stringify(cau)}`,
+    );
+  }
+
+  // Và phải trỏ tới thứ đang có thật: danh sách nhóm mở sẵn để chạm tên.
+  assert.ok(
+    ten.some((l) => l.startsWith("Thêm ") && l.endsWith(" vào nhóm")),
+    `không có tên nào để chạm trên màn rỗng: ${JSON.stringify(ten)}`,
+  );
 });
 
 test("màn chia không còn ô gõ tên tự do — gõ tên là cách đúc ra người lạ", () => {

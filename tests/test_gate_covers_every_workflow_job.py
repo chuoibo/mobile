@@ -51,13 +51,21 @@ GATE = REPO_ROOT / "scripts" / "gate.sh"
 # one-argument call to ruff_changed.sh compares the merge base against the
 # working tree, so it also sees changes that are not committed yet.
 #
-# `api` maps to two stages: the job runs the test suite AND an inline
-# `alembic upgrade head --sql`, which the gate splits so a migration that
-# cannot compile is not reported as "the test suite failed".
+# `api` maps to three stages: the job runs the test suite AND two inline
+# checks that need Python and nothing else -- `alembic upgrade head --sql`, and
+# the client/API route check. The gate splits them so a migration that cannot
+# compile is not reported as "the test suite failed".
+#
+# `contract` and `client-routes` are two stages and not one on purpose. They
+# read the same two files and answer different questions: `contract` asks
+# whether a call sends X-Actor-ID, `client-routes` asks whether the path it
+# calls exists at all. Folding them together is not a tidy-up -- it is how one
+# of them stops running, which is exactly what happened when both were briefly
+# named `contract` (see tests/test_gate_stage_bodies_are_unique.py).
 COVERED_BY: dict[str, tuple[str, ...]] = {
     "repo-guard": ("guard",),
     "lint": ("ruff",),
-    "api": ("api", "migration"),
+    "api": ("api", "migration", "client-routes"),
     "contract": ("contract",),
     "docker": ("docker",),
     "shared": ("shared",),
