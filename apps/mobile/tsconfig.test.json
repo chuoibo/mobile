@@ -25,6 +25,9 @@
     "src/screens/chat/uuid5.ts",
     "src/screens/chat/tin-nhan.ts",
     "src/screens/chat/ke-hoach.ts",
+    // F17's vote counting. Compiled so `binh-chon.test.mjs` can run the fold
+    // under bare node, with no renderer and no server.
+    "src/screens/chat/binh-chon.ts",
     "src/screens/chat/ai.ts",
     "src/screens/chat/nhom.ts",
     "src/screens/chat/TinNhan.tsx",
