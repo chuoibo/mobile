@@ -26,6 +26,7 @@ __all__ = [
     "confirmed_total",
     "obligation_status",
     "group_balances",
+    "settlement_plan",
     "settlement_suggestions",
 ]
 
@@ -88,12 +89,14 @@ def obligations_from_allocations(
             # Someone who owes nothing gets no payment request. Sending a
             # zero-dong obligation would be pure noise.
             continue
-        obligations.append({
-            "sender_id": participant,
-            "recipient_id": advancer_id,
-            "amount_vnd": amount,
-            "source_expense_version_id": expense_version_id,
-        })
+        obligations.append(
+            {
+                "sender_id": participant,
+                "recipient_id": advancer_id,
+                "amount_vnd": amount,
+                "source_expense_version_id": expense_version_id,
+            }
+        )
     return obligations
 
 
@@ -118,13 +121,19 @@ def merge_obligations(obligations: list[dict]) -> list[dict]:
         sources[pair].append(obligation["source_expense_version_id"])
 
     merged = []
-    for (sender, recipient) in sorted(totals, key=lambda p: (p[0].encode(), p[1].encode())):
-        merged.append({
-            "sender_id": sender,
-            "recipient_id": recipient,
-            "amount_vnd": totals[(sender, recipient)],
-            "source_expense_version_ids": tuple(sorted(set(sources[(sender, recipient)]))),
-        })
+    for sender, recipient in sorted(
+        totals, key=lambda p: (p[0].encode(), p[1].encode())
+    ):
+        merged.append(
+            {
+                "sender_id": sender,
+                "recipient_id": recipient,
+                "amount_vnd": totals[(sender, recipient)],
+                "source_expense_version_ids": tuple(
+                    sorted(set(sources[(sender, recipient)]))
+                ),
+            }
+        )
     return merged
 
 
@@ -188,7 +197,9 @@ def obligation_status(
     return "over_confirmed"
 
 
-def group_balances(obligations: list[dict], receipts: dict[tuple[str, str], int] | None = None) -> dict[str, int]:
+def group_balances(
+    obligations: list[dict], receipts: dict[tuple[str, str], int] | None = None
+) -> dict[str, int]:
     """Netted per-person position, for DISPLAY ONLY.
 
     Spec section 8.8: the group balance is always shown netted. That is a
@@ -212,7 +223,9 @@ def group_balances(obligations: list[dict], receipts: dict[tuple[str, str], int]
         sender, recipient = obligation["sender_id"], obligation["recipient_id"]
         if sender == recipient:
             raise LedgerError("SELF_OBLIGATION")
-        owed[(sender, recipient)] += require_vnd(obligation["amount_vnd"], positive=True)
+        owed[(sender, recipient)] += require_vnd(
+            obligation["amount_vnd"], positive=True
+        )
 
     positions: dict[str, int] = defaultdict(int)
     for (sender, recipient), total in owed.items():
@@ -221,7 +234,146 @@ def group_balances(obligations: list[dict], receipts: dict[tuple[str, str], int]
             continue
         positions[sender] -= remaining
         positions[recipient] += remaining
-    return {person: amount for person, amount in sorted(positions.items()) if amount != 0}
+    return {
+        person: amount for person, amount in sorted(positions.items()) if amount != 0
+    }
+
+
+def _greedy_settlement_transfers(balances: dict[str, int]) -> list[dict]:
+    """Build a deterministic clearing plan for one or more zero-sum groups."""
+    debtors = sorted(
+        ((person, -amount) for person, amount in balances.items() if amount < 0),
+        key=lambda item: (-item[1], item[0]),
+    )
+    creditors = sorted(
+        ((person, amount) for person, amount in balances.items() if amount > 0),
+        key=lambda item: (-item[1], item[0]),
+    )
+
+    transfers = []
+    debtor_index = creditor_index = 0
+    while debtor_index < len(debtors) and creditor_index < len(creditors):
+        debtor, owed = debtors[debtor_index]
+        creditor, due = creditors[creditor_index]
+        amount = min(owed, due)
+        transfers.append(
+            {
+                # Shaped as a draft, never as an obligation. An obligation-shaped
+                # dict invites a caller to persist it, and section 8.8 requires
+                # every affected party to accept an offset first.
+                "kind": "offset_proposal_draft",
+                "sender_id": debtor,
+                "recipient_id": creditor,
+                "amount_vnd": amount,
+            }
+        )
+        debtors[debtor_index] = (debtor, owed - amount)
+        creditors[creditor_index] = (creditor, due - amount)
+        if debtors[debtor_index][1] == 0:
+            debtor_index += 1
+        if creditors[creditor_index][1] == 0:
+            creditor_index += 1
+    return transfers
+
+
+def _maximum_zero_sum_partition(balances: dict[str, int]) -> list[dict[str, int]]:
+    """Partition non-zero balances into the most disjoint zero-sum groups."""
+    people = sorted(balances)
+    amounts = [balances[person] for person in people]
+    state_count = 1 << len(people)
+
+    subset_sums = [0] * state_count
+    for mask in range(1, state_count):
+        lowest_bit = mask & -mask
+        index = lowest_bit.bit_length() - 1
+        subset_sums[mask] = subset_sums[mask ^ lowest_bit] + amounts[index]
+
+    # A state is reachable only when all of its people can be partitioned
+    # into zero-sum groups. Anchoring each candidate group on the lowest bit
+    # avoids considering the same unordered partition in every group order.
+    unreachable = -1
+    group_counts = [unreachable] * state_count
+    chosen_group = [0] * state_count
+    group_counts[0] = 0
+    for mask in range(1, state_count):
+        if subset_sums[mask] != 0:
+            continue
+        lowest_bit = mask & -mask
+        optional_bits = mask ^ lowest_bit
+        submask = optional_bits
+        while True:
+            group = submask | lowest_bit
+            remainder = mask ^ group
+            if (
+                subset_sums[group] == 0
+                and group_counts[remainder] != unreachable
+                and group_counts[remainder] + 1 > group_counts[mask]
+            ):
+                group_counts[mask] = group_counts[remainder] + 1
+                chosen_group[mask] = group
+            if submask == 0:
+                break
+            submask = (submask - 1) & optional_bits
+
+    groups = []
+    remaining = state_count - 1
+    while remaining:
+        group = chosen_group[remaining]
+        groups.append(
+            {
+                people[index]: amounts[index]
+                for index in range(len(people))
+                if group & (1 << index)
+            }
+        )
+        remaining ^= group
+    return groups
+
+
+def settlement_plan(balances: dict[str, int], *, exact_limit: int = 15) -> dict:
+    """Return a deterministic plan that clears the supplied net balances.
+
+    For ``N`` people with non-zero balances, let ``K`` be the largest number
+    of disjoint zero-sum groups covering all ``N`` people. Any clearing plan's
+    transfer graph splits into zero-sum connected components. A component of
+    ``m`` people needs at least ``m - 1`` edges, so every plan needs at least
+    ``N - K`` transfers. Conversely, greedy clearing inside each group of a
+    maximum partition uses at most ``m - 1`` transfers, attaining that bound.
+
+    The exact bitmask dynamic program enumerates anchored submasks and is
+    exponential (up to roughly ``3**N`` work). Above ``exact_limit`` this
+    function therefore returns a deterministic greedy plan and explicitly
+    marks it as not proven minimal instead of hiding the weaker guarantee.
+    """
+    for amount in balances.values():
+        if isinstance(amount, bool) or not isinstance(amount, int):
+            raise LedgerError("AMOUNT_NOT_INTEGER")
+    if sum(balances.values()) != 0:
+        raise LedgerError("BALANCES_DO_NOT_NET_TO_ZERO")
+
+    non_zero_balances = {
+        person: amount for person, amount in balances.items() if amount != 0
+    }
+    person_count = len(non_zero_balances)
+    if person_count == 0:
+        transfers = []
+        proven_minimal = True
+    elif person_count > exact_limit:
+        transfers = _greedy_settlement_transfers(non_zero_balances)
+        proven_minimal = False
+    else:
+        groups = _maximum_zero_sum_partition(non_zero_balances)
+        transfers = []
+        for group in groups:
+            transfers.extend(_greedy_settlement_transfers(group))
+        proven_minimal = True
+
+    return {
+        "transfers": transfers,
+        "transfer_count": len(transfers),
+        "proven_minimal": proven_minimal,
+        "person_count": person_count,
+    }
 
 
 def settlement_suggestions(balances: dict[str, int]) -> list[dict]:
@@ -234,35 +386,8 @@ def settlement_suggestions(balances: dict[str, int]) -> list[dict]:
 
     Nothing in this module applies the result. The name says `suggestions` and
     the caller has to walk it through consent.
+
+    This public compatibility wrapper delegates to ``settlement_plan`` so the
+    product has only one settlement algorithm.
     """
-    for amount in balances.values():
-        if isinstance(amount, bool) or not isinstance(amount, int):
-            raise LedgerError("AMOUNT_NOT_INTEGER")
-    if sum(balances.values()) != 0:
-        raise LedgerError("BALANCES_DO_NOT_NET_TO_ZERO")
-
-    debtors = sorted(((p, -a) for p, a in balances.items() if a < 0), key=lambda x: (-x[1], x[0]))
-    creditors = sorted(((p, a) for p, a in balances.items() if a > 0), key=lambda x: (-x[1], x[0]))
-
-    transfers = []
-    debtor_index = creditor_index = 0
-    while debtor_index < len(debtors) and creditor_index < len(creditors):
-        debtor, owed = debtors[debtor_index]
-        creditor, due = creditors[creditor_index]
-        amount = min(owed, due)
-        transfers.append({
-            # Shaped as a draft, never as an obligation. An obligation-shaped
-            # dict invites a caller to persist it, and section 8.8 requires
-            # every affected party to accept an offset first.
-            "kind": "offset_proposal_draft",
-            "sender_id": debtor,
-            "recipient_id": creditor,
-            "amount_vnd": amount,
-        })
-        debtors[debtor_index] = (debtor, owed - amount)
-        creditors[creditor_index] = (creditor, due - amount)
-        if debtors[debtor_index][1] == 0:
-            debtor_index += 1
-        if creditors[creditor_index][1] == 0:
-            creditor_index += 1
-    return transfers
+    return settlement_plan(balances)["transfers"]
