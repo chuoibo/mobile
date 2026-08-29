@@ -112,13 +112,24 @@ test("id người trong nhóm demo không trùng nhau", () => {
   assert.equal(new Set(ids).size, ids.length);
 });
 
-test("id demo không phải UUID — repo guard chặn dãy số dài, và đây không phải id thật", () => {
-  // Documented in nhom-demo.ts: these are slugs precisely because a padded
-  // UUID literal reads to the repo guard like an account number. If somebody
-  // later pastes the seeded ids in, this fails and points at that decision.
+test("id vẫn là slug, còn id thật đi riêng ở personId", () => {
+  // Hai trường, không phải một. `id` là slug vì một UUID độn số không đọc
+  // được ở chỗ gọi, và vì bản thân repo guard đọc dãy số dài như số tài
+  // khoản. `personId` là hàng thật trong database đã gieo, và màn Cá nhân là
+  // màn đầu tiên cần tới nó — đúng như ghi chú cũ trong nhom-demo.ts đoán.
   for (const p of DEMO_PEOPLE) {
     assert.doesNotMatch(p.id, /^[0-9a-f]{8}-[0-9a-f]{4}-/i, `${p.id} trông như UUID`);
+    assert.match(
+      p.personId,
+      /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      `${p.id} thiếu personId dạng uuid5`,
+    );
   }
+});
+
+test("personId không trùng nhau — hai người chung id là hai người chung ví tiền", () => {
+  const ids = DEMO_PEOPLE.map((p) => p.personId);
+  assert.equal(new Set(ids).size, ids.length);
 });
 
 test("personById trả null cho người không có", () => {

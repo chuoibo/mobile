@@ -25,18 +25,19 @@ import { useInertBackground } from "./modal";
 import { CREATE_ACTIONS, DEFAULT_TAB, type CreateActionId } from "./tabs";
 import type { DemoPerson } from "./nhom-demo";
 
-export function VoTab({ nguoi, tabDau = DEFAULT_TAB, renderKhoanChi }: {
+export function VoTab({ nguoi, tabDau, renderKhoanChi }: {
   nguoi: DemoPerson | null;
-  /** Which tab to open on. Defaulted rather than required so the shell keeps
-   *  working for any caller that does not care; `AppRoot` passes the one named
-   *  in the URL on web, so a screenshot tool can reach a tab it cannot tap. */
-  tabDau?: string;
+  /** Which tab to open on, from the link that opened the app. Optional and
+   *  null-tolerant so the shell keeps working for any caller that does not
+   *  care; `AppRoot` passes the one named in the URL on web, so a screenshot
+   *  tool can reach a tab it cannot tap. Null uses the default. */
+  tabDau?: string | null;
   /** The organiser flow, handed in with the way back out of it. */
   renderKhoanChi: (onExit: () => void) => React.ReactNode;
 }) {
   const c = usePalette();
   const scheme = useColorScheme();
-  const [tab, setTab] = useState(tabDau);
+  const [tab, setTab] = useState(tabDau ?? DEFAULT_TAB);
   const [menuMo, setMenuMo] = useState(false);
   const [luongKhoanChi, setLuongKhoanChi] = useState(false);
   // What to say when someone opens a create action that is still a shell.

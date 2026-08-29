@@ -242,6 +242,42 @@ class PersonResponse(ApiModel):
     created_at: datetime
 
 
+class FinanceMovementView(ApiModel):
+    """One confirmed movement, with the sign carried as a word.
+
+    `direction` rather than a signed `amount_vnd` so no client can lose the
+    sign by taking an absolute value for formatting -- which is precisely how
+    a repayment renders as income.
+    """
+
+    obligation_id: UUID
+    direction: Literal["in", "out"]
+    amount_vnd: int
+    counterparty_id: UUID
+    counterparty_name: StrictStr | None
+    context_id: UUID
+    context_name: StrictStr | None
+    occasion: StrictStr | None
+    occurred_at: datetime
+
+
+class PersonFinanceResponse(ApiModel):
+    """Everything the personal screen shows, recomputed per request.
+
+    `settled_vnd + outstanding_vnd == spend_vnd` by construction, so the two
+    figures a reader sees under the total always account for all of it.
+    """
+
+    person_id: UUID
+    display_name: StrictStr | None
+    spend_vnd: int
+    settled_vnd: int
+    outstanding_vnd: int
+    expense_count: int
+    group_count: int
+    movements: list[FinanceMovementView]
+
+
 class ContextCreateRequest(ApiModel):
     display_name: Annotated[StrictStr, Field(min_length=1, max_length=200)]
 

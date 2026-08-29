@@ -240,6 +240,66 @@ class BatchBoard:
 
 
 @dataclass(frozen=True, slots=True)
+class FinanceMovement:
+    """One movement of money that actually happened, as this person sees it.
+
+    Only receipt-confirmed obligations become movements. A `PaymentReport` --
+    the sender saying they transferred -- is deliberately not one, for the same
+    reason `obligation_status` refuses it: self-report is not arrival. A screen
+    that counted reports would tell somebody their money came in because the
+    other side said so.
+    """
+
+    obligation_id: uuid.UUID
+    #: `out` when this person sent it, `in` when they collected it.
+    direction: str
+    #: Always positive. The sign belongs to `direction`, so a reader cannot
+    #: lose it by formatting the number.
+    amount_vnd: int
+    counterparty_id: uuid.UUID
+    counterparty_name: str | None
+    context_id: uuid.UUID
+    #: `None` when the group id on the batch has no `contexts` row behind it.
+    #: That is a reachable state, not a broken one: the column is not a foreign
+    #: key and the expense flow never creates the group it posts against.
+    context_name: str | None
+    #: What the money was for -- the description of the expense the obligation
+    #: was built from. `None` when the sources carry no description.
+    occasion: str | None
+    occurred_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class PersonFinanceSummary:
+    """One person's standing, recomputed from the ledger on every read.
+
+    Nothing here is cached and nothing is stored. That is invariant 3, and it
+    is the whole reason this type exists rather than a `people.balance_vnd`
+    column: a column would be a second answer to a question the ledger already
+    answers, and the two would disagree the first time a write half-landed.
+
+    `spend_vnd` is the person's own confirmed allocations -- what the meals
+    cost *them*, not what anybody advanced. `outstanding_vnd` is the part of
+    that they still owe somebody. `settled_vnd` is the remainder, and it is
+    subtraction rather than its own query on purpose: the two figures on screen
+    have to add up to the total above them, and deriving one of them from the
+    other is the only way to guarantee that without a reconciliation step
+    nobody would run.
+    """
+
+    person_id: uuid.UUID
+    display_name: str | None
+    spend_vnd: int
+    settled_vnd: int
+    outstanding_vnd: int
+    #: Confirmed expenses this person appears in. A count, not money.
+    expense_count: int
+    #: Groups they are an accepted member of.
+    group_count: int
+    movements: tuple[FinanceMovement, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class GuestLinkDraft:
     sender_id: uuid.UUID
     token_digest: bytes
@@ -542,6 +602,10 @@ class ApiRepository(Protocol):
         ...
 
     def list_batch_obligations(self, batch_id: uuid.UUID) -> BatchBoard | None: ...
+
+    def person_finance_summary(
+        self, person_id: uuid.UUID, *, movement_limit: int
+    ) -> PersonFinanceSummary: ...
 
     def get_receipt_target(self, obligation_id: uuid.UUID) -> ReceiptTarget | None: ...
 
@@ -2207,6 +2271,238 @@ class SqlAlchemyApiRepository:
             link.status = GuestLinkStatus.REVOKED
             link.revoked_at = now
 
+    def person_finance_summary(
+        self, person_id: uuid.UUID, *, movement_limit: int
+    ) -> PersonFinanceSummary:
+        """Recompute one person's standing from the ledger. No stored totals.
+
+        Read in several passes rather than one join because they answer
+        different questions and a single query would have to pick one grain.
+        Allocations are per expense version; obligations are per sender pair;
+        joining them multiplies rows and quietly doubles money -- which is the
+        one bug on this screen nobody would catch by looking, because a wrong
+        total still looks like a total.
+        """
+        person = self.session.get(Person, person_id)
+
+        # Only the newest version of each expense counts. Corrections write a
+        # new version rather than overwriting, so an unfiltered sum adds the
+        # mistake to the fix -- the first draft of this method reported a
+        # corrected 100k dinner as 200k, and a wrong total still reads as a
+        # total. Same shape as the subquery `load_batch_inputs` already uses.
+        newest = (
+            select(
+                ExpenseVersion.expense_id.label("expense_id"),
+                func.max(ExpenseVersion.version_number).label("version_number"),
+            )
+            .group_by(ExpenseVersion.expense_id)
+            .subquery()
+        )
+        current_allocations = (
+            select(
+                ConfirmedAllocation.amount_vnd.label("amount_vnd"),
+                ExpenseVersion.expense_id.label("expense_id"),
+                ExpenseVersion.paid_by_id.label("paid_by_id"),
+            )
+            .select_from(ConfirmedAllocation)
+            .join(
+                ExpenseVersion,
+                ExpenseVersion.id == ConfirmedAllocation.expense_version_id,
+            )
+            .join(
+                newest,
+                (newest.c.expense_id == ExpenseVersion.expense_id)
+                & (newest.c.version_number == ExpenseVersion.version_number),
+            )
+            .where(ConfirmedAllocation.participant_id == person_id)
+            .subquery()
+        )
+
+        # Spend: this person's own share of every confirmed expense. Invariant
+        # 3 in one query -- nothing is read from a balance column because
+        # there is no balance column.
+        #
+        # `int(...)` rather than the driver's own answer: PostgreSQL sums a
+        # bigint column as `numeric`, which psycopg hands back as `Decimal`.
+        # Law 1 of this product is integer đồng end to end, and a Decimal that
+        # escapes here reaches JSON as `200000.0`.
+        spend_vnd = int(
+            self.session.scalar(
+                select(func.coalesce(func.sum(current_allocations.c.amount_vnd), 0))
+            )
+            or 0
+        )
+        expense_count = int(
+            self.session.scalar(
+                select(func.count(func.distinct(current_allocations.c.expense_id)))
+            )
+            or 0
+        )
+        group_count = int(
+            self.session.scalar(
+                select(func.count(Membership.id)).where(
+                    Membership.person_id == person_id,
+                    Membership.state == MembershipState.ACTIVE,
+                )
+            )
+            or 0
+        )
+
+        # What this person owes is decided at confirmation, not at publication.
+        #
+        # This used to read only obligations inside an announced batch, on the
+        # argument that a round nobody has sent is not yet a debt. That is
+        # wrong in the one moment this screen exists for: between splitting a
+        # bill and sending the round, the share is owed and nobody has paid
+        # anything -- and because `settled` is the remainder, the whole of a
+        # just-split dinner showed up under *Đã thanh toán*. The demo path ends
+        # on this screen, so the state it passes through is the state a viewer
+        # sees.
+        #
+        # A share is owed when somebody else fronted it. The payer's own share
+        # is spend and never debt: they handed the money to the restaurant, and
+        # no obligation row is ever written against them for it -- which is
+        # exactly why a query starting from obligations cannot tell the two
+        # apart.
+        owed_vnd = int(
+            self.session.scalar(
+                select(func.coalesce(func.sum(current_allocations.c.amount_vnd), 0)).where(
+                    current_allocations.c.paid_by_id != person_id
+                )
+            )
+            or 0
+        )
+        # Settled by arrival, never by self-report. A `PaymentReport` is the
+        # sender saying they transferred; `ReceiptConfirmation` is the other
+        # side saying it arrived. Counting reports would let anybody clear
+        # their own debt by pressing a button.
+        paid_vnd = int(
+            self.session.scalar(
+                select(func.coalesce(func.sum(ReceiptConfirmation.amount_vnd), 0))
+                .select_from(ReceiptConfirmation)
+                .join(
+                    CollectionObligation,
+                    CollectionObligation.id == ReceiptConfirmation.obligation_id,
+                )
+                .where(CollectionObligation.sender_id == person_id)
+            )
+            or 0
+        )
+        # Clamped: an over-confirmation is a real state the ledger permits, and
+        # it must not turn into a negative debt that then inflates `settled`
+        # past what was ever spent.
+        outstanding_vnd = max(0, owed_vnd - paid_vnd)
+
+        return PersonFinanceSummary(
+            person_id=person_id,
+            display_name=person.display_name if person else None,
+            spend_vnd=spend_vnd,
+            # Subtraction, not a fifth query: the two figures under the total
+            # have to add back up to it on screen.
+            settled_vnd=spend_vnd - outstanding_vnd,
+            outstanding_vnd=outstanding_vnd,
+            expense_count=expense_count,
+            group_count=group_count,
+            movements=self._finance_movements(person_id, movement_limit),
+        )
+
+    def _finance_movements(
+        self, person_id: uuid.UUID, limit: int
+    ) -> tuple[FinanceMovement, ...]:
+        """Confirmed arrivals, newest first, in both directions."""
+        rows = self.session.execute(
+            select(
+                CollectionObligation.id,
+                CollectionObligation.sender_id,
+                CollectionObligation.recipient_id,
+                ReceiptConfirmation.amount_vnd,
+                ReceiptConfirmation.confirmed_at,
+                CollectionBatch.context_id,
+                Context.display_name,
+            )
+            .select_from(ReceiptConfirmation)
+            .join(
+                CollectionObligation,
+                CollectionObligation.id == ReceiptConfirmation.obligation_id,
+            )
+            .join(
+                CollectionBatchVersion,
+                CollectionBatchVersion.id == CollectionObligation.batch_version_id,
+            )
+            .join(CollectionBatch, CollectionBatch.id == CollectionBatchVersion.batch_id)
+            # OUTER, and this is not defensive padding. `collection_batches`
+            # .context_id carries no foreign key into `contexts`, and nothing
+            # in the vertical slice writes a context row -- the app posts
+            # expenses against a fixed synthetic group id that only
+            # `POST /contexts` would ever create. An inner join therefore
+            # dropped every movement for the app's own group and returned an
+            # empty list that looked exactly like "no transactions yet".
+            .outerjoin(Context, Context.id == CollectionBatch.context_id)
+            .where(
+                (CollectionObligation.sender_id == person_id)
+                | (CollectionObligation.recipient_id == person_id)
+            )
+            .order_by(ReceiptConfirmation.confirmed_at.desc(), ReceiptConfirmation.id)
+            .limit(limit)
+        ).all()
+
+        movements: list[FinanceMovement] = []
+        for (
+            obligation_id,
+            sender_id,
+            recipient_id,
+            amount_vnd,
+            confirmed_at,
+            context_id,
+            context_name,
+        ) in rows:
+            outgoing = sender_id == person_id
+            counterparty_id = recipient_id if outgoing else sender_id
+            counterparty = self.session.get(Person, counterparty_id)
+            movements.append(
+                FinanceMovement(
+                    obligation_id=obligation_id,
+                    direction="out" if outgoing else "in",
+                    amount_vnd=amount_vnd,
+                    counterparty_id=counterparty_id,
+                    counterparty_name=counterparty.display_name if counterparty else None,
+                    context_id=context_id,
+                    context_name=context_name,
+                    occasion=self._obligation_occasion(obligation_id),
+                    occurred_at=confirmed_at,
+                )
+            )
+        return tuple(movements)
+
+    def _obligation_occasion(self, obligation_id: uuid.UUID) -> str | None:
+        """What the money was for, read back through the obligation's sources.
+
+        An obligation can be built from more than one expense. When it is,
+        naming only the first would be a lie of omission on a money screen, so
+        the count travels with the name instead.
+        """
+        descriptions = self.session.scalars(
+            select(ExpenseVersion.description)
+            .select_from(CollectionObligationSource)
+            .join(
+                ConfirmedAllocation,
+                ConfirmedAllocation.id == CollectionObligationSource.confirmed_allocation_id,
+            )
+            .join(
+                ExpenseVersion,
+                ExpenseVersion.id == ConfirmedAllocation.expense_version_id,
+            )
+            .where(CollectionObligationSource.obligation_id == obligation_id)
+            .order_by(ExpenseVersion.occurred_at)
+        ).all()
+        named = [text for text in descriptions if text]
+        if not named:
+            return None
+        unique = list(dict.fromkeys(named))
+        if len(unique) == 1:
+            return unique[0]
+        return f"{unique[0]} +{len(unique) - 1}"
+
 
 __all__ = [
     "AllocationRow",
@@ -2218,6 +2514,7 @@ __all__ = [
     "ConfirmationRecord",
     "ContextRecord",
     "ExpenseIdentity",
+    "FinanceMovement",
     "FrozenBatch",
     "FrozenObligation",
     "GuestEnvelopeRecord",
@@ -2228,6 +2525,7 @@ __all__ = [
     "ObligationDraft",
     "PaymentReportRecord",
     "PaymentReportTarget",
+    "PersonFinanceSummary",
     "PersonRecord",
     "PublishObligation",
     "ReceiptRecord",
