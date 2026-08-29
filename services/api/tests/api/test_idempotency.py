@@ -54,7 +54,7 @@ class InMemoryIdempotencyStore:
         self.rows: dict[tuple[str, str], dict] = {}
         self.reservations: list[tuple[str, str, str]] = []
 
-    def reserve(self, *, scope, key, fingerprint):
+    def reserve(self, *, scope, key, fingerprint, legacy_fingerprint=None):
         self.reservations.append((scope, key, fingerprint))
         row = self.rows.get((scope, key))
         if row is None:
@@ -64,7 +64,9 @@ class InMemoryIdempotencyStore:
             }
             return Reserved()
         if row["fingerprint"] != fingerprint:
-            return Conflict()
+            if legacy_fingerprint is None or row["fingerprint"] != legacy_fingerprint:
+                return Conflict()
+            row["fingerprint"] = fingerprint
         if row["response"] is None:
             return InFlight()
         return Replay(row["response"])
@@ -523,3 +525,167 @@ def test_a_reservation_nobody_will_ever_finish_still_gives_up(store):
     assert press.status == 409
     assert json.loads(press.payload)["code"] == "idempotency_request_in_flight"
     assert "new key" not in json.loads(press.payload)["detail"].lower()
+
+
+# ---------------------------------------------------------------------------
+# The fingerprint identifies a request, not an encoder
+# ---------------------------------------------------------------------------
+#
+# A key can only be replayed by the client that spent it, and clients do not
+# all spell JSON the same way. Python writes `{"a": "Đ"}`; JavaScript
+# writes `{"a":"Đ"}`. Same key, same meaning, different bytes -- and a digest
+# taken over the bytes called that a different request and refused it.
+#
+# The refusal was silent in the worst way: it depended on the *content*. A body
+# whose values are ASCII still differs by the space after the colon, so in
+# practice every JSON write crossing an encoder boundary was affected, not only
+# the ones carrying Vietnamese.
+
+
+def _python_bytes(payload: dict) -> bytes:
+    """What `json.dumps` produces: escaped non-ASCII, spaces after separators."""
+
+    return json.dumps(payload).encode("utf-8")
+
+
+def _javascript_bytes(payload: dict) -> bytes:
+    """What `JSON.stringify` produces: literal UTF-8, no spaces."""
+
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode(
+        "utf-8"
+    )
+
+
+JSON_CONTENT_TYPE = "application/json"
+
+
+def test_two_encoders_of_one_json_body_agree_on_the_fingerprint():
+    payload = expense_payload()
+    assert _python_bytes(payload) != _javascript_bytes(payload), (
+        "the fixture must actually differ in bytes or this test proves nothing"
+    )
+
+    def digest(body: bytes) -> str:
+        return request_fingerprint(
+            method="POST",
+            path="/expenses",
+            query=b"",
+            body=body,
+            content_type=JSON_CONTENT_TYPE,
+        )
+
+    assert digest(_python_bytes(payload)) == digest(_javascript_bytes(payload))
+
+
+def test_a_reordered_json_object_is_the_same_request():
+    """Key order carries no meaning in a JSON object, so it carries none here."""
+
+    def digest(payload: dict) -> str:
+        return request_fingerprint(
+            method="POST",
+            path="/expenses",
+            query=b"",
+            body=json.dumps(payload).encode("utf-8"),
+            content_type=JSON_CONTENT_TYPE,
+        )
+
+    assert digest({"a": 1, "b": 2}) == digest({"b": 2, "a": 1})
+
+
+def test_a_different_value_is_still_a_different_request():
+    """The control. Without it, a fingerprint of the empty string would pass."""
+
+    def digest(payload: dict) -> str:
+        return request_fingerprint(
+            method="POST",
+            path="/expenses",
+            query=b"",
+            body=_python_bytes(payload),
+            content_type=JSON_CONTENT_TYPE,
+        )
+
+    assert digest(expense_payload()) != digest(expense_payload(total=99000))
+
+
+def test_array_order_still_changes_the_fingerprint():
+    """Arrays are ordered and the order is meaning.
+
+    `participants` deciding who owes money is a list; normalising it the way
+    object keys are normalised would let one key answer for two different
+    splits.
+    """
+
+    def digest(people: list[str]) -> str:
+        return request_fingerprint(
+            method="POST",
+            path="/expenses",
+            query=b"",
+            body=_python_bytes({"participants": people}),
+            content_type=JSON_CONTENT_TYPE,
+        )
+
+    assert digest(["minh", "trang"]) != digest(["trang", "minh"])
+
+
+def test_a_body_not_declared_as_json_is_hashed_verbatim():
+    """Only a caller who says JSON gets JSON treatment.
+
+    The guest page posts HTML forms. Those bytes mean nothing to a JSON parser
+    and must keep being compared exactly as they arrived.
+    """
+
+    def digest(body: bytes) -> str:
+        return request_fingerprint(
+            method="POST",
+            path="/g/token/paid",
+            query=b"",
+            body=body,
+            content_type="application/x-www-form-urlencoded",
+        )
+
+    assert digest(b"amount=1") != digest(b"amount=2")
+    assert digest(b'{"a": 1}') != digest(b'{"a":1}')
+
+
+def test_a_body_that_claims_json_but_is_not_falls_back_to_its_bytes():
+    """A broken body must not crash the middleware before the route sees it."""
+
+    def digest(body: bytes) -> str:
+        return request_fingerprint(
+            method="POST",
+            path="/expenses",
+            query=b"",
+            body=body,
+            content_type="application/json; charset=utf-8",
+        )
+
+    assert digest(b"{not json") == digest(b"{not json")
+    assert digest(b"{not json") != digest(b"{also not json")
+    assert digest(b"") == digest(b"")
+
+
+def test_a_second_press_from_another_client_replays_instead_of_being_refused(
+    client, repository
+):
+    """The bug as a user meets it, one layer above the digest.
+
+    The seed script writes with Python's encoder; the app retries the same key
+    with JavaScript's. Before the fix the app was told 422 `idempotency_key_reuse`
+    for a request it had every right to replay, and the screen showed the
+    server's English sentence where the group should have been.
+    """
+
+    payload = expense_payload()
+    headers = _key_headers(**{"Content-Type": JSON_CONTENT_TYPE})
+
+    seeded = client.post("/expenses", content=_python_bytes(payload), headers=headers)
+    from_app = client.post(
+        "/expenses", content=_javascript_bytes(payload), headers=headers
+    )
+
+    assert seeded.status_code == 201, seeded.text
+    assert from_app.status_code == 201, from_app.text
+    assert from_app.json() == seeded.json()
+    assert from_app.headers.get(REPLAY_HEADER) == "true"
+    # Replayed, not re-run: the second encoding must not write a second expense.
+    assert len(repository.expenses) == 1

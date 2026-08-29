@@ -125,7 +125,14 @@ Outcome = Reserved | Replay | InFlight | Conflict
 
 
 class IdempotencyStore(Protocol):
-    def reserve(self, *, scope: str, key: str, fingerprint: str) -> Outcome: ...
+    def reserve(
+        self,
+        *,
+        scope: str,
+        key: str,
+        fingerprint: str,
+        legacy_fingerprint: str | None = None,
+    ) -> Outcome: ...
 
     def complete(
         self, *, scope: str, key: str, response: StoredResponse
@@ -145,7 +152,14 @@ class SqlAlchemyIdempotencyStore:
     def __init__(self, session: Session):
         self._session = session
 
-    def reserve(self, *, scope: str, key: str, fingerprint: str) -> Outcome:
+    def reserve(
+        self,
+        *,
+        scope: str,
+        key: str,
+        fingerprint: str,
+        legacy_fingerprint: str | None = None,
+    ) -> Outcome:
         # A single statement decides the race. Written as SELECT-then-INSERT
         # this would let two concurrent requests both believe they were first,
         # which is the exact bug the feature exists to prevent.
@@ -177,7 +191,21 @@ class SqlAlchemyIdempotencyStore:
 
         stored_fingerprint, status_code, body, media_type = existing
         if stored_fingerprint != fingerprint:
-            return Conflict()
+            if legacy_fingerprint is None or stored_fingerprint != legacy_fingerprint:
+                return Conflict()
+            # The row was written by a server that hashed the body verbatim, and
+            # it hashed *these* bytes: same request, older spelling. Adopting the
+            # canonical digest is what lets a differently-encoding client replay
+            # it afterwards, so a database that was seeded before this change
+            # heals on the next write instead of refusing the app forever.
+            self._session.execute(
+                update(IdempotencyKey)
+                .where(
+                    IdempotencyKey.scope == scope,
+                    IdempotencyKey.idempotency_key == key,
+                )
+                .values(request_fingerprint=fingerprint)
+            )
         if status_code is None:
             return InFlight()
         return Replay(
@@ -212,12 +240,65 @@ class SqlAlchemyIdempotencyStore:
         )
 
 
-def request_fingerprint(*, method: str, path: str, query: bytes, body: bytes) -> str:
+def _declares_json(content_type: str | None) -> bool:
+    if not content_type:
+        return False
+    media_type = content_type.split(";", 1)[0].strip().lower()
+    return media_type == "application/json" or media_type.endswith("+json")
+
+
+def _canonical_body(body: bytes, content_type: str | None) -> bytes:
+    """The body reduced to its meaning, for callers who declared JSON.
+
+    Sorting object keys and dropping insignificant whitespace is what makes the
+    digest a property of the request rather than of the library that encoded
+    it. Arrays are left alone: their order is meaning, and `participants` is
+    the list that decides who owes money.
+    """
+
+    if not _declares_json(content_type):
+        return body
+    try:
+        parsed = json.loads(body)
+    except ValueError:
+        # It said JSON and it is not. The route will refuse it in a moment; all
+        # the digest has to do is stay stable, so hash what actually arrived.
+        return body
+    return json.dumps(
+        parsed, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+
+
+def request_fingerprint(
+    *,
+    method: str,
+    path: str,
+    query: bytes,
+    body: bytes,
+    content_type: str | None = None,
+) -> str:
     """Identify the request a key was spent on.
 
     Method and path are part of the digest on purpose: the same key sent to a
     different endpoint is a client bug, and answering it with a replay of an
     unrelated call would hide that bug behind a plausible response.
+
+    The body is canonicalised rather than hashed verbatim when the caller
+    declares JSON, because two encoders agree on the value and disagree on the
+    bytes:
+
+        Python  json.dumps     -> {"display_name": "Team \\u0110\\u00e0 L\\u1ea1t"}
+        JS      JSON.stringify -> {"display_name":"Team Đà Lạt"}
+
+    Hashing those bytes made the digest a property of the *encoder*, so a key
+    spent by the seed script could never be replayed by the app -- the second
+    attempt was refused as reuse for a request nobody had made. Note that this
+    was never only a non-ASCII problem: the space after the colon is enough on
+    its own, so every JSON write crossing an encoder boundary was affected.
+
+    Omitting `content_type` reproduces the raw-bytes digest an older version of
+    this file wrote. That is not a leftover -- see `reserve`, which needs it to
+    recognise the rows that version left in the table.
     """
 
     digest = hashlib.sha256()
@@ -227,7 +308,7 @@ def request_fingerprint(*, method: str, path: str, query: bytes, body: bytes) ->
     digest.update(b"\n")
     digest.update(query)
     digest.update(b"\n")
-    digest.update(body)
+    digest.update(_canonical_body(body, content_type))
     return digest.hexdigest()
 
 
@@ -271,7 +352,14 @@ class IdempotencyMiddleware:
         self.store_factory = store_factory
         self.in_flight_wait_seconds = in_flight_wait_seconds
 
-    async def _reserve(self, *, key_scope: str, key: str, fingerprint: str) -> Outcome:
+    async def _reserve(
+        self,
+        *,
+        key_scope: str,
+        key: str,
+        fingerprint: str,
+        legacy_fingerprint: str | None = None,
+    ) -> Outcome:
         """Reserve the key, waiting out a reservation somebody else is finishing.
 
         A reserved-but-unfinished key means one of two things, and the store
@@ -290,7 +378,10 @@ class IdempotencyMiddleware:
         while True:
             with self.store_factory() as store:
                 outcome = store.reserve(
-                    scope=key_scope, key=key, fingerprint=fingerprint
+                    scope=key_scope,
+                    key=key,
+                    fingerprint=fingerprint,
+                    legacy_fingerprint=legacy_fingerprint,
                 )
             if not isinstance(outcome, InFlight):
                 return outcome
@@ -323,15 +414,27 @@ class IdempotencyMiddleware:
         body = await _drain(receive)
         actor = _header(headers, _ACTOR_HEADER_BYTES)
         key_scope = actor if actor else ANONYMOUS_SCOPE
+        parts = {
+            "method": scope["method"],
+            "path": scope["path"],
+            "query": scope.get("query_string", b""),
+            "body": body,
+        }
         fingerprint = request_fingerprint(
-            method=scope["method"],
-            path=scope["path"],
-            query=scope.get("query_string", b""),
-            body=body,
+            **parts, content_type=_header(headers, b"content-type")
         )
+        # The same bytes as an older server would have digested them. Passed
+        # alongside so a key reserved before this change is still recognised as
+        # the request it was, rather than refused as reuse.
+        legacy_fingerprint = request_fingerprint(**parts)
+        if legacy_fingerprint == fingerprint:
+            legacy_fingerprint = None
 
         outcome = await self._reserve(
-            key_scope=key_scope, key=key, fingerprint=fingerprint
+            key_scope=key_scope,
+            key=key,
+            fingerprint=fingerprint,
+            legacy_fingerprint=legacy_fingerprint,
         )
 
         if isinstance(outcome, Conflict):
