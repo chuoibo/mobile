@@ -78,6 +78,34 @@ export const SCREENS = [
   { step: "ca-nhan", tab: "ca-nhan", needle: "Giao dịch gần đây" },
 ];
 
+/**
+ * Screens that are reached by a link rather than by a tab.
+ *
+ * Kept as a second list rather than folded into `SCREENS`, because `SCREENS` is
+ * checked against `tabs.ts` by `tests/quet-du-tab.test.mjs` in both directions:
+ * every built tab is scanned, and every scanned row is a real tab. Kỷ niệm is
+ * not a tab -- it is the `dang-ky-niem` create action, opened with `vao=ky-niem`
+ * -- so putting it in `SCREENS` would make that second check fail while
+ * teaching nobody anything.
+ *
+ * The needle is the recap heading rather than anything on the photo wall. The
+ * wall's own title paints as soon as the group id resolves, so waiting on it
+ * would wave through the state where the memories request 404s and the wall is
+ * empty -- which is exactly the failure a scan of this screen exists to catch.
+ * The photographs themselves are then asserted to have decoded, below.
+ */
+export const MAN_KHAC = [
+  { step: "ky-niem", frag: `vao=ky-niem&nguoi=${NGUOI}`, needle: "Đã đi cùng nhau" },
+];
+
+/** Every screen this tool visits, tabs and links alike, in one list. */
+export function moiMan() {
+  return [
+    ...SCREENS.map((s) => ({ ...s, frag: `tab=${s.tab}&nguoi=${NGUOI}` })),
+    ...MAN_KHAC,
+  ];
+}
+
 /** One valid place row, the shape `screens/kham-pha/places.ts` validates.
  *
  * Copied from the wire row in `tests/kham-pha.test.mjs` rather than invented,
@@ -174,6 +202,19 @@ export function installTabStubs(apiBase, fixtures) {
     }
     if (route.endsWith("/recap")) {
       return json(fixtures.recap);
+    }
+    // rd-fe-25. The memory wall reads this, and posts to it. The GET is what
+    // makes the wall show photographs rather than its empty state, and the
+    // empty state is what a 404 here would silently produce -- a scan of a
+    // wall with nothing on it, filed under the same filename.
+    if (route.includes("/memories")) {
+      if (method === "POST") return json(fixtures.kyNiem[0], 201);
+      return json({
+        context_id: fixtures.contextId,
+        memories: fixtures.kyNiem,
+        next_cursor: null,
+        has_more: false,
+      });
     }
     if (route.endsWith("/messages")) {
       if (method === "POST") return json(fixtures.messages[0], 201);
@@ -380,6 +421,47 @@ export function taoFixtures() {
         stops: [],
       },
     ],
+    // rd-fe-25's wall. Two rows on purpose, and the second one has no
+    // `image_url` -- so the snapshot holds the loaded frame and the stand-in
+    // frame side by side. A wall where every row is the same state cannot tell
+    // a working image path from a dead one.
+    //
+    // The address is RELATIVE and points at this group, which is the only shape
+    // that survives two separate gates: the server pins `image_url` to
+    // `/contexts/{uuid}/photos/{uuid}`, and `nguonAnhAnToan` refuses anything
+    // not on `EXPO_PUBLIC_API_URL` before an `<Image>` is ever built. An
+    // absolute `http://127.0.0.1:<port>/...` would be declined by the second of
+    // those and this scan would quietly become decoration.
+    kyNiem: [
+      {
+        id: "5dd00000-dddd-4ddd-8ddd-0000d0000001",
+        context_id: contextId,
+        author_id: personId,
+        kind: "photo",
+        image_url: `/contexts/${contextId}/photos/5dd00000-dddd-4ddd-8ddd-0000d0000002`,
+        caption: "Sáng Đà Lạt, sương chưa tan",
+        place_id: null,
+        place_name: null,
+        lat: null,
+        lng: null,
+        created_at: "2026-09-07T07:12:00+07:00",
+        cursor: "c1",
+      },
+      {
+        id: "5dd00000-dddd-4ddd-8ddd-0000d0000003",
+        context_id: contextId,
+        author_id: personId,
+        kind: "photo",
+        image_url: `/contexts/${contextId}/photos/5dd00000-dddd-4ddd-8ddd-0000d0000004`,
+        caption: null,
+        place_id: null,
+        place_name: null,
+        lat: null,
+        lng: null,
+        created_at: "2026-09-07T19:40:00+07:00",
+        cursor: "c2",
+      },
+    ],
     // F34, and only the first outing appears: the recap route lists trips the
     // ledger has money for, so the second one having no entry here is the
     // "chưa tiêu gì" case rather than a gap in the fixture.
@@ -438,7 +520,7 @@ async function main() {
   if (!fs.existsSync(CHROME)) throw new Error(`Chromium not found at ${CHROME}`);
 
   fs.mkdirSync(outDir, { recursive: true });
-  for (const { step } of SCREENS) {
+  for (const { step } of moiMan()) {
     try {
       fs.unlinkSync(path.join(outDir, `${step}.html`));
     } catch (err) {
@@ -481,7 +563,12 @@ async function main() {
       args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
     });
 
-    for (const { step, tab, needle } of SCREENS) {
+    // rd-fe-25. The first wall row's bytes, so the memory grid holds a real
+    // photograph. The second row's address is deliberately NOT served, so the
+    // same grid also holds the stand-in -- both states in one snapshot.
+    const anhKyNiemUrl = API_BASE + fixtures.kyNiem[0].image_url;
+
+    for (const { step, frag, needle } of moiMan()) {
       const page = await browser.newPage();
       page.setDefaultTimeout(30000);
       const pageErrors = [];
@@ -492,7 +579,7 @@ async function main() {
       // nowhere on purpose, so it is answered here instead.
       await page.setRequestInterception(true);
       page.on("request", (req) => {
-        if (req.url() === anhThuUrl) {
+        if (req.url() === anhThuUrl || req.url() === anhKyNiemUrl) {
           req.respond({ status: 200, contentType: "image/png", body: anhThuBytes });
           return;
         }
@@ -506,7 +593,7 @@ async function main() {
       // nothing, so every file after the first would be a copy of the first
       // screen under a different name. A fresh page per screen is what makes
       // the filename true.
-      await page.goto(`http://127.0.0.1:${port}/index.html#tab=${tab}&nguoi=${NGUOI}`, {
+      await page.goto(`http://127.0.0.1:${port}/index.html#${frag}`, {
         waitUntil: "domcontentloaded",
       });
 
@@ -545,11 +632,47 @@ async function main() {
         console.log(`  anh dia diem da tai that: ${daTai.width}x${daTai.height}`);
       }
 
+      // rd-fe-25, and the same reasoning one screen over. The memory wall's
+      // whole claim is that a photograph reaches the glass; a grid of
+      // stand-ins looks identical in a PNG and would report success. So the
+      // first row is asserted to have decoded AND the picker is asserted to be
+      // on screen -- a wall nobody can add to is not the feature.
+      if (step === "ky-niem") {
+        const daTai = await page.evaluate(async (src) => {
+          const imgs = [...document.querySelectorAll("img")];
+          const anh = imgs.find((i) => i.src === src || i.currentSrc === src);
+          const nut = [...document.querySelectorAll('[role="button"]')].map(
+            (b) => b.getAttribute("aria-label") ?? b.textContent,
+          );
+          if (!anh) return { found: false, srcs: imgs.map((i) => i.src).slice(0, 5), nut };
+          if (!anh.complete) await anh.decode().catch(() => {});
+          return { found: true, width: anh.naturalWidth, height: anh.naturalHeight, nut };
+        }, anhKyNiemUrl);
+        if (!daTai.found) {
+          throw new Error(
+            `ky-niem: khong tim thay <img> cho ${anhKyNiemUrl}. ` +
+              `Cong origin tu choi dia chi nay, hoac tuong anh khong con render. ` +
+              `src dang co: ${JSON.stringify(daTai.srcs)}`,
+          );
+        }
+        if (!daTai.width) {
+          throw new Error(`ky-niem: <img> ${anhKyNiemUrl} khong giai ma duoc (naturalWidth=0)`);
+        }
+        const coNutThem = daTai.nut.some((n) => n && n.includes("ảnh"));
+        if (!coNutThem) {
+          throw new Error(
+            `ky-niem: khong co nut chon anh nao tren man. ` +
+              `role=button dang co: ${JSON.stringify(daTai.nut)}`,
+          );
+        }
+        console.log(`  anh ky niem da tai that: ${daTai.width}x${daTai.height}, co nut chon anh`);
+      }
+
       await snapshot(page, outDir, step);
       await page.close();
     }
 
-    const missing = SCREENS.filter((s) => !fs.existsSync(path.join(outDir, `${s.step}.html`)));
+    const missing = moiMan().filter((s) => !fs.existsSync(path.join(outDir, `${s.step}.html`)));
     if (missing.length) {
       throw new Error(`no snapshot written for: ${missing.map((s) => s.step).join(", ")}`);
     }
