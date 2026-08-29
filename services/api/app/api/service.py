@@ -636,6 +636,31 @@ class ApiService:
                 404, "membership_not_found", "Active membership does not exist"
             )
 
+    def get_context(self, context_id: uuid.UUID, actor: Actor) -> ContextResponse:
+        """Trade a group id for the group's name, for members only.
+
+        The order of the two checks below is the security property, not an
+        implementation detail. A group id travels in share links, so answering
+        404 for an unknown id and 403 for a real one would turn this route into
+        an oracle: a stranger could enumerate ids and learn which groups exist.
+        Membership is therefore decided before the row is read, and a
+        non-member gets the same 403 either way.
+        """
+        _require_permission(
+            "view_context_members",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        record = self.repository.get_context(context_id)
+        if record is None:
+            raise ApiProblem(404, "context_not_found", "Context does not exist")
+        return ContextResponse(
+            id=record.id,
+            display_name=record.display_name,
+            created_by_id=record.created_by_id,
+            created_at=record.created_at,
+        )
+
     def list_context_members(
         self, context_id: uuid.UUID, actor: Actor
     ) -> MembershipListResponse:
