@@ -17,16 +17,24 @@ any_test_installing_a_limiter` suy kỳ vọng RA TỪ chính hằng số đang 
 ghim thẳng (`assert SEARCH_LIMIT_PER_WINDOW == 12`) — route rẻ hơn được ghim,
 route đắt hơn thì không.
 
-Đo tại `23b603f` (đã ở main), toàn bộ `services/api/tests` + `tests`, nền là
-1486 passed / 328 skipped / 4713 subtests:
+Đo hai lần, trên hai nền khác nhau, vì `main` đi tiếp trong lúc lượt này chạy.
+Lần đầu tại `23b603f` (nền 1486 passed). Lần hai tại `4051b7a` — sau khi `#231`
+merge, và `#231` sửa **đúng cái file test của `#227`** mà lượt này đang đối
+chứng, nên phải đo lại chứ không được suy. Nền lần hai, chỉ bộ test có sẵn của
+repo, không gồm chính file này: **1498 passed / 329 skipped / 4713 subtests**.
 
 =========================================  ======================  =============
 đột biến                                   hậu quả                 kết quả
 =========================================  ======================  =============
-`RECEIPT_SCAN_LIMIT_PER_WINDOW` 30 → 3000  trần biến mất           1486 xanh
-`RECEIPT_SCAN_WINDOW_SECONDS`   60 → 1     trần/phút → trần/giây   1486 xanh
+`RECEIPT_SCAN_LIMIT_PER_WINDOW` 30 → 3000  trần biến mất           1498 xanh
+`RECEIPT_SCAN_WINDOW_SECONDS`   60 → 1     trần/phút → trần/giây   1498 xanh
 `RECEIPT_SCAN_LIMIT_PER_WINDOW` 30 → 1     hero chết ở lượt 2      17 ĐỎ
 =========================================  ======================  =============
+
+`#231` dựng cổng cho một câu khác mà `#227` cũng đã tuyên bố — burst tìm kiếm
+không được ăn ngân sách quét — và cổng đó đúng. Nó không chạm hai hàng đầu:
+ca mới của nó cũng đọc kỳ vọng ra từ chính hằng số (`range(RECEIPT_SCAN_LIMIT_
+PER_WINDOW)`), nên hai lỗ dưới đây sống nguyên qua nó.
 
 Hàng thứ ba là hàng phải đọc kỹ, vì nó trông giống một cổng đang hoạt động và
 không phải. Mười bảy ca đỏ đó nằm ở `tests/qa/rd-qa-37/test_exif_duong_bill.py`
