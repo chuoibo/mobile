@@ -206,23 +206,38 @@ def test_the_block_expires_so_a_person_is_not_locked_out_for_good(
     assert search(client, headers=actor_headers()).status_code == 200
 
 
-def test_a_refused_burst_does_not_extend_its_own_punishment(client, searcher, metered):
-    """A refusal must not count against the window that refused it.
+def test_retrying_against_the_wall_does_not_push_the_wall_further_out(
+    client, searcher, metered
+):
+    """A refusal must not move the window it was refused by.
 
-    Counting refusals is how a fixed window becomes a permanent ban: someone
-    whose client retries on 429 keeps the counter above the limit forever and
-    the window never rolls, so the block outlives the burst by as long as the
-    retries last.
+    This is the difference between a one-minute cap and an indefinite ban. If
+    a 429 slides `opened_at` to now, any client that retries on 429 -- which is
+    most of them -- holds its own window open for as long as it keeps retrying,
+    and a burst that should have cost sixty seconds costs however long the
+    retry loop runs.
+
+    The clock has to advance *during* the retries for this to be a real test.
+    An earlier version of it burst against a frozen clock, where sliding the
+    window to `now` slides it to where it already was: the assertion passed
+    against a deliberately broken limiter, which is a test that reads as
+    protection while providing none.
     """
 
     for _ in range(3):
-        search(client, headers=actor_headers())
+        assert search(client, headers=actor_headers()).status_code == 200
+
+    # 50 seconds of a client hammering a wall it is being told about.
     for _ in range(50):
+        metered.advance(1)
         assert search(client, headers=actor_headers()).status_code == 429
 
-    metered.advance(61)
+    # Now past 60s from the *first* call, which is when the window is due.
+    metered.advance(11)
 
-    assert search(client, headers=actor_headers()).status_code == 200
+    assert search(client, headers=actor_headers()).status_code == 200, (
+        "the retries pushed the window out ahead of themselves"
+    )
 
 
 def test_one_person_hitting_the_wall_does_not_grow_memory_without_bound(metered):

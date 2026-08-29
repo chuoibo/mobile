@@ -54,10 +54,16 @@ _MIN_SWEEP_AT = 1024
 class FixedWindowLimiter:
     """Fixed window per key, with the two properties that make it survivable.
 
-    A refusal does **not** count against the window that refused it. Counting
-    refusals turns a one-minute window into an indefinite ban for any client
-    that retries on 429: the counter is held above the limit by the retries
-    themselves, so the window never gets to roll.
+    A refusal does **not** move the window that refused it. Sliding `opened_at`
+    to now on a 429 turns a one-minute cap into an indefinite ban: most clients
+    retry on 429, each retry pushes the window out ahead of itself, and a burst
+    that should have cost sixty seconds costs as long as the retry loop runs.
+
+    Note how narrow that claim is, because the obvious wider one is false.
+    *Counting* a refusal is harmless: the count is reset when the window rolls,
+    and the roll is decided by `opened_at`, which a refusal leaves alone. Only
+    the timestamp matters. This docstring said "counting" first, and a mutant
+    that incremented on refusal passed the entire suite.
 
     Expired keys are dropped. The key is caller-supplied identity, so a map
     that is only ever written to is a way to exhaust the process politely, one
@@ -92,7 +98,8 @@ class FixedWindowLimiter:
                 opened_at, used = now, 0
 
             if used >= self.limit:
-                # Stored back unchanged on purpose: see the class docstring.
+                # `opened_at` written back unchanged, which is the whole point:
+                # `now` here would be the indefinite ban. See the class docstring.
                 self._windows[key] = (opened_at, used)
                 raise ApiProblem(
                     429,
