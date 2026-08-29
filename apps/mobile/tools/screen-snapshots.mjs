@@ -326,11 +326,11 @@ export function installBeforeApp(apiBase, scanBody) {
   };
 }
 
-async function visibleText(page) {
+export async function visibleText(page) {
   return page.evaluate(() => document.body?.innerText ?? "");
 }
 
-async function apiLog(page) {
+export async function apiLog(page) {
   try {
     return await page.evaluate(() => window.__snapshotApiLog ?? []);
   } catch {

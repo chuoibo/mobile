@@ -36,7 +36,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import puppeteer from "file:///home/lakiet/.claude/node_modules/puppeteer-core/lib/puppeteer/puppeteer-core.js";
 
@@ -338,4 +338,9 @@ async function main() {
   }
 }
 
-await main();
+// Only when run as the command. `tuong-tac-snapshots.mjs` imports
+// `installTabStubs` from here, and a bare `await main()` would make that import
+// drive the whole tab suite as a side effect of loading a function.
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await main();
+}
