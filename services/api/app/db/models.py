@@ -1586,3 +1586,101 @@ class Message(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class FriendRequestState(StrEnum):
+    """F04's four states, spelled the way the spec spells them.
+
+    Stored rather than derived because the transition itself is the fact worth
+    keeping: "Binh declined on Tuesday" and "Binh never answered" are different
+    events, and a schema that only records current friendship cannot tell them
+    apart when somebody asks why a name stopped appearing.
+    """
+
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    DECLINED = "declined"
+    BLOCKED = "blocked"
+
+
+class FriendRequest(Base):
+    """One directed ask between two people, and its answer.
+
+    Friendship is not a column anywhere. It is `state = 'accepted'` on a row of
+    this table, read through `app.domain.friendship.are_friends`. The same
+    reasoning as invariant 3 for money: a relationship that is stored
+    separately from the events that created it will eventually disagree with
+    them, and the disagreement surfaces as one screen showing a friend another
+    screen does not.
+
+    `requester_id` and `addressee_id` keep their direction after the answer.
+    Losing it would lose the only thing that makes the consent rule checkable
+    after the fact -- with an undirected row, "the addressee accepted" is not a
+    statement anybody can verify.
+    """
+
+    __tablename__ = "friend_requests"
+    __table_args__ = (
+        CheckConstraint(
+            "requester_id <> addressee_id",
+            # `pair_key` raises SELF_EDGE for the same reason. The domain
+            # refuses it, this makes the refusal true of the data even if some
+            # future writer skips the domain.
+            name="no_self_friendship",
+        ),
+        CheckConstraint(
+            "(state = 'pending') = (decided_at IS NULL)",
+            name="decided_state_matches_timestamp",
+        ),
+        # At most one LIVE edge per unordered pair. `least`/`greatest` are what
+        # make (A,B) and (B,A) the same key, so two people who tap "add" at the
+        # same moment produce one row and one conflict rather than two pending
+        # requests that can both be accepted into two friendships.
+        #
+        # This mirrors `app.domain.friendship.pair_key`, which sorts the same
+        # two values in Python. Two spellings of one rule: change either and
+        # change both. `tests/postgres/test_friend_requests_postgres.py` is
+        # where the SQL spelling is actually exercised -- a dict-backed fake
+        # cannot express a functional partial unique index, so the API-level
+        # tests are blind to it by construction.
+        Index(
+            "uq_friend_edge_live",
+            text("least(requester_id, addressee_id)"),
+            text("greatest(requester_id, addressee_id)"),
+            unique=True,
+            postgresql_where=text("state IN ('pending', 'accepted', 'blocked')"),
+        ),
+        Index("ix_friend_requests_addressee", "addressee_id", "state"),
+        Index("ix_friend_requests_requester", "requester_id", "state"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    requester_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_friend_requests_requester"),
+        nullable=False,
+    )
+    addressee_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_friend_requests_addressee"),
+        nullable=False,
+    )
+    state: Mapped[FriendRequestState] = mapped_column(
+        _enum_type(FriendRequestState, "friend_request_state"), nullable=False
+    )
+    #: Who answered. Null while pending. This is the audit trail for the
+    #: consent rule: an accepted row whose `decided_by_id` is the requester is
+    #: evidence of the bug this feature is built to make impossible.
+    decided_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_friend_requests_decided_by"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

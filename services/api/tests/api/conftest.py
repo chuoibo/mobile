@@ -38,6 +38,7 @@ from app.api.repository import (
     ConfirmedExpense,
     ContextRecord,
     ExpenseIdentity,
+    FriendEdgeRecord,
     FrozenBatch,
     FrozenObligation,
     GuestEnvelopeRecord,
@@ -114,6 +115,7 @@ class FakeRepository:
         self.active_memberships: set[tuple[uuid.UUID, uuid.UUID]] = set()
         self.outing_invites: dict[uuid.UUID, OutingInviteRecord] = {}
         self.outing_invite_ids_by_digest: dict[bytes, uuid.UUID] = {}
+        self.friend_edges: dict[uuid.UUID, dict] = {}
         self.leak_guest_input = False
 
     @staticmethod
@@ -168,6 +170,89 @@ class FakeRepository:
         )
         self.people[person_id] = renamed
         return renamed
+
+
+    # --- friend graph (F03, F04) ---------------------------------------
+    #
+    # A dict cannot express `uq_friend_edge_live`, the functional partial
+    # unique index that makes (A,B) and (B,A) one edge under concurrency. This
+    # fake is blind to that race BY CONSTRUCTION, which is why
+    # tests/postgres/test_friend_requests_postgres.py exists. Widening this
+    # fake until the race "passes" here would be the lie CLAUDE.md names.
+
+    def _friend_record(self, edge, reader_id):
+        other = (
+            edge["addressee_id"] if edge["requester_id"] == reader_id
+            else edge["requester_id"]
+        )
+        person = self.people.get(other)
+        return FriendEdgeRecord(
+            id=edge["id"],
+            requester_id=edge["requester_id"],
+            addressee_id=edge["addressee_id"],
+            other_person_id=other,
+            other_display_name=(
+                person.display_name if person is not None else str(other)
+            ),
+            state=edge["state"],
+            decided_by_id=edge["decided_by_id"],
+            created_at=edge["created_at"],
+            decided_at=edge["decided_at"],
+        )
+
+    def get_friend_edge(self, person_a, person_b):
+        pair = frozenset((person_a, person_b))
+        for edge in self.friend_edges.values():
+            same_pair = frozenset((edge["requester_id"], edge["addressee_id"]))
+            if same_pair == pair and edge["state"] != "declined":
+                return self._friend_record(edge, person_a)
+        return None
+
+    def get_friend_request(self, request_id, reader_id):
+        edge = self.friend_edges.get(request_id)
+        if edge is None:
+            return None
+        if reader_id not in (edge["requester_id"], edge["addressee_id"]):
+            return None
+        return self._friend_record(edge, reader_id)
+
+    def open_friend_request(self, *, requester_id, addressee_id, now):
+        edge = {
+            "id": uuid.uuid4(),
+            "requester_id": requester_id,
+            "addressee_id": addressee_id,
+            "state": "pending",
+            "decided_by_id": None,
+            "created_at": now,
+            "decided_at": None,
+        }
+        self.friend_edges[edge["id"]] = edge
+        return self._friend_record(edge, requester_id)
+
+    def decide_friend_request(self, *, request_id, state, decided_by_id, now):
+        edge = self.friend_edges.get(request_id)
+        if edge is None:
+            return None
+        edge["state"] = state
+        edge["decided_by_id"] = decided_by_id
+        edge["decided_at"] = now
+        return self._friend_record(edge, decided_by_id)
+
+    def list_friend_requests(self, person_id, *, direction):
+        side = "addressee_id" if direction == "incoming" else "requester_id"
+        return [
+            self._friend_record(edge, person_id)
+            for edge in self.friend_edges.values()
+            if edge[side] == person_id and edge["state"] == "pending"
+        ]
+
+    def list_friends(self, person_id):
+        return [
+            self._friend_record(edge, person_id)
+            for edge in self.friend_edges.values()
+            if edge["state"] == "accepted"
+            and person_id in (edge["requester_id"], edge["addressee_id"])
+        ]
 
     def is_member(self, context_id, person_id):
         return (context_id, person_id) in self.active_memberships
