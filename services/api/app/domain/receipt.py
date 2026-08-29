@@ -46,6 +46,19 @@ _GROUPED_PATTERN = re.compile(
 )
 _PLAIN_PATTERN = re.compile(r"\d+")
 _FRACTIONAL_PATTERN = re.compile(r"(?P<whole>\d+)[.,](?P<fraction>\d+)")
+# A Vietnamese bill prints the count beside the dish -- "Trà đá X4" -- rather
+# than in a column of its own, and the reader transcribes that marker into
+# quantity_text. Both orders occur on paper, and the ASCII "x" and the
+# multiplication sign are the same mark set by different tools.
+#
+# The strictness is the point. This admits a marker wrapped around digits and
+# nothing else, so "vài", "4 phần" and "x4x" still raise INVALID_QUANTITY. A
+# quantity that cannot be read exactly must not be guessed: it divides a real
+# line total into the unit price shown beside a real dish.
+_QUANTITY_MARKER_PATTERN = re.compile(
+    r"(?:[x×]\s*(?P<leading>\d+)|(?P<trailing>\d+)\s*[x×])",
+    re.IGNORECASE,
+)
 
 
 class ReceiptError(Exception):
@@ -148,7 +161,10 @@ def _read_quantity(item: dict) -> int:
         raise ReceiptError("INVALID_QUANTITY")
     stripped = quantity_text.strip()
     if _PLAIN_PATTERN.fullmatch(stripped) is None:
-        raise ReceiptError("INVALID_QUANTITY")
+        marker = _QUANTITY_MARKER_PATTERN.fullmatch(stripped)
+        if marker is None:
+            raise ReceiptError("INVALID_QUANTITY")
+        stripped = marker.group("leading") or marker.group("trailing")
     try:
         quantity = int(stripped)
     except ValueError:
