@@ -62,6 +62,8 @@ import {
 import { ChupBill } from "./src/screens/ChupBill";
 import { GoiYChia } from "./src/screens/GoiYChia";
 import { KetQuaNhanDien } from "./src/screens/KetQuaNhanDien";
+import { KetQuaThanhToan } from "./src/screens/KetQuaThanhToan";
+import { MaVietQr } from "./src/ui/MaVietQr";
 import { ChiaSe, type Envelope } from "./src/screens/ChiaSe";
 import { DeXuat, type Proposal } from "./src/screens/DeXuat";
 import { DotThu, type Obligation } from "./src/screens/DotThu";
@@ -75,7 +77,15 @@ import {
 } from "./src/participants";
 import { space, type, usePalette } from "./src/theme";
 
-type Step = "chup-bill" | "ket-qua" | "goi-y" | "nhap" | "de-xuat" | "dot-thu" | "chia-se";
+type Step =
+  | "chup-bill"
+  | "ket-qua"
+  | "goi-y"
+  | "nhap"
+  | "de-xuat"
+  | "dot-thu"
+  | "ket-qua-tt"
+  | "chia-se";
 
 /**
  * Who the app says it is when it asks for a bill to be read.
@@ -157,6 +167,10 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
   const [obligations, setObligations] = useState<Obligation[]>([]);
   const [envelopes, setEnvelopes] = useState<Envelope[]>([]);
   const [published, setPublished] = useState(false);
+  // Whose code the settlement screen is showing. One at a time, on purpose:
+  // a wall of codes is a wall of other people's bank accounts, and the person
+  // holding the phone only ever needs their own.
+  const [nguoiDangChon, setNguoiDangChon] = useState<string | null>(null);
   // Spec section 8.3. Reported by the batch, never assumed by the screen.
   const [gates, setGates] = useState<PublishGates>({ payerAcknowledged: false });
   const [error, setError] = useState<string | null>(null);
@@ -498,16 +512,22 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
           published={published}
           gates={gates}
           onPublish={() => guard(async () => {
-            setEnvelopes(
-              await publishBatch(
-                batchId!,
-                gates,
-                proposal!.advancerId,
-                attemptFor(attempts.current, `phat:${batchId}`),
-                proposal!.participants,
-              ),
+            const sent = await publishBatch(
+              batchId!,
+              gates,
+              proposal!.advancerId,
+              attemptFor(attempts.current, `phat:${batchId}`),
+              proposal!.participants,
             );
+            setEnvelopes(sent);
             setPublished(true);
+            // Publishing is the moment the codes come into existence, so it is
+            // the first moment the settlement screen has anything to draw.
+            // Landing on the first envelope rather than on nothing: the common
+            // case is one person owing one person, and asking them to pick
+            // themselves out of a list of one is a step for the sake of it.
+            setNguoiDangChon(sent[0]?.senderId ?? null);
+            setStep("ket-qua-tt");
           })}
           onShare={() => setStep("chia-se")}
           busy={busy}
@@ -521,6 +541,46 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
             );
             await refreshBoard();
           })}
+        />
+      )}
+
+      {step === "ket-qua-tt" && proposal && (
+        <KetQuaThanhToan
+          roster={form.roster}
+          // Straight from the server's allocator, not from anything this file
+          // added up. `proposal.allocations` is what `POST /expenses` returned
+          // and what `confirm` was checked against.
+          allocations={proposal.allocations}
+          obligations={obligations}
+          envelopes={envelopes}
+          advancerId={proposal.advancerId}
+          itemCount={reading === null ? 0 : reading.lines.length}
+          nguoiDangChon={nguoiDangChon}
+          onChonNguoi={setNguoiDangChon}
+          renderMaQr={(senderId) => {
+            const envelope = envelopes.find((e) => e.senderId === senderId);
+            if (envelope === undefined) return null;
+            // One card per debt. A sender with two recipients gets two codes,
+            // each labelled with who it pays, because scanning the wrong one
+            // sends the right amount to the wrong person.
+            return envelope.obligations.map((debt) => (
+              <MaVietQr
+                key={debt.obligationId}
+                payload={debt.vietqrPayload}
+                // The amount from the obligation list, not from the payload.
+                // Passing the payload's own number would make the check inside
+                // `MaVietQr` compare a value against itself and always agree.
+                expectedAmountVnd={debt.amountVnd}
+                recipientName={
+                  obligations.find((o) => o.id === debt.obligationId)?.recipient ??
+                  "người nhận"
+                }
+              />
+            ));
+          }}
+          onShare={() => setStep("chia-se")}
+          onDone={() => setStep("dot-thu")}
+          onBack={() => setStep("dot-thu")}
         />
       )}
 

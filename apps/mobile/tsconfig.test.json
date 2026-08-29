@@ -17,6 +17,8 @@
     "src/camera/bill-photo.ts",
     "src/ui/direction.ts",
     "src/ui/a11y.ts",
+    "src/ui/qr.ts",
+    "src/ui/vietqr.ts",
     "src/navigation/tabs.ts",
     "src/navigation/nhom-demo.ts",
     "src/screens/kham-pha/places.ts",
@@ -24,6 +26,11 @@
     // render them and read the markup react-native-web actually emits. See
     // `tools/fixup-esm.mjs` for why that is the real DOM and not a mock.
     "src/ui/Kit.tsx",
-    "src/screens/GoiYChia.tsx"
+    "src/screens/GoiYChia.tsx",
+    // The settlement screen and the code on it, for the same reason: the
+    // masking rule and the amount cross-check are only observable in the
+    // markup that actually reaches a browser.
+    "src/ui/MaVietQr.tsx",
+    "src/screens/KetQuaThanhToan.tsx"
   ]
 }
