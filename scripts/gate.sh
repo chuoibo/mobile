@@ -77,7 +77,7 @@ stage_help() {
     shared)    echo "node packages/shared/money.test.mjs (test.yml: shared)" ;;
     mobile)    echo "tsc, npm test with MOBILE_REQUIRE_WEB_A11Y=1, expo export --platform all (test.yml: mobile)" ;;
     docker)    echo "image pinned, builds, non-root, no dev tooling, serves /healthz (test.yml: docker)" ;;
-    postgres)  echo "pytest tests/postgres against a real PostgreSQL (postgres-repository.yml)" ;;
+    postgres)  echo "pytest tests/postgres against a real PostgreSQL it provisions itself (postgres-repository.yml)" ;;
   esac
 }
 
@@ -235,7 +235,12 @@ do_docker() {
 }
 
 do_postgres() {
-  ( cd services/api && MOBILE_REQUIRE_POSTGRES_TESTS=1 python3 -m pytest tests/postgres -q )
+  # Delegates so the provisioning has a caller outside this file and can be
+  # tested on its own (tests/test_postgres_tier_runner.py). The script builds
+  # its own throwaway database when no URL is given, which is what stops this
+  # stage from being the permanent BO QUA it had been: 147 skips and 0 runs in
+  # CI, and a skip locally every time nobody exported a connection string.
+  scripts/postgres_tier.sh -q
 }
 
 # --- prerequisites --------------------------------------------------------
@@ -270,12 +275,25 @@ check_prereq() {
       have docker || { echo "không có docker"; return 1; }
       docker info >/dev/null 2>&1 || { echo "docker daemon không chạy"; return 1; } ;;
     postgres)
-      # Only an explicitly given URL. Guessing a connection string would point
-      # the tier at the shared `mobile-local` database that every worktree on
-      # this machine uses, and the postgres tier migrates a schema.
-      [ -n "${MOBILE_TEST_DATABASE_URL:-}" ] || {
-        echo "chưa đặt MOBILE_TEST_DATABASE_URL (xem CLAUDE.md; 'docker compose up -d postgres' rồi export)"
-        return 1; } ;;
+      # An explicitly given URL still wins: somebody who aimed this at a
+      # database on purpose is not to be second-guessed.
+      #
+      # Otherwise `scripts/postgres_tier.sh` makes one. The old rule here was
+      # "only an explicitly given URL", and its reason was right -- guessing a
+      # connection string would have pointed the tier at the shared
+      # `mobile-local` database that every worktree on this machine uses. But
+      # the conclusion cost more than it saved: the stage skipped on every run,
+      # so 224 cases that are the only proof of any SQL, index, view or trigger
+      # in this repository never executed. Provisioning has nothing to guess --
+      # a container of its own, on a random loopback port, deleted on the way
+      # out -- so the collision that rule protected against cannot happen.
+      [ -n "${MOBILE_TEST_DATABASE_URL:-}" ] && return 0
+      have docker || {
+        echo "không có docker và chưa đặt MOBILE_TEST_DATABASE_URL"; return 1; }
+      docker info >/dev/null 2>&1 || {
+        echo "docker daemon không chạy và chưa đặt MOBILE_TEST_DATABASE_URL"; return 1; }
+      docker image inspect "${MOBILE_TEST_POSTGRES_IMAGE:-postgres:16-alpine}" >/dev/null 2>&1 || {
+        echo "chưa có ảnh postgres tại máy (docker pull postgres:16-alpine)"; return 1; } ;;
   esac
   return 0
 }
