@@ -63,6 +63,26 @@
  * than painted, and scrolls into view perfectly well above the button. Nothing
  * was wrong on any of the four screens.
  *
+ * A fifth, and the first that only appears away from the phone. Scanning
+ * `ket-qua-thanh-toan` at the detector's default desktop viewport reports
+ * `"VIETQR · NAPAS 247" 73% covered`; at 390x844 it reports nothing. Measured
+ * across four widths, the caption sits at 704-718 every time and only the
+ * scroller moves:
+ *
+ *     390x844   khung cuộn kết thúc 739   -> chữ nằm trong, sạch
+ *     768x900   khung cuộn kết thúc 795   -> sạch
+ *     1280x800  khung cuộn kết thúc 695   -> chữ 704-718 rơi xuống dưới, BÁO
+ *     1440x900  khung cuộn kết thúc 795   -> sạch
+ *
+ * So it tracks viewport HEIGHT, not width: 1280x800 is the only one of the four
+ * short enough to push that line past the clip. Same artifact, fifth time.
+ *
+ * The useful half of this is not the false positive, it is that a screen can be
+ * clean at one viewport and speak up at another. This scan runs 390x844 only,
+ * which is the right default when the phone is the primary target -- but a
+ * clean run here is evidence about the phone, and saying more than that would
+ * be claiming a width nobody measured.
+ *
  * So measure before touching layout: `node tools/do-hinh-hoc.mjs <man> "<chữ>"`
  * prints the text box, every scroll container, and every button box. If the
  * text's `top` is past the scroller's `bottom`, it is this artifact and the
