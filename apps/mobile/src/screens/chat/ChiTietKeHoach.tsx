@@ -21,6 +21,7 @@ import React from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { radius, space, type, usePalette } from "../../theme";
 import { khoangGia, type Chang, type KeHoach } from "./ke-hoach";
+import { LoiNhanBiCat } from "./TheKeHoach";
 
 export function ChiTietKeHoach({
   keHoach,
@@ -63,6 +64,14 @@ export function ChiTietKeHoach({
           Đề xuất bởi Rủ Đi AI ✦
         </Text>
         <Text style={{ ...type.h1, color: c.ink }}>{keHoach.tieuDe}</Text>
+        {/* In the header, not at the foot of the timeline. This is the screen
+            somebody opens to read the WHOLE plan, so the warning has to reach
+            them before they read it, not after a scroll they may never finish.
+            A caveat below the last stop is a caveat for the people who already
+            suspected something was missing. */}
+        {keHoach.soChangBiCat !== undefined ? (
+          <LoiNhanBiCat soLuong={keHoach.soChangBiCat} danhTu="chặng" />
+        ) : null}
       </View>
 
       <ScrollView

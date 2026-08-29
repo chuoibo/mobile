@@ -30,6 +30,18 @@
  *     client adds nothing up. This product has one splitter and it lives on
  *     the server behind 41 hand-computed golden vectors.
  *
+ * One thing the contract DID gain, in PR 181 (bug-223917). The PR number is
+ * written bare here, without the usual hash, because the hex-colour gate over
+ * this directory matches a hash followed by three hex digits and 181 is three
+ * hex digits. `_ground_itinerary`
+ * keeps 6 stops and `ground_card` keeps 6 places, and both used to drop the
+ * tail without a trace, so a group that asked for "cả hai ngày" got one day
+ * and no way to tell. The server now adds `omitted_stop_count` /
+ * `omitted_place_count`, `int > 0`, PRESENT ONLY WHEN SOMETHING WAS CUT. A
+ * short card carries neither key, which is why they parse to `undefined`
+ * rather than `0`: the screen must be able to distinguish "nothing was cut"
+ * from "two stops are gone", and a zero makes those two the same value.
+ *
  * `theTuCard` returning `null` is the honest answer for garbage, an unknown
  * kind, or an empty list. The screen then says there is no plan yet -- the
  * same rule as a missing `GET /places`, for the same reason: a canned
@@ -59,8 +71,13 @@ export type Chang = {
 
 export type TheAi =
   | { kind: "text"; text: string }
-  | { kind: "places"; intro?: string; diaDiem: DiaDiem[] }
-  | { kind: "itinerary"; tieuDe: string; chang: Chang[] };
+  /** `soChoBiCat` / `soChangBiCat`: how many entries the SERVER dropped before
+   *  the card was stored, from `omitted_place_count` / `omitted_stop_count`.
+   *  Absent means nothing was dropped, which is why they are optional rather
+   *  than `0`: a screen that reads `0` still has to decide not to draw it, and
+   *  "(còn 0 chặng nữa)" is the shape that decision gets wrong. */
+  | { kind: "places"; intro?: string; diaDiem: DiaDiem[]; soChoBiCat?: number }
+  | { kind: "itinerary"; tieuDe: string; chang: Chang[]; soChangBiCat?: number };
 
 /** The itinerary variant, which is the one screen 2 draws. */
 export type KeHoach = Extract<TheAi, { kind: "itinerary" }>;
@@ -81,6 +98,20 @@ function nguyenDong(value: unknown): number | null {
   if (typeof value !== "number" || !Number.isInteger(value) || !Number.isFinite(value)) {
     return null;
   }
+  return value;
+}
+
+/** A count of things the server threw away, or nothing.
+ *
+ * The contract says `int > 0`, present only when something was actually cut.
+ * This checks it anyway, because `card` is a free dict on the wire and the
+ * three ways it can go wrong all end up on a user's screen: `0` becomes "còn 0
+ * chặng nữa" on a card that was never truncated, `2.5` becomes "còn 2.5 chặng
+ * nữa", and `"2"` becomes a string concatenated into a sentence about how much
+ * of their weekend is missing. Silence is better than any of them: the plan is
+ * still the plan, only the warning is unreadable. */
+function demBiCat(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) return null;
   return value;
 }
 
@@ -158,6 +189,8 @@ export function theTuCard(card: unknown): TheAi | null {
     const the: Extract<TheAi, { kind: "places" }> = { kind: "places", diaDiem };
     const intro = chuoi(payload.intro);
     if (intro) the.intro = intro;
+    const biCat = demBiCat(payload.omitted_place_count);
+    if (biCat !== null) the.soChoBiCat = biCat;
     return the;
   }
 
@@ -169,7 +202,10 @@ export function theTuCard(card: unknown): TheAi | null {
     // plan: there is nothing to put on the timeline, so refuse rather than
     // draw a title over a blank column.
     if (chang.length === 0) return null;
-    return { kind: "itinerary", tieuDe, chang };
+    const the: Extract<TheAi, { kind: "itinerary" }> = { kind: "itinerary", tieuDe, chang };
+    const biCat = demBiCat(payload.omitted_stop_count);
+    if (biCat !== null) the.soChangBiCat = biCat;
+    return the;
   }
 
   // Unknown kind. The server rejects these before they are stored, so one
@@ -218,4 +254,34 @@ export function khoangGia(diaDiem: DiaDiem): string | null {
   if (min !== undefined) return `từ ${dinhDangTienVnd(min)}`;
   if (max !== undefined) return `tới ${dinhDangTienVnd(max)}`;
   return null;
+}
+
+/**
+ * The sentence a truncated card owes its reader, in two parts.
+ *
+ * It lives here, next to the parser, rather than inside either component,
+ * because two surfaces say it: the card in the thread and the detail screen
+ * behind "Xem chi tiết kế hoạch". Two copies would drift, and the drift a user
+ * would meet is the worst one available: the card admitting the plan is short
+ * while the screen they opened to read the whole plan stays quiet.
+ *
+ * Why the headline leads with "bị rút gọn" instead of the count alone. The
+ * card draws three stops and then a button, so a bare "còn 2 chặng nữa" reads
+ * as "two more behind the button" and teaches exactly the wrong thing: that
+ * tapping through shows everything. The missing stops are not behind the
+ * button. They were dropped before the card was stored and they exist nowhere
+ * in this app, which is why the body line names asking the AI again as the
+ * only way to see them.
+ */
+export function cauBiCat(soLuong: number, danhTu: "chặng" | "chỗ"): [string, string] {
+  const doiTuong = danhTu === "chặng" ? "Kế hoạch" : "Danh sách";
+  const nguon = danhTu === "chặng" ? "lịch trình AI viết" : "danh sách AI đưa ra";
+  const dan =
+    danhTu === "chặng"
+      ? "Hỏi AI về phần còn lại của lịch trình để xem tiếp."
+      : "Hỏi AI để xem thêm chỗ khác.";
+  return [
+    `${doiTuong} bị rút gọn, còn ${soLuong} ${danhTu} nữa chưa được gửi.`,
+    `Máy chủ chỉ gửi phần đầu ${nguon}, nên phần sau không có ở đây. ${dan}`,
+  ];
 }
