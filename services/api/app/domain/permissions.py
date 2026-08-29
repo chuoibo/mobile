@@ -179,6 +179,21 @@ _TABLE: dict[str, dict] = {
         "roles": {"group_admin", "member"},
         "requires": ("is_group_member",),
     },
+    "post_group_message": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    "view_group_messages": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    # Administration is scoped to one group, so `is_group_admin` must come
+    # from that group's active membership row. X-Actor-Roles cannot prove
+    # which group its broad `group_admin` claim applies to.
+    "set_member_role": {
+        "roles": {"group_admin"},
+        "requires": ("is_group_admin",),
+    },
     "manage_members_and_invites": {"roles": {"group_admin"}, "requires": ()},
     "remove_member_from_group": {"roles": {"group_admin"}, "requires": ()},
     "transfer_group_admin": {"roles": {"group_admin"}, "requires": ()},

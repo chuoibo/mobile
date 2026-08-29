@@ -133,11 +133,16 @@ class MembershipInviteRequest(ApiModel):
     person_id: UUID
 
 
+class MemberRoleRequest(ApiModel):
+    role: Literal["member", "admin"]
+
+
 class MembershipResponse(ApiModel):
     id: UUID
     context_id: UUID
     person_id: UUID
     state: Literal["invited", "active", "left"]
+    role: Literal["member", "admin"]
     invited_by_id: UUID | None
     joined_at: datetime | None
     left_at: datetime | None
@@ -147,6 +152,38 @@ class MembershipResponse(ApiModel):
 class MembershipListResponse(ApiModel):
     context_id: UUID
     members: list[MembershipResponse]
+
+
+class MessageCreateRequest(ApiModel):
+    kind: Literal["text", "image", "ai_card"]
+    body: Annotated[StrictStr, Field(max_length=4000)] | None = None
+    image_url: Annotated[StrictStr, Field(max_length=2000)] | None = None
+    card: dict | None = None
+
+
+class MessageQuery(ApiModel):
+    limit: int = Field(default=50, ge=1, le=100)
+    before: str | None = None
+    after: str | None = None
+
+
+class MessageResponse(ApiModel):
+    id: UUID
+    context_id: UUID
+    author_id: UUID | None
+    kind: Literal["text", "image", "ai_card"]
+    body: str | None
+    image_url: str | None
+    card: dict | None
+    created_at: datetime
+    cursor: str
+
+
+class MessageListResponse(ApiModel):
+    context_id: UUID
+    messages: list[MessageResponse]
+    next_cursor: str | None
+    has_more: bool
 
 
 class BatchCreateRequest(ApiModel):

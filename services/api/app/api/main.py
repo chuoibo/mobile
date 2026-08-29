@@ -24,6 +24,7 @@ from app.api.routes import (
     contexts,
     expenses,
     guests,
+    messages,
     obligations,
     people,
     receipts,
@@ -61,6 +62,7 @@ def create_app(
     )
     application.include_router(expenses.router)
     application.include_router(contexts.router)
+    application.include_router(messages.router)
     application.include_router(batches.router)
     application.include_router(guests.router)
     application.include_router(obligations.router)
