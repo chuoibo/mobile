@@ -71,9 +71,7 @@ def pinned_version() -> str:
 
 
 def run(*args: str, **kwargs) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        args, capture_output=True, text=True, timeout=300, **kwargs
-    )
+    return subprocess.run(args, capture_output=True, text=True, timeout=300, **kwargs)
 
 
 class ResolverTest(unittest.TestCase):
@@ -126,7 +124,9 @@ class ResolverRefusalTest(unittest.TestCase):
         root = self.skeleton("pytest==8.3.4\n")
         result = run(str(root / "scripts" / "ruff_pinned.sh"))
         self.assertEqual(result.returncode, 2, f"stdout={result.stdout!r}")
-        self.assertEqual(result.stdout.strip(), "", "printed a path with no pin to go on")
+        self.assertEqual(
+            result.stdout.strip(), "", "printed a path with no pin to go on"
+        )
         self.assertIn("ruff==", result.stderr)
 
     def test_unresolvable_pin_is_refused_not_downgraded_to_path(self) -> None:
@@ -163,7 +163,9 @@ class PathCannotOverrideThePinTest(unittest.TestCase):
             ("config", "user.email", "gate" + "@" + "test.invalid"),
             ("config", "user.name", "gate"),
         ):
-            subprocess.run(["git", *cmd], cwd=self.repo, check=True, capture_output=True)
+            subprocess.run(
+                ["git", *cmd], cwd=self.repo, check=True, capture_output=True
+            )
 
         (self.repo / "clean.py").write_text('print("hello")\n', encoding="utf-8")
         self.commit("base")
@@ -197,10 +199,14 @@ class PathCannotOverrideThePinTest(unittest.TestCase):
         )
         shim.chmod(shim.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 
-        self.env = dict(os.environ, PATH=f"{self.shim_dir}{os.pathsep}{os.environ['PATH']}")
+        self.env = dict(
+            os.environ, PATH=f"{self.shim_dir}{os.pathsep}{os.environ['PATH']}"
+        )
 
     def commit(self, message: str) -> None:
-        subprocess.run(["git", "add", "-A"], cwd=self.repo, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "add", "-A"], cwd=self.repo, check=True, capture_output=True
+        )
         subprocess.run(
             ["git", "commit", "-q", "-m", message],
             cwd=self.repo,
@@ -245,9 +251,7 @@ class PathCannotOverrideThePinTest(unittest.TestCase):
             "bash", str(GATE), self.base, "HEAD", cwd=str(self.repo), env=self.env
         )
         match = re.search(r"ruff (\S+) \(bản ghim\)", result.stdout)
-        self.assertIsNotNone(
-            match, f"the run does not name its ruff:\n{result.stdout}"
-        )
+        self.assertIsNotNone(match, f"the run does not name its ruff:\n{result.stdout}")
         self.assertEqual(match.group(1), pinned_version())
 
 
