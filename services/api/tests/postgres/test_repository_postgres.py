@@ -384,6 +384,77 @@ def test_repository_lifecycle_reaches_confirmed_receipt(postgres_session: Sessio
     )
 
 
+def test_guest_is_not_told_the_money_arrived_before_it_did(
+    postgres_session: Session,
+):
+    """`receiver_confirmed` must be able to say NO, not only YES.
+
+    The lifecycle test above asserts the True direction, and the fake
+    repository re-derives this field for itself, so both stay green even if
+    the production query stops deriving anything at all. Hardcoding
+    ``"receiver_confirmed": True`` in `get_guest_envelope` passed the whole
+    suite -- domain, fake-repo API layer and this live layer included.
+
+    It is not a cosmetic flag. `guest.html` keys the arrival banner, the
+    button style and the button label off it, so a value stuck at True tells
+    somebody their money landed when nothing has been confirmed. Spec section
+    8.6: only a `ReceiptConfirmation` closes an obligation, and a sender's own
+    `PaymentReport` never does -- which is why this case files the report and
+    still expects False.
+    """
+
+    state = _persist_lifecycle(postgres_session, confirm_receipts=False)
+    repository = SqlAlchemyApiRepository(postgres_session)
+
+    # The sender has SAID they transferred; nobody has confirmed receiving it.
+    assert state.payment_report_id is not None
+
+    envelope = repository.get_guest_envelope(
+        state.token_digest, NOW + timedelta(minutes=10)
+    )
+    assert envelope is not None
+    block = envelope.envelope["obligations"][0]
+    assert block["already_reported"] is True
+    assert block["receiver_confirmed"] is False
+
+    # Partial arrival is still not arrival: 15k of a 40k obligation.
+    receipt_target = repository.get_receipt_target(state.obligation_id)
+    assert receipt_target is not None
+    repository.save_receipt_confirmation(
+        target=receipt_target,
+        confirmed_by_id=state.recipient_id,
+        amount_vnd=15_000,
+        payment_report_id=state.payment_report_id,
+        idempotency_key=uuid.uuid4(),
+        now=NOW + timedelta(minutes=11),
+    )
+    postgres_session.flush()
+
+    partial = repository.get_guest_envelope(
+        state.token_digest, NOW + timedelta(minutes=12)
+    )
+    assert partial is not None
+    assert partial.envelope["obligations"][0]["receiver_confirmed"] is False
+
+    # And once the rest lands it must flip, so the assertions above are
+    # pinning the derivation rather than a field that is always False.
+    repository.save_receipt_confirmation(
+        target=receipt_target,
+        confirmed_by_id=state.recipient_id,
+        amount_vnd=25_000,
+        payment_report_id=None,
+        idempotency_key=uuid.uuid4(),
+        now=NOW + timedelta(minutes=13),
+    )
+    postgres_session.flush()
+
+    settled = repository.get_guest_envelope(
+        state.token_digest, NOW + timedelta(minutes=14)
+    )
+    assert settled is not None
+    assert settled.envelope["obligations"][0]["receiver_confirmed"] is True
+
+
 def test_load_confirmed_receipts_groups_events_and_scopes_them_to_context(
     postgres_session: Session,
 ):
