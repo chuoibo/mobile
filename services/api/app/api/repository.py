@@ -186,7 +186,7 @@ class OutingRecord:
 
 @dataclass(frozen=True, slots=True)
 class RecapOutingRecord:
-    """One finished trip, with its money recomputed rather than stored.
+    """One started trip, with its money recomputed rather than stored.
 
     `split_total_vnd` is not a column. It is the sum of the confirmed
     allocations of the expenses that happened inside the trip's days, summed on
@@ -196,6 +196,7 @@ class RecapOutingRecord:
     """
 
     outing: OutingRecord
+    in_progress: bool
     split_total_vnd: int
     expense_count: int
     memory_count: int
@@ -1340,7 +1341,7 @@ class SqlAlchemyApiRepository:
     def group_recap(
         self, context_id: uuid.UUID, *, today: date
     ) -> tuple[RecapOutingRecord, ...]:
-        """Finished trips of one group, newest first, money read back from the ledger.
+        """Started trips of one group, newest first, money read back from the ledger.
 
         There is no `expenses.outing_id`, so a trip claims the spending that
         happened on its days. That rule is stated on the screen rather than
@@ -1352,12 +1353,12 @@ class SqlAlchemyApiRepository:
         multiplies one by the other, and an inflated photo count is the kind of
         wrong number that still looks like a number.
         """
-        finished = (
+        started = (
             select(Outing)
-            .where(Outing.context_id == context_id, Outing.ends_on < today)
+            .where(Outing.context_id == context_id, Outing.starts_on <= today)
             .order_by(Outing.ends_on.desc(), Outing.id)
         )
-        outings = tuple(self.session.scalars(finished))
+        outings = tuple(self.session.scalars(started))
         if not outings:
             return ()
 
@@ -1440,6 +1441,7 @@ class SqlAlchemyApiRepository:
         return tuple(
             RecapOutingRecord(
                 outing=self._outing_record(outing),
+                in_progress=outing.ends_on >= today,
                 split_total_vnd=money.get(outing.id, (0, 0))[0],
                 expense_count=money.get(outing.id, (0, 0))[1],
                 memory_count=photos.get(outing.id, 0),
