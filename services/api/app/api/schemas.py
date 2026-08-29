@@ -542,6 +542,79 @@ class GroupRecapResponse(ApiModel):
     split_total_vnd: int
 
 
+class SuggestionPlace(ApiModel):
+    """The catalogue row behind one stop, and nothing the model wrote.
+
+    No `lat`/`lng`. The suggestion is about where a group might go next, not
+    about where anybody is, and a coordinate pair on this response would be
+    the first place F47 looked like it had been built.
+    """
+
+    id: str
+    name: str
+    category: str
+    address: str
+    price_min_vnd: int
+    price_max_vnd: int
+    rating: float
+    distance_km: float
+    open_hours: str
+
+
+class SuggestionStop(ApiModel):
+    """One stop. `reason` and `verdict` are one claim or neither.
+
+    The app prints `reason` under the words AI MATCH and prints the badge from
+    `verdict`, so half a pair renders as an endorsement nobody gave. They are
+    tied in `app/domain/suggestion.py`, at the single point every stop passes
+    through, rather than at each place that builds one of these.
+    """
+
+    time_text: str
+    note: str
+    reason: str | None
+    verdict: Literal["hop", "tam", "khong-hop"] | None
+    place: SuggestionPlace
+
+
+class SuggestionBasis(ApiModel):
+    """Why this suggestion, computed by the server from the group's own rows.
+
+    Recomputed per request from the ledger and the memory wall -- invariant 3
+    applied to a screen whose whole argument is "you have done this before".
+    Deliberately not asked of the model: a basis the model wrote would be a
+    number with nothing behind it, printed directly under one that has.
+    """
+
+    outing_count: int
+    split_total_vnd: int
+    avg_per_person_vnd: int | None
+    top_categories: list[str]
+    recent_titles: list[str]
+
+
+class GroupSuggestionResponse(ApiModel):
+    """F32. `suggested` is the honest half of the contract.
+
+    `false` with a reason is a real answer -- a group with no finished trips
+    has nothing to suggest from, and a model outage is not something to paper
+    over with a hand-written card. There is deliberately no fallback: a
+    plausible card served while the feature is broken is a broken feature
+    nobody can see is broken.
+    """
+
+    context_id: UUID
+    suggested: bool
+    #: `ok` | `no_history` | `unavailable` | `ungrounded`
+    reason: str
+    title: str | None
+    when_text: str | None
+    stops: list[SuggestionStop]
+    basis: SuggestionBasis
+    #: A claim about who wrote the sentences on these cards.
+    source: Literal["ai", "none"]
+
+
 class MemoryCreateRequest(ApiModel):
     image_url: Annotated[StrictStr, Field(min_length=1)]
     caption: str | None = None

@@ -231,6 +231,16 @@ _TABLE: dict[str, dict] = {
         "roles": {"group_admin", "member"},
         "requires": ("is_group_member",),
     },
+    # F32. A proactive suggestion is built from this group's own history --
+    # where they went, what it cost, what kind of place they keep choosing --
+    # so reading one is reading the group's past. Same ACTIVE gate as the
+    # memory wall it is derived from: `is_group_member` is satisfied only by an
+    # ACTIVE row, so an INVITED link holder cannot pull a group's history out
+    # through a card that was never addressed to them.
+    "view_group_suggestion": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
     "post_group_memory": {
         "roles": {"group_admin", "member"},
         "requires": ("is_group_member",),

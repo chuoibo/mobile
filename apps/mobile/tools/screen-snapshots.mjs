@@ -25,7 +25,51 @@ const MOBILE_ROOT = path.resolve(HERE, "..");
 /** Same sentinel `build:check` inlines. The fetch stub keys off this prefix. */
 const API_BASE = "http://api.build-check.invalid";
 
-const STEPS = ["chup-bill", "ket-qua", "goi-y", "nhap", "de-xuat", "dot-thu", "chia-se"];
+export const STEPS = [
+  "chup-bill",
+  "ket-qua",
+  "goi-y",
+  "nhap",
+  "de-xuat",
+  "dot-thu",
+  "ket-qua-thanh-toan",
+  "chia-se",
+];
+
+/**
+ * A VietQR payload the client can actually parse.
+ *
+ * `PublishedObligation` on the server carries `vietqr_payload`; this fake
+ * omitted it, so `readVietQr` threw and the settlement screen rendered its
+ * refusal panel ("Chưa hiện được mã"). The snapshot of the one screen the whole
+ * flow exists to reach was a picture of a failure state, and a detector run
+ * over it was scanning the wrong screen.
+ *
+ * Built by the repo's own `app.payments.vietqr.build_payload` so the EMVCo tags
+ * and the CRC are real rather than hand-typed. Bank bin 970415, note
+ * "RUDI DEMO", and a four-digit account that is deliberately too short to be
+ * anybody's: no real account number goes into Git, and the repo guard's
+ * long-number rule is right to refuse one that looks real.
+ */
+const VIETQR_FIXTURE =
+  "00020101021138480010A00000072701180006970415010412340208QRIBFTTA53037045802VN62130809RUDI DEMO6304CFD6";
+
+/**
+ * The cast, and it must be the real group.
+ *
+ * These names are rows of `DEMO_PEOPLE` in `src/navigation/nhom-demo.ts`. They
+ * are not decoration and they are not free: since #113 the matrix has no text
+ * box, so a person only reaches the bill by pressing that person's own button.
+ * An invented name has no button, and the walk stops on it.
+ *
+ * Kept as literals rather than imported because this tool runs against the
+ * `expo export` bundle, not against `dist-test`, and a stale or missing
+ * compile would silently change the cast. A name that drifts out of
+ * `nhom-demo.ts` fails loudly in `clickAria` instead.
+ */
+const TREN_BILL = ["Minh", "Trang", "Hải"];
+/** Three more, taking the row past the four columns it can draw inline. */
+const THEM_CHO_DONG = ["Ngọc", "Đức", "Linh"];
 
 /**
  * States of one screen that the linear walk does not reach.
@@ -43,7 +87,7 @@ const STEPS = ["chup-bill", "ket-qua", "goi-y", "nhap", "de-xuat", "dot-thu", "c
  * instead -- see `pickerShot` -- which is evidence of what renders but is not
  * a detector scan, and must not be described as one.
  */
-const EXTRA = ["goi-y-dong"];
+export const EXTRA = ["goi-y-dong"];
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -168,7 +212,7 @@ export function createStaticServer(root) {
  * does not open a file chooser. Puppeteer's `waitForFileChooser` listens for
  * the native activation, so a dispatched click is rewritten to `HTMLInputElement.click()`.
  */
-export function installBeforeApp(apiBase, scanBody) {
+export function installBeforeApp(apiBase, scanBody, vietqrPayload) {
   const originalFetch = window.fetch.bind(window);
 
   const db = {
@@ -278,7 +322,14 @@ export function installBeforeApp(apiBase, scanBody) {
         guest_links: db.obligations.map((row) => ({
           sender_id: row.sender_id,
           path: `/g/${row.obligation_id}`,
-          obligations: [{ obligation_id: row.obligation_id, amount_vnd: row.amount_vnd }],
+          expires_at: "2026-12-31T23:59:59+07:00",
+          obligations: [
+            {
+              obligation_id: row.obligation_id,
+              amount_vnd: row.amount_vnd,
+              vietqr_payload: vietqrPayload,
+            },
+          ],
         })),
       });
     }
@@ -427,23 +478,29 @@ async function typePlaceholder(page, placeholder, value) {
 }
 
 /**
- * Add one person on the matrix screen.
+ * Put one member of the group onto the bill.
  *
- * Not `addPerson`: there the name field is always mounted, here it appears
- * only after the "+" avatar is pressed and unmounts again on submit, so
- * waiting for an empty input would wait for a node that has gone. The "+"
- * carries `aria-label="Thêm"` while the confirm button's text is exactly
- * "Thêm" and it has no aria-label, which is what keeps the two apart.
+ * Was `addPersonOnMatrix`, which pressed a "+" avatar and typed the name into
+ * a box. #113 removed both halves: typing "Hải" minted a fresh UUID instead of
+ * finding Hải (bug-125301), so the screen now opens the group list by default
+ * and every member is a button of its own. While the bill is empty there is no
+ * "+" on the screen at all, which is why the old driver hung its full 15s on
+ * `[aria-label="Thêm"]` and left five of the seven walked screens unwritten.
+ *
+ * The names must therefore come from `nhom-demo.ts`; an invented one has no
+ * button to press.
  */
-export async function addPersonOnMatrix(page, name) {
-  await clickAria(page, "Thêm");
-  const sel = 'input[placeholder="Hà"]';
-  await page.waitForSelector(sel, { visible: true, timeout: 15000 });
-  await page.click(sel);
-  await page.type(sel, name, { delay: 15 });
-  await clickButton(page, "Thêm");
+export async function pickMemberOnMatrix(page, name) {
+  await clickAria(page, `Thêm ${name} vào nhóm`);
+  // Not `innerText.includes(name)`. The name is already on screen in the invite
+  // list before the tap, so that needle reads true before the click even lands
+  // and would wave through a press that missed. Being added moves the member
+  // out of the invite list and into the avatar row, so the honest signal is the
+  // invite button going away and the avatar arriving.
   await page.waitForFunction(
-    (n) => (document.body?.innerText ?? "").includes(n),
+    (n) =>
+      document.querySelector(`[aria-label="Thêm ${n} vào nhóm"]`) === null &&
+      document.querySelector(`[aria-label="${n}"]`) !== null,
     { timeout: 10000 },
     name,
   );
@@ -584,16 +641,14 @@ async function drive(page, outDir, jpegPath) {
   // one box off before the snapshot is deliberate: a grid where every cell is
   // on cannot show that an off cell is legible, and the off state is the one
   // carrying a 3:1 border instead of a fill.
-  await addPersonOnMatrix(page, "Nam");
-  await addPersonOnMatrix(page, "Hà");
-  await addPersonOnMatrix(page, "Quyên");
-  await clickAria(page, "Nam, Lẩu thái");
+  for (const name of TREN_BILL) await pickMemberOnMatrix(page, name);
+  await clickAria(page, `${TREN_BILL[0]}, Lẩu thái`);
   await waitForPreview(page);
   await snapshot(page, outDir, step);
 
   // The crowded layout, and then the picker it opens. Three more names take
   // the group past what the inline columns can hold.
-  for (const name of ["Bình", "Chi", "Dũng"]) await addPersonOnMatrix(page, name);
+  for (const name of THEM_CHO_DONG) await pickMemberOnMatrix(page, name);
   await page.waitForFunction(() => (document.body?.innerText ?? "").includes("/6"));
   await waitForPreview(page);
   await snapshot(page, outDir, "goi-y-dong");
@@ -621,12 +676,19 @@ async function drive(page, outDir, jpegPath) {
   console.log(`goi-y-chon (live png)  ${pickerShot}`);
   await clickButton(page, "Xong");
 
-  // Back to four, so the rest of the walk sees the roster it expects.
-  for (const name of ["Bình", "Chi", "Dũng"]) {
+  // Back to three, so the rest of the walk sees the roster it expects.
+  for (const name of THEM_CHO_DONG) {
     await clickAria(page, name);
     await clickButton(page, `Xoá ${name} khỏi nhóm`);
+    // The mirror of the needle in `pickMemberOnMatrix`, and wrong for the same
+    // reason if written as text: coming off the bill puts the member straight
+    // back into the invite list, which is open, so their name never leaves
+    // `innerText` and this waited the full 10s on a removal that had already
+    // happened. The avatar is the thing that goes.
     await page.waitForFunction(
-      (n) => !(document.body?.innerText ?? "").includes(n),
+      (n) =>
+        document.querySelector(`[aria-label="${n}"]`) === null &&
+        document.querySelector(`[aria-label="Thêm ${n} vào nhóm"]`) !== null,
       { timeout: 10000 },
       name,
     );
@@ -638,16 +700,18 @@ async function drive(page, outDir, jpegPath) {
   await snapshot(page, outDir, step);
 
   await typePlaceholder(page, "bữa lẩu tối thứ bảy", "bữa lẩu tối thứ bảy");
-  await page.waitForFunction(() => {
+  await page.waitForFunction(
+    (who) => [...document.querySelectorAll('[role="radio"]')]
+      .some((r) => r.textContent.trim() === who),
+    {},
+    TREN_BILL[0],
+  );
+  await page.evaluate((who) => {
     const radios = [...document.querySelectorAll('[role="radio"]')];
-    return radios.some((r) => r.textContent.trim() === "Nam");
-  });
-  await page.evaluate(() => {
-    const radios = [...document.querySelectorAll('[role="radio"]')];
-    const nam = radios.find((r) => r.textContent.trim() === "Nam");
-    if (!nam) throw new Error('no radio for "Nam"');
-    nam.click();
-  });
+    const nguoi = radios.find((r) => r.textContent.trim() === who);
+    if (!nguoi) throw new Error(`no radio for "${who}"`);
+    nguoi.click();
+  }, TREN_BILL[0]);
   await page.waitForFunction(() => {
     const btn = [...document.querySelectorAll("button")].find(
       (b) => b.textContent.trim() === "Chia tiền",
@@ -665,11 +729,19 @@ async function drive(page, outDir, jpegPath) {
   await waitForScreen(page, step, "Đợt thu");
   await snapshot(page, outDir, step);
 
+  step = "ket-qua-thanh-toan";
   await clickButton(page, "Phát đợt thu");
-  await waitForScreen(page, step, "Chia sẻ cho từng người");
+  // Publishing is the moment the codes come into existence, so `App` leaves the
+  // batch and lands on the settlement screen. This used to wait for "Chia sẻ
+  // cho từng người", a button on `DotThu` that publishing navigates away from,
+  // so the walk sat here until it timed out. The screen it actually lands on is
+  // the one carrying the VietQR, which is the whole point of the flow, and it
+  // had never been snapshotted at all.
+  await waitForScreen(page, step, "Quét để thanh toán");
+  await snapshot(page, outDir, step);
 
   step = "chia-se";
-  await clickButton(page, "Chia sẻ cho từng người");
+  await clickButton(page, "Chia sẻ kết quả");
   await waitForScreen(page, step, "Mỗi người một link riêng");
   await snapshot(page, outDir, step);
 }
@@ -724,7 +796,12 @@ async function main() {
     const pageErrors = [];
     page.on("pageerror", (err) => pageErrors.push(String(err)));
 
-    await page.evaluateOnNewDocument(installBeforeApp, API_BASE, SCAN_FIXTURE);
+    await page.evaluateOnNewDocument(
+      installBeforeApp,
+      API_BASE,
+      SCAN_FIXTURE,
+      VIETQR_FIXTURE,
+    );
     await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
 
     try {
