@@ -108,7 +108,9 @@ def test_a_completed_key_replays_the_stored_response(postgres_engine: Engine):
     )
 
     with _store(postgres_engine) as store:
-        assert isinstance(store.reserve(scope=SCOPE, key=key, fingerprint=FINGERPRINT), Reserved)
+        assert isinstance(
+            store.reserve(scope=SCOPE, key=key, fingerprint=FINGERPRINT), Reserved
+        )
     with _store(postgres_engine) as store:
         store.complete(scope=SCOPE, key=key, response=stored)
     with _store(postgres_engine) as store:
@@ -172,7 +174,12 @@ def test_the_database_itself_refuses_a_duplicate_row(postgres_engine: Engine):
     with Session(postgres_engine) as session, session.begin():
         session.execute(
             insert,
-            {"id": uuid.uuid4(), "scope": SCOPE, "key": key, "fingerprint": FINGERPRINT},
+            {
+                "id": uuid.uuid4(),
+                "scope": SCOPE,
+                "key": key,
+                "fingerprint": FINGERPRINT,
+            },
         )
 
     with pytest.raises(IntegrityError):
@@ -211,6 +218,49 @@ class _Client:
             {"context_id": context_id},
         )
 
+    def seed_group(self, context_id: uuid.UUID) -> None:
+        """Put the two people in `_expense_payload` into a real group.
+
+        Confirming an expense now refuses to charge anyone the roster does not
+        contain, and this file's `context_id` is a bare `uuid4` with no rows
+        behind it. That was invisible while the ledger took its participants
+        from the request body; it is a 422 now.
+
+        Seeding through the same connection as everything else, so the outer
+        rollback still leaves the shared schema untouched -- see the fixture
+        below for why that matters to `test_repository_postgres`.
+        """
+
+        for person_id, name in ((ADVANCER_ID, "Nam"), (SENDER_ID, "Hà")):
+            self.connection.execute(
+                text(
+                    "insert into people (id, display_name) values (:id, :name)"
+                    " on conflict (id) do nothing"
+                ),
+                {"id": person_id, "name": name},
+            )
+        self.connection.execute(
+            text(
+                "insert into contexts (id, display_name, created_by_id)"
+                " values (:id, 'Nhóm ăn tối', :owner) on conflict (id) do nothing"
+            ),
+            {"id": context_id, "owner": ADVANCER_ID},
+        )
+        for person_id in (ADVANCER_ID, SENDER_ID):
+            self.connection.execute(
+                text(
+                    "insert into memberships"
+                    " (id, context_id, person_id, state, role, origin, joined_at)"
+                    " values (:id, :context_id, :person_id, 'active', 'member',"
+                    " 'named', now())"
+                ),
+                {
+                    "id": uuid.uuid4(),
+                    "context_id": context_id,
+                    "person_id": person_id,
+                },
+            )
+
     def put(self, path, **kwargs):
         async def send():
             transport = httpx.ASGITransport(app=self.app)
@@ -224,8 +274,7 @@ class _Client:
     def count_expense_versions(self, expense_id: uuid.UUID) -> int:
         return self.connection.scalar(
             text(
-                "select count(*) from expense_versions"
-                " where expense_id = :expense_id"
+                "select count(*) from expense_versions where expense_id = :expense_id"
             ),
             {"expense_id": expense_id},
         )
@@ -285,9 +334,12 @@ def live_client(postgres_engine: Engine, monkeypatch):
 
     @contextmanager
     def session_on_connection():
-        with Session(
-            bind=connection, join_transaction_mode="create_savepoint"
-        ) as session, session.begin():
+        with (
+            Session(
+                bind=connection, join_transaction_mode="create_savepoint"
+            ) as session,
+            session.begin(),
+        ):
             yield session
 
     @contextmanager
@@ -545,6 +597,7 @@ def test_confirming_the_same_expense_twice_with_one_key_writes_one_version(
     """
 
     context_id = uuid.uuid4()
+    live_client.seed_group(context_id)
     proposed = _propose(live_client, context_id)
     expense_id = uuid.UUID(proposed["expense_id"])
     headers = _actor_headers(context_id) | {IDEMPOTENCY_HEADER: str(uuid.uuid4())}
@@ -576,6 +629,7 @@ def test_a_second_confirmation_under_its_own_key_still_writes_its_own_version(
     """
 
     context_id = uuid.uuid4()
+    live_client.seed_group(context_id)
     proposed = _propose(live_client, context_id)
     expense_id = uuid.UUID(proposed["expense_id"])
     body = _confirm_body(proposed)

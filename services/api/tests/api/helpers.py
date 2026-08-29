@@ -62,6 +62,20 @@ def actor_headers(actor_id=ADVANCER_ID, roles="member,advancer,recipient,batch_o
     }
 
 
+def join_group(repository, *person_ids, context_id=CONTEXT_ID):
+    """Put people in the group so the ledger will charge them.
+
+    `conftest.repository` seeds only `SENDER_ID` and `ADVANCER_ID`, because
+    `OTHER_ID` is the outsider that the context-read and balance tests need.
+    A test that wants a third diner therefore says so here, and saying so is
+    the point: `confirm_expense` refuses to write money against anyone the
+    group does not contain.
+    """
+
+    for person_id in person_ids:
+        repository.active_memberships.add((context_id, person_id))
+
+
 def propose_and_confirm(
     client, *, acknowledge=True, total=82000, description="Bữa tối", participants=None
 ):

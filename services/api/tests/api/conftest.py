@@ -43,6 +43,7 @@ from app.api.repository import (
     FrozenObligation,
     GuestEnvelopeRecord,
     GuestLinkDraft,
+    MembershipRecord,
     ObligationDraft,
     OutingInviteRecord,
     PaymentReportRecord,
@@ -58,7 +59,7 @@ from app.domain.capability import capability_scope
 from app.domain.ledger import obligation_status
 from app.payments.vietqr import build_payload
 
-from .helpers import CONTEXT_ID
+from .helpers import ADVANCER_ID, CONTEXT_ID, SENDER_ID
 
 
 @dataclass(slots=True)
@@ -94,7 +95,6 @@ class FakeReceipt:
 
 
 class FakeRepository:
-
     def __init__(self):
         self.expenses: dict[uuid.UUID, ExpenseIdentity] = {}
         self.confirmed: dict[uuid.UUID, ConfirmedExpense] = {}
@@ -171,7 +171,6 @@ class FakeRepository:
         self.people[person_id] = renamed
         return renamed
 
-
     # --- friend graph (F03, F04) ---------------------------------------
     #
     # A dict cannot express `uq_friend_edge_live`, the functional partial
@@ -182,7 +181,8 @@ class FakeRepository:
 
     def _friend_record(self, edge, reader_id):
         other = (
-            edge["addressee_id"] if edge["requester_id"] == reader_id
+            edge["addressee_id"]
+            if edge["requester_id"] == reader_id
             else edge["requester_id"]
         )
         person = self.people.get(other)
@@ -256,6 +256,41 @@ class FakeRepository:
 
     def is_member(self, context_id, person_id):
         return (context_id, person_id) in self.active_memberships
+
+    def list_members(self, context_id):
+        """`ApiRepository` has always declared this; the fake never had it.
+
+        `ApiService.split_bill` reads it through `getattr(..., None)` and falls
+        back to "the participants are whoever the shares name" when it is
+        missing -- which, against this fake, was always. That fallback makes
+        the allocator's `UNKNOWN_PARTICIPANT` check unreachable by
+        construction, so the whole `tests/api` layer was proving a membership
+        rule it could not have broken.
+        """
+
+        return [
+            MembershipRecord(
+                id=uuid.uuid5(uuid.NAMESPACE_URL, f"{context}/{person}"),
+                context_id=context,
+                person_id=person,
+                display_name=(
+                    self.people[person].display_name
+                    if person in self.people
+                    else f"Thành viên {str(person)[:8]}"
+                ),
+                state="active",
+                role="member",
+                origin="named",
+                invited_by_id=None,
+                joined_at=datetime(2030, 8, 27, 12, tzinfo=UTC),
+                left_at=None,
+                created_at=datetime(2030, 8, 27, 12, tzinfo=UTC),
+            )
+            for context, person in sorted(
+                self.active_memberships, key=lambda pair: pair[1].bytes
+            )
+            if context == context_id
+        ]
 
     def get_context(self, context_id):
         return self.contexts.get(context_id)
@@ -388,9 +423,7 @@ class FakeRepository:
                             decided_by_id=None,
                             decided_at=None,
                         )
-                        for participant_id in item[
-                            "suggested_participant_ids"
-                        ]
+                        for participant_id in item["suggested_participant_ids"]
                     ],
                 )
                 for item in items
@@ -812,8 +845,12 @@ class FakeRepository:
     def save_guest_objection(self, *, token_digest, kind, obligation_id, reason, now):
         del now
         self.objections.append(
-            {"token_digest": token_digest, "kind": kind,
-             "obligation_id": obligation_id, "reason": reason}
+            {
+                "token_digest": token_digest,
+                "kind": kind,
+                "obligation_id": obligation_id,
+                "reason": reason,
+            }
         )
         if kind == "not_me":
             link = self.links.get(token_digest)
@@ -1020,7 +1057,31 @@ class ASGITestClient:
 
 @pytest.fixture
 def repository():
-    return FakeRepository()
+    """The standard cast starts out inside the standard group.
+
+    Every test here that spends money uses `helpers.expense_payload`, whose
+    default people are `SENDER_ID` and `ADVANCER_ID` in `CONTEXT_ID`. That they
+    belong to that group was always the intent -- it just was not written down
+    anywhere, because nothing had ever asked. Now the ledger asks, so the fake
+    has to state it.
+
+    `OTHER_ID` is deliberately **not** here. Across this suite it is the person
+    standing outside: `test_context_read` and `test_context_balances` both use
+    it to prove that holding a group id is not membership. Seeding it turns
+    those two green for the wrong reason -- measured, not guessed: adding it
+    here flips both from 403 to 200. The three tests that do want it spending
+    money say so themselves via `helpers.join_group`.
+
+    That is the rule for anything added here later: seed the id only if every
+    test in the suite agrees it is an insider. A fixture that seeds every id a
+    test mentions would silence the membership gate entirely -- see
+    `test_expense_participants_must_be_members.py`.
+    """
+
+    repository = FakeRepository()
+    for person_id in (SENDER_ID, ADVANCER_ID):
+        repository.active_memberships.add((CONTEXT_ID, person_id))
+    return repository
 
 
 @pytest.fixture

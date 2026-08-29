@@ -7,6 +7,7 @@ import logging
 import secrets
 import uuid
 from collections import defaultdict
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -241,9 +242,7 @@ def _image_rejection_problem(exc: ImageRejected) -> ApiProblem:
     return ApiProblem(status_code, exc.code, exc.detail)
 
 
-def _require_photo_url_context(
-    context_id: uuid.UUID, image_url: str | None
-) -> None:
+def _require_photo_url_context(context_id: uuid.UUID, image_url: str | None) -> None:
     """Refuse a photo url that points into another group's storage.
 
     The schema already pins `image_url` to `/contexts/{uuid}/photos/{uuid}`,
@@ -1911,6 +1910,43 @@ class ApiService:
             allocation=_wire_allocation(allocation_result),
         )
 
+    def _require_participants_are_members(
+        self, context_id: uuid.UUID, participants: Sequence[uuid.UUID]
+    ) -> None:
+        """Every name charged by the ledger must be one the group contains.
+
+        The permission check above proves the *actor* belongs here. It says
+        nothing about the ids in the body, and those are the ones that get
+        money written against them. `ConfirmedAllocation.participant_id` has no
+        foreign key into `people`, so a UUID that names nobody survives the
+        write intact and reappears as a balance row and, once the batch
+        publishes, as a guest envelope addressed to no one.
+
+        Read the roster once rather than asking `is_member` per participant: a
+        bill from a large table would otherwise issue a query per diner, and
+        the set is needed whole anyway to name every stranger at once.
+        """
+
+        roster = {
+            membership.person_id
+            for membership in self.repository.list_members(context_id)
+            if membership.state == "active"
+        }
+        strangers = sorted(
+            {participant for participant in participants if participant not in roster},
+            key=lambda value: value.bytes,
+        )
+        if strangers:
+            raise ApiProblem(
+                422,
+                "participant_not_in_context",
+                # Naming them is not a roster leak: the caller sent these ids,
+                # so the answer only reflects their own input back. What it
+                # must never do is name anyone they did not ask about.
+                "Not members of this group: "
+                + ", ".join(str(stranger) for stranger in strangers),
+            )
+
     def confirm_expense(
         self,
         expense_id: uuid.UUID,
@@ -1931,6 +1967,9 @@ class ApiService:
             "confirm_expense_proposal",
             actor,
             {"is_group_member": identity.context_id in actor.context_ids},
+        )
+        self._require_participants_are_members(
+            identity.context_id, request.proposal.participants
         )
         acknowledgement = "pending"
         if request.acknowledge_as_advancer:
@@ -2564,9 +2603,7 @@ class ApiService:
             {"is_not_self": actor.id != addressee_id},
         )
         if self.repository.get_person(addressee_id) is None:
-            raise ApiProblem(
-                404, "person_not_found", "Chưa có ai mang danh tính này."
-            )
+            raise ApiProblem(404, "person_not_found", "Chưa có ai mang danh tính này.")
 
         existing = self.repository.get_friend_edge(actor.id, addressee_id)
         try:
@@ -2603,9 +2640,7 @@ class ApiService:
         """
         edge = self.repository.get_friend_request(request_id, actor.id)
         if edge is None:
-            raise ApiProblem(
-                404, "friend_request_not_found", "Không có lời mời này."
-            )
+            raise ApiProblem(404, "friend_request_not_found", "Không có lời mời này.")
 
         answer = Decision(body.decision)
         # Blocking is the one answer either party may give, so the predicate
@@ -2663,9 +2698,7 @@ class ApiService:
                 ) from exc
             raise self._friend_refusal(FriendshipError(exc.code)) from exc
         if record is None:
-            raise ApiProblem(
-                404, "friend_request_not_found", "Không có lời mời này."
-            )
+            raise ApiProblem(404, "friend_request_not_found", "Không có lời mời này.")
         return _wire_friend_edge(record)
 
     def list_friend_requests(
@@ -2683,9 +2716,7 @@ class ApiService:
             ]
         )
 
-    def list_friends(
-        self, person_id: uuid.UUID, actor: Actor
-    ) -> FriendListResponse:
+    def list_friends(self, person_id: uuid.UUID, actor: Actor) -> FriendListResponse:
         _require_permission(
             "view_own_friends", actor, {"is_self": actor.id == person_id}
         )
@@ -2729,13 +2760,9 @@ class ApiService:
     def _friend_refusal(refused: FriendshipError) -> ApiProblem:
         """Map a domain code to an answer that does not narrate the graph."""
         if refused.code == BLOCKED_IS_SILENT:
-            return ApiProblem(
-                409, refused.code.lower(), "Chưa gửi được lời mời này."
-            )
+            return ApiProblem(409, refused.code.lower(), "Chưa gửi được lời mời này.")
         if refused.code == "SELF_EDGE":
-            return ApiProblem(
-                422, "self_edge", "Không tự kết bạn với chính mình được."
-            )
+            return ApiProblem(422, "self_edge", "Không tự kết bạn với chính mình được.")
         if refused.code in ("ONLY_ADDRESSEE_MAY_ANSWER", "NOT_A_PARTY"):
             return ApiProblem(403, "permission_denied", refused.code.lower())
         return ApiProblem(409, refused.code.lower(), "Lời mời không ở trạng thái đó.")

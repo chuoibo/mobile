@@ -13,8 +13,6 @@ from __future__ import annotations
 
 import uuid
 
-import pytest
-
 from app.api.limits import OBJECTION_LIMIT
 
 from .helpers import (
@@ -23,6 +21,7 @@ from .helpers import (
     SENDER_ID,
     actor_headers,
     create_batch,
+    join_group,
     propose_and_confirm,
     publish_batch,
 )
@@ -79,7 +78,9 @@ class TestWrongAmount:
         response = client.get(f"{path}/doi-so-tien")
         assert response.status_code == 200
 
-    def test_it_says_missing_evidence_does_not_mean_the_guest_is_wrong(self, client, repository):
+    def test_it_says_missing_evidence_does_not_mean_the_guest_is_wrong(
+        self, client, repository
+    ):
         """Section 10.5, said out loud to the person who needs to hear it.
 
         Someone who believes silence counts against them will pay an amount
@@ -180,8 +181,9 @@ class TestNoPageClaimsSomeoneWasTold:
     def test_evidence_request_does_not_claim_anyone_was_asked(self, client, repository):
         path = _published_flow(client, repository)
         oid = _oid(client, path)
-        client.post(f"{path}/xin-cach-tinh", data={"obligation_id": oid},
-                    follow_redirects=False)
+        client.post(
+            f"{path}/xin-cach-tinh", data={"obligation_id": oid}, follow_redirects=False
+        )
 
         body = client.get(f"{path}/doi-so-tien?obligation_id={oid}").text
 
@@ -347,6 +349,7 @@ class TestADisputeStopsExactlyOneObligation:
         # Three participants, so two people owe the advancer and the batch has
         # two obligations on two separate links. With one obligation there is
         # nothing for a stray dispute to spill onto and the test proves nothing.
+        join_group(repository, OTHER_ID)
         propose_and_confirm(
             client, total=90_000, participants=[SENDER_ID, OTHER_ID, ADVANCER_ID]
         )
@@ -355,7 +358,9 @@ class TestADisputeStopsExactlyOneObligation:
         path = published["guest_links"][0]["path"]
 
         before = self._board(client, batch["batch_id"])
-        assert len(before["obligations"]) >= 2, "fixture stopped producing two obligations"
+        assert len(before["obligations"]) >= 2, (
+            "fixture stopped producing two obligations"
+        )
         target = before["obligations"][0]["obligation_id"]
         others = [row["obligation_id"] for row in before["obligations"][1:]]
 
@@ -574,6 +579,7 @@ class TestObjectingOnALinkWithTwoDebts:
 
     @staticmethod
     def _two_debt_link(client, repository):
+        join_group(repository, OTHER_ID)
         propose_and_confirm(
             client, total=90_000, participants=[SENDER_ID, OTHER_ID, ADVANCER_ID]
         )
@@ -589,7 +595,7 @@ class TestObjectingOnALinkWithTwoDebts:
         assert "doi-so-tien?obligation_id=" in body, (
             "the objection link does not say which debt it is about"
         )
-        assert body.count("/doi-so-tien\"") == 0, (
+        assert body.count('/doi-so-tien"') == 0, (
             "an objection link with no obligation id would fall back to the first"
         )
 
@@ -607,9 +613,7 @@ class TestObjectingOnALinkWithTwoDebts:
         second = board["obligations"][1]["obligation_id"]
         first = board["obligations"][0]["obligation_id"]
         target_link = next(
-            link
-            for link in links
-            if second in client.get(link["path"]).text
+            link for link in links if second in client.get(link["path"]).text
         )
         client.post(
             f"{target_link['path']}/doi-so-tien",
