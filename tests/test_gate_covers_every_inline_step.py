@@ -210,6 +210,23 @@ INLINE_STEPS: dict[str, Covered] = {
         body_sha="b09efaf22972b612",
         why="",
     ),
+    # The `contract` job runs two checkers, and they are two gate stages. The
+    # job is shared because the setup is identical; the stages are separate
+    # because the questions are -- `contract` asks whether a call sends
+    # X-Actor-ID, `cors` asks whether the headers it does send get past a
+    # browser's preflight at all.
+    "test.yml::contract::The CORS checker can be red": Covered(
+        kind=GATE_KIND,
+        stages=("cors",),
+        body_sha="d69764e4165729fe",
+        why="",
+    ),
+    "test.yml::contract::Every header the client sends survives the CORS preflight": Covered(
+        kind=GATE_KIND,
+        stages=("cors",),
+        body_sha="7d692291339c065c",
+        why="",
+    ),
     # --- test.yml: docker -------------------------------------------------
     "test.yml::docker::Base images are pinned by digest": Covered(
         kind=GATE_KIND,

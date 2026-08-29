@@ -65,7 +65,7 @@ REPO_ROOT="$PWD"
 
 # Every stage, in run order: cheapest and most likely to fail first, so a
 # broken tree is reported in seconds rather than after a docker build.
-STAGES=(guard guard-range ruff contract client-routes api migration shared mobile docker postgres e2e)
+STAGES=(guard guard-range ruff contract client-routes cors api migration shared mobile docker postgres e2e)
 
 stage_help() {
   case "$1" in
@@ -74,6 +74,7 @@ stage_help() {
     ruff)      echo "ruff on the files this branch changes, uncommitted ones included (test.yml: lint)" ;;
     contract)  echo "every route wanting X-Actor-ID is called with it (test.yml: contract)" ;;
     client-routes) echo "every route apps/mobile calls exists in the API (test.yml: api, inline)" ;;
+    cors)      echo "every header and method apps/mobile sends survives the CORS preflight (test.yml: contract)" ;;
     api)       echo "pytest services/api/tests tests (test.yml: api)" ;;
     migration) echo "alembic upgrade head --sql, no database (test.yml: api, inline)" ;;
     shared)    echo "node packages/shared/money.test.mjs (test.yml: shared)" ;;
@@ -304,6 +305,25 @@ do_client-routes() {
   python3 scripts/check_api_contract.py
 }
 
+do_cors() {
+  # The third question about one request, and the one no suite here can ask.
+  # `contract` asks whether a call sends X-Actor-ID; `client-routes` asks
+  # whether the path exists. Both assume the request is delivered. In a
+  # browser it is not: a header the allowlist does not name is cancelled at
+  # the preflight, and nothing in this repository is a browser -- TestClient
+  # speaks in-process, node's fetch does not enforce CORS, and expo export
+  # never issues a request.
+  #
+  # Measured on 2026-08-30 by adding "X-Client-Version" to the Khám phá search
+  # headers: tsc 0, npm test 645/646 (identical to the clean baseline),
+  # test_cors.py 13 passed, check_actor_headers 0, check_api_contract 0 --
+  # and this stage exit 1, naming tim-kiem.ts:223.
+  echo "--- self-test: the checker has to be able to be red"
+  python3 scripts/check_cors_contract.py --selftest || return 1
+  echo "--- client headers vs the CORS allowlist"
+  python3 scripts/check_cors_contract.py
+}
+
 do_api() { python3 -m pytest services/api/tests tests -q; }
 
 do_migration() {
@@ -480,6 +500,15 @@ check_prereq() {
       # Same two halves as `contract`, same reasoning for each outcome. The
       # question asked of them is different: `contract` asks whether a call
       # sends X-Actor-ID, this one asks whether the path it calls exists.
+      [ -d apps/mobile ] || { echo "apps/mobile không có trên nhánh này"; return 1; }
+      [ -d apps/mobile/src ] || return 2
+      python3 -c "import fastapi" 2>/dev/null || {
+        echo "chưa cài fastapi (pip install -r services/api/requirements-dev.txt)"; return 1; } ;;
+    cors)
+      # Same two halves again, third question. `apps/mobile` absent is an
+      # absence; present with no `src` is a defect, because a reader that
+      # finds no header at all is the shape this gate exists to refuse -- and
+      # the checker says so itself by exiting 2 rather than 0.
       [ -d apps/mobile ] || { echo "apps/mobile không có trên nhánh này"; return 1; }
       [ -d apps/mobile/src ] || return 2
       python3 -c "import fastapi" 2>/dev/null || {
