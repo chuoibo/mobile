@@ -2,13 +2,32 @@
 
 from __future__ import annotations
 
+import io
 import uuid
 from datetime import datetime
+
+from PIL import Image
 
 CONTEXT_ID = uuid.UUID("1aa00000-aaaa-4aaa-8aaa-0000a0000001")
 ADVANCER_ID = uuid.UUID("2bb00000-bbbb-4bbb-8bbb-0000b0000001")
 SENDER_ID = uuid.UUID("3cc00000-cccc-4ccc-8ccc-0000c0000001")
 OTHER_ID = uuid.UUID("4dd00000-dddd-4ddd-8ddd-0000d0000001")
+
+
+def png_bytes(size: tuple[int, int] = (40, 24)) -> bytes:
+    """A PNG with pixels behind the header, for routes that decode uploads.
+
+    Every scan test used to share a 29-byte literal: a signature and an IHDR
+    with no IDAT after it. Nothing on the route had ever tried to decode an
+    upload, so a header was enough to stand in for a photograph. rd-be-20 put a
+    decoder on that path, and the literal stopped being a stand-in for anything
+    -- it is not an image, and the route now says so. Building a real one keeps
+    those cases testing what they were written to test.
+    """
+
+    buffer = io.BytesIO()
+    Image.new("RGB", size, (250, 250, 248)).save(buffer, format="PNG")
+    return buffer.getvalue()
 
 
 def expense_payload(*, total=82000, description="Bữa tối", participants=None):
