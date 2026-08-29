@@ -186,7 +186,9 @@ def test_every_blank_shape_survives_the_route(blank, monkeypatch):
 
     reading = {
         "document_type": "receipt",
-        "items": [{"name": "Trà đá", "quantity_text": blank, "line_total_text": "20.000"}],
+        "items": [
+            {"name": "Trà đá", "quantity_text": blank, "line_total_text": "20.000"}
+        ],
         "total_text": "20.000",
         "confidence": 0.95,
     }
