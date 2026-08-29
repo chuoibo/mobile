@@ -360,3 +360,78 @@ def test_an_itinerary_keeps_its_stops_in_the_order_the_model_planned_them():
     assert [stop["place"]["id"] for stop in stops] == ["p-tiem-nuong", "p-cafe-suong"]
     assert [stop["time_text"] for stop in stops] == ["19:00", "21:00"]
     assert stops[0]["place"]["name"] == "Tiệm Nướng Xóm Lào"
+
+
+def test_an_itinerary_carries_no_field_the_contract_did_not_name():
+    """The whitelist is per card kind, and `itinerary` is a card kind.
+
+    A places card has been guarded against a smuggled `amount_vnd` since it was
+    written. The itinerary branch builds its own payload dict and was never
+    held to the same rule, so the one card kind that plans a whole evening was
+    also the one kind where an invented total could reach the client. Same
+    model, same boundary.
+    """
+    raw = {
+        "kind": "itinerary",
+        "payload": {
+            "title": "Tối nay",
+            "stops": [
+                {"place_id": "p-tiem-nuong", "time_text": "19:00", "note": "Ăn"},
+            ],
+            "expense": {"total_vnd": 900_000, "payer_id": "someone"},
+            "amount_vnd": 900_000,
+            "budget_per_person_vnd": 300_000,
+        },
+    }
+
+    card = ground_card(raw, _catalogue())
+
+    assert set(card["payload"]) == {"title", "stops"}
+    for banned in ("expense", "amount_vnd", "budget_per_person_vnd"):
+        assert banned not in card["payload"]
+    assert "900000" not in str(card).replace("_", "")
+
+
+def test_an_itinerary_stop_is_described_by_the_catalogue_not_by_the_model():
+    """A real ID beside invented facts is the harder half of grounding.
+
+    The ID check passes here -- the place genuinely exists -- so nothing
+    refuses the card. If a stop copied the model's own `place` object, a real
+    restaurant would appear on screen with an address nobody can drive to and a
+    price nobody agreed to. The existing itinerary tests check which places are
+    named and in what order; neither notices the facts being swapped.
+    """
+    raw = {
+        "kind": "itinerary",
+        "payload": {
+            "title": "Tối nay",
+            "stops": [
+                {
+                    "place_id": "p-tiem-nuong",
+                    "time_text": "19:00",
+                    "note": "Ăn",
+                    "place": {
+                        "id": "p-tiem-nuong",
+                        "name": "Quán Không Có Thật",
+                        "address": "1 Đường Bịa, Sao Hoả",
+                        "price_min_vnd": 5_000,
+                        "price_max_vnd": 9_000,
+                    },
+                },
+            ],
+        },
+    }
+
+    card = ground_card(raw, _catalogue())
+
+    stop = card["payload"]["stops"][0]
+    assert set(stop) == {"time_text", "note", "place"}
+    assert stop["place"] == {
+        "id": "p-tiem-nuong",
+        "name": "Tiệm Nướng Xóm Lào",
+        "address": "27/1 Yersin, TP. Đà Lạt",
+        "price_min_vnd": 200_000,
+        "price_max_vnd": 250_000,
+    }
+    assert "Quán Không Có Thật" not in str(card)
+    assert "Sao Hoả" not in str(card)

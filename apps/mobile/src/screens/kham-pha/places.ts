@@ -396,26 +396,13 @@ export function matchLabel(match: Match | null): { text: string; real: boolean }
   return { text: `AI MATCH ${pct}%`, real: true };
 }
 
-/**
- * Filter the already-loaded list by what someone typed.
- *
- * Local, not a round trip. The category is a server-side filter because the
- * server scored against it; free text is not, because matching "quán chill
- * view đẹp ở Đà Lạt budget ~250k" is a language problem and that is screen 2
- * of the mockup, which is not built. Pretending a substring match is that
- * would be the more expensive lie.
- *
- * Diacritics are left alone deliberately: Vietnamese readers type them, and
- * stripping them would make "cà phê" match "ca phe" while also making "má"
- * match "ma". `toLowerCase()` is the whole normalisation.
- */
-export function locNoiBo(places: Place[], q: string): Place[] {
-  const needle = q.trim().toLowerCase();
-  if (!needle) return places;
-  return places.filter((p) =>
-    [p.name, ...p.kinds, ...p.traits, p.address].some((s) => s.toLowerCase().includes(needle)),
-  );
-}
+/* `locNoiBo` lived here: a local substring filter over the loaded list, which
+ * the note above it called what it was, a stand-in for the language problem
+ * "quán chill view đẹp ở Đà Lạt budget ~250k" actually poses. rd-fe-15 wired
+ * the box to `POST /places/search`, so the stand-in was removed rather than
+ * left exported beside the real thing. An unreachable helper with passing
+ * tests is worse than no helper: the tests keep reporting coverage for
+ * behaviour no one on a phone can get to. See `tim-kiem.ts`. */
 
 /** Open before closed, then best-scoring first, unscored last, ties broken by
  *  rating so the order does not shuffle between two identical renders.

@@ -22,7 +22,6 @@ import {
   formatPriceBand,
   formatPricePerPerson,
   formatRating,
-  locNoiBo,
   matchLabel,
   parseCatalogue,
   parsePlace,
@@ -292,19 +291,11 @@ test("trong cùng một tầng, điểm vẫn quyết định thứ tự", () =>
   assert.deepEqual(sorted.map((p) => p.id), ["mo-cao", "mo-thap", "dong-cao", "dong-thap"]);
 });
 
-test("tìm tại chỗ nhìn cả tên, loại, đặc điểm và địa chỉ", () => {
-  const places = [
-    parsePlace(row(), "p"),
-    parsePlace(
-      row({ id: "p-2", name: "An Cafe", traits: ["Vintage"], address: "63 Phan Đình Phùng, P.2" }),
-      "p",
-    ),
-  ];
-  assert.equal(locNoiBo(places, "vintage").length, 1);
-  assert.equal(locNoiBo(places, "yersin").length, 1);
-  assert.equal(locNoiBo(places, "").length, 2);
-  assert.equal(locNoiBo(places, "không có gì").length, 0);
-});
+/* The local substring filter these four assertions covered is gone: rd-fe-15
+ * replaced it with `POST /places/search`, and the cases that matter now live in
+ * `tim-dia-diem.test.mjs`. Deleted rather than kept passing against an unused
+ * export, which would have gone on reporting coverage for behaviour no one can
+ * reach from the screen. */
 
 /* ------------------------------------------------ formatting ------------ */
 

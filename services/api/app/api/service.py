@@ -6,7 +6,8 @@ import hashlib
 import secrets
 import uuid
 from collections import defaultdict
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from app.api import companion_places
 from app.api.cursors import CursorError, decode_cursor, encode_cursor
@@ -14,6 +15,7 @@ from app.api.deps import Actor, Companion
 from app.api.errors import ApiProblem, RepositoryConflict
 from app.api.limits import OBJECTION_KINDS, QUOTA_CONSUMING_OBJECTIONS
 from app.api.repository import (
+    WALL_CLOCK_ZONE,
     ApiRepository,
     BankRecipientRecord,
     BillRecord,
@@ -26,6 +28,7 @@ from app.api.repository import (
     OutingRecord,
     PersonFinanceSummary,
     PersonRecord,
+    StopCheckinRecord,
 )
 from app.api.schemas import (
     AllocationProposal,
@@ -46,6 +49,7 @@ from app.api.schemas import (
     BillSplitRequest,
     BillSplitResponse,
     BillSurchargeResponse,
+    CheckinCreateRequest,
     CompanionTurnResponse,
     ContextBalanceEntry,
     ContextBalancesResponse,
@@ -55,6 +59,7 @@ from app.api.schemas import (
     ExpenseConfirmationResponse,
     ExpenseInput,
     ExpenseProposalResponse,
+    GroupRecapResponse,
     MemberRoleRequest,
     MembershipInviteRequest,
     MembershipListResponse,
@@ -68,6 +73,7 @@ from app.api.schemas import (
     MessageQuery,
     MessageResponse,
     ObligationResponse,
+    OutingCheckinListResponse,
     OutingCreateRequest,
     OutingInviteAcceptResponse,
     OutingInviteCreateRequest,
@@ -80,9 +86,11 @@ from app.api.schemas import (
     PaymentReportResponse,
     PublishedGuestLink,
     PublishedObligation,
+    RecapOutingResponse,
     ReceiptConfirmationRequest,
     ReceiptConfirmationResponse,
     SettlementTransferProposal,
+    StopCheckinResponse,
 )
 from app.domain import permissions
 from app.domain.allocator import allocate
@@ -103,6 +111,7 @@ from app.domain.ledger import (
 )
 from app.payments.banks import describe_bank
 from app.payments.vietqr import VietQRError, build_payload
+from app.places.catalog import find_place
 from app.web.guest_view import GuestViewError, build_guest_view
 from app.web.objection_view import (
     OBJECTION_REASONS,
@@ -112,6 +121,7 @@ from app.web.objection_view import (
 )
 
 CONTEXT_WINDOW = 40
+OUTING_INVITE_TTL = timedelta(days=7)
 
 
 def _now() -> datetime:
@@ -330,8 +340,13 @@ def _wire_memory(record: MemoryRecord) -> MemoryResponse:
         id=record.id,
         context_id=record.context_id,
         author_id=record.author_id,
+        kind=record.kind,  # type: ignore[arg-type]
         image_url=record.image_url,
         caption=record.caption,
+        place_id=record.place_id,
+        place_name=record.place_name,
+        lat=record.lat,
+        lng=record.lng,
         created_at=record.created_at,
         cursor=encode_cursor(record.created_at, record.id),
     )
@@ -350,6 +365,7 @@ def _wire_outing(record: OutingRecord) -> OutingResponse:
         created_at=record.created_at,
         stops=[
             OutingStopResponse(
+                id=stop.id,
                 position=stop.position,
                 at=_clock(stop.minute_of_day),
                 label=stop.label,
@@ -370,6 +386,8 @@ def _wire_outing_invite(
         invited_person_id=record.invited_person_id,
         invited_by_id=record.invited_by_id,
         created_at=record.created_at,
+        expires_at=record.expires_at,
+        revoked_at=record.revoked_at,
         invite_token=raw_token,
         invite_path=f"/outing-invites/{raw_token}" if raw_token is not None else None,
     )
@@ -731,6 +749,46 @@ class ApiService:
             ],
         )
 
+    def group_recap(self, context_id: uuid.UUID, actor: Actor) -> GroupRecapResponse:
+        """The memory wall: trips that are over, and what they cost.
+
+        Reuses `view_group_memories` rather than minting a permission. This is
+        the memory wall's own read -- a different name for the same act would
+        make it possible to be a member who can see the photos but not the
+        trip they were taken on, which is a distinction nobody asked for.
+        """
+        _require_permission(
+            "view_group_memories",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        # The server's own wall-clock day in Vietnam, not the caller's. A trip
+        # that ended yesterday is a memory for everyone, including a phone whose
+        # clock is set wrong.
+        today = _now().astimezone(ZoneInfo(WALL_CLOCK_ZONE)).date()
+        records = self.repository.group_recap(context_id, today=today)
+        outings = [
+            RecapOutingResponse(
+                outing_id=record.outing.id,
+                title=record.outing.title,
+                starts_on=record.outing.starts_on,
+                ends_on=record.outing.ends_on,
+                headcount=record.outing.headcount,
+                stops=_wire_outing(record.outing).stops,
+                split_total_vnd=record.split_total_vnd,
+                expense_count=record.expense_count,
+                memory_count=record.memory_count,
+            )
+            for record in records
+        ]
+        return GroupRecapResponse(
+            context_id=context_id,
+            outings=outings,
+            # Summed here rather than by a sixth query: the per-trip figures on
+            # the screen have to add back up to the total above them.
+            split_total_vnd=sum(outing.split_total_vnd for outing in outings),
+        )
+
     def replace_outing_timeline(
         self,
         outing_id: uuid.UUID,
@@ -762,6 +820,71 @@ class ApiService:
                 outing_id=outing_id,
                 stops=stops,
             )
+        )
+
+    def check_in_to_stop(
+        self, stop_id: uuid.UUID, actor: Actor
+    ) -> StopCheckinResponse:
+        found = self.repository.get_outing_stop(stop_id)
+        if found is None:
+            raise ApiProblem(404, "stop_not_found", "Stop does not exist")
+        _stop, outing = found
+        _require_permission(
+            "check_in_to_stop",
+            actor,
+            {
+                "is_group_member": self.repository.is_member(
+                    outing.context_id, actor.id
+                )
+            },
+        )
+        try:
+            record = self.repository.create_stop_checkin(
+                stop_id=stop_id,
+                person_id=actor.id,
+                now=_now(),
+            )
+        except RepositoryConflict as exc:
+            if exc.code == "ALREADY_CHECKED_IN":
+                raise ApiProblem(
+                    409,
+                    "already_checked_in",
+                    "You have already checked in at this stop",
+                ) from exc
+            raise
+        return self._wire_stop_checkin(record)
+
+    def list_outing_checkins(
+        self, outing_id: uuid.UUID, actor: Actor
+    ) -> OutingCheckinListResponse:
+        outing = self.repository.get_outing(outing_id)
+        if outing is None:
+            raise ApiProblem(404, "outing_not_found", "Outing does not exist")
+        _require_permission(
+            "view_stop_checkins",
+            actor,
+            {
+                "is_group_member": self.repository.is_member(
+                    outing.context_id, actor.id
+                )
+            },
+        )
+        return OutingCheckinListResponse(
+            outing_id=outing_id,
+            checkins=[
+                self._wire_stop_checkin(record)
+                for record in self.repository.list_outing_checkins(outing_id)
+            ],
+        )
+
+    def _wire_stop_checkin(self, record: StopCheckinRecord) -> StopCheckinResponse:
+        person = self.repository.get_person(record.person_id)
+        return StopCheckinResponse(
+            id=record.id,
+            stop_id=record.stop_id,
+            person_id=record.person_id,
+            display_name=None if person is None else person.display_name,
+            created_at=record.created_at,
         )
 
     def create_outing_invite(
@@ -803,13 +926,15 @@ class ApiService:
                     "Person is already invited to this outing",
                 )
 
+        now = _now()
         record = self.repository.create_outing_invite(
             outing_id=outing_id,
             source=request.source,
             invited_person_id=invited_person_id,
             invited_by_id=actor.id,
             token_digest=digest,
-            now=_now(),
+            expires_at=now + OUTING_INVITE_TTL,
+            now=now,
         )
         # The raw token is returned exactly once and never persisted; only its
         # digest crosses the repository boundary.
@@ -833,6 +958,9 @@ class ApiService:
                 "invite_already_accepted",
                 "Invite link was already used",
             )
+        now = _now()
+        if invite.revoked_at is not None or invite.expires_at <= now:
+            raise ApiProblem(404, "invite_not_found", "Invite link is not valid")
 
         outing = self.repository.get_outing(invite.outing_id)
         if outing is None:
@@ -843,6 +971,69 @@ class ApiService:
             self.repository.accept_outing_invite(
                 invite_id=invite.id,
                 accepted_by_id=actor.id,
+                now=now,
+            )
+        except RepositoryConflict as exc:
+            if exc.code == "OUTING_INVITE_ALREADY_ACCEPTED":
+                raise ApiProblem(
+                    409,
+                    "invite_already_accepted",
+                    "Invite link was already used",
+                ) from exc
+            if exc.code in {
+                "OUTING_INVITE_NOT_FOUND",
+                "OUTING_INVITE_NOT_REDEEMABLE",
+            }:
+                raise ApiProblem(
+                    404,
+                    "invite_not_found",
+                    "Invite link is not valid",
+                ) from exc
+            raise
+
+        membership = self.repository.ensure_invited_membership(
+            context_id=outing.context_id,
+            person_id=actor.id,
+            invited_by_id=invite.invited_by_id,
+            now=now,
+        )
+        return OutingInviteAcceptResponse(
+            invite_id=invite.id,
+            outing_id=invite.outing_id,
+            context_id=outing.context_id,
+            membership_id=membership.id,
+            membership_state=membership.state,
+        )
+
+    def revoke_outing_invite(
+        self,
+        outing_id: uuid.UUID,
+        invite_id: uuid.UUID,
+        actor: Actor,
+    ) -> OutingInviteResponse:
+        outing = self.repository.get_outing(outing_id)
+        invite = self.repository.get_outing_invite(invite_id)
+        if outing is None or invite is None or invite.outing_id != outing_id:
+            raise ApiProblem(404, "invite_not_found", "Invite link is not valid")
+
+        _require_permission(
+            "revoke_outing_invite",
+            actor,
+            {
+                "is_group_member": self.repository.is_member(
+                    outing.context_id, actor.id
+                )
+            },
+        )
+        if invite.accepted_at is not None:
+            raise ApiProblem(
+                409,
+                "invite_already_accepted",
+                "Invite link was already used",
+            )
+        try:
+            revoked = self.repository.revoke_outing_invite(
+                invite_id=invite.id,
                 now=_now(),
             )
         except RepositoryConflict as exc:
@@ -852,21 +1043,55 @@ class ApiService:
                     "invite_already_accepted",
                     "Invite link was already used",
                 ) from exc
+            if exc.code == "OUTING_INVITE_NOT_FOUND":
+                raise ApiProblem(
+                    404,
+                    "invite_not_found",
+                    "Invite link is not valid",
+                ) from exc
             raise
+        return _wire_outing_invite(revoked, None)
 
-        membership = self.repository.ensure_invited_membership(
-            context_id=outing.context_id,
-            person_id=actor.id,
-            invited_by_id=invite.invited_by_id,
+    def post_context_checkin(
+        self,
+        context_id: uuid.UUID,
+        request: CheckinCreateRequest,
+        actor: Actor,
+    ) -> MemoryResponse:
+        """F46. Mark that the group was at a place, as a row on its own wall.
+
+        Gated on `post_group_memory`, not on a permission of its own. A
+        check-in *is* a memory -- same table, same feed, same reader -- and a
+        second key would be a second place for the two to drift apart, which
+        on a privacy boundary means one of them eventually being the loose one.
+
+        The place is resolved before the write and the refusal names the
+        parameter rather than echoing it. `place_id` arrives from a client and
+        an error message is the one part of a response that gets pasted into
+        chats and bug reports.
+        """
+
+        _require_permission(
+            "post_group_memory",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        place = find_place(request.place_id)
+        if place is None:
+            raise ApiProblem(
+                422, "place_not_found", "No place in the catalogue has that id"
+            )
+        record = self.repository.create_checkin(
+            context_id=context_id,
+            author_id=actor.id,
+            place_id=place["id"],
+            place_name=place["name"],
+            lat=place["lat"],
+            lng=place["lng"],
+            caption=request.caption,
             now=_now(),
         )
-        return OutingInviteAcceptResponse(
-            invite_id=invite.id,
-            outing_id=invite.outing_id,
-            context_id=outing.context_id,
-            membership_id=membership.id,
-            membership_state=membership.state,
-        )
+        return _wire_memory(record)
 
     def list_context_memories(
         self,
@@ -888,6 +1113,8 @@ class ApiService:
             context_id,
             limit=query.limit,
             before=before,
+            kind=query.kind,
+            place_id=query.place_id,
         )
         memories = [_wire_memory(record) for record in page.memories]
         return MemoryListResponse(

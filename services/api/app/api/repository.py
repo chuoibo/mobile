@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Protocol
 
-from sqlalchemy import func, select, tuple_
+from sqlalchemy import Date, cast, func, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -51,12 +51,14 @@ from app.db.models import (
     MembershipRole,
     MembershipState,
     Memory,
+    MemoryKind,
     Message,
     MessageKind,
     Outing,
     OutingInvite,
     OutingInviteSource,
     OutingStop,
+    OutingStopCheckin,
     PayerAcknowledgement,
     PaymentReport,
     Person,
@@ -67,6 +69,19 @@ from app.domain.capability import capability_scope
 from app.domain.ledger import obligation_status
 from app.payments.vietqr import build_payload
 from app.web.qr import payload_to_png_data_uri
+
+# A trip's `starts_on`/`ends_on` are wall-clock Vietnamese calendar days; an
+# expense's `occurred_at` is an instant. Folding the instant with whatever
+# timezone the database session happens to carry is the bug this constant
+# exists to prevent: under UTC a 01:00 supper on the last night of the trip
+# lands on the previous day, and under a UTC server it can fall out of the trip
+# entirely. The product's days are Vietnam's days, so name the zone.
+WALL_CLOCK_ZONE = "Asia/Ho_Chi_Minh"
+
+
+def _wall_clock_date(column):
+    """The Vietnamese calendar day of a timestamptz column, session-TZ-proof."""
+    return cast(func.timezone(WALL_CLOCK_ZONE, column), Date)
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,11 +121,27 @@ class MembershipRecord:
 
 @dataclass(frozen=True, slots=True)
 class MemoryRecord:
+    """One row on the wall, photograph or check-in.
+
+    The location fields are group-private in the same sense the wall is: they
+    reach a caller only through `list_memories`, which every route behind it
+    gates on membership. Nothing in this layer formats them into a log line or
+    an exception message -- a `lat`/`lng` pair in a traceback is a person's
+    whereabouts in a file the group never agreed to.
+    """
+
     id: uuid.UUID
     context_id: uuid.UUID
     author_id: uuid.UUID
-    image_url: str
+    kind: str
+    #: Present on a photo, absent on a check-in. The database refuses a row
+    #: that carries both this and a place.
+    image_url: str | None
     caption: str | None
+    place_id: str | None
+    place_name: str | None
+    lat: float | None
+    lng: float | None
     created_at: datetime
 
 
@@ -122,10 +153,21 @@ class MemoryPage:
 
 @dataclass(frozen=True, slots=True)
 class OutingStopRecord:
+    id: uuid.UUID
     position: int
     minute_of_day: int
     label: str
     place_name: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class StopCheckinRecord:
+    """One arrival. Carries no coordinates -- see `OutingStopCheckin`."""
+
+    id: uuid.UUID
+    stop_id: uuid.UUID
+    person_id: uuid.UUID
+    created_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,6 +185,23 @@ class OutingRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class RecapOutingRecord:
+    """One finished trip, with its money recomputed rather than stored.
+
+    `split_total_vnd` is not a column. It is the sum of the confirmed
+    allocations of the expenses that happened inside the trip's days, summed on
+    the request that asks -- invariant 3 for the memory wall. Storing a total
+    on `outings` would have been one join cheaper and would have started
+    drifting the first time somebody corrected an expense.
+    """
+
+    outing: OutingRecord
+    split_total_vnd: int
+    expense_count: int
+    memory_count: int
+
+
+@dataclass(frozen=True, slots=True)
 class OutingInviteRecord:
     id: uuid.UUID
     outing_id: uuid.UUID
@@ -152,6 +211,8 @@ class OutingInviteRecord:
     accepted_at: datetime | None
     accepted_by_id: uuid.UUID | None
     created_at: datetime
+    expires_at: datetime
+    revoked_at: datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -542,12 +603,32 @@ class ApiRepository(Protocol):
 
     def list_outings(self, context_id: uuid.UUID) -> tuple[OutingRecord, ...]: ...
 
+    def group_recap(
+        self, context_id: uuid.UUID, *, today: date
+    ) -> tuple[RecapOutingRecord, ...]: ...
+
     def replace_outing_stops(
         self,
         *,
         outing_id: uuid.UUID,
         stops: list[dict],
     ) -> OutingRecord: ...
+
+    def get_outing_stop(
+        self, stop_id: uuid.UUID
+    ) -> tuple[OutingStopRecord, OutingRecord] | None: ...
+
+    def create_stop_checkin(
+        self,
+        *,
+        stop_id: uuid.UUID,
+        person_id: uuid.UUID,
+        now: datetime,
+    ) -> StopCheckinRecord: ...
+
+    def list_outing_checkins(
+        self, outing_id: uuid.UUID
+    ) -> tuple[StopCheckinRecord, ...]: ...
 
     def create_outing_invite(
         self,
@@ -557,11 +638,16 @@ class ApiRepository(Protocol):
         invited_person_id: uuid.UUID | None,
         invited_by_id: uuid.UUID,
         token_digest: bytes | None,
+        expires_at: datetime,
         now: datetime,
     ) -> OutingInviteRecord: ...
 
     def find_outing_invite_for_person(
         self, outing_id: uuid.UUID, person_id: uuid.UUID
+    ) -> OutingInviteRecord | None: ...
+
+    def get_outing_invite(
+        self, invite_id: uuid.UUID
     ) -> OutingInviteRecord | None: ...
 
     def get_outing_invite_by_digest(
@@ -573,6 +659,13 @@ class ApiRepository(Protocol):
         *,
         invite_id: uuid.UUID,
         accepted_by_id: uuid.UUID,
+        now: datetime,
+    ) -> OutingInviteRecord: ...
+
+    def revoke_outing_invite(
+        self,
+        *,
+        invite_id: uuid.UUID,
         now: datetime,
     ) -> OutingInviteRecord: ...
 
@@ -595,12 +688,27 @@ class ApiRepository(Protocol):
         now: datetime,
     ) -> MemoryRecord: ...
 
+    def create_checkin(
+        self,
+        *,
+        context_id: uuid.UUID,
+        author_id: uuid.UUID,
+        place_id: str,
+        place_name: str,
+        lat: float,
+        lng: float,
+        caption: str | None,
+        now: datetime,
+    ) -> MemoryRecord: ...
+
     def list_memories(
         self,
         context_id: uuid.UUID,
         *,
         limit: int,
         before: tuple[datetime, uuid.UUID] | None = None,
+        kind: str | None = None,
+        place_id: str | None = None,
     ) -> MemoryPage: ...
 
     def create_message(
@@ -817,14 +925,20 @@ class SqlAlchemyApiRepository:
             id=memory.id,
             context_id=memory.context_id,
             author_id=memory.author_id,
+            kind=str(memory.kind),
             image_url=memory.image_url,
             caption=memory.caption,
+            place_id=memory.place_id,
+            place_name=memory.place_name,
+            lat=memory.lat,
+            lng=memory.lng,
             created_at=memory.created_at,
         )
 
     @staticmethod
     def _outing_stop_record(stop: OutingStop) -> OutingStopRecord:
         return OutingStopRecord(
+            id=stop.id,
             position=stop.position,
             minute_of_day=stop.minute_of_day,
             label=stop.label,
@@ -861,6 +975,8 @@ class SqlAlchemyApiRepository:
             accepted_at=invite.accepted_at,
             accepted_by_id=invite.accepted_by_id,
             created_at=invite.created_at,
+            expires_at=invite.expires_at,
+            revoked_at=invite.revoked_at,
         )
 
     @staticmethod
@@ -1221,6 +1337,116 @@ class SqlAlchemyApiRepository:
         )
         return tuple(self._outing_record(outing) for outing in outings)
 
+    def group_recap(
+        self, context_id: uuid.UUID, *, today: date
+    ) -> tuple[RecapOutingRecord, ...]:
+        """Finished trips of one group, newest first, money read back from the ledger.
+
+        There is no `expenses.outing_id`, so a trip claims the spending that
+        happened on its days. That rule is stated on the screen rather than
+        hidden here, because it is a rule and not a fact: a dinner split three
+        days after the group got home belongs to nobody's trip.
+
+        Two passes rather than one join. Allocations are per participant and
+        memories are per photo; counting both in a single grouped query
+        multiplies one by the other, and an inflated photo count is the kind of
+        wrong number that still looks like a number.
+        """
+        finished = (
+            select(Outing)
+            .where(Outing.context_id == context_id, Outing.ends_on < today)
+            .order_by(Outing.ends_on.desc(), Outing.id)
+        )
+        outings = tuple(self.session.scalars(finished))
+        if not outings:
+            return ()
+
+        # Only the newest version of each expense counts. A correction writes a
+        # new version instead of overwriting, so an unfiltered sum adds the
+        # mistake to the fix -- same subquery shape `person_finance_summary`
+        # and `load_batch_inputs` already use, for the same reason.
+        newest = (
+            select(
+                ExpenseVersion.expense_id.label("expense_id"),
+                func.max(ExpenseVersion.version_number).label("version_number"),
+            )
+            .group_by(ExpenseVersion.expense_id)
+            .subquery()
+        )
+        ledger = (
+            select(
+                Expense.id.label("expense_id"),
+                ConfirmedAllocation.amount_vnd.label("amount_vnd"),
+                _wall_clock_date(ExpenseVersion.occurred_at).label("on_date"),
+            )
+            .select_from(ConfirmedAllocation)
+            .join(
+                ExpenseVersion,
+                ExpenseVersion.id == ConfirmedAllocation.expense_version_id,
+            )
+            .join(
+                newest,
+                (newest.c.expense_id == ExpenseVersion.expense_id)
+                & (newest.c.version_number == ExpenseVersion.version_number),
+            )
+            .join(Expense, Expense.id == ExpenseVersion.expense_id)
+            .where(Expense.context_id == context_id)
+            .subquery()
+        )
+        money = {
+            row.outing_id: (int(row.split_total_vnd or 0), int(row.expense_count or 0))
+            for row in self.session.execute(
+                select(
+                    Outing.id.label("outing_id"),
+                    # `int(...)`, and not the driver's answer: PostgreSQL sums a
+                    # bigint as `numeric`, which psycopg returns as `Decimal`,
+                    # and a Decimal that escapes reaches JSON as `520000.0`.
+                    # Law 1 is integer đồng end to end.
+                    func.coalesce(func.sum(ledger.c.amount_vnd), 0).label(
+                        "split_total_vnd"
+                    ),
+                    func.count(func.distinct(ledger.c.expense_id)).label(
+                        "expense_count"
+                    ),
+                )
+                .select_from(Outing)
+                .outerjoin(
+                    ledger,
+                    ledger.c.on_date.between(Outing.starts_on, Outing.ends_on),
+                )
+                .where(Outing.id.in_([outing.id for outing in outings]))
+                .group_by(Outing.id)
+            )
+        }
+        photos = {
+            row.outing_id: int(row.memory_count or 0)
+            for row in self.session.execute(
+                select(
+                    Outing.id.label("outing_id"),
+                    func.count(Memory.id).label("memory_count"),
+                )
+                .select_from(Outing)
+                .outerjoin(
+                    Memory,
+                    (Memory.context_id == Outing.context_id)
+                    & _wall_clock_date(Memory.created_at).between(
+                        Outing.starts_on, Outing.ends_on
+                    ),
+                )
+                .where(Outing.id.in_([outing.id for outing in outings]))
+                .group_by(Outing.id)
+            )
+        }
+        return tuple(
+            RecapOutingRecord(
+                outing=self._outing_record(outing),
+                split_total_vnd=money.get(outing.id, (0, 0))[0],
+                expense_count=money.get(outing.id, (0, 0))[1],
+                memory_count=photos.get(outing.id, 0),
+            )
+            for outing in outings
+        )
+
     def replace_outing_stops(
         self,
         *,
@@ -1256,6 +1482,63 @@ class SqlAlchemyApiRepository:
         self.session.flush()
         return self._outing_record(outing)
 
+    def get_outing_stop(
+        self, stop_id: uuid.UUID
+    ) -> tuple[OutingStopRecord, OutingRecord] | None:
+        stop = self.session.get(OutingStop, stop_id)
+        if stop is None:
+            return None
+        outing = self.session.get(Outing, stop.outing_id)
+        if outing is None:
+            return None
+        return self._outing_stop_record(stop), self._outing_record(outing)
+
+    def create_stop_checkin(
+        self,
+        *,
+        stop_id: uuid.UUID,
+        person_id: uuid.UUID,
+        now: datetime,
+    ) -> StopCheckinRecord:
+        checkin = OutingStopCheckin(
+            stop_id=stop_id, person_id=person_id, created_at=now
+        )
+        # The unique index is the rule, so the write is attempted and the
+        # database answers. Asking "has this person checked in?" first and
+        # branching on the answer is the same code with a race in it.
+        try:
+            with self.session.begin_nested():
+                self.session.add(checkin)
+                self.session.flush()
+        except IntegrityError as exc:
+            constraint = getattr(
+                getattr(exc.orig, "diag", None), "constraint_name", None
+            )
+            if constraint == "uq_outing_stop_checkins_person":
+                raise RepositoryConflict("ALREADY_CHECKED_IN") from exc
+            raise
+        return self._stop_checkin_record(checkin)
+
+    def list_outing_checkins(
+        self, outing_id: uuid.UUID
+    ) -> tuple[StopCheckinRecord, ...]:
+        rows = self.session.scalars(
+            select(OutingStopCheckin)
+            .join(OutingStop, OutingStop.id == OutingStopCheckin.stop_id)
+            .where(OutingStop.outing_id == outing_id)
+            .order_by(OutingStopCheckin.created_at, OutingStopCheckin.id)
+        )
+        return tuple(self._stop_checkin_record(row) for row in rows)
+
+    @staticmethod
+    def _stop_checkin_record(row: OutingStopCheckin) -> StopCheckinRecord:
+        return StopCheckinRecord(
+            id=row.id,
+            stop_id=row.stop_id,
+            person_id=row.person_id,
+            created_at=row.created_at,
+        )
+
     def create_outing_invite(
         self,
         *,
@@ -1264,6 +1547,7 @@ class SqlAlchemyApiRepository:
         invited_person_id: uuid.UUID | None,
         invited_by_id: uuid.UUID,
         token_digest: bytes | None,
+        expires_at: datetime,
         now: datetime,
     ) -> OutingInviteRecord:
         invite = OutingInvite(
@@ -1273,6 +1557,7 @@ class SqlAlchemyApiRepository:
             invited_by_id=invited_by_id,
             token_digest=token_digest,
             created_at=now,
+            expires_at=expires_at,
         )
         self.session.add(invite)
         self.session.flush()
@@ -1289,6 +1574,12 @@ class SqlAlchemyApiRepository:
             )
             .limit(1)
         )
+        return None if invite is None else self._outing_invite_record(invite)
+
+    def get_outing_invite(
+        self, invite_id: uuid.UUID
+    ) -> OutingInviteRecord | None:
+        invite = self.session.get(OutingInvite, invite_id)
         return None if invite is None else self._outing_invite_record(invite)
 
     def get_outing_invite_by_digest(
@@ -1318,8 +1609,32 @@ class SqlAlchemyApiRepository:
             raise RepositoryConflict("OUTING_INVITE_NOT_FOUND")
         if invite.accepted_at is not None:
             raise RepositoryConflict("OUTING_INVITE_ALREADY_ACCEPTED")
+        if invite.revoked_at is not None or invite.expires_at <= now:
+            raise RepositoryConflict("OUTING_INVITE_NOT_REDEEMABLE")
         invite.accepted_at = now
         invite.accepted_by_id = accepted_by_id
+        self.session.flush()
+        return self._outing_invite_record(invite)
+
+    def revoke_outing_invite(
+        self,
+        *,
+        invite_id: uuid.UUID,
+        now: datetime,
+    ) -> OutingInviteRecord:
+        invite = self.session.scalar(
+            select(OutingInvite)
+            .where(OutingInvite.id == invite_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if invite is None:
+            raise RepositoryConflict("OUTING_INVITE_NOT_FOUND")
+        if invite.accepted_at is not None:
+            raise RepositoryConflict("OUTING_INVITE_ALREADY_ACCEPTED")
+        if invite.revoked_at is not None:
+            return self._outing_invite_record(invite)
+        invite.revoked_at = now
         self.session.flush()
         return self._outing_invite_record(invite)
 
@@ -1370,8 +1685,46 @@ class SqlAlchemyApiRepository:
         memory = Memory(
             context_id=context_id,
             author_id=author_id,
+            kind=MemoryKind.PHOTO,
             image_url=image_url,
             caption=caption,
+            created_at=now,
+        )
+        self.session.add(memory)
+        self.session.flush()
+        return self._memory_record(memory)
+
+    def create_checkin(
+        self,
+        *,
+        context_id: uuid.UUID,
+        author_id: uuid.UUID,
+        place_id: str,
+        place_name: str,
+        lat: float,
+        lng: float,
+        caption: str | None,
+        now: datetime,
+    ) -> MemoryRecord:
+        """Record that this group was at this place at this moment.
+
+        Separate from `create_memory` rather than one method with six optional
+        arguments. The two kinds have disjoint payloads and the database says
+        so; a single writer taking everything would compile for the call that
+        passes an image *and* a latitude, and the failure would arrive as an
+        integrity error from a constraint instead of as a type error here.
+        """
+
+        memory = Memory(
+            context_id=context_id,
+            author_id=author_id,
+            kind=MemoryKind.CHECKIN,
+            image_url=None,
+            caption=caption,
+            place_id=place_id,
+            place_name=place_name,
+            lat=lat,
+            lng=lng,
             created_at=now,
         )
         self.session.add(memory)
@@ -1384,8 +1737,14 @@ class SqlAlchemyApiRepository:
         *,
         limit: int,
         before: tuple[datetime, uuid.UUID] | None = None,
+        kind: str | None = None,
+        place_id: str | None = None,
     ) -> MemoryPage:
         statement = select(Memory).where(Memory.context_id == context_id)
+        if kind is not None:
+            statement = statement.where(Memory.kind == MemoryKind(kind))
+        if place_id is not None:
+            statement = statement.where(Memory.place_id == place_id)
         if before is not None:
             statement = statement.where(
                 tuple_(Memory.created_at, Memory.id) < tuple_(*before)

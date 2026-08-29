@@ -95,3 +95,66 @@ test("không có fragment thì không có màn vào cửa nào", () => {
   assert.equal(docDiemDen("").vao, null);
   assert.equal(docDiemDen("#tab=ca-nhan").vao, null);
 });
+
+/* ---------------------------------------------------- kỷ niệm (F30/F35) --- */
+
+test("vao=ky-niem mở thẳng tường kỷ niệm, không cần bấm qua menu [+]", () => {
+  // The wall lives behind the [+] sheet, so without this a detector run, a
+  // screenshot pass and an accessibility sweep all describe the opening screen
+  // while claiming to describe the wall — and all three still exit 0.
+  const d = docDiemDen("#vao=ky-niem&nguoi=minh");
+  assert.equal(d.vao, "ky-niem");
+  assert.equal(d.boQuaMoDau, true);
+});
+
+test("nhom=<uuid> đặt tên nhóm cho tường kỷ niệm", () => {
+  const id = "1aa00000-aaaa-4aaa-8aaa-0000a0000001";
+  const d = docDiemDen(`#vao=ky-niem&nhom=${id}`);
+  assert.equal(d.nhomId, id);
+});
+
+test("nhom gõ sai bị bỏ chứ không đi thẳng vào đường dẫn yêu cầu", () => {
+  // This value is interpolated into a request path. A malformed one passed
+  // through is the app writing somebody else's URL, so it has to become null
+  // rather than "probably harmless".
+  for (const bad of ["", "khong-phai-uuid", "../../etc/passwd", "1aa00000"]) {
+    assert.equal(docDiemDen(`#vao=ky-niem&nhom=${bad}`).nhomId, null, bad);
+  }
+});
+
+test("không có nhom thì để null — màn tự đi tìm nhóm demo", () => {
+  assert.equal(docDiemDen("#vao=ky-niem").nhomId, null);
+});
+
+// F46. The place detail carries the check-in card, so a link that cannot name
+// a place is a link that cannot reach the feature at all.
+
+test("#dia-diem mở thẳng thẻ địa điểm, và tự chọn tab Khám phá", () => {
+  const d = docDiemDen("#dia-diem=p-tiem-nuong-xom-lao");
+  assert.equal(d.diaDiem, "p-tiem-nuong-xom-lao");
+  // Naming a place without naming a tab must not land on the default tab with
+  // the place quietly dropped.
+  assert.equal(d.tab, "kham-pha");
+  assert.equal(d.boQuaMoDau, true);
+});
+
+test("tab viết rõ thì thắng suy luận từ dia-diem", () => {
+  const d = docDiemDen("#tab=ca-nhan&dia-diem=p-tiem-nuong-xom-lao");
+  assert.equal(d.tab, "ca-nhan");
+  assert.equal(d.diaDiem, "p-tiem-nuong-xom-lao");
+});
+
+test("dia-diem rỗng là không có, không phải một chỗ tên rỗng", () => {
+  for (const hash of ["#dia-diem=", "#dia-diem=%20%20"]) {
+    const d = docDiemDen(hash);
+    assert.equal(d.diaDiem, null, hash);
+    // And it must not drag the app past the opening screen on the strength of
+    // a parameter that named nothing.
+    assert.equal(d.boQuaMoDau, false, hash);
+  }
+});
+
+test("không có dia-diem thì trường này là null", () => {
+  assert.equal(docDiemDen("").diaDiem, null);
+  assert.equal(docDiemDen("#tab=kham-pha").diaDiem, null);
+});

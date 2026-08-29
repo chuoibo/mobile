@@ -40,14 +40,17 @@ export const TABS: Tab[] = [
     id: "kham-pha",
     label: "Khám phá",
     a11yLabel: "Khám phá — gợi ý chỗ đi cho nhóm",
-    // rd-do-fe-06 fills this in. Today it renders its own honest shell.
-    destination: { kind: "shell", screen: "KhamPha", owner: "devops", work: "rd-do-fe-06" },
+    // Real since rd-be-05 (#81) put `GET /places` behind it, and rd-fe-15
+    // added the `POST /places/search` box. The entry named rd-do-fe-06 as
+    // still owed for months after that work landed; nothing rendered the
+    // claim, so nothing contradicted it either.
+    destination: { kind: "built", screen: "KhamPha" },
   },
   {
     id: "len-plan",
     label: "Lên plan",
     a11yLabel: "Lên plan — chuyến đi của nhóm",
-    destination: { kind: "shell", screen: "LenPlan", owner: "frontend", work: "chưa xếp" },
+    destination: { kind: "built", screen: "LenPlan" },
   },
   {
     id: "tin-nhan",
@@ -59,10 +62,39 @@ export const TABS: Tab[] = [
     id: "ca-nhan",
     label: "Cá nhân",
     a11yLabel: "Cá nhân — hồ sơ và tài chính của bạn",
-    // rd-do-fe-09 fills this in.
-    destination: { kind: "shell", screen: "CaNhan", owner: "devops", work: "rd-do-fe-09" },
+    // rd-do-fe-09 shipped this in #96: the finance summary is read back from
+    // the ledger rather than cached, and #99 gave the scroll area its keyboard
+    // stop. The entry kept naming rd-do-fe-09 as owed anyway.
+    destination: { kind: "built", screen: "CaNhan" },
   },
 ];
+
+/** The whole-screen tasks the shell knows how to take over with.
+ *
+ * A closed union rather than a string, so `VoTab` can hold a
+ * `Record<CreateFlowId, ...>` and adding a flow here without teaching the
+ * shell to open it is a compile error rather than a menu row that quietly
+ * does nothing.
+ */
+export type CreateFlowId = "khoan-chi" | "nhom" | "ky-niem";
+
+/**
+ * How the shell reaches a create action -- as data the shell reads, not as a
+ * branch inside it.
+ *
+ * `null` means nothing is wired: pressing the row explains itself instead of
+ * navigating. This field is what makes `built` checkable. `built` is a claim
+ * made to the reader (`MenuTao` drops the "vỏ" chip when it is true); `route`
+ * is the mechanism that has to exist for the claim to hold. Two independent
+ * statements about the same thing, cross-checked in
+ * `tests/navigation.test.mjs`, replace what used to be one statement here and
+ * a hand-copied list of ids over there -- which every UI branch rewrote, and
+ * which passed just as happily when the copy was updated and the wiring was
+ * not.
+ */
+export type CreateRoute =
+  | { kind: "tab"; tab: string }
+  | { kind: "flow"; flow: CreateFlowId };
 
 export type CreateAction = {
   id: CreateActionId;
@@ -71,34 +103,57 @@ export type CreateAction = {
   hint: string;
   /** True when pressing it reaches real behaviour rather than a shell. */
   built: boolean;
+  /** Where pressing it goes. `null` for an action nobody has wired yet. */
+  route: CreateRoute | null;
 };
 
 /**
  * What [+] opens.
  *
- * Exactly one of these is wired to something real today, and the menu says so
- * out loud rather than letting four identical rows imply four working
- * features. Spec section 14.3's rule about not designing ahead of the actions
- * cuts both ways: the actions that do not exist yet must not pretend to.
+ * All four reach real behaviour today, and the menu says so out loud rather
+ * than letting four identical rows imply four working features. Spec section
+ * 14.3's rule about not designing ahead of the actions cuts both ways: the
+ * action that does not exist yet must not pretend to. That the list happens to
+ * be all-true today is why `built` stays rather than being deleted as
+ * redundant -- the next action added here starts at `false` and earns it.
+ *
+ * Wiring a new one is two edits in this list -- `built: true` and a `route` --
+ * and no edit to the suite. Leaving either one out is a red run.
  */
 export const CREATE_ACTIONS: CreateAction[] = [
   {
     id: "tao-chuyen",
     label: "Tạo chuyến",
     hint: "Rủ nhóm đi đâu đó, chọn ngày",
-    built: false,
+    // F13/F15. Not a flow of its own: it lands on the Lên plan tab, whose own
+    // destination therefore has to be a built screen and not a shell.
+    built: true,
+    route: { kind: "tab", tab: "len-plan" },
   },
   {
     id: "tao-khoan-chi",
     label: "Tạo khoản chi",
     hint: "Chụp bill hoặc nhập tay, AI chia tiền",
     built: true,
+    route: { kind: "flow", flow: "khoan-chi" },
   },
   {
     id: "dang-ky-niem",
-    label: "Đăng kỷ niệm",
-    hint: "Ảnh và khoảnh khắc của chuyến vừa rồi",
-    built: false,
+    // Renamed from "Đăng kỷ niệm" because what exists is the wall, not the
+    // posting. F30's read side is built -- `screens/ky-niem/KyNiem.tsx` opens
+    // `GET /contexts/{id}/recap` and shows the trips that are over, where they
+    // went and what they cost. Uploading a photo (F35) is not built and there
+    // is no photo store to put one in, so a menu row saying "Đăng" would
+    // promise the half that does not exist. The label names the half that does.
+    //
+    // The route is what turns that claim into something the suite can check:
+    // the previous comment here explained a `null` route as the honest part,
+    // and it was, right up until the wall existed. Now the honest part is that
+    // both move together.
+    label: "Kỷ niệm nhóm",
+    hint: "Xem lại chuyến đã đi, chỗ đã tới, tiền đã chia",
+    built: true,
+    route: { kind: "flow", flow: "ky-niem" },
   },
   {
     id: "tao-nhom",
@@ -106,10 +161,9 @@ export const CREATE_ACTIONS: CreateAction[] = [
     hint: "Lập hội mới, mời bạn vào",
     // F03/F04 built this: the action opens `screens/vao-cua/Nhom.tsx`, which
     // sends `POST /contexts`, `PUT /people/{id}` and
-    // `POST /contexts/{id}/members` for real. `tests/navigation.test.mjs`
-    // reads this flag, so flipping it without wiring the screen fails there
-    // rather than in front of somebody pressing the menu.
+    // `POST /contexts/{id}/members` for real.
     built: true,
+    route: { kind: "flow", flow: "nhom" },
   },
 ];
 
@@ -118,6 +172,47 @@ export const DEFAULT_TAB = "kham-pha";
 
 export function tabById(id: string): Tab | null {
   return TABS.find((t) => t.id === id) ?? null;
+}
+
+/**
+ * Where an action's `built` claim and its `route` disagree, in words.
+ *
+ * Three ways a menu row can lie, and this reports all three rather than the
+ * first, so one run names every row that needs fixing:
+ *
+ *   - claims built, goes nowhere -- the row loses its "vỏ" chip and then does
+ *     nothing when pressed;
+ *   - wears "vỏ" while a route exists -- working behaviour hidden behind a
+ *     mark that tells people not to bother;
+ *   - lands on a tab that is itself a shell -- reachable, and still nothing
+ *     there. This is the one a rebase produces on its own: a branch cut before
+ *     the Lên plan screen landed carries `destination: shell` for it, Git
+ *     merges that against a `built: true` action without a word, and the
+ *     result is a menu row pointing at a placeholder.
+ *
+ * Returned rather than thrown: this is a fact about the table, and the suite
+ * is where a fact about the table should stop a change.
+ */
+export function misroutedActions(): string[] {
+  const problems: string[] = [];
+  for (const a of CREATE_ACTIONS) {
+    if (a.built && a.route === null) {
+      problems.push(`${a.id}: nhận là đã nối nhưng không có route`);
+      continue;
+    }
+    if (!a.built && a.route !== null) {
+      problems.push(`${a.id}: còn đeo nhãn vỏ trong khi route đã có`);
+      continue;
+    }
+    if (a.route?.kind !== "tab") continue;
+    const tab = tabById(a.route.tab);
+    if (!tab) {
+      problems.push(`${a.id}: route trỏ tới tab "${a.route.tab}" không có thật`);
+    } else if (tab.destination.kind !== "built") {
+      problems.push(`${a.id}: route trỏ tới tab "${tab.id}", mà tab đó còn là vỏ`);
+    }
+  }
+  return problems;
 }
 
 /**

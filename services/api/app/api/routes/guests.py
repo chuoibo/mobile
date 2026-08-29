@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pathlib
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, Path, Request, status
@@ -10,15 +11,18 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.api.deps import get_repository
+from app.api.errors import ApiProblem
+from app.api.guest_privacy import GUEST_PATH_PREFIX
 from app.api.repository import ApiRepository
 from app.api.schemas import ErrorResponse, PaymentReportRequest, PaymentReportResponse
-import uuid
-
-from app.api.errors import ApiProblem
 from app.api.service import ApiService
 from app.web.guest_view import NEUTRAL_PREVIEW
 
-router = APIRouter(tags=["guests"])
+# Mounted on the same constant `GuestPrivacyHeadersMiddleware` matches, so a
+# route added here inherits the privacy headers by being registered at all.
+# None of the handlers below set those headers themselves; that used to be a
+# dict copied per handler and three routes were shipping without it.
+router = APIRouter(prefix=GUEST_PATH_PREFIX, tags=["guests"])
 WEB_ROOT = pathlib.Path(__file__).resolve().parents[2] / "web"
 templates = Jinja2Templates(directory=str(WEB_ROOT / "templates"))
 Token = Annotated[
@@ -28,7 +32,7 @@ Token = Annotated[
 
 
 @router.get(
-    "/g/{token}",
+    "/{token}",
     response_class=HTMLResponse,
     responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
 )
@@ -44,16 +48,11 @@ def guest_page(
         request=request,
         name="guest.html",
         context={"view": view, "preview": NEUTRAL_PREVIEW, "token": token},
-        headers={
-            "Cache-Control": "no-store",
-            "Referrer-Policy": "no-referrer",
-            "X-Robots-Tag": "noindex, nofollow",
-        },
     )
 
 
 @router.post(
-    "/g/{token}/da-chuyen",
+    "/{token}/da-chuyen",
     response_model=PaymentReportResponse,
     status_code=status.HTTP_201_CREATED,
     responses={
@@ -72,7 +71,7 @@ def report_payment(
 ) -> PaymentReportResponse | RedirectResponse:
     response = ApiService(repository).report_payment(token, request)
     if "text/html" in http_request.headers.get("accept", ""):
-        return RedirectResponse(url=f"/g/{token}", status_code=303)
+        return RedirectResponse(url=f"{GUEST_PATH_PREFIX}/{token}", status_code=303)
     return response
 
 
@@ -81,15 +80,10 @@ def _page(request: Request, name: str, view: dict, token: str) -> HTMLResponse:
         request=request,
         name=name,
         context={"view": view, "preview": NEUTRAL_PREVIEW, "token": token},
-        headers={
-            "Cache-Control": "no-store",
-            "Referrer-Policy": "no-referrer",
-            "X-Robots-Tag": "noindex, nofollow",
-        },
     )
 
 
-@router.get("/g/{token}/khong-phai-toi", response_class=HTMLResponse)
+@router.get("/{token}/khong-phai-toi", response_class=HTMLResponse)
 def not_me_page(
     request: Request,
     token: Token,
@@ -104,7 +98,7 @@ def not_me_page(
     return _page(request, "guest_not_me.html", ApiService(repository).not_me_view(token), token)
 
 
-@router.post("/g/{token}/khong-phai-toi", response_class=HTMLResponse)
+@router.post("/{token}/khong-phai-toi", response_class=HTMLResponse)
 def not_me_submit(
     request: Request,
     token: Token,
@@ -130,7 +124,7 @@ def not_me_submit(
     )
 
 
-@router.get("/g/{token}/doi-so-tien", response_class=HTMLResponse)
+@router.get("/{token}/doi-so-tien", response_class=HTMLResponse)
 def wrong_amount_page(
     request: Request,
     token: Token,
@@ -148,7 +142,7 @@ def wrong_amount_page(
     )
 
 
-@router.post("/g/{token}/doi-so-tien", response_class=RedirectResponse)
+@router.post("/{token}/doi-so-tien", response_class=RedirectResponse)
 def wrong_amount_submit(
     token: Token,
     repository: Annotated[ApiRepository, Depends(get_repository)],
@@ -158,10 +152,10 @@ def wrong_amount_submit(
     ApiService(repository).record_objection(
         token, "wrong_amount", uuid.UUID(obligation_id), reason
     )
-    return RedirectResponse(url=f"/g/{token}", status_code=303)
+    return RedirectResponse(url=f"{GUEST_PATH_PREFIX}/{token}", status_code=303)
 
 
-@router.post("/g/{token}/xin-cach-tinh", response_class=RedirectResponse)
+@router.post("/{token}/xin-cach-tinh", response_class=RedirectResponse)
 def request_evidence(
     token: Token,
     repository: Annotated[ApiRepository, Depends(get_repository)],
@@ -176,4 +170,7 @@ def request_evidence(
     ApiService(repository).record_objection(
         token, "evidence_request", uuid.UUID(obligation_id), None
     )
-    return RedirectResponse(url=f"/g/{token}/doi-so-tien?obligation_id={obligation_id}", status_code=303)
+    return RedirectResponse(
+        url=f"{GUEST_PATH_PREFIX}/{token}/doi-so-tien?obligation_id={obligation_id}",
+        status_code=303,
+    )

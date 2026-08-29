@@ -27,6 +27,13 @@ jobs:
       - name: Scan the complete checked-out tree
         run: python3 scripts/repo_guard.py tree HEAD
 
+      # Lives in this workflow rather than `test.yml` on purpose: `test.yml` no
+      # longer runs on pull_request (Actions billing), and a fork is created by
+      # the act of opening the second PR -- which is exactly when this needs to
+      # speak. Pure stdlib, no database, no alembic install, milliseconds.
+      - name: Refuse a migration tree with more than one head
+        run: python3 scripts/check_alembic_heads.py
+
       - name: Scan every commit introduced by the pull request
         if: github.event_name == 'pull_request'
         env:

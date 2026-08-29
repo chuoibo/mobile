@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.cors import install_cors
 from app.api.errors import ApiProblem
+from app.api.guest_privacy import GuestPrivacyHeadersMiddleware
 from app.api.idempotency import (
     IdempotencyMiddleware,
     IdempotencyStore,
@@ -33,6 +34,7 @@ from app.api.routes import (
     outings,
     people,
     places,
+    recap,
     receipts,
 )
 from app.api.schemas import ErrorResponse
@@ -80,6 +82,7 @@ def create_app(
     application.include_router(identity.router)
     application.include_router(places.router)
     application.include_router(finance.router)
+    application.include_router(recap.router)
     application.include_router(receipts.router)
 
     # Middleware, not a decorator on each route: a write route added later is
@@ -100,6 +103,14 @@ def create_app(
         store_factory=idempotency_store_factory or sqlalchemy_store_factory,
         **idempotency_options,
     )
+
+    # Same argument as the layer above, on the other boundary: the guest URL
+    # carries its own credential, so every answer under `/g` needs the same
+    # no-store / no-referrer / noindex headers -- including the 404 for a token
+    # that has been revoked, which is the answer most likely to be forwarded.
+    # As a decorator on each handler this was already wrong on three of the
+    # seven guest routes.
+    application.add_middleware(GuestPrivacyHeadersMiddleware)
 
     # Installed last, which is what puts it outermost: `add_middleware`
     # prepends, and the first entry wraps everything after it.

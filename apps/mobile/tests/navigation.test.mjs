@@ -12,11 +12,15 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   CREATE_ACTIONS,
   DEFAULT_TAB,
   TABS,
+  misroutedActions,
   tabById,
   unreachableTabs,
 } from "../dist-test/navigation/tabs.js";
@@ -72,14 +76,108 @@ test("màn còn là vỏ thì khai ra chủ và việc sẽ dựng nó", () => {
   }
 });
 
+/* The tab side of the rule #138 gave the [+] menu.
+ *
+ * For CREATE_ACTIONS the claim (`built`) and the mechanism (`route`) are two
+ * fields that can disagree, and disagreeing is the failure. For TABS the claim
+ * is `destination.kind` -- and until now nothing held the mechanism, so the
+ * claim answered to nobody. It went stale exactly the way an unchecked claim
+ * does: `kham-pha` and `ca-nhan` sat at `kind: "shell"`, each naming a devops
+ * work item still owed, for the whole time `VoTab` was rendering their real
+ * screens. rd-do-fe-09 shipped Cá nhân in #96 and rd-be-05 shipped Khám phá in
+ * #81; the table said both were placeholders until rd-fe-16.
+ *
+ * Nothing about that was visible. `VoTab` renders by tab id and never consults
+ * `destination`, so no screen looked wrong to a person tapping around -- the
+ * only reader being lied to was the next engineer, plus the one rule that does
+ * read it (`misroutedActions`: a [+] row may not land on a shell tab), which
+ * would have refused a correct wiring to either tab.
+ *
+ * So the mechanism is read from `VoTab.tsx` itself rather than from a second
+ * field somebody has to remember to set. That keeps the two statements
+ * independent -- the shell's JSX is what actually decides what a tap shows --
+ * and means deleting a screen out of the shell reddens this file rather than
+ * leaving a tab pointing at a component that no longer renders.
+ */
+const VO_TAB_SRC = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "..", "src", "navigation", "VoTab.tsx"),
+  "utf8",
+);
+
+/** What the shell really renders, as `tab id -> component name`.
+ *
+ * Parsed from the source rather than imported, because the fact wanted here is
+ * a statement `VoTab` makes about itself. Importing the component would only
+ * prove it exists, which is the thing that was never in doubt. */
+function screensVoTabRenders() {
+  const found = new Map();
+  // The `\(?` is not defensive padding. Prettier wraps a branch in parens the
+  // moment its element grows past one line, so a screen gaining a prop rewrites
+  // `? <KhamPha />` into `? (\n  <KhamPha ... />\n)` with no change in meaning.
+  // #136 did exactly that to `kham-pha` while this branch was open, and the
+  // guard below is what reported it rather than this file quietly reading three
+  // branches and accusing a tab of rendering nothing.
+  const pattern = /tab === "([a-z0-9-]+)"\s*\?\s*\(?\s*<([A-Za-z0-9_]+)/g;
+  let m;
+  while ((m = pattern.exec(VO_TAB_SRC)) !== null) found.set(m[1], m[2]);
+  return found;
+}
+
+test("phép đọc VoTab bắt được các nhánh render, không phải khớp rỗng", () => {
+  // Guard on the guard. A regex that silently stops matching would turn every
+  // assertion below into "no tabs render anything", which passes by vacuum --
+  // the failure mode this repo keeps finding in its own gates.
+  const rendered = screensVoTabRenders();
+  assert.ok(
+    rendered.size >= 4,
+    `chỉ đọc được ${rendered.size} nhánh render trong VoTab.tsx; regex hỏng hoặc shell đổi cách viết`,
+  );
+});
+
+test("tab nào shell render thật thì khai built, tab nào không thì khai vỏ", () => {
+  // Collected rather than asserted row by row, so one run names every stale
+  // tab instead of the first. `misroutedActions` states the reason on the
+  // menu side: a fix list is worth more than a fix.
+  const rendered = screensVoTabRenders();
+  const problems = [];
+  for (const tab of TABS) {
+    const component = rendered.get(tab.id);
+    if (component && tab.destination.kind !== "built") {
+      problems.push(`${tab.id}: VoTab render <${component} /> thật nhưng bảng còn khai là vỏ`);
+    }
+    if (!component && tab.destination.kind !== "shell") {
+      problems.push(`${tab.id}: bảng khai đã dựng nhưng VoTab không render màn nào cho nó`);
+    }
+  }
+  assert.deepEqual(problems, []);
+});
+
+test("tên màn trong bảng đúng bằng component shell render", () => {
+  // Catches the rebase that keeps `kind: "built"` while the screen underneath
+  // was renamed or swapped: reachable, built, and pointing at the wrong name.
+  const rendered = screensVoTabRenders();
+  for (const tab of TABS) {
+    const component = rendered.get(tab.id);
+    if (!component) continue;
+    assert.equal(
+      tab.destination.screen,
+      component,
+      `${tab.id}: bảng ghi "${tab.destination.screen}" nhưng VoTab render <${component} />`,
+    );
+  }
+});
+
 /* ------------------------------------------------------------ menu [+] --- */
 
-test("nút [+] mở đúng bốn mục", () => {
+test("nút [+] mở đúng bốn mục, mỗi mục một nhãn riêng", () => {
+  // Four is rd-do-fe-02's number and stays hand-written: it is a decision
+  // about the sheet, not a running total of what happens to be wired.
   assert.equal(CREATE_ACTIONS.length, 4);
-  assert.deepEqual(
-    CREATE_ACTIONS.map((a) => a.label),
-    ["Tạo chuyến", "Tạo khoản chi", "Đăng kỷ niệm", "Tạo nhóm"],
-  );
+  for (const a of CREATE_ACTIONS) {
+    assert.ok(a.label.trim(), `${a.id} không có nhãn`);
+  }
+  const labels = CREATE_ACTIONS.map((a) => a.label);
+  assert.equal(new Set(labels).size, labels.length, "hai mục trùng nhãn");
 });
 
 test("mỗi mục có một dòng giải thích, không phải bốn động từ trần", () => {
@@ -88,18 +186,59 @@ test("mỗi mục có một dòng giải thích, không phải bốn động t�
   }
 });
 
-test("đúng hai mục được đánh dấu đã nối: khoản chi và tạo nhóm", () => {
-  // This is the assertion that keeps the menu honest. If a later change wires
-  // up another action, this test fails and forces the flag to be updated
-  // rather than letting shells quietly keep claiming to work -- or letting a
-  // working feature keep wearing the "vỏ" mark.
-  //
-  // `tao-nhom` joined the list with F03/F04: the action opens
-  // `screens/vao-cua/Nhom.tsx`, which sends `POST /contexts`,
-  // `PUT /people/{id}` and `POST /contexts/{id}/members` against the real API.
-  // The other two are still shells and still say so.
-  const built = CREATE_ACTIONS.filter((a) => a.built);
-  assert.deepEqual(built.map((a) => a.id), ["tao-khoan-chi", "tao-nhom"]);
+/* The three tests below replace one that hand-copied the list of wired ids.
+ *
+ * That copy was the same truth written twice -- once as `built` in tabs.ts,
+ * once as an array here -- so the two could disagree, and every UI branch had
+ * to rewrite the array. Worse, the copy made the gate decorative for the case
+ * it was written for: setting `built: true` with nothing wired passed as soon
+ * as somebody updated the array to match, which is exactly what a PR author
+ * does when a test complains.
+ *
+ * What is asserted now is the relationship between the claim (`built`, which
+ * is what `MenuTao` renders the "vỏ" chip from) and the mechanism (`route`,
+ * which is what `VoTab.chonTao` navigates by). Neither is derived from the
+ * other, so they can still disagree -- and disagreeing is the failure. Wiring
+ * a new action means editing tabs.ts and nothing here.
+ */
+
+test("mục nhận đã nối thì phải có đường đi thật, và ngược lại", () => {
+  assert.deepEqual(misroutedActions(), []);
+});
+
+test("mục đã nối có route, mục còn vỏ thì không", () => {
+  // The same rule as above, stated per-action so a failure names the row
+  // rather than only the list.
+  for (const a of CREATE_ACTIONS) {
+    assert.equal(
+      a.route !== null,
+      a.built,
+      `${a.id}: built=${a.built} nhưng route=${JSON.stringify(a.route)}`,
+    );
+  }
+});
+
+test("route kiểu tab trỏ tới tab có thật, và tab đó không còn là vỏ", () => {
+  // A menu row landing on a placeholder is reachable and still empty. This is
+  // the case a rebase can create with no conflict marker: a branch cut before
+  // a screen landed still calls that screen a shell.
+  for (const a of CREATE_ACTIONS) {
+    if (a.route?.kind !== "tab") continue;
+    const tab = tabById(a.route.tab);
+    assert.ok(tab, `${a.id} trỏ tới tab "${a.route.tab}" không có trong TABS`);
+    assert.equal(tab.destination.kind, "built", `${a.id} trỏ tới tab còn là vỏ`);
+  }
+});
+
+test("mọi mục còn vỏ đều có nhãn giải thích cho người bấm", () => {
+  // The honest-shell rule from the tab side, applied to the sheet: a row that
+  // does nothing has to say something. `MenuTao` renders the chip from
+  // `built`, and the notice in `VoTab` from the missing route.
+  for (const a of CREATE_ACTIONS) {
+    if (a.built) continue;
+    assert.equal(a.route, null, `${a.id} đeo nhãn vỏ mà vẫn đi được`);
+    assert.ok(a.hint.trim(), `${a.id} không nói gì về việc chưa dựng`);
+  }
 });
 
 /* ------------------------------------------------------------ nhóm demo --- */

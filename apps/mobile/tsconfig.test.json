@@ -22,9 +22,19 @@
     "src/navigation/tabs.ts",
     "src/navigation/nhom-demo.ts",
     "src/screens/kham-pha/places.ts",
+    // F12's search box. `tim-kiem.ts` is the request and the reading of the
+    // reply; `CauAiHieu.tsx` is compiled too because the requirement rd-fe-15
+    // carries is that the model's reading is *on screen*, and whether a value
+    // reached the markup is not a fact a source read can establish. See
+    // `tim-dia-diem.test.mjs` and `hieu-cau-web.test.mjs`.
+    "src/screens/kham-pha/tim-kiem.ts",
+    "src/screens/kham-pha/CauAiHieu.tsx",
     "src/screens/chat/uuid5.ts",
     "src/screens/chat/tin-nhan.ts",
     "src/screens/chat/ke-hoach.ts",
+    // F17's vote counting. Compiled so `binh-chon.test.mjs` can run the fold
+    // under bare node, with no renderer and no server.
+    "src/screens/chat/binh-chon.ts",
     "src/screens/chat/ai.ts",
     "src/screens/chat/nhom.ts",
     "src/screens/chat/TinNhan.tsx",
@@ -34,6 +44,11 @@
     "src/screens/chat/ONhap.tsx",
     "src/navigation/lien-ket.ts",
     "src/screens/ca-nhan/tai-chinh.ts",
+    // F30's date arithmetic. Compiled because the rule under test -- a trip's
+    // calendar days must not be shifted by the reading machine's timezone -- is
+    // invisible at +07 and at UTC, and only shows up when the test runs itself
+    // in a negative offset. That is a property of this module, not of a screen.
+    "src/screens/ky-niem/ky-uc.ts",
     // F01's number rules. The derivation itself moved to the server in
     // bug-140342 -- an unkeyed digest over 5x10^8 numbers is reversible -- so
     // what is compiled here is what the device still decides on its own: which
@@ -43,6 +58,11 @@
     // id. Compiled so a test can assert the client refuses a bad number
     // BEFORE it travels, which is a property of this file and not of the API.
     "src/screens/vao-cua/cong-api.ts",
+    // F05's friend code. Same reason as the line above, and one more: the
+    // property that matters most here is a *negative* one -- no telephone
+    // number reaches the payload -- and a negative is only worth asserting
+    // against the string the encoder actually produces.
+    "src/screens/vao-cua/ma-ban.ts",
     // Two screens compiled rather than only logic modules, so a test can
     // render them and read the markup react-native-web actually emits. See
     // `tools/fixup-esm.mjs` for why that is the real DOM and not a mock.
@@ -71,6 +91,14 @@
     // whether it survives is a fact about emitted markup rather than source:
     // `focusable` compiles just as well as `tabIndex` and reaches the DOM as
     // nothing. See `vung-cuon-ban-phim.test.mjs`.
-    "src/screens/ca-nhan/CaNhan.tsx"
+    "src/screens/ca-nhan/CaNhan.tsx",
+    // F13/F15 outing screens. Compiled so a test can run the pure rules under
+    // bare node and render the two forms through react-native-web, the same
+    // substitution Expo's web build performs, and read the markup a browser
+    // would actually get. See `tools/fixup-esm.mjs`.
+    "src/screens/len-plan/buoi-di.ts",
+    "src/screens/len-plan/LenPlan.tsx",
+    "src/screens/len-plan/TaoBuoiDi.tsx",
+    "src/screens/len-plan/DongThoiGian.tsx"
   ]
 }

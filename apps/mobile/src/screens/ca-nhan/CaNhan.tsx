@@ -24,6 +24,7 @@ import { radius, space, type, usePalette } from "../../theme";
 import { Card } from "../../ui/Kit";
 import { Gradient, HERO_SUNSET } from "../../navigation/Gradient";
 import { DEMO_GROUP_NAME, type DemoPerson } from "../../navigation/nhom-demo";
+import { MaCuaToi } from "./MaCuaToi";
 import {
   FinanceError,
   layTaiChinh,
@@ -102,6 +103,7 @@ export function CaNhan({
         <TaiChinh trang={trang} onThuLai={lamMoi} coNguoi={Boolean(nguoi)} />
         <GiaoDich trang={trang} />
         <NhomCuaBan trang={trang} />
+        <MaKetBan nguoi={nguoi} ten={tenHienThi(nguoi, trang)} />
       </View>
     </ScrollView>
   );
@@ -404,6 +406,34 @@ function DongGiaoDich({ m }: { m: Movement }) {
         <Text style={{ ...type.micro, color: c.inkFaint }}>{ngayNgan(m.occurred_at)}</Text>
       </View>
     </View>
+  );
+}
+
+/** F05. This person's own code, on the screen that is about who they are.
+ *
+ * Placed under "Nhóm của bạn" because the two are the same act read from
+ * opposite ends: that card counts the groups somebody is already in, this one
+ * is how they get into the next. The mockup's profile screen carries the
+ * identity block, and a code is identity in a form a camera can read.
+ *
+ * Renders nothing when nobody is signed in. A QR built for "Khách" would be a
+ * working square that adds a person who does not exist, which is worse than an
+ * absent card -- and `ChuaChon` above already says why the screen is empty.
+ */
+function MaKetBan({ nguoi, ten }: { nguoi: DemoPerson | null; ten: string }) {
+  const c = usePalette();
+  if (!nguoi) return null;
+  return (
+    <Card>
+      <Text style={{ ...type.title, color: c.ink }}>Mã kết bạn của bạn</Text>
+      <Text style={{ ...type.label, color: c.inkSoft }}>
+        Đưa mã này cho người bạn muốn thêm. Họ quét xong là mở màn nhóm với tên
+        bạn đã điền sẵn, chỉ việc mời vào nhóm.
+      </Text>
+      <View style={{ marginTop: space.sm }}>
+        <MaCuaToi personId={nguoi.personId} ten={ten} />
+      </View>
+    </Card>
   );
 }
 

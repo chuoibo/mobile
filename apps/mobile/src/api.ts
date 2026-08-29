@@ -31,6 +31,13 @@ import type { Obligation } from "./screens/DotThu";
 import type { Envelope } from "./screens/ChiaSe";
 import type { Draft, Participant } from "./screens/NhapKhoanChi";
 import type { ReceiptScanWire } from "./receipt";
+import {
+  sapXepChang,
+  type BodyTaoBuoiDi,
+  type BuoiDi,
+  type ChangGui,
+  type CheckIn,
+} from "./screens/len-plan/buoi-di";
 import { makeIdFactory } from "./participants";
 import { maskAccount } from "./ui/vietqr";
 
@@ -1183,3 +1190,104 @@ const SCAN_REFUSALS: Record<string, string> = {
     "Bộ đọc bill đang không trả lời. Thử lại sau một chút, hoặc nhập tay các món ở bước sau.",
   permission_denied: "Tài khoản này chưa được phép đọc bill trong nhóm.",
 };
+
+/* ------------------------------------------------------- outings (F13/F15) */
+
+export type { BodyTaoBuoiDi, BuoiDi, ChangGui, CheckIn };
+
+/**
+ * Create an outing in a real group.
+ *
+ * `CONTEXT_ID` in this file has no row in `contexts`, so posting under it is a
+ * 403. Callers pass the id `khoiDongNhom` actually returned.
+ */
+export async function taoBuoiDi(
+  contextId: string,
+  body: BodyTaoBuoiDi,
+  actorId: string,
+  attempt: Attempt,
+): Promise<BuoiDi> {
+  return call<BuoiDi>(`/contexts/${contextId}/outings`, {
+    method: "POST",
+    body,
+    actorId,
+    attempt,
+    contexts: contextId,
+  });
+}
+
+/** List the group's outings. Membership is a query, not the actor header. */
+export async function docDanhSachBuoiDi(
+  contextId: string,
+  actorId: string,
+): Promise<{ context_id: string; outings: BuoiDi[] }> {
+  return call<{ context_id: string; outings: BuoiDi[] }>(
+    `/contexts/${contextId}/outings`,
+    { method: "GET", actorId, contexts: contextId },
+  );
+}
+
+/**
+ * Replace the timeline. Sorted here, not by the server: the server stores
+ * the array it was given, in that order, so position only matches clock
+ * time if we sort first.
+ */
+export async function luuDongThoiGian(
+  outingId: string,
+  stops: ChangGui[],
+  actorId: string,
+  attempt: Attempt,
+  contextId: string,
+): Promise<BuoiDi> {
+  return call<BuoiDi>(`/outings/${outingId}/timeline`, {
+    method: "PUT",
+    body: {
+      stops: sapXepChang(stops).map((stop) => ({
+        at: stop.at,
+        label: stop.label,
+        place_name: stop.place_name,
+      })),
+    },
+    actorId,
+    attempt,
+    contexts: contextId,
+  });
+}
+
+/**
+ * F46. Say the actor reached this stop.
+ *
+ * Deliberately sends NO body. The server already knows who is asking and what
+ * time it is, and those are the only two facts a check-in records. A body
+ * would be somewhere for a coordinate to arrive, and a coordinate attached to
+ * a person is a movement record the whole group can read -- reading the
+ * phone's GPS is F47 and is not built.
+ *
+ * A second press comes back 409 `already_checked_in`; the unique index in the
+ * database is what refuses it, not a check on this side.
+ */
+export async function checkInChang(
+  stopId: string,
+  actorId: string,
+  attempt: Attempt,
+  contextId: string,
+): Promise<CheckIn> {
+  return call<CheckIn>(`/outing-stops/${stopId}/checkins`, {
+    method: "POST",
+    actorId,
+    attempt,
+    contexts: contextId,
+  });
+}
+
+/** Who has arrived where, for one outing. Members only, enforced server-side. */
+export async function docCheckIn(
+  outingId: string,
+  actorId: string,
+  contextId: string,
+): Promise<{ outing_id: string; checkins: CheckIn[] }> {
+  return call<{ outing_id: string; checkins: CheckIn[] }>(
+    `/outings/${outingId}/checkins`,
+    { method: "GET", actorId, contexts: contextId },
+  );
+}
