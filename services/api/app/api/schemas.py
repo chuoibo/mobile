@@ -314,6 +314,28 @@ class MembershipListResponse(ApiModel):
     members: list[MembershipResponse]
 
 
+class ContextBalanceEntry(ApiModel):
+    person_id: UUID
+    net_vnd: MoneyVnd
+
+
+class SettlementTransferProposal(ApiModel):
+    """A suggested transfer that must not be treated as a frozen obligation."""
+
+    sender_id: UUID
+    recipient_id: UUID
+    amount_vnd: PositiveMoneyVnd
+
+
+class ContextBalancesResponse(ApiModel):
+    balances: list[ContextBalanceEntry]
+    transfers: list[SettlementTransferProposal] = Field(
+        description="Settlement proposals that require participant consent"
+    )
+    proven_minimal: StrictBool
+    transfer_count: Annotated[int, Field(strict=True, ge=0)]
+
+
 class MessageCreateRequest(ApiModel):
     kind: Literal["text", "image", "ai_card"]
     body: Annotated[StrictStr, Field(max_length=4000)] | None = None

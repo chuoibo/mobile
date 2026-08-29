@@ -104,6 +104,7 @@ class FakeRepository:
         self.people: dict[uuid.UUID, PersonRecord] = {}
         self.bills: dict[uuid.UUID, BillRecord] = {}
         self.finances: dict[uuid.UUID, PersonFinanceSummary] = {}
+        self.active_memberships: set[tuple[uuid.UUID, uuid.UUID]] = set()
         self.leak_guest_input = False
 
     @staticmethod
@@ -158,6 +159,9 @@ class FakeRepository:
         )
         self.people[person_id] = renamed
         return renamed
+
+    def is_member(self, context_id, person_id):
+        return (context_id, person_id) in self.active_memberships
 
     def create_bill(
         self,
@@ -334,7 +338,7 @@ class FakeRepository:
             record
             for version_id, record in self.confirmed.items()
             if record.context_id == context_id
-            and version_id not in self.batched_versions
+            and (selected is None or version_id not in self.batched_versions)
             and (selected is None or version_id in selected)
         )
         unavailable = (
@@ -343,6 +347,30 @@ class FakeRepository:
             else ()
         )
         return BatchInputs(expenses=records, unavailable_version_ids=unavailable)
+
+    def load_confirmed_receipts(self, context_id):
+        batch_version_ids = {
+            batch.version_id
+            for batch in self.batches.values()
+            if batch.context_id == context_id
+        }
+        totals = {}
+        for receipt in self.receipts.values():
+            obligation = self.obligations.get(receipt.obligation_id)
+            if (
+                obligation is None
+                or obligation.batch_version_id not in batch_version_ids
+                or receipt.confirmed_by_id != obligation.recipient_id
+            ):
+                continue
+            pair = (obligation.sender_id, obligation.recipient_id)
+            totals[pair] = totals.get(pair, 0) + receipt.amount_vnd
+        return dict(
+            sorted(
+                totals.items(),
+                key=lambda item: (item[0][0].bytes, item[0][1].bytes),
+            )
+        )
 
     def load_bank_recipients(self, recipient_ids):
         return {
