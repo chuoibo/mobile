@@ -111,7 +111,13 @@ const VO_TAB_SRC = readFileSync(
  * prove it exists, which is the thing that was never in doubt. */
 function screensVoTabRenders() {
   const found = new Map();
-  const pattern = /tab === "([a-z0-9-]+)"\s*\?\s*<([A-Za-z0-9_]+)/g;
+  // The `\(?` is not defensive padding. Prettier wraps a branch in parens the
+  // moment its element grows past one line, so a screen gaining a prop rewrites
+  // `? <KhamPha />` into `? (\n  <KhamPha ... />\n)` with no change in meaning.
+  // #136 did exactly that to `kham-pha` while this branch was open, and the
+  // guard below is what reported it rather than this file quietly reading three
+  // branches and accusing a tab of rendering nothing.
+  const pattern = /tab === "([a-z0-9-]+)"\s*\?\s*\(?\s*<([A-Za-z0-9_]+)/g;
   let m;
   while ((m = pattern.exec(VO_TAB_SRC)) !== null) found.set(m[1], m[2]);
   return found;
