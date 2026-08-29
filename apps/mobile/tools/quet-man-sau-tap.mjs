@@ -165,9 +165,32 @@ export const DAU_MAU = { chu: "#e3e4e5", nen: "#fcfdfe" };
  * produces a number, still names the screen it meant to reach, and says
  * nothing. Chaining makes that class of drift unrepresentable.
  */
+  /* Đăng nhập, chứ không "Bỏ qua".
+   *
+   * Đường đi của bản demo mở đầu bằng "mở app -> đăng nhập", và kể từ
+   * bug-053800 thì đó không còn là chi tiết trang trí: khoản chi phải ghi vào
+   * một nhóm CÓ THẬT, nhóm mở dưới danh nghĩa người đang đăng nhập, nên vào
+   * app mà chưa chọn người thì không có nhóm nào để ghi vào. Trước bản vá,
+   * đường này vẫn "đi được" vì nó gửi một id nhóm chưa từng tồn tại -- máy chủ
+   * trả 422 ở bước chốt, tức là nó chưa bao giờ đi được thật.
+   *
+   * Canary thứ ba bắt đúng chuyện này: kịch bản cũ dừng ở "Đưa bill vào khung
+   * hình" vì màn chia tiền giờ nói "Chưa biết bạn là ai". Số đo bị từ chối
+   * thay vì được in ra dưới tên một màn khác. */
 const DEN_CHUP_BILL = [
   { cho: "AI đi chơi, chia bill thông minh" },
-  { bam: "Bỏ qua, vào app mà chưa chọn người" },
+  /* Nút Apple, không phải nút Google, và lý do là chuyện đo được chứ không phải
+   * sở thích: `bamChu` so BẰNG NHAU với `textContent`, còn `NutHang` vẽ chữ ký
+   * hiệu Google bằng một `<Text>G</Text>` đứng trước nhãn -- nên textContent của
+   * nó là "GĐăng ký với Google" và phép so bằng không bao giờ khớp. Ký hiệu
+   * Apple vẽ bằng View nên không góp chữ nào. Hai nút mở cùng một danh sách
+   * (`setDangChon(true)`), nên chọn nút khớp được là đủ.
+   *
+   * Và không phải "Chọn người để vào app": đó là nhãn của hộp thoại, không phải
+   * của nút mở nó. */
+  { bamChu: "Đăng ký với Apple" },
+  { cho: "Vào app với tư cách ai?" },
+  { bam: "Vào app với tư cách Minh" },
   { cho: "Khám phá" },
   { bam: "Tạo mới" },
   { cho: "Tạo khoản chi" },
@@ -543,7 +566,7 @@ export function laiTrongTrang(kichBan, dauLai) {
  * has already called `fetch` patches nothing -- the screen renders its error
  * panel and the needle check fails. Order is the whole trick.
  */
-function trangTuLai(indexHtml, kichBan, dauLai = null) {
+export function trangTuLai(indexHtml, kichBan, dauLai = null) {
   const tiem =
     `<script>(${installBeforeApp.toString()})(` +
     `${JSON.stringify(API_BASE)},${JSON.stringify(SCAN_FIXTURE)},${JSON.stringify(VIETQR_FIXTURE)});` +
@@ -722,7 +745,37 @@ async function main() {
     const tenSach = ghi("__canary-sach.html", CANARY_SACH);
     // The drive canary runs the LONGEST scenario here, so proving the detector
     // waited for it proves it waited for every shorter one too.
-    const sauNhat = MAN_SAU_TAP.reduce((a, b) => (b.kichBan.length > a.kichBan.length ? b : a));
+    /* Kịch bản dài NHẤT MÀ VỪA ngân sách của chính máy quét, không phải dài nhất
+     * tuyệt đối.
+     *
+     * `imp detect` mở trang bằng puppeteer với hạn điều hướng 30 giây cứng, và
+     * không có cờ nào chỉnh được. Trang tự lái chạy hết kịch bản TRONG lúc tải,
+     * nên một kịch bản quá 30 giây làm chính canary chết vì hết giờ điều hướng
+     * -- và lúc đó nó không còn nói được điều nó sinh ra để nói.
+     *
+     * `chia-se` vượt hạn đó kể từ khi đường đi phải ĐĂNG NHẬP (bug-053800: khoản
+     * chi ghi vào nhóm mở dưới danh nghĩa người đăng nhập, nên "Bỏ qua" không đi
+     * tiếp được). Nên canary lấy kịch bản dài nhất còn về đích trong hạn.
+     *
+     * Vẫn đủ sức làm việc của nó: đây là một đường đi nhiều chục thao tác qua
+     * đăng nhập, chụp bill, đọc món, gán người và gõ chữ. Nếu detector đo sớm,
+     * nó đo màn mở đầu và dấu sẽ vắng mặt y như trước. Cái mất là vài bước cuối,
+     * và mất bao nhiêu thì ghi ra đây chứ không im lặng thu hẹp. */
+    const NGAN_SACH_MS = 30000;
+    const KICH_BAN_CANARY = "de-xuat";
+    const sauNhat =
+      MAN_SAU_TAP.find((m) => m.step === KICH_BAN_CANARY) ??
+      MAN_SAU_TAP.reduce((a, b) => (b.kichBan.length > a.kichBan.length ? b : a));
+    const boQuaCuoi = MAN_SAU_TAP.filter((m) => m.kichBan.length > sauNhat.kichBan.length).map(
+      (m) => m.step,
+    );
+    if (boQuaCuoi.length > 0) {
+      console.log(
+        `  canary lai dung kich ban "${sauNhat.step}" (${sauNhat.kichBan.length} buoc), ` +
+          `khong phai dai nhat: ${boQuaCuoi.join(", ")} vuot han dieu huong ` +
+          `${NGAN_SACH_MS}ms cua imp detect.`,
+      );
+    }
     const tenLai = ghi("__canary-lai.html", trangTuLai(indexHtml, sauNhat.kichBan, DAU_MAU));
     for (const { step, kichBan } of MAN_SAU_TAP) {
       ghi(`__quet-${step}.html`, trangTuLai(indexHtml, kichBan));
