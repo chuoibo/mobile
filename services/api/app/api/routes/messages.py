@@ -7,9 +7,16 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
 
-from app.api.deps import Actor, get_actor, get_repository
+from app.api.deps import (
+    Actor,
+    Companion,
+    get_actor,
+    get_companion,
+    get_repository,
+)
 from app.api.repository import ApiRepository
 from app.api.schemas import (
+    CompanionTurnResponse,
     ErrorResponse,
     MemberRoleRequest,
     MembershipResponse,
@@ -59,6 +66,20 @@ def list_context_messages(
 ) -> MessageListResponse:
     query = MessageQuery(limit=limit, before=before, after=after)
     return ApiService(repository).list_context_messages(context_id, query, actor)
+
+
+@router.post(
+    "/contexts/{context_id}/ai-turn",
+    response_model=CompanionTurnResponse,
+    responses=ERRORS,
+)
+def take_companion_turn(
+    context_id: UUID,
+    actor: Annotated[Actor, Depends(get_actor)],
+    companion: Annotated[Companion, Depends(get_companion)],
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+) -> CompanionTurnResponse:
+    return ApiService(repository).take_companion_turn(context_id, actor, companion)
 
 
 @router.put(

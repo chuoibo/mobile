@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Generator
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, Protocol
 from uuid import UUID
 
 from fastapi import Header
@@ -28,6 +28,19 @@ class Actor:
     id: UUID
     roles: frozenset[str]
     context_ids: frozenset[UUID]
+
+
+class Companion(Protocol):
+    """A model backend that returns an untrusted, raw companion card."""
+
+    def reply(
+        self,
+        *,
+        conversation: list[dict],
+        members: list[dict],
+        places: list[dict],
+        budget_per_person_vnd: int | None,
+    ) -> dict: ...
 
 
 def _csv(value: str | None) -> list[str]:
@@ -78,3 +91,11 @@ def get_receipt_reader() -> ReceiptReader:
     from app.api.vision_gemini import GeminiReceiptReader
 
     return GeminiReceiptReader()
+
+
+def get_companion() -> Companion:
+    """Build the external companion lazily so importing the app needs no key."""
+
+    from app.api.companion_gemini import GeminiCompanion
+
+    return GeminiCompanion()
