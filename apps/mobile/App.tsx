@@ -44,6 +44,7 @@ import {
   type SplitPreview,
 } from "./src/api";
 import { CoLoi, DangTai, TrongRong } from "./src/ui/TrangThai";
+import { moTaLoi } from "./src/ui/loi-tren-man";
 import {
   HAS_CAMERA,
   nativeBackend,
@@ -318,7 +319,9 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
       // message names the address it tried, so there is nothing to add here.
       // The branch that used to sit here looked for "fetch" in the message and
       // could never match -- a fallback that reads as careful and never runs.
-      setError(problem instanceof Error ? problem.message : String(problem));
+      // The non-Error half is `moTaLoi`'s now: `String()` of a thrown DOM node
+      // put `[object HTMLCanvasElement]` on this screen (bug-010822).
+      setError(moTaLoi(problem));
       // A sentence explaining a refusal is not the same as a way past it. This
       // is the one refusal on the flow whose fix is a screen in this app, so it
       // is the one that gets a button -- see `isBankRecipientMissing`.
@@ -371,7 +374,12 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
         })
         .catch((problem) => {
           if (cancelled) return;
-          setError(problem instanceof Error ? problem.message : String(problem));
+          // The same line as the catch above, and it was still here after that
+          // one was fixed. Nobody photographed this one because reaching it
+          // needs a preview request to reject, not a file to fail decoding --
+          // but the arm it lands in is the identical `String(problem)`, so it
+          // was the identical bug waiting on a different trigger (bug-010822).
+          setError(moTaLoi(problem));
         });
     }, 450);
     return () => {

@@ -56,11 +56,11 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MOBILE_ROOT = path.resolve(HERE, "..");
 
 /** Same sentinel `build:check` inlines. The stub keys off this prefix. */
-const API_BASE = "http://api.build-check.invalid";
+export const API_BASE = "http://api.build-check.invalid";
 
 /** `minh` is one of the seven demo people in `navigation/nhom-demo`. Naming one
  *  in the fragment is the same act as tapping their button on `MoDau`. */
-const NGUOI = "minh";
+export const NGUOI = "minh";
 
 /**
  * The screens, each with a string that only appears once the screen has its
@@ -71,7 +71,7 @@ const NGUOI = "minh";
  * like "Khám phá" appears in the tab bar of every screen including the broken
  * ones, so it would wave through exactly the failure it exists to catch.
  */
-const SCREENS = [
+export const SCREENS = [
   { step: "kham-pha", tab: "kham-pha", needle: "Tiệm Nướng Xóm Lào" },
   { step: "len-plan", tab: "len-plan", needle: "Đà Lạt cuối tuần" },
   { step: "tin-nhan", tab: "tin-nhan", needle: "Tối nay ăn gì?" },
@@ -254,26 +254,15 @@ function vietPngThu(file, w = 480, h = 360) {
   );
 }
 
-async function main() {
-  const buildDir = path.join(MOBILE_ROOT, ".expo-build-check");
-  const outDir = path.join(MOBILE_ROOT, ".screen-snapshots");
-
-  if (!fs.existsSync(path.join(buildDir, "index.html"))) {
-    throw new Error(
-      `No bundle at ${buildDir}/index.html. Run: cd apps/mobile && npm run build:check`,
-    );
-  }
-  if (!fs.existsSync(CHROME)) throw new Error(`Chromium not found at ${CHROME}`);
-
-  fs.mkdirSync(outDir, { recursive: true });
-  for (const { step } of SCREENS) {
-    try {
-      fs.unlinkSync(path.join(outDir, `${step}.html`));
-    } catch (err) {
-      if (err.code !== "ENOENT") throw err;
-    }
-  }
-
+/**
+ * Everything the four tabs need on the wire, as one object.
+ *
+ * Lifted out of `main()` so `quet-tab-url.mjs` can serve the SAME rows to the
+ * detector that this file photographs. Two hand-kept copies would drift, and
+ * the drift would be invisible in both directions: a scan reporting a screen
+ * the snapshot never showed, and a snapshot of a screen nobody scanned.
+ */
+export function taoFixtures() {
   const contextId = "1aa0be7f-9c3d-4e1a-8b2f-a7c5d9e3f1b6";
   const personId = "2bb1cf8e-7d4a-4f2b-9c3e-b8d6e0f4a2c7";
   // Shared by the outings list and the recap: `LenPlan` keys spend by outing
@@ -434,6 +423,30 @@ async function main() {
       ],
     },
   };
+  return fixtures;
+}
+
+async function main() {
+  const buildDir = path.join(MOBILE_ROOT, ".expo-build-check");
+  const outDir = path.join(MOBILE_ROOT, ".screen-snapshots");
+
+  if (!fs.existsSync(path.join(buildDir, "index.html"))) {
+    throw new Error(
+      `No bundle at ${buildDir}/index.html. Run: cd apps/mobile && npm run build:check`,
+    );
+  }
+  if (!fs.existsSync(CHROME)) throw new Error(`Chromium not found at ${CHROME}`);
+
+  fs.mkdirSync(outDir, { recursive: true });
+  for (const { step } of SCREENS) {
+    try {
+      fs.unlinkSync(path.join(outDir, `${step}.html`));
+    } catch (err) {
+      if (err.code !== "ENOENT") throw err;
+    }
+  }
+
+  const fixtures = taoFixtures();
 
   const server = createStaticServer(buildDir);
   let browser = null;

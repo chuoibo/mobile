@@ -282,6 +282,11 @@ dist-test/
 # không phải nguồn, và dựng lại được bất cứ lúc nào bằng một lệnh.
 .screen-snapshots/
 
+# Output of `apps/mobile/tools/quet-tab-url.mjs`. Kết quả một lần quét detector
+# trên bốn tab dựng thật, kèm số đo của hai canary. Cùng lý do như trên: bằng
+# chứng của một lần chạy, dựng lại được bằng một lệnh, không phải nguồn.
+.tab-scan/
+
 # Impeccable: ảnh chụp để review, là bằng chứng của một lần chạy chứ không phải
 # nguồn. Repo guard fail closed với binary nên chúng không được vào Git.
 .impeccable/review/
