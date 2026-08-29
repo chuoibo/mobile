@@ -490,9 +490,13 @@ def test_a_member_who_left_can_no_longer_read_the_wall(
 
     `state` and `left_at` move together here -- `memberships` carries a check
     constraint saying `(state = 'left') = (left_at IS NOT NULL)`, so a departed
-    row that still looks open is not a row this schema can hold. That makes
-    `left_at IS NULL` the clause this case pins; the invited case below is what
-    pins `state = 'active'`.
+    row that still looks open is not a row this schema can hold. Which means a
+    departed row fails *both* clauses of `is_member` at once, and this case
+    survives dropping either one on its own. Measured, not assumed: it stays
+    green under either single mutation and goes red only when both clauses go,
+    i.e. when `is_member` decays into "a row exists". That is the refactor it
+    is here to catch. The invited case below is the one that pins
+    `state = 'active'` by itself.
     """
 
     app = _app(postgres_session, monkeypatch)
