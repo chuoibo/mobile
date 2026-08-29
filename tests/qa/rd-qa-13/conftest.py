@@ -40,3 +40,26 @@ _spec.loader.exec_module(_module)
 # Re-exported so pytest sees them as fixtures of this directory.
 postgres_engine = _module.postgres_engine
 postgres_session = _module.postgres_session
+
+
+def pytest_configure(config):
+    """Register `postgres` here too, because the repo root declares no config.
+
+    `services/api/pyproject.toml` registers the mark and runs with
+    `--strict-markers`, but pytest picks its ini file from the rootdir it
+    derives from the invocation arguments. The gate command in CLAUDE.md --
+    `python3 -m pytest services/api/tests tests -q` from the repo root -- lands
+    on a rootdir with no pytest config at all, so the mark arrives unregistered
+    and every run of this directory carries a `PytestUnknownMarkWarning`.
+
+    That warning is not cosmetic: an unregistered mark is one `--strict-markers`
+    away from failing collection outright, and a reader who filters with
+    `-m postgres` from the wrong directory has no way to tell a real empty
+    selection from a mark that was never known. Registering it in this
+    directory's own conftest makes the mark mean the same thing from either
+    invocation point without touching a file this lane does not own.
+    """
+    config.addinivalue_line(
+        "markers",
+        "postgres: requires a real PostgreSQL database migrated by Alembic",
+    )

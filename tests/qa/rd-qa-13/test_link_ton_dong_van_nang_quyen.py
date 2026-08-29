@@ -173,18 +173,34 @@ def _outing(app, owner: Person, context: Context) -> dict:
     return response.json()
 
 
+# The three shapes an outstanding link can have when a stranger presents it.
+# Each one names a different half of the door, and each `_walk` mode below
+# states up front what the redeem route MUST answer for that shape. They are
+# module constants rather than a bool because a bool cannot express three
+# states, and the third one (revoked) guards a predicate that no case in the
+# earlier revision of this file touched at all.
+HET_HAN = "het-han"  # legacy row: expiry == created_at, dead on arrival
+THU_HOI = "thu-hoi"  # revoked by hand while still inside its window
+CON_HAN = "con-han"  # inside its window, never revoked -- the door opens
+
+
 def _outstanding_link(
-    session: Session, outing_id: str, owner: Person, *, con_han: bool = False
+    session: Session, outing_id: str, owner: Person, *, mode: str = HET_HAN
 ) -> OutingInvite:
-    """The row a pre-#124 mint left behind. Nothing revokes it.
+    """The row a pre-#124 mint left behind, in one of three shapes.
 
-    `con_han=False` is the legacy row: expiry equal to `created_at`, which is
-    what #132's backfill wrote for every link minted before the column existed.
+    `HET_HAN` is the legacy row: expiry equal to `created_at`, which is what
+    #132's backfill wrote for every link minted before the column existed.
 
-    `con_han=True` is a link that is still inside its window. That distinction
-    is the whole reason this helper takes an argument: after #132 the legacy row
-    is refused at the door, so a file that only ever built legacy rows stops
-    reaching the self-promotion route it exists to test. See `_walk`.
+    `THU_HOI` is a link whose window is still open but which somebody revoked.
+    `service.py` refuses it through the *other* half of the same predicate
+    (`invite.revoked_at is not None`), so without this shape a build that
+    dropped only that half would keep every case in this file green.
+
+    `CON_HAN` is a link that is still inside its window and was never revoked.
+    After #132 the legacy row is refused at the door, so a file that only ever
+    built legacy rows stops reaching the self-promotion route it exists to
+    test. See `_walk`.
     """
     columns = dict(
         id=uuid.uuid4(),
@@ -204,7 +220,16 @@ def _outstanding_link(
     # would make the file uncollectable on any build before it; leaving it out
     # makes the INSERT fail with NotNullViolation on any build after it.
     if hasattr(OutingInvite, "expires_at"):
-        columns["expires_at"] = NOW + timedelta(days=7) if con_han else NOW
+        columns["expires_at"] = NOW if mode == HET_HAN else NOW + timedelta(days=7)
+    if mode == THU_HOI:
+        # Same guard, same reason: a build that predates the column must still
+        # be able to collect this file rather than blow up at import.
+        assert hasattr(OutingInvite, "revoked_at"), (
+            "This build has no `revoked_at` column, so the revoked-link case "
+            "cannot be built. Do not skip it silently -- that is the exact "
+            "shape of green-by-not-running this file exists to refuse."
+        )
+        columns["revoked_at"] = NOW - timedelta(hours=1)
     invite = OutingInvite(**columns)
     session.add(invite)
     session.flush()
@@ -213,13 +238,12 @@ def _outstanding_link(
 
 @dataclass
 class Walk:
-    """What the two live routes produced, with no verdict attached.
+    """What the two live routes produced, after `_walk` graded the redeem.
 
-    `accepted` is None on a build that refuses the stale token, because there is
-    then no membership id to promote -- the door shut one step earlier. Cases
-    that would otherwise have nothing left to check in that branch assert
-    `stranger_states` instead, which is read back from the table and is a real
-    claim on either path.
+    `accepted` is None exactly when the redeem was refused, which `_walk` only
+    permits for the two shapes that are SUPPOSED to be refused (`HET_HAN`,
+    `THU_HOI`). For `CON_HAN` a refusal is a failed scene and `_walk` raises
+    before it gets here, so a None on that path can no longer read as green.
     """
 
     redeemed: httpx.Response
@@ -233,7 +257,7 @@ def _walk(
     postgres_session: Session,
     monkeypatch: pytest.MonkeyPatch,
     *,
-    con_han: bool = False,
+    mode: str = HET_HAN,
 ) -> Walk:
     """Redeem an outstanding link as a stranger, then try to self-promote.
 
@@ -241,17 +265,43 @@ def _walk(
     in its own test -- a single test would stop at the first violation and hide
     whether the promotion actually bought any data.
 
-    `con_han=True` demands that the redeem actually succeed. That is not a
-    second opinion about how a redeem should be answered -- it is the guard that
-    keeps this file honest. Measured on 32c02e0 rebased onto main e2736ad: with
-    the legacy row the redeem answers 404, `membership_id` stays None, the
-    escalation call is skipped, and BOTH cases below still pass while never
-    touching `/memberships/{id}/accept`. The file went green by not running.
+    EVERY MODE ASSERTS THE SCENE IT CLAIMS TO BUILD (rd-qa-13 round 3)
+
+    An earlier revision recorded the redeem status without grading it: `if 200:
+    ... else: assert 400 <= status < 500`. That was written to stop the helper
+    from picking between two legitimate product shapes (#128 lets the stale
+    token through then refuses the promotion; #132 refuses the token outright),
+    and as a shape-neutrality argument it was right.
+
+    It was wrong as a scene guard, and Lead measured the cost on main: with the
+    legacy row the redeem answers 404, `membership_id` stays None, the
+    escalation call is skipped, and the cases still passed -- their three 403s
+    true because the bearer was a STRANGER, not because the door held against
+    an INVITED bearer. The scene never reached the place being measured, and
+    two independent mutations (dropping the expiry+revocation predicate;
+    dropping `state == ACTIVE` from `is_member`) left the file at 3 passed.
+
+    The distinction the lenient branch missed: refusing to grade *which* 4xx a
+    build answers with is shape-neutrality, but refusing to say *whether* the
+    door should open at all throws away the claim. An expired link has exactly
+    one correct answer, and so does a live one. So each mode now names it:
+
+    * `HET_HAN` / `THU_HOI` -- the redeem MUST be refused and MUST write no
+      membership row. Red if the door is open.
+    * `CON_HAN` -- the redeem MUST reach an INVITED membership, because that id
+      is the only input `/memberships/{id}/accept` takes. Red if the scene
+      cannot be built, rather than quietly asserting about a request that was
+      never made.
+
+    Neither assertion names a status code, so both product shapes above are
+    still free to answer however they like -- what is no longer free is
+    answering the opposite way and having this file call it green.
     """
+    assert mode in (HET_HAN, THU_HOI, CON_HAN), mode
     context, owner, stranger = _scene(postgres_session)
     app = _http(postgres_session, monkeypatch)
     outing = _outing(app, owner, context)
-    _outstanding_link(postgres_session, outing["id"], owner, con_han=con_han)
+    _outstanding_link(postgres_session, outing["id"], owner, mode=mode)
 
     async def exchange():
         async with _client(app) as client:
@@ -279,9 +329,9 @@ def _walk(
     # passes just as happily on a blank page.
     assert before.status_code == 403, before.text
 
-    # Record which of the two shapes this build answered with; do not grade it.
-    # Whichever it is, the walk continues to the reads below, because the claim
-    # every case here makes is about what the bearer ends up able to see.
+    # Grade the redeem against what THIS mode's scene requires. No status code
+    # is named on either branch, so a build stays free to pick its own refusal
+    # shape (404 / 409 / 410) and its own success shape.
     membership_id: str | None = None
     if redeemed.status_code == 200:
         body = redeemed.json()
@@ -298,18 +348,32 @@ def _walk(
             f"Got {redeemed.status_code}: {redeemed.text}"
         )
 
-    if con_han:
-        # The path assertion. A link inside its window MUST reach an INVITED
-        # membership, because that membership id is the only input the
-        # self-promotion route takes -- without it the interesting call is
-        # simply not made, and every assertion downstream becomes a statement
-        # about a request that never happened.
+    if mode == CON_HAN:
+        # The scene assertion for the open door. A link inside its window MUST
+        # reach an INVITED membership, because that membership id is the only
+        # input the self-promotion route takes -- without it the interesting
+        # call is simply not made, and every assertion downstream becomes a
+        # statement about a request that never happened.
         assert membership_id is not None, (
             "A link still inside its window was refused at redeem "
             f"({redeemed.status_code}), so this walk never reached "
             "/memberships/{id}/accept and proves nothing about self-promotion. "
             "Either the expiry window moved or the redeem route changed; fix "
             f"the fixture rather than letting the case pass. Body: {redeemed.text}"
+        )
+    else:
+        # The scene assertion for the shut door, and the half that was missing.
+        # `HET_HAN` and `THU_HOI` are the two shapes `service.py` refuses at
+        # `invite.revoked_at is not None or invite.expires_at <= now`. Saying so
+        # out loud is what makes those cases claim something: without this line
+        # they read as "a stranger cannot get in", which is true on a build
+        # with no expiry check at all.
+        assert membership_id is None, (
+            f"An outstanding link of shape {mode!r} was REDEEMED "
+            f"({redeemed.status_code}) instead of refused, so the bearer now "
+            "holds a membership the group never granted. The door that is "
+            "supposed to shut here is `invite.revoked_at is not None or "
+            f"invite.expires_at <= now`. Body: {redeemed.text}"
         )
 
     async def escalate():
@@ -345,43 +409,76 @@ def _walk(
     return Walk(redeemed, accepted, after, balances, stranger_states)
 
 
-def test_a_link_bearer_cannot_promote_themselves_to_active(
+def test_an_expired_legacy_link_is_refused_and_buys_no_membership(
     postgres_session: Session, monkeypatch: pytest.MonkeyPatch
 ):
-    """`accept_context_membership` proves only `membership.person_id == actor.id`.
+    """The claim these two cases actually carry now: the door shuts at expiry.
 
-    The redeem step wrote that row one call earlier, so the predicate is
-    self-circular: it asks a question the attacker just supplied the answer to.
-    Nobody in the group ever chose this person.
+    Renamed from `test_a_link_bearer_cannot_promote_themselves_to_active`,
+    because that is no longer what this case measures and the old name said it
+    did. Once #132 backfilled `expires_at = created_at` for every pre-existing
+    link, the legacy row is refused at redeem, `/memberships/{id}/accept` is
+    never called, and the old body's `if walk.accepted is not None` guard made
+    the whole assertion optional. Self-promotion is now carried by
+    `test_a_live_link_bearer_cannot_promote_themselves_to_active`, which holds a
+    link the door really opens for; this case carries expiry.
+
+    Stating it positively is what makes it able to fail: `_walk` asserts the
+    redeem was refused, and the two lines below assert the refusal left nothing
+    behind. Drop the `expires_at <= now` half of the predicate in
+    `service.py` and this case goes red -- the previous revision stayed green.
     """
-    walk = _walk(postgres_session, monkeypatch)
+    walk = _walk(postgres_session, monkeypatch, mode=HET_HAN)
 
-    if walk.accepted is not None:
-        assert walk.accepted.status_code == 403, (
-            "A link bearer promoted THEMSELVES from INVITED to ACTIVE. "
-            f"Got {walk.accepted.status_code}: {walk.accepted.text}"
-        )
-
-    # The end state, asserted from the table. A build that refuses the redeem
-    # never reaches the branch above, and a case that only checked the branch
-    # above would pass there by having nothing left to look at. This line makes
-    # the same claim on both paths: nobody in the group chose this person, so no
-    # ACTIVE row may exist for them.
-    assert "ACTIVE" not in walk.stranger_states, (
-        "A link bearer holds an ACTIVE membership nobody in the group chose. "
+    # `_walk` already refused to continue if the redeem had succeeded, so this
+    # is the consequence of that refusal rather than a restatement of it: a
+    # door that shuts must also leave no membership row behind it.
+    assert walk.accepted is None, (
+        "The expired link was refused, yet the walk still reached "
+        "/memberships/{id}/accept -- the helper and the fixture disagree."
+    )
+    assert walk.stranger_states == [], (
+        "An expired legacy link left a membership row behind for its bearer. "
         f"Rows for the bearer: {walk.stranger_states}"
     )
 
 
-def test_a_link_bearer_never_reads_the_groups_messages_or_balances(
+def test_a_revoked_link_is_refused_and_buys_no_membership(
+    postgres_session: Session, monkeypatch: pytest.MonkeyPatch
+):
+    """The other half of the same predicate, which nothing here used to touch.
+
+    `service.py` shuts the door with `invite.revoked_at is not None or
+    invite.expires_at <= now`. Every case in the earlier revision of this file
+    built a link that was expired, so a build that deleted only the
+    `revoked_at` half kept the whole file green -- revoking a leaked link would
+    have silently stopped working while the probe that exists to watch this
+    door reported success.
+
+    This link is inside its window and was revoked by hand, so expiry cannot
+    account for the refusal: only the `revoked_at` half can.
+    """
+    walk = _walk(postgres_session, monkeypatch, mode=THU_HOI)
+
+    assert walk.accepted is None, (
+        "The revoked link was refused, yet the walk still reached "
+        "/memberships/{id}/accept -- the helper and the fixture disagree."
+    )
+    assert walk.stranger_states == [], (
+        "A revoked link left a membership row behind for its bearer. "
+        f"Rows for the bearer: {walk.stranger_states}"
+    )
+
+
+def test_an_expired_legacy_link_bearer_never_reads_messages_or_balances(
     postgres_session: Session, monkeypatch: pytest.MonkeyPatch
 ):
     """The consequence, asserted apart from the status code that enables it.
 
     Stated separately so a fix that only changes a status code cannot satisfy
-    the escalation test while the data stays readable.
+    the case above while the data stays readable.
     """
-    walk = _walk(postgres_session, monkeypatch)
+    walk = _walk(postgres_session, monkeypatch, mode=HET_HAN)
 
     assert walk.after.status_code == 403, (
         "The link bearer is reading the group's messages. "
@@ -412,9 +509,9 @@ def test_a_live_link_bearer_cannot_promote_themselves_to_active(
     self-circular predicate from the module docstring, and this is the only case
     in the file that can still go red if it comes back.
     """
-    walk = _walk(postgres_session, monkeypatch, con_han=True)
+    walk = _walk(postgres_session, monkeypatch, mode=CON_HAN)
 
-    # `con_han=True` already asserted the walk reached the escalation call, so
+    # `mode=CON_HAN` already asserted the walk reached the escalation call, so
     # this is a real response and not a skipped step wearing a green tick.
     assert walk.accepted is not None
     assert walk.accepted.status_code == 403, (
