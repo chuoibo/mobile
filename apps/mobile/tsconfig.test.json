@@ -22,6 +22,11 @@
     "src/navigation/tabs.ts",
     "src/navigation/nhom-demo.ts",
     "src/screens/kham-pha/places.ts",
+    "src/screens/chat/uuid5.ts",
+    "src/screens/chat/tin-nhan.ts",
+    "src/screens/chat/ke-hoach.ts",
+    "src/screens/chat/ai.ts",
+    "src/screens/chat/nhom.ts",
     "src/navigation/lien-ket.ts",
     "src/screens/ca-nhan/tai-chinh.ts",
     // Two screens compiled rather than only logic modules, so a test can

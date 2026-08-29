@@ -83,3 +83,39 @@ tru bon so cuoi.
 
 FINISH: build fully, then hand off to the finish reviewer with captures.
 `.trim();
+
+/** The direction contract for the group chat screens (rd-fe-07).
+ *
+ * Its own contract again, and the failure mode it guards is new: the other
+ * three screens are about a number, this one is about *who is speaking*. A
+ * group thread where the machine's voice is indistinguishable from a friend's
+ * is the defect, and it is the reason the one deliberate departure from the
+ * mockup is written into the OWN-WORLD block rather than left in a commit
+ * message.
+ *
+ * That departure: the mockup paints the screen header purple. Here it is
+ * `accent` orange like the rest of the shell, because `ai` purple has exactly
+ * one meaning in this palette -- "a machine made this" -- and spending it on
+ * the header would say the whole conversation was machine-written.
+ */
+export const DIRECTION_CONTRACT_NHOM_CHAT = `
+THESIS: AI ngoi trong nhom chu khong dung ngoai. No doc ngu canh roi tu len
+tieng, va thu no noi ra la mot ke hoach bam vao duoc, khong phai chu tron.
+
+OWN-WORLD: The gioi Ru Di, khong them mau. Dan cam "accent" nhu vo tab. Tim
+"ai" cham dung ba cho: avatar AI, nhan "Ru Di AI", the ke hoach. Mockup ve dau
+man tim; o day khong, vi tim trong he nay co nghia la "may sinh ra", va mot dau
+man tim lam ca doan chat trong nhu do may viet.
+
+STORY: Cuon nguoc len thay nhom ban gi. Go mot cau, gui. AI tu noi, khong ai
+goi ten no. Cau cua no la mot the lich trinh, bam vao la sang man ke hoach.
+
+FIRST VIEWPORT: Avatar nhom + so thanh vien that, hang bon chip Chat/Plan/Thanh
+vien/File, ba bong bong cuoi cua dong tin, o nhap ghim day man.
+
+FORM: Bong bong cua minh lech phai nen "accentSoft"; cua nguoi khac lech trai
+nen "card" vien "line"; cua AI rong het be ngang nen "aiSoft" vien "ai". Vien
+cua thu bam duoc la "lineStrong". Gio o moi bong bong, co "micro". Bam >= 44.
+
+FINISH: build fully, then hand off to the finish reviewer with captures.
+`.trim();
