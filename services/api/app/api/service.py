@@ -15,6 +15,7 @@ from app.api.limits import OBJECTION_KINDS, QUOTA_CONSUMING_OBJECTIONS
 from app.api.repository import (
     ApiRepository,
     BankRecipientRecord,
+    BillRecord,
     GuestLinkDraft,
     MembershipRecord,
     MessageRecord,
@@ -31,6 +32,15 @@ from app.api.schemas import (
     BatchObligationView,
     BatchPublishRequest,
     BatchPublishResponse,
+    BillAssignmentsRequest,
+    BillCreateRequest,
+    BillDiscountResponse,
+    BillItemResponse,
+    BillResponse,
+    BillShareResponse,
+    BillSplitRequest,
+    BillSplitResponse,
+    BillSurchargeResponse,
     ContextCreateRequest,
     ContextResponse,
     ExpenseConfirmationRequest,
@@ -56,6 +66,7 @@ from app.api.schemas import (
 from app.domain import permissions
 from app.domain.allocator import allocate
 from app.domain.bank_account import BankAccountError, normalise_destination
+from app.domain.bill import BillError, allocator_input_from_bill
 from app.domain.capability import CapabilityScopeError, capability_scope
 from app.domain.collection import CollectionError, transition, unmet_publish_gates
 from app.domain.contract import AllocationError
@@ -193,6 +204,71 @@ def _wire_allocation(result: dict) -> AllocationProposal:
         },
         rounding_gainers=[uuid.UUID(value) for value in result["rounding_gainers"]],
         warnings=result["warnings"],
+    )
+
+
+def _wire_bill(record: BillRecord) -> BillResponse:
+    suggested_item_keys = sorted(
+        (
+            item.item_key
+            for item in record.items
+            if any(share.source == "ai_suggested" for share in item.shares)
+        ),
+        key=lambda key: key.encode("utf-8"),
+    )
+    all_confirmed = bool(record.items) and all(
+        item.shares
+        and all(share.source == "confirmed" for share in item.shares)
+        for item in record.items
+    )
+    return BillResponse(
+        id=record.id,
+        context_id=record.context_id,
+        printed_total_vnd=record.printed_total_vnd,
+        items_total_vnd=record.items_total_vnd,
+        needs_review=record.needs_review,
+        created_by_id=record.created_by_id,
+        created_at=record.created_at,
+        assignment_state="confirmed" if all_confirmed else "ai_suggested",
+        suggested_item_keys=suggested_item_keys,
+        surcharges=[
+            BillSurchargeResponse(
+                surcharge_key=surcharge.surcharge_key,
+                kind=surcharge.kind,
+                amount_vnd=surcharge.amount_vnd,
+                mode=surcharge.mode,
+            )
+            for surcharge in record.surcharges
+        ],
+        discounts=[
+            BillDiscountResponse(
+                discount_key=discount.discount_key,
+                amount_vnd=discount.amount_vnd,
+                scope=discount.scope,
+                item_key=discount.target_item_key,
+            )
+            for discount in record.discounts
+        ],
+        items=[
+            BillItemResponse(
+                item_key=item.item_key,
+                name=item.name,
+                quantity=item.quantity,
+                unit_price_vnd=item.unit_price_vnd,
+                line_total_vnd=item.line_total_vnd,
+                position=item.position,
+                shares=[
+                    BillShareResponse(
+                        participant_id=share.participant_id,
+                        source=share.source,
+                        decided_by_id=share.decided_by_id,
+                        decided_at=share.decided_at,
+                    )
+                    for share in item.shares
+                ],
+            )
+            for item in record.items
+        ],
     )
 
 
@@ -498,6 +574,194 @@ class ApiService:
                 "Active membership does not exist",
             )
         return _wire_membership(membership)
+
+    def _bill_for_actor(self, bill_id: uuid.UUID, actor: Actor) -> BillRecord:
+        record = self.repository.get_bill(bill_id)
+        if record is None:
+            raise ApiProblem(404, "bill_not_found", "Bill does not exist")
+        _require_permission(
+            "confirm_expense_proposal",
+            actor,
+            {"is_group_member": record.context_id in actor.context_ids},
+        )
+        return record
+
+    def create_bill(self, request: BillCreateRequest, actor: Actor) -> BillResponse:
+        _require_permission(
+            "confirm_expense_proposal",
+            actor,
+            {"is_group_member": request.context_id in actor.context_ids},
+        )
+        try:
+            record = self.repository.create_bill(
+                context_id=request.context_id,
+                created_by_id=actor.id,
+                printed_total_vnd=request.printed_total_vnd,
+                items_total_vnd=request.items_total_vnd,
+                confidence=request.confidence,
+                needs_review=request.needs_review,
+                items=[
+                    {
+                        "item_key": item.item_key,
+                        "name": item.name,
+                        "quantity": item.quantity,
+                        "unit_price_vnd": item.unit_price_vnd,
+                        "line_total_vnd": item.line_total_vnd,
+                        "position": position,
+                        "suggested_participant_ids": list(
+                            item.suggested_participant_ids
+                        ),
+                    }
+                    for position, item in enumerate(request.items)
+                ],
+                surcharges=[
+                    {
+                        "surcharge_key": surcharge.surcharge_key,
+                        "kind": surcharge.kind,
+                        "amount_vnd": surcharge.amount_vnd,
+                        "mode": surcharge.mode,
+                    }
+                    for surcharge in request.surcharges
+                ],
+                discounts=[
+                    {
+                        "discount_key": discount.discount_key,
+                        "amount_vnd": discount.amount_vnd,
+                        "scope": discount.scope,
+                        "target_item_key": discount.item_key,
+                    }
+                    for discount in request.discounts
+                ],
+                now=_now(),
+            )
+        except RepositoryConflict as exc:
+            raise ApiProblem(409, exc.code, "Bill creation conflicted") from exc
+        return _wire_bill(record)
+
+    def get_bill(self, bill_id: uuid.UUID, actor: Actor) -> BillResponse:
+        return _wire_bill(self._bill_for_actor(bill_id, actor))
+
+    def confirm_bill_assignments(
+        self,
+        bill_id: uuid.UUID,
+        request: BillAssignmentsRequest,
+        actor: Actor,
+    ) -> BillResponse:
+        self._bill_for_actor(bill_id, actor)
+        try:
+            record = self.repository.confirm_bill_assignments(
+                bill_id=bill_id,
+                assignments=[
+                    {
+                        "item_key": assignment.item_key,
+                        "participant_ids": list(assignment.participant_ids),
+                    }
+                    for assignment in request.assignments
+                ],
+                decided_by_id=actor.id,
+                now=_now(),
+            )
+        except RepositoryConflict as exc:
+            if exc.code == "BILL_NOT_FOUND":
+                raise ApiProblem(
+                    404, "bill_not_found", "Bill does not exist"
+                ) from exc
+            raise ApiProblem(
+                409, exc.code, "Bill assignment conflicted"
+            ) from exc
+        return _wire_bill(record)
+
+    def split_bill(
+        self,
+        bill_id: uuid.UUID,
+        request: BillSplitRequest,
+        actor: Actor,
+    ) -> BillSplitResponse:
+        record = self._bill_for_actor(bill_id, actor)
+
+        list_members = getattr(self.repository, "list_members", None)
+        memberships = list_members(record.context_id) if list_members else []
+        participant_ids = {
+            membership.person_id
+            for membership in memberships
+            if membership.state == "active"
+        }
+        if not participant_ids:
+            participant_ids = {
+                share.participant_id
+                for item in record.items
+                for share in item.shares
+            }
+
+        try:
+            projection = allocator_input_from_bill(
+                {
+                    "participants": [
+                        str(participant_id)
+                        for participant_id in sorted(
+                            participant_ids, key=lambda value: value.bytes
+                        )
+                    ],
+                    "printed_total_vnd": record.printed_total_vnd,
+                    "items": [
+                        {
+                            "item_key": item.item_key,
+                            "amount_vnd": item.line_total_vnd,
+                            "shares": [
+                                {
+                                    "participant_id": str(share.participant_id),
+                                    "source": share.source,
+                                }
+                                for share in item.shares
+                            ],
+                        }
+                        for item in record.items
+                    ],
+                    "surcharges": [
+                        {
+                            "surcharge_id": surcharge.surcharge_key,
+                            "kind": surcharge.kind,
+                            "amount_vnd": surcharge.amount_vnd,
+                            "mode": surcharge.mode,
+                        }
+                        for surcharge in record.surcharges
+                    ],
+                    "discounts": [
+                        {
+                            "discount_id": discount.discount_key,
+                            "amount_vnd": discount.amount_vnd,
+                            "scope": discount.scope,
+                            "item_id": discount.target_item_key,
+                        }
+                        for discount in record.discounts
+                    ],
+                    "advancer_id": (
+                        str(request.paid_by_id)
+                        if request.paid_by_id is not None
+                        else None
+                    ),
+                }
+            )
+        except BillError as exc:
+            raise ApiProblem(422, exc.code, "Bill cannot be projected") from exc
+
+        if request.for_ledger and projection["assignment_state"] != "confirmed":
+            raise ApiProblem(
+                422,
+                "bill_assignments_not_confirmed",
+                "Bill assignments must be confirmed before ledger use",
+            )
+
+        try:
+            allocation_result = allocate(projection["expense"])
+        except AllocationError as exc:
+            raise ApiProblem(422, exc.code, "Bill cannot be allocated") from exc
+        return BillSplitResponse(
+            allocation=_wire_allocation(allocation_result),
+            assignment_state=projection["assignment_state"],
+            suggested_item_keys=projection["suggested_item_keys"],
+            total_amount_vnd=projection["expense"]["total_vnd"],
+        )
 
     def propose_expense(self, proposal: ExpenseInput) -> ExpenseProposalResponse:
         try:

@@ -29,6 +29,11 @@ from app.api.repository import (
     BatchForPublish,
     BatchInputs,
     BatchObligationRow,
+    BillDiscountRecord,
+    BillItemRecord,
+    BillRecord,
+    BillShareRecord,
+    BillSurchargeRecord,
     ConfirmationRecord,
     ConfirmedExpense,
     ExpenseIdentity,
@@ -96,7 +101,35 @@ class FakeRepository:
         self.objections: list[dict] = []
         self.receipts: dict[uuid.UUID, FakeReceipt] = {}
         self.people: dict[uuid.UUID, PersonRecord] = {}
+        self.bills: dict[uuid.UUID, BillRecord] = {}
         self.leak_guest_input = False
+
+    @staticmethod
+    def _ordered_bill(bill: BillRecord) -> BillRecord:
+        return replace(
+            bill,
+            items=[
+                replace(
+                    item,
+                    shares=sorted(
+                        item.shares,
+                        key=lambda share: share.participant_id.bytes,
+                    ),
+                )
+                for item in sorted(
+                    bill.items,
+                    key=lambda item: (item.position, item.item_key),
+                )
+            ],
+            surcharges=sorted(
+                bill.surcharges,
+                key=lambda surcharge: surcharge.surcharge_key.encode("utf-8"),
+            ),
+            discounts=sorted(
+                bill.discounts,
+                key=lambda discount: discount.discount_key.encode("utf-8"),
+            ),
+        )
 
     def get_person(self, person_id):
         return self.people.get(person_id)
@@ -123,6 +156,135 @@ class FakeRepository:
         )
         self.people[person_id] = renamed
         return renamed
+
+    def create_bill(
+        self,
+        *,
+        context_id,
+        created_by_id,
+        printed_total_vnd,
+        items_total_vnd,
+        confidence,
+        needs_review,
+        items,
+        surcharges,
+        discounts,
+        now,
+    ):
+        # Mirrors the three unique constraints on the bill draft tables so the
+        # route's 409 can be exercised without a database. Being taught to
+        # refuse is not the same as being unable to accept: what PostgreSQL
+        # actually does with these rows is proved in
+        # tests/postgres/test_bill_duplicate_item_key_postgres.py.
+        for lines, key, code in (
+            (items, "item_key", "DUPLICATE_BILL_ITEM_KEY"),
+            (surcharges, "surcharge_key", "DUPLICATE_BILL_SURCHARGE_KEY"),
+            (discounts, "discount_key", "DUPLICATE_BILL_DISCOUNT_KEY"),
+        ):
+            keys = [line[key] for line in lines]
+            if len(keys) != len(set(keys)):
+                raise RepositoryConflict(code)
+
+        bill = BillRecord(
+            id=uuid.uuid4(),
+            context_id=context_id,
+            printed_total_vnd=printed_total_vnd,
+            items_total_vnd=items_total_vnd,
+            confidence=confidence,
+            needs_review=needs_review,
+            created_by_id=created_by_id,
+            created_at=now,
+            items=[
+                BillItemRecord(
+                    item_key=item["item_key"],
+                    name=item["name"],
+                    quantity=item["quantity"],
+                    unit_price_vnd=item["unit_price_vnd"],
+                    line_total_vnd=item["line_total_vnd"],
+                    position=item["position"],
+                    shares=[
+                        BillShareRecord(
+                            participant_id=participant_id,
+                            source="ai_suggested",
+                            decided_by_id=None,
+                            decided_at=None,
+                        )
+                        for participant_id in item[
+                            "suggested_participant_ids"
+                        ]
+                    ],
+                )
+                for item in items
+            ],
+            surcharges=[
+                BillSurchargeRecord(
+                    surcharge_key=surcharge["surcharge_key"],
+                    kind=surcharge["kind"],
+                    amount_vnd=surcharge["amount_vnd"],
+                    mode=surcharge["mode"],
+                )
+                for surcharge in surcharges
+            ],
+            discounts=[
+                BillDiscountRecord(
+                    discount_key=discount["discount_key"],
+                    amount_vnd=discount["amount_vnd"],
+                    scope=discount["scope"],
+                    target_item_key=discount["target_item_key"],
+                )
+                for discount in discounts
+            ],
+        )
+        self.bills[bill.id] = bill
+        return self._ordered_bill(bill)
+
+    def get_bill(self, bill_id):
+        bill = self.bills.get(bill_id)
+        return None if bill is None else self._ordered_bill(bill)
+
+    def confirm_bill_assignments(
+        self,
+        *,
+        bill_id,
+        assignments,
+        decided_by_id,
+        now,
+    ):
+        bill = self.bills.get(bill_id)
+        if bill is None:
+            raise RepositoryConflict("BILL_NOT_FOUND")
+
+        assignments_by_key = {
+            assignment["item_key"]: assignment for assignment in assignments
+        }
+        item_keys = {item.item_key for item in bill.items}
+        if set(assignments_by_key) - item_keys:
+            raise RepositoryConflict("UNKNOWN_BILL_ITEM")
+
+        updated_items = []
+        for item in bill.items:
+            assignment = assignments_by_key.get(item.item_key)
+            if assignment is None:
+                updated_items.append(item)
+                continue
+            updated_items.append(
+                replace(
+                    item,
+                    shares=[
+                        BillShareRecord(
+                            participant_id=participant_id,
+                            source="confirmed",
+                            decided_by_id=decided_by_id,
+                            decided_at=now,
+                        )
+                        for participant_id in assignment["participant_ids"]
+                    ],
+                )
+            )
+
+        updated = replace(bill, items=updated_items)
+        self.bills[bill_id] = updated
+        return self._ordered_bill(updated)
 
     def create_expense(self, context_id):
         record = ExpenseIdentity(id=uuid.uuid4(), context_id=context_id)
