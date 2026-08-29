@@ -1,0 +1,211 @@
+[
+  {
+    "id": "S01",
+    "note": "Hai nguoi, mot mon. Truong hop nho nhat con y nghia.",
+    "input": {
+      "obligations": [
+        {"sender_id": "b", "recipient_id": "a", "amount_vnd": 120000}
+      ],
+      "receipts": []
+    },
+    "expect": {
+      "balances": {"a": 120000, "b": -120000},
+      "nguoi_lech_khac_khong": 2,
+      "nhom_zero_sum": [["a", "b"]],
+      "so_nhom_toi_da": 1,
+      "chuyen_toi_thieu": 1,
+      "chuyen_cua_greedy": 1,
+      "can_duoi": "2 nguoi lech, moi nhom zero-sum can it nhat 1 con no + 1 chu no nen K<=1. min = N - K = 2 - 1 = 1."
+    }
+  },
+  {
+    "id": "S02",
+    "note": "Vong tron ba nguoi. Ba nghia vu trong so, khong ai con no ai.",
+    "input": {
+      "obligations": [
+        {"sender_id": "a", "recipient_id": "b", "amount_vnd": 100000},
+        {"sender_id": "b", "recipient_id": "c", "amount_vnd": 100000},
+        {"sender_id": "c", "recipient_id": "a", "amount_vnd": 100000}
+      ],
+      "receipts": []
+    },
+    "expect": {
+      "balances": {},
+      "nguoi_lech_khac_khong": 0,
+      "nhom_zero_sum": [],
+      "so_nhom_toi_da": 0,
+      "chuyen_toi_thieu": 0,
+      "chuyen_cua_greedy": 0,
+      "can_duoi": "Khong ai lech. N = 0 nen min = 0. Day la ca chung minh net-off co that: 3 nghia vu -> 0 lan chuyen."
+    }
+  },
+  {
+    "id": "S03",
+    "note": "Chuoi a->b->c. Nguoi o giua bien mat khoi ket qua.",
+    "input": {
+      "obligations": [
+        {"sender_id": "a", "recipient_id": "b", "amount_vnd": 50000},
+        {"sender_id": "b", "recipient_id": "c", "amount_vnd": 50000}
+      ],
+      "receipts": []
+    },
+    "expect": {
+      "balances": {"a": -50000, "c": 50000},
+      "nguoi_lech_khac_khong": 2,
+      "nhom_zero_sum": [["a", "c"]],
+      "so_nhom_toi_da": 1,
+      "chuyen_toi_thieu": 1,
+      "chuyen_cua_greedy": 1,
+      "can_duoi": "b vao 50000 ra 50000 nen lech 0 va bi loai. Con 2 nguoi, K<=1, min = 2 - 1 = 1 (thay vi 2 nghia vu tho)."
+    }
+  },
+  {
+    "id": "S04",
+    "note": "Hai cap khop chinh xac. Greedy sap xep giam dan bat dung ca hai.",
+    "input": {
+      "obligations": [
+        {"sender_id": "a", "recipient_id": "d", "amount_vnd": 500000},
+        {"sender_id": "b", "recipient_id": "c", "amount_vnd": 200000}
+      ],
+      "receipts": []
+    },
+    "expect": {
+      "balances": {"a": -500000, "b": -200000, "c": 200000, "d": 500000},
+      "nguoi_lech_khac_khong": 4,
+      "nhom_zero_sum": [["a", "d"], ["b", "c"]],
+      "so_nhom_toi_da": 2,
+      "chuyen_toi_thieu": 2,
+      "chuyen_cua_greedy": 2,
+      "can_duoi": "4 nguoi lech, chia duoc thanh 2 nhom zero-sum roi nhau nen K = 2 (toi da vi moi nhom can >= 2 nguoi). min = 4 - 2 = 2."
+    }
+  },
+  {
+    "id": "S05",
+    "note": "GREEDY THUA. Ghep lon-nhat-voi-lon-nhat pha mat cap khop chinh xac b/e.",
+    "input": {
+      "obligations": [
+        {"sender_id": "a", "recipient_id": "c", "amount_vnd": 200000},
+        {"sender_id": "a", "recipient_id": "d", "amount_vnd": 300000},
+        {"sender_id": "b", "recipient_id": "e", "amount_vnd": 400000},
+        {"sender_id": "c", "recipient_id": "d", "amount_vnd": 50000},
+        {"sender_id": "d", "recipient_id": "c", "amount_vnd": 50000}
+      ],
+      "receipts": []
+    },
+    "expect": {
+      "balances": {"a": -500000, "b": -400000, "c": 200000, "d": 300000, "e": 400000},
+      "nguoi_lech_khac_khong": 5,
+      "nhom_zero_sum": [["b", "e"], ["a", "c", "d"]],
+      "so_nhom_toi_da": 2,
+      "chuyen_toi_thieu": 3,
+      "chuyen_cua_greedy": 4,
+      "can_duoi": "5 nguoi lech. Moi nhom zero-sum can >= 2 nguoi nen K <= 2, va K = 2 dat duoc bang {b,e} + {a,c,d}. min = 5 - 2 = 3. Greedy ra 4: no ep a->e 400000 truoc, giet mat cap b/e vua khop."
+    }
+  },
+  {
+    "id": "S06",
+    "note": "Vi du F27 trong spec: bon nguoi cung ung tien, chia deu 4200000.",
+    "input": {
+      "obligations": [
+        {"sender_id": "nam", "recipient_id": "kiet", "amount_vnd": 550000},
+        {"sender_id": "huy", "recipient_id": "kiet", "amount_vnd": 500000},
+        {"sender_id": "huy", "recipient_id": "linh", "amount_vnd": 350000}
+      ],
+      "receipts": []
+    },
+    "expect": {
+      "balances": {"huy": -850000, "kiet": 1050000, "linh": 350000, "nam": -550000},
+      "nguoi_lech_khac_khong": 4,
+      "nhom_zero_sum": [["huy", "kiet", "linh", "nam"]],
+      "so_nhom_toi_da": 1,
+      "chuyen_toi_thieu": 3,
+      "chuyen_cua_greedy": 3,
+      "can_duoi": "Con no {550000, 850000}, chu no {1050000, 350000}. Khong cap nao bang nhau (550!=1050, 550!=350, 850!=1050, 850!=350) nen khong tach duoc nhom con: K = 1. min = 4 - 1 = 3."
+    }
+  },
+  {
+    "id": "S07",
+    "note": "Dong le: 100000 chia 3, nguoi ung chiu phan le 33334.",
+    "input": {
+      "obligations": [
+        {"sender_id": "b", "recipient_id": "a", "amount_vnd": 33333},
+        {"sender_id": "c", "recipient_id": "a", "amount_vnd": 33333}
+      ],
+      "receipts": []
+    },
+    "expect": {
+      "balances": {"a": 66666, "b": -33333, "c": -33333},
+      "nguoi_lech_khac_khong": 3,
+      "nhom_zero_sum": [["a", "b", "c"]],
+      "so_nhom_toi_da": 1,
+      "chuyen_toi_thieu": 2,
+      "chuyen_cua_greedy": 2,
+      "can_duoi": "3 nguoi lech. Chu no mot minh la a. Ghep a voi b con du, ghep b voi c van am, nen khong cap nao tong bang 0 va K = 1. min = 3 - 1 = 2. Tong no bang tong co, lech dung 0 dong."
+    }
+  },
+  {
+    "id": "S08",
+    "note": "Da nhan mot phan: bien lai xac nhan xoa han cap (b,a) khoi can doi.",
+    "input": {
+      "obligations": [
+        {"sender_id": "b", "recipient_id": "a", "amount_vnd": 300000},
+        {"sender_id": "c", "recipient_id": "a", "amount_vnd": 200000}
+      ],
+      "receipts": [
+        {"sender_id": "b", "recipient_id": "a", "amount_vnd": 300000}
+      ]
+    },
+    "expect": {
+      "balances": {"a": 200000, "c": -200000},
+      "nguoi_lech_khac_khong": 2,
+      "nhom_zero_sum": [["a", "c"]],
+      "so_nhom_toi_da": 1,
+      "chuyen_toi_thieu": 1,
+      "chuyen_cua_greedy": 1,
+      "can_duoi": "Cap (b,a) da nhan du 300000 nen con 0 va bi loai. Con 2 nguoi, min = 2 - 1 = 1. Ca nay chung minh can doi doc tu SO (nghia vu + bien lai), khong doc tu cache."
+    }
+  },
+  {
+    "id": "S09",
+    "note": "Nam nguoi, hai cum roi nhau. Greedy tinh co ra dung.",
+    "input": {
+      "obligations": [
+        {"sender_id": "a", "recipient_id": "b", "amount_vnd": 100000},
+        {"sender_id": "c", "recipient_id": "e", "amount_vnd": 250000},
+        {"sender_id": "d", "recipient_id": "e", "amount_vnd": 150000}
+      ],
+      "receipts": []
+    },
+    "expect": {
+      "balances": {"a": -100000, "b": 100000, "c": -250000, "d": -150000, "e": 400000},
+      "nguoi_lech_khac_khong": 5,
+      "nhom_zero_sum": [["a", "b"], ["c", "d", "e"]],
+      "so_nhom_toi_da": 2,
+      "chuyen_toi_thieu": 3,
+      "chuyen_cua_greedy": 3,
+      "can_duoi": "5 nguoi lech, K <= 2 vi moi nhom can >= 2 nguoi. K = 2 dat duoc bang {a,b} + {c,d,e}. min = 5 - 2 = 3."
+    }
+  },
+  {
+    "id": "S10",
+    "note": "GREEDY THUA lan hai, nhom sau nguoi. Greedy 5, toi uu 4.",
+    "input": {
+      "obligations": [
+        {"sender_id": "a", "recipient_id": "f", "amount_vnd": 500000},
+        {"sender_id": "a", "recipient_id": "d", "amount_vnd": 100000},
+        {"sender_id": "b", "recipient_id": "e", "amount_vnd": 300000},
+        {"sender_id": "c", "recipient_id": "d", "amount_vnd": 100000}
+      ],
+      "receipts": []
+    },
+    "expect": {
+      "balances": {"a": -600000, "b": -300000, "c": -100000, "d": 200000, "e": 300000, "f": 500000},
+      "nguoi_lech_khac_khong": 6,
+      "nhom_zero_sum": [["b", "e"], ["a", "c", "d", "f"]],
+      "so_nhom_toi_da": 2,
+      "chuyen_toi_thieu": 4,
+      "chuyen_cua_greedy": 5,
+      "can_duoi": "6 nguoi lech. K = 3 doi ba cap tong 0: con no {600000,300000,100000}, chu no {500000,300000,200000}; chi 300000 khop 300000, con 600000 va 100000 khong co cap nen K != 3. K = 2 dat duoc bang {b,e} + {a,c,d,f}. min = 6 - 2 = 4."
+    }
+  }
+]

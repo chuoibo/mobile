@@ -525,6 +525,10 @@ class ApiRepository(Protocol):
         expense_version_ids: tuple[uuid.UUID, ...] | None,
     ) -> BatchInputs: ...
 
+    def load_confirmed_receipts(
+        self, context_id: uuid.UUID
+    ) -> dict[tuple[uuid.UUID, uuid.UUID], int]: ...
+
     def load_bank_recipients(
         self, recipient_ids: frozenset[uuid.UUID]
     ) -> dict[uuid.UUID, BankRecipientRecord]: ...
@@ -1308,6 +1312,12 @@ class SqlAlchemyApiRepository:
         context_id: uuid.UUID,
         expense_version_ids: tuple[uuid.UUID, ...] | None,
     ) -> BatchInputs:
+        """Load latest confirmed expenses, optionally enforcing batch availability.
+
+        ``None`` is the read model used by group balances and therefore includes
+        expenses already placed in a collection batch. A concrete tuple is the
+        batch-creation path and excludes any allocation already used as a source.
+        """
         latest = (
             select(
                 ExpenseVersion.expense_id.label("expense_id"),
@@ -1352,13 +1362,13 @@ class SqlAlchemyApiRepository:
             if not rows:
                 unavailable.add(version.id)
                 continue
-            collectable = tuple(
-                row
-                for row in rows
-                if row.participant_id != version.paid_by_id and row.amount_vnd > 0
-            )
             source_ids: set[uuid.UUID] = set()
-            if collectable:
+            if expense_version_ids is not None:
+                collectable = tuple(
+                    row
+                    for row in rows
+                    if row.participant_id != version.paid_by_id and row.amount_vnd > 0
+                )
                 source_ids = set(
                     self.session.scalars(
                         select(
@@ -1395,6 +1405,48 @@ class SqlAlchemyApiRepository:
                 sorted(unavailable, key=lambda value: value.bytes)
             ),
         )
+
+    def load_confirmed_receipts(
+        self, context_id: uuid.UUID
+    ) -> dict[tuple[uuid.UUID, uuid.UUID], int]:
+        """Sum recipient-confirmed receipt events for batches in one context."""
+
+        rows = self.session.execute(
+            select(
+                CollectionObligation.sender_id,
+                CollectionObligation.recipient_id,
+                func.sum(ReceiptConfirmation.amount_vnd),
+            )
+            .join(
+                ReceiptConfirmation,
+                ReceiptConfirmation.obligation_id == CollectionObligation.id,
+            )
+            .join(
+                CollectionBatchVersion,
+                CollectionBatchVersion.id == CollectionObligation.batch_version_id,
+            )
+            .join(
+                CollectionBatch,
+                CollectionBatch.id == CollectionBatchVersion.batch_id,
+            )
+            .where(
+                CollectionBatch.context_id == context_id,
+                ReceiptConfirmation.confirmed_by_id
+                == CollectionObligation.recipient_id,
+            )
+            .group_by(
+                CollectionObligation.sender_id,
+                CollectionObligation.recipient_id,
+            )
+            .order_by(
+                CollectionObligation.sender_id,
+                CollectionObligation.recipient_id,
+            )
+        )
+        return {
+            (sender_id, recipient_id): int(confirmed_amount_vnd)
+            for sender_id, recipient_id, confirmed_amount_vnd in rows
+        }
 
     def load_bank_recipients(
         self, recipient_ids: frozenset[uuid.UUID]

@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Response, status
 from app.api.deps import Actor, get_actor, get_repository
 from app.api.repository import ApiRepository
 from app.api.schemas import (
+    ContextBalancesResponse,
     ContextCreateRequest,
     ContextResponse,
     ErrorResponse,
@@ -96,3 +97,16 @@ def list_context_members(
     repository: Annotated[ApiRepository, Depends(get_repository)],
 ) -> MembershipListResponse:
     return ApiService(repository).list_context_members(context_id, actor)
+
+
+@router.get(
+    "/contexts/{context_id}/balances",
+    response_model=ContextBalancesResponse,
+    responses=ERRORS,
+)
+def get_context_balances(
+    context_id: UUID,
+    actor: Annotated[Actor, Depends(get_actor)],
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+) -> ContextBalancesResponse:
+    return ApiService(repository).get_context_balances(context_id, actor)

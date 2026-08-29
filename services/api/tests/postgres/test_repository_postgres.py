@@ -114,7 +114,10 @@ def _proposal(
 
 
 def _persist_lifecycle(
-    session: Session, *, confirm_receipts: bool = True
+    session: Session,
+    *,
+    confirm_receipts: bool = True,
+    guest_token: str = GUEST_TOKEN,
 ) -> LifecycleState:
     repository = SqlAlchemyApiRepository(session)
     context_id = uuid.uuid4()
@@ -196,7 +199,7 @@ def _persist_lifecycle(
     bank_recipient.account_number = CHANGED_ACCOUNT
     session.flush()
 
-    token_digest = hashlib.sha256(GUEST_TOKEN.encode()).digest()
+    token_digest = hashlib.sha256(guest_token.encode()).digest()
     stored_links = repository.save_published_batch(
         batch=batch,
         status="published",
@@ -373,6 +376,36 @@ def test_repository_lifecycle_reaches_confirmed_receipt(postgres_session: Sessio
         "receipt_confirmed",
         "receipt_confirmed",
     )
+
+
+def test_load_confirmed_receipts_groups_events_and_scopes_them_to_context(
+    postgres_session: Session,
+):
+    target = _persist_lifecycle(postgres_session)
+    other_context = _persist_lifecycle(
+        postgres_session, guest_token="synthetic_other_context_token"
+    )
+    postgres_session.add(
+        ReceiptConfirmation(
+            obligation_id=target.obligation_id,
+            payment_report_id=None,
+            confirmed_by_id=target.sender_id,
+            amount_vnd=9_000,
+            idempotency_key=uuid.uuid4(),
+            confirmed_at=NOW + timedelta(minutes=11),
+        )
+    )
+    postgres_session.flush()
+
+    receipts = SqlAlchemyApiRepository(postgres_session).load_confirmed_receipts(
+        target.context_id
+    )
+
+    assert receipts == {
+        (target.sender_id, target.recipient_id): OBLIGATION_VND,
+    }
+    assert all(type(amount_vnd) is int for amount_vnd in receipts.values())
+    assert (other_context.sender_id, other_context.recipient_id) not in receipts
 
 
 def test_guest_http_uses_name_derived_from_real_postgres_projection(

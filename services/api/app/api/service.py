@@ -42,6 +42,8 @@ from app.api.schemas import (
     BillSplitRequest,
     BillSplitResponse,
     BillSurchargeResponse,
+    ContextBalanceEntry,
+    ContextBalancesResponse,
     ContextCreateRequest,
     ContextResponse,
     ExpenseConfirmationRequest,
@@ -63,6 +65,7 @@ from app.api.schemas import (
     PublishedObligation,
     ReceiptConfirmationRequest,
     ReceiptConfirmationResponse,
+    SettlementTransferProposal,
 )
 from app.domain import permissions
 from app.domain.allocator import allocate
@@ -74,9 +77,11 @@ from app.domain.contract import AllocationError
 from app.domain.expense import component_rollups
 from app.domain.ledger import (
     LedgerError,
+    group_balances,
     merge_obligations,
     obligation_status,
     obligations_from_allocations,
+    settlement_plan,
 )
 from app.payments.banks import describe_bank
 from app.payments.vietqr import VietQRError, build_payload
@@ -496,6 +501,64 @@ class ApiService:
             ],
         )
 
+    def get_context_balances(
+        self, context_id: uuid.UUID, actor: Actor
+    ) -> ContextBalancesResponse:
+        """Derive net positions and consent-required transfer proposals."""
+
+        _require_permission(
+            "view_context_members",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+
+        inputs = self.repository.load_batch_inputs(context_id, None)
+        receipt_rows = self.repository.load_confirmed_receipts(context_id)
+        receipts = {
+            (str(sender_id), str(recipient_id)): amount_vnd
+            for (sender_id, recipient_id), amount_vnd in receipt_rows.items()
+        }
+        try:
+            obligations = merge_obligations(
+                [
+                    obligation
+                    for expense in inputs.expenses
+                    for obligation in obligations_from_allocations(
+                        {
+                            str(allocation.participant_id): allocation.amount_vnd
+                            for allocation in expense.allocations
+                        },
+                        str(expense.paid_by_id),
+                        str(expense.version_id),
+                    )
+                ]
+            )
+            balances = group_balances(obligations, receipts)
+            plan = settlement_plan(balances)
+        except LedgerError as exc:
+            raise ApiProblem(
+                409, exc.code, "Confirmed ledger events cannot be balanced"
+            ) from exc
+
+        return ContextBalancesResponse(
+            balances=[
+                ContextBalanceEntry(person_id=uuid.UUID(person_id), net_vnd=net_vnd)
+                for person_id, net_vnd in sorted(
+                    balances.items(), key=lambda item: uuid.UUID(item[0]).bytes
+                )
+            ],
+            transfers=[
+                SettlementTransferProposal(
+                    sender_id=uuid.UUID(transfer["sender_id"]),
+                    recipient_id=uuid.UUID(transfer["recipient_id"]),
+                    amount_vnd=transfer["amount_vnd"],
+                )
+                for transfer in plan["transfers"]
+            ],
+            proven_minimal=plan["proven_minimal"],
+            transfer_count=plan["transfer_count"],
+        )
+
     def post_context_message(
         self,
         context_id: uuid.UUID,
@@ -894,13 +957,13 @@ class ApiService:
         if request.due_at <= now:
             raise ApiProblem(422, "due_at_not_future", "due_at must be in the future")
 
-        selected = (
-            tuple(request.expense_version_ids)
-            if request.expense_version_ids is not None
-            else None
-        )
+        if request.expense_version_ids is None:
+            confirmed = self.repository.load_batch_inputs(request.context_id, None)
+            selected = tuple(expense.version_id for expense in confirmed.expenses)
+        else:
+            selected = tuple(request.expense_version_ids)
         inputs = self.repository.load_batch_inputs(request.context_id, selected)
-        if inputs.unavailable_version_ids:
+        if request.expense_version_ids is not None and inputs.unavailable_version_ids:
             raise ApiProblem(
                 409,
                 "expense_versions_unavailable",
