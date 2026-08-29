@@ -31,8 +31,17 @@ LOOPBACK_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
 # Content-Type is also on Starlette's safelist, so it ends up in the response
 # twice. Listing it anyway keeps this module the full answer to "what may the
 # browser send", instead of half of it plus a library's default.
+#
+# Idempotency-Key is here because the server itself demands it: the middleware
+# in ``app.api.idempotency`` is what stops a double tap writing the same money
+# twice, and the client attaches a key to every write. Leaving it out made the
+# API refuse a header it requires -- the browser cancelled every write at the
+# preflight, so the web build could not name a person or file an expense at
+# all. A test derives this list from the server rather than trusting the memory
+# of whoever edits it next.
 ALLOWED_HEADERS = [
     "content-type",
+    "idempotency-key",
     "x-actor-id",
     "x-actor-roles",
     "x-actor-contexts",

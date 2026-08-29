@@ -20,8 +20,9 @@ import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
-from app.api.cors import ALLOWED_METHODS  # noqa: E402
+from app.api.cors import ALLOWED_HEADERS, ALLOWED_METHODS  # noqa: E402
 from app.api.deps import get_repository  # noqa: E402
+from app.api.idempotency import IDEMPOTENCY_HEADER  # noqa: E402
 from app.api.main import create_app  # noqa: E402
 
 from .conftest import ASGITestClient  # noqa: E402
@@ -31,6 +32,10 @@ from .conftest import ASGITestClient  # noqa: E402
 ORIGINS_ENV_VAR = "MOBILE_CORS_ALLOW_ORIGINS"
 WEB_BUILD_ORIGIN = "http://localhost:8080"
 ACTOR_HEADERS = "content-type,x-actor-id,x-actor-roles,x-actor-contexts"
+# What a browser really lists before a write: the client attaches an idempotency
+# key to every write attempt, so this -- not ACTOR_HEADERS -- is the preflight
+# that stands between the web build and any money changing hands.
+WRITE_HEADERS = "content-type,idempotency-key,x-actor-id"
 
 
 @pytest.fixture
@@ -109,6 +114,66 @@ def test_preflight_for_renaming_a_person_is_allowed(client_factory):
     assert response.status_code == 204
     assert response.headers["access-control-allow-origin"] == WEB_BUILD_ORIGIN
     assert "PUT" in response.headers["access-control-allow-methods"]
+
+
+def test_preflight_carrying_the_idempotency_key_is_allowed(client_factory):
+    """The exact request the browser sends before any write.
+
+    ``POST /expenses`` and ``PUT /people/{id}`` both carry ``Idempotency-Key``,
+    so this preflight -- not the one in ``ACTOR_HEADERS`` -- is the one the web
+    build actually sends. While the header was missing from the allowlist the
+    browser got a 400 here and cancelled the write before it reached a handler:
+    on the web nobody could name a person, file an expense, or reach a split.
+    The app blamed the network ("Không nối được...") while ``/healthz`` was 200,
+    which sent the reader looking at Docker instead of at this list.
+
+    This asserts what the *server* answers. It does not prove a browser then
+    accepts the follow-up request; only a real browser can prove that.
+    """
+    response = preflight(client_factory(), WEB_BUILD_ORIGIN, headers=WRITE_HEADERS)
+
+    assert response.status_code == 204
+    assert response.headers["access-control-allow-origin"] == WEB_BUILD_ORIGIN
+
+    allowed = {
+        value.strip().lower()
+        for value in response.headers["access-control-allow-headers"].split(",")
+    }
+    assert "idempotency-key" in allowed
+
+
+def test_allowed_headers_covers_every_header_the_server_itself_demands():
+    """The allowlist is derived from the server, not remembered by hand.
+
+    ``Idempotency-Key`` went missing because the two halves live apart: the
+    middleware in ``app.api.idempotency`` requires the header, the policy in
+    ``app.api.cors`` decides whether a browser may send it, and neither file
+    mentions the other. The API ended up refusing a header it demands.
+
+    So the expected set is read back out of the server -- route signatures for
+    what handlers declare, the middleware constant for what never appears in a
+    signature -- and the next required header fails this case on arrival.
+    """
+    application = create_app()
+
+    def collect(dependant, found):
+        for param in dependant.header_params:
+            found.add(param.alias.lower())
+        for sub in dependant.dependencies:
+            collect(sub, found)
+
+    required = {IDEMPOTENCY_HEADER.lower()}
+    for route in application.routes:
+        dependant = getattr(route, "dependant", None)
+        if dependant is not None:
+            collect(dependant, required)
+
+    missing = required - {header.lower() for header in ALLOWED_HEADERS}
+
+    assert not missing, (
+        f"Máy chủ đọc header {sorted(missing)} nhưng ALLOWED_HEADERS không có; "
+        "trình duyệt sẽ bị từ chối ở preflight trước khi chạm handler."
+    )
 
 
 def test_allowed_methods_covers_every_method_the_routers_expose(client_factory):
