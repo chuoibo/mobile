@@ -21,7 +21,6 @@
  * summary line, which is how the slice sat unproven for a week.
  */
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import test from "node:test";
 
 import {
@@ -35,6 +34,7 @@ import {
   proposeSplit,
   publishBatch,
   registerPeople,
+  saveBankRecipient,
 } from "../../dist-test/api.js";
 import { makeIdFactory } from "../../dist-test/participants.js";
 
@@ -43,22 +43,10 @@ const NAM = { id: nextId(), name: "Nam" };
 const HA = { id: nextId(), name: "Hà" };
 const QUYEN = { id: nextId(), name: "Quyên" };
 
-/**
- * Give the advancer somewhere for the money to land.
- *
- * There is no HTTP route that writes `bank_recipients`, so nothing the app can
- * do produces a bank destination -- and without one the batch never freezes and
- * no envelope is ever built. Seeding the row here is a fixture standing in for
- * that missing route, not a stubbed API: every call below still goes over real
- * HTTP to the real service, and the moment the route exists this is deleted.
- *
- * Filed as a blocker, not silently worked around: see docs/team/ke-hoach-demo-b.md.
- */
-function seedBankRecipient(recipientId) {
-  execFileSync("python3", ["tests/e2e/seed_bank_recipient.py", recipientId], {
-    stdio: "pipe",
-  });
-}
+/* Invented, and the repo guard is right to ask about a long digit run. Not a
+ * real bank, not a real account, nobody's money behind it. */
+// repo-guard: allow=long-number reason=synthetic-test-account-number
+const SO_TAI_KHOAN = "0000000000TEST";
 
 async function serverIsUp() {
   try {
@@ -145,7 +133,30 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
     "may chu phai doi hoi quyet dinh ve nguoi nhan chua san sang",
   );
 
-  seedBankRecipient(NAM.id);
+  // The half that used to be missing, and it is now the app doing it.
+  //
+  // This line was `seedBankRecipient(NAM.id)`: a Python script that reached
+  // past the API and INSERTed the row, because nothing the app could do
+  // produced a bank destination. The route existed the whole time; what did
+  // not exist was any screen calling it, so the end-to-end test had to fake
+  // the one step a person would actually perform. It now goes over the same
+  // HTTP as every other call in this file, through the same client the screen
+  // uses -- which means a client that drifts from the contract fails here
+  // rather than at a demo.
+  const saved = await saveBankRecipient(
+    NAM.id,
+    { bankBin: "970418", accountNumber: SO_TAI_KHOAN, accountName: "NGUOI UNG TIEN" },
+    // The actor is the subject. Section 9.2 has no exception for an admin, so
+    // passing anybody else here is a 403 rather than a convenience.
+    NAM.id,
+    attemptFor(lanBam, "tai-khoan-nhan"),
+  );
+  assert.equal(saved.bankName, "BIDV", "máy chủ gọi tên ngân hàng khác app");
+  assert.ok(saved.bankRecognised);
+  assert.ok(
+    !JSON.stringify(saved).includes(SO_TAI_KHOAN),
+    "số tài khoản đầy đủ đi ngược về phía client",
+  );
 
   // The same attempt as the refused call above, deliberately. The server
   // releases a key when its handler errors, so the retry after seeding must be
