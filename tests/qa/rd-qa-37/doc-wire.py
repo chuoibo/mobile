@@ -36,7 +36,9 @@ def tach(body: bytes) -> list[tuple[str, str, bytes]]:
         fn = re.search(r'filename="([^"]*)"', h)
         ct = re.search(r"Content-Type:\s*([^\r\n]+)", h, re.I)
         if fn:
-            parts.append((fn.group(1), ct.group(1).strip() if ct else "?", data.rstrip(b"\r\n-")))
+            parts.append(
+                (fn.group(1), ct.group(1).strip() if ct else "?", data.rstrip(b"\r\n-"))
+            )
     return parts
 
 

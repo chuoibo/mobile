@@ -54,7 +54,9 @@ LON = (106, 41, 53.0)
 # Assembled rather than written out: a 32-digit literal trips the repo guard's
 # long-number rule, which is correct of it -- that shape is how an account
 # number reaches a diff. This one is synthetic and belongs to nobody.
-ACTOR = {"X-Actor-ID": "-".join(("1" * 8, "1" * 4, "4" + "1" * 3, "8" + "1" * 3, "1" * 12))}
+ACTOR = {
+    "X-Actor-ID": "-".join(("1" * 8, "1" * 4, "4" + "1" * 3, "8" + "1" * 3, "1" * 12))
+}
 
 # What a reader must answer with for the route to return 200. Shape comes from
 # app/domain/receipt.py::read_scanned_document -- `document_type` is the gate,
