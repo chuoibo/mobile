@@ -6,15 +6,16 @@ import pathlib
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.cors import install_cors
-from app.api.errors import ApiProblem
+from app.api.errors import GUEST_LINK_NOT_FOUND, ApiProblem
 from app.api.guest_privacy import (
     GuestPrivacyHeadersMiddleware,
     guest_aware_server_error_response,
+    is_guest_path,
 )
 from app.api.idempotency import (
     IdempotencyMiddleware,
@@ -155,7 +156,24 @@ def create_app(
         return {"status": "ok"}
 
     @application.exception_handler(ApiProblem)
-    async def api_problem_handler(_request: Request, exc: ApiProblem) -> JSONResponse:
+    async def api_problem_handler(request: Request, exc: ApiProblem) -> Response:
+        """One branch, and only one: the guest boundary answers people.
+
+        Everywhere else an `ApiProblem` is read by a client we wrote. Under
+        `/g` it is read by a stranger on a phone who was sent a link, and a
+        token that resolves to nothing is the answer they are most likely to
+        get -- chat clients truncate long URLs when forwarding them, so a
+        correct link arrives here missing its tail. That branch was handing
+        them `{"code":"guest_link_not_found"}` in English while the repo
+        already owned the right wording for a link that stopped working.
+
+        Only this one code is redirected. An expired or revoked link is a
+        different fact and already has its own page; every other problem under
+        `/g` stays machine-readable.
+        """
+
+        if exc.code == GUEST_LINK_NOT_FOUND and is_guest_path(request.url.path):
+            return guests.guest_link_broken_page(request)
         body = ErrorResponse(code=exc.code, detail=exc.detail)
         return JSONResponse(status_code=exc.status_code, content=body.model_dump())
 

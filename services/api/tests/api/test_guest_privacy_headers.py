@@ -165,6 +165,22 @@ def test_a_crash_under_g_still_answers_with_the_privacy_headers(crashing_client)
         )
 
 
+def test_a_crash_under_g_still_says_nothing_about_the_failure(crashing_client):
+    """Stamping the crash page must not make it talkative.
+
+    The headers arrive because this boundary now builds its own 500 response
+    rather than letting Starlette's go out untouched -- and a response we build
+    is one somebody could later decide to make helpful. Whoever holds the link
+    reads whatever it says, so the body stays the exact string Starlette sends:
+    no connection string, no database name, no traceback.
+    """
+
+    response = crashing_client.get("/g/" + "a" * 43)
+
+    assert response.text == "Internal Server Error"
+    assert "unavailable" not in response.text
+
+
 def test_a_crash_outside_g_stays_bare(crashing_client):
     """The negative control for the 500 path.
 

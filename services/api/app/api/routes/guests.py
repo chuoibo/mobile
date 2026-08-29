@@ -31,6 +31,25 @@ Token = Annotated[
 ]
 
 
+def guest_link_broken_page(request: Request) -> HTMLResponse:
+    """The answer for a token that resolves to nothing.
+
+    Rendered from the exception handler rather than from each handler here, for
+    the same reason the privacy headers moved to middleware: a guest route
+    added later gets it by being registered, and there is no per-handler branch
+    for anyone to forget. The token is not passed into the context -- there is
+    nothing to link back to, and echoing a credential into a page is how it
+    ends up in a screenshot.
+    """
+
+    return templates.TemplateResponse(
+        request=request,
+        name="guest_link_broken.html",
+        context={"preview": NEUTRAL_PREVIEW},
+        status_code=status.HTTP_404_NOT_FOUND,
+    )
+
+
 @router.get(
     "/{token}",
     response_class=HTMLResponse,
@@ -95,7 +114,9 @@ def not_me_page(
     404: the page invited an objection and then behaved as though objecting had
     broken something.
     """
-    return _page(request, "guest_not_me.html", ApiService(repository).not_me_view(token), token)
+    return _page(
+        request, "guest_not_me.html", ApiService(repository).not_me_view(token), token
+    )
 
 
 @router.post("/{token}/khong-phai-toi", response_class=HTMLResponse)
@@ -135,10 +156,15 @@ def wrong_amount_page(
     if obligation_id is None:
         view = service.guest_view(token)
         if not view["blocks"]:
-            raise ApiProblem(409, "no_open_obligation", "Nothing to dispute on this link")
+            raise ApiProblem(
+                409, "no_open_obligation", "Nothing to dispute on this link"
+            )
         obligation_id = view["blocks"][0]["obligation_id"]
     return _page(
-        request, "guest_wrong_amount.html", service.wrong_amount_view(token, obligation_id), token
+        request,
+        "guest_wrong_amount.html",
+        service.wrong_amount_view(token, obligation_id),
+        token,
     )
 
 

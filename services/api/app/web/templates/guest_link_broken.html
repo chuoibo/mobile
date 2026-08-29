@@ -1,0 +1,49 @@
+{#
+  The guest page for a token that resolves to nothing.
+
+  This branch used to answer with the JSON error envelope, in English, to the
+  one audience that never installed anything and never agreed to read machine
+  output. The likeliest way to arrive here is not an attack and not an expired
+  link: it is a *correct* link that a chat client truncated while forwarding
+  it, so the wording leads with that and gives one action.
+
+  Deliberately holds no name. The expired and revoked states on `guest.html`
+  can say "message Nam for a new link" because they are rendering a real
+  envelope; there is no record behind this one, and filling the gap with a
+  placeholder would be worse than leaving it out.
+#}<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{ preview.title }}</title>
+{# Same neutral preview as the working page: whoever sees the card in a group
+   chat is not necessarily the intended reader, so no name and no amount. #}
+<meta property="og:title" content="{{ preview.title }}">
+<meta property="og:description" content="{{ preview.description }}">
+<meta name="robots" content="noindex, nofollow">
+<link rel="stylesheet" href="/static/guest.css">
+</head>
+<body>
+
+<main class="sheet">
+
+  <section class="card card--quiet">
+    <p class="eyebrow">Link không dùng được</p>
+    <h1 class="lede">Không mở được link này.</h1>
+    <p class="note">
+      Link gửi qua tin nhắn rất hay bị cắt mất phần đuôi lúc chuyển tiếp, và
+      thiếu một ký tự là link không mở được nữa. Thử mở lại từ tin nhắn gốc,
+      hoặc nhắn cho người đã gửi để xin link mới.
+    </p>
+    <p class="note">
+      Nếu bạn có khoản cần gửi thì khoản đó vẫn còn nguyên. Link hỏng không
+      xoá khoản nào, và cũng không tính là đã chuyển.
+    </p>
+  </section>
+
+  <p class="footer">Trang này không cho xem gì của nhóm.</p>
+</main>
+
+</body>
+</html>
