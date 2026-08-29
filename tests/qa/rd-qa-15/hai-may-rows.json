@@ -1,0 +1,53 @@
+{
+ "messages": [
+  {
+   "id": "cc70f308-ee41-4b28-a7ce-fab4c788e8a7",
+   "context_id": "8ebc3084-b2ca-44c7-a088-17e024011bbf",
+   "author_id": "25d09e67-dbcb-4fbc-aa0c-742e4bb0c321",
+   "kind": "ai_card",
+   "body": null,
+   "image_url": null,
+   "card": {
+    "kind": "poll_vote",
+    "payload": {
+     "poll_id": "poll-hai-may",
+     "option_id": "o2"
+    }
+   },
+   "created_at": "2030-08-27T12:00:01Z",
+   "cursor": "MjAzMC0wOC0yN1QxMjowMDowMSswMDowMHxjYzcwZjMwOC1lZTQxLTRiMjgtYTdjZS1mYWI0Yzc4OGU4YTc"
+  },
+  {
+   "id": "cfec1103-bdd8-4e1c-aaf0-09661a1c669d",
+   "context_id": "8ebc3084-b2ca-44c7-a088-17e024011bbf",
+   "author_id": "7fb613d9-238a-44d2-b697-6f948013856a",
+   "kind": "ai_card",
+   "body": null,
+   "image_url": null,
+   "card": {
+    "kind": "poll",
+    "payload": {
+     "options": [
+      {
+       "label": "Tiem nuong Xom Leo",
+       "option_id": "o1"
+      },
+      {
+       "label": "Lau ga la e Tao Ngo",
+       "option_id": "o2"
+      }
+     ],
+     "poll_id": "poll-hai-may",
+     "question": "Toi nay an o dau?"
+    }
+   },
+   "created_at": "2030-08-27T12:00:00Z",
+   "cursor": "MjAzMC0wOC0yN1QxMjowMDowMCswMDowMHxjZmVjMTEwMy1iZGQ4LTRlMWMtYWFmMC0wOTY2MWExYzY2OWQ"
+  }
+ ],
+ "poll_id": "poll-hai-may",
+ "ids": {
+  "an": "7fb613d9-238a-44d2-b697-6f948013856a",
+  "trang": "25d09e67-dbcb-4fbc-aa0c-742e4bb0c321"
+ }
+}

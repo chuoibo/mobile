@@ -38,7 +38,8 @@ import json
 import os
 import sys
 import uuid
-from datetime import datetime, UTC
+import itertools
+from datetime import datetime, timedelta, UTC
 
 import anyio
 import httpx
@@ -53,6 +54,13 @@ from app.db.models import (
 )
 
 NOW = datetime(2030, 8, 27, 12, 0, tzinfo=UTC)
+
+_ticks = itertools.count()
+
+
+def _tick():
+    """Distinct, increasing timestamp per call — one second apart."""
+    return NOW + timedelta(seconds=next(_ticks))
 POLL_ID = "poll-qa15"
 QUESTION = "Toi nay an o dau?"
 OPTIONS = [
@@ -64,7 +72,12 @@ OPTIONS = [
 
 def _app(session):
     import app.api.service as service_mod
-    service_mod._now = lambda: NOW
+
+    # A ticking clock, not a constant. A frozen clock stamps every ballot with
+    # the SAME created_at, which makes "the later vote wins" undefined and lets
+    # an arbitrary tie-break masquerade as a counting bug. Real users vote
+    # seconds apart; the probe must too.
+    service_mod._now = _tick
     application = create_app()
     application.dependency_overrides[get_repository] = lambda: SqlAlchemyApiRepository(session)
     return application

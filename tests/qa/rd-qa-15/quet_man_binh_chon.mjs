@@ -19,7 +19,11 @@ import axePkg from "/home/lakiet/agent-harness/wt/qa/tests/qa/rd-qa-11/node_modu
 const { chromium } = pw;
 const AxeBuilder = axePkg.default ?? axePkg;
 
-const BASE = "http://127.0.0.1:8600";
+// 8600 was already taken by another lane's server on this box. A busy port
+// serves SOMEONE ELSE'S bundle and the scan reports on the wrong product while
+// exiting 0, so the port is taken from the environment and the caller checks
+// the served index.html hash against the local one before trusting a finding.
+const BASE = process.env.QA15_BASE ?? "http://127.0.0.1:8615";
 const OUT = "/tmp/qa15-shots"; // outside the repo: guard fails closed on binaries
 
 const MAN = [

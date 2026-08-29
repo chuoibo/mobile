@@ -27,8 +27,19 @@ const { tongHopBinhChon } = await import(
   join(MOBILE, "dist-test", "screens", "chat", "binh-chon.js")
 );
 
+const { tinHienThiLanDau } = await import(
+  join(MOBILE, "dist-test", "screens", "chat", "tin-nhan.js")
+);
+
 const data = JSON.parse(readFileSync(join(here, "tin-nhan-that.json"), "utf8"));
-const { messages, ids, poll_id: pollId } = data;
+const { messages: rawMessages, ids, poll_id: pollId } = data;
+
+// The route pages newest-first; `tongHopBinhChon` documents that it requires
+// oldest-first and relies on the screen having reversed already
+// (TinNhan.tsx:280). Feeding the raw page here would test a call the product
+// never makes and would report the EARLIER ballot as the winner -- a harness
+// bug that reads exactly like a counting bug. Apply the shipped transform.
+const messages = tinHienThiLanDau(rawMessages);
 
 console.log("=".repeat(72));
 console.log(`Nap ${messages.length} tin nhan THAT tu may chu (khong phai mang go tay).`);
