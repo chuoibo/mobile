@@ -56,12 +56,21 @@ SEARCH_LIMIT_PER_WINDOW = 12
 
 RECEIPT_SCAN_WINDOW_SECONDS = 60
 
-# Lower than search, because a scan costs more: it ships a photograph to a
-# vision model, where a search ships a sentence. The number is set by what a
-# person at a table actually does -- photograph one bill, then re-shoot it a
-# few times when the first frame comes out blurred or cropped. Ten leaves room
-# for that and for a second bill, and still stops a loop in under a second.
-RECEIPT_SCAN_LIMIT_PER_WINDOW = 10
+# Set by the asymmetry, not by what looks tidy. Against the thing this exists
+# to stop -- a loop -- the choice barely matters: a loop issues hundreds of
+# requests a second, so any ceiling in the tens caps the minute's spend at a
+# small constant, and 10 versus 30 is the difference between two amounts that
+# are both negligible. Against a real person the choice matters a lot. Someone
+# re-shooting a bill that keeps coming out blurred, then a second bill, with
+# the client retrying underneath them, reaches low double digits in a minute;
+# refused at that point they watch the feature fail with nothing they can do.
+#
+# So the ceiling sits well above any plausible human burst and far below loop
+# scale. This started at 10, chosen by intuition, and the suite disproved it:
+# `tests/qa/rd-qa-38` drives one actor past 10 scans in a single window doing
+# nothing unreasonable. That is evidence about real bursts, not a test being
+# awkward, and the number moved because of it.
+RECEIPT_SCAN_LIMIT_PER_WINDOW = 30
 
 # Below this many tracked identities the map is not worth walking. Above it,
 # the sweep threshold doubles from whatever survived, so the O(n) walk happens
