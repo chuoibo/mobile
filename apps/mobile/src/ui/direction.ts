@@ -29,3 +29,29 @@ va khoang lech ghim ngoai vung cuon.
 
 FINISH: build fully, then hand off to the finish reviewer with captures.
 `.trim();
+
+/** The direction contract for the per-person split screen (rd-fe-04).
+ *
+ * Its own contract rather than an extra paragraph in the one above, because it
+ * is a different surface with a different failure mode: those two screens are
+ * about a number being read correctly, this one is about a number being
+ * attributed to the right person. Same world, same tokens, same lead tone.
+ */
+export const DIRECTION_CONTRACT_GOI_Y = `
+THESIS: May doc tien in tren giay, khong doc duoc ai da an gi. Nguoi noi dieu
+do; may chu moi chia tien.
+
+OWN-WORLD: The gioi Ru Di, khong them mau. Dan teal "split". Tim "ai" chi danh
+dau do tin cay cua ban doc va goi y mac dinh.
+
+STORY: Hang avatar: ai o day, moi nguoi chiu bao nhieu. Ma tran mon x nguoi.
+Tich mot o, so tren dau doi; so do cua may chu, khong phai app tu tinh.
+
+FIRST VIEWPORT: Hang avatar kem so, chip "Theo mon" / "Theo %", cau "Chon nguoi
+da an mon nay", ba dong mon dau.
+
+FORM: Cot co dinh, khong cuon ngang. Buoc cot >= 44. Dong qua thi chip "n/m"
+mo bang chon toan man.
+
+FINISH: build fully, then hand off to the finish reviewer with captures.
+`.trim();

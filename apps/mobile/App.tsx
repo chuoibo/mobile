@@ -19,7 +19,7 @@
  */
 import { useCameraPermissions, type CameraView } from "expo-camera";
 import { StatusBar } from "expo-status-bar";
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Pressable, SafeAreaView, Text, View, useColorScheme } from "react-native";
 import { AppRoot } from "./src/navigation/AppRoot";
 import {
@@ -28,6 +28,7 @@ import {
   confirmReceipt,
   loadBoard,
   openBatch,
+  previewSplit,
   proposeSplit,
   publishBatch,
   registerPeople,
@@ -36,6 +37,7 @@ import {
   type PendingProposal,
   BASE_URL,
   type PublishGates,
+  type SplitPreview,
 } from "./src/api";
 import {
   HAS_CAMERA,
@@ -45,16 +47,35 @@ import {
   withBillPhoto,
 } from "./src/camera";
 import { itemsTotalVnd, readingFromWire, type BillReading } from "./src/receipt";
+import {
+  addPersonToAll,
+  alignToRoster,
+  blockingProblem,
+  dropPerson,
+  everyoneShares,
+  itemsForWire,
+  signature,
+  syncLines,
+  toggle,
+  type Assignment,
+} from "./src/assignment";
 import { ChupBill } from "./src/screens/ChupBill";
+import { GoiYChia } from "./src/screens/GoiYChia";
 import { KetQuaNhanDien } from "./src/screens/KetQuaNhanDien";
 import { ChiaSe, type Envelope } from "./src/screens/ChiaSe";
 import { DeXuat, type Proposal } from "./src/screens/DeXuat";
 import { DotThu, type Obligation } from "./src/screens/DotThu";
 import { Draft, NhapKhoanChi } from "./src/screens/NhapKhoanChi";
-import { EMPTY_FORM, makeIdFactory, type DraftForm } from "./src/participants";
+import {
+  EMPTY_FORM,
+  addParticipant,
+  makeIdFactory,
+  removeParticipant,
+  type DraftForm,
+} from "./src/participants";
 import { space, type, usePalette } from "./src/theme";
 
-type Step = "chup-bill" | "ket-qua" | "nhap" | "de-xuat" | "dot-thu" | "chia-se";
+type Step = "chup-bill" | "ket-qua" | "goi-y" | "nhap" | "de-xuat" | "dot-thu" | "chia-se";
 
 /**
  * Who the app says it is when it asks for a bill to be read.
@@ -88,13 +109,26 @@ const TOAN_MAN: Step[] = ["chup-bill", "ket-qua"];
  * reused and when a fresh one is minted -- and the server's rule is that a key
  * may be reused only while the bytes stay identical. Every field the expense
  * body carries is in here for that reason: change the total, the occasion, who
- * paid or who is in, and this is a different write that must not replay the
- * answer to the previous one.
+ * paid, who is in, or which boxes are ticked, and this is a different write
+ * that must not replay the answer to the previous one.
+ *
+ * The matrix signature used to be missing. Editing who ate what and sending
+ * again reused the old key against a new body, which the server answers with
+ * 422 `idempotency_key_reuse`.
  */
-function expenseIntent(d: Draft): string {
+function expenseIntent(d: Draft, matrixSig: string): string {
   const who = d.participants.map((person) => person.id).join(",");
-  return `khoan-chi:${d.advancerId}:${d.totalVnd}:${d.occasion}:${who}`;
+  return `khoan-chi:${d.advancerId}:${d.totalVnd}:${d.occasion}:${who}:${matrixSig}`;
 }
+
+/**
+ * The id minted for a person added on the split screen.
+ *
+ * Separate from the scan actor above: that one says who is *asking* for a bill
+ * to be read, this one names somebody who is going to *owe money*. Sharing a
+ * factory between the two would let a scan id land in the roster.
+ */
+const NEXT_SPLIT_PERSON_ID = makeIdFactory();
 
 function LuongKhoanChi({ onExit }: { onExit: () => void }) {
   const c = usePalette();
@@ -154,6 +188,14 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
   // rejected "12x" still sitting in row three of a completely different bill.
   const [scanSeq, setScanSeq] = useState(0);
   const access = readAccess(permission, HAS_CAMERA);
+  // Held here, not inside the screen. The screen unmounts on every step
+  // change; a roster or a matrix owned there would vanish the moment someone
+  // pressed back, and they would have to name everybody again.
+  const [assignment, setAssignment] = useState<Assignment>({});
+  const [preview, setPreview] = useState<{
+    signature: string;
+    split: SplitPreview;
+  } | null>(null);
 
   /**
    * Take (or pick) one photo, have it read, and show what came back.
@@ -171,6 +213,8 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
       );
       if (wire === null) return;
       setReading(readingFromWire(wire));
+      setAssignment({});
+      setPreview(null);
       setScanSeq((n) => n + 1);
       setStep("ket-qua");
     });
@@ -207,6 +251,58 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
       setBusy(false);
     }
   }
+
+  /**
+   * Preview the split ~450ms after the last tick.
+   *
+   * The attempt is filed under `xem-truoc:` + the matrix signature. The same
+   * ticks produce the same key *and* the same body, so the server replays
+   * instead of inserting another expense. Ticking back and forth does not
+   * fill the ledger with junk.
+   *
+   * `paid_by_id` is `participantIds[0]`. Nobody has chosen who paid yet --
+   * that is the next screen -- and the allocator still needs somewhere to
+   * park the leftover dong. That is why the rounding_gainers line is on
+   * this screen: the 1đ assignment here is provisional.
+   *
+   * The timeout is cleared on unmount and on every change. A reply for a
+   * signature that is no longer current is dropped, so a slow round-trip
+   * cannot overwrite a newer one.
+   */
+  useEffect(() => {
+    if (step !== "goi-y" || reading === null) return;
+    const ids = form.roster.participants.map((person) => person.id);
+    const blocked = blockingProblem(reading, ids, assignment);
+    if (blocked !== null || ids.length === 0) return;
+    const sig = signature(reading, ids, assignment);
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      const payerId = ids[0];
+      if (payerId === undefined) return;
+      previewSplit(
+        {
+          participantIds: ids,
+          totalVnd: itemsTotalVnd(reading),
+          items: itemsForWire(reading, assignment),
+          payerId,
+          occasion: "xem trước chia",
+        },
+        attemptFor(attempts.current, `xem-truoc:${sig}`),
+      )
+        .then((split) => {
+          if (cancelled) return;
+          setPreview({ signature: sig, split });
+        })
+        .catch((problem) => {
+          if (cancelled) return;
+          setError(problem instanceof Error ? problem.message : String(problem));
+        });
+    }, 450);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [step, reading, form.roster, assignment]);
 
   // The viewfinder is the one screen that owns the whole pane. Left on the
   // cream page ground, the shell painted a light strip under a black screen
@@ -277,11 +373,50 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
             // is what the form holds -- `parseAmountVnd` reads it back on the
             // other side. Nothing is divided here: the allocator on the server
             // is still the only thing in this product that splits money.
-            //
-            // Who ate what does not travel yet. Per-item assignment is the
-            // next screen in the mockup and it is not built, so the honest
-            // handover is the total and nothing more.
+            const ids = form.roster.participants.map((person) => person.id);
             setForm((f) => ({ ...f, amount: String(itemsTotalVnd(reading)) }));
+            setAssignment((a) => syncLines(a, reading.lines, ids));
+            setStep("goi-y");
+          }}
+        />
+      )}
+
+      {step === "goi-y" && reading !== null && (
+        <GoiYChia
+          reading={reading}
+          roster={form.roster}
+          assignment={assignment}
+          preview={preview}
+          onBack={() => { setError(null); setStep("ket-qua"); }}
+          onReset={() => {
+            setAssignment(
+              everyoneShares(
+                reading.lines,
+                form.roster.participants.map((person) => person.id),
+              ),
+            );
+          }}
+          onToggle={(lineId, personId) => {
+            setAssignment((a) => toggle(a, lineId, personId));
+          }}
+          onAddPerson={(name) => {
+            const next = addParticipant(form.roster, name, NEXT_SPLIT_PERSON_ID);
+            const added = next.participants[next.participants.length - 1];
+            if (added === undefined) return;
+            setForm((f) => ({ ...f, roster: next }));
+            setAssignment((a) =>
+              addPersonToAll(a, reading.lines.map((line) => line.id), added.id),
+            );
+          }}
+          onRemovePerson={(id) => {
+            setForm((f) => ({ ...f, roster: removeParticipant(f.roster, id) }));
+            setAssignment((a) => dropPerson(a, id));
+          }}
+          onSeeResults={() => {
+            setForm((f) => ({
+              ...f,
+              amount: String(itemsTotalVnd(reading)),
+            }));
             setStep("nhap");
           }}
         />
@@ -307,8 +442,18 @@ function LuongKhoanChi({ onExit }: { onExit: () => void }) {
             // replays rather than writing a second expense. Editing a number
             // first changes the intent, so it mints a new one instead of
             // colliding with the old body and earning a 422.
+            const ids = d.participants.map((person) => person.id);
+            const aligned = reading === null
+              ? assignment
+              : alignToRoster(assignment, reading.lines, ids);
+            const items = reading === null ? [] : itemsForWire(reading, aligned);
+            const matrixSig = reading === null ? "" : signature(reading, ids, aligned);
             setProposal(
-              await proposeSplit(d, attemptFor(attempts.current, expenseIntent(d))),
+              await proposeSplit(
+                d,
+                attemptFor(attempts.current, expenseIntent(d, matrixSig)),
+                items,
+              ),
             );
             setStep("de-xuat");
           })}

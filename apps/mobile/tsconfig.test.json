@@ -9,6 +9,7 @@
   },
   "include": [
     "src/api.ts",
+    "src/assignment.ts",
     "src/participants.ts",
     "src/receipt.ts",
     "src/extraction.ts",

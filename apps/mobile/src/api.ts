@@ -298,18 +298,87 @@ export async function registerPeople(
   }
 }
 
+export type ExpenseItemWire = {
+  item_id: string;
+  label: string;
+  amount_vnd: number;
+  shared_by: string[];
+};
+
 type ExpenseInput = {
   context_id: string;
   description: string;
   recorded_by_id: string;
   paid_by_id: string;
-  verification_scope: "totals_only";
+  verification_scope: "totals_only" | "items_reviewed";
   occurred_at: string;
   participants: string[];
   total_amount_vnd: number;
-  items: never[];
+  items: ExpenseItemWire[];
   surcharges: never[];
   discounts: never[];
+};
+
+type AllocationWire = {
+  allocations: Record<string, number>;
+  rounding_gainers: string[];
+  warnings: string[];
+};
+
+/**
+ * What the allocator's refusals mean to the person holding the phone.
+ *
+ * `blockingProblem` in `assignment.ts` is the first line of defence and
+ * should stop these from being reachable. This table is the net underneath:
+ * a race, a stale roster, a line that became 0đ after the preview, should
+ * still read as a next move rather than as `EMPTY_SHARED_BY`.
+ */
+const ALLOCATOR_REFUSALS: Record<string, string> = {
+  reconciliation_mismatch:
+    "Tổng các món không khớp tổng bill. Quay lại màn trước kiểm tra lại từng dòng tiền.",
+  empty_shared_by:
+    "Có món chưa ai nhận. Tích ít nhất một người đã ăn từng món trước khi gửi.",
+  zero_amount:
+    "Có món đang 0đ. Quay lại màn trước để sửa giá hoặc xoá món đó.",
+  unknown_participant:
+    "Một người trong danh sách chia không còn trong nhóm. Xoá họ khỏi món, hoặc thêm lại vào nhóm.",
+  duplicate_shared_by:
+    "Một món đang gán trùng một người. Đây là lỗi của app, mở lại màn hình rồi thử lại.",
+  amount_too_large:
+    "Một món vượt quá số tiền app nhận. Quay lại màn trước giảm giá hoặc xoá món.",
+  negative_amount:
+    "Một món đang mang số âm. Quay lại màn trước sửa lại giá.",
+};
+
+function expenseBody(input: {
+  occasion: string;
+  actorId: string;
+  payerId: string;
+  participantIds: string[];
+  totalVnd: number;
+  items: ExpenseItemWire[];
+  occurredAt: number;
+}): ExpenseInput {
+  return {
+    context_id: CONTEXT_ID,
+    description: input.occasion,
+    recorded_by_id: input.actorId,
+    paid_by_id: input.payerId,
+    verification_scope: input.items.length > 0 ? "items_reviewed" : "totals_only",
+    // From the attempt, not the clock: a retry has to send the same bytes.
+    occurred_at: new Date(input.occurredAt).toISOString(),
+    participants: input.participantIds,
+    total_amount_vnd: input.totalVnd,
+    items: input.items,
+    surcharges: [],
+    discounts: [],
+  };
+}
+
+type ExpenseResponse = {
+  expense_id: string;
+  proposal: ExpenseInput;
+  allocation: AllocationWire;
 };
 
 /** A proposal plus what `confirmExpense` needs to prove it saw it. */
@@ -318,26 +387,67 @@ export type PendingProposal = Proposal & {
   serverProposal: ExpenseInput;
 };
 
-export async function proposeSplit(draft: Draft, attempt: Attempt): Promise<PendingProposal> {
-  const body: ExpenseInput = {
-    context_id: CONTEXT_ID,
-    description: draft.occasion,
-    recorded_by_id: draft.advancerId,
-    paid_by_id: draft.advancerId,
-    verification_scope: "totals_only",
-    // From the attempt, not the clock: a retry has to send the same bytes.
-    occurred_at: new Date(attempt.at).toISOString(),
-    participants: draft.participants.map((person: Participant) => person.id),
-    total_amount_vnd: draft.totalVnd,
-    items: [],
-    surcharges: [],
-    discounts: [],
+export type SplitPreview = {
+  allocations: Record<string, number>;
+  roundingGainers: string[];
+  warnings: string[];
+};
+
+/**
+ * Ask the server what this matrix costs each person, without confirming.
+ *
+ * Same `POST /expenses` as `proposeSplit`. The caller keys the attempt on
+ * the matrix signature, so ticking the same boxes again replays rather than
+ * inserting another expense.
+ */
+export async function previewSplit(
+  input: {
+    participantIds: string[];
+    totalVnd: number;
+    items: ExpenseItemWire[];
+    payerId: string;
+    occasion: string;
+  },
+  attempt: Attempt,
+): Promise<SplitPreview> {
+  const body = expenseBody({
+    occasion: input.occasion,
+    actorId: input.payerId,
+    payerId: input.payerId,
+    participantIds: input.participantIds,
+    totalVnd: input.totalVnd,
+    items: input.items,
+    occurredAt: attempt.at,
+  });
+  const result = await translated<ExpenseResponse>(ALLOCATOR_REFUSALS, "/expenses", {
+    body,
+    attempt,
+  });
+  return {
+    allocations: result.allocation.allocations,
+    roundingGainers: result.allocation.rounding_gainers,
+    warnings: result.allocation.warnings ?? [],
   };
-  const result = await call<{
-    expense_id: string;
-    proposal: ExpenseInput;
-    allocation: { allocations: Record<string, number>; rounding_gainers: string[] };
-  }>("/expenses", { body, attempt });
+}
+
+export async function proposeSplit(
+  draft: Draft,
+  attempt: Attempt,
+  items: ExpenseItemWire[] = [],
+): Promise<PendingProposal> {
+  const body = expenseBody({
+    occasion: draft.occasion,
+    actorId: draft.advancerId,
+    payerId: draft.advancerId,
+    participantIds: draft.participants.map((person: Participant) => person.id),
+    totalVnd: draft.totalVnd,
+    items,
+    occurredAt: attempt.at,
+  });
+  const result = await translated<ExpenseResponse>(ALLOCATOR_REFUSALS, "/expenses", {
+    body,
+    attempt,
+  });
 
   return {
     participants: draft.participants,

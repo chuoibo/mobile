@@ -295,7 +295,7 @@ test("câu chữ hiện ra màn hình không dùng em-dash", () => {
  * and this test is what keeps it from quietly ceasing to describe anything: a
  * block that goes missing fails rather than just stops being true.
  */
-import { DIRECTION_CONTRACT } from "../dist-test/ui/direction.js";
+import { DIRECTION_CONTRACT, DIRECTION_CONTRACT_GOI_Y } from "../dist-test/ui/direction.js";
 
 test("hợp đồng thiết kế còn đủ năm khối và dòng FINISH", () => {
   for (const block of ["THESIS:", "OWN-WORLD:", "STORY:", "FIRST VIEWPORT:", "FORM:", "FINISH:"]) {
@@ -308,6 +308,15 @@ test("hợp đồng thiết kế còn đủ năm khối và dòng FINISH", () =>
   // reading is not a contract.
   const words = DIRECTION_CONTRACT.split(/\s+/).length;
   assert.ok(words <= 150, `hợp đồng ${words} từ, quá 150 thì không ai đọc`);
+});
+
+test("hợp đồng màn gợi ý chia còn đủ năm khối và dòng FINISH", () => {
+  for (const block of ["THESIS:", "OWN-WORLD:", "STORY:", "FIRST VIEWPORT:", "FORM:", "FINISH:"]) {
+    assert.ok(DIRECTION_CONTRACT_GOI_Y.includes(block), `thiếu khối ${block}`);
+  }
+  assert.match(DIRECTION_CONTRACT_GOI_Y, /teal/);
+  const words = DIRECTION_CONTRACT_GOI_Y.split(/\s+/).length;
+  assert.ok(words <= 150, `hợp đồng gợi ý ${words} từ, quá 150 thì không ai đọc`);
 });
 
 test("không file nguồn nào chứa byte NUL", async () => {
