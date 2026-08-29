@@ -47,6 +47,30 @@ def _assign(client, bill_id, participant_ids):
     )
 
 
+def _assign_second_item(client, bill_id, participant_ids):
+    """The same request with the suspect name on the *second* dish.
+
+    Every other case in this file puts the stranger on `i1`. A gate that only
+    inspected `request.assignments[0]` passed all of them -- caught by mutation
+    `only the first assignment checked`, which left both layers green. A bill is
+    many lines and the stranger lands on whichever dish they were tapped onto.
+    """
+
+    return client.put(
+        f"/bills/{bill_id}/assignments",
+        headers=actor_headers(),
+        json={
+            "assignments": [
+                {"item_key": "i1", "participant_ids": [str(SENDER_ID)]},
+                {
+                    "item_key": "i2",
+                    "participant_ids": [str(pid) for pid in participant_ids],
+                },
+            ]
+        },
+    )
+
+
 def _shares_of(repository, bill_id, item_key):
     bill = repository.bills[uuid.UUID(bill_id)]
     item = next(item for item in bill.items if item.item_key == item_key)
@@ -105,3 +129,20 @@ def test_assignment_still_accepts_participants_who_are_all_members(client, repos
 
     assert response.status_code == 200, response.text
     assert _shares_of(repository, bill["id"], "i1") == [SENDER_ID, ADVANCER_ID]
+
+
+def test_assignment_refuses_a_stranger_on_a_later_dish_not_only_the_first(
+    client, repository
+):
+    """Found by mutation, not by reading: restricting the gate to
+    `request.assignments[:1]` left every other case in this file green, on both
+    the fake and the live layer. The rule is about the whole request."""
+
+    bill = create_bill(client)
+
+    response = _assign_second_item(client, bill["id"], [ADVANCER_ID, STRANGER_ID])
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "participant_not_in_context"
+    assert str(STRANGER_ID) in response.json()["detail"]
+    assert _shares_of(repository, bill["id"], "i2") == [ADVANCER_ID]
