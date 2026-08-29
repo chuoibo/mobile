@@ -36,6 +36,7 @@ from app.api.repository import (
     BillSurchargeRecord,
     ConfirmationRecord,
     ConfirmedExpense,
+    ContextRecord,
     ExpenseIdentity,
     FrozenBatch,
     FrozenObligation,
@@ -107,6 +108,7 @@ class FakeRepository:
         self.objections: list[dict] = []
         self.receipts: dict[uuid.UUID, FakeReceipt] = {}
         self.people: dict[uuid.UUID, PersonRecord] = {}
+        self.contexts: dict[uuid.UUID, ContextRecord] = {}
         self.bills: dict[uuid.UUID, BillRecord] = {}
         self.finances: dict[uuid.UUID, PersonFinanceSummary] = {}
         self.active_memberships: set[tuple[uuid.UUID, uuid.UUID]] = set()
@@ -169,6 +171,9 @@ class FakeRepository:
 
     def is_member(self, context_id, person_id):
         return (context_id, person_id) in self.active_memberships
+
+    def get_context(self, context_id):
+        return self.contexts.get(context_id)
 
     def create_outing_invite(
         self,

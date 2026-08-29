@@ -110,3 +110,16 @@ def get_context_balances(
     repository: Annotated[ApiRepository, Depends(get_repository)],
 ) -> ContextBalancesResponse:
     return ApiService(repository).get_context_balances(context_id, actor)
+
+
+@router.get(
+    "/contexts/{context_id}",
+    response_model=ContextResponse,
+    responses=ERRORS,
+)
+def get_context(
+    context_id: UUID,
+    actor: Annotated[Actor, Depends(get_actor)],
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+) -> ContextResponse:
+    return ApiService(repository).get_context(context_id, actor)
