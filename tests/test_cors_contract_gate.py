@@ -154,6 +154,138 @@ class CannotGoSilent(unittest.TestCase):
         self.assertIn(mod.EXIT_CANNOT_RUN, wants)
 
 
+class BlindIsNotBroken(unittest.TestCase):
+    """Could-not-read and client-is-wrong are two different answers.
+
+    This is the defect PR #379 was accused of and did not have. `album-api.ts`
+    named its header producer `tieuDe`, the reader recognises producers by name,
+    so it could not trace that one call -- and the gate reported it as "1 chỗ
+    client sẽ bị trình duyệt chặn ở preflight" and exited 1. The header was
+    being sent. Review spent a cycle on a client defect that did not exist.
+
+    `check_actor_headers.py` already draws this line (EXIT_VIOLATION vs
+    EXIT_CANNOT_READ, PR #398). Its sibling here did not, so the same class of
+    false accusation stayed live in the other half of the same contract.
+
+    A blind spot has to be loud -- it is a hole in the gate's coverage. It just
+    must not be reported as a finding about the client.
+    """
+
+    BLIND_ONLY = """
+        function actorHeaders(a: string): Record<string, string> {
+          return { "X-Actor-ID": a, "Content-Type": "application/json" };
+        }
+        function tieuDe(a: string): Record<string, string> {
+          return { "X-Actor-ID": a };
+        }
+        export async function ok(a: string) {
+          return fetch("/x", { method: "POST", headers: actorHeaders(a) });
+        }
+        export async function blind(a: string) {
+          return fetch("/y", { method: "POST", headers: tieuDe(a) });
+        }
+        """
+
+    BLIND_PLUS_REAL = """
+        function tieuDe(a: string): Record<string, string> {
+          return { "X-Actor-ID": a };
+        }
+        export async function blind(a: string) {
+          return fetch("/y", { method: "POST", headers: tieuDe(a) });
+        }
+        export async function broken(a: string) {
+          return fetch("/z", {
+            method: "POST",
+            headers: { "X-Actor-ID": a, "X-Totally-Unallowed": "1" },
+          });
+        }
+        """
+
+    def _run_on(self, source: str) -> subprocess.CompletedProcess:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp) / "src"
+            root.mkdir()
+            (root / "canary.ts").write_text(source, encoding="utf-8")
+            return subprocess.run(
+                [sys.executable, str(GATE), "--client-dir", str(root)],
+                capture_output=True,
+                text=True,
+                timeout=600,
+                cwd=REPO_ROOT,
+            )
+
+    def test_a_site_it_cannot_read_is_exit_2_not_exit_1(self):
+        """The #379 shape: every header this client sends is allowed, and one
+        call site is written in a way the reader cannot follow."""
+        done = self._run_on(self.BLIND_ONLY)
+        self.assertEqual(
+            done.returncode,
+            2,
+            "chỗ cổng không đọc được phải là 'tôi chưa kết luận được' (2), "
+            "không phải 'client sai' (1).\n"
+            f"stdout={done.stdout}\nstderr={done.stderr}",
+        )
+
+    def test_it_does_not_accuse_the_client_of_a_blocked_preflight(self):
+        """Exit code and prose have to agree. The sentence is what a reviewer
+        reads, and 'sẽ bị trình duyệt chặn' is a claim about the client."""
+        done = self._run_on(self.BLIND_ONLY)
+        self.assertNotIn(
+            "client sẽ bị trình duyệt chặn",
+            done.stdout,
+            "cổng đang kết luận về client ở chỗ nó mới chỉ không đọc được",
+        )
+
+    def test_it_still_says_the_blind_spot_out_loud(self):
+        """Silence would be the opposite failure: a hole nobody can see."""
+        done = self._run_on(self.BLIND_ONLY)
+        self.assertIn("canary.ts", done.stdout, "phải chỉ ra đúng file và dòng")
+        self.assertIn(
+            "MÙ", done.stdout, "phải gọi tên chỗ mù, đừng nuốt nó thành im lặng"
+        )
+
+    def test_a_real_defect_outranks_a_blind_spot(self):
+        """Both present: the actionable one wins, or a blind spot elsewhere
+        would launder a header the browser really does refuse."""
+        done = self._run_on(self.BLIND_PLUS_REAL)
+        self.assertEqual(
+            done.returncode,
+            1,
+            "có lỗi client thật thì phải là 1, đừng để chỗ mù hạ nó xuống 2.\n"
+            f"stdout={done.stdout}\nstderr={done.stderr}",
+        )
+        self.assertIn("X-Totally-Unallowed", done.stdout)
+
+    def test_every_canary_holds_through_the_real_gate(self):
+        """The self-test reimplemented the classification instead of calling
+        `run()`, so its canaries answered from a copy of the logic and could
+        agree with themselves while the real exit path disagreed. Re-running
+        each canary through the actual program is what makes them evidence.
+        """
+        mod = _load()
+        for name, source, want in mod.CANARIES:
+            with self.subTest(canary=name):
+                done = self._run_on(source)
+                self.assertEqual(
+                    done.returncode,
+                    want,
+                    f"canary {name}: cổng thật ra {done.returncode}, "
+                    f"self-test khai {want}.\nstdout={done.stdout}",
+                )
+
+    def test_a_canary_covers_partial_blindness(self):
+        """The existing blind canary is a tree with *no* readable site at all.
+        The #379 shape is a tree with plenty of readable sites and one that is
+        not -- a different branch, and the one that actually fired."""
+        mod = _load()
+        blind = [n for n, _s, want in mod.CANARIES if want == mod.EXIT_CANNOT_RUN]
+        self.assertGreaterEqual(
+            len(blind),
+            2,
+            "chỉ có canary 'không đọc được gì cả'; thiếu ca mù một phần",
+        )
+
+
 class PolicyComesFromTheServer(unittest.TestCase):
     """The allowlist must be imported, never transcribed."""
 

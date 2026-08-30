@@ -89,7 +89,7 @@ class GateBites(unittest.TestCase):
         self.assertEqual(
             kinds(
                 """
-                await translated(PUBLISH_REFUSALS, `/batches/current/publish`, {
+                await translatedAsActor(PUBLISH_REFUSALS, `/batches/current/publish`, {
                   body: { delivery_method: "personal_link" },
                   actorId,
                 });
@@ -142,7 +142,7 @@ class GateStaysQuiet(unittest.TestCase):
                  * never existed.
                  */
                 // there is no `/polls` route to post either one to
-                await translated(TABLE, `/batches/${batchId}/publish`, { actorId });
+                await translatedAsActor(TABLE, `/batches/${batchId}/publish`, { actorId });
                 """
             ),
             [],
@@ -250,6 +250,41 @@ class ReaderDoesNotGoBlind(unittest.TestCase):
             1,
         )
 
+    def test_every_wrapper_it_reads_is_still_declared_in_api_ts(self):
+        # `REQUEST_FUNCTIONS` is the reader's one hardcoded dependency on how
+        # the client spells itself, and drift in it is silent in the worst
+        # direction: a name nobody calls any more matches nothing, every call
+        # site through it stops being read, and the gate still exits 0 on the
+        # sites it can still see.
+        #
+        # That is not hypothetical. This branch renamed `call` and `translated`
+        # into four `*AsActor` / `*Anonymous` wrappers. Measured before the
+        # reader was taught them: 13 paths across 19 call sites, against 65
+        # across 77 after. 58 call sites unread, and the only thing that noticed
+        # was `assertGreater(total, 10)` -- which then stopped noticing the
+        # moment `main` merged three more direct `fetch` calls in and carried
+        # the total from 10 to 13.
+        #
+        # So the count below is a backstop for the reader dying outright, not a
+        # guard against this. This is the guard against this, and it names the
+        # function instead of printing a number that got quietly satisfied.
+        api_ts = contract_gate.CLIENT_ROOT / "api.ts"
+        if not api_ts.is_file():
+            self.skipTest("apps/mobile không có trên nhánh này")
+        source = api_ts.read_text(encoding="utf-8")
+        declared = contract_gate.declarations(
+            source, contract_gate.mask(source, contract_gate.tokenize(source))
+        )
+        unknown = [name for name in contract_gate.WRAPPERS if name not in declared]
+        self.assertEqual(
+            unknown,
+            [],
+            f"bộ đọc còn nhận ra {unknown} nhưng api.ts không khai báo tên đó "
+            "nữa -- mọi lời gọi qua tên mới sẽ KHÔNG được đọc, và cổng vẫn "
+            "xanh trên phần nó còn thấy. Sửa REQUEST_FUNCTIONS trong "
+            "scripts/check_api_contract.py cho khớp tên api.ts đang dùng.",
+        )
+
     def test_the_real_client_still_has_routes_to_check(self):
         # The whole-repo guard, stated as a number. `check()` refuses to pass
         # when this reaches zero, but by then the gate has been green for
@@ -294,40 +329,51 @@ class ReaderKnowsItLostTheWrappers(unittest.TestCase):
         )
 
     def test_a_wrapper_that_no_longer_exists_is_named(self):
-        # #397 renamed `call` -> `callApi`. The reader does not report fewer
-        # routes -- it stops seeing those call sites, and nothing seen is
-        # printed as agreement.
-        problems = contract_gate.lost_wrappers({"translated"})
+        # #397 renamed `call` -> `callAsActor`/`callAnonymous`. The reader does
+        # not report fewer routes -- it stops seeing those call sites, and
+        # nothing seen is printed as agreement.
+        #
+        # Taken from `WRAPPERS` rather than spelled out: a test that names the
+        # wrappers itself keeps passing after the client renames them, which is
+        # the failure this whole class exists to catch.
+        gone, *rest = contract_gate.WRAPPERS
+        problems = contract_gate.lost_wrappers(set(rest))
         self.assertEqual(len(problems), 1)
-        self.assertIn("call", problems[0])
+        self.assertIn(gone, problems[0])
 
-    def test_losing_both_wrappers_names_both(self):
-        self.assertEqual(len(contract_gate.lost_wrappers(set())), 2)
+    def test_losing_every_wrapper_names_every_one(self):
+        self.assertEqual(
+            len(contract_gate.lost_wrappers(set())), len(contract_gate.WRAPPERS)
+        )
 
     def test_a_healthy_anchor_is_silent(self):
         self.assertEqual(
-            contract_gate.lost_wrappers(set(contract_gate.CLIENT_WRAPPERS)), []
+            contract_gate.lost_wrappers(set(contract_gate.WRAPPERS)), []
         )
 
     def test_a_declaration_is_the_definition_not_the_import(self):
-        # Every screen does `import { call } from "./api"`. If an import
+        # Every screen does `import { callAsActor } from "./api"`. If an import
         # counted, the anchor would hold on to a name that no longer exists
         # anywhere -- which is the failure it was written for.
-        self.assertEqual(declares('import { call } from "./api";'), frozenset())
+        name = contract_gate.WRAPPERS[0]
+        self.assertEqual(declares(f'import {{ {name} }} from "./api";'), frozenset())
         self.assertEqual(
-            declares("async function call<T>(path: string) { return fetch(path); }"),
-            frozenset({"call"}),
+            declares(
+                f"async function {name}<T>(path: string) {{ return fetch(path); }}"
+            ),
+            frozenset({name}),
         )
 
     def test_the_renamed_wrapper_is_invisible_rather_than_unresolved(self):
         # Why a count could never have caught this: after the rename the call
         # site produces no path AND no unresolved entry AND no finding. There
         # is nothing for the gate to print.
+        renamed = contract_gate.WRAPPERS[0] + "Renamed"
         scan = contract_gate.findings_for_source(
             textwrap.dedent(
-                """
-                import { callApi } from "./api";
-                export async function a() { return callApi<void>("/places", {}); }
+                f"""
+                import {{ {renamed} }} from "./api";
+                export async function a() {{ return {renamed}<void>("/places", {{}}); }}
                 """
             ),
             "snippet.ts",
@@ -378,9 +424,12 @@ class TheGateItselfStops(unittest.TestCase):
         with self._run(contract_gate.CANARY_WRAPPERS_RENAMED):
             with self.assertRaises(RuntimeError) as caught:
                 contract_gate.check()
-        # Names the wrapper, so the message is actionable rather than "blind".
-        self.assertIn("call", str(caught.exception))
-        self.assertIn("translated", str(caught.exception))
+        # Names every wrapper, so the message is actionable rather than
+        # "blind". Read from `WRAPPERS`, because a message that happened to say
+        # the word "call" would satisfy a hardcoded assertion while naming
+        # nothing the reader actually lost.
+        for name in contract_gate.WRAPPERS:
+            self.assertIn(name, str(caught.exception))
 
     def test_check_runs_when_the_wrappers_are_where_it_expects(self):
         # The other half of the pair: a `check` that raised on everything would

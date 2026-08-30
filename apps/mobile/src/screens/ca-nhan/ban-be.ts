@@ -27,7 +27,7 @@
  * Split out of the screen so the parts worth asserting -- the shape check, the
  * sentences, the request the app builds -- can be exercised without rendering.
  */
-import { BASE_URL, translated, type Attempt } from "../../api";
+import { BASE_URL, translatedAsActor, type Attempt } from "../../api";
 
 /** Who holds a number. An id and a name; there is no third field. */
 export type NguoiTimDuoc = {
@@ -187,7 +187,7 @@ export async function timBanTheoSo(
   soDienThoai: string,
   actorId: string,
 ): Promise<NguoiTimDuoc> {
-  return translated<NguoiTimDuoc>(LOI_TIM, "/friends/lookup", {
+  return translatedAsActor<NguoiTimDuoc>(LOI_TIM, "/friends/lookup", {
     method: "POST",
     body: { phone: soDienThoai },
     actorId,
@@ -206,7 +206,7 @@ export async function guiLoiMoi(
   actorId: string,
   attempt: Attempt,
 ): Promise<LoiMoi> {
-  return translated<LoiMoi>(LOI_GUI, "/friends/requests", {
+  return translatedAsActor<LoiMoi>(LOI_GUI, "/friends/requests", {
     method: "POST",
     body: { addressee_id: addresseeId },
     actorId,
@@ -221,7 +221,7 @@ export async function traLoiLoiMoi(
   actorId: string,
   attempt: Attempt,
 ): Promise<LoiMoi> {
-  return translated<LoiMoi>(
+  return translatedAsActor<LoiMoi>(
     LOI_TRA_LOI,
     `/friends/requests/${requestId}/respond`,
     { method: "POST", body: { decision: quyetDinh }, actorId, attempt },
@@ -240,7 +240,7 @@ export async function docLoiMoi(
   actorId: string,
   huong: "incoming" | "outgoing",
 ): Promise<LoiMoi[]> {
-  const wire = await translated<{ requests: LoiMoi[] }>(
+  const wire = await translatedAsActor<{ requests: LoiMoi[] }>(
     LOI_DOC,
     `/people/${personId}/friend-requests?direction=${huong}`,
     { method: "GET", actorId },
@@ -253,7 +253,7 @@ export async function docDanhSachBan(
   personId: string,
   actorId: string,
 ): Promise<Ban[]> {
-  const wire = await translated<{ friends: Ban[] }>(
+  const wire = await translatedAsActor<{ friends: Ban[] }>(
     LOI_DOC,
     `/people/${personId}/friends`,
     { method: "GET", actorId },

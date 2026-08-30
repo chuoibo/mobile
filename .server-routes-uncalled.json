@@ -2,8 +2,8 @@
   "_doc": [
     "Route may chu khai ma KHONG man nao trong apps/mobile/src nhac toi.",
     "Do bang scripts/check_server_routes_called.py. Lan cap nhat gan nhat: 2026-08-31,",
-    "sau khi man Album chuyen di tra no 3 dong (hai route F36 va thuoc phim F37) va",
-    "nam man chi tiet tra no 3 dong (chi tiet dia diem, chia thu, doc tai khoan nhan).",
+    "sau khi man 'AI hieu nhom' (#382) tra no 4 dong -- xem muc 'Bon dong tra muon'",
+    "o cuoi phan nay, vi CACH chung duoc tim ra moi la thu dang doc lai.",
     "",
     "Day la DANH SACH NO, khong phai danh sach mien. Moi dong o day la mot",
     "tinh nang da merge, da co test xanh, va nguoi dung chua cham toi duoc.",
@@ -29,17 +29,40 @@
     "             that, hoac mot chi tiet ma danh sach da mang du truong. Khong xoa",
     "             o day -- xoa route la quyet dinh cua chu so huu backend -- nhung",
     "             cung dung dem no vao con so 'con phai lam'.",
-    "  cong-mu    Da co nguoi goi that, nhung cong nay khong the thay theo cau tao:",
-    "             URL do may chu tra ve nen client khong bao gio viet no thanh",
-    "             literal. Dung doc so 0 cua cong thanh 'route chet'.",
+    "  cong-mu    Da co nguoi goi that, nhung cong nay khong the thay theo cau tao.",
+    "             Dung doc so 0 cua cong thanh 'route chet'. HAI co che, khong",
+    "             phai mot -- gop chung lai la mat dung cai phan biet can doc:",
+    "               (1) URL do MAY CHU tra ve, nen client khong bao gio viet no",
+    "                   thanh literal. Vi du: /contexts/{id}/photos/{id}.",
+    "               (2) Client CO viet, nhung viet TACH RA: duong dan ghep tu mot",
+    "                   bien cong mot doan duoi. Bo doc cua cong doc tung literal",
+    "                   mot, nen no thay '/budget' va thay '/contexts/', khong bao",
+    "                   gio thay '/contexts/{id}/budget'. Vi du: bon route #382.",
+    "             Ca hai deu doi 'reason' phai CHI RA file:dong cua cho goi, de",
+    "             nguoi sau kiem duoc loi khai thay vi phai tin no.",
     "",
-    "Con so hom nay, sau khi man Album chuyen di tra 3 dong (hai route F36 va thuoc",
-    "phim F37 -- man Album goi ca ba, va co duong bam toi tu menu [+]) VA nam man chi",
-    "tiet tra 3 dong (/places/{place_id}, /bills/{bill_id}/split,",
-    "/bank-recipients/{recipient_id}):",
-    "4 tinh-nang, 1 ha-tang, 1 cong-mu, 0 chua phan loai.",
-    "Dong 'chua phan loai' duy nhat da bien mat vi no da duoc TRA, khong phai vi",
-    "ai do phan loai no -- day la ket cuc dung cua mot dong no.",
+    "Con so hom nay: 0 tinh-nang, 1 ha-tang, 5 cong-mu, 0 chua phan loai.",
+    "",
+    "SO 'CON PHAI LAM' LA 0. Sau nhieu luot doc thanh 4, va con so 4 do sai --",
+    "khong phai vi ai dem nham, ma vi khong ai hoi lai. Xem muc duoi.",
+    "",
+    "## Bon dong tra muon -- va vi sao khong cong nao doi duoc no",
+    "",
+    "#382 dung man 'AI hieu nhom' va goi ca bon route F31/F33/F34/F36. Chinh commit",
+    "do mo dau bang 'khong mot dong nao trong apps/mobile goi toi chung'. Nghia la",
+    "no la PR da TRA bon dong nay -- va bon dong van nam lai day sau khi no merge.",
+    "",
+    "Khong ai quen. Cong CO nhanh bao ghim-cu (route vua duoc goi vua con ghim ->",
+    "in 'GHIM CU'), nhung nhanh do khong the kich hoat: bo doc khong ghep duoc",
+    "`${prefix}/budget` lai thanh duong dan day du, nen voi cong thi bon route nay",
+    "van 'khong ai goi'. Cong xanh, file sai, va khong co mau do o giua.",
+    "",
+    "Do la hinh dang dang nho: mot dong no co the het han theo cach chinh cong gac",
+    "no khong nhin thay. Nen tu day, mot dong chi duoc tin la 'con no' khi hoac",
+    "cong noi vay, hoac co nguoi da tim cach doc lap. tests/qa/qa2-ghim-cu-routes-",
+    "uncalled/probe_ghim_cu.py lam viec thu hai: no dot bien tung dong, VA quet",
+    "manh literal khop duoi route de bat dung lop ma bo doc bo sot.",
+    "",
     "Hai ben tra hai bo dong khac nhau va gop lai la HOP cua hai bo, khong phai",
     "mot ben thang: moi dong duoc go deu co mot man that bam toi no.",
     "",
@@ -63,13 +86,13 @@
     },
     {
       "route": "/contexts/{context_id}/budget",
-      "loai": "tinh-nang",
-      "reason": "F34 ngan sach. Doc lai openapi: route so mot ung vien voi LICH SU NHOM lay tu so cai ('Compare an optional candidate with ledger-backed group history'). Client khong lam duoc viec do: ngan-sach.ts:79 chi nhan dau nguoi voi budget_per_person_vnd co san trong buoi di. Nen day khong phai route thua ma la mot su that chua man nao hien."
+      "loai": "cong-mu",
+      "reason": "F34 ngân sách. ĐÃ CÓ NGƯỜI GỌI THẬT từ #382: apps/mobile/src/screens/ai-hieu-nhom/ai-hieu-nhom.ts:225 gọi `${prefix}/budget`, với prefix dựng ở dòng 214 là `${base}/contexts/${contextId}`. Cổng không thấy được vì nó đọc từng literal một: nó thấy '/budget' và thấy '/contexts/', không bao giờ thấy đường dẫn ghép. Đường bấm: chat/TinNhan.tsx:636 (nút 'AI hiểu nhóm') -> onMoAiHieu (460) -> AiHieuNhom (466) -> napAiHieuNhom (203). Lý do cũ ghi 'chưa màn nào hiện' đã hết hiệu lực kể từ #382."
     },
     {
       "route": "/contexts/{context_id}/contextual-suggestion",
-      "loai": "tinh-nang",
-      "reason": "Gợi ý theo ngữ cảnh. Cùng lý do với /suggestion: chưa màn nào gọi, AI đi qua /ai-turn."
+      "loai": "cong-mu",
+      "reason": "F36 gợi ý theo ngữ cảnh. ĐÃ CÓ NGƯỜI GỌI THẬT từ #382: ai-hieu-nhom.ts:221 gọi `${prefix}/contextual-suggestion`. Cùng cơ chế mù và cùng đường bấm với /budget ở trên. Lý do cũ ('chưa màn nào gọi, AI đi qua /ai-turn') đã hết hiệu lực: /ai-turn vẫn là đường của khung chat, nhưng route này giờ có màn riêng đọc nó."
     },
     {
       "route": "/contexts/{context_id}/photos/{photo_id}",
@@ -78,13 +101,13 @@
     },
     {
       "route": "/contexts/{context_id}/preference-profile",
-      "loai": "tinh-nang",
-      "reason": "Ho so khau vi nhom. La tinh nang chu khong phai ong nuoc noi bo: no co quyen rieng 'view_group_preference_profile' (domain/permissions.py:323) va service tu che khong duoc suy ra so thich khong ai noi ra (service.py:1797). Mot thu co quyen xem rieng la mot thu duoc lam ra de cho nguoi xem. Chua co literal nao trong client."
+      "loai": "cong-mu",
+      "reason": "F31 hồ sơ khẩu vị nhóm. ĐÃ CÓ NGƯỜI GỌI THẬT từ #382: ai-hieu-nhom.ts:218 gọi `${prefix}/preference-profile`. Cùng cơ chế mù và cùng đường bấm với /budget ở trên. Câu cũ 'chưa có literal nào trong client' đúng theo nghĩa đen — client viết literal '/preference-profile', không viết cả đường dẫn — và chính vì đúng theo nghĩa đen mà nó đọc ra kết luận sai."
     },
     {
       "route": "/contexts/{context_id}/suggestion",
-      "loai": "tinh-nang",
-      "reason": "Gợi ý của AI. Client không có literal nào bắt đầu bằng /suggest; đường AI đang dùng là /contexts/{}/ai-turn (ai.ts:105)."
+      "loai": "cong-mu",
+      "reason": "F33 gợi ý từ lịch sử nhóm. ĐÃ CÓ NGƯỜI GỌI THẬT từ #382: ai-hieu-nhom.ts:219 gọi `${prefix}/suggestion`. Cùng cơ chế mù và cùng đường bấm với /budget ở trên. Lý do cũ ('không có literal nào bắt đầu bằng /suggest') là một phép thử trên hình dạng literal, và hình dạng đó không đo được chuyện đường dẫn bị ghép từ hai mảnh."
     }
   ]
 }

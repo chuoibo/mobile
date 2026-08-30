@@ -24,7 +24,7 @@
  * in this file would put a group's movements in a browser console during a
  * demo.
  */
-import { ApiError, type Attempt, translated } from "../../api";
+import { ApiError, type Attempt, translatedAsActor } from "../../api";
 
 /** One row of the group's wall. `kind` says which shape the row is in; the
  *  two sets of fields are mutually exclusive and the database enforces it. */
@@ -66,7 +66,7 @@ export async function checkIn(
   attempt: Attempt,
   caption?: string | null,
 ): Promise<KyNiem> {
-  return translated<KyNiem>(
+  return translatedAsActor<KyNiem>(
     CHECK_IN_REFUSALS,
     `/contexts/${contextId}/checkins`,
     {
@@ -100,7 +100,7 @@ export async function checkInTaiDay(
   placeId: string,
   actorId: string,
 ): Promise<KyNiem[]> {
-  const wire = await translated<{ memories: KyNiem[] }>(
+  const wire = await translatedAsActor<{ memories: KyNiem[] }>(
     DOC_REFUSALS,
     `/contexts/${contextId}/memories?kind=checkin&place_id=${encodeURIComponent(placeId)}&limit=20`,
     { method: "GET", actorId, contexts: contextId },

@@ -301,8 +301,60 @@ export function installBeforeApp(apiBase, scanBody, vietqrPayload) {
     allocations: {},
     obligations: [],
     lastPath: "",
+    /* The thread this stub serves back, oldest first. Seeded with one AI
+     * `places` card so a walk has two places to put on a ballot; everything
+     * after that is what the walk itself posted. */
+    soTin: 2,
+    tin: [
+      {
+        id: "f0e1d2c3-4b5a-4c6d-8e7f-a1b2c3d4e5f6",
+        context_id: "c7d2a3f1-9b4e-4a1c-8d6f-2e5b7c9a1d4f",
+        author_id: null,
+        kind: "ai_card",
+        body: null,
+        image_url: null,
+        card: {
+          kind: "places",
+          payload: {
+            places: [
+              { id: "pl-xom-leo", name: "Tiệm nướng Xóm Lèo", address: "12 Xóm Lèo" },
+              { id: "pl-tao-ngo", name: "Lẩu gà lá é Tao Ngộ", address: "5 Tao Ngộ" },
+            ],
+          },
+        },
+        created_at: "2026-08-31T04:00:00Z",
+        cursor: "t0001",
+      },
+      /* A poll SOMEBODY ELSE opened. This is the negative control a walk
+       * needs and cannot build for itself: one page load is one actor, so
+       * without a poll already belonging to another person there is no way to
+       * ask "does the close button follow the opener" on a real screen. Author
+       * is `NHOM_DEMO_IDS[1]` (Trang), never the walker. */
+      {
+        id: "f0e1d2c3-4b5a-4c6d-8e7f-a1b2c3d4e5f7",
+        context_id: "c7d2a3f1-9b4e-4a1c-8d6f-2e5b7c9a1d4f",
+        author_id: "49871dab-3bf9-5140-acf3-6c9736b31e8f",
+        kind: "ai_card",
+        body: null,
+        image_url: null,
+        card: {
+          kind: "poll",
+          payload: {
+            poll_id: "poll-cua-trang",
+            question: "Sáng mai ăn gì?",
+            options: [
+              { option_id: "op-banh-mi", label: "Bánh mì" },
+              { option_id: "op-pho", label: "Phở" },
+            ],
+          },
+        },
+        created_at: "2026-08-31T04:00:01Z",
+        cursor: "t0002",
+      },
+    ],
   };
   window.__snapshotApiLog = [];
+  window.__snapshotTheDaGui = [];
 
   function json(data, status = 200) {
     return new Response(JSON.stringify(data), {
@@ -483,6 +535,64 @@ export function installBeforeApp(apiBase, scanBody, vietqrPayload) {
       });
     }
 
+    /* The group thread, for the walks that go through chat rather than
+     * through the bill.
+     *
+     * Two rules this stub has to keep, or the walk on top of it proves
+     * nothing it claims to:
+     *
+     *  1. `author_id` on a POSTed message is read off `X-Actor-ID`, not out
+     *     of the body. That is what the real server does (`post_context_message`
+     *     sets it from the trusted actor header), and it is the field the whole
+     *     of F17 rests on -- "một người một phiếu" and "chỉ người mở được đóng"
+     *     are both decided against it in `tongHopBinhChon`. A stub that echoed
+     *     a client-supplied author would let a walk "prove" a rule the product
+     *     does not have.
+     *  2. The list comes back NEWEST FIRST, because that is the order the
+     *     client reverses in `tinHienThiLanDau`. Handing it oldest-first would
+     *     silently reverse every thread and the fold's positional rules --
+     *     which ballot came before the close -- would be measured backwards.
+     *
+     * The seeded card is a `places` card with two places, because that is the
+     * supply `MoBinhChon` draws its ballot from: with fewer than two the
+     * "Mở bình chọn mới" button is disabled and the walk cannot start.
+     */
+    const luongTin = /^\/contexts\/([^/]+)\/messages$/.exec(path);
+    if (luongTin) {
+      const actorId =
+        (init.headers && (init.headers["X-Actor-ID"] ?? init.headers["x-actor-id"])) || null;
+      if (method === "POST") {
+        db.soTin += 1;
+        const m = {
+          id: `f1e2d3c4-5b6a-4c7d-8e9f-b1c2d3e4f5${String(db.soTin).padStart(2, "0")}`,
+          context_id: luongTin[1],
+          author_id: actorId,
+          kind: parsed?.kind ?? "text",
+          body: parsed?.body ?? null,
+          image_url: parsed?.image_url ?? null,
+          card: parsed?.card ?? null,
+          created_at: `2026-08-31T05:00:${String(db.soTin).padStart(2, "0")}Z`,
+          cursor: `t${String(db.soTin).padStart(4, "0")}`,
+        };
+        db.tin.push(m);
+        // The kinds that reached the wire, in order. A walk asserts on this
+        // rather than on the screen alone: a no-op `onDong` still repaints,
+        // and only the absence of a `poll_close` here tells them apart.
+        window.__snapshotTheDaGui.push(
+          m.kind === "ai_card" && m.card && typeof m.card === "object" ? m.card.kind : m.kind,
+        );
+        return json(m, 201);
+      }
+      if (method === "GET") {
+        return json({
+          context_id: luongTin[1],
+          messages: db.tin.slice().reverse(),
+          next_cursor: null,
+          has_more: false,
+        });
+      }
+    }
+
     if (method === "POST" && path === "/expenses") {
       const ids = parsed.participants;
       const total = parsed.total_amount_vnd;
@@ -601,6 +711,67 @@ export function installBeforeApp(apiBase, scanBody, vietqrPayload) {
       return db.bill === null
         ? json({ code: "bill_not_found", detail: "no bill" }, 404)
         : json(db.bill);
+    }
+
+    /* F22 self-tagging. Mirrors `claim_bill_items` in service.py, including the
+     * two things about it that are easy to stub wrong:
+     *
+     *   - The body is the caller's COMPLETE set on the bill, not a delta. Every
+     *     item_key absent from it releases that caller. A stub that only ADDED
+     *     would make un-ticking look like it worked while the screen it tests
+     *     could never release a dish.
+     *   - It touches ONLY the caller's shares. Everybody else's stay exactly as
+     *     they were, which is what separates this route from
+     *     `PUT /bills/{id}/assignments` above.
+     *
+     * The caller is the actor header, never a field in the body -- there is no
+     * field in `BillSelfClaimRequest` that could carry a name. */
+    const billNhan = /^\/bills\/([^/]+)\/my-items$/.exec(path);
+    if (method === "POST" && billNhan) {
+      if (db.bill === null) {
+        return json({ code: "bill_not_found", detail: "no bill" }, 404);
+      }
+      const h = init.headers ?? {};
+      const toi =
+        typeof h.get === "function"
+          ? h.get("X-Actor-ID")
+          : (h["X-Actor-ID"] ?? h["x-actor-id"] ?? null);
+      if (!toi) {
+        return json({ code: "actor_required", detail: "no actor" }, 401);
+      }
+      const nhan = new Set(parsed?.item_keys ?? []);
+      for (const key of nhan) {
+        if (!db.bill.items.some((item) => item.item_key === key)) {
+          return json(
+            { code: "unknown_bill_item", detail: "Bill does not contain one of these items" },
+            422,
+          );
+        }
+      }
+      db.bill = {
+        ...db.bill,
+        items: db.bill.items.map((item) => {
+          const khac = item.shares.filter((share) => share.participant_id !== toi);
+          return {
+            ...item,
+            shares: nhan.has(item.item_key)
+              ? [
+                  ...khac,
+                  {
+                    participant_id: toi,
+                    // A person saying "I ate this" is a decision, not a guess.
+                    // `ai_suggested` here would leave the screen calling the
+                    // claim the machine's opinion.
+                    source: "confirmed",
+                    decided_by_id: toi,
+                    decided_at: "2026-08-30T00:00:00Z",
+                  },
+                ]
+              : khac,
+          };
+        }),
+      };
+      return json(db.bill);
     }
 
     const billAssign = /^\/bills\/([^/]+)\/assignments$/.exec(path);
