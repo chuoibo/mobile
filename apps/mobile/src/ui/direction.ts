@@ -311,3 +311,48 @@ phai ghi chu ve nut.
 
 FINISH: build fully, then hand off to the finish reviewer with captures.
 `.trim();
+
+/** The direction contract for the two self-tagging screens, F22 (rd-fe-22).
+ *
+ * F17's server-backed vote screen deliberately has NO contract of its own: it
+ * runs under `DIRECTION_CONTRACT_BINH_CHON` above, unchanged. That contract was
+ * written for the message-backed card, and every line of it is about the
+ * surface rather than the transport -- a tie is a result, no teal because
+ * nobody has paid anything yet, the count is visible to everyone at once. None
+ * of that changes when the tally starts arriving from `GET /votes/{id}` instead
+ * of being folded out of chat messages. Writing a second contract here would
+ * have been a second answer to a question already answered, which is the same
+ * mistake as a second vote counter.
+ *
+ * These two screens do need their own, because their failure mode is new. The
+ * vote screen must not break a tie; these must not let the MACHINE say who a
+ * person is. A rectangle is a rectangle, and a dish is claimed by whoever is
+ * holding the phone. Both are undecided on purpose, and both look unfinished
+ * because of it, which is exactly the pressure this contract exists to resist.
+ *
+ * An EXTENSION. No colour, radius or type step that `packages/shared/tokens.json`
+ * does not already own.
+ */
+export const DIRECTION_CONTRACT_NHAN_PHAN_MINH = `
+THESIS: May khoanh, nguoi tu nhan. O vuong tren anh la mot hinh chu nhat, khong
+phai mot cai ten. Mon an la cua nguoi dang cam may, khong phai cua ai khac.
+
+OWN-WORLD: Ke thua the gioi Ru Di, khong them mau. Cam "accent" dan man anh: day
+la hanh dong cua NGUOI. Teal "split" chi cham vao dong tien cua mon da nhan, va
+chi o man mon. Tim "ai" chi dat len o vuong may khoanh, khong bao gio len phan
+nguoi da tu nhan.
+
+STORY: May khoanh cac o vuong vo danh tren anh nhom, toi bam o cua toi. O man
+bill, toi tich nhung mon toi da an; danh sach gui di la TOAN BO phan toi nhan,
+nen bo tich la nha mon ra chu khong phai giu lai.
+
+FIRST VIEWPORT: Man anh mo bang chinh tam anh, o vuong ve ngay tren no, mot cau
+noi ro may khong biet ai la ai. Man mon mo bang ba dong mon dau va dong "Phan
+cua ban" ghim duoi.
+
+FORM: O vuong ve theo ti le anh, khong theo pixel -- box_key khong on dinh giua
+hai lan goi nen khong duoc luu. Bam >= 44. So tien dung chu so tabular, canh
+phai. Trang thai da chon mang ca dau tich lan chu, khong chi mau.
+
+FINISH: build fully, then hand off to the finish reviewer with captures.
+`.trim();

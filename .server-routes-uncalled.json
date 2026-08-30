@@ -32,7 +32,11 @@
     "             URL do may chu tra ve nen client khong bao gio viet no thanh",
     "             literal. Dung doc so 0 cua cong thanh 'route chet'.",
     "",
-    "Con so hom nay, sau khi F38 duoc tra: 16 tinh-nang, 5 ha-tang, 1 cong-mu."
+    "Con so hom nay, sau khi F17 va F22 duoc tra: 10 tinh-nang, 5 ha-tang,",
+    "1 cong-mu, 1 chua phan loai (/albums/{outing_id}/reel, F37, cua lane khac).",
+    "Sau cai nay 6 dong roi khoi danh sach: bon route binh chon, /bills/{id}/my-items",
+    "va /photos/{id}/face-boxes. Tat ca deu duoc tra bang mot man that co nguoi bam,",
+    "khong phai bang mot dong ngoai le."
   ],
   "uncalled": [
     {
@@ -44,11 +48,6 @@
       "route": "/bank-recipients/{recipient_id}",
       "loai": "ha-tang",
       "reason": "Cùng lý do với /bank-recipients: bị thay bằng đường per-person."
-    },
-    {
-      "route": "/bills/{bill_id}/my-items",
-      "loai": "tinh-nang",
-      "reason": "F22, merge #303 hôm nay. Người tự nhận ô vuông rồi chọn món mình ăn. Chưa màn nào gọi; frontend đang làm cùng lô với F17."
     },
     {
       "route": "/bills/{bill_id}/split",
@@ -100,11 +99,6 @@
       "reason": "DA CO NGUOI GOI THAT, va cong nay khong the thay -- day la o duy nhat trong file thuoc loai do. URL do MAY CHU tra ve trong image_url (schemas.py:1496 cho album, va WidgetPhotoResponse.image_url cho F38), roi client dua thang chuoi ay cho <Anh uri=...>, nen khong bao gio co literal de quet. Truoc day dong nay con dung theo mot nghia khac: duong DUY NHAT toi no la /contexts/{id}/albums, ma route do cung chua ai goi. Nghia do het han hom nay -- man widget (F38) doc anh moi nhat cua nhom qua chinh duong nay, nen byte cua route nay dang chay tren mot man that. Giu dong nay lai la de KHONG ai doc so 0 cua cong thanh 'route nay chet'."
     },
     {
-      "route": "/contexts/{context_id}/photos/{photo_id}/face-boxes",
-      "loai": "tinh-nang",
-      "reason": "F22, merge #303. Trả ô vuông VÔ DANH — không danh tính, không vector lưu lại. Route không có thân request. Chưa màn nào gọi."
-    },
-    {
       "route": "/contexts/{context_id}/preference-profile",
       "loai": "tinh-nang",
       "reason": "Ho so khau vi nhom. La tinh nang chu khong phai ong nuoc noi bo: no co quyen rieng 'view_group_preference_profile' (domain/permissions.py:323) va service tu che khong duoc suy ra so thich khong ai noi ra (service.py:1797). Mot thu co quyen xem rieng la mot thu duoc lam ra de cho nguoi xem. Chua co literal nao trong client."
@@ -113,11 +107,6 @@
       "route": "/contexts/{context_id}/suggestion",
       "loai": "tinh-nang",
       "reason": "Gợi ý của AI. Client không có literal nào bắt đầu bằng /suggest; đường AI đang dùng là /contexts/{}/ai-turn (ai.ts:105)."
-    },
-    {
-      "route": "/contexts/{context_id}/votes",
-      "loai": "tinh-nang",
-      "reason": "F17 Bình chọn, merge #133 hôm nay 2026-08-30. Domain và tầng postgres đã xong (490 ca, ràng buộc một-người-một-phiếu có ca gác ở DB), nhưng chưa màn nào gọi. Frontend đang làm màn (frontend-193436). Gỡ dòng này khi màn xem cuộc bình chọn gọi nó."
     },
     {
       "route": "/outings/{outing_id}/invites",
@@ -133,21 +122,6 @@
       "route": "/places/{place_id}",
       "loai": "ha-tang",
       "reason": "Client chỉ gọi GET /places (places.ts:313) và POST /places/search (tim-kiem.ts:186). Màn ChiTietDiaDiem dựng từ dữ liệu đã có trong danh sách, không đọc lại chi tiết."
-    },
-    {
-      "route": "/votes/{vote_id}",
-      "loai": "tinh-nang",
-      "reason": "F17 Bình chọn, merge #133. Cùng lô với /contexts/{context_id}/votes — xem dòng đó."
-    },
-    {
-      "route": "/votes/{vote_id}/ballots",
-      "loai": "tinh-nang",
-      "reason": "F17 Bình chọn, merge #133. Đường bỏ phiếu và đổi phiếu. Người bỏ phiếu LÀ actor, không có trường voter_id trong body — màn chỉ cần gọi, không cần gửi danh tính."
-    },
-    {
-      "route": "/votes/{vote_id}/close",
-      "loai": "tinh-nang",
-      "reason": "F17 Bình chọn, merge #133. Đóng cuộc bình chọn. Hoà thì domain HIỆN hoà chứ không tự chọn một bên, nên màn phải hiển thị được trạng thái hoà."
     }
   ]
 }
