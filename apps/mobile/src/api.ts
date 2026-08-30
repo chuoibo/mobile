@@ -1795,6 +1795,72 @@ export async function docKyNiem(
   return result.memories ?? [];
 }
 
+/* ------------------------------------------- F38, the home widget (rd-fe-38) */
+
+/** The one photograph a widget draws, as `WidgetPhotoResponse` sends it.
+ *
+ * Deliberately not a `KyNiemWire`. The server made the same choice on its side
+ * and said why: a widget renders outside the app, next to a lock screen, and
+ * the wall's row carries a cursor, two social counters, `viewer_has_reacted`
+ * and four location columns -- four more group-private fields on a surface
+ * somebody else can read over your shoulder. Mirroring the narrower shape here
+ * means a screen that accidentally reaches for `place_name` does not compile
+ * rather than rendering a blank.
+ *
+ * `author_name` arrives already resolved, for the same reason the comment feed
+ * resolves `display_name`: a second lookup keyed on `author_id` is a second
+ * answer to "who posted this", and the two disagree the moment somebody renames
+ * themselves between the two calls.
+ */
+export type AnhWidgetWire = {
+  memory_id: string;
+  /** The relative `/contexts/{id}/photos/{id}` address the wall stores. It is
+   *  permission-checked, so it goes through `Anh` with a `nguoiXem`, never
+   *  straight into an `<Image>`. */
+  image_url: string;
+  caption: string | null;
+  author_id: string;
+  author_name: string;
+  created_at: string;
+};
+
+/** What one group's widget shows right now, or that it shows nothing.
+ *
+ * `photo: null` is a 200 and a real state, not a failure: a group that has not
+ * hung a photograph yet has answered the question honestly. The server refuses
+ * to spell that as a 404 on purpose -- a second status code separating "empty"
+ * from "forbidden" is exactly the difference a stranger is fishing for -- and
+ * this client must not reintroduce the distinction by treating an empty body
+ * as an error. */
+export type WidgetWire = {
+  context_id: string;
+  photo: AnhWidgetWire | null;
+};
+
+/**
+ * F38. Read the newest photograph of one group.
+ *
+ * No body and no query string, because the route has neither. There is
+ * therefore no field in which this client could name a person, a row, or a
+ * group other than the one in the path -- the actor is the header, the group is
+ * the address. Adding one would be inventing a request shape the server never
+ * agreed to.
+ *
+ * Group-private: a non-member gets 403 whatever the roles header claims, since
+ * the service asks the roster rather than believing `X-Actor-Contexts`.
+ */
+export async function docWidget(
+  contextId: string,
+  actorId: string,
+): Promise<WidgetWire> {
+  return translated<WidgetWire>(ANH_REFUSALS, `/contexts/${contextId}/widget`, {
+    method: "GET",
+    actorId,
+    roles: "member",
+    contexts: contextId,
+  });
+}
+
 /* ------------------------------- hearts and comments on the wall (rd-fe-33) */
 
 /**
