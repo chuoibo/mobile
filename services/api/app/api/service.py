@@ -157,6 +157,7 @@ from app.domain.ledger import (
     obligations_from_allocations,
     settlement_plan,
 )
+from app.domain.memory_visibility import can_view_memory
 from app.domain.suggestion import (
     SuggestionError,
     ground_suggestion,
@@ -497,6 +498,7 @@ def _wire_memory(record: MemoryRecord) -> MemoryResponse:
         context_id=record.context_id,
         author_id=record.author_id,
         kind=record.kind,  # type: ignore[arg-type]
+        visibility=record.visibility,  # type: ignore[arg-type]
         image_url=record.image_url,
         caption=record.caption,
         place_id=record.place_id,
@@ -1017,6 +1019,7 @@ class ApiService:
             author_id=actor.id,
             image_url=request.image_url,
             caption=request.caption,
+            visibility=request.visibility,
             now=_now(),
         )
         return _wire_memory(record)
@@ -1559,6 +1562,7 @@ class ApiService:
             lat=place["lat"],
             lng=place["lng"],
             caption=request.caption,
+            visibility=request.visibility,
             now=_now(),
         )
         return _wire_memory(record)

@@ -684,9 +684,13 @@ class UploadedImageResponse(ApiModel):
     created_at: datetime
 
 
+MemoryVisibilityValue = Literal["only_me", "friends", "group", "public"]
+
+
 class MemoryCreateRequest(ApiModel):
     image_url: RelativePhotoUrl
     caption: str | None = None
+    visibility: MemoryVisibilityValue = "group"
 
 
 class CheckinCreateRequest(ApiModel):
@@ -707,6 +711,7 @@ class CheckinCreateRequest(ApiModel):
 
     place_id: Annotated[StrictStr, Field(min_length=1, max_length=200)]
     caption: Annotated[str, Field(max_length=2000)] | None = None
+    visibility: MemoryVisibilityValue = "group"
 
 
 class MemoryQuery(ApiModel):
@@ -730,6 +735,7 @@ class MemoryResponse(ApiModel):
     context_id: UUID
     author_id: UUID
     kind: Literal["photo", "checkin"]
+    visibility: MemoryVisibilityValue
     image_url: str | None
     caption: str | None
     place_id: str | None

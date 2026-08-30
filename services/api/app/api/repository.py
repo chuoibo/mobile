@@ -56,6 +56,7 @@ from app.db.models import (
     MemoryComment,
     MemoryKind,
     MemoryReaction,
+    MemoryVisibility,
     Message,
     MessageKind,
     Outing,
@@ -146,6 +147,7 @@ class MemoryRecord:
     context_id: uuid.UUID
     author_id: uuid.UUID
     kind: str
+    visibility: str
     #: Present on a photo, absent on a check-in. The database refuses a row
     #: that carries both this and a place.
     image_url: str | None
@@ -820,6 +822,7 @@ class ApiRepository(Protocol):
         author_id: uuid.UUID,
         image_url: str,
         caption: str | None,
+        visibility: str,
         now: datetime,
     ) -> MemoryRecord: ...
 
@@ -833,6 +836,7 @@ class ApiRepository(Protocol):
         lat: float,
         lng: float,
         caption: str | None,
+        visibility: str,
         now: datetime,
     ) -> MemoryRecord: ...
 
@@ -844,7 +848,7 @@ class ApiRepository(Protocol):
         before: tuple[datetime, uuid.UUID] | None = None,
         kind: str | None = None,
         place_id: str | None = None,
-        viewer_id: uuid.UUID | None = None,
+        viewer_id: uuid.UUID,
     ) -> MemoryPage: ...
 
     def get_context_memory(
@@ -1152,6 +1156,7 @@ class SqlAlchemyApiRepository:
             context_id=memory.context_id,
             author_id=memory.author_id,
             kind=str(memory.kind),
+            visibility=str(memory.visibility),
             image_url=memory.image_url,
             caption=memory.caption,
             place_id=memory.place_id,
@@ -2007,12 +2012,14 @@ class SqlAlchemyApiRepository:
         author_id: uuid.UUID,
         image_url: str,
         caption: str | None,
+        visibility: str,
         now: datetime,
     ) -> MemoryRecord:
         memory = Memory(
             context_id=context_id,
             author_id=author_id,
             kind=MemoryKind.PHOTO,
+            visibility=MemoryVisibility(visibility),
             image_url=image_url,
             caption=caption,
             created_at=now,
@@ -2031,6 +2038,7 @@ class SqlAlchemyApiRepository:
         lat: float,
         lng: float,
         caption: str | None,
+        visibility: str,
         now: datetime,
     ) -> MemoryRecord:
         """Record that this group was at this place at this moment.
@@ -2046,6 +2054,7 @@ class SqlAlchemyApiRepository:
             context_id=context_id,
             author_id=author_id,
             kind=MemoryKind.CHECKIN,
+            visibility=MemoryVisibility(visibility),
             image_url=None,
             caption=caption,
             place_id=place_id,
@@ -2066,9 +2075,32 @@ class SqlAlchemyApiRepository:
         before: tuple[datetime, uuid.UUID] | None = None,
         kind: str | None = None,
         place_id: str | None = None,
-        viewer_id: uuid.UUID | None = None,
+        viewer_id: uuid.UUID,
     ) -> MemoryPage:
-        statement = select(Memory).where(Memory.context_id == context_id)
+        accepted_friend = (
+            select(FriendRequest.id)
+            .where(
+                FriendRequest.state == FriendRequestState.ACCEPTED,
+                or_(
+                    (FriendRequest.requester_id == Memory.author_id)
+                    & (FriendRequest.addressee_id == viewer_id),
+                    (FriendRequest.requester_id == viewer_id)
+                    & (FriendRequest.addressee_id == Memory.author_id),
+                ),
+            )
+            .exists()
+        )
+        visible_to_viewer = or_(
+            Memory.author_id == viewer_id,
+            Memory.visibility.in_(
+                (MemoryVisibility.GROUP, MemoryVisibility.PUBLIC)
+            ),
+            (Memory.visibility == MemoryVisibility.FRIENDS) & accepted_friend,
+        )
+        statement = select(Memory).where(
+            Memory.context_id == context_id,
+            visible_to_viewer,
+        )
         if kind is not None:
             statement = statement.where(Memory.kind == MemoryKind(kind))
         if place_id is not None:

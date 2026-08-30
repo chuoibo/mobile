@@ -44,6 +44,9 @@ from app.api.repository import (
     GuestEnvelopeRecord,
     GuestLinkDraft,
     MembershipRecord,
+    MemoryCommentRecord,
+    MemoryPage,
+    MemoryReactionRecord,
     MessageRecord,
     ObligationDraft,
     OutingInviteRecord,
@@ -95,6 +98,27 @@ class FakeReceipt:
     idempotency_key: uuid.UUID
 
 
+@dataclass(slots=True)
+class FakeMemory:
+    """One synthetic wall row used before the PostgreSQL adapter is involved."""
+
+    id: uuid.UUID
+    context_id: uuid.UUID
+    author_id: uuid.UUID
+    kind: str
+    visibility: str
+    image_url: str | None
+    caption: str | None
+    place_id: str | None
+    place_name: str | None
+    lat: float | None
+    lng: float | None
+    created_at: datetime
+    reaction_count: int = 0
+    comment_count: int = 0
+    viewer_has_reacted: bool = False
+
+
 class FakeRepository:
     def __init__(self):
         self.expenses: dict[uuid.UUID, ExpenseIdentity] = {}
@@ -111,6 +135,11 @@ class FakeRepository:
         self.receipts: dict[uuid.UUID, FakeReceipt] = {}
         self.people: dict[uuid.UUID, PersonRecord] = {}
         self.contexts: dict[uuid.UUID, ContextRecord] = {}
+        self.memories: dict[uuid.UUID, FakeMemory] = {}
+        self.memory_reactions: dict[
+            tuple[uuid.UUID, uuid.UUID], MemoryReactionRecord
+        ] = {}
+        self.memory_comments: dict[uuid.UUID, MemoryCommentRecord] = {}
         self.messages: dict[uuid.UUID, MessageRecord] = {}
         self.bills: dict[uuid.UUID, BillRecord] = {}
         self.finances: dict[uuid.UUID, PersonFinanceSummary] = {}
@@ -299,6 +328,180 @@ class FakeRepository:
 
     def get_message(self, message_id):
         return self.messages.get(message_id)
+
+    # --- memory wall (F40, F41, F42, F46) -----------------------------
+
+    def seed_memory(
+        self,
+        *,
+        context_id=CONTEXT_ID,
+        author_id=SENDER_ID,
+        visibility="group",
+        kind="photo",
+        created_at=None,
+    ):
+        """Place a synthetic row behind the HTTP surface without an upload."""
+
+        if created_at is None:
+            created_at = datetime(2030, 8, 27, 12, tzinfo=UTC)
+        is_photo = kind == "photo"
+        record = FakeMemory(
+            id=uuid.uuid4(),
+            context_id=context_id,
+            author_id=author_id,
+            kind=kind,
+            visibility=visibility,
+            image_url=(
+                f"/contexts/{context_id}/photos/{uuid.uuid4()}" if is_photo else None
+            ),
+            caption=None,
+            place_id=None if is_photo else "p-tiem-nuong-xom-lao",
+            place_name=None if is_photo else "Tiệm Nướng Xóm Lào",
+            lat=None if is_photo else 11.9368,
+            lng=None if is_photo else 108.4382,
+            created_at=created_at,
+        )
+        self.memories[record.id] = record
+        return record
+
+    def create_memory(
+        self, *, context_id, author_id, image_url, caption, now, **fields
+    ):
+        record = FakeMemory(
+            id=uuid.uuid4(),
+            context_id=context_id,
+            author_id=author_id,
+            kind="photo",
+            visibility=fields.get("visibility", "group"),
+            image_url=image_url,
+            caption=caption,
+            place_id=None,
+            place_name=None,
+            lat=None,
+            lng=None,
+            created_at=now,
+        )
+        self.memories[record.id] = record
+        return record
+
+    def create_checkin(
+        self,
+        *,
+        context_id,
+        author_id,
+        place_id,
+        place_name,
+        lat,
+        lng,
+        caption,
+        now,
+        **fields,
+    ):
+        record = FakeMemory(
+            id=uuid.uuid4(),
+            context_id=context_id,
+            author_id=author_id,
+            kind="checkin",
+            visibility=fields.get("visibility", "group"),
+            image_url=None,
+            caption=caption,
+            place_id=place_id,
+            place_name=place_name,
+            lat=lat,
+            lng=lng,
+            created_at=now,
+        )
+        self.memories[record.id] = record
+        return record
+
+    def _memory_with_social_counts(self, record, viewer_id=None):
+        return replace(
+            record,
+            reaction_count=sum(
+                memory_id == record.id
+                for memory_id, _person_id in self.memory_reactions
+            ),
+            comment_count=sum(
+                comment.memory_id == record.id
+                for comment in self.memory_comments.values()
+            ),
+            viewer_has_reacted=(record.id, viewer_id) in self.memory_reactions,
+        )
+
+    def list_memories(
+        self,
+        context_id,
+        *,
+        limit,
+        before=None,
+        kind=None,
+        place_id=None,
+        viewer_id=None,
+    ):
+        rows = [
+            memory
+            for memory in self.memories.values()
+            if memory.context_id == context_id
+            and (kind is None or memory.kind == kind)
+            and (place_id is None or memory.place_id == place_id)
+            and (
+                before is None
+                or (memory.created_at, memory.id) < before
+            )
+        ]
+        rows.sort(key=lambda memory: (memory.created_at, memory.id), reverse=True)
+        page = rows[:limit]
+        return MemoryPage(
+            memories=tuple(
+                self._memory_with_social_counts(memory, viewer_id) for memory in page
+            ),
+            has_more=len(rows) > limit,
+        )
+
+    def get_context_memory(self, context_id, memory_id, *, viewer_id=None):
+        record = self.memories.get(memory_id)
+        if record is None or record.context_id != context_id:
+            return None
+        return self._memory_with_social_counts(record, viewer_id)
+
+    def add_memory_reaction(self, *, memory_id, person_id, now):
+        key = (memory_id, person_id)
+        if key in self.memory_reactions:
+            raise RepositoryConflict("ALREADY_REACTED")
+        record = MemoryReactionRecord(
+            id=uuid.uuid4(),
+            memory_id=memory_id,
+            person_id=person_id,
+            created_at=now,
+        )
+        self.memory_reactions[key] = record
+        return record
+
+    def remove_memory_reaction(self, *, memory_id, person_id):
+        return self.memory_reactions.pop((memory_id, person_id), None) is not None
+
+    def create_memory_comment(self, *, memory_id, author_id, body, now):
+        record = MemoryCommentRecord(
+            id=uuid.uuid4(),
+            memory_id=memory_id,
+            author_id=author_id,
+            body=body,
+            created_at=now,
+        )
+        self.memory_comments[record.id] = record
+        return record
+
+    def list_memory_comments(self, memory_id):
+        return tuple(
+            sorted(
+                (
+                    comment
+                    for comment in self.memory_comments.values()
+                    if comment.memory_id == memory_id
+                ),
+                key=lambda comment: (comment.created_at, comment.id),
+            )
+        )
 
     def create_outing_invite(
         self,

@@ -949,6 +949,7 @@ __all__ = [
     "MembershipOrigin",
     "MembershipRole",
     "Memory",
+    "MemoryVisibility",
     "Message",
     "MessageKind",
     "Outing",
@@ -1443,6 +1444,15 @@ class MemoryKind(StrEnum):
     CHECKIN = "checkin"
 
 
+class MemoryVisibility(StrEnum):
+    """Who may see one row after the context-membership gate passes."""
+
+    ONLY_ME = "only_me"
+    FRIENDS = "friends"
+    GROUP = "group"
+    PUBLIC = "public"
+
+
 class Memory(Base):
     """One immutable keepsake attached to a context's private memory wall.
 
@@ -1519,6 +1529,11 @@ class Memory(Base):
         _enum_type(MemoryKind, "memory_kind"),
         nullable=False,
         server_default=MemoryKind.PHOTO.value,
+    )
+    visibility: Mapped[MemoryVisibility] = mapped_column(
+        _enum_type(MemoryVisibility, "memory_visibility"),
+        nullable=False,
+        server_default=MemoryVisibility.GROUP.value,
     )
     image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     caption: Mapped[str | None] = mapped_column(Text, nullable=True)
