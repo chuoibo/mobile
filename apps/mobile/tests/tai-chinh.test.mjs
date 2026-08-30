@@ -11,11 +11,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  ghiChuGioiHan,
   loiTaiChinh,
   moTaGiaoDich,
   ngayNgan,
   tienCoDau,
   tienVnd,
+  tinhTrangNo,
+  SO_GIAO_DICH_TOI_DA,
 } from "../dist-test/screens/ca-nhan/tai-chinh.js";
 
 const movement = (over = {}) => ({
@@ -167,4 +170,95 @@ test("thông báo lỗi không chứa số tiền hay tên ai", () => {
     const text = loiTaiChinh(status, status === 403 ? "not_your_finances" : "");
     assert.ok(!/\d{4,}/.test(text), `lộ số: ${text}`);
   }
+});
+
+/* ------------------------------------------------- Còn nhận: chiều thứ hai
+ *
+ * Mockup 07.02 xếp ba con số cạnh nhau — Đã trả · Còn nhận · Còn phải trả —
+ * và màn này chỉ có hai, cả hai đều là tiền đi RA. Người ứng tiền cho cả bàn,
+ * tức chính người đang demo, chia bill xong quay lại đây và đọc "Còn nợ 0đ",
+ * không một chữ nào nói 150.000đ đang trên đường về.
+ *
+ * `receivable_vnd` do sổ trả về; ở đây không có phép tính tiền nào. Cái được
+ * kiểm là phần dịch hai con số thành một câu người đọc hiểu trong ba giây —
+ * và giới hạn của nó: hai số 0 không phân biệt được "đã tất toán" với "chưa
+ * chia gì bao giờ", nên câu chữ không được nói là đã tất toán.
+ */
+test("cả hai chiều đều có tiền thì nói cả hai, không chọn một bên", () => {
+  const { tinhTrang, cau } = tinhTrangNo({
+    receivable_vnd: 530_000,
+    outstanding_vnd: 120_000,
+  });
+  assert.equal(tinhTrang, "hai-chieu");
+  assert.match(cau, /530\.000đ/);
+  assert.match(cau, /120\.000đ/);
+});
+
+test("chỉ được nhận thì câu nói về người khác nợ mình", () => {
+  const { tinhTrang, cau } = tinhTrangNo({
+    receivable_vnd: 530_000,
+    outstanding_vnd: 0,
+  });
+  assert.equal(tinhTrang, "duoc-nhan");
+  assert.match(cau, /nợ bạn/);
+  assert.match(cau, /530\.000đ/);
+});
+
+test("chỉ phải trả thì câu nói về mình nợ", () => {
+  const { tinhTrang, cau } = tinhTrangNo({
+    receivable_vnd: 0,
+    outstanding_vnd: 120_000,
+  });
+  assert.equal(tinhTrang, "phai-tra");
+  assert.match(cau, /Bạn còn nợ/);
+  assert.match(cau, /120\.000đ/);
+});
+
+test("hai số 0 thì nói sạch nợ, không nói 'đã tất toán'", () => {
+  const { tinhTrang, cau } = tinhTrangNo({ receivable_vnd: 0, outstanding_vnd: 0 });
+  assert.equal(tinhTrang, "khong-no");
+  // "Đã tất toán" khẳng định người này TỪNG nợ và đã trả xong. Màn không biết
+  // điều đó: người chưa chia gì bao giờ cũng đọc ra đúng hai số 0 này.
+  assert.ok(!/tất toán|thanh toán xong/.test(cau), cau);
+  assert.ok(!/\d/.test(cau), `không có số nào để in: ${cau}`);
+});
+
+test("bốn trạng thái nói bốn câu khác nhau — một câu chung thì tiền hai chiều đọc như nhau", () => {
+  const cau = new Set(
+    [
+      [0, 0],
+      [530_000, 0],
+      [0, 120_000],
+      [530_000, 120_000],
+    ].map(
+      ([nhan, tra]) =>
+        tinhTrangNo({ receivable_vnd: nhan, outstanding_vnd: tra }).cau,
+    ),
+  );
+  assert.equal(cau.size, 4);
+});
+
+/* Chiều nào là chiều nào — ca này đỏ khi hai nhánh bị hoán đổi.
+ *
+ * Đây là đột biến dễ xảy ra nhất và khó thấy nhất: câu vẫn có số, vẫn đúng
+ * ngữ pháp, chỉ có điều nó nói người đang được nợ là người đang nợ. */
+test("số nào đi với chiều nấy, không hoán đổi được mà vẫn xanh", () => {
+  const cau = tinhTrangNo({ receivable_vnd: 530_000, outstanding_vnd: 120_000 }).cau;
+  const viNhan = cau.indexOf("530.000đ");
+  const viTra = cau.indexOf("120.000đ");
+  assert.ok(viNhan > 0 && viTra > 0);
+  // "Bạn còn nợ 120.000đ và người khác nợ bạn 530.000đ."
+  assert.match(cau.slice(0, viTra), /Bạn còn nợ/);
+  assert.match(cau.slice(viTra, viNhan), /người khác nợ bạn/);
+});
+
+test("danh sách chưa đầy trang thì không nói gì thêm", () => {
+  assert.equal(ghiChuGioiHan([]), null);
+  assert.equal(ghiChuGioiHan(new Array(SO_GIAO_DICH_TOI_DA - 1).fill(movement())), null);
+});
+
+test("đầy trang thì nói rõ đây chỉ là phần gần nhất", () => {
+  const ghi = ghiChuGioiHan(new Array(SO_GIAO_DICH_TOI_DA).fill(movement()));
+  assert.ok(ghi);
+  assert.match(ghi, /20 giao dịch gần nhất/);
 });

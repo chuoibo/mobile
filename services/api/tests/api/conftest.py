@@ -1059,6 +1059,7 @@ class FakeRepository:
                 spend_vnd=0,
                 settled_vnd=0,
                 outstanding_vnd=0,
+                receivable_vnd=0,
                 expense_count=0,
                 group_count=0,
                 movements=(),

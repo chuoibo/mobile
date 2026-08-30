@@ -199,6 +199,7 @@ def test_a_float_spend_is_refused_by_the_real_response_model():
         "spend_vnd": 750_000,
         "settled_vnd": 250_000,
         "outstanding_vnd": 500_000,
+        "receivable_vnd": 120_000,
         "expense_count": 3,
         "group_count": 1,
         "movements": [],
@@ -206,6 +207,12 @@ def test_a_float_spend_is_refused_by_the_real_response_model():
 
     assert PersonFinanceResponse(**fields).spend_vnd == 750_000
 
-    for bad in (750_000.0, True, "750000"):
-        with pytest.raises(ValidationError):
-            PersonFinanceResponse(**{**fields, "spend_vnd": bad})
+    # Every money field on the model, not just the first one. A new amount
+    # added later is exactly where a `float` slips in unnoticed, and naming
+    # only `spend_vnd` here would let it: this loop went red the moment
+    # `receivable_vnd` was declared and would have stayed green had it been
+    # typed as a plain `int`.
+    for field in ("spend_vnd", "settled_vnd", "outstanding_vnd", "receivable_vnd"):
+        for bad in (750_000.0, True, "750000"):
+            with pytest.raises(ValidationError):
+                PersonFinanceResponse(**{**fields, field: bad})

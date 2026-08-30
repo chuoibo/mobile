@@ -50,6 +50,7 @@ def read_person_finance(
         spend_vnd=summary.spend_vnd,
         settled_vnd=summary.settled_vnd,
         outstanding_vnd=summary.outstanding_vnd,
+        receivable_vnd=summary.receivable_vnd,
         expense_count=summary.expense_count,
         group_count=summary.group_count,
         movements=[
