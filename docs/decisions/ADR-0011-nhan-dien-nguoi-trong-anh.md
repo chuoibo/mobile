@@ -50,6 +50,28 @@ mất. Nhưng nó khác hẳn về mức độ — nhìn thấy được, tranh 
 và chỉ mở cho người **đã ở sẵn trong nhóm**; khác với lỗ cũ vốn âm thầm và mở cho
 cả người ngoài. Ghi nhận là rò rỉ dư được chấp nhận có ý thức.
 
+### Thứ KHÔNG sửa được, và nó đúng với mọi hướng nhận diện
+
+Codex chỉ ra một tính chất mà tôi phải ghi ở đầu ADR chứ không giấu ở cuối:
+
+> Phải tính vector và gom cụm **trước khi** biết cụm nào là của ai. Nên một người
+> bật đồng ý sẽ khiến máy xử lý khuôn mặt của **mọi người trong ảnh** — kể cả
+> người chưa đồng ý và người ngoài nhóm. Quyết định 1 *"chỉ chạy trên người đã tự
+> bật"* **không thực thi được ở bước gom cụm**: đồng ý đến sau xử lý sinh trắc học.
+
+Đúng, và tôi kiểm lại thì thấy nó **không riêng của v4**. Bất kỳ hình thức nhận
+diện nào cũng phải tính đặc trưng cho *mọi* khuôn mặt trong ảnh rồi mới so được
+với người đã đồng ý. Hướng "ghi danh" của v3 cũng thế; hướng "camera sống" cũng
+thế. Khác biệt giữa các hướng chỉ nằm ở **cái gì được giữ lại**, không ở **cái gì
+được xử lý**.
+
+Đường duy nhất không có tính chất này là **không nhận diện** — chỉ khoanh ô vuông
+vô danh, vì một cái ô không phải danh tính sinh trắc học. Đó là `#303`, đã làm xong.
+
+Nên đây là thứ được **chấp nhận có ý thức** khi chọn làm F21, không phải thứ ADR
+này sót. Giảm thiểu tối đa: xử lý trong bộ nhớ, không đếm, không ghi "có mặt lạ",
+và mọi vector không thuộc cụm nào được nhận đều rơi vào hạn sống ở 2b-i.
+
 **Bản v2 sửa năm chỗ Codex bắn thủng bản v1.** Bốn cái là lỗ thật trong hợp
 đồng; cái thứ năm lôi ra một mâu thuẫn đã tồn tại sẵn trong repo, không do F21
 sinh ra — ghi ở cuối, dành cho leader.
@@ -128,6 +150,44 @@ Thay cho toàn bộ Quyết định 2b của v3, đã bỏ.
 Đây cũng là chỗ v3 sai mà không tự thấy: nó cố kiểm *ảnh ghi danh có đúng mặt
 người bấm không* — một câu hỏi không trả lời được — thay vì bỏ đi cái bước đẻ ra
 câu hỏi đó.
+
+### 2b-i — "tạm" phải là một con số, không phải một ý định
+
+v4 bản đầu viết vector chưa ai nhận là "dữ liệu tạm". Codex chỉ đúng: không TTL,
+không dọn khi job lỗi, và **muốn ghép ảnh mới vào cụm cũ thì vẫn phải giữ
+centroid** — mà centroid cũng là dữ liệu sinh trắc học. "Tạm" như thế là một
+cache không ai xoá.
+
+Chốt bằng số:
+
+- Cụm chưa ai nhận có **hạn sống cứng 7 ngày** kể từ lần chạm cuối. Hết hạn thì
+  xoá vector **và** centroid, không đánh dấu.
+- Có **một reaper chạy định kỳ**, và nó phải có ca chứng minh nó thật sự xoá —
+  không phải một `DELETE` chưa ai gọi. Xem lại bài học "cổng mặc định là đồ
+  trang trí".
+- Job chết giữa chừng thì vector mồ côi vẫn nằm trong tầm reaper, vì hạn sống
+  tính theo *thời điểm ghi*, không theo *trạng thái job*.
+- Điều này **thu hẹp Quyết định 7**: câu "mặt không khớp thì không lưu gì, kể cả
+  tạm" giữ nguyên cho **kết quả trả về**, nhưng bước gom cụm buộc phải giữ vector
+  trong hạn trên. Nói ra chỗ mâu thuẫn thay vì để hai câu đá nhau.
+
+### 2b-ii — Cụm sống ở vùng nháp **của riêng một nhóm**
+
+Không bảng cụm dùng chung, **không ANN index toàn bảng**. `context_id` là điều
+kiện query, không phải ranh giới — chính v2 đã ghi điều đó khi nói về hai kho
+toàn cục có sẵn (`uploaded_images`, `idempotency_keys`). Một bảng cụm phẳng cho
+mọi nhóm sẽ là **kho thứ ba**, và lần này là kho sinh trắc học.
+
+### 2b-iii — Bỏ nhận cụm **không** sửa sổ
+
+v4 bản đầu viết "mọi phần gán suy ra từ cụm mất hiệu lực về sau". Sai, và sai
+đúng kiểu Codex đã bắt ở Quyết định 5 vòng một: làm thế là **đổi số dư mà sổ
+không có phiên bản mới**. Tệ hơn, Quyết định 5 đã xoá sạch dấu vết nguồn máy, nên
+sau đó **không tìm lại được** phần gán nào đến từ cụm.
+
+Chốt: bỏ nhận cụm chỉ xoá **cụm** và **đề xuất chưa xác nhận**. Phần gán **đã
+xác nhận** là quyết định của một con người và chỉ đổi được bằng **một phiên bản
+khoản chi mới**, như mọi sửa đổi khác.
 
 ## ~~Quyết định 2b (v3) — Ghi danh là tự mình, từ ảnh chụp tại chỗ~~ *(đã thay bằng v4 ở trên)*
 
