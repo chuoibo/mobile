@@ -62,6 +62,19 @@ export function MenuTao({ onPick, onClose }: {
 
       <View
         style={{
+          // A sheet stops being a sheet somewhere before it owns half the
+          // screen -- past that it is a full page wearing a grab handle, and
+          // the backdrop it is supposed to leave tappable stops being a target
+          // anybody can hit. The rows inside already live in a `ScrollView`, so
+          // this caps the panel instead of clipping anything.
+          //
+          // The fifth row (F36's album) is what forced the number to be
+          // written down: four rows fitted under the midpoint by luck, and
+          // `tests/vo-tab-web.test.mjs` measured the loss the moment a fifth
+          // arrived -- the backdrop's own centre went under the panel, which is
+          // the point where "tap outside to dismiss" starts being a gesture
+          // with nowhere to land.
+          maxHeight: "45%",
           backgroundColor: c.card,
           borderTopLeftRadius: radius.base,
           borderTopRightRadius: radius.base,
