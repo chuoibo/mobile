@@ -40,7 +40,7 @@ DC = $(COMPOSE) -p $(PROJECT)
 WAIT_TIMEOUT ?= 300
 
 .DEFAULT_GOAL := help
-.PHONY: help gate gate-merge test-db e2e up down clean logs ps migrate db-check seed demo demo-reset demo-check demo-data-check demo-persona-check demo-key-check demo-watch demo-watch-status demo-watch-install smoke
+.PHONY: help gate gate-merge test-db e2e up down clean logs ps migrate db-check seed demo demo-reset demo-check demo-data-check demo-persona-check demo-key-check demo-watch demo-watch-status demo-watch-install hero-walk hero-walk-status smoke
 
 # `demo` phải gọi đúng bộ container mà `up` vừa dựng. Trên nhánh này biến đó là
 # $(COMPOSE); PR #60 (đang mở, cùng lane) đổi nó thành $(DC) = compose kèm
@@ -310,6 +310,19 @@ demo-watch-install: ## Cắm lượt canh định kỳ vào crontab — APPLY=1 
 	@python3 scripts/demo_watch.py install \
 	  $(if $(URL),--url $(URL)) $(if $(REPO),--repo $(REPO)) $(if $(REF),--ref $(REF)) \
 	  $(if $(APPLY),--apply) $(if $(REMOVE),--remove)
+
+# `demo-watch` hỏi máy demo có phục vụ ĐÚNG BỘ ROUTE của main không. Đếm route
+# khớp không có nghĩa là đường đi được: một máy phục vụ đủ 76 route và trả 500
+# cho tất cả vẫn khớp. Mục dưới đi thật hết đường hero, kể cả mối nối
+# ảnh -> Gemini -> readingFromWire -> POST /bills mà không cổng nào khác đi qua.
+#
+# Có gọi model thật, nên nó là mục gọi TAY (chạy trước khi demo), còn chặng
+# `hero-walk` trong `make gate` chỉ đọc lại phán quyết mục này ghi ra.
+hero-walk: ## Đi bộ cả đường hero trên máy demo, kể cả chặng ảnh -> món — URL=, ANH= để đổi đích
+	@scripts/hero_walk.sh $(if $(URL),--url $(URL)) $(if $(ANH),--anh $(ANH))
+
+hero-walk-status: ## Lượt đi bộ gần nhất nói gì (mã 2 nếu chưa ai đi, đứt, hoặc quá cũ)
+	@scripts/hero_walk.sh --status $(if $(URL),--url $(URL)) $(if $(MAXAGE),--max-age-hours $(MAXAGE))
 
 smoke: ## Gọi thật /healthz qua cổng đã publish và in địa chỉ ra
 	@# `smoke` là việc cuối `up` chạy, nên nó giữ màn hình cuối cùng. Nhắc lại

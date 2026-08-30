@@ -530,3 +530,127 @@ def test_the_meeting_request_has_no_field_for_naming_a_person(
     )
 
     assert response.status_code == 422, response.text
+
+
+# ---------------------------------------------------------------------------
+# Which refusal is it? -- the question the demo actually asks
+# ---------------------------------------------------------------------------
+#
+# The three tests above prove "an outsider is refused". They do not say WHY,
+# and 403 alone is the one answer that cannot tell a reader whether the
+# product decided "you are not in this group" or "your kind of user may never
+# do this". Those two call for opposite fixes: the first is a screen that
+# should not have offered the button, the second is a permission to grant.
+#
+# `set_member_role` is the contrast that makes this worth pinning: it really
+# is admin-only (`requires: is_group_admin`, read from the ACTIVE membership
+# row). None of these three is. Reading one gate's 403 as if it were the
+# other's is how a demo answers "it's a permissions thing" about a feature
+# that has no permission to grant.
+
+
+def _headers_with_roles(person_id: uuid.UUID, roles: str) -> dict[str, str]:
+    return {"X-Actor-ID": str(person_id), "X-Actor-Roles": roles}
+
+
+def _send(app, method: str, path: str, headers: dict[str, str], payload=None):
+    async def exchange(client):
+        if method == "POST":
+            return await client.post(path, headers=headers, json=payload)
+        return await client.get(path, headers=headers)
+
+    return _run(app, exchange)
+
+
+def _three_routes(context_id: uuid.UUID):
+    """The three F43/F44/F45 routes as (method, path, body) triples."""
+
+    return (
+        ("GET", f"/contexts/{context_id}/map", None),
+        ("GET", f"/contexts/{context_id}/heatmap", None),
+        (
+            "POST",
+            f"/contexts/{context_id}/meet",
+            {"from_areas": ["hcm-quan-1", "hcm-thu-duc"]},
+        ),
+    )
+
+
+def test_all_three_refuse_a_non_member_by_naming_membership_not_a_role(
+    postgres_session: Session, monkeypatch: pytest.MonkeyPatch
+):
+    """One condition, one reason string, all three routes.
+
+    The outsider sends the *strongest* role header the product accepts --
+    `member,group_admin` -- so a role claim cannot be what is missing. What is
+    left is the only thing a header cannot forge: an ACTIVE membership row.
+    """
+
+    context, owner = _group(postgres_session)
+    _checkin(postgres_session, context, owner, DA_LAT)
+    outsider = _person(postgres_session, "Người lạ")
+    app = _http(postgres_session, monkeypatch)
+    headers = _headers_with_roles(outsider.id, "member,group_admin")
+
+    for method, path, payload in _three_routes(context.id):
+        response = _send(app, method, path, headers, payload)
+
+        assert response.status_code == 403, f"{method} {path}: {response.text}"
+        body = response.json()
+        assert body["code"] == "permission_denied", f"{method} {path}: {body}"
+        assert body["detail"] == "is_group_member", (
+            f"{method} {path} refused for the wrong reason: {body['detail']!r}. "
+            "A role-shaped refusal here would mean the gate had become a "
+            "privilege, and the fix would be to grant something rather than "
+            "to join the group."
+        )
+
+
+def test_a_member_who_did_not_create_the_group_reads_all_three(
+    postgres_session: Session, monkeypatch: pytest.MonkeyPatch
+):
+    """Not owner-only, and this is the half the other pairs never showed.
+
+    Every positive control above uses the person who created the context, so
+    all of them stay green if the gate silently tightened to "creator only".
+    This one joins a second person, ACTIVE with `role=MEMBER`, and it is that
+    person -- not the creator -- who makes all three calls.
+    """
+
+    context, owner = _group(postgres_session)
+    _checkin(postgres_session, context, owner, DA_LAT)
+    joiner = _person(postgres_session, "Người vào sau")
+    _join(postgres_session, context, joiner)
+    assert context.created_by_id != joiner.id, "fixture stopped proving anything"
+    app = _http(postgres_session, monkeypatch)
+    headers = _headers_with_roles(joiner.id, "member")
+
+    for method, path, payload in _three_routes(context.id):
+        response = _send(app, method, path, headers, payload)
+
+        assert response.status_code == 200, f"{method} {path}: {response.text}"
+
+
+def test_a_member_sending_no_role_is_refused_for_the_other_reason(
+    postgres_session: Session, monkeypatch: pytest.MonkeyPatch
+):
+    """The negative control for the reason string itself.
+
+    Without this, `detail == "is_group_member"` above could be the only string
+    this gate is capable of producing, and asserting it would prove nothing.
+    Here the membership row is real and the role header is empty, and the two
+    causes come back distinguishable on the wire.
+    """
+
+    context, owner = _group(postgres_session)
+    _checkin(postgres_session, context, owner, DA_LAT)
+    app = _http(postgres_session, monkeypatch)
+    headers = _headers_with_roles(owner.id, "")
+
+    for method, path, payload in _three_routes(context.id):
+        response = _send(app, method, path, headers, payload)
+
+        assert response.status_code == 403, f"{method} {path}: {response.text}"
+        assert response.json()["detail"] == "role_not_permitted", (
+            f"{method} {path}: {response.json()}"
+        )
