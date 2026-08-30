@@ -256,14 +256,51 @@ export async function launch(bin) {
       const box = await this.evaluate((sel) => {
         const el = document.querySelector(`[aria-label="${sel}"]`);
         if (!el) return null;
+        // Scroll it into view BEFORE measuring. `Input.dispatchMouseEvent`
+        // takes viewport coordinates, so a control below the fold is clicked
+        // at a y the window does not contain and the press lands on nothing --
+        // no error, no handler, an entirely silent no-op. Measured here: the
+        // comment composer's "Gửi" button sits at y 837-881 on a 390x844
+        // screen, `elementFromPoint` at its centre returned null, and the test
+        // failed much later at "the comment never appeared" while pointing at
+        // the product rather than at this function.
+        //
+        // `nearest` rather than `center`: it scrolls only when it has to, so
+        // tests that assert on scroll position are not moved out from under.
+        el.scrollIntoView({ block: "nearest", inline: "nearest" });
         const r = el.getBoundingClientRect();
-        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        const x = r.left + r.width / 2;
+        const y = r.top + r.height / 2;
+        return { x, y, trongMan: x >= 0 && x <= innerWidth && y >= 0 && y <= innerHeight };
       }, label);
       if (!box) throw new Error(`no element with aria-label ${JSON.stringify(label)}`);
+      // Refusing to dispatch is the point. Clicking into empty space and
+      // returning normally is how a dead control passes for a live one.
+      if (!box.trongMan) {
+        throw new Error(
+          `element with aria-label ${JSON.stringify(label)} is outside the viewport even ` +
+            `after scrolling (centre ${Math.round(box.x)},${Math.round(box.y)}); a click there hits nothing`,
+        );
+      }
       const common = { x: box.x, y: box.y, button: "left", clickCount: 1, buttons: 1 };
       await call("Input.dispatchMouseEvent", { type: "mouseMoved", ...common, buttons: 0 });
       await call("Input.dispatchMouseEvent", { type: "mousePressed", ...common });
       await call("Input.dispatchMouseEvent", { type: "mouseReleased", ...common });
+    },
+
+    /** Type into the control carrying this `aria-label`, the way a person does.
+     *
+     *  Not `el.value = text`. A react-native-web `TextInput` is controlled, so
+     *  React overwrites a directly assigned value on its very next render and
+     *  the component never sees the keystrokes -- a test written that way
+     *  asserts on text that only ever existed in the DOM. `Input.insertText`
+     *  goes in through the same path the keyboard does, so `onChangeText` runs.
+     *
+     *  The click first is what focuses it; `insertText` goes to whatever has
+     *  focus, and with nothing focused it silently goes nowhere. */
+    async typeInto(label, text) {
+      await this.clickLabel(label);
+      await call("Input.insertText", { text });
     },
 
     /** Press Tab once and let focus settle. */

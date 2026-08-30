@@ -245,6 +245,21 @@ const MAN_TUONG_TAC = [
     bam: "Xem tất cả",
     needle: "Cà Phê Vợt Hẻm 330",
   },
+  // rd-fe-33. The comment panel is the only place on the wall with an input,
+  // a send button and a list of somebody else's words, and none of it exists
+  // until the button is pressed -- so the closed wall this tool used to scan
+  // reported zero for a surface it never rendered.
+  //
+  // `☰` is the comment button's glyph and both photographs carry one; `find`
+  // takes the first, which is the photograph that actually has a comment to
+  // show. The needle is that comment's author, a name printed by nothing else
+  // on the screen, so it cannot read true before the press lands.
+  {
+    step: "ky-niem-binh-luan",
+    frag: `vao=ky-niem&nguoi=${NGUOI}`,
+    bam: "☰",
+    needle: "Quang Huy",
+  },
 ];
 
 /** Serialised into the page, so it can reference nothing outside itself. */

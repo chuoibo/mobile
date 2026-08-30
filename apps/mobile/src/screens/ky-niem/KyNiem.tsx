@@ -38,12 +38,14 @@ import { Anh } from "../../ui/Anh";
 import { NutChonAnh } from "../../ui/NutChonAnh";
 import {
   attemptFor,
+  coTuongTac,
   docKyNiem,
   taiAnhNhom,
   themKyNiemAnh,
   type Attempt,
   type KyNiemWire,
 } from "../../api";
+import { TimVaBinhLuan } from "./TimVaBinhLuan";
 import {
   KyUcError,
   khoangNgay,
@@ -198,7 +200,16 @@ export function KyNiem({
 
         {trang.pha === "loi" ? <Loi loi={trang.loi} onThuLai={lamMoi} /> : null}
 
-        {trang.pha === "xong" ? <Tuong ky={trang.ky} nhomVuaTao={nhomVuaTao} /> : null}
+        {trang.pha === "xong" ? (
+          <Tuong
+            ky={trang.ky}
+            nhomVuaTao={nhomVuaTao}
+            // Read off the feed rows themselves rather than off a flag: the
+            // wall can only claim hearts are unbuilt if it has actually looked
+            // at a row that lacks them.
+            tuongTac={anh.length === 0 ? "chua-biet" : anh.some(coTuongTac) ? "co" : "khong"}
+          />
+        ) : null}
       </View>
     </ScrollView>
   );
@@ -290,7 +301,15 @@ function Loi({ loi, onThuLai }: { loi: string; onThuLai: () => void }) {
   );
 }
 
-function Tuong({ ky, nhomVuaTao }: { ky: KyUc; nhomVuaTao: boolean }) {
+function Tuong({
+  ky,
+  nhomVuaTao,
+  tuongTac,
+}: {
+  ky: KyUc;
+  nhomVuaTao: boolean;
+  tuongTac: TrangThaiTuongTac;
+}) {
   const c = usePalette();
   if (ky.outings.length === 0) {
     return (
@@ -312,7 +331,7 @@ function Tuong({ ky, nhomVuaTao }: { ky: KyUc; nhomVuaTao: boolean }) {
       {ky.outings.map((o) => (
         <TheChuyen key={o.outing_id} chuyen={o} />
       ))}
-      <ConThieu />
+      <ConThieu tuongTac={tuongTac} />
     </>
   );
 }
@@ -508,6 +527,10 @@ function TuongAnh({
   // different picture gets its own key. Held in a ref because a re-render
   // between the press and the reply must not be able to lose it.
   const soKhoa = React.useRef<Record<string, Attempt>>({});
+  // Which photograph has its comments open, at most one. Two open panels in a
+  // two-column grid reflow each other every time either list loads, and the
+  // photograph a person was reading walks off under their thumb.
+  const [moRongId, setMoRongId] = useState<string | null>(null);
 
   const themAnh = useCallback(
     async (photo: { uri: string }) => {
@@ -560,7 +583,15 @@ function TuongAnh({
           }}
         >
           {anh.map((m) => (
-            <Polaroid key={m.id} kyNiem={m} personId={personId} contextId={contextId} />
+            <Polaroid
+              key={m.id}
+              kyNiem={m}
+              personId={personId}
+              contextId={contextId}
+              moRong={moRongId === m.id}
+              onDoiMoRong={() => setMoRongId((cu) => (cu === m.id ? null : m.id))}
+              onDoiTuong={onThemXong}
+            />
           ))}
         </View>
       ) : null}
@@ -578,10 +609,16 @@ function Polaroid({
   kyNiem,
   personId,
   contextId,
+  moRong,
+  onDoiMoRong,
+  onDoiTuong,
 }: {
   kyNiem: KyNiemWire;
   personId: string;
   contextId: string;
+  moRong: boolean;
+  onDoiMoRong: () => void;
+  onDoiTuong: () => void | Promise<void>;
 }) {
   const c = usePalette();
   const chuThich = kyNiem.caption?.trim() ?? "";
@@ -589,9 +626,15 @@ function Polaroid({
     // `flexBasis` with `flexGrow: 0` rather than a percentage width: two items
     // per row with the parent's gap between them, and a lone third item does not
     // stretch to fill the row it starts.
+    //
+    // Open comments take the whole row. At 47% of a 390pt screen a comment
+    // column is about 165pt wide, which wraps ordinary Vietnamese sentences to
+    // three or four words a line and puts the composer and its send button in a
+    // column too narrow for either. Widening only the open one keeps the wall a
+    // wall and gives the thing being read the width it needs.
     <View
       style={{
-        flexBasis: "47%",
+        flexBasis: moRong ? "100%" : "47%",
         flexGrow: 0,
         borderRadius: radius.small,
         overflow: "hidden",
@@ -623,6 +666,20 @@ function Polaroid({
           {chuThich}
         </Text>
       ) : null}
+      {/* Drawn only when the server that sent this row can hold a heart. See
+          `coTuongTac` in `api.ts`: the three social fields arriving IS the
+          capability, and a wall read from a server without the tables looks
+          exactly as it did before this file was written. */}
+      {coTuongTac(kyNiem) ? (
+        <TimVaBinhLuan
+          kyNiem={kyNiem}
+          contextId={contextId}
+          personId={personId}
+          moRong={moRong}
+          onDoiMoRong={onDoiMoRong}
+          onDoiTuong={onDoiTuong}
+        />
+      ) : null}
     </View>
   );
 }
@@ -634,21 +691,32 @@ function Polaroid({
  * disabled heart icon still says "reactions exist and yours did not register";
  * a sentence says the table was never built.
  *
- * Photographs left this list when `TuongAnh` above started working. Video,
- * reactions and comments are still here because they are still true: there is
- * no video store, no reactions table and no comments table. Check-ins have a
- * route and a table (F46) but no surface on this screen yet, which is a
+ * Photographs left this list when `TuongAnh` above started working. Hearts and
+ * comments leave it the same way and for the same reason -- but only when the
+ * wall has actually seen a server that holds them, which is what `tuongTac`
+ * carries. Video stays because there is still no store behind it. Check-ins
+ * have a route and a table (F46) but no surface on this screen yet, which is a
  * different kind of missing and is said as one.
+ *
+ * The third state is the one worth keeping. On a wall with no photographs on it
+ * there is no feed row to read the capability out of, so neither sentence is
+ * supportable, and this says the thing is unknown rather than picking the
+ * cheerful reading or the pessimistic one. Defaulting to "chưa có bảng nào"
+ * would have printed a falsehood on every empty wall the day the tables landed.
  */
-function ConThieu() {
+type TrangThaiTuongTac = "co" | "khong" | "chua-biet";
+
+function ConThieu({ tuongTac }: { tuongTac: TrangThaiTuongTac }) {
   const c = usePalette();
   return (
     <Card>
       <Text style={{ ...type.label, color: c.inkSoft }}>Chưa dựng trên màn này</Text>
       <Text style={{ ...type.micro, color: c.inkFaint }}>
-        Video chưa có kho lưu nào đứng sau. Thả tim và bình luận cũng chưa có bảng nào.
-        Check-in đã có trong máy chủ nhưng chưa được vẽ lên tường này. Bốn thứ đó là việc
-        còn lại của trụ cột 5, không phải thứ đang ẩn đi.
+        {tuongTac === "co"
+          ? "Video chưa có kho lưu nào đứng sau. Check-in đã có trong máy chủ nhưng chưa được vẽ lên tường này. Hai thứ đó là việc còn lại của trụ cột 5, không phải thứ đang ẩn đi."
+          : tuongTac === "khong"
+            ? "Video chưa có kho lưu nào đứng sau. Thả tim và bình luận cũng chưa có bảng nào. Check-in đã có trong máy chủ nhưng chưa được vẽ lên tường này. Bốn thứ đó là việc còn lại của trụ cột 5, không phải thứ đang ẩn đi."
+            : "Video chưa có kho lưu nào đứng sau. Check-in đã có trong máy chủ nhưng chưa được vẽ lên tường này. Còn thả tim và bình luận thì tường này chưa nói được: chưa có tấm ảnh nào để đọc ra máy chủ có giữ được tim hay không."}
       </Text>
     </Card>
   );
