@@ -85,6 +85,85 @@ export function KetQuaThanhToan(props: {
           </Text>
         </View>
 
+        {/* The code comes before the two detail cards, and the mockup draws it
+            after them. The mockup is not wrong; it is drawn at a size where all
+            four blocks fit at once, and this screen is not. Measured on the web
+            export at 390x844: 893pt of content in a 609pt scroller, with the
+            code block landing at y=728 and 116 of its 196pt inside the
+            viewport. A person arriving here saw 59% of a QR code and had to
+            scroll before a banking app could see the rest of it.
+            Something has to be below the fold on this screen. The choice is
+            which, and the answer is the two cards that can be read a line at a
+            time rather than the one block that is useless when cropped. The
+            cards keep their own relative order, and enough of the first one
+            shows under the code to say the screen continues. */}
+        <View style={{ gap: space.sm, alignItems: "stretch" }}>
+          <Text style={{ ...type.label, color: c.inkSoft, textAlign: "center" }}>
+            Quét để thanh toán
+          </Text>
+          {envelopes.length > 1 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              // `flexGrow: 0` is load-bearing: a horizontal ScrollView carries
+              // `flex: 1` in its own base style and would otherwise stretch
+              // down the page instead of hugging this chip row.
+              style={{ flexGrow: 0, flexShrink: 0 }}
+              contentContainerStyle={{ gap: space.xs, alignItems: "center" }}
+            >
+              <View
+                accessibilityRole="radiogroup"
+                aria-label="Người chuyển"
+                style={{ flexDirection: "row", gap: space.xs }}
+              >
+                {envelopes.map((envelope) => {
+                  const on = envelope.senderId === nguoiDangChon;
+                  const name = labelFor(roster, envelope.senderId);
+                  return (
+                    <Pressable
+                      key={envelope.senderId}
+                      onPress={() => props.onChonNguoi(envelope.senderId)}
+                      // A chip row where exactly one is on is a radio group.
+                      // `role="button"` with `selected` is invalid on both
+                      // platforms and is dropped before the DOM on this one;
+                      // `toggleState` is the pairing that actually arrives.
+                      {...toggleState("radio", on)}
+                      accessibilityLabel={name}
+                      style={{
+                        minHeight: HIT,
+                        paddingHorizontal: space.md,
+                        borderRadius: radius.pill,
+                        borderWidth: 1,
+                        borderColor: on ? c.split : c.line,
+                        backgroundColor: on ? c.split : c.card,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Text
+                        style={{
+                          ...type.body,
+                          fontWeight: on ? "600" : "400",
+                          color: on ? c.splitInk : c.ink,
+                        }}
+                      >
+                        {name}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </ScrollView>
+          ) : null}
+          {nguoiDangChon !== null ? (
+            props.renderMaQr(nguoiDangChon)
+          ) : (
+            <Text style={{ ...type.body, color: c.inkSoft, textAlign: "center" }}>
+              Chưa phát đợt thu nên chưa có mã.
+            </Text>
+          )}
+        </View>
+
         <Card>
           <Text style={{ ...type.title, color: c.ink }}>Số tiền mỗi người phải trả</Text>
           <View>
@@ -152,73 +231,6 @@ export function KetQuaThanhToan(props: {
             ))
           )}
         </Card>
-
-        <View style={{ gap: space.sm, alignItems: "stretch" }}>
-          <Text style={{ ...type.label, color: c.inkSoft, textAlign: "center" }}>
-            Quét để thanh toán
-          </Text>
-          {envelopes.length > 1 ? (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              // `flexGrow: 0` is load-bearing: a horizontal ScrollView carries
-              // `flex: 1` in its own base style and would otherwise stretch
-              // down the page instead of hugging this chip row.
-              style={{ flexGrow: 0, flexShrink: 0 }}
-              contentContainerStyle={{ gap: space.xs, alignItems: "center" }}
-            >
-              <View
-                accessibilityRole="radiogroup"
-                aria-label="Người chuyển"
-                style={{ flexDirection: "row", gap: space.xs }}
-              >
-                {envelopes.map((envelope) => {
-                  const on = envelope.senderId === nguoiDangChon;
-                  const name = labelFor(roster, envelope.senderId);
-                  return (
-                    <Pressable
-                      key={envelope.senderId}
-                      onPress={() => props.onChonNguoi(envelope.senderId)}
-                      // A chip row where exactly one is on is a radio group.
-                      // `role="button"` with `selected` is invalid on both
-                      // platforms and is dropped before the DOM on this one;
-                      // `toggleState` is the pairing that actually arrives.
-                      {...toggleState("radio", on)}
-                      accessibilityLabel={name}
-                      style={{
-                        minHeight: HIT,
-                        paddingHorizontal: space.md,
-                        borderRadius: radius.pill,
-                        borderWidth: 1,
-                        borderColor: on ? c.split : c.line,
-                        backgroundColor: on ? c.split : c.card,
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <Text
-                        style={{
-                          ...type.body,
-                          fontWeight: on ? "600" : "400",
-                          color: on ? c.splitInk : c.ink,
-                        }}
-                      >
-                        {name}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </ScrollView>
-          ) : null}
-          {nguoiDangChon !== null ? (
-            props.renderMaQr(nguoiDangChon)
-          ) : (
-            <Text style={{ ...type.body, color: c.inkSoft, textAlign: "center" }}>
-              Chưa phát đợt thu nên chưa có mã.
-            </Text>
-          )}
-        </View>
       </ScrollView>
 
       <View style={{ flexDirection: "row", gap: space.sm }}>
