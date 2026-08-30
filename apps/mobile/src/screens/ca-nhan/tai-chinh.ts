@@ -35,10 +35,73 @@ export type Finance = {
   spend_vnd: number;
   settled_vnd: number;
   outstanding_vnd: number;
+  /** What other people still owe this person for shares they fronted.
+   *
+   *  Deliberately outside `settled + outstanding == spend`: money advanced
+   *  for somebody else was never this person's spend, so adding it to the
+   *  total would show an amount nobody owes. */
+  receivable_vnd: number;
   expense_count: number;
   group_count: number;
   movements: Movement[];
 };
+
+/** The five states mockup 07.02 asks the finance screen to support. */
+export type TinhTrangNo =
+  | "khong-no"
+  | "duoc-nhan"
+  | "phai-tra"
+  | "hai-chieu";
+
+/**
+ * Which of the mockup's five states this person is in, and the sentence for it.
+ *
+ * A sentence rather than two numbers alone, because the numbers are the answer
+ * to a question the reader has to assemble themselves: two coloured tiles
+ * reading `530.000đ` and `120.000đ` do not say, in three seconds, whether this
+ * is a good month. The colours cannot carry it either -- the mockup's own rule
+ * is that state is never distinguished by colour alone.
+ *
+ * No arithmetic. `receivable` and `outstanding` arrive from the ledger already
+ * clamped at zero, and this only reads whether each is above it: subtracting
+ * one from the other here would be a net position this product has never
+ * defined, computed in the one layer that must not compute money.
+ *
+ * `Settled` from the mockup's list is not a fourth branch. A person who has
+ * paid everything and been paid back reads as `khong-no`, which is the same
+ * sentence and the same truth -- inventing a separate "đã tất toán" wording
+ * would claim the screen can tell "settled up" apart from "never split
+ * anything", and it cannot: both are two zeroes.
+ */
+export function tinhTrangNo(finance: {
+  receivable_vnd: number;
+  outstanding_vnd: number;
+}): { tinhTrang: TinhTrangNo; cau: string } {
+  const nhan = finance.receivable_vnd > 0;
+  const tra = finance.outstanding_vnd > 0;
+  if (nhan && tra) {
+    return {
+      tinhTrang: "hai-chieu",
+      cau: `Bạn còn nợ ${tienVnd(finance.outstanding_vnd)} và người khác nợ bạn ${tienVnd(finance.receivable_vnd)}.`,
+    };
+  }
+  if (nhan) {
+    return {
+      tinhTrang: "duoc-nhan",
+      cau: `Người khác đang nợ bạn ${tienVnd(finance.receivable_vnd)}.`,
+    };
+  }
+  if (tra) {
+    return {
+      tinhTrang: "phai-tra",
+      cau: `Bạn còn nợ ${tienVnd(finance.outstanding_vnd)}.`,
+    };
+  }
+  return {
+    tinhTrang: "khong-no",
+    cau: "Bạn không nợ ai, và không ai nợ bạn.",
+  };
+}
 
 /**
  * Money as Vietnamese writes it: `860.000đ`.
@@ -103,6 +166,31 @@ export function moTaGiaoDich(movement: Movement): string {
     return who ? `${who} đã chuyển cho bạn` : "Bạn nhận được";
   }
   return who ? `Bạn đã trả ${who}` : "Bạn đã thanh toán";
+}
+
+/**
+ * How many movements the server will ever send back in one read.
+ *
+ * `ApiService.FINANCE_MOVEMENT_LIMIT`, copied because the response carries no
+ * total and no cursor -- so a full page is the only signal the client gets
+ * that there may be more. Duplicating a server constant is a drift risk and
+ * the honest one to take: the alternative is a screen that silently presents
+ * twenty rows as the whole history.
+ */
+export const SO_GIAO_DICH_TOI_DA = 20;
+
+/**
+ * The line under a full page, or nothing.
+ *
+ * Mockup 07.02 puts *Xem tất cả* beside this list. There is no route behind
+ * it -- `GET /people/{id}/finance` takes no offset -- so the screen says what
+ * it is showing instead of drawing a link that opens nothing. A truncated
+ * list presented as a complete one is the reading a person would use to
+ * conclude a transfer never happened.
+ */
+export function ghiChuGioiHan(movements: readonly Movement[]): string | null {
+  if (movements.length < SO_GIAO_DICH_TOI_DA) return null;
+  return `Đây là ${SO_GIAO_DICH_TOI_DA} giao dịch gần nhất. Máy chủ chưa có đường đọc phần cũ hơn.`;
 }
 
 export class FinanceError extends Error {

@@ -329,6 +329,11 @@ class PersonFinanceResponse(ApiModel):
 
     `settled_vnd + outstanding_vnd == spend_vnd` by construction, so the two
     figures a reader sees under the total always account for all of it.
+
+    `receivable_vnd` is deliberately outside that identity: it is what other
+    people owe this person, not a share of what this person spent, and a
+    reader adding it to the total would be adding money that is not theirs to
+    have spent.
     """
 
     person_id: UUID
@@ -336,6 +341,7 @@ class PersonFinanceResponse(ApiModel):
     spend_vnd: MoneyVnd
     settled_vnd: MoneyVnd
     outstanding_vnd: MoneyVnd
+    receivable_vnd: MoneyVnd
     expense_count: int
     group_count: int
     movements: list[FinanceMovementView]
