@@ -247,13 +247,39 @@ def main(argv: list[str] | None = None) -> int:
     print(f"python đang chạy: {sys.executable}")
     print(f"KHỚP {len(matched)}   LỆCH {len(drifted)}   THIẾU {len(absent)}")
 
+    # Every pin, every run -- including the ones that matched.
+    #
+    # This listing used to live inside `if drifted or absent:`, so a machine
+    # where everything matched got a survey that named nothing it had surveyed.
+    # That is the shape of a silent pass: "KHỚP 12 LỆCH 0" is also what a parser
+    # that had stopped matching lines would print. It also made this file's own
+    # gate red on CI at 2862154 -- `test_the_shipping_requirements_file_is_readable`
+    # looks for a pin name as proof the parser still sees the file, and on a
+    # clean interpreter there was no name to find. The gate failed precisely when
+    # every pin was correct.
+    #
+    # A report that speaks only when it has bad news cannot be used as evidence
+    # that it read anything. So the table is unconditional and carries the state
+    # per row; `[quan trọng]` still marks only rows that block, which is what
+    # gate.sh's `--names-only` channel prints.
+    state_label = {"match": "khớp", "drift": "LỆCH", "absent": "THIẾU"}
+    print()
+    print('Từng pin — "ship" là bản ảnh cài, "máy" là bản interpreter này import:')
+    for row in rows:
+        blocks = row["critical"] and row["state"] != "match"
+        mark = "  [quan trọng]" if blocks else ""
+        got = row["installed"] or "KHÔNG CÀI"
+        print(
+            f"  {row['name']:22} ship {row['pinned']:14} máy {got:14} "
+            f"{state_label[row['state']]}{mark}"
+        )
+
     if drifted or absent:
         print()
-        print("Bản cài trên máy này KHÁC bản sẽ ship:")
-        for row in drifted + absent:
-            mark = "  [quan trọng]" if row["critical"] else ""
-            got = row["installed"] or "KHÔNG CÀI"
-            print(f"  {row['name']:22} ship {row['pinned']:12} máy {got}{mark}")
+        print(
+            f"Bản cài trên máy này KHÁC bản sẽ ship ở "
+            f"{len(drifted) + len(absent)}/{len(rows)} pin — xem cột cuối."
+        )
 
     if not offenders:
         print()
