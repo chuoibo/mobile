@@ -9,7 +9,13 @@ That is the same shape ``GET /contexts/{id}/suggestion`` had before #293, and
 the reason this file exists is that #293 could not have caught it -- F33 did not
 exist yet. ``test_every_paid_route_carries_its_own_window`` enumerates the
 limiters it knows by name, so a *new* unmetered route is invisible to it. The
-last case here closes that hole by counting model-reaching routes instead.
+last two cases here read the roster off the application instead.
+
+That distinction was not academic. The case those two replace made the same
+claim in its docstring while hand-listing seven attribute names, and #297 then
+added an eighth door -- ``GET /places`` and its ``CachedReasonWriter`` -- which
+it did not notice, because a name absent from the list cannot fail a count of
+the list.
 
 What this file does NOT prove: that the ceiling is the right number, or that it
 survives a second replica. The window is per process and in memory, so two API
@@ -30,6 +36,7 @@ from app.api import companion_places
 from app.api.deps import get_contextual_suggester, get_repository
 from app.api.main import create_app
 from app.api.repository import MembershipRecord, MessagePage, MessageRecord
+from app.api.routes.places import CachedReasonWriter
 from app.api.routes.suggestions import get_contextual_suggestion_limiter
 from app.api.search_rate_limit import (
     CONTEXTUAL_SUGGESTION_LIMIT_PER_WINDOW,
@@ -44,6 +51,58 @@ CONTEXT_ID = uuid.UUID("3cc00000-cccc-4ccc-8ccc-0000c0000031")
 MEMBER_ID = uuid.UUID("4dd00000-dddd-4ddd-8ddd-0000d0000031")
 
 HEADERS = {"X-Actor-ID": str(MEMBER_ID), "X-Actor-Roles": "member"}
+
+# What counts as standing in front of a paid model call. Both shapes belong:
+# a window for the doors that have an actor to count, a cache for `GET /places`
+# which has none. Abuse limits like `friend_lookup_limit` are a different class
+# (`FixedWindowLimit`) and are deliberately not here -- they meter a caller, not
+# the model key.
+_MODEL_GUARD_TYPES = (FixedWindowLimiter, CachedReasonWriter)
+
+# The doors onto the shared model key as of this commit. The point of writing
+# them down is that the set below is *discovered*: a mismatch means a door was
+# added or dropped, and either way somebody has to look.
+_KNOWN_DOORS = frozenset(
+    {
+        "search_limiter",
+        "receipt_scan_limiter",
+        "chat_expense_limiter",
+        "screenshot_scan_limiter",
+        "companion_turn_limiter",
+        "suggestion_limiter",
+        "reason_writer",
+        "contextual_suggestion_limiter",
+    }
+)
+
+
+def _model_guards(app) -> dict[str, object]:
+    """Every guard `create_app` built, read off the application.
+
+    Starlette keeps `app.state` in a private dict, so this reaches for it and
+    then asserts it found something. Without that assertion a rename upstream
+    would make discovery return nothing, and "no two doors share a guard" is
+    trivially true of an empty roster -- a green that means the probe broke.
+    """
+
+    state = vars(app.state)["_state"]
+    guards = {
+        name: value
+        for name, value in state.items()
+        if isinstance(value, _MODEL_GUARD_TYPES)
+    }
+
+    assert guards, f"discovered no model guards at all on {sorted(state)}"
+    return guards
+
+
+def _by_identity(guards: dict[str, object]) -> dict[int, list[str]]:
+    """Group door names by the object they resolve to, so a shared one names both."""
+
+    grouped: dict[int, list[str]] = {}
+    for name, guard in guards.items():
+        grouped.setdefault(id(guard), []).append(name)
+    return grouped
 
 # Invented here rather than read from the shipped catalogue: what is under test
 # is a counter, and a test that also depended on which places the product ships
@@ -306,25 +365,46 @@ def test_each_application_carries_its_own_contextual_window(client):
     )
 
 
-def test_every_route_that_reaches_the_model_carries_its_own_window(client):
-    """Counted, not enumerated -- so the *next* paid route cannot slip through.
+def test_every_door_onto_the_model_carries_its_own_guard():
+    """No two doors share one window -- including the cache-shaped seventh.
 
-    Its sibling case in `test_companion_rate_limit.py` lists the limiters it
-    knows by name. That shape is green by construction for any route added
-    afterwards, which is exactly how F33 shipped unmetered: the route was new,
-    the list was not. This counts the windows the app actually builds, so
-    adding a seventh paid route without a window fails here.
+    This is the case that has to hold across #297 and this branch landing
+    together. `GET /places` has no actor to key a window on, so it is capped by
+    a cache instead; the F33 card reads a live conversation, so it cannot share
+    that cache and gets a window. Two different shapes of guard, and the thing
+    that must not happen is either of them being the *same object* as another
+    door's -- that is the cheap way to "add" a limiter, and it makes one
+    feature's burst disable its neighbour.
+
+    The roster is read off the application, so a door added later is inside
+    this check without anyone remembering to put it there.
     """
 
-    state = client.app.state
-    windows = {
-        id(state.search_limiter),
-        id(state.receipt_scan_limiter),
-        id(state.chat_expense_limiter),
-        id(state.screenshot_scan_limiter),
-        id(state.companion_turn_limiter),
-        id(state.suggestion_limiter),
-        id(state.contextual_suggestion_limiter),
-    }
+    guards = _model_guards(create_app())
 
-    assert len(windows) == 7
+    shared = [
+        names
+        for names in _by_identity(guards).values()
+        if len(names) > 1
+    ]
+
+    assert not shared, f"doors sharing one guard object: {shared}"
+
+
+def test_the_roster_of_doors_onto_the_model_is_accounted_for():
+    """Adding a door has to be a decision made here, not a silent addition.
+
+    The previous shape of this file counted a list it wrote itself, so a new
+    door was invisible until someone happened to add its name. Discovery plus a
+    written-down roster inverts that: a new guard on `app.state` fails here
+    until it is named, and naming it drags it into the distinctness case above.
+
+    This does NOT prove every model-reaching route *has* a guard. A route that
+    calls Gemini while building nothing on `app.state` puts nothing here to
+    discover -- as would a guard created lazily inside a request, the way
+    `friend_lookup_limit` and `person_id_limit` are. Those are abuse limits on
+    a different type, deliberately outside `_MODEL_GUARD_TYPES`; a *model*
+    guard built that way would still slip past this file.
+    """
+
+    assert set(_model_guards(create_app())) == _KNOWN_DOORS
