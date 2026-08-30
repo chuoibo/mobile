@@ -41,13 +41,8 @@ from app.api.errors import ApiProblem
 from app.api.repository import SqlAlchemyApiRepository
 from app.api.schemas import (
     BankRecipientRequest,
-    BatchCreateRequest,
-    BatchPublishRequest,
-    BillAssignment,
-    BillAssignmentsRequest,
     BillCreateRequest,
     BillItemCreateRequest,
-    BillSplitRequest,
     ExpenseConfirmationRequest,
     ExpenseInput,
     MemberRoleRequest,
@@ -453,10 +448,23 @@ def test_live_member_role_cannot_be_set_on_a_non_member(postgres_session):
 
 
 @pytest.mark.postgres
-def test_live_paid_by_outsider_redirects_every_obligation(postgres_session):
-    """The consequence, priced. This case asserts the BUG so the write-up has
-    a number behind it; it flips to the refusal above once `paid_by_id` is
-    gated, and the `xfail` case at the fake tier is what says so.
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "rd-qa-40 hole 1, live tier. Remove this marker as the second half of the fix."
+    ),
+)
+def test_live_paid_by_outsider_must_not_reach_the_ledger(postgres_session):
+    """Hole 1 on the real database, where the money actually lands.
+
+    Measured on clean `main` at dbc1e35 before this file existed: the confirm
+    returns 201, `create_batch` freezes, and the board comes back as two
+    obligations of 40_000 each whose `recipient_id` is the outsider -- summing
+    to exactly the 80_000 bill. Money rule 2 holds the whole way through, which
+    is why no arithmetic gate can see this. The person who really paid appears
+    as a SENDER.
+
+    The refusal asserted below is what should happen instead.
     """
     session = postgres_session
     repository = SqlAlchemyApiRepository(session)
@@ -486,48 +494,51 @@ def test_live_paid_by_outsider_redirects_every_obligation(postgres_session):
     session.flush()
 
     expense_id = repository.create_expense(group).id
-    service.confirm_expense(
-        expense_id,
-        ExpenseConfirmationRequest(
-            proposal=ExpenseInput(
-                context_id=group,
-                description="Lẩu nấm",
-                recorded_by_id=nam.id,
-                paid_by_id=outsider.id,
-                verification_scope="totals_only",
-                occurred_at=NOW,
-                participants=sorted([nam.id, binh.id], key=lambda value: value.bytes),
-                total_amount_vnd=80_000,
-                items=[],
-                surcharges=[],
-                discounts=[],
+    with pytest.raises(ApiProblem) as refused:
+        service.confirm_expense(
+            expense_id,
+            ExpenseConfirmationRequest(
+                proposal=ExpenseInput(
+                    context_id=group,
+                    description="Lẩu nấm",
+                    recorded_by_id=nam.id,
+                    paid_by_id=outsider.id,
+                    verification_scope="totals_only",
+                    occurred_at=NOW,
+                    participants=sorted(
+                        [nam.id, binh.id], key=lambda value: value.bytes
+                    ),
+                    total_amount_vnd=80_000,
+                    items=[],
+                    surcharges=[],
+                    discounts=[],
+                ),
+                expected_allocations={nam.id: 40_000, binh.id: 40_000},
+                acknowledge_as_advancer=False,
             ),
-            expected_allocations={nam.id: 40_000, binh.id: 40_000},
-            acknowledge_as_advancer=False,
-        ),
-        _actor(nam.id, group),
-    )
-    batch = service.create_batch(
-        BatchCreateRequest(
-            context_id=group,
-            due_at=NOW + timedelta(days=3),
-            expense_version_ids=None,
-            unready_recipient_choice=None,
-        ),
-        _actor(nam.id, group),
-    )
+            _actor(nam.id, group),
+        )
 
-    # Money rule 2 holds throughout: the sum is exactly the bill. That is the
-    # whole point -- arithmetic cannot see this.
-    assert sum(item.amount_vnd for item in batch.obligations) == 80_000
-    assert {item.recipient_id for item in batch.obligations} == {outsider.id}
-    # And the person who actually paid is billed rather than repaid.
-    assert nam.id in {item.sender_id for item in batch.obligations}
+    assert refused.value.status_code == 422
+    assert refused.value.code == "participant_not_in_context"
 
 
 @pytest.mark.postgres
-def test_live_recorded_by_outsider_names_them_on_the_guest_page(postgres_session):
-    """The privacy half, on the page a non-member actually reads."""
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "rd-qa-40 hole 2, live tier. Remove this marker as the second half of the fix."
+    ),
+)
+def test_live_recorded_by_outsider_must_not_reach_the_guest_page(postgres_session):
+    """Hole 2's privacy half, on the page a non-member actually reads.
+
+    Measured on clean `main` at dbc1e35: `recorded_by_display_name` on every
+    published guest envelope came back as the chosen outsider's display name,
+    verbatim. A guest link is a bearer capability held by whoever is being
+    asked for money -- often somebody outside the product entirely -- so this
+    hands a chosen person's name to a reader who was never in the group.
+    """
     session = postgres_session
     repository = SqlAlchemyApiRepository(session)
     service = ApiService(repository)
@@ -554,62 +565,58 @@ def test_live_recorded_by_outsider_names_them_on_the_guest_page(postgres_session
     session.flush()
 
     expense_id = repository.create_expense(group).id
-    service.confirm_expense(
-        expense_id,
-        ExpenseConfirmationRequest(
-            proposal=ExpenseInput(
-                context_id=group,
-                description="Lẩu nấm",
-                recorded_by_id=outsider.id,
-                paid_by_id=nam.id,
-                verification_scope="totals_only",
-                occurred_at=NOW,
-                participants=sorted([nam.id, binh.id], key=lambda value: value.bytes),
-                total_amount_vnd=80_000,
-                items=[],
-                surcharges=[],
-                discounts=[],
+    with pytest.raises(ApiProblem) as refused:
+        service.confirm_expense(
+            expense_id,
+            ExpenseConfirmationRequest(
+                proposal=ExpenseInput(
+                    context_id=group,
+                    description="Lẩu nấm",
+                    recorded_by_id=outsider.id,
+                    paid_by_id=nam.id,
+                    verification_scope="totals_only",
+                    occurred_at=NOW,
+                    participants=sorted(
+                        [nam.id, binh.id], key=lambda value: value.bytes
+                    ),
+                    total_amount_vnd=80_000,
+                    items=[],
+                    surcharges=[],
+                    discounts=[],
+                ),
+                expected_allocations={nam.id: 40_000, binh.id: 40_000},
+                acknowledge_as_advancer=True,
             ),
-            expected_allocations={nam.id: 40_000, binh.id: 40_000},
-            acknowledge_as_advancer=True,
-        ),
-        _actor(nam.id, group),
-    )
-    batch = service.create_batch(
-        BatchCreateRequest(
-            context_id=group,
-            due_at=NOW + timedelta(days=3),
-            expense_version_ids=None,
-            unready_recipient_choice=None,
-        ),
-        _actor(nam.id, group),
-    )
-    published = service.publish_batch(
-        batch.batch_id,
-        BatchPublishRequest(
-            delivery_method="personal_link",
-            guest_link_expires_at=NOW + timedelta(days=10),
-        ),
-        _actor(nam.id, group),
-    )
+            _actor(nam.id, group),
+        )
 
-    seen = {
-        service.guest_view(link.path.rsplit("/", 1)[-1])["recorded_by_display_name"]
-        for link in published.guest_links
-    }
-    assert seen == {elsewhere_name}
+    assert refused.value.status_code == 422
+    assert refused.value.code == "participant_not_in_context"
 
 
 @pytest.mark.postgres
-def test_live_bill_suggestion_of_a_non_member_makes_the_bill_unsplittable(
-    postgres_session,
-):
-    """Hole 3's consequence: the demo path dies and confirming does not clear it.
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "rd-qa-40 hole 3, live tier. Remove this marker as the second half of the fix."
+    ),
+)
+def test_live_bill_suggestion_of_a_non_member_is_refused(postgres_session):
+    """Hole 3 on the real database, and why it kills the demo path.
 
-    `confirm_bill_assignments` deletes existing shares only for the item_keys
-    the request names, so a poisoned item nobody re-assigns keeps its stranger
-    share. The screen has no reason to re-assign an item that already looks
-    assigned, so from the user's side the bill is simply stuck.
+    Measured on clean `main` at dbc1e35: `POST /bills` stored the outsider as a
+    `bill_item_shares` row with `source="ai_suggested"`, and then
+    `POST /bills/{id}/split` came back 422 `UNKNOWN_PARTICIPANT` -- because
+    `split_bill` builds its participant list from the ACTIVE ROSTER and then
+    asks the allocator to honour the stored shares.
+
+    Confirming assignments does not clear it: `confirm_bill_assignments`
+    deletes existing shares only for the item_keys the request names, so an
+    item nobody re-assigns keeps its stranger share. Re-measured on the same
+    tree -- after confirming the other item, split was still 422. The screen
+    has no reason to re-touch an item that already looks assigned, so from the
+    group's side the bill is simply stuck: scan -> assign -> split, the exact
+    path the demo walks, dead with no way out inside the product.
     """
     session = postgres_session
     service = ApiService(SqlAlchemyApiRepository(session))
@@ -621,60 +628,40 @@ def test_live_bill_suggestion_of_a_non_member_makes_the_bill_unsplittable(
     _member(session, group, binh.id)
     actor = _actor(nam.id, group)
 
-    bill = service.create_bill(
-        BillCreateRequest(
-            context_id=group,
-            printed_total_vnd=100_000,
-            items_total_vnd=100_000,
-            confidence=90,
-            needs_review=False,
-            items=[
-                BillItemCreateRequest(
-                    item_key="i1",
-                    name="Phở",
-                    quantity=1,
-                    unit_price_vnd=50_000,
-                    line_total_vnd=50_000,
-                    suggested_participant_ids=[outsider.id],
-                ),
-                BillItemCreateRequest(
-                    item_key="i2",
-                    name="Bún",
-                    quantity=1,
-                    unit_price_vnd=50_000,
-                    line_total_vnd=50_000,
-                    suggested_participant_ids=[nam.id],
-                ),
-            ],
-            surcharges=[],
-            discounts=[],
-        ),
-        actor,
-    )
-    session.flush()
+    with pytest.raises(ApiProblem) as refused:
+        service.create_bill(
+            BillCreateRequest(
+                context_id=group,
+                printed_total_vnd=100_000,
+                items_total_vnd=100_000,
+                confidence=90,
+                needs_review=False,
+                items=[
+                    BillItemCreateRequest(
+                        item_key="i1",
+                        name="Phở",
+                        quantity=1,
+                        unit_price_vnd=50_000,
+                        line_total_vnd=50_000,
+                        suggested_participant_ids=[outsider.id],
+                    ),
+                    BillItemCreateRequest(
+                        item_key="i2",
+                        name="Bún",
+                        quantity=1,
+                        unit_price_vnd=50_000,
+                        line_total_vnd=50_000,
+                        suggested_participant_ids=[nam.id],
+                    ),
+                ],
+                surcharges=[],
+                discounts=[],
+            ),
+            actor,
+        )
 
-    stored = {
-        item.item_key: [share.participant_id for share in item.shares]
-        for item in bill.items
-    }
-    assert stored["i1"] == [outsider.id]
-
-    with pytest.raises(ApiProblem) as before:
-        service.split_bill(bill.id, BillSplitRequest(for_ledger=False), actor)
-    assert before.value.code == "UNKNOWN_PARTICIPANT"
-
-    service.confirm_bill_assignments(
-        bill.id,
-        BillAssignmentsRequest(
-            assignments=[BillAssignment(item_key="i2", participant_ids=[nam.id, binh.id])]
-        ),
-        actor,
-    )
-    session.flush()
-
-    with pytest.raises(ApiProblem) as after:
-        service.split_bill(bill.id, BillSplitRequest(for_ledger=False), actor)
-    assert after.value.code == "UNKNOWN_PARTICIPANT"
+    assert refused.value.status_code == 422
+    assert refused.value.code == "participant_not_in_context"
 
 
 @pytest.mark.postgres
