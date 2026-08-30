@@ -321,6 +321,12 @@ _TABLE: dict[str, dict] = {
         "roles": {"group_admin", "member"},
         "requires": ("is_group_member",),
     },
+    # F34 carries the group's historical and current ledger totals. A context
+    # id from a link is not authority to read them; only an ACTIVE row is.
+    "view_group_budget": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
     "post_group_memory": {
         "roles": {"group_admin", "member"},
         "requires": ("is_group_member",),

@@ -1,8 +1,10 @@
 """How much of the project's model quota one identity may spend per minute.
 
-Two routes spend that quota and both are metered here: `POST /places/search`
-and `POST /receipts/scan`. The scan arrived second and unmetered, which is the
-worse of the two to leave open -- it ships a photograph to a vision model, so
+Four routes spend that quota and all are metered here: `POST /places/search`,
+`POST /receipts/scan`, `POST /screenshots/scan`, and the F24 chat-expense draft
+route. The receipt scan arrived
+second and unmetered, which is the
+worst of them to leave open -- it ships a photograph to a vision model, so
 a loop against it drains the shared key faster than a loop against search.
 The file is still named for search because that is the route it was written
 for; the ceilings and the refusal wording are per caller, set at construction.
@@ -38,13 +40,19 @@ from uuid import UUID
 from app.api.errors import ApiProblem
 
 __all__ = [
+    "CHAT_EXPENSE_LIMIT_PER_WINDOW",
+    "CHAT_EXPENSE_WINDOW_SECONDS",
     "RECEIPT_SCAN_LIMIT_PER_WINDOW",
     "RECEIPT_SCAN_WINDOW_SECONDS",
     "SEARCH_LIMIT_PER_WINDOW",
     "SEARCH_WINDOW_SECONDS",
+    "SCREENSHOT_SCAN_LIMIT_PER_WINDOW",
+    "SCREENSHOT_SCAN_WINDOW_SECONDS",
     "FixedWindowLimiter",
+    "build_chat_expense_limiter",
     "build_receipt_scan_limiter",
     "build_search_limiter",
+    "build_screenshot_scan_limiter",
 ]
 
 SEARCH_WINDOW_SECONDS = 60
@@ -71,6 +79,17 @@ RECEIPT_SCAN_WINDOW_SECONDS = 60
 # nothing unreasonable. That is evidence about real bursts, not a test being
 # awkward, and the number moved because of it.
 RECEIPT_SCAN_LIMIT_PER_WINDOW = 30
+
+# F24 spends one text-model call per attempt. It gets the same human-burst
+# allowance as receipt scanning, but a different counter: reading a bill must
+# not consume the caller's ability to read a message, or vice versa.
+CHAT_EXPENSE_WINDOW_SECONDS = RECEIPT_SCAN_WINDOW_SECONDS
+CHAT_EXPENSE_LIMIT_PER_WINDOW = RECEIPT_SCAN_LIMIT_PER_WINDOW
+
+# A screenshot spends the same kind of vision call as a receipt, but its own
+# counter prevents one feature's retry loop from disabling its neighbour.
+SCREENSHOT_SCAN_WINDOW_SECONDS = RECEIPT_SCAN_WINDOW_SECONDS
+SCREENSHOT_SCAN_LIMIT_PER_WINDOW = RECEIPT_SCAN_LIMIT_PER_WINDOW
 
 # Below this many tracked identities the map is not worth walking. Above it,
 # the sweep threshold doubles from whatever survived, so the O(n) walk happens
@@ -207,5 +226,35 @@ def build_receipt_scan_limiter() -> FixedWindowLimiter:
         message=(
             f"Quá nhiều lượt đọc bill; tối đa {RECEIPT_SCAN_LIMIT_PER_WINDOW} "
             f"lượt mỗi {RECEIPT_SCAN_WINDOW_SECONDS} giây. Thử lại sau ít phút."
+        ),
+    )
+
+
+def build_chat_expense_limiter() -> FixedWindowLimiter:
+    """The per-actor F24 ceiling, owned by one application instance."""
+
+    return FixedWindowLimiter(
+        limit=CHAT_EXPENSE_LIMIT_PER_WINDOW,
+        window_seconds=CHAT_EXPENSE_WINDOW_SECONDS,
+        code="chat_expense_rate_limited",
+        message=(
+            "Quá nhiều lượt đọc khoản chi từ tin nhắn; tối đa "
+            f"{CHAT_EXPENSE_LIMIT_PER_WINDOW} lượt mỗi "
+            f"{CHAT_EXPENSE_WINDOW_SECONDS} giây. Thử lại sau ít phút."
+        ),
+    )
+
+
+def build_screenshot_scan_limiter() -> FixedWindowLimiter:
+    """The per-actor F26 ceiling, separate from every other model route."""
+
+    return FixedWindowLimiter(
+        limit=SCREENSHOT_SCAN_LIMIT_PER_WINDOW,
+        window_seconds=SCREENSHOT_SCAN_WINDOW_SECONDS,
+        code="screenshot_scan_rate_limited",
+        message=(
+            "Quá nhiều lượt đọc ảnh chụp màn hình; tối đa "
+            f"{SCREENSHOT_SCAN_LIMIT_PER_WINDOW} lượt mỗi "
+            f"{SCREENSHOT_SCAN_WINDOW_SECONDS} giây. Thử lại sau ít phút."
         ),
     )

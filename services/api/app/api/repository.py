@@ -897,6 +897,8 @@ class ApiRepository(Protocol):
         now: datetime,
     ) -> MessageRecord: ...
 
+    def get_message(self, message_id: uuid.UUID) -> MessageRecord | None: ...
+
     def list_messages(
         self,
         context_id: uuid.UUID,
@@ -2263,6 +2265,10 @@ class SqlAlchemyApiRepository:
         self.session.add(message)
         self.session.flush()
         return self._message_record(message)
+
+    def get_message(self, message_id: uuid.UUID) -> MessageRecord | None:
+        message = self.session.get(Message, message_id)
+        return None if message is None else self._message_record(message)
 
     def list_messages(
         self,

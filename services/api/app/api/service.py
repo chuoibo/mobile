@@ -13,6 +13,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from app.api import companion_places
+from app.api.chat_expense_skill import ChatExpenseReader, run_chat_expense_skill
 from app.api.cursors import CursorError, decode_cursor, encode_cursor
 from app.api.deps import Actor, Companion, Suggester
 from app.api.errors import ApiProblem, RepositoryConflict
@@ -57,6 +58,8 @@ from app.api.schemas import (
     BillSplitRequest,
     BillSplitResponse,
     BillSurchargeResponse,
+    ChatExpenseDraft,
+    ChatExpenseDraftResponse,
     CheckinCreateRequest,
     CompanionTurnResponse,
     ContextBalanceEntry,
@@ -73,6 +76,7 @@ from app.api.schemas import (
     FriendRequestListResponse,
     FriendRequestResponse,
     FriendSummary,
+    GroupBudgetResponse,
     GroupHeatmapResponse,
     GroupRecapResponse,
     GroupSuggestionResponse,
@@ -128,6 +132,7 @@ from app.domain import permissions
 from app.domain.allocator import allocate
 from app.domain.bank_account import BankAccountError, normalise_destination
 from app.domain.bill import BillError, allocator_input_from_bill
+from app.domain.budget import build_group_budget
 from app.domain.capability import CapabilityScopeError, capability_scope
 from app.domain.collection import CollectionError, transition, unmet_publish_gates
 from app.domain.companion import CompanionError, ground_card, plan_turn
@@ -1098,6 +1103,48 @@ class ApiService:
             split_total_vnd=sum(outing.split_total_vnd for outing in outings),
         )
 
+    def group_budget(
+        self,
+        context_id: uuid.UUID,
+        actor: Actor,
+        *,
+        candidate_per_person_vnd: int | None,
+    ) -> GroupBudgetResponse:
+        """Compare one candidate with current and finished ledger-backed trips."""
+
+        _require_permission(
+            "view_group_budget",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        today = _now().astimezone(ZoneInfo(WALL_CLOCK_ZONE)).date()
+
+        # `group_recap` rebuilds every split total from the newest expense
+        # versions and confirmed allocations on this request. Reusing that
+        # repository read keeps F30, F32 and F34 on one ledger interpretation.
+        records = self.repository.group_recap(context_id, today=today)
+        members = self.repository.list_members(context_id)
+        budget = build_group_budget(
+            [
+                {
+                    "outing_id": record.outing.id,
+                    "title": record.outing.title,
+                    "headcount": record.outing.headcount,
+                    "budget_per_person_vnd": (
+                        record.outing.budget_per_person_vnd
+                    ),
+                    "split_total_vnd": record.split_total_vnd,
+                    "in_progress": record.in_progress,
+                }
+                for record in records
+            ],
+            active_member_count=sum(
+                membership.state == "active" for membership in members
+            ),
+            candidate_per_person_vnd=candidate_per_person_vnd,
+        )
+        return GroupBudgetResponse(context_id=context_id, **budget)
+
     def group_suggestion(
         self,
         context_id: uuid.UUID,
@@ -1952,6 +1999,74 @@ class ApiService:
             messages=messages,
             next_cursor=messages[-1].cursor if messages else None,
             has_more=page.has_more,
+        )
+
+    def create_chat_expense_draft(
+        self,
+        context_id: uuid.UUID,
+        message_id: uuid.UUID,
+        actor: Actor,
+        reader: ChatExpenseReader,
+    ) -> ChatExpenseDraftResponse:
+        """Read one stored message without giving the model identity authority."""
+
+        _require_permission(
+            "invoke_group_companion",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+
+        message = self.repository.get_message(message_id)
+        if message is None or message.context_id != context_id:
+            # The same answer for absent and cross-context messages. Naming the
+            # real context, author, or text would turn a guessed UUID into a
+            # window on another group's conversation.
+            raise ApiProblem(404, "message_not_found", "Message does not exist")
+        if message.author_id is None:
+            raise ApiProblem(
+                422,
+                "message_has_no_author",
+                "An AI message has no person who paid",
+            )
+        if not isinstance(message.body, str) or not message.body.strip():
+            raise ApiProblem(
+                422,
+                "message_has_no_text",
+                "Message has no text to read as an expense",
+            )
+
+        shared_by = sorted(
+            (
+                membership.person_id
+                for membership in self.repository.list_members(context_id)
+                if membership.state == "active"
+            ),
+            key=lambda person_id: person_id.bytes,
+        )
+        reading = run_chat_expense_skill(message.body, reader=reader)
+        if not reading["is_expense"]:
+            return ChatExpenseDraftResponse(
+                context_id=context_id,
+                message_id=message_id,
+                detected=False,
+                draft=None,
+                reason="Tin nhắn không mô tả một khoản chi.",
+            )
+
+        return ChatExpenseDraftResponse(
+            context_id=context_id,
+            message_id=message_id,
+            detected=True,
+            draft=ChatExpenseDraft(
+                title=reading["title"],
+                amount_vnd=reading["amount_vnd"],
+                # The author and roster are database facts. They are never
+                # included in the prompt and never accepted in model output.
+                paid_by_id=message.author_id,
+                shared_by=shared_by,
+                needs_review=reading["needs_review"],
+            ),
+            reason=None,
         )
 
     def take_companion_turn(
