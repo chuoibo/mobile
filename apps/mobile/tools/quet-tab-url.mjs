@@ -858,11 +858,26 @@ async function main() {
     // The generated pages are scan scaffolding, not build output. Leaving them
     // behind would put a page that stubs the API inside a directory somebody
     // could serve.
-    for (const p of viet) {
-      try {
-        fs.unlinkSync(p);
-      } catch (err) {
-        if (err.code !== "ENOENT") throw err;
+    //
+    // `GIU_TRANG=1` keeps them anyway, for the one case that needs it: quoting a
+    // raw `imp detect --json` result for a single screen in a report. Without it
+    // the only way to show that number is to re-run the whole sweep, and a
+    // reviewer cannot re-derive the page the number came from. It is off by
+    // default and prints where it left things, so nobody is surprised by an
+    // API-stubbing page sitting in a servable directory.
+    // Written as if/else rather than an early `return`: a `return` inside
+    // `finally` swallows whatever the try block threw, which would turn every
+    // canary failure above into a silent pass.
+    if (process.env.GIU_TRANG === "1") {
+      console.log(`\nGIU_TRANG=1: giu lai ${viet.length} trang trong ${buildDir}`);
+      console.log(`Xoa bang: rm -f ${path.join(buildDir, "__*.html")}`);
+    } else {
+      for (const p of viet) {
+        try {
+          fs.unlinkSync(p);
+        } catch (err) {
+          if (err.code !== "ENOENT") throw err;
+        }
       }
     }
   }
