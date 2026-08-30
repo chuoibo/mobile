@@ -2849,6 +2849,28 @@ class ApiService:
                 for participant_id in item.suggested_participant_ids
             ],
         )
+        # `items_total_vnd` is the one figure in this body the client does not
+        # author: `read_receipt` computes it as the sum of the lines it read.
+        # Stored unchecked it becomes a fact the server vouches for, and
+        # `GET /bills/{id}` prints it beside the lines it is supposed to be the
+        # sum of. The way it goes wrong is editing rather than malice -- a line
+        # removed on the review screen, the pre-edit total re-sent with the
+        # rest -- and the result is the bill screen and the split screen
+        # reporting different money for one meal.
+        #
+        # Checked here rather than in `schemas.py` so the answer carries a
+        # `code` the client can branch on, and checked after the membership
+        # rule so a payload that is wrong in both ways still reports the one
+        # that names a stranger. Surcharges and discounts stay out of the sum,
+        # matching `read_receipt`: a service charge is not an item.
+        lines_total_vnd = sum(item.line_total_vnd for item in request.items)
+        if request.items_total_vnd != lines_total_vnd:
+            raise ApiProblem(
+                422,
+                "bill_items_total_mismatch",
+                f"Declared items total {request.items_total_vnd} does not match "
+                f"the sum of the lines {lines_total_vnd}",
+            )
         try:
             record = self.repository.create_bill(
                 context_id=request.context_id,
