@@ -120,6 +120,19 @@ def _bounded_text(payload: dict, key: str) -> str:
     return value[:MAX_TEXT]
 
 
+def _optional_text(payload: dict, key: str) -> str:
+    """Keep absent presentation prose distinct from a broken field value.
+
+    A missing heading costs only decoration, so discarding fully grounded stops
+    or places for it would trade useful catalogue-backed content for silence. A
+    present non-string is different: it violates the field's type contract and
+    must still make the card malformed.
+    """
+    if key not in payload:
+        return ""
+    return _bounded_text(payload, key)
+
+
 def _catalogue_by_id(allowed_places: list[dict]) -> dict[str, dict]:
     return {
         place["id"]: place
@@ -129,7 +142,7 @@ def _catalogue_by_id(allowed_places: list[dict]) -> dict[str, dict]:
 
 
 def _ground_places(payload: dict, catalogue: dict[str, dict]) -> dict:
-    intro = _bounded_text(payload, "intro")
+    intro = _optional_text(payload, "intro")
     place_ids = payload.get("place_ids")
     if not isinstance(place_ids, list) or not all(
         isinstance(place_id, str) for place_id in place_ids
@@ -165,7 +178,7 @@ def _ground_places(payload: dict, catalogue: dict[str, dict]) -> dict:
 
 
 def _ground_itinerary(payload: dict, catalogue: dict[str, dict]) -> dict:
-    title = _bounded_text(payload, "title")
+    title = _optional_text(payload, "title")
     raw_stops = payload.get("stops")
     if not isinstance(raw_stops, list):
         raise _malformed()

@@ -60,6 +60,23 @@ def test_the_prompt_asks_the_model_to_choose_rather_than_to_be_truncated():
     )
 
 
+def test_the_model_is_told_which_prose_each_structured_card_must_include():
+    """Shared payload fields still need kind-specific requirements.
+
+    Requiring every prose field on the shared payload object would make a text
+    card invent an irrelevant title and intro. The prompt and field descriptions
+    must instead tell the model which field belongs to each structured card.
+    """
+    payload = _RESPONSE_SCHEMA.properties["payload"]
+    title = payload.properties["title"]
+    intro = payload.properties["intro"]
+
+    assert "An itinerary card MUST include payload.title" in _PROMPT
+    assert "A places card MUST include payload.intro" in _PROMPT
+    assert title.description == "Required title for an itinerary card."
+    assert intro.description == "Required introduction for a places card."
+
+
 def test_the_places_limit_is_declared_the_same_way_for_the_same_reason():
     """`place_ids` had the identical defect and is fixed in the same breath.
 

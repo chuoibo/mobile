@@ -413,6 +413,93 @@ def test_a_text_card_still_works_without_any_catalogue():
     }
 
 
+def test_an_itinerary_without_a_title_keeps_the_grounded_plan():
+    raw = {
+        "kind": "itinerary",
+        "payload": {
+            "stops": [
+                {"place_id": "p-tiem-nuong", "time_text": "19:00", "note": "Ăn"},
+                {"place_id": "p-cafe-suong", "time_text": "21:00", "note": "Cafe"},
+            ],
+        },
+    }
+
+    card = ground_card(raw, _catalogue())
+
+    assert card == {
+        "kind": "itinerary",
+        "payload": {
+            "title": "",
+            "stops": [
+                {
+                    "time_text": "19:00",
+                    "note": "Ăn",
+                    "place": _catalogue()[0],
+                },
+                {
+                    "time_text": "21:00",
+                    "note": "Cafe",
+                    "place": _catalogue()[1],
+                },
+            ],
+        },
+    }
+
+
+def test_a_places_card_without_an_intro_keeps_the_grounded_places():
+    raw = {
+        "kind": "places",
+        "payload": {"place_ids": ["p-tiem-nuong", "p-cafe-suong"]},
+    }
+
+    card = ground_card(raw, _catalogue())
+
+    assert card == {
+        "kind": "places",
+        "payload": {"intro": "", "places": _catalogue()},
+    }
+
+
+@pytest.mark.parametrize("invalid_title", [123, {"a": 1}])
+def test_an_itinerary_title_with_the_wrong_type_is_still_malformed(invalid_title):
+    raw = {
+        "kind": "itinerary",
+        "payload": {
+            "title": invalid_title,
+            "stops": [
+                {"place_id": "p-tiem-nuong", "time_text": "19:00", "note": "Ăn"}
+            ],
+        },
+    }
+
+    with pytest.raises(CompanionError) as raised:
+        ground_card(raw, _catalogue())
+
+    assert raised.value.code == "companion_card_malformed"
+
+
+def test_a_text_card_without_text_is_still_malformed():
+    with pytest.raises(CompanionError) as raised:
+        ground_card({"kind": "text", "payload": {}}, _catalogue())
+
+    assert raised.value.code == "companion_card_malformed"
+
+
+@pytest.mark.parametrize("missing_key", ["place_id", "time_text", "note"])
+def test_an_itinerary_stop_without_a_required_field_is_still_malformed(missing_key):
+    stop = {"place_id": "p-tiem-nuong", "time_text": "19:00", "note": "Ăn"}
+    del stop[missing_key]
+    raw = {
+        "kind": "itinerary",
+        "payload": {"title": "Tối nay", "stops": [stop]},
+    }
+
+    with pytest.raises(CompanionError) as raised:
+        ground_card(raw, _catalogue())
+
+    assert raised.value.code == "companion_card_malformed"
+
+
 def test_an_empty_text_card_is_refused():
     with pytest.raises(CompanionError) as raised:
         ground_card({"kind": "text", "payload": {"text": "   "}}, _catalogue())
