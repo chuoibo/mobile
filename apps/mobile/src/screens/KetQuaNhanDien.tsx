@@ -47,22 +47,57 @@ const HIT = 44;
  *               is more precise than a dot that only said "something in this
  *               row changed"
  *
- * The delete column costs the name 16pt of the slack it was given, and that is
- * the trade this file now makes on purpose. `hitSlop` is a React Native prop
- * that react-native-web drops: measured on the web export at 390x844, hit-test
- * points 1, 2, 4, 6, 8, 10 and 12px outside the button's left edge ALL missed
- * it, so the real touch area was the 28x44 box and nothing more. Same class of
- * silent drop as `accessibilityState` reaching the DOM without `aria-checked`.
+ * `hitSlop` is a React Native prop that react-native-web drops: measured on the
+ * web export at 390x844, hit-test points 1, 2, 4, 6, 8, 10 and 12px outside the
+ * button's left edge ALL missed it, so the real touch area was the 28x44 box
+ * and nothing more. Same class of silent drop as `accessibilityState` reaching
+ * the DOM without `aria-checked`. 28x44 clears WCAG 2.2 AA 2.5.8 (24x24) and
+ * misses both Apple HIG 44 and Android 48dp -- on the one control here that
+ * destroys a row. So the button is a real 44 box on both platforms.
  *
- * 28x44 clears WCAG 2.2 AA 2.5.8 (24x24) and misses both Apple HIG 44 and
- * Android 48dp -- on the one control here that destroys a row. A real 44 box
- * costs the name field 154pt -> 138pt, which is still 28pt more than the 110
- * that truncated six of eight dishes, and it is the same size on both
- * platforms rather than 44 on one and 28 on the other.
+ * WHERE THOSE 16pt COME FROM, and where they must not.
+ *
+ * They were first taken from the name column, 154pt -> 138pt, on the argument
+ * that 138 still beat the 110 that had truncated six of eight dishes. The
+ * argument compared two column numbers and never compared either against a
+ * dish name. Measured on the rendered page instead (qa-tt-0035), the name's
+ * text area went 136px -> 120px and the count of clipped names went 3/9 -> 5/9:
+ * "Gỏi cuốn tôm thịt" (121px) and "Cá lóc nướng trui" (124px) both fitted
+ * before and stop fitting after. Neither is exotic; both are the length an
+ * ordinary Vietnamese menu line runs to.
+ *
+ * No gate saw it, and the reason generalises past this row: the name cell is a
+ * `TextInput`, which on web is an `<input>`, and an `<input>` does not wrap --
+ * it CLIPS. There is no overflow for an overflow scanner to find, and the row
+ * measures the same whether the name fits or not. `tests/ten-mon-bi-cat.test.mjs`
+ * therefore measures TEXT width against BOX width, which is the only question
+ * that has a different answer in the two cases.
+ *
+ * So the 16pt are taken from dead space instead:
+ *
+ *   +10  the delete button keeps its 44pt box but carries `marginRight:
+ *        -space.sm`, so the part that no longer fits the track overlaps the
+ *        Card's own horizontal padding -- 10pt that holds nothing and that no
+ *        other control can reach. This is not `hitSlop` again: a negative
+ *        margin moves the real border box, so the element genuinely occupies
+ *        those pixels and `elementFromPoint` genuinely returns it there. That
+ *        distinction is measured, not asserted -- see `vung-cham-va-ma-qr`.
+ *    +8  the name field's inner padding drops space.sm -> space.xs, which is
+ *        what the money field beside it already uses. Text area, not track.
+ *
+ * Net: box 142 -> 152pt, text area 120 -> 138px, clipped names back to 3/9 and
+ * 2px better than before the delete button was ever widened. Quantity and money
+ * are untouched: money is the one column this screen exists to show, and the
+ * cheapest-looking saving here would have been the most expensive.
  */
 const W_QTY = 44;
 const W_MONEY = 94;
 const W_DELETE = HIT;
+
+/** How far the delete button reaches past the row track, into the Card's own
+ *  horizontal padding. Kept next to `Card`'s `paddingHorizontal` below so the
+ *  two cannot drift into either a gap or an overlap onto the card border. */
+const DELETE_BLEED = -space.sm;
 
 export function KetQuaNhanDien(props: {
   reading: BillReading;
@@ -182,8 +217,21 @@ export function KetQuaNhanDien(props: {
         keyboardShouldPersistTaps="handled"
       >
         <Card style={{ paddingHorizontal: space.sm }}>
-          <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: space.xs }}>
-            <Text style={{ ...type.label, color: c.inkSoft, flex: 1, minWidth: 0 }}>Món ăn</Text>
+          {/* The header carries the row's geometry exactly, including the
+              delete button's bleed. It used to pad the whole row by `space.xs`
+              instead, which made the header track 12pt narrower than the track
+              underneath it, so "Thành tiền" sat 6px inboard of the money it
+              labels. Each label now pays its own column's inner padding rather
+              than the row paying one padding for all four. */}
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <Text
+              style={{
+                ...type.label, color: c.inkSoft,
+                flex: 1, minWidth: 0, paddingHorizontal: space.xs,
+              }}
+            >
+              Món ăn
+            </Text>
             <Text
               style={{
                 ...type.label, color: c.inkSoft,
@@ -196,11 +244,12 @@ export function KetQuaNhanDien(props: {
               style={{
                 ...type.label, color: c.inkSoft,
                 width: W_MONEY, textAlign: "right", marginLeft: space.xs,
+                paddingHorizontal: space.xs,
               }}
             >
               Thành tiền
             </Text>
-            <View style={{ width: W_DELETE }} />
+            <View style={{ width: W_DELETE, marginRight: DELETE_BLEED }} />
           </View>
 
           {reading.lines.map((line) => {
@@ -244,7 +293,11 @@ export function KetQuaNhanDien(props: {
                       // this points at which of the three.
                       borderColor: nameEdited(line) ? c.ai : c.lineStrong,
                       borderRadius: radius.small,
-                      paddingHorizontal: space.sm,
+                      // `space.xs`, the padding the money field beside it
+                      // already uses. Every pixel of inner padding here is a
+                      // pixel of dish name, and an `<input>` spends the
+                      // difference by clipping rather than by wrapping.
+                      paddingHorizontal: space.xs,
                     }}
                   />
                   <TextInput
@@ -302,11 +355,14 @@ export function KetQuaNhanDien(props: {
                     accessibilityRole="button"
                     accessibilityLabel={`Xoá món ${dish}`}
                     // A real 44x44 box, not 28 plus a `hitSlop` the web build
-                    // never applies. See the column table at the top of this
-                    // file for what the name column paid for it.
+                    // never applies. The box overhangs the row track by
+                    // `DELETE_BLEED` into the Card's padding rather than being
+                    // paid for out of the dish name; see the column table at
+                    // the top of this file.
                     style={({ pressed }) => ({
                       width: W_DELETE,
                       height: HIT,
+                      marginRight: DELETE_BLEED,
                       alignItems: "center",
                       justifyContent: "center",
                       opacity: pressed ? 0.7 : 1,

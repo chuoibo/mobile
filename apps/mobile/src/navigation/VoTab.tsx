@@ -24,6 +24,7 @@ import { KyNiem } from "../screens/ky-niem/KyNiem";
 import { LenPlan } from "../screens/len-plan/LenPlan";
 import { NhanLoiMoi } from "../screens/len-plan/NhanLoiMoi";
 import { Nhom } from "../screens/vao-cua/Nhom";
+import { Widget } from "../screens/widget/Widget";
 import { MenuTao } from "./MenuTao";
 import { ThanhTab } from "./ThanhTab";
 import { useInertBackground } from "./modal";
@@ -38,6 +39,7 @@ export function VoTab({
   moNhomNgay,
   moKyNiemNgay,
   moBanBeNgay,
+  moWidgetNgay,
   nhomId,
   banQuetDuoc,
   diaDiemDau,
@@ -58,6 +60,11 @@ export function VoTab({
   /** Open the F03/F04 friend screen immediately, from `#vao=ban-be`. It sits
    *  behind a button on the Cá nhân tab, so the same rule applies. */
   moBanBeNgay?: boolean;
+  /** F38. Open the widget immediately, from `#vao=widget`. It has no button
+   *  anywhere in the shell yet -- a home-screen widget is drawn by the OS, not
+   *  reached by tapping through the app -- so without this address the screen
+   *  would exist and nothing, person or detector, could open it. */
+  moWidgetNgay?: boolean;
   /** Which group the wall should read, from `#nhom=<uuid>`. Null lets the
    *  screen find the demo group itself. */
   nhomId?: string | null;
@@ -106,6 +113,10 @@ export function VoTab({
   // from the bar, so leaving the bar underneath would offer two ways out of
   // one task.
   const [luongBanBe, setLuongBanBe] = useState(moBanBeNgay ?? false);
+  // F38. Full screen like the three above. It is not a tab and it is not a
+  // create action: on a phone this surface is drawn by the OS on the home
+  // screen, and in the app it is the same thing at full size.
+  const [luongWidget, setLuongWidget] = useState(moWidgetNgay ?? false);
   const [luongLoiMoi, setLuongLoiMoi] = useState(Boolean(moiBuoiDi));
   // The group handle, lifted out of the group screen.
   //
@@ -192,6 +203,19 @@ export function VoTab({
       <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
         <StatusBar style={scheme === "dark" ? "light" : "dark"} />
         <KetBan nguoi={nguoi} onDong={() => setLuongBanBe(false)} />
+      </SafeAreaView>
+    );
+  }
+
+  if (luongWidget) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
+        <StatusBar style={scheme === "dark" ? "light" : "dark"} />
+        <Widget
+          nguoi={nguoi}
+          contextId={nhomId ?? null}
+          onDong={() => setLuongWidget(false)}
+        />
       </SafeAreaView>
     );
   }

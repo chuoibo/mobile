@@ -41,10 +41,17 @@ import { TABS } from "./tabs";
  * `ban-be` is the F03/F04 friend screen, which sits behind a button on the Cá
  * nhân tab. It is here for the same reason and one more: the gate that
  * measures it drives a real DOM, and a screen a URL cannot name is a screen no
- * detector, screenshot pass or accessibility sweep can reach at all. */
-export type ManVaoCua = "dang-ky" | "nhom" | "ky-niem" | "ban-be";
+ * detector, screenshot pass or accessibility sweep can reach at all.
+ *
+ * `widget` is F38, and it was added at the same moment the screen was, not
+ * afterwards. rd-fe-33 shipped two map screens whose commit said they were
+ * "URL-reachable" without adding them to any probe, and for one merge that
+ * claim was read as "measured" -- ~780 lines nothing had scanned, under a table
+ * printing a clean row for every screen it did visit. Reachable and measured
+ * are two claims; this one carries both or neither. */
+export type ManVaoCua = "dang-ky" | "nhom" | "ky-niem" | "ban-be" | "widget";
 
-const MAN_VAO_CUA: ManVaoCua[] = ["dang-ky", "nhom", "ky-niem", "ban-be"];
+const MAN_VAO_CUA: ManVaoCua[] = ["dang-ky", "nhom", "ky-niem", "ban-be", "widget"];
 
 export type DiemDen = {
   /** Which tab to open on, or null to use the default. */
@@ -207,6 +214,10 @@ export function docDiemDen(hash: string, search = ""): DiemDen {
       vao === "nhom" ||
       vao === "ky-niem" ||
       vao === "ban-be" ||
+      // F38. Inside the shell like the three above, and with nothing to show
+      // outside it: the widget reads one group's newest photograph, and the
+      // opening screen has no group.
+      vao === "widget" ||
       diaDiem !== null ||
       banDo ||
       moiBuoiDi !== null,
