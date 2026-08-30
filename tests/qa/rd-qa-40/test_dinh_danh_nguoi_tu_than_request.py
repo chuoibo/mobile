@@ -399,15 +399,24 @@ def _context(session, owner_id, name="Nhóm"):
     return context.id
 
 
-def _member(session, context_id, person_id, role=MembershipRole.MEMBER):
+def _member(
+    session,
+    context_id,
+    person_id,
+    role=MembershipRole.MEMBER,
+    state=MembershipState.ACTIVE,
+    left_at=None,
+):
     session.add(
         Membership(
             id=uuid.uuid4(),
             context_id=context_id,
             person_id=person_id,
-            state=MembershipState.ACTIVE,
-            joined_at=NOW,
-            left_at=None,
+            state=state,
+            # Stays None for an invitation nobody accepted: the row records
+            # that they were asked, not that they arrived.
+            joined_at=NOW if state is MembershipState.ACTIVE else None,
+            left_at=left_at,
             role=role,
         )
     )
@@ -419,14 +428,30 @@ def _actor(person_id, context_id):
 
 
 @pytest.mark.postgres
-def test_live_member_role_cannot_be_set_on_a_non_member(postgres_session):
+@pytest.mark.parametrize(
+    "standing",
+    ["no membership row at all", "invited, never accepted", "left the group"],
+)
+def test_live_member_role_cannot_be_set_on_a_non_member(postgres_session, standing):
     """`set_context_member_role` never checks the path `person_id`. Not a hole.
 
-    `set_membership_role` is an UPDATE with a `WHERE` on an active membership,
-    so a person the group does not contain matches no row and the service turns
-    the `None` into 404. The check exists -- it is just written as SQL rather
-    than as a guard call, and the fake cannot show it because it has no
-    `membership_role` method to be asked.
+    `set_membership_role` selects `FOR UPDATE` on `state == ACTIVE AND left_at
+    IS NULL`, so a person the group does not contain matches no row and the
+    service turns the `None` into 404. The check exists -- it is written as SQL
+    rather than as a guard call, and the fake tier cannot show it at all
+    because the fake has no `membership_role` method to be asked.
+
+    Three standings, not one, and the reason is measured rather than tidy. With
+    only the first case, deleting BOTH filters from that `WHERE` left this file
+    green: a person with no row is refused by the `person_id` clause no matter
+    what else the query says. That version of the test would have recorded
+    "defended one layer down" while proving nothing about which layer. `INVITED`
+    is the case that pins `state`; `LEFT` pins `left_at`.
+
+    `INVITED` is also the one that matters in the product: `models.py` says
+    being added to a group is something that happens to you, so a role change
+    landing on a boundary somebody has not agreed to cross is a permission
+    written against a person who never said yes.
     """
     session = postgres_session
     service = ApiService(SqlAlchemyApiRepository(session))
@@ -434,6 +459,11 @@ def test_live_member_role_cannot_be_set_on_a_non_member(postgres_session):
     outsider = _person(session, "Người ngoài")
     group = _context(session, nam.id)
     _member(session, group, nam.id, role=MembershipRole.ADMIN)
+
+    if standing == "invited, never accepted":
+        _member(session, group, outsider.id, state=MembershipState.INVITED)
+    elif standing == "left the group":
+        _member(session, group, outsider.id, state=MembershipState.LEFT, left_at=NOW)
 
     with pytest.raises(ApiProblem) as refused:
         service.set_context_member_role(

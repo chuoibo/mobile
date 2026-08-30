@@ -168,16 +168,32 @@ s = s.replace(old, """        if False:""", 1)
 # The defence is the WHERE clause: no active membership, no row, and the service
 # turns the None into 404. Only the live tier can see this -- the fake has no
 # `membership_role` method at all, so the fake-tier cell is genuinely blind.
+# The WHERE shape below appears five times in repository.py, so the anchor
+# carries the `def` line with it. An anchor that matched a sibling method would
+# report a colour belonging to a different guarantee -- red for the wrong
+# reason reads exactly like red for the right one.
 mutant ELSEWHERE "repository: set_membership_role stops filtering on ACTIVE" "$REPOSITORY" '
-old = """                Membership.person_id == person_id,
+old = """    def set_membership_role(
+        self, context_id: uuid.UUID, person_id: uuid.UUID, role: str
+    ) -> MembershipRecord | None:
+        membership = self.session.scalar(
+            select(Membership)
+            .where(
+                Membership.context_id == context_id,
+                Membership.person_id == person_id,
                 Membership.state == MembershipState.ACTIVE,
                 Membership.left_at.is_(None),
-            )
-            .with_for_update()"""
-assert s.count(old) == 1, "set_membership_role WHERE not unique"
-s = s.replace(old, """                Membership.person_id == person_id,
-            )
-            .with_for_update()""", 1)
+            )"""
+assert s.count(old) == 1, "set_membership_role definition not unique"
+s = s.replace(old, """    def set_membership_role(
+        self, context_id: uuid.UUID, person_id: uuid.UUID, role: str
+    ) -> MembershipRecord | None:
+        membership = self.session.scalar(
+            select(Membership)
+            .where(
+                Membership.context_id == context_id,
+                Membership.person_id == person_id,
+            )""", 1)
 ' red
 
 # --- UNCHANGED cells: the property survives, so the suite must stay green ----
