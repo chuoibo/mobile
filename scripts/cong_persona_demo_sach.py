@@ -54,6 +54,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import traceback
 import urllib.error
 import urllib.request
 import uuid
@@ -347,5 +348,29 @@ def main() -> int:
     return EXIT_OK
 
 
+def run() -> int:
+    """Keep a broken gate from being read as a dirty product.
+
+    `main()` indexes the JSON body by key. If the API changes shape, the
+    `KeyError` escapes and Python exits 1 -- which is `EXIT_DIRTY` under this
+    gate's own contract. Anybody reading the exit code without reading the
+    traceback concludes "persona bẩn" when the truth is "cổng gãy". The
+    docstring already refuses to fold a dead measurement into a broken product
+    for the concurrent-writer case; this closes the same hole for shape drift.
+
+    The traceback is still printed -- this converts the verdict, not the
+    diagnosis.
+    """
+
+    try:
+        return main()
+    except (KeyError, TypeError, IndexError) as exc:
+        traceback.print_exc()
+        return die(
+            f"thân JSON không có hình dạng cổng này giả định ({exc!r}). "
+            "Cổng GÃY, không phải persona bẩn."
+        )
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(run())
