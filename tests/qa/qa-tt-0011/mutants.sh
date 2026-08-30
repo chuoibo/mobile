@@ -142,11 +142,15 @@ old = """        self._require_participants_are_members(
 assert old in s, "call site not found"
 assert s.count(old) == 1, "anchor is not unique"
 s = s.replace(old, "", 1)
-' red red green
+' red green green
 
 # 2. HALF THE FIX, UNDONE: the storage half. `POST /bills` accepts a stranger
 #    again. Anchored on the guard itself rather than on the permission check
 #    above it, so `#253`-style edits to that check cannot rot this row.
+#
+#    The live column went from green to red here when the tier gained a case
+#    that actually reaches this guard. While it was green, this row said the
+#    guard could be deleted and the PostgreSQL tier would not notice.
 mutant "guard removed from create_bill (storage half)" '
 old = """        self._require_participants_are_members(
             request.context_id,
@@ -160,7 +164,7 @@ old = """        self._require_participants_are_members(
 assert old in s, "create_bill guard not found"
 assert s.count(old) == 1, "anchor is not unique"
 s = s.replace(old, "", 1)
-' red green green
+' red red green
 
 # 3. THE OTHER HALF, UNDONE: the money half. Only the service-level layer can
 #    see this, because no route reaches the branch any more.
