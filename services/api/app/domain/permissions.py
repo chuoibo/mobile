@@ -294,6 +294,33 @@ _TABLE: dict[str, dict] = {
         "roles": {"group_admin", "member"},
         "requires": ("is_group_member",),
     },
+    # F43, F44, F45. All three read or answer about where the group goes, and
+    # all three reuse `is_group_member` rather than minting a predicate: the
+    # fact needed is identical to the one `view_group_memories` proves, because
+    # the map and the heatmap are aggregations of exactly those rows. #128 was
+    # the cost of two predicate names for one fact, and a "may_see_locations"
+    # here would be that mistake with a location attached.
+    #
+    # Three actions rather than one, though, because they have different
+    # subjects: two read the group's own history, and the third reads none of
+    # it. Keeping them separate is what lets the map be withdrawn later without
+    # also withdrawing a feature that never touched history.
+    "view_social_map": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    "view_group_heatmap": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    # Meet-in-the-middle reads no stored location at all -- the caller supplies
+    # unlabelled areas; see `app/places/meeting.py`. The gate is still ACTIVE
+    # membership, because the answer is scored against the group's profile and a
+    # former member should not keep a working group-planning endpoint.
+    "view_meeting_point": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
     "post_group_memory": {
         "roles": {"group_admin", "member"},
         "requires": ("is_group_member",),

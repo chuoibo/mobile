@@ -1013,3 +1013,169 @@ class PersonMatchResponse(ApiModel):
 
     person_id: UUID
     display_name: str
+
+
+# ---------------------------------------------------------------------------
+# F43 / F44 / F45 -- where the group goes
+#
+# Every model below is an *aggregate*. None of them carries a person id or a
+# timestamp, and that is a property of the shapes rather than of the code that
+# fills them: there is no field here in which an author could be returned.
+# `app/places/social_map.py` explains why the audience never widens.
+# ---------------------------------------------------------------------------
+
+
+class MapPlace(ApiModel):
+    """A pin. A place and where it is, with no visit attached."""
+
+    place_id: StrictStr
+    place_name: StrictStr
+    lat: float
+    lng: float
+    rating: float
+    rating_count: int
+
+
+class VisitedPlace(ApiModel):
+    """A pin the group has actually been to, and how often.
+
+    `visit_count` and nothing else. Not "last visited", which is a timestamp in
+    a friendlier coat, and not "visited by", which is the field this product
+    refuses to compute.
+    """
+
+    place_id: StrictStr
+    place_name: StrictStr
+    lat: float
+    lng: float
+    visit_count: int
+
+
+class UnavailableLayer(ApiModel):
+    """A layer the map does not have, named rather than silently empty.
+
+    An empty `saved` array renders as "you have saved nothing", which is a
+    claim about the group. "This is not built" is a claim about the product,
+    and only the second one is true.
+    """
+
+    layer: StrictStr
+    reason: StrictStr
+
+
+class SocialMapResponse(ApiModel):
+    """F43. Four layers were specified; three are served and one is declared.
+
+    `scanned` and `truncated` disclose how much history the counts were built
+    from. A map summarising the first 500 check-ins of 900 and presenting
+    itself as the group's habits is wrong in a way no reader could detect, so
+    the bound ships with the answer.
+    """
+
+    context_id: UUID
+    visited: list[VisitedPlace]
+    trending: list[MapPlace]
+    recommended: list[MapPlace]
+    unavailable: list[UnavailableLayer]
+    scanned_checkins: int
+    truncated: bool
+
+
+class HeatmapArea(ApiModel):
+    id: StrictStr
+    label: StrictStr
+    lat: float
+    lng: float
+    visit_count: int
+    share_percent: int
+
+
+class GroupHeatmapResponse(ApiModel):
+    """F44. Districts and counts -- the resolution is the privacy design.
+
+    `unknown_area_count` is the number of check-ins that fell outside every
+    district this product knows. Disclosed because a heatmap built from a
+    fraction of the history, presented as the whole of it, is a confident
+    wrong answer.
+    """
+
+    context_id: UUID
+    areas: list[HeatmapArea]
+    resolved_checkins: int
+    unknown_area_count: int
+    scanned_checkins: int
+    truncated: bool
+
+
+class MeetingPointRequest(ApiModel):
+    """F45 input: areas, never people.
+
+    There is no member field, and its absence is the feature. The mapping from
+    a person to an area stays on the phone that knows it; this server receives
+    an unlabelled multiset and therefore cannot disclose what it never held.
+    See `app/places/meeting.py`.
+    """
+
+    from_areas: list[StrictStr]
+
+
+class AreaSummary(ApiModel):
+    """A district and the centroid every distance to it was measured from."""
+
+    id: StrictStr
+    label: StrictStr
+    lat: float
+    lng: float
+
+
+class MeetingLeg(AreaSummary):
+    """One journey, attributed to an area and to no one."""
+
+    km: float
+
+
+class MeetingFairness(ApiModel):
+    """The arithmetic behind the ranking, so "cân bằng" is checkable.
+
+    `worst_km` is the primary sort key: the longest journey anybody makes.
+    Ranking on `total_km` instead would send the group to whichever district
+    most of them already live in and hand the whole cost to the person
+    furthest out, which is the opposite of meeting in the middle.
+    """
+
+    worst_km: float
+    total_km: float
+    spread_km: float
+
+
+class MeetingCandidate(ApiModel):
+    place_id: StrictStr
+    place_name: StrictStr
+    category: StrictStr
+    address: StrictStr
+    lat: float
+    lng: float
+    fairness: MeetingFairness
+    travel: list[MeetingLeg]
+
+
+class MeetingPointResponse(ApiModel):
+    """F45 output: a meeting point, and the sums that justify it.
+
+    `origins` echoes the areas the caller sent, resolved to their labels and
+    centroids. Echoing is safe and necessary: the caller supplied them, and
+    every kilometre in `travel` is measured from those centroids, so without
+    them the fairness numbers could not be checked.
+
+    `two_origin_inversion` is set when exactly two areas were supplied. With
+    two origins the meeting point is invertible -- one origin plus the answer
+    yields the other. That discloses nothing *here*, because both came from
+    this caller a moment ago, but a screen that gathers areas from two members
+    and shows the result to both has told each of them where the other is.
+    The flag exists so that screen can say so before it does that.
+    """
+
+    context_id: UUID
+    origins: list[AreaSummary]
+    candidates: list[MeetingCandidate]
+    two_origin_inversion: bool
