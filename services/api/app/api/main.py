@@ -63,6 +63,7 @@ from app.api.search_rate_limit import (
     build_search_limiter,
     build_suggestion_limiter,
 )
+from app.api.unit_of_work import install_commit_before_response
 from app.db.session import get_session_factory
 
 WEB_ROOT = pathlib.Path(__file__).resolve().parents[1] / "web"
@@ -270,6 +271,8 @@ def create_app(
             status_code=422, content=jsonable_encoder({"detail": redacted})
         )
 
+    # Install last so every APIRoute commits its sessions before sending the body.
+    install_commit_before_response(application)
     return application
 
 
