@@ -53,10 +53,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         name="f31-profile-served-to-a-stranger",
         kind="BREAKS",
         path="app/api/service.py",
-        old='            "view_preference_profile",\n'
+        old='            "view_group_preference_profile",\n'
         "            actor,\n"
         '            {"is_group_member": self.repository.is_member(context_id, actor.id)},',
-        new='            "view_preference_profile",\n'
+        new='            "view_group_preference_profile",\n'
         "            actor,\n"
         '            {"is_group_member": True},',
         tests=("tests/postgres/test_group_intelligence_postgres.py",),
@@ -112,16 +112,18 @@ MUTATIONS: tuple[Mutation, ...] = (
         "reports a number four times too large for a group of four.",
     ),
     Mutation(
-        name="f31-KEEPS-rename-the-accumulator",
+        name="f31-KEEPS-count-tastes-with-an-explicit-loop",
         kind="KEEPS",
         path="app/domain/preferences.py",
-        old="    per_section: dict[str, Counter] = {section: Counter() for section in SECTION_ORDER}\n"
-        "    counted = 0",
-        new="    tally: dict[str, Counter] = {section: Counter() for section in SECTION_ORDER}\n"
-        "    counted = 0",
+        old="        for label in labels:\n"
+        "            per_section[section][label] += 1",
+        new="        bucket = per_section[section]\n"
+        "        for label in labels:\n"
+        "            bucket.update([label])",
         tests=("tests/domain/test_preferences.py",),
-        why="Pure rename of a local. Any case that goes red here is asserting "
-        "on the source text, not on the profile.",
+        why="Same counts by a different route through Counter. A case that "
+        "goes red here is pinned to how the tally is written rather than to "
+        "what it holds.",
     ),
     # ---------------------------------------------------------------- F33 ---
     Mutation(
@@ -194,6 +196,30 @@ MUTATIONS: tuple[Mutation, ...] = (
         "runs before anything is spent, so the property holds.",
     ),
     # ---------------------------------------------------------------- F36 ---
+    # Two call sites, mutated separately and on purpose. `view_trip_album` is
+    # asserted in both `list_trip_albums` and `trip_album`, and a table that
+    # patched "the" check would leave whichever one it missed unproven -- the
+    # shelf leaks titles and covers, the album leaks the photographs.
+    Mutation(
+        name="f36-shelf-served-to-a-stranger",
+        kind="BREAKS",
+        path="app/api/service.py",
+        old='            "view_trip_album",\n'
+        "            actor,\n"
+        '            {"is_group_member": self.repository.is_member(context_id, actor.id)},\n'
+        "        )\n\n"
+        "        today = _now().astimezone(ZoneInfo(WALL_CLOCK_ZONE)).date()\n"
+        "        albums = []",
+        new='            "view_trip_album",\n'
+        "            actor,\n"
+        '            {"is_group_member": True},\n'
+        "        )\n\n"
+        "        today = _now().astimezone(ZoneInfo(WALL_CLOCK_ZONE)).date()\n"
+        "        albums = []",
+        tests=("tests/postgres/test_group_intelligence_postgres.py",),
+        why="The shelf names a group's trips and shows a cover photograph from "
+        "each. A stranger reading it learns where they went.",
+    ),
     Mutation(
         name="f36-album-served-to-a-stranger",
         kind="BREAKS",
@@ -202,12 +228,14 @@ MUTATIONS: tuple[Mutation, ...] = (
         "            actor,\n"
         '            {"is_group_member": self.repository.is_member(context_id, actor.id)},\n'
         "        )\n\n"
-        "        record = self.repository.get_recap_outing(",
+        "        today = _now().astimezone(ZoneInfo(WALL_CLOCK_ZONE)).date()\n"
+        "        found = next(",
         new='            "view_trip_album",\n'
         "            actor,\n"
         '            {"is_group_member": True},\n'
         "        )\n\n"
-        "        record = self.repository.get_recap_outing(",
+        "        today = _now().astimezone(ZoneInfo(WALL_CLOCK_ZONE)).date()\n"
+        "        found = next(",
         tests=("tests/postgres/test_group_intelligence_postgres.py",),
         why="The album is the photo gate's own rows. If it answers a stranger "
         "it is a second door to photographs the wall refuses them.",
@@ -267,8 +295,8 @@ if _NOOP:
     raise SystemExit(f"mutation table has no-op rows: {_NOOP}")
 
 
-def run_tests(paths: tuple[str, ...]) -> bool:
-    """True when the selected tests pass. Postgres tier included when live."""
+def run_tests(paths: tuple[str, ...]) -> tuple[bool, str]:
+    """(passed, output) for the selected tests. Postgres tier required, not skipped."""
 
     import os
 
@@ -279,13 +307,36 @@ def run_tests(paths: tuple[str, ...]) -> bool:
     )
     env["MOBILE_REQUIRE_POSTGRES_TESTS"] = "1"
     completed = subprocess.run(
-        [sys.executable, "-m", "pytest", *paths, "-q", "--no-header", "-p", "no:cacheprovider"],
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            *paths,
+            "-q",
+            "--no-header",
+            "-p",
+            "no:cacheprovider",
+        ],
         cwd=API_ROOT,
         capture_output=True,
         text=True,
         env=env,
     )
-    return completed.returncode == 0
+    return completed.returncode == 0, completed.stdout + completed.stderr
+
+
+# A mutation that makes the module raise on import, or leaves a name undefined,
+# goes red for a reason that has nothing to do with the property under test.
+# For a BREAKS row that is a false pass -- the table would claim the suite
+# caught something when it only tripped over a broken edit.
+_BROKEN_EDIT_MARKERS = ("NameError", "SyntaxError", "ImportError", "IndentationError")
+
+
+def broken_edit(output: str) -> str | None:
+    for marker in _BROKEN_EDIT_MARKERS:
+        if marker in output:
+            return marker
+    return None
 
 
 def main() -> int:
@@ -306,8 +357,10 @@ def main() -> int:
 
     print("Baseline: the suite must be green before any mutation means anything.")
     every_test = tuple(sorted({path for m in MUTATIONS for path in m.tests}))
-    if not run_tests(every_test):
+    baseline_passed, baseline_output = run_tests(every_test)
+    if not baseline_passed:
         print("BASELINE RED -- stopping. Nothing below would be interpretable.")
+        print(baseline_output[-2000:])
         return 2
     print("Baseline GREEN.\n")
 
@@ -335,11 +388,19 @@ def main() -> int:
 
         target.write_text(original.replace(mutation.old, mutation.new, 1))
         try:
-            passed = run_tests(mutation.tests)
+            passed, output = run_tests(mutation.tests)
         finally:
             target.write_text(original)
 
-        if mutation.kind == "BREAKS":
+        # Checked before the verdict, for both kinds. A red caused by an
+        # undefined name is the mutation being wrong, not the suite being
+        # right, and reading it as "caught" is how a table reports a gate that
+        # is not there.
+        broken = None if passed else broken_edit(output)
+        if broken is not None:
+            good = False
+            verdict = f"BROKEN EDIT ({broken}) -- verdict withheld"
+        elif mutation.kind == "BREAKS":
             good = not passed
             verdict = "RED (caught)" if not passed else "GREEN (NOT CAUGHT)"
         else:
@@ -348,6 +409,12 @@ def main() -> int:
         ok = ok and good
         rows.append((mutation, verdict, good))
         print(f"[{mutation.kind}] {mutation.name}: {verdict}")
+        if mutation.kind == "KEEPS" and not passed and broken is None:
+            # The failing case is the interesting part: it names what the suite
+            # pinned itself to.
+            for line in output.splitlines():
+                if line.startswith("FAILED"):
+                    print(f"         {line}")
 
     print("\n" + "=" * 78)
     print(f"{'kind':<8} {'mutation':<48} verdict")
