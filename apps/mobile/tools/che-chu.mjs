@@ -34,9 +34,11 @@
  * - `that`      the words stay covered after being scrolled to. A real defect.
  * - `cuon-khuat` they were merely out of view; once scrolled to, nothing is on
  *                top. The finding is an artifact of the raw-box comparison.
- * - `to-cha`    the "occluder" is an ancestor of the text -- a card covering
- *                its own label, which is how the rule describes a normal
- *                parent with a background colour.
+ * - `to-cha`    the words are readable AND the named "occluder" is an ancestor
+ *                of the text -- a card covering its own label, which is how the
+ *                rule describes a normal parent with a background colour. Only
+ *                ever a label on top of a run that already read as visible;
+ *                text nobody can read is `that` whatever the occluder is named.
  * - `khong-thay` the string is not on the page at all. Reported, never
  *                silently dropped: it means the scan and this check disagree
  *                about what rendered, and that is worth a human.
@@ -133,8 +135,9 @@ function doTrongTrang(chu, selectorTren) {
 
     const tyLe = nhinThay / tong;
     // An ancestor sitting on top of its own child is the rule describing a
-    // normal card, not a defect. Checked against the selector the finding
-    // named, so this cannot excuse an unrelated overlay.
+    // normal card, not a defect. Only ever used to LABEL a run of text that
+    // already read as visible above -- see the verdict below for why it must
+    // never be allowed to clear one that did not.
     let cha = false;
     if (selectorTren) {
       try {
@@ -144,8 +147,24 @@ function doTrongTrang(chu, selectorTren) {
       } catch { /* selector the detector printed may not parse; fall through */ }
     }
 
+    // `cha` decides a LABEL, never an acquittal. Whether an ancestor is the
+    // thing being drawn was already answered above, by the hit-test stack
+    // rather than by a selector: a sample point counts as readable when the
+    // topmost element is `el`, a descendant, or an ancestor (`tren.contains`).
+    // So an ancestor painted over the words is already inside `nhinThay`, and
+    // reaching `tyLe < 0.6` means most sample points had a NON-ancestor on top.
+    // By construction `to-cha` cannot explain that branch, which is why it is
+    // gone from it rather than tightened.
+    //
+    // It mattered: `cha` comes from `querySelectorAll(selectorTren)`, and
+    // `.a.b` matches every element whose class set is a SUPERSET of {a,b}.
+    // react-native-web folds identical style props onto shared atomic classes,
+    // so an overlay styled like the card it sits in lands inside its own
+    // ancestor's class set. Measured over 9 rendered screens, 88.4% of
+    // (occluder, text) pairs would have been cleared by that shortcut while
+    // the record printed "0/5 sample points readable".
     ketQua.push({
-      verdict: tyLe >= 0.6 ? (cha ? "to-cha" : "cuon-khuat") : cha ? "to-cha" : "that",
+      verdict: tyLe >= 0.6 ? (cha ? "to-cha" : "cuon-khuat") : "that",
       tyLeNhinThay: Number(tyLe.toFixed(2)),
       diemNhinThay: nhinThay,
       diemDo: tong,
