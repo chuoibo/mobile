@@ -44,6 +44,8 @@ __all__ = [
     "CHAT_EXPENSE_WINDOW_SECONDS",
     "COMPANION_TURN_LIMIT_PER_WINDOW",
     "COMPANION_TURN_WINDOW_SECONDS",
+    "CONTEXTUAL_SUGGESTION_LIMIT_PER_WINDOW",
+    "CONTEXTUAL_SUGGESTION_WINDOW_SECONDS",
     "RECEIPT_SCAN_LIMIT_PER_WINDOW",
     "RECEIPT_SCAN_WINDOW_SECONDS",
     "SEARCH_LIMIT_PER_WINDOW",
@@ -55,6 +57,7 @@ __all__ = [
     "FixedWindowLimiter",
     "build_chat_expense_limiter",
     "build_companion_turn_limiter",
+    "build_contextual_suggestion_limiter",
     "build_receipt_scan_limiter",
     "build_search_limiter",
     "build_screenshot_scan_limiter",
@@ -113,6 +116,17 @@ COMPANION_TURN_LIMIT_PER_WINDOW = RECEIPT_SCAN_LIMIT_PER_WINDOW
 # tighter than its neighbours despite being the cheapest to trigger.
 SUGGESTION_WINDOW_SECONDS = RECEIPT_SCAN_WINDOW_SECONDS
 SUGGESTION_LIMIT_PER_WINDOW = RECEIPT_SCAN_LIMIT_PER_WINDOW
+
+# `GET /contexts/{id}/contextual-suggestion` is the one above with a worse
+# cache story. F32 at least reads history, which changes slowly; F33 reads the
+# group's last few messages, so no cache coarser than one group's live
+# conversation is even correct -- one keyed on anything else would serve one
+# group's evening to another. That leaves one model call per GET, triggered by
+# opening the chat screen, which a client that remounts issues without anybody
+# deciding to. Its own counter, so a busy chat cannot spend the home screen's
+# allowance and leave the group told it has no suggestion.
+CONTEXTUAL_SUGGESTION_WINDOW_SECONDS = RECEIPT_SCAN_WINDOW_SECONDS
+CONTEXTUAL_SUGGESTION_LIMIT_PER_WINDOW = RECEIPT_SCAN_LIMIT_PER_WINDOW
 
 # Below this many tracked identities the map is not worth walking. Above it,
 # the sweep threshold doubles from whatever survived, so the O(n) walk happens
@@ -300,6 +314,27 @@ def build_suggestion_limiter() -> FixedWindowLimiter:
             "Quá nhiều lượt xin gợi ý; tối đa "
             f"{SUGGESTION_LIMIT_PER_WINDOW} lượt mỗi "
             f"{SUGGESTION_WINDOW_SECONDS} giây. Thử lại sau ít phút."
+        ),
+    )
+
+
+def build_contextual_suggestion_limiter() -> FixedWindowLimiter:
+    """The per-actor ceiling on the F33 card, separate from the F32 one.
+
+    Two cards, two windows, for the same reason the turn and the card have
+    two: they are triggered by different things. Opening the chat screen must
+    not spend the allowance the home screen needs, or the group that talks the
+    most is the one told there is nothing to suggest.
+    """
+
+    return FixedWindowLimiter(
+        limit=CONTEXTUAL_SUGGESTION_LIMIT_PER_WINDOW,
+        window_seconds=CONTEXTUAL_SUGGESTION_WINDOW_SECONDS,
+        code="contextual_suggestion_rate_limited",
+        message=(
+            "Quá nhiều lượt xin gợi ý theo cuộc trò chuyện; tối đa "
+            f"{CONTEXTUAL_SUGGESTION_LIMIT_PER_WINDOW} lượt mỗi "
+            f"{CONTEXTUAL_SUGGESTION_WINDOW_SECONDS} giây. Thử lại sau ít phút."
         ),
     )
 

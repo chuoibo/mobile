@@ -99,7 +99,7 @@ def _labels(visit: Any) -> tuple[str, list[str]] | None:
         # An unknown category is dropped, never defaulted. See module docstring.
         return None
     kinds = visit.get("kinds")
-    if not isinstance(kinds, (list, tuple)):
+    if not isinstance(kinds, list | tuple):
         return None
     labels = [
         kind.strip()[:MAX_LABEL]

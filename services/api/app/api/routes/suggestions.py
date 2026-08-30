@@ -49,6 +49,12 @@ def get_suggestion_limiter(request: Request) -> FixedWindowLimiter:
     return request.app.state.suggestion_limiter
 
 
+def get_contextual_suggestion_limiter(request: Request) -> FixedWindowLimiter:
+    """The F33 window, read off the application for the same reason."""
+
+    return request.app.state.contextual_suggestion_limiter
+
+
 @router.get(
     "/contexts/{context_id}/suggestion",
     response_model=GroupSuggestionResponse,
@@ -90,6 +96,7 @@ def read_group_suggestion(
         403: {"model": ErrorResponse},
         404: {"model": ErrorResponse},
         422: {"model": ErrorResponse},
+        429: {"model": ErrorResponse},
     },
 )
 def read_contextual_suggestion(
@@ -97,6 +104,7 @@ def read_contextual_suggestion(
     actor: Annotated[Actor, Depends(get_actor)],
     repository: Annotated[ApiRepository, Depends(get_repository)],
     suggester: Annotated[ContextualSuggester, Depends(get_contextual_suggester)],
+    limiter: Annotated[FixedWindowLimiter, Depends(get_contextual_suggestion_limiter)],
 ) -> ContextualSuggestionResponse:
     """F33. Also a GET, and also creates nothing.
 
@@ -104,6 +112,12 @@ def read_contextual_suggestion(
     reads the group's own last few messages, which it already has. A POST
     carrying the conversation would mean the client got to choose what the
     model reads, and a caller who chooses the evidence chooses the answer.
+
+    Capped per caller before the model is reached, like its neighbour above.
+    This one cannot be cached at all -- the card is a function of the group's
+    live conversation -- so the window is the only thing between a screen that
+    remounts and the paid key.
     """
 
+    limiter.check(actor.id)
     return ApiService(repository).contextual_suggestion(context_id, actor, suggester)
