@@ -239,6 +239,26 @@ _TABLE: dict[str, dict] = {
         "roles": {"group_admin", "member"},
         "requires": ("is_group_member",),
     },
+    # F17. Voting is a group activity, so the gate is the same ACTIVE
+    # membership the block above uses. Closing is narrower: only the member who
+    # opened the vote may end it, so nobody can cut short a poll they are
+    # losing.
+    "create_vote": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    "view_votes": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    "cast_vote_ballot": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    "close_vote": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member", "is_vote_creator"),
+    },
     "create_context": {"roles": {"group_admin", "member"}, "requires": ()},
     "invite_context_member": {
         "roles": {"group_admin"},

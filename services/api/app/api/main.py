@@ -52,6 +52,7 @@ from app.api.routes import (
     screenshots,
     social_map,
     suggestions,
+    votes,
 )
 from app.api.routes.places import CachedReasonWriter
 from app.api.schemas import ErrorResponse
@@ -160,6 +161,7 @@ def create_app(
     application.include_router(screenshots.router)
     application.include_router(suggestions.router)
     application.include_router(social_map.router)
+    application.include_router(votes.router)
     application.include_router(albums.router)
     application.include_router(preferences.router)
     application.include_router(faces.router)
