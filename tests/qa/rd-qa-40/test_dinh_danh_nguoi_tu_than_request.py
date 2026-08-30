@@ -272,14 +272,6 @@ def test_create_bill_accepts_a_bill_whose_suggestions_are_all_members(client):
     assert [share["participant_id"] for share in shares] == [str(ADVANCER_ID)]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "rd-qa-40 hole 3: POST /bills writes suggested_participant_ids with no "
-        "roster check -- the same hole #247 closed on the sibling route. "
-        "Remove this marker as the second half of the fix."
-    ),
-)
 def test_suggested_participant_ids_must_be_members(client):
     """#247 gated `PUT /bills/{id}/assignments`. Nothing gated `POST /bills`.
 
@@ -625,12 +617,6 @@ def test_live_recorded_by_outsider_must_not_reach_the_guest_page(postgres_sessio
 
 
 @pytest.mark.postgres
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "rd-qa-40 hole 3, live tier. Remove this marker as the second half of the fix."
-    ),
-)
 def test_live_bill_suggestion_of_a_non_member_is_refused(postgres_session):
     """Hole 3 on the real database, and why it kills the demo path.
 
