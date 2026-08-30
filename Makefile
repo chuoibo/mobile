@@ -40,7 +40,7 @@ DC = $(COMPOSE) -p $(PROJECT)
 WAIT_TIMEOUT ?= 300
 
 .DEFAULT_GOAL := help
-.PHONY: help gate gate-merge test-db e2e up down clean logs ps migrate db-check seed demo smoke
+.PHONY: help gate gate-merge test-db e2e up down clean logs ps migrate db-check seed demo demo-check smoke
 
 # `demo` phải gọi đúng bộ container mà `up` vừa dựng. Trên nhánh này biến đó là
 # $(COMPOSE); PR #60 (đang mở, cùng lane) đổi nó thành $(DC) = compose kèm
@@ -210,6 +210,19 @@ demo: ## Dựng hệ rồi nạp dữ liệu demo "Team Đà Lạt" — 7 ngư�
 	@# dữ liệu lẫn lộn — nhưng nó CÓ hiện trên màn danh sách nhóm.
 	@# --no-deps: xem ghi chú ở `seed`, cùng một cái bẫy.
 	$(DEMO_COMPOSE) run --rm --no-deps demo
+
+# `smoke` hỏi "cổng này có phục vụ đủ route CỦA CÂY NÀY không" — đúng câu ở cuối
+# `make up`, vì `up` vừa dựng ảnh từ chính cây đó. Với MÁY DEMO thì câu đó không
+# đủ, và ngày 30/08 nó ĐẠT 58/58 trong khi main khai 62: bộ container dựng từ
+# /home/lakiet/mobile, cây ấy đứng sau main 16 commit, nên hai vế của phép so là
+# cùng một cây cũ và phép so không thể đỏ. Đây là câu hỏi còn lại, neo vào main
+# chứ không vào cây đang đứng.
+#
+# KHÔNG gọi từ `up` hay `smoke`: lane khác `make up` từ nhánh của họ là chuyện
+# bình thường, bắt đỏ ở đó là dương tính giả và người ta sẽ tắt cổng đi.
+demo-check: ## Hỏi máy demo có phục vụ ĐÚNG bộ route của main không — URL=, REF= để đổi đích
+	@python3 scripts/check_demo_matches_main.py \
+	  $(if $(URL),--url $(URL)) $(if $(REF),--ref $(REF)) $(if $(NOFETCH),--no-fetch)
 
 smoke: ## Gọi thật /healthz qua cổng đã publish và in địa chỉ ra
 	@# `smoke` là việc cuối `up` chạy, nên nó giữ màn hình cuối cùng. Nhắc lại
