@@ -347,9 +347,7 @@ class ReaderKnowsItLostTheWrappers(unittest.TestCase):
         )
 
     def test_a_healthy_anchor_is_silent(self):
-        self.assertEqual(
-            contract_gate.lost_wrappers(set(contract_gate.WRAPPERS)), []
-        )
+        self.assertEqual(contract_gate.lost_wrappers(set(contract_gate.WRAPPERS)), [])
 
     def test_a_declaration_is_the_definition_not_the_import(self):
         # Every screen does `import { callAsActor } from "./api"`. If an import

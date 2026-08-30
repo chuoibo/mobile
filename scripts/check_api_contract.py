@@ -1104,9 +1104,7 @@ CANARY_WRAPPERS_PRESENT = canary_declaring(WRAPPERS)
 # The same client after a rename like #397's. Nothing here is malformed and
 # nothing is missing -- the names simply moved, and the reader that keys on
 # them sees an empty file.
-CANARY_WRAPPERS_RENAMED = canary_declaring(
-    tuple(f"{name}Renamed" for name in WRAPPERS)
-)
+CANARY_WRAPPERS_RENAMED = canary_declaring(tuple(f"{name}Renamed" for name in WRAPPERS))
 
 # Half a rename: one wrapper moved, the rest did not. The anchor has to name
 # the one that moved rather than shrug at the group -- a partial rename is the
