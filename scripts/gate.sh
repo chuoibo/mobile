@@ -72,7 +72,7 @@ REPO_ROOT="$PWD"
 
 # Every stage, in run order: cheapest and most likely to fail first, so a
 # broken tree is reported in seconds rather than after a docker build.
-STAGES=(guard guard-range ruff contract client-routes server-routes cors api migration pinned-import demo-watch shared mobile docker postgres e2e)
+STAGES=(guard guard-range ruff contract client-routes server-routes screens cors api migration pinned-import demo-watch shared mobile docker postgres e2e)
 
 stage_help() {
   case "$1" in
@@ -82,6 +82,7 @@ stage_help() {
     contract)  echo "every route wanting X-Actor-ID is called with it (test.yml: contract)" ;;
     client-routes) echo "every route apps/mobile calls exists in the API (test.yml: api, inline)" ;;
     server-routes) echo "every route the API declares is called by some screen -- the other direction" ;;
+    screens)   echo "every screen under apps/mobile/src/screens is rendered by something the entry point reaches" ;;
     cors)      echo "every header and method apps/mobile sends survives the CORS preflight (test.yml: contract)" ;;
     api)       echo "pytest services/api/tests tests (test.yml: api)" ;;
     migration) echo "alembic upgrade head --sql, no database (test.yml: api, inline)" ;;
@@ -359,6 +360,33 @@ do_server-routes() {
   python3 scripts/check_server_routes_called.py
 }
 
+do_screens() {
+  # The third link in the same chain, and the one nothing asked until
+  # 2026-08-31. `client-routes` asks whether a path the app calls exists;
+  # `server-routes` asks whether a declared route has a screen calling it.
+  # Neither asks whether that screen is itself rendered by anything -- so a
+  # screen can call its routes correctly, typecheck, pass both stages above,
+  # and be openable by nobody.
+  #
+  # It earned its place on the run that introduced it. A work item claimed
+  # `ChiaSe` and `MaCuaToi` had no way in, from a count of how often each name
+  # appears under `src/`. Both were wired -- `ChiaSe` behind two real buttons,
+  # `MaCuaToi` inside `MaKetBan` on Cá nhân -- and the count had missed the one
+  # screen that really is dead, `TheDeXuat`, because it never named it. 48/49
+  # reachable, 1 pinned with a reason.
+  #
+  # The self-test runs first, and here it carries a bug of its own making. The
+  # first draft let an entry file's plain imports carry the chain, which marked
+  # every screen `App.tsx` merely imports as reachable; deleting the real
+  # `<ChiaSe />` render left the gate GREEN. Three canaries now hold it -- a
+  # dead screen that must be red, an imported-but-never-rendered screen that
+  # must be red, and a live tree that must stay green.
+  echo "--- self-test: the checker has to be able to be red, and to be green"
+  python3 scripts/check_screens_reachable.py --selftest || return 1
+  echo "--- every screen against the render graph from the entry point"
+  python3 scripts/check_screens_reachable.py
+}
+
 do_cors() {
   # The third question about one request, and the one no suite here can ask.
   # `contract` asks whether a call sends X-Actor-ID; `client-routes` asks
@@ -612,6 +640,18 @@ check_prereq() {
       [ -d apps/mobile/src ] || return 2
       python3 -c "import fastapi" 2>/dev/null || {
         echo "chưa cài fastapi (pip install -r services/api/requirements-dev.txt)"; return 1; } ;;
+    screens)
+      # Same two halves as the three stages above, and no fastapi: this one
+      # reads client source only, so the API side is irrelevant to it.
+      #
+      # "Present but no screens" is a defect rather than a skip, and for the
+      # sharpest version of the reason given above: with no screen file to
+      # read, every screen is vacuously reachable and the run prints 0/0 and
+      # exits 0 -- the green-because-nothing-ran shape, inside the stage that
+      # exists to catch unreachable code. The checker refuses it itself by
+      # exiting 2 on an empty read; this refuses to skip past it.
+      [ -d apps/mobile ] || { echo "apps/mobile không có trên nhánh này"; return 1; }
+      [ -d apps/mobile/src/screens ] || return 2 ;;
     cors)
       # Same two halves again, third question. `apps/mobile` absent is an
       # absence; present with no `src` is a defect, because a reader that
@@ -702,6 +742,7 @@ check_prereq() {
 broken_why() {
   case "$1" in
     contract|client-routes|server-routes) echo "apps/mobile có mặt nhưng thiếu src/ -- từ chối bỏ qua" ;;
+    screens) echo "apps/mobile có mặt nhưng thiếu src/screens -- 0/0 màn không phải ĐẠT" ;;
     shared) echo "packages/shared có mặt nhưng thiếu money.test.mjs -- từ chối bỏ qua" ;;
     mobile) echo "apps/mobile có mặt nhưng thiếu package-lock.json -- từ chối bỏ qua" ;;
     e2e) echo "apps/mobile có mặt nhưng thiếu tests/e2e/vertical-slice.test.mjs -- từ chối bỏ qua" ;;
