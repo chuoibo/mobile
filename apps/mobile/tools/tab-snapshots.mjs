@@ -203,6 +203,18 @@ export const MAN_KHAC = [
    * so either would wave through exactly the failure worth catching, which is
    * one of those three reads 404ing and the roster never appearing. */
   { step: "quan-tri", frag: `vao=quan-tri&nguoi=${NGUOI}`, needle: "Lời mời gắn với một chuyến đi" },
+  /* 07.03 Thành tích. The needle is the weekly-challenge card's own subtitle,
+   * which renders only inside the `xong` branch -- so it cannot appear until
+   * `GET /people/{id}/finance` has come back and the badges and challenges have
+   * actually been derived from it. Deliberately NOT the screen title or its
+   * "Lưu lại dấu ấn" subtitle: `Khung` paints both in every state including the
+   * error card, so either would wave through exactly the failure worth catching,
+   * which is the ledger read failing and the screen drawing its refusal. */
+  {
+    step: "thanh-tich",
+    frag: `vao=thanh-tich&nguoi=${NGUOI}`,
+    needle: "Đếm trong 7 ngày gần nhất",
+  },
   { step: "ban-do", frag: `ban-do=1&nguoi=${NGUOI}`, needle: "Nhóm hay tụ ở đâu" },
   { step: "diem-hen", frag: `ban-do=hen&nguoi=${NGUOI}`, needle: "Ai xuất phát từ đâu" },
   /* F14. `#moi=` is the cold URL; the membership sentence only exists after

@@ -25,6 +25,7 @@ import { LenPlan } from "../screens/len-plan/LenPlan";
 import { NhanLoiMoi } from "../screens/len-plan/NhanLoiMoi";
 import { Nhom } from "../screens/vao-cua/Nhom";
 import { QuanTriNhom } from "../screens/quan-tri/QuanTriNhom";
+import { ThanhTich } from "../screens/thanh-tich/ThanhTich";
 import { Widget } from "../screens/widget/Widget";
 import { MenuTao } from "./MenuTao";
 import { ThanhTab } from "./ThanhTab";
@@ -42,6 +43,7 @@ export function VoTab({
   moBanBeNgay,
   moWidgetNgay,
   moQuanTriNgay,
+  moThanhTichNgay,
   nhomId,
   banQuetDuoc,
   diaDiemDau,
@@ -71,6 +73,9 @@ export function VoTab({
    *  taps deep -- [+] menu, then the group screen, then a button -- so nothing
    *  that loads a URL cold could reach it otherwise. */
   moQuanTriNgay?: boolean;
+  /** 07.03. Open Thành tích immediately, from `#vao=thanh-tich`. It sits behind
+   *  a button on the Cá nhân tab, so the same rule as `moBanBeNgay` applies. */
+  moThanhTichNgay?: boolean;
   /** Which group the wall should read, from `#nhom=<uuid>`. Null lets the
    *  screen find the demo group itself. */
   nhomId?: string | null;
@@ -127,6 +132,11 @@ export function VoTab({
   // and entered from the group screen rather than from the bar -- roles and
   // invites are things you go and do to a group you already opened.
   const [luongQuanTri, setLuongQuanTri] = useState(moQuanTriNgay ?? false);
+  // 07.03. Full screen like the five above, entered from a button on Cá nhân.
+  // It reads the same ledger that tab reads, so leaving the bar underneath
+  // would let somebody switch tabs mid-read and come back to a screen that had
+  // refetched behind them.
+  const [luongThanhTich, setLuongThanhTich] = useState(moThanhTichNgay ?? false);
   const [luongLoiMoi, setLuongLoiMoi] = useState(Boolean(moiBuoiDi));
   // The group handle, lifted out of the group screen.
   //
@@ -237,6 +247,15 @@ export function VoTab({
     );
   }
 
+  if (luongThanhTich) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
+        <StatusBar style={scheme === "dark" ? "light" : "dark"} />
+        <ThanhTich nguoi={nguoi} onDong={() => setLuongThanhTich(false)} />
+      </SafeAreaView>
+    );
+  }
+
   if (luongWidget) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
@@ -290,6 +309,7 @@ export function VoTab({
             <CaNhan
               nguoi={nguoi}
               onKetBan={() => setLuongBanBe(true)}
+              onThanhTich={() => setLuongThanhTich(true)}
               nhom={
                 nhom
                   ? [{ id: nhom.id, name: nhom.display_name }]

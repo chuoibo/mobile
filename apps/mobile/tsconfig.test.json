@@ -173,6 +173,15 @@
     "src/screens/len-plan/TaoBuoiDi.tsx",
     "src/screens/len-plan/DongThoiGian.tsx",
     "src/screens/len-plan/NhanLoiMoi.tsx",
+    // 07.03. Every figure on the achievements screen is derived here from one
+    // finance response -- level, all eight badges, all three weekly challenges.
+    // Compiled rather than read as source because the claim worth pinning is
+    // that those numbers MOVE with the ledger: a screen full of constants would
+    // read identically in the source and identically on a screenshot, which is
+    // exactly how a mockup gets typed in and shipped as a feature. The clock is
+    // a parameter, so the seven-day window can be proved to be a window rather
+    // than a lifetime count. See `tests/thanh-tich.test.mjs`.
+    "src/screens/thanh-tich/thanh-tich.ts",
     "src/screens/quet-anh.ts",
     // The frozen bill behind the `?man=` scan pages. Compiled because the
     // claim it carries is arithmetic, not markup: the eight lines and the
