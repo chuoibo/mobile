@@ -13,16 +13,24 @@ stage refused to start without `MOBILE_TEST_DATABASE_URL` and nothing set it.
 A skip is not a pass -- and this is the third time this repository has been bitten
 by the same shape, after a detector with no browser returning `[]` and exit 0.
 
-So these tests hold two lines, and the second is the one that matters:
+So these tests hold three lines, and the last two are the ones that matter:
 
   - The stage is REACHABLE. `scripts/gate.sh` delegates to
     `scripts/postgres_tier.sh`, `make test-db` calls it, and the stage no
     longer demands a connection string before it will do anything.
+  - The stage REACHES EVERY LIVE CASE, not just the ones under
+    `services/api/tests/postgres`. Three lanes put live cases under
+    `tests/qa/` instead, and until `bug-082455` no stage of any gate ran those
+    with a database. See `LiveCasesOutsideTestsPostgresAlsoRun` below for the
+    measurement.
   - The stage cannot go QUIET. `MOBILE_REQUIRE_POSTGRES_TESTS=1` is what turns
     the conftest's `pytest.skip` into `pytest.fail`; without it an unreachable
     database exits 0 having proved nothing, which is the exact defect being
     removed. `test_unreachable_database_is_red_not_skipped` runs the script for
-    real to check that, and needs no Docker to do it.
+    real to check that, and needs no Docker to do it. A skip arriving by any
+    other route -- a `skipif`, an `importorskip`, a marker somebody adds
+    tomorrow -- is caught by `test_a_run_that_only_skipped_is_not_a_pass`,
+    which does not care where the skip came from.
 
 ## What this does NOT prove
 
@@ -38,6 +46,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -45,6 +54,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 RUNNER = REPO_ROOT / "scripts" / "postgres_tier.sh"
 GATE = REPO_ROOT / "scripts" / "gate.sh"
 MAKEFILE = REPO_ROOT / "Makefile"
+WORKFLOW = REPO_ROOT / ".github" / "workflows" / "postgres-repository.yml"
+
+# A URL nothing can connect to, and deliberately still PostgreSQL: the conftest
+# rejects a non-PostgreSQL backend before it ever dials, so a sqlite URL would
+# make these tests pass for the wrong reason. Port 1 is never a database.
+UNREACHABLE_POSTGRES = "postgresql+psycopg://mobile:x@127.0.0.1:1/none"
 
 
 class RunnerIsWiredIn(unittest.TestCase):
@@ -160,6 +175,147 @@ class RunnerCannotTouchAnotherLanesStack(unittest.TestCase):
         self.assertTrue(
             "-p 127.0.0.1::5432" in source,
             "database tạm chỉ được publish trên loopback, và phải để docker chọn cổng trống",
+        )
+
+
+class LiveCasesOutsideTestsPostgresAlsoRun(unittest.TestCase):
+    """`tests/qa/` holds live cases too, and no gate stage ever ran them.
+
+    Measured on main at 9590e51, and again at bef0524 after `#263` added two
+    more:
+
+        cd services/api
+        python3 -m pytest ../../tests/qa -q      -> 69 passed, 18 skipped, 2 xfailed
+        ... with the two variables set           -> 85 passed, 4 xfailed
+
+    Sixteen cases and two xfail pins about who owns money, who is in a group
+    and what a guest link may open, none of which had ever executed anywhere.
+    `grep -c tests/qa scripts/postgres_tier.sh scripts/gate.sh` answered 0 and
+    0, and the count settled it: the stage ran 306 cases, which is exactly what
+    `tests/postgres` collects on its own.
+
+    Three lanes each believed their case was guarding something. A skip exits
+    0, so all three readings were of the same green.
+    """
+
+    # The three files that carry `pytest.mark.postgres` under tests/qa today.
+    # Named rather than discovered on purpose: a discovery loop that finds
+    # nothing passes, which is the shape being removed here. If a lane deletes
+    # one of these, this list is where the deletion has to be argued.
+    LIVE_QA_FILES = (
+        "tests/qa/qa-tt-0011/test_split_tra_tien_cho_nguoi_la_postgres.py",
+        "tests/qa/rd-qa-13/test_link_ton_dong_van_nang_quyen.py",
+        "tests/qa/rd-qa-40/test_dinh_danh_nguoi_tu_than_request.py",
+    )
+
+    def _collect(self) -> subprocess.CompletedProcess[str]:
+        """What the runner would execute, asked of the runner itself.
+
+        `--collect-only` is passed through to pytest, which reaches collection
+        without instantiating a single fixture -- so the unreachable URL above
+        is never dialled and this needs neither Docker nor a database. Reading
+        the node ids the real invocation produces is the difference between
+        proving the runner covers the tree and proving somebody typed its name
+        into a comment.
+        """
+        env = dict(os.environ)
+        env["MOBILE_TEST_DATABASE_URL"] = UNREACHABLE_POSTGRES
+        return subprocess.run(
+            [str(RUNNER), "--collect-only", "-q"],
+            cwd=REPO_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+
+    def test_the_runner_collects_the_live_cases_under_tests_qa(self) -> None:
+        result = self._collect()
+        missing = [f for f in self.LIVE_QA_FILES if f not in result.stdout]
+        self.assertEqual(
+            missing,
+            [],
+            "runner không thu thập ca tầng live nào dưới tests/qa — chúng sẽ bỏ qua "
+            "trên mọi lần chạy cổng, và bỏ qua thoát 0"
+            f"\n--- stdout ---\n{result.stdout[-4000:]}"
+            f"\n--- stderr ---\n{result.stderr[-2000:]}",
+        )
+
+    def test_the_runner_still_collects_the_repository_tier(self) -> None:
+        # The other half of the same claim. Adding a tree must not replace one.
+        result = self._collect()
+        self.assertIn(
+            "tests/postgres/",
+            result.stdout,
+            "runner thôi thu thập tests/postgres — tầng repository là lý do nó tồn tại"
+            f"\n--- stdout ---\n{result.stdout[-4000:]}",
+        )
+
+    def test_a_run_that_only_skipped_is_not_a_pass(self) -> None:
+        """The anti-regression check the bug report asked for.
+
+        `MOBILE_REQUIRE_POSTGRES_TESTS=1` only converts the ONE skip that
+        `tests/postgres/conftest.py` raises. Every other route to a skip --
+        `skipif`, `importorskip`, a marker added tomorrow -- still exits 0, and
+        `0 skipped` is the only thing that separates "ran" from "could not
+        build anything to run".
+
+        The canary forces that state through a pytest plugin instead of by
+        editing a test file: nothing in the tree is touched, so this cannot
+        leave a mutation behind, and skipped cases never reach fixture setup so
+        no database is needed.
+        """
+        plugin = (
+            '"""Skip every collected case: a run that proves nothing."""\n'
+            "\n"
+            "import pytest\n"
+            "\n"
+            "\n"
+            "def pytest_collection_modifyitems(items):\n"
+            "    for item in items:\n"
+            '        item.add_marker(pytest.mark.skip(reason="canary"))\n'
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "canary_skip_everything.py").write_text(
+                plugin, encoding="utf-8"
+            )
+            env = dict(os.environ)
+            env["MOBILE_TEST_DATABASE_URL"] = UNREACHABLE_POSTGRES
+            env["PYTHONPATH"] = tmp + os.pathsep + env.get("PYTHONPATH", "")
+            result = subprocess.run(
+                [str(RUNNER), "-q", "-p", "canary_skip_everything"],
+                cwd=REPO_ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=600,
+            )
+        self.assertNotEqual(
+            result.returncode,
+            0,
+            "mọi ca đều bỏ qua mà runner vẫn thoát 0 — đó là 'xanh vì không chạy gì'"
+            f"\n--- stdout ---\n{result.stdout[-4000:]}"
+            f"\n--- stderr ---\n{result.stderr[-2000:]}",
+        )
+
+
+class WorkflowAndRunnerCannotDrift(unittest.TestCase):
+    """One definition of what the live tier is, not two.
+
+    The workflow used to spell the tier out itself (`pytest tests/postgres
+    -q`), so widening the tier locally left CI narrower with nothing to notice.
+    `tests/test_gate_covers_every_inline_step.py` pins the step's bytes and
+    asks for a re-review when they change, which catches drift in one
+    direction; delegating removes the direction entirely.
+    """
+
+    def test_the_workflow_runs_the_same_runner(self) -> None:
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(
+            "scripts/postgres_tier.sh",
+            workflow,
+            "postgres-repository.yml phải gọi scripts/postgres_tier.sh, "
+            "nếu không CI và cổng máy này định nghĩa 'tầng live' theo hai cách",
         )
 
 

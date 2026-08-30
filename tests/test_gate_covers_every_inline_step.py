@@ -319,10 +319,17 @@ INLINE_STEPS: dict[str, Covered] = {
         body_sha="64429455861e6239",
         why="pip install of the pinned dev requirements; asserts nothing about the tree",
     ),
+    # Reviewed for bug-082455. The step used to spell the tier out itself
+    # (`pytest tests/postgres -q`), which is how CI and the local stage came to
+    # mean two different things by "the live tier": the sixteen live cases
+    # under tests/qa were in neither. It now calls the same
+    # `scripts/postgres_tier.sh -q` the `postgres` stage calls, so the two
+    # cannot drift again -- and `tests/test_postgres_tier_runner.py` asserts
+    # the delegation itself, which body_sha alone would not.
     "postgres-repository.yml::repository-postgres::Migrate an isolated schema and exercise the real repository": Covered(
         kind=GATE_KIND,
         stages=("postgres",),
-        body_sha="65b54b7877a65de5",
+        body_sha="39b4c27fe0702dc2",
         why="",
     ),
     # --- test.yml: e2e ----------------------------------------------------
