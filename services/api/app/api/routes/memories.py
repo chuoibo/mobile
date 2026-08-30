@@ -143,6 +143,13 @@ def post_memory_reaction(
 @router.delete(
     "/contexts/{context_id}/memories/{memory_id}/reactions",
     status_code=status.HTTP_204_NO_CONTENT,
+    # Explicit, and load-bearing rather than decorative. This module defers its
+    # annotations, so fastapi 0.115.6 -- the version the image installs --
+    # resolves the `-> None` below to the class `NoneType`, reads that as a
+    # response model, and refuses the bodyless 204 at import time. Saying
+    # `None` here skips the inference on every version.
+    # `tests/api/test_route_declarations_under_pinned_fastapi.py` holds the line.
+    response_model=None,
     responses=ERRORS,
 )
 def delete_memory_reaction(
