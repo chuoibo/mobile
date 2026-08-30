@@ -75,6 +75,12 @@ class ContextualSuggester(Protocol):
     def __call__(self, digest: dict, places: list[dict]) -> dict | None: ...
 
 
+class Reeler(Protocol):
+    """A model backend that returns an untrusted, raw F37 reel."""
+
+    def __call__(self, trip: dict, memories: list[dict]) -> dict | None: ...
+
+
 def _csv(value: str | None) -> list[str]:
     if value is None:
         return []
@@ -207,3 +213,11 @@ def get_contextual_suggester() -> ContextualSuggester:
     from app.api.suggestion_gemini import gemini_contextual_suggestion
 
     return gemini_contextual_suggestion
+
+
+def get_reeler() -> Reeler:
+    """Seam for tests, and the uncached F37 backend for everyone else."""
+
+    from app.api.reel_gemini import gemini_reel
+
+    return gemini_reel
