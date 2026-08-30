@@ -21,9 +21,13 @@ import { KetBan } from "../screens/ca-nhan/KetBan";
 import { TinNhan } from "../screens/chat/TinNhan";
 import { KhamPha } from "../screens/kham-pha/KhamPha";
 import { KyNiem } from "../screens/ky-niem/KyNiem";
+import { AlbumChuyenDi } from "../screens/album/AlbumChuyenDi";
 import { LenPlan } from "../screens/len-plan/LenPlan";
 import { NhanLoiMoi } from "../screens/len-plan/NhanLoiMoi";
 import { Nhom } from "../screens/vao-cua/Nhom";
+import { QuanTriNhom } from "../screens/quan-tri/QuanTriNhom";
+import { ThanhTich } from "../screens/thanh-tich/ThanhTich";
+import { Widget } from "../screens/widget/Widget";
 import { MenuTao } from "./MenuTao";
 import { ThanhTab } from "./ThanhTab";
 import { useInertBackground } from "./modal";
@@ -38,6 +42,11 @@ export function VoTab({
   moNhomNgay,
   moKyNiemNgay,
   moBanBeNgay,
+  moWidgetNgay,
+  moQuanTriNgay,
+  moThanhTichNgay,
+  moAlbumNgay,
+  albumChuyen,
   nhomId,
   banQuetDuoc,
   diaDiemDau,
@@ -58,6 +67,26 @@ export function VoTab({
   /** Open the F03/F04 friend screen immediately, from `#vao=ban-be`. It sits
    *  behind a button on the Cá nhân tab, so the same rule applies. */
   moBanBeNgay?: boolean;
+  /** F38. Open the widget immediately, from `#vao=widget`. It has no button
+   *  anywhere in the shell yet -- a home-screen widget is drawn by the OS, not
+   *  reached by tapping through the app -- so without this address the screen
+   *  would exist and nothing, person or detector, could open it. */
+  moWidgetNgay?: boolean;
+  /** Open group administration immediately, from `#vao=quan-tri`. It is two
+   *  taps deep -- [+] menu, then the group screen, then a button -- so nothing
+   *  that loads a URL cold could reach it otherwise. */
+  moQuanTriNgay?: boolean;
+  /** 07.03. Open Thành tích immediately, from `#vao=thanh-tich`. It sits behind
+   *  a button on the Cá nhân tab, so the same rule as `moBanBeNgay` applies. */
+  moThanhTichNgay?: boolean;
+  /** F36/F37. Open the trip album immediately, from `#vao=album`. It sits
+   *  behind the [+] menu like the wall does, and it is three screens deep, so
+   *  without an address the two inner ones could not be reached by any tool at
+   *  all -- only the shelf would ever be scanned. */
+  moAlbumNgay?: boolean;
+  /** F36. Which trip's album to open on, from `#chuyen=<uuid>`. Null opens the
+   *  shelf. Passed straight through; the screen owns what it means. */
+  albumChuyen?: string | null;
   /** Which group the wall should read, from `#nhom=<uuid>`. Null lets the
    *  screen find the demo group itself. */
   nhomId?: string | null;
@@ -85,7 +114,11 @@ export function VoTab({
    *  group under their id (`khoiDongNhom`), and a bill has to be written into a
    *  group that exists -- filing it under a synthetic id is how every confirm
    *  in this app came back `422 participant_not_in_context`. */
-  renderKhoanChi: (onExit: () => void, nguoi: DemoPerson | null) => React.ReactNode;
+  renderKhoanChi: (
+    onExit: () => void,
+    nguoi: DemoPerson | null,
+    nhomPhien: NhomWire | null,
+  ) => React.ReactNode;
 }) {
   const c = usePalette();
   const scheme = useColorScheme();
@@ -101,11 +134,29 @@ export function VoTab({
   // F30. Full screen like the two flows above, and for the same reason: it is
   // a place you go and come back from, not a tab you switch between.
   const [luongKyNiem, setLuongKyNiem] = useState(moKyNiemNgay ?? false);
+  // F36/F37. Full screen for the same reason as the wall above it, and with one
+  // more: the album is itself three steps deep (shelf, album, reel) and holds
+  // its own back stack, so a tab bar underneath would offer a second way out
+  // that skips the two steps in between.
+  const [luongAlbum, setLuongAlbum] = useState(moAlbumNgay ?? false);
   // F03/F04. Full screen for the same reason as the two above: it is a task
   // with its own steps, and it is entered from a button on Cá nhân rather than
   // from the bar, so leaving the bar underneath would offer two ways out of
   // one task.
   const [luongBanBe, setLuongBanBe] = useState(moBanBeNgay ?? false);
+  // F38. Full screen like the three above. It is not a tab and it is not a
+  // create action: on a phone this surface is drawn by the OS on the home
+  // screen, and in the app it is the same thing at full size.
+  const [luongWidget, setLuongWidget] = useState(moWidgetNgay ?? false);
+  // Group administration. Full screen for the same reason as the four above,
+  // and entered from the group screen rather than from the bar -- roles and
+  // invites are things you go and do to a group you already opened.
+  const [luongQuanTri, setLuongQuanTri] = useState(moQuanTriNgay ?? false);
+  // 07.03. Full screen like the five above, entered from a button on Cá nhân.
+  // It reads the same ledger that tab reads, so leaving the bar underneath
+  // would let somebody switch tabs mid-read and come back to a screen that had
+  // refetched behind them.
+  const [luongThanhTich, setLuongThanhTich] = useState(moThanhTichNgay ?? false);
   const [luongLoiMoi, setLuongLoiMoi] = useState(Boolean(moiBuoiDi));
   // The group handle, lifted out of the group screen.
   //
@@ -135,6 +186,7 @@ export function VoTab({
     "khoan-chi": () => setLuongKhoanChi(true),
     nhom: () => setLuongNhom(true),
     "ky-niem": () => setLuongKyNiem(true),
+    album: () => setLuongAlbum(true),
   };
 
   function chonTao(id: CreateActionId) {
@@ -169,7 +221,26 @@ export function VoTab({
   }
 
   if (luongKhoanChi) {
-    return <>{renderKhoanChi(() => setLuongKhoanChi(false), nguoi)}</>;
+    return <>{renderKhoanChi(() => setLuongKhoanChi(false), nguoi, nhom)}</>;
+  }
+
+  // Checked before `luongNhom` so the group screen's own button can hand over
+  // without having to close itself first: pressing "Quản trị nhóm" sets this,
+  // and this branch wins while it is set.
+  if (luongQuanTri) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
+        <StatusBar style={scheme === "dark" ? "light" : "dark"} />
+        <QuanTriNhom
+          nguoi={nguoi}
+          // Whatever this session already opened, then whatever the link
+          // named, then null -- at which point the screen finds the demo group
+          // itself. Same precedence Kỷ niệm and the widget use.
+          contextId={nhom?.id ?? nhomId ?? null}
+          onDong={() => setLuongQuanTri(false)}
+        />
+      </SafeAreaView>
+    );
   }
 
   if (luongNhom) {
@@ -181,6 +252,7 @@ export function VoTab({
           nhomDangCo={nhom}
           onNhom={setNhom}
           banQuetDuoc={banQuetDuoc ?? null}
+          onQuanTri={() => setLuongQuanTri(true)}
           onDong={() => setLuongNhom(false)}
         />
       </SafeAreaView>
@@ -196,6 +268,28 @@ export function VoTab({
     );
   }
 
+  if (luongThanhTich) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
+        <StatusBar style={scheme === "dark" ? "light" : "dark"} />
+        <ThanhTich nguoi={nguoi} onDong={() => setLuongThanhTich(false)} />
+      </SafeAreaView>
+    );
+  }
+
+  if (luongWidget) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
+        <StatusBar style={scheme === "dark" ? "light" : "dark"} />
+        <Widget
+          nguoi={nguoi}
+          contextId={nhomId ?? null}
+          onDong={() => setLuongWidget(false)}
+        />
+      </SafeAreaView>
+    );
+  }
+
   if (luongKyNiem) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
@@ -204,6 +298,30 @@ export function VoTab({
           nguoi={nguoi}
           contextId={nhomId ?? null}
           onDong={() => setLuongKyNiem(false)}
+          // F38's screen shipped reachable by URL and by nothing else -- its
+          // own header says so. A surface only an address can open is a surface
+          // no person on the demo can be shown, so the wall, which is the one
+          // screen already about this group's photographs, gets the door. The
+          // wall closes rather than stacking: two full-screen flows on top of
+          // each other give one task two ways out.
+          onMoWidget={() => {
+            setLuongKyNiem(false);
+            setLuongWidget(true);
+          }}
+        />
+      </SafeAreaView>
+    );
+  }
+
+  if (luongAlbum) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
+        <StatusBar style={scheme === "dark" ? "light" : "dark"} />
+        <AlbumChuyenDi
+          nguoi={nguoi}
+          contextId={nhomId ?? null}
+          chuyenDau={albumChuyen ?? null}
+          onDong={() => setLuongAlbum(false)}
         />
       </SafeAreaView>
     );
@@ -230,12 +348,16 @@ export function VoTab({
               moDiemHenNgay={moDiemHenNgay ?? false}
             />
           ) : null}
-          {tab === "len-plan" ? <LenPlan nguoi={nguoi} /> : null}
-          {tab === "tin-nhan" ? <TinNhan nguoi={nguoi} /> : null}
+          {tab === "len-plan" ? <LenPlan nguoi={nguoi} nhomPhien={nhom} /> : null}
+          {/* `nhom` is the state object itself, not a fresh literal built here.
+              `TinNhan` keys its open-the-group effect on this prop, and a new
+              object every render would reopen the group on every render. */}
+          {tab === "tin-nhan" ? <TinNhan nguoi={nguoi} nhomPhien={nhom} /> : null}
           {tab === "ca-nhan" ? (
             <CaNhan
               nguoi={nguoi}
               onKetBan={() => setLuongBanBe(true)}
+              onThanhTich={() => setLuongThanhTich(true)}
               nhom={
                 nhom
                   ? [{ id: nhom.id, name: nhom.display_name }]

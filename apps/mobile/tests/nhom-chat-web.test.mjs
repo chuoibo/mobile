@@ -50,6 +50,8 @@ import { after, before, describe, test } from "node:test";
 
 import { findChrome, launch, serve } from "./chrome-cdp.mjs";
 
+import { lyDoBanDungCu } from "./tuoi-ban-dung.mjs";
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const EXPORT_DIR = process.env.MOBILE_WEB_EXPORT ?? join(HERE, "..", ".expo-build-check");
 const REQUIRED = process.env.MOBILE_REQUIRE_WEB_A11Y === "1";
@@ -70,6 +72,10 @@ const O_NHAP_LABELS = [
   "Chèn biểu tượng cảm xúc",
   "Ghi âm",
   "Gửi tin nhắn",
+  // Cách duy nhất để hỏi thẳng AI. Nửa máy chủ (#378) chỉ bỏ qua nhịp khi
+  // client gửi `requested: true`, và không màn nào gửi cờ đó nếu không có
+  // nút này -- nên nút nằm ngoài mép kính đúng bằng nút không tồn tại.
+  "Hỏi Rủ Đi AI",
 ];
 
 const CHIP_LABELS = ["Chat", "Plan", "Thành viên", "File"];
@@ -124,6 +130,31 @@ function measureChipTablist() {
   });
 }
 
+/** The "AI hiểu nhóm" entry point, read back from the DOM.
+ *
+ *  It swaps the panel the way a tab does, so it is tempting to make it a fifth
+ *  chip -- and the first cut of #382 did exactly that. It is not a tab. The
+ *  panel it opens carries its own "Đóng" button and drops you back on Chat,
+ *  which is dismiss semantics; you leave a tab by choosing another tab, never
+ *  by closing it. Wired as a tab it also puts a fifth `role="tab"` in a row
+ *  whose four chips are facets of one conversation, so a screen reader offers
+ *  five things to switch between and the two Gemini-backed routes behind it
+ *  sit where a user expects a free panel swap.
+ *
+ *  Scoped to the control, not the name: the panel's own `Screen` header also
+ *  says "AI hiểu nhóm", and a bare name lookup could measure the header. */
+function measureAiHieuNhomEntry() {
+  const el = document.querySelector(
+    '[role="tab"][aria-label="AI hiểu nhóm"], [role="button"][aria-label="AI hiểu nhóm"]',
+  );
+  if (!el) return { found: false };
+  return {
+    found: true,
+    role: el.getAttribute("role"),
+    insideTablist: !!el.closest('[role="tablist"]'),
+  };
+}
+
 /** Every button that carries no text of its own needs an accessible name, or
  *  a screen reader announces "button" four times in a row. */
 function measureIconButtonNames() {
@@ -135,7 +166,13 @@ function measureIconButtonNames() {
 
 /* -------------------------------------------------------------------- gate --- */
 
-if (reasons.length && !REQUIRED) {
+// bug-010019. This gate measures a prebuilt export and opens no source file,
+// so an export older than the tree makes it name a control as missing from a
+// screen that renders it correctly. Refuse to report rather than report wrong.
+const banCu = lyDoBanDungCu(EXPORT_DIR, join(HERE, ".."));
+if (banCu) reasons.push(banCu);
+
+if (reasons.length && !REQUIRED && !banCu) {
   test(`nhóm chat trên web — BỎ QUA: ${reasons.join("; ")}`, { skip: reasons.join("; ") }, () => {});
 } else {
   describe("nhóm chat, đo trên trang render thật", () => {
@@ -238,6 +275,48 @@ if (reasons.length && !REQUIRED) {
         chip.selected.every((s) => s === "true" || s === "false"),
         `aria-selected không tới được DOM: ${JSON.stringify(chip.selected)}`,
       );
+    });
+
+    /* --- 3b. the AI entry point is a button, and it is not a fifth tab ---- */
+
+    test("'AI hiểu nhóm' là button và nằm NGOÀI tablist", async () => {
+      await moTabChat(390, 844);
+      const entry = await page.evaluate(measureAiHieuNhomEntry);
+
+      assert.ok(entry.found, "không thấy đường vào 'AI hiểu nhóm'");
+      console.log(`  role=${entry.role} · trong-tablist=${entry.insideTablist}`);
+
+      assert.equal(
+        entry.role,
+        "button",
+        "đường vào phải là button: nó mở một màn có nút 'Đóng' của riêng nó, không phải một mặt của cuộc trò chuyện",
+      );
+      assert.equal(
+        entry.insideTablist,
+        false,
+        "nút nằm trong tablist — axe gọi là aria-required-children mức critical, và trình đọc màn hình đếm thành 5 tab để chuyển qua lại",
+      );
+    });
+
+    test("bấm 'AI hiểu nhóm' vẫn mở được màn, và tablist vẫn đúng 4 tab", async () => {
+      // Moving it out of the tablist must not lose the only way in. #382 exists
+      // because these four routes had no caller at all; a fix that makes the
+      // gate green by deleting the entry point would put them back there.
+      await moTabChat(390, 844);
+      await page.clickLabel("AI hiểu nhóm");
+      await page.waitFor(
+        () =>
+          [...document.querySelectorAll('[role="button"]')].some(
+            (b) => (b.textContent || "").trim() === "Đóng",
+          ),
+        { label: "màn 'AI hiểu nhóm' mở ra" },
+      );
+
+      const lists = await page.evaluate(measureChipTablist);
+      const chip = lists.find((l) => l.names.some((n) => CHIP_LABELS.includes(n)));
+      assert.ok(chip, "hàng chip biến mất sau khi mở màn AI");
+      console.log(`  sau khi mở: tab = ${chip.names.join(" · ")}`);
+      assert.equal(chip.tabCount, 4, "tablist phải vẫn đúng 4 role=tab khi màn AI đang mở");
     });
 
     /* --- 4. aria-selected follows the tap --------------------------------- */

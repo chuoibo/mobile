@@ -47,6 +47,8 @@ from app.api.repository import (
 from app.api.service import ExpenseInput
 from app.db.models import BankRecipient
 
+from .conftest import seed_context
+
 NOW = datetime(2030, 8, 29, 12, 0, tzinfo=UTC)
 
 # Two participants, an even split of a round number, so every figure below can
@@ -62,7 +64,7 @@ class Slice:
     def __init__(self, session: Session):
         self.session = session
         self.repository = SqlAlchemyApiRepository(session)
-        self.context_id = uuid.uuid4()
+        self.context_id = seed_context(session)
         # `payer` fronts the bill; `sender` owes them a share. The names are
         # the roles the ledger uses, not the roles the screen shows.
         self.payer_id = uuid.uuid4()
@@ -109,7 +111,10 @@ class Slice:
                 "discount_amount_vnd": 0,
                 "total_amount_vnd": total_vnd,
             },
-            allocations={self.sender_id: share_vnd, self.payer_id: total_vnd - share_vnd},
+            allocations={
+                self.sender_id: share_vnd,
+                self.payer_id: total_vnd - share_vnd,
+            },
             confirmed_by_id=self.payer_id,
             payer_acknowledgement="acknowledged",
             now=NOW,
@@ -230,6 +235,7 @@ def test_a_person_with_no_ledger_rows_reads_as_zero_not_as_missing(slice_: Slice
     assert summary.spend_vnd == 0
     assert summary.settled_vnd == 0
     assert summary.outstanding_vnd == 0
+    assert summary.receivable_vnd == 0
     assert summary.expense_count == 0
     assert summary.movements == ()
 
@@ -358,6 +364,120 @@ def test_confirming_more_than_was_owed_never_makes_the_debt_negative(slice_: Sli
     assert summary.settled_vnd + summary.outstanding_vnd == summary.spend_vnd
 
 
+def test_the_payer_is_owed_the_share_they_fronted_for_somebody_else(slice_: Slice):
+    """The other half of the debt question, and the one the screen never asked.
+
+    Every test above reads the ledger from the side of the person who owes.
+    Mockup 07.02 puts three cards in a row -- *Đã trả*, *Còn nhận*, *Còn phải
+    trả* -- and the middle one is this number: what other people owe you
+    because you put the money down for them. Without it the person who fronts
+    the bill, which on the demo path is the person doing the demo, opens Cá
+    nhân after a split and reads `Còn nợ 0đ` with nothing anywhere saying that
+    150.000đ is coming back to them.
+
+    Symmetric to `outstanding_vnd` by construction: their share of the newest
+    version of every expense they paid for, less what has actually arrived.
+    Not derived from `spend_vnd` -- money advanced for other people was never
+    this person's spend, and adding the two would invent a total nobody owes.
+    """
+    slice_.confirm_expense()
+
+    summary = slice_.summary(slice_.payer_id)
+
+    assert summary.receivable_vnd == SHARE_VND, "the sender's share is owed to them"
+    assert summary.outstanding_vnd == 0, "and they owe nobody"
+    assert summary.spend_vnd == TOTAL_VND - SHARE_VND, (
+        "what they advanced for somebody else is not their own spend"
+    )
+
+
+def test_the_person_who_owes_is_not_owed_anything_back(slice_: Slice):
+    """The negative half. Without it the pair could both read the same number.
+
+    A query that forgot `participant_id != person_id` would count this
+    person's own share as money owed to themselves, and the sender -- who
+    fronted nothing -- would read *Còn nhận 150.000đ* on a dinner somebody
+    else paid for.
+    """
+    slice_.confirm_expense()
+
+    summary = slice_.summary(slice_.sender_id)
+
+    assert summary.receivable_vnd == 0
+    assert summary.outstanding_vnd == SHARE_VND
+
+
+def test_an_arrival_clears_what_the_payer_was_owed(slice_: Slice):
+    """Confirmed receipt moves both sides of the same transfer, once each."""
+    _, confirmation = slice_.confirm_expense()
+    obligation_id = slice_.publish(confirmation.expense_version_id)
+
+    before = slice_.summary(slice_.payer_id)
+    slice_.confirm_receipt(obligation_id, SHARE_VND, minute=7)
+    after = slice_.summary(slice_.payer_id)
+
+    assert before.receivable_vnd == SHARE_VND
+    assert after.receivable_vnd == 0
+    assert after.spend_vnd == before.spend_vnd, "an arrival is not a purchase"
+
+
+def test_a_partial_arrival_leaves_only_the_remainder_receivable(slice_: Slice):
+    _, confirmation = slice_.confirm_expense()
+    obligation_id = slice_.publish(confirmation.expense_version_id)
+
+    slice_.confirm_receipt(obligation_id, 50_000, minute=7)
+
+    assert slice_.summary(slice_.payer_id).receivable_vnd == SHARE_VND - 50_000
+
+
+def test_saying_you_transferred_does_not_reduce_what_the_payer_is_owed(slice_: Slice):
+    """A claim is not an arrival, read from the creditor's side this time.
+
+    `test_saying_you_transferred_settles_nothing_by_itself` pins this for the
+    debtor. The same mistake on this side is worse: it would tell the person
+    holding the money that they had been paid, on the word of the person who
+    owes them.
+    """
+    _, confirmation = slice_.confirm_expense()
+    obligation_id = slice_.publish(confirmation.expense_version_id)
+
+    report = slice_.report_payment(obligation_id, minute=7)
+
+    # Without this the case is vacuous -- it would pass against a summary that
+    # counts reports, purely because there was nothing to count.
+    assert report.amount_vnd == SHARE_VND
+    assert report.receipt_amounts_vnd == ()
+
+    assert slice_.summary(slice_.payer_id).receivable_vnd == SHARE_VND
+
+
+def test_confirming_more_than_was_owed_never_makes_the_receivable_negative(
+    slice_: Slice,
+):
+    """Same clamp as the debt, same reason: the ledger permits the state."""
+    _, confirmation = slice_.confirm_expense()
+    obligation_id = slice_.publish(confirmation.expense_version_id)
+
+    slice_.confirm_receipt(obligation_id, SHARE_VND, minute=7)
+    slice_.confirm_receipt(obligation_id, 50_000, minute=8)
+
+    assert slice_.summary(slice_.payer_id).receivable_vnd == 0
+
+
+def test_correcting_an_expense_does_not_double_what_the_payer_is_owed(slice_: Slice):
+    """Only the newest version counts, on this side of the ledger too.
+
+    `test_correcting_an_expense_does_not_count_both_versions` pins the same
+    rule for spend. A receivable query written without the newest-version
+    filter would bill the sender for the mistake and the fix together, and the
+    payer would be shown 200.000đ arriving on a dinner that cost 100.000đ.
+    """
+    expense_id, _ = slice_.confirm_expense()
+    slice_.confirm_expense(expense_id=expense_id, total_vnd=100_000, share_vnd=50_000)
+
+    assert slice_.summary(slice_.payer_id).receivable_vnd == 50_000
+
+
 def test_every_money_figure_arrives_as_a_python_int(slice_: Slice):
     """Law 1, checked at the boundary that breaks it.
 
@@ -377,9 +497,11 @@ def test_every_money_figure_arrives_as_a_python_int(slice_: Slice):
 
     summary = slice_.summary(slice_.sender_id)
 
-    for field in ("spend_vnd", "settled_vnd", "outstanding_vnd"):
+    for field in ("spend_vnd", "settled_vnd", "outstanding_vnd", "receivable_vnd"):
         value = getattr(summary, field)
-        assert type(value) is int, f"{field} came back as {type(value).__name__}: {value!r}"
+        assert type(value) is int, (
+            f"{field} came back as {type(value).__name__}: {value!r}"
+        )
 
     (movement,) = summary.movements
     assert type(movement.amount_vnd) is int, (
@@ -466,9 +588,9 @@ def test_the_two_figures_under_the_total_always_add_back_up_to_it(slice_: Slice)
     def holds(stage: str):
         for person_id in (slice_.sender_id, slice_.payer_id):
             summary = slice_.summary(person_id)
-            assert (
-                summary.settled_vnd + summary.outstanding_vnd == summary.spend_vnd
-            ), stage
+            assert summary.settled_vnd + summary.outstanding_vnd == summary.spend_vnd, (
+                stage
+            )
             assert summary.outstanding_vnd >= 0, stage
             assert summary.settled_vnd >= 0, stage
 

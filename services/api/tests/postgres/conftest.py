@@ -20,6 +20,8 @@ from sqlalchemy.engine import URL, Engine, make_url
 from sqlalchemy.orm import Session
 from sqlalchemy.schema import CreateSchema, DropSchema
 
+from app.db.models import Context, Person
+
 API_ROOT = Path(__file__).resolve().parents[2]
 DATABASE_URL_ENV = "MOBILE_TEST_DATABASE_URL"
 REQUIRE_POSTGRES_ENV = "MOBILE_REQUIRE_POSTGRES_TESTS"
@@ -48,6 +50,33 @@ def _schema_url(database_url: URL, schema_name: str) -> URL:
     return database_url.update_query_dict(
         {"options": f"-csearch_path={schema_name}"}, append=False
     )
+
+
+def seed_context(
+    session: Session,
+    context_id: uuid.UUID | None = None,
+    *,
+    created_by_id: uuid.UUID | None = None,
+    display_name: str = "Nhóm test",
+) -> uuid.UUID:
+    """Persist a real context and, when needed, its synthetic creator."""
+
+    if created_by_id is None:
+        creator = Person(display_name="Người tạo test")
+        session.add(creator)
+        session.flush()
+        created_by_id = creator.id
+
+    context_id = context_id or uuid.uuid4()
+    session.add(
+        Context(
+            id=context_id,
+            display_name=display_name,
+            created_by_id=created_by_id,
+        )
+    )
+    session.flush()
+    return context_id
 
 
 @pytest.fixture(scope="session")

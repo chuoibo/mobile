@@ -31,6 +31,7 @@ export function DongThoiGian({
   checkins = [],
   toiId = null,
   onCheckIn,
+  onMoi,
   onLuu,
   onQuayLai,
 }: {
@@ -45,6 +46,10 @@ export function DongThoiGian({
   /** Omitted when check-in is not available (no group handle, no identity),
    *  which is what hides the button rather than showing a dead one. */
   onCheckIn?: (stopId: string) => void;
+  /** F14. Opens the invite screen for THIS trip. Omitted for the same reason
+   *  `onCheckIn` is: inviting needs a group handle and an identity, and a
+   *  button that cannot post is worse than no button. */
+  onMoi?: () => void;
   onLuu: (stops: ChangGui[]) => void;
   onQuayLai: () => void;
 }) {
@@ -114,6 +119,15 @@ export function DongThoiGian({
             twice. */}
         <Card>
           <TheChuyen buoi={buoi} tong={tong} />
+          {/* F14. Inside the trip card rather than down beside "Thêm chặng":
+              rủ thêm người is something you decide while looking at who is
+              going and what it costs each of them, and those two numbers are
+              the two lines directly above this button. */}
+          {onMoi ? (
+            <View style={{ alignSelf: "flex-start", marginTop: space.xs }}>
+              <Button label="Mời thêm người vào chuyến" tone="quiet" onPress={onMoi} />
+            </View>
+          ) : null}
         </Card>
 
         {theoGio.length === 0 ? (

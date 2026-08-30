@@ -61,7 +61,9 @@ def _analyse(source: str) -> list:
         target = pathlib.Path(tmp) / "mau.ts"
         target.write_text(source, encoding="utf-8")
         return [
-            r for r in mod.build_graph([target]) if r.requester and r.paths and not r.actor
+            r
+            for r in mod.build_graph([target])
+            if r.requester and r.paths and not r.actor
         ]
 
 
@@ -330,6 +332,106 @@ export async function chao(ten: string, so: number): Promise<void> {
             region.unresolved,
             [],
             f"chuỗi hiển thị bị coi là URL không đọc được: {region.unresolved}",
+        )
+
+
+class BlindIsNotTheSameAnswerAsBroken(unittest.TestCase):
+    """Hai trạng thái khác nhau phải ra hai mã thoát khác nhau.
+
+    Đây là chuyện đã thật sự xảy ra ở #379. Cổng gặp một URL dựng bằng biến,
+    không phân giải được, và in ra `HỎNG` + mã 1 — đúng cùng một chữ và đúng
+    cùng một mã với "client quên gửi header". QA đọc phán quyết đó thành FAIL,
+    rồi phải tự trèo lên đọc mã nguồn mới kết luận được "sản phẩm ĐÚNG, giấy tờ
+    thiếu". Người đọc sau sẽ không trèo.
+
+    'Tôi không đọc được chỗ này' và 'chỗ này thiếu header' là hai câu khác nhau:
+    câu đầu là khuyết tật của CỔNG, câu sau là khuyết tật của SẢN PHẨM. Gộp
+    chúng làm một thì mã thoát mất hết thông tin, và một chỗ mù thật sẽ được sửa
+    bằng cách sửa nhầm client.
+
+    Chỗ mù VẪN đỏ — mã 2 vẫn khác 0, `gate.sh` vẫn chặn. Điều đổi là nó ĐƯỢC GỌI
+    ĐÚNG TÊN. Làm nó xanh mới là sai: một chỗ cổng không đọc được có thể đang
+    giấu một header thiếu thật.
+    """
+
+    #: Sản phẩm ĐÚNG — có gửi header — nhưng URL ghép từ bảng tra nên cổng
+    #: không lần ra route. Đây là hình dạng của album-api.ts:158 ở #379.
+    BLIND_BUT_CORRECT = """
+const BASE = "http://x";
+const ENDPOINTS = { search: "/places/search" };
+export async function askSearch(query: string, actorId: string): Promise<void> {
+  await fetch(`${BASE}${ENDPOINTS.search}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Actor-ID": actorId },
+    body: JSON.stringify({ query }),
+  });
+}
+"""
+
+    #: Sản phẩm SAI thật — route đọc được, header không có. bug-191433.
+    READABLE_AND_BROKEN = """
+const BASE = "http://x";
+export async function askSearch(query: string): Promise<void> {
+  await fetch(`${BASE}/places/search`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query }),
+  });
+}
+"""
+
+    def _run_with(self, source: str) -> subprocess.CompletedProcess:
+        """Thả một file vào cây client thật rồi chạy cổng, y như --selftest làm."""
+        import check_actor_headers as mod
+
+        target = mod.CLIENT_DIR / "__actor_exit_code_case__.ts"
+        target.write_text(source, encoding="utf-8")
+        try:
+            return _run()
+        finally:
+            target.unlink(missing_ok=True)
+
+    def test_a_url_it_cannot_read_exits_two_not_one(self):
+        done = self._run_with(self.BLIND_BUT_CORRECT)
+        self.assertEqual(
+            done.returncode,
+            2,
+            "chỗ cổng không đọc được URL phải ra mã 2 (không đo được), không "
+            f"phải mã {done.returncode}:\n{done.stdout}\n{done.stderr}",
+        )
+
+    def test_a_missing_header_exits_one(self):
+        done = self._run_with(self.READABLE_AND_BROKEN)
+        self.assertEqual(
+            done.returncode,
+            1,
+            "thiếu header thật phải ra mã 1 (sản phẩm sai):\n"
+            f"{done.stdout}\n{done.stderr}",
+        )
+
+    def test_the_two_cases_do_not_print_the_same_word(self):
+        """Mã thoát tách rồi mà chữ vẫn y hệt thì người đọc log vẫn bị lừa."""
+        blind = self._run_with(self.BLIND_BUT_CORRECT).stdout
+        broken = self._run_with(self.READABLE_AND_BROKEN).stdout
+        self.assertNotIn(
+            "HỎNG",
+            blind,
+            "chỗ mù bị gọi là HỎNG — đó chính là chữ đã làm QA đọc #379 thành "
+            f"'sản phẩm sai':\n{blind}",
+        )
+        self.assertIn("HỎNG", broken, f"vi phạm thật phải được gọi là HỎNG:\n{broken}")
+
+    def test_a_real_violation_wins_over_a_blind_spot(self):
+        """Có cả hai thì mã phải là 1.
+
+        Vi phạm đã xác nhận là cái hành động được; nếu chỗ mù ghi đè nó thành 2
+        thì một header thiếu thật sẽ bị báo cáo là 'cổng không đọc được'.
+        """
+        done = self._run_with(self.BLIND_BUT_CORRECT + self.READABLE_AND_BROKEN)
+        self.assertEqual(
+            done.returncode,
+            1,
+            f"vi phạm thật bị chỗ mù che mất:\n{done.stdout}\n{done.stderr}",
         )
 
 

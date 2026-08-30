@@ -39,7 +39,7 @@ import {
   taoBill,
 } from "../../dist-test/api.js";
 import { khoiDongNhom } from "../../dist-test/screens/chat/nhom.js";
-import { DEMO_PEOPLE } from "../../dist-test/navigation/nhom-demo.js";
+import { DEMO_PEOPLE, personById } from "../../dist-test/navigation/nhom-demo.js";
 
 /* Tự chứa, không dùng chung helper với `vertical-slice.test.mjs`.
  *
@@ -66,7 +66,13 @@ function tenCuaNguoi(personId, displayName) {
 async function moNhom() {
   let state = null;
   for (const slug of SLUGS) {
-    state = await khoiDongNhom(slug, { base: BASE_URL });
+    // `khoiDongNhom` takes the person, not the slug (bug-223337): a slug has no
+    // `.personId`, so passing one addresses `PUT /people/undefined` and the run
+    // dies at `dat-ten` on `X-Actor-ID must be a UUID`. `.mjs` is not typed, so
+    // only a live run says so.
+    const nguoiDangNhap = personById(slug);
+    assert.ok(nguoiDangNhap, `khong co nguoi "${slug}" trong nhom demo`);
+    state = await khoiDongNhom(nguoiDangNhap, { base: BASE_URL });
     if (state.kind !== "xong") {
       assert.fail(
         `khong mo duoc nhom o buoc "${state.buoc}" (${state.status}) ${state.url}: ${state.detail}`,

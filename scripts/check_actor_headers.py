@@ -76,6 +76,15 @@ Dùng:
     python3 scripts/check_actor_headers.py --selftest # tự kiểm bằng canary
 
 Mã thoát: 0 đạt, 1 có vi phạm, 2 cổng không làm được việc của nó.
+
+`2` gồm cả chỗ dựng URL không phân giải được. Ba trạng thái, không phải hai:
+"client quên header" là khuyết tật của SẢN PHẨM, "tôi không đọc nổi URL này" là
+khuyết tật của CỔNG, và trước 31/08 cả hai đều in `HỎNG` rồi thoát `1`. Ở #379
+điều đó làm QA đọc phán quyết thành FAIL cho một client vốn GỬI ĐÚNG header; họ
+phải tự đọc mã nguồn mới gỡ ra được, và người đọc sau sẽ không đọc.
+
+Chỗ mù vẫn ĐỎ — `2` khác `0`, `gate.sh` vẫn chặn — nó chỉ được gọi đúng tên.
+Làm nó xanh mới là sai: chỗ cổng không đọc được có thể đang giấu header thiếu.
 """
 
 from __future__ import annotations
@@ -95,6 +104,12 @@ CLIENT_DIR = REPO_ROOT / "apps" / "mobile" / "src"
 UNRESOLVED_PIN = REPO_ROOT / ".actor-header-unresolved.json"
 
 ACTOR_HEADER = "X-Actor-ID"
+
+# Three answers, not two. `CANNOT_READ` is the gate admitting a blind spot; it
+# must never be folded into `VIOLATION`, which is a confirmed product defect.
+EXIT_OK = 0
+EXIT_VIOLATION = 1
+EXIT_CANNOT_READ = 2
 
 # Identifiers that stand for "the person this request acts as". Used only to
 # tell "delegates to a header helper and passes an actor" from "delegates to a
@@ -481,6 +496,8 @@ def passes_an_actor(caller: Region, name: str) -> bool:
         if "{" not in blob:
             return True
     return False
+
+
 IMPORT = re.compile(
     r"""import\s*\{(?P<names>[^}]*)\}\s*from\s*["'](?P<from>[^"']+)["']""",
 )
@@ -640,7 +657,7 @@ def load_pins() -> dict:
 
 def die(msg: str) -> None:
     print(f"cổng không làm được việc của nó: {msg}", file=sys.stderr)
-    raise SystemExit(2)
+    raise SystemExit(EXIT_CANNOT_READ)
 
 
 def analyse() -> tuple[list[Violation], list[tuple[str, str]], list[Region], int]:
@@ -699,8 +716,10 @@ def main() -> int:
     pins = load_pins()
     pinned = {p["where"] for p in pins.get("unresolved", [])}
 
-    print(f"Cổng header actor — {len(client_files())} file client, "
-          f"{call_sites} lời gọi tới route đòi {ACTOR_HEADER}.")
+    print(
+        f"Cổng header actor — {len(client_files())} file client, "
+        f"{call_sites} lời gọi tới route đòi {ACTOR_HEADER}."
+    )
 
     if args.list:
         print()
@@ -717,12 +736,12 @@ def main() -> int:
         )
 
     new_unresolved = [r for r in unresolved if r.where not in pinned]
-    rc = 0
 
     if violations:
-        rc = 1
         print()
-        print(f"HỎNG — {len(violations)} chỗ gọi route đòi {ACTOR_HEADER} mà không gửi:")
+        print(
+            f"HỎNG — {len(violations)} chỗ gọi route đòi {ACTOR_HEADER} mà không gửi:"
+        )
         for v in violations:
             print(f"  {v.method} {v.path}")
             print(f"      {v.where}")
@@ -731,25 +750,37 @@ def main() -> int:
         print("sự cố máy chủ. Sửa ở phía client, hoặc nếu route KHÔNG nên đòi")
         print("actor thì sửa ở phía route — nhưng phải sửa một trong hai.")
 
+    # Deliberately not the word `HỎNG`. This block says nothing about whether
+    # the client is correct -- it says this reader could not tell. Both blocks
+    # print when both apply; only the exit code has to pick one.
     if new_unresolved:
-        rc = 1
         print()
-        print(f"HỎNG — {len(new_unresolved)} chỗ dựng URL mà cổng không phân giải được:")
+        print(f"MÙ — {len(new_unresolved)} chỗ dựng URL mà cổng không phân giải được:")
         for r in new_unresolved:
             print(f"  {r.where}")
             for lit in r.unresolved[:3]:
                 print(f"      {lit[:90]}")
         print()
-        print("Viết lại đường dẫn thành template literal mà cổng đọc được, hoặc")
-        print(f"ghim vào {UNRESOLVED_PIN.name} — ghim là nói ra chỗ mù, không")
-        print("phải xoá nó:")
+        print("Đây KHÔNG phải kết luận là client thiếu header — cổng chưa đọc")
+        print("được chỗ này nên chưa kết luận được gì. Viết lại đường dẫn thành")
+        print(f"template literal mà cổng đọc được, hoặc ghim vào {UNRESOLVED_PIN.name}")
+        print("— ghim là nói ra chỗ mù, không phải xoá nó:")
         print('  {"unresolved": [{"where": "<đúng dòng ở trên>", "reason": "..."}]}')
 
-    if rc == 0:
-        pinned_now = len([r for r in unresolved if r.where in pinned])
-        print(f"ĐẠT — {call_sites} lời gọi đều gửi {ACTOR_HEADER}"
-              f"{f', {pinned_now} chỗ mù đã ghim' if pinned_now else ''}.")
-    return rc
+    # A confirmed defect outranks a blind spot: it is the one somebody can act
+    # on, and letting `MÙ` overwrite it would report a real missing header as
+    # "could not read".
+    if violations:
+        return EXIT_VIOLATION
+    if new_unresolved:
+        return EXIT_CANNOT_READ
+
+    pinned_now = len([r for r in unresolved if r.where in pinned])
+    print(
+        f"ĐẠT — {call_sites} lời gọi đều gửi {ACTOR_HEADER}"
+        f"{f', {pinned_now} chỗ mù đã ghim' if pinned_now else ''}."
+    )
+    return EXIT_OK
 
 
 # --------------------------------------------------------------------------

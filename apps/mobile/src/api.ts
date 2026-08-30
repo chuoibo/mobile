@@ -916,6 +916,64 @@ export async function saveBankRecipient(
   };
 }
 
+/** A saved destination, read back, plus when it was put on file. */
+export type StoredBankRecipient = SavedBankRecipient & {
+  /** ISO-8601 from the server. When this destination was last written -- the
+   *  one fact the write path cannot tell a screen, because the screen that
+   *  just saved already knows it was now. */
+  confirmedAt: string;
+};
+
+/**
+ * Read the destination already on file for one person.
+ *
+ * `GET /bank-recipients/{recipient_id}`, which nothing in this app called
+ * before. The hole it leaves is small and real: the account form always opened
+ * empty, so somebody who had already set a destination could not tell that from
+ * having none, and the only way to find out was to type one in again.
+ *
+ * `null` for 404 rather than a throw. "This person has no destination yet" is
+ * the ordinary state of a new group, not a failure, and a caller that has to
+ * catch an exception to render an empty form will eventually catch a 403 with
+ * it. Every other status still throws.
+ *
+ * The number comes back masked, for the reason stated on `SavedBankRecipient`:
+ * this is a READ, so unlike the form there is no copy of the digits anywhere on
+ * this side that a screen could be tempted to show in full.
+ */
+export async function docTaiKhoanNhan(
+  recipientId: string,
+  actorId: string,
+): Promise<StoredBankRecipient | null> {
+  let result: {
+    recipient_id: string;
+    bank_bin: string;
+    bank_name: string;
+    bank_recognised: boolean;
+    account_number: string;
+    account_name: string | null;
+    confirmed_at: string;
+  };
+  try {
+    result = await call(`/bank-recipients/${recipientId}`, {
+      method: "GET",
+      actorId,
+    });
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return null;
+    throw e;
+  }
+  return {
+    recipientId: result.recipient_id,
+    bankBin: result.bank_bin,
+    bankName: result.bank_name,
+    bankRecognised: result.bank_recognised,
+    accountMasked: maskAccount(result.account_number),
+    accountName: result.account_name,
+    confirmedAt: result.confirmed_at,
+  };
+}
+
 export async function openBatch(
   proposal: PendingProposal,
   expenseVersionId: string,
@@ -1795,6 +1853,72 @@ export async function docKyNiem(
   return result.memories ?? [];
 }
 
+/* ------------------------------------------- F38, the home widget (rd-fe-38) */
+
+/** The one photograph a widget draws, as `WidgetPhotoResponse` sends it.
+ *
+ * Deliberately not a `KyNiemWire`. The server made the same choice on its side
+ * and said why: a widget renders outside the app, next to a lock screen, and
+ * the wall's row carries a cursor, two social counters, `viewer_has_reacted`
+ * and four location columns -- four more group-private fields on a surface
+ * somebody else can read over your shoulder. Mirroring the narrower shape here
+ * means a screen that accidentally reaches for `place_name` does not compile
+ * rather than rendering a blank.
+ *
+ * `author_name` arrives already resolved, for the same reason the comment feed
+ * resolves `display_name`: a second lookup keyed on `author_id` is a second
+ * answer to "who posted this", and the two disagree the moment somebody renames
+ * themselves between the two calls.
+ */
+export type AnhWidgetWire = {
+  memory_id: string;
+  /** The relative `/contexts/{id}/photos/{id}` address the wall stores. It is
+   *  permission-checked, so it goes through `Anh` with a `nguoiXem`, never
+   *  straight into an `<Image>`. */
+  image_url: string;
+  caption: string | null;
+  author_id: string;
+  author_name: string;
+  created_at: string;
+};
+
+/** What one group's widget shows right now, or that it shows nothing.
+ *
+ * `photo: null` is a 200 and a real state, not a failure: a group that has not
+ * hung a photograph yet has answered the question honestly. The server refuses
+ * to spell that as a 404 on purpose -- a second status code separating "empty"
+ * from "forbidden" is exactly the difference a stranger is fishing for -- and
+ * this client must not reintroduce the distinction by treating an empty body
+ * as an error. */
+export type WidgetWire = {
+  context_id: string;
+  photo: AnhWidgetWire | null;
+};
+
+/**
+ * F38. Read the newest photograph of one group.
+ *
+ * No body and no query string, because the route has neither. There is
+ * therefore no field in which this client could name a person, a row, or a
+ * group other than the one in the path -- the actor is the header, the group is
+ * the address. Adding one would be inventing a request shape the server never
+ * agreed to.
+ *
+ * Group-private: a non-member gets 403 whatever the roles header claims, since
+ * the service asks the roster rather than believing `X-Actor-Contexts`.
+ */
+export async function docWidget(
+  contextId: string,
+  actorId: string,
+): Promise<WidgetWire> {
+  return translated<WidgetWire>(ANH_REFUSALS, `/contexts/${contextId}/widget`, {
+    method: "GET",
+    actorId,
+    roles: "member",
+    contexts: contextId,
+  });
+}
+
 /* ------------------------------- hearts and comments on the wall (rd-fe-33) */
 
 /**
@@ -2118,6 +2242,89 @@ export async function luuGanMon(
   });
 }
 
+/** What the server makes of a STORED bill's ticks. */
+export type ChiaBill = {
+  /** Person id -> đồng. Integer đồng throughout; the server sends integers and
+   *  nothing on this side divides. */
+  allocations: Record<string, number>;
+  /** Person id -> the exact rational share, as the server printed it. Carried
+   *  because it is the working behind a dong that looks one off. */
+  exactShares: Record<string, string>;
+  roundingGainers: string[];
+  warnings: string[];
+  /** Whether the ticks this split was computed from are a decision or still the
+   *  reader's guess. The screen says which; it does not decide. */
+  assignmentState: "confirmed" | "ai_suggested";
+  suggestedItemKeys: string[];
+  totalAmountVnd: number;
+};
+
+/** The wire shape of `POST /bills/{id}/split`, snake_case as the server sends it.
+ *
+ * Named rather than written inline at the call site, and it has to stay named.
+ * `scripts/check_actor_headers.py` finds a `call<T>(...)` by matching the type
+ * argument with `<[^<>()]*>`, which cannot span the nested `<>` of a
+ * `Record<string, number>`. Inline, the whole call went unseen, the gate read
+ * "no arguments" as "no actor passed", and it failed this function for an
+ * omission that is not there -- the headers below have always been sent.
+ */
+type ChiaBillWire = {
+  allocation: {
+    allocations: Record<string, number>;
+    exact_shares: Record<string, string>;
+    rounding_gainers: string[];
+    warnings: string[];
+  };
+  assignment_state: "confirmed" | "ai_suggested";
+  suggested_item_keys: string[];
+  total_amount_vnd: number;
+};
+
+/**
+ * Ask the server to split a bill it already stored.
+ *
+ * Not `previewSplit`. That one posts a fresh `POST /expenses` built from the
+ * matrix this phone is holding, which is the right call while somebody is still
+ * ticking boxes. This one names a bill id and nothing else: the server reads the
+ * shares IT has, against the roster IT has, and answers. So it is the only way
+ * to ask "what does the server think this bill costs each of us" -- and the only
+ * way for the two to be caught disagreeing.
+ *
+ * The body carries no identity. `BillSplitRequest` has a `paid_by_id`, which is
+ * for writing the split into the ledger; a preview does not need one and does
+ * not send one, so there is no field here in which a caller could name somebody
+ * else. `for_ledger` stays at its `false` default for the same reason: this call
+ * must not write.
+ *
+ * Nothing is computed on this side. Every dong shown from this response is a
+ * dong the allocator produced -- two divisions in one product is how one dinner
+ * shows two numbers.
+ */
+export async function docChiaBill(
+  billId: string,
+  actorId: string,
+  contextId: string,
+  attempt: Attempt,
+): Promise<ChiaBill> {
+  const result = await call<ChiaBillWire>(`/bills/${billId}/split`, {
+    method: "POST",
+    // Empty on purpose -- see above. `for_ledger` defaults false server-side.
+    body: {},
+    actorId,
+    attempt,
+    contexts: contextId,
+  });
+  return {
+    allocations: result.allocation.allocations,
+    exactShares: result.allocation.exact_shares,
+    roundingGainers: result.allocation.rounding_gainers,
+    warnings: result.allocation.warnings ?? [],
+    assignmentState: result.assignment_state,
+    suggestedItemKeys: result.suggested_item_keys,
+    totalAmountVnd: result.total_amount_vnd,
+  };
+}
+
 /**
  * Who owes whom across this group, net of everything in the ledger.
  *
@@ -2260,4 +2467,242 @@ export async function docTuongNguoi(
     { method: "GET", actorId },
   );
   return result.posts ?? [];
+}
+
+/* ------------------------------------------- group voting, F17 (rd-fe-17) */
+
+/**
+ * One choice on the ballot, as the server counts it.
+ *
+ * `ballot_count` arrives already tallied. The app must not recount it from
+ * anything else it holds: `src/screens/chat/binh-chon.ts` folds ballots out of
+ * chat messages for the older message-backed card, and two live vote counters
+ * in one product is the same class of failure as two splitters. These types
+ * are the server's answer, and nothing here derives a second one.
+ */
+export type LuaChonWire = {
+  id: string;
+  position: number;
+  label: string;
+  place_name: string | null;
+  ballot_count: number;
+};
+
+/**
+ * One vote, with the result already decided by the domain.
+ *
+ * Four fields carry the outcome and none of them is computed here:
+ *
+ *  - `leading_option_ids` is every option level at the top. It has more than
+ *    one entry exactly when the vote is tied.
+ *  - `is_tie` says so directly, so no screen has to infer a tie from a list
+ *    length and get it wrong on the empty-vote case.
+ *  - `decided_option_id` is null while it is tied and while it is open. A
+ *    screen that wants "the winner" must read this and accept null, never
+ *    fall back to `leading_option_ids[0]` -- picking the first of a tie is
+ *    choosing a side the group did not choose.
+ *  - `my_option_id` is the caller's own ballot, resolved from the actor
+ *    header. There is no request field that could name anybody else.
+ */
+export type CuocBinhChonWire = {
+  id: string;
+  context_id: string;
+  outing_id: string | null;
+  created_by_id: string;
+  question: string;
+  created_at: string;
+  closed_at: string | null;
+  is_closed: boolean;
+  options: LuaChonWire[];
+  total_ballots: number;
+  leading_option_ids: string[];
+  is_tie: boolean;
+  decided_option_id: string | null;
+  my_option_id: string | null;
+};
+
+/** The receipt for one ballot. `replaced_previous_ballot` is how the screen
+ *  knows to say "đã đổi phiếu" rather than "đã bỏ phiếu". */
+export type PhieuDaBoWire = {
+  vote_id: string;
+  option_id: string;
+  voter_id: string;
+  created_at: string;
+  updated_at: string;
+  replaced_previous_ballot: boolean;
+};
+
+/**
+ * What a refused ballot means to the person holding the phone.
+ *
+ * `vote_closed` is the one worth having words for: it is not an error the
+ * person can fix, it is news. Somebody closed the vote between the screen
+ * loading and the tap landing, and the answer is to re-read the result, not
+ * to try again.
+ */
+const BINH_CHON_REFUSALS: Record<string, string> = {
+  vote_closed:
+    "Cuộc bình chọn này đã đóng nên không đổi phiếu được nữa. Kéo xuống để xem kết quả.",
+  vote_already_closed:
+    "Cuộc bình chọn này đã đóng nên không đổi phiếu được nữa. Kéo xuống để xem kết quả.",
+  option_not_found:
+    "Lựa chọn này không còn trong cuộc bình chọn. Tải lại rồi chọn lại giúp mình.",
+  permission_denied:
+    "Bạn không ở trong nhóm này nên không xem được cuộc bình chọn.",
+  not_vote_creator:
+    "Chỉ người mở cuộc bình chọn mới đóng được nó.",
+};
+
+/** Every vote in one group, newest handling left to the server's order. */
+export async function docDanhSachBinhChon(
+  contextId: string,
+  actorId: string,
+): Promise<CuocBinhChonWire[]> {
+  const result = await translated<{ context_id: string; votes: CuocBinhChonWire[] }>(
+    BINH_CHON_REFUSALS,
+    `/contexts/${contextId}/votes`,
+    { method: "GET", actorId, roles: "member", contexts: contextId },
+  );
+  return result.votes ?? [];
+}
+
+/** One vote and its current tally. Members only, enforced server-side. */
+export async function docBinhChon(
+  voteId: string,
+  actorId: string,
+  contextId: string,
+): Promise<CuocBinhChonWire> {
+  return translated<CuocBinhChonWire>(BINH_CHON_REFUSALS, `/votes/${voteId}`, {
+    method: "GET",
+    actorId,
+    roles: "member",
+    contexts: contextId,
+  });
+}
+
+/**
+ * Cast, or change, this caller's ballot.
+ *
+ * The body carries `option_id` and nothing else -- there is no `voter_id` to
+ * send, because the server reads the voter off the actor header. Changing your
+ * mind is the same call with a different option, which is why no
+ * `Idempotency-Key` is sent: the route is idempotent by design, and a key
+ * fingerprinted on method + path + body would refuse the honest case of
+ * somebody tapping back onto the option they had already chosen.
+ */
+export async function boPhieu(
+  voteId: string,
+  optionId: string,
+  actorId: string,
+  contextId: string,
+): Promise<PhieuDaBoWire> {
+  return translated<PhieuDaBoWire>(BINH_CHON_REFUSALS, `/votes/${voteId}/ballots`, {
+    method: "POST",
+    body: { option_id: optionId },
+    actorId,
+    roles: "member",
+    contexts: contextId,
+  });
+}
+
+/**
+ * Close the vote. The answer is the vote re-read, not an acknowledgement.
+ *
+ * The caller replaces its state with the response for the same reason
+ * `luuGanMon` does: `is_closed`, `decided_option_id` and `is_tie` become true
+ * because the server said so, not because the app decided locally that the
+ * tap had worked.
+ */
+export async function dongBinhChon(
+  voteId: string,
+  actorId: string,
+  contextId: string,
+): Promise<CuocBinhChonWire> {
+  return translated<CuocBinhChonWire>(BINH_CHON_REFUSALS, `/votes/${voteId}/close`, {
+    method: "POST",
+    actorId,
+    roles: "member",
+    contexts: contextId,
+  });
+}
+
+/* -------------------------------------- self-tagging, F22 (rd-fe-22) */
+
+/**
+ * Claim the dishes you ate. Only ever your own.
+ *
+ * `item_keys` is the caller's COMPLETE set of claims on this bill, not an
+ * addition to it -- the server releases every key absent from the list. That
+ * is how a mis-tap is undone without a second endpoint, and it is why the
+ * screen sends the whole tick state rather than a delta.
+ *
+ * There is no `participant_id` in the body and there cannot be one: the
+ * server's model forbids extra fields, so a body naming anybody is a 422
+ * before a line of its code runs. The person charged is the caller.
+ */
+export async function nhanMonCuaToi(
+  billId: string,
+  itemKeys: readonly string[],
+  actorId: string,
+  contextId: string,
+): Promise<BillWire> {
+  return call<BillWire>(`/bills/${billId}/my-items`, {
+    method: "POST",
+    body: { item_keys: [...itemKeys] },
+    actorId,
+    roles: "member",
+    contexts: contextId,
+  });
+}
+
+/**
+ * One rectangle on a group photograph, as a fraction of the image.
+ *
+ * Fractions rather than pixels, so the overlay is drawn against whatever size
+ * the frame happens to be laid out at. There is nothing identifying in here:
+ * `box_key` is an ordinal within one response, is not derived from the pixels,
+ * and is NOT stable between requests -- so two responses cannot be joined on
+ * it, and a claim stored against one is meaningless after a re-scan.
+ */
+export type OKhuonMatWire = {
+  box_key: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type KhuonMatWire = {
+  photo_id: string;
+  boxes: OKhuonMatWire[];
+};
+
+const KHUON_MAT_REFUSALS: Record<string, string> = {
+  rate_limited:
+    "Máy đang tìm khuôn mặt cho nhiều tấm quá. Chờ một chút rồi thử lại giúp mình.",
+  face_detection_unavailable:
+    "Máy chưa tìm được khuôn mặt trên tấm này. Bạn vẫn chọn người bằng tay được.",
+  permission_denied:
+    "Bạn không ở trong nhóm này nên không mở được tấm ảnh.",
+};
+
+/**
+ * Find the faces in one group photograph the caller may already see.
+ *
+ * POST on a route that reads and stores nothing, which looks wrong until you
+ * read the server's note: a GET invites a client to poll it and a remounting
+ * screen to re-issue it, and each run is a multi-megapixel cascade on the box
+ * the money routes share. There is no request body, so there is no field
+ * through which this app could name a person or pick a detector.
+ */
+export async function timKhuonMat(
+  contextId: string,
+  photoId: string,
+  actorId: string,
+): Promise<KhuonMatWire> {
+  return translated<KhuonMatWire>(
+    KHUON_MAT_REFUSALS,
+    `/contexts/${contextId}/photos/${photoId}/face-boxes`,
+    { method: "POST", actorId, roles: "member", contexts: contextId },
+  );
 }

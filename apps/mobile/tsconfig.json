@@ -2,5 +2,31 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true
-  }
+  },
+  // Build output is not source. Without this list the default include pattern
+  // `**/*` pulled `dist-test/` -- what `tsc -p tsconfig.test.json` writes --
+  // into the same program as `src/`, and `tsc --noEmit` type-checked the
+  // compiler's own output. Two consequences, both of them real failures:
+  //
+  //   1. `Tuong.tsx` and `tuong.ts` compiled to `Tuong.js` and `tuong.js`, and
+  //      the pair took the mobile stage down with TS1149. The source pair is
+  //      gone (`tuong.ts` is now `bai-dang.ts`), but the emitted pair was the
+  //      messenger, not the fault.
+  //   2. A renamed or deleted module leaves its stale `.js` behind, so the
+  //      gate stays red on a machine that once built the old tree and green on
+  //      a fresh clone. That is a gate whose answer depends on what happened
+  //      here yesterday.
+  //
+  // `node_modules` is repeated because naming `exclude` at all replaces the
+  // default list rather than adding to it. `tests/ten-module-trung-chu-hoa
+  // .test.mjs` plants a collision in `dist-test/` and requires the compiler to
+  // stay silent, so this line cannot rot into a comment.
+  "exclude": [
+    "node_modules",
+    "dist-test",
+    ".expo-build-check",
+    ".expo",
+    "dist",
+    "web-build"
+  ]
 }

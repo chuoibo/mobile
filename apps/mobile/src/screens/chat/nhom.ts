@@ -8,6 +8,11 @@
  * `permission_denied` with certainty, and the thread would then look empty
  * for a reason the empty-state copy could not name.
  *
+ * That is the story of `khoiDongNhom`, which is now the *fallback*. When the
+ * session has already opened a group of its own on F03/F04, `moNhomChoMan`
+ * hands that one to the screen instead and only step 4 runs: the id is in
+ * hand, so none of the reconstruction below is needed or wanted.
+ *
  * So this file builds the group the way `scripts/seed_demo_data.py` does,
  * through the HTTP API, in four steps that are stable under retry:
  *
@@ -68,7 +73,12 @@
  */
 
 import { chiTietLoi } from "../../ui/loi-tren-man";
-import { DEMO_GROUP_NAME, DEMO_PEOPLE, personById } from "../../navigation/nhom-demo";
+import {
+  DEMO_GROUP_NAME,
+  DEMO_PEOPLE,
+  type NguoiDung,
+  personById,
+} from "../../navigation/nhom-demo";
 import { KHONG_GIAN_DEMO, idNguoi, khoaGhi } from "./uuid5";
 
 declare const process: { env: Record<string, string | undefined> };
@@ -275,24 +285,77 @@ async function datTen(
   });
 }
 
+/** A group this session already opened, as `screens/vao-cua/cong-api.ts`
+ *  returns it. Only the two fields a screen needs are named, so `TinNhan` can
+ *  take the handle without importing the entry door's wire types. */
+export type NhomPhien = { id: string; display_name: string };
+
 /**
- * Open (or replay) the demo group under the signed-in slug, then return the
- * real members. Never throws.
+ * Read the members of a group the session already holds a handle to.
+ *
+ * The three writes `khoiDongNhom` performs exist to *reach* the demo group:
+ * there is no `GET /contexts`, so replaying `POST /contexts` under a derived
+ * key is the only route back to it. A group the person opened themselves on
+ * F03/F04 needs none of that -- the id is in hand and they are already its
+ * admin -- so this is step 4 alone.
+ *
+ * Sending the create anyway would be worse than wasteful: it would name a
+ * second group beside the one they are looking at.
  */
-export async function khoiDongNhom(
-  slug: string,
+export async function moNhomDaCo(
+  nhom: NhomPhien,
+  nguoi: NguoiDung,
   opts: { base?: string } = {},
 ): Promise<NhomState> {
   const base = opts.base ?? NHOM_BASE_URL;
-  const nguoi = personById(slug);
-  if (!nguoi) {
-    return hong(
-      "dat-ten",
-      `${goc(base)}/people`,
-      0,
-      `không có người "${slug}" trong nhóm demo, không bịa một người khác`,
-    );
-  }
+  return docRoster(base, nhom.id, nhom.display_name, nguoi);
+}
+
+/**
+ * The group a screen should show, given who is signed in and whether this
+ * session has already opened one of its own.
+ *
+ * Order matters and it is the whole of bug-223337. Chat used to resolve the
+ * group one way only -- rebuild the seeded demo group -- so the group on
+ * screen was never the group the person was in. A session that opened its own
+ * group was ignored, and a person who registered themselves was refused
+ * outright.
+ *
+ * The demo group stays as the fallback rather than being dropped: somebody who
+ * signs in and taps Tin nhắn without first creating a group still has to land
+ * in a conversation, and joining Team Đà Lạt happens through the real invite
+ * and accept routes, not by asserting membership the server never granted.
+ */
+export async function moNhomChoMan(
+  nguoi: NguoiDung,
+  nhomPhien: NhomPhien | null,
+  opts: { base?: string } = {},
+): Promise<NhomState> {
+  return nhomPhien ? moNhomDaCo(nhomPhien, nguoi, opts) : khoiDongNhom(nguoi, opts);
+}
+
+/**
+ * Open (or replay) the demo group under the signed-in person, then return the
+ * real members. Never throws.
+ *
+ * Takes the person rather than a slug to look up. It used to take a slug and
+ * resolve it through `personById`, which meant the seven names in
+ * `nhom-demo.ts` were the only identities that could open a chat at all --
+ * everyone else got `status: 0`, a refusal minted on the device before a
+ * single byte left it. `DangKy.tsx` has been registering real people since
+ * F01, and their `id` is their own UUID, so the roster lookup answered `null`
+ * for the one door in this app that is not a shell (bug-223337).
+ *
+ * Nothing about the seeded seven changes: their `id` is still the slug the
+ * write keys are derived from, so `khoaGhi(nguoi.id)` digests exactly as
+ * before and the seeded group still replays instead of doubling.
+ */
+export async function khoiDongNhom(
+  nguoi: NguoiDung,
+  opts: { base?: string } = {},
+): Promise<NhomState> {
+  const base = opts.base ?? NHOM_BASE_URL;
+  const slug = nguoi.id;
 
   const minh = personById(MINH_SLUG)!;
   const minhDat = await datTen(base, MINH_SLUG, minh.personId, minh.name);
@@ -349,6 +412,22 @@ export async function khoiDongNhom(
     }
   }
 
+  return docRoster(base, contextId, tenNhom, nguoi);
+}
+
+/** Step 4, on its own, because two entry points now need exactly it.
+ *
+ *  The member list is read as the signed-in person, never as `minh`: the
+ *  server answers `GET /contexts/{id}/members` from `X-Actor-ID`, so asking on
+ *  somebody else's behalf would report a roster this phone has no right to
+ *  see. A 403 here is the honest answer for a group the person is not in, and
+ *  it arrives as `hong` with the address on it rather than as an empty list. */
+async function docRoster(
+  base: string,
+  contextId: string,
+  tenNhom: string,
+  nguoi: NguoiDung,
+): Promise<NhomState> {
   const dsUrl = `${goc(base)}/contexts/${contextId}/members`;
   const ds = await goi("doc-thanh-vien", dsUrl, {
     method: "GET",

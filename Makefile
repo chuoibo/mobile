@@ -40,7 +40,7 @@ DC = $(COMPOSE) -p $(PROJECT)
 WAIT_TIMEOUT ?= 300
 
 .DEFAULT_GOAL := help
-.PHONY: help gate gate-merge test-db e2e up down clean logs ps migrate db-check seed demo demo-check demo-data-check demo-watch demo-watch-status demo-watch-install hero-walk hero-walk-status smoke
+.PHONY: help gate gate-merge test-db e2e up down clean logs ps migrate db-check seed demo demo-reset demo-check demo-data-check demo-persona-check demo-key-check demo-watch demo-watch-status demo-watch-install hero-walk hero-walk-status smoke
 
 # `demo` phải gọi đúng bộ container mà `up` vừa dựng. Trên nhánh này biến đó là
 # $(COMPOSE); PR #60 (đang mở, cùng lane) đổi nó thành $(DC) = compose kèm
@@ -211,6 +211,21 @@ demo: ## Dựng hệ rồi nạp dữ liệu demo "Team Đà Lạt" — 7 ngư�
 	@# --no-deps: xem ghi chú ở `seed`, cùng một cái bẫy.
 	$(DEMO_COMPOSE) run --rm --no-deps demo
 
+# Vì sao cần một lệnh riêng: `seed_demo_data.py` sinh key idempotency từ một
+# namespace cố định và một slug cố định, không có gì thay đổi theo lượt chạy.
+# Còn khoản chi thì backdate từ `now`. Nên lần seed THỨ HAI trên cùng một
+# database gửi CÙNG key với THÂN KHÁC, và máy chủ từ chối đúng như nó phải làm:
+# POST /expenses -> 422 idempotency_key_reuse. Tức là bộ fixture chỉ dựng được
+# MỘT LẦN cho mỗi database, và sau đó dữ liệu demo đóng băng ở hình dạng nó
+# chạm tới — đúng hay sai cũng vậy. Ngày 30/08 nó đóng băng ở 8 đợt thu / 0
+# buổi đi, và bốn tính năng đã xong hiện RỖNG trên chính máy leader sẽ bấm.
+#
+# Đường thoát cũ là `make clean`, nhưng clean lấy CẢ volume ảnh và seed không
+# dựng lại ảnh được. Target này đi đường rẻ hơn: giải phóng cái TÊN mà fixture
+# tra cứu, không xoá dòng nào. Sổ cái giữ nguyên mọi bản ghi.
+demo-reset: ## Giải phóng tên nhóm demo để `make demo` dựng lại được — APPLY=1 để ghi thật
+	@python3 scripts/reset_demo_group.py $(if $(DSN),--dsn $(DSN)) $(if $(APPLY),--yes)
+
 # `smoke` hỏi "cổng này có phục vụ đủ route CỦA CÂY NÀY không" — đúng câu ở cuối
 # `make up`, vì `up` vừa dựng ảnh từ chính cây đó. Với MÁY DEMO thì câu đó không
 # đủ, và ngày 30/08 nó ĐẠT 58/58 trong khi main khai 62: bộ container dựng từ
@@ -240,6 +255,36 @@ demo-check: ## Hỏi máy demo có phục vụ ĐÚNG bộ route của main khô
 # hành vi của chính make, không phải của target này (`demo-check` cũng vậy).
 demo-data-check: ## Hỏi bộ dữ liệu trên máy demo có dùng để demo được không — DSN= để đổi đích
 	@python3 scripts/check_demo_data.py $(if $(DSN),--dsn $(DSN))
+
+# `demo-data-check` hỏi "nhóm demo dựng đủ chưa". Mục dưới hỏi câu ngược lại và
+# nó là câu đã trượt: nhóm demo đủ, mà NGƯỜI thì thừa. Đo 30/08 trên 8099, màn
+# Cá nhân của Minh in 3.613.333đ trong khi nhóm demo chỉ giải thích được
+# 1.603.666đ — hơn một nửa số tiền trên màn đến từ nhóm tên là "KHÔNG dùng để
+# demo". Không cổng nào đỏ, vì không cổng nào so hai con số đó với nhau.
+#
+# Mã thoát: đọc chữ khi gọi qua `make` (xem ghi chú ở `demo-data-check` — GNU
+# make ép cả 1 lẫn 2 thành 2). Cần mã thoát thật thì gọi thẳng script.
+demo-persona-check: ## Hỏi persona demo có lịch sử NGOÀI nhóm demo không — DSN=, API= để đổi đích
+	@python3 scripts/cong_persona_demo_sach.py \
+	  $(if $(DSN),--dsn $(DSN)) $(if $(API),--api $(API))
+
+# `demo-data-check` hỏi về DỮ LIỆU trên máy demo. Mục dưới hỏi về KHOÁ của nó, và đó
+# là câu đã trượt ngày 30/08: leader xoay GEMINI_API_KEY lúc 22:19:45, container
+# 8099 đã chạy từ ba tiếng trước và container chỉ đọc biến môi trường MỘT LẦN
+# lúc khởi động. Nên nó tiếp tục trình một khoá không còn tồn tại.
+#
+# Nhìn từ ngoài máy vẫn khoẻ: /healthz 200, /openapi.json đủ 76 route, và
+# check_ai_key.sh im lặng vì nó hỏi "có khoá không" chứ không hỏi "có ĐÚNG khoá
+# không". Thứ duy nhất chết là đường hero — POST /receipts/scan trả 502
+# receipt_reader_unavailable, 3/3 lần.
+#
+# Rẻ đủ để chạy mọi lượt: phép so khoá không tốn gì, phép thử khoá sống là một
+# prompt năm token chứ không phải một tấm ảnh. Đó là chỗ nó bù cho `hero-walk`,
+# vốn đắt nên chỉ chạy theo yêu cầu và để lại một phán quyết có hạn dùng.
+#
+# Mã thoát: đọc chữ khi gọi qua `make` (xem ghi chú ở `demo-data-check`).
+demo-key-check: ## Máy demo có đang giữ ĐÚNG khoá AI, và khoá đó còn sống không — URL= để đổi đích
+	@python3 scripts/check_demo_ai_key.py $(if $(URL),--base-url $(URL))
 
 # `demo-check` ở trên là chỗ gọi TAY: nó chỉ chạy khi đã có người nghi ngờ, và
 # lúc đó thì đã không cần nó nữa. Máy demo lệch 16 commit vì suốt thời gian đó

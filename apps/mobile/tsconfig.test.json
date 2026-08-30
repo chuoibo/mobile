@@ -75,16 +75,37 @@
     // bug-185426 was present in both -- so both are rendered and read, rather
     // than one being trusted to stand for the other.
     "src/screens/kham-pha/KhamPha.tsx",
+    // `GET /places/{id}`, the detail screen's own read. Compiled because the
+    // rules worth pinning are all about a body this app does not control: a
+    // review outside 0-5 is refused rather than clamped, an absent
+    // `description` is null rather than "", and a 404 from a server that lacks
+    // the route is a different sentence from a 404 for a place that is gone.
+    // None of that is checkable by reading the screen. See
+    // `tests/nam-man-chi-tiet.test.mjs`.
+    "src/screens/kham-pha/chi-tiet-dia-diem.ts",
     "src/screens/chat/uuid5.ts",
     "src/screens/chat/tin-nhan.ts",
     "src/screens/chat/ke-hoach.ts",
     // F17's vote counting. Compiled so `binh-chon.test.mjs` can run the fold
     // under bare node, with no renderer and no server.
     "src/screens/chat/binh-chon.ts",
+    // F17 again, the other transport. The line above folds ballots out of chat
+    // messages; this one copies a tally the server already computed. Compiled
+    // for the same reason and one sharper one: every rule in it is a REFUSAL of
+    // a fallback -- no winner unless `decided_option_id` names one, no tie
+    // inferred from a list length, no division when nobody has voted. A source
+    // read cannot tell a refusal that holds from one that was written down, and
+    // the failure it guards is the app casting the deciding vote. See
+    // `tests/ket-qua-binh-chon.test.mjs`.
+    "src/screens/binh-chon/ket-qua.ts",
     "src/screens/chat/ai.ts",
     "src/screens/chat/nhom.ts",
     "src/screens/chat/nhap-tu-chat.ts",
     "src/screens/chat/TheNhapChiTuChat.tsx",
+    // F31/F33/F34/F36. Compile both the four-route client and the markup the
+    // group-understanding test reads through react-native-web.
+    "src/screens/ai-hieu-nhom/ai-hieu-nhom.ts",
+    "src/screens/ai-hieu-nhom/AiHieuNhom.tsx",
     "src/screens/chat/TinNhan.tsx",
     "src/screens/chat/BongBong.tsx",
     "src/screens/chat/TheKeHoach.tsx",
@@ -95,13 +116,36 @@
     // F39/F42. The wall on Cá nhân: audience copy, refusal sentences, and the
     // screen itself so a test can read the markup react-native-web emits for
     // the four radios and the disabled Đăng button.
-    "src/screens/ca-nhan/tuong.ts",
+    "src/screens/ca-nhan/bai-dang.ts",
     "src/screens/ca-nhan/Tuong.tsx",
     // F30's date arithmetic. Compiled because the rule under test -- a trip's
     // calendar days must not be shifted by the reading machine's timezone -- is
     // invisible at +07 and at UTC, and only shows up when the test runs itself
     // in a negative offset. That is a property of this module, not of a screen.
     "src/screens/ky-niem/ky-uc.ts",
+    // F36/F37's album. Compiled rather than read as source because the rule
+    // under test is a negative one about markup -- a place the server could not
+    // name never reaches the reader as its `place_id` -- and `place_name ??
+    // place_id` reads as perfectly reasonable in the source. It is only once
+    // the card is rendered with a null that the UUID shows up where a place
+    // name belongs. `album-api.ts` comes along for `TEN_DIA_DIEM_CHUA_BIET`,
+    // so the test asserts the same constant the screen uses instead of
+    // retyping the sentence. See `tests/ten-dia-diem-album.test.mjs`.
+    "src/screens/album/album-api.ts",
+    "src/screens/album/AlbumChuyenDi.tsx",
+    // F38's moment line and refusal words. Compiled rather than read as source
+    // because the rules under test are boundary rules -- 59 seconds versus 61,
+    // six days versus seven -- and a source read cannot stand on either side of
+    // a boundary. The timezone case is the same shape as `ky-uc.ts` one line
+    // above: invisible at +07 and at UTC, visible only in a negative offset.
+    "src/screens/widget/cau-chu.ts",
+    // The screen itself, for the two states a screenshot run never reaches.
+    // `quet-tab-url.mjs` drives the LOADED widget against a stub that always
+    // has a photograph, so "the group has none yet" and "the server refused"
+    // are rendered by nothing -- and the empty one is the state most likely to
+    // be wrong, because it is a 200 the client could mistake for a failure.
+    // Rendering it here reads the markup react-native-web really emits.
+    "src/screens/widget/Widget.tsx",
     // F01's number rules. The derivation itself moved to the server in
     // bug-140342 -- an unkeyed digest over 5x10^8 numbers is reversible -- so
     // what is compiled here is what the device still decides on its own: which
@@ -111,6 +155,19 @@
     // id. Compiled so a test can assert the client refuses a bad number
     // BEFORE it travels, which is a property of this file and not of the API.
     "src/screens/vao-cua/cong-api.ts",
+    // F01.03's answers. Compiled because the rules that matter are arithmetic
+    // and negative -- the budget bands are integer đồng that tile without a gap
+    // or an overlap, a skipped band stays `null` instead of being back-filled,
+    // and the default address-book seam resolves to "chưa có" rather than to a
+    // granted it cannot honour. None of those is visible in a screenshot.
+    "src/screens/vao-cua/so-thich.ts",
+    // The screen itself, for the same reason `ThanhTab.tsx` two blocks down is
+    // compiled: every control on it carries an ARIA role, and a role is only
+    // real once react-native-web has emitted it. The tastes are `checkbox` in a
+    // `group` and the budget bands are `radio` in a `radiogroup` -- picking the
+    // wrong one of those pairs compiles fine and tells a screen reader the
+    // opposite of what the screen does. See `tests/so-thich-web.test.mjs`.
+    "src/screens/vao-cua/CaNhanHoa.tsx",
     // F05's friend code. Same reason as the line above, and one more: the
     // property that matters most here is a *negative* one -- no telephone
     // number reaches the payload -- and a negative is only worth asserting
@@ -160,6 +217,25 @@
     "src/screens/len-plan/TaoBuoiDi.tsx",
     "src/screens/len-plan/DongThoiGian.tsx",
     "src/screens/len-plan/NhanLoiMoi.tsx",
+    // F14's other half. `NhanLoiMoi.tsx` above redeems an invite; this decides
+    // whether one may be OFFERED, and every rule in it is a claim about what
+    // `create_outing_invite` will accept. Compiled rather than read as source
+    // because the sharpest of those claims is a negative one -- thu hồi does
+    // not free the person to be invited again, because the unique index does
+    // not care about `revoked_at` -- and a source read cannot tell a rule that
+    // holds from one that was merely written down. See
+    // `tests/moi-vao-chuyen.test.mjs`.
+    "src/screens/len-plan/moi-vao-chuyen.ts",
+    "src/screens/len-plan/MoiVaoChuyen.tsx",
+    // 07.03. Every figure on the achievements screen is derived here from one
+    // finance response -- level, all eight badges, all three weekly challenges.
+    // Compiled rather than read as source because the claim worth pinning is
+    // that those numbers MOVE with the ledger: a screen full of constants would
+    // read identically in the source and identically on a screenshot, which is
+    // exactly how a mockup gets typed in and shipped as a feature. The clock is
+    // a parameter, so the seven-day window can be proved to be a window rather
+    // than a lifetime count. See `tests/thanh-tich.test.mjs`.
+    "src/screens/thanh-tich/thanh-tich.ts",
     "src/screens/quet-anh.ts",
     // The frozen bill behind the `?man=` scan pages. Compiled because the
     // claim it carries is arithmetic, not markup: the eight lines and the

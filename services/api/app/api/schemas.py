@@ -329,6 +329,11 @@ class PersonFinanceResponse(ApiModel):
 
     `settled_vnd + outstanding_vnd == spend_vnd` by construction, so the two
     figures a reader sees under the total always account for all of it.
+
+    `receivable_vnd` is deliberately outside that identity: it is what other
+    people owe this person, not a share of what this person spent, and a
+    reader adding it to the total would be adding money that is not theirs to
+    have spent.
     """
 
     person_id: UUID
@@ -336,6 +341,7 @@ class PersonFinanceResponse(ApiModel):
     spend_vnd: MoneyVnd
     settled_vnd: MoneyVnd
     outstanding_vnd: MoneyVnd
+    receivable_vnd: MoneyVnd
     expense_count: int
     group_count: int
     movements: list[FinanceMovementView]
@@ -1086,6 +1092,19 @@ class ChatExpenseDraftResponse(ApiModel):
         return self
 
 
+class CompanionTurnRequest(ApiModel):
+    """Whether a person asked for this turn or the client is offering one.
+
+    The body is optional and the default is the offer, because that is what the
+    shipped client sends: it posts this route after every message with no body
+    at all. Only a caller that knows a human addressed the companion should set
+    the flag -- the server cannot tell, and deliberately does not look, since
+    `plan_turn` is handed message metadata and never message text.
+    """
+
+    requested: bool = False
+
+
 class CompanionTurnResponse(ApiModel):
     context_id: UUID
     spoke: bool
@@ -1731,3 +1750,32 @@ class AlbumResponse(ApiModel):
     split_total_vnd: MoneyVnd
     expense_count: int
     headcount: int
+
+
+class ReelPick(ApiModel):
+    """One AI-picked memory with every displayed fact owned by the server."""
+
+    memory_id: UUID
+    image_url: RelativePhotoUrl | None
+    caption: str | None
+    place_name: str | None
+    created_at: datetime
+    reaction_count: int
+    comment_count: int
+    note: StrictStr
+
+    _created_at_has_timezone = field_validator("created_at")(_require_timezone)
+
+
+class ReelResponse(ApiModel):
+    """F37. AI provenance stays separate from the group's heart highlights."""
+
+    context_id: UUID
+    outing_id: UUID
+    reeled: bool
+    reason: Literal["ok", "no_memories", "unavailable", "ungrounded"]
+    source: Literal["ai", "none"]
+    title: StrictStr | None
+    picks: list[ReelPick]
+    #: Rows offered by the server, never a count restated by the model.
+    considered_count: int

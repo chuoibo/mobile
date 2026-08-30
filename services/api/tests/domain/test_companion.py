@@ -144,6 +144,117 @@ def test_the_companion_does_not_open_an_empty_room():
     }
 
 
+# ---------------------------------------------------------------------------
+# A turn somebody asked for.
+#
+# The rules above are a cadence for a companion that volunteers. They were
+# written for an AI deciding on its own whether the room wants to hear from it,
+# and for that they are right: nobody wants a bot answering every line.
+#
+# `POST /ai-turn` is also the path a person takes to ask the companion a
+# question, and there the same rules read as a broken feature. Measured on a
+# live stack on 2026-08-30: after the companion answered once, "Lên giúp mình
+# lịch trình chi tiết từng giờ" returned HTTP 200 / `spoke=false` /
+# `reason=cooldown` for the next 90 seconds, the model was never called, and
+# the client draws silence as nothing at all. Asking twice looks identical to
+# an outage.
+#
+# So a requested turn skips the two rules that exist to keep a VOLUNTEERING
+# companion quiet -- `cooldown` and `already_spoke_last` -- and keeps the two
+# that bound cost and make sense of the request: the per-window ceiling, and
+# refusing to speak into a room where no human has said anything.
+
+
+def test_a_companion_that_was_asked_answers_inside_its_cooldown():
+    """The exact turn measured as broken, at the layer that refused it."""
+
+    conversation = {
+        "messages": _messages(
+            ("human", "2026-08-29T19:59:00+07:00"),
+            ("ai", "2026-08-29T19:59:30+07:00"),
+            ("human", "2026-08-29T19:59:50+07:00"),
+        ),
+        "now": NOW,
+    }
+
+    assert plan_turn(conversation, requested=True) == {
+        "may_speak": True,
+        "reason": "ok",
+    }
+
+
+def test_a_companion_that_was_asked_again_answers_even_though_it_spoke_last():
+    """Pressing ask a second time means the first card did not answer it.
+
+    Staying quiet here is the same invisible refusal, one rule further along.
+    """
+
+    conversation = {
+        "messages": _messages(
+            ("human", "2026-08-29T19:00:00+07:00"),
+            ("ai", "2026-08-29T19:30:00+07:00"),
+        ),
+        "now": NOW,
+    }
+
+    assert plan_turn(conversation, requested=True)["may_speak"] is True
+
+
+def test_being_asked_does_not_lift_the_ceiling_that_bounds_model_spend():
+    """The cadence rules are courtesy; this one is the bill.
+
+    A caller that can lift it by adding `requested` has no ceiling at all, so
+    the refusal survives -- but under its own name, because a client that sorts
+    reasons into "silence" and "could not answer" must not file a turn somebody
+    asked for under silence.
+    """
+
+    older = "2026-08-29T10:00:00+07:00"
+    conversation = {
+        "messages": _messages(
+            ("ai", older),
+            ("human", older),
+            ("ai", older),
+            ("human", older),
+            ("ai", older),
+            ("human", older),
+        ),
+        "now": NOW,
+    }
+
+    assert plan_turn(conversation, requested=True) == {
+        "may_speak": False,
+        "reason": "asked_too_often",
+    }
+
+
+def test_being_asked_does_not_conjure_a_conversation_out_of_an_empty_room():
+    assert plan_turn({"messages": [], "now": NOW}, requested=True) == {
+        "may_speak": False,
+        "reason": "no_conversation",
+    }
+
+
+def test_an_unasked_turn_keeps_every_rule_it_had():
+    """The default is the old behaviour, byte for byte.
+
+    Without this, "requested" could be read as a rename of the cadence rather
+    than as an addition, and the companion would start answering every line.
+    """
+
+    conversation = {
+        "messages": _messages(
+            ("human", "2026-08-29T19:59:00+07:00"),
+            ("ai", "2026-08-29T19:59:30+07:00"),
+            ("human", "2026-08-29T19:59:50+07:00"),
+        ),
+        "now": NOW,
+    }
+
+    assert plan_turn(conversation) == plan_turn(conversation, requested=False)
+    assert plan_turn(conversation)["reason"] == "cooldown"
+
+
 def test_the_cap_is_decided_without_ever_seeing_what_anyone_wrote():
     """The privacy rule, enforced by shape.
 
@@ -302,6 +413,91 @@ def test_a_text_card_still_works_without_any_catalogue():
     }
 
 
+def test_an_itinerary_without_a_title_keeps_the_grounded_plan():
+    raw = {
+        "kind": "itinerary",
+        "payload": {
+            "stops": [
+                {"place_id": "p-tiem-nuong", "time_text": "19:00", "note": "Ăn"},
+                {"place_id": "p-cafe-suong", "time_text": "21:00", "note": "Cafe"},
+            ],
+        },
+    }
+
+    card = ground_card(raw, _catalogue())
+
+    assert card == {
+        "kind": "itinerary",
+        "payload": {
+            "title": "",
+            "stops": [
+                {
+                    "time_text": "19:00",
+                    "note": "Ăn",
+                    "place": _catalogue()[0],
+                },
+                {
+                    "time_text": "21:00",
+                    "note": "Cafe",
+                    "place": _catalogue()[1],
+                },
+            ],
+        },
+    }
+
+
+def test_a_places_card_without_an_intro_keeps_the_grounded_places():
+    raw = {
+        "kind": "places",
+        "payload": {"place_ids": ["p-tiem-nuong", "p-cafe-suong"]},
+    }
+
+    card = ground_card(raw, _catalogue())
+
+    assert card == {
+        "kind": "places",
+        "payload": {"intro": "", "places": _catalogue()},
+    }
+
+
+@pytest.mark.parametrize("invalid_title", [123, {"a": 1}])
+def test_an_itinerary_title_with_the_wrong_type_is_still_malformed(invalid_title):
+    raw = {
+        "kind": "itinerary",
+        "payload": {
+            "title": invalid_title,
+            "stops": [{"place_id": "p-tiem-nuong", "time_text": "19:00", "note": "Ăn"}],
+        },
+    }
+
+    with pytest.raises(CompanionError) as raised:
+        ground_card(raw, _catalogue())
+
+    assert raised.value.code == "companion_card_malformed"
+
+
+def test_a_text_card_without_text_is_still_malformed():
+    with pytest.raises(CompanionError) as raised:
+        ground_card({"kind": "text", "payload": {}}, _catalogue())
+
+    assert raised.value.code == "companion_card_malformed"
+
+
+@pytest.mark.parametrize("missing_key", ["place_id", "time_text", "note"])
+def test_an_itinerary_stop_without_a_required_field_is_still_malformed(missing_key):
+    stop = {"place_id": "p-tiem-nuong", "time_text": "19:00", "note": "Ăn"}
+    del stop[missing_key]
+    raw = {
+        "kind": "itinerary",
+        "payload": {"title": "Tối nay", "stops": [stop]},
+    }
+
+    with pytest.raises(CompanionError) as raised:
+        ground_card(raw, _catalogue())
+
+    assert raised.value.code == "companion_card_malformed"
+
+
 def test_an_empty_text_card_is_refused():
     with pytest.raises(CompanionError) as raised:
         ground_card({"kind": "text", "payload": {"text": "   "}}, _catalogue())
@@ -451,7 +647,7 @@ def _two_day_stops(count: int) -> list[dict]:
 
 
 def test_an_itinerary_longer_than_the_display_limit_never_drops_a_stop_in_silence():
-    """"Ghi rõ từng khung giờ của cả hai ngày" is the ordinary request here.
+    """ "Ghi rõ từng khung giờ của cả hai ngày" is the ordinary request here.
 
     Two days is routinely more than six stops, and the payload named only
     `title` and `stops`, so `stops[:MAX_STOPS]` dropped the tail with nothing on

@@ -62,6 +62,7 @@ from app.api.search_rate_limit import (
     build_contextual_suggestion_limiter,
     build_face_detection_limiter,
     build_receipt_scan_limiter,
+    build_reel_limiter,
     build_screenshot_scan_limiter,
     build_search_limiter,
     build_suggestion_limiter,
@@ -132,6 +133,10 @@ def create_app(
     # than the shared key -- and a member looping it is the cheapest way to
     # stop this API answering anything at all, money routes included.
     application.state.face_detection_limiter = build_face_detection_limiter()
+    # F37 is the tenth model door and the ninth actor-keyed window.  It owns a
+    # distinct object because a burst of reel-building must not spend the
+    # allowance the group needs to read its own chat.
+    application.state.reel_limiter = build_reel_limiter()
 
     application.mount(
         "/static",

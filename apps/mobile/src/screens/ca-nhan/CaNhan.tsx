@@ -31,11 +31,13 @@ import { MaCuaToi } from "./MaCuaToi";
 import { Tuong } from "./Tuong";
 import {
   FinanceError,
+  ghiChuGioiHan,
   layTaiChinh,
   moTaGiaoDich,
   ngayNgan,
   tienCoDau,
   tienVnd,
+  tinhTrangNo,
   type Finance,
   type Movement,
 } from "./tai-chinh";
@@ -48,6 +50,7 @@ type Trang =
 export function CaNhan({
   nguoi,
   onKetBan,
+  onThanhTich,
   nhom = [],
   doc = layTaiChinh,
 }: {
@@ -58,6 +61,10 @@ export function CaNhan({
    *  screen's own tests -- keep compiling; a missing handler hides the row
    *  rather than rendering a button that does nothing. */
   onKetBan?: () => void;
+  /** 07.03. Open the achievements screen. Handed in by the shell for the same
+   *  reason `onKetBan` is, and optional in the same way: no handler hides the
+   *  row rather than drawing a button that does nothing. */
+  onThanhTich?: () => void;
   /** Groups this person can address a post to. Empty until the shell knows one. */
   nhom?: { id: string; name: string }[];
   /** Injected so the screen can be exercised without a server. */
@@ -128,6 +135,7 @@ export function CaNhan({
           />
         ) : null}
         <HangSoLieu trang={trang} />
+        <CuaThanhTich nguoi={nguoi} onThanhTich={onThanhTich} />
         <TaiChinh trang={trang} onThuLai={lamMoi} coNguoi={Boolean(nguoi)} />
         <GiaoDich trang={trang} />
         {nguoi?.personId ? <Tuong nguoi={nguoi} nhom={nhom} /> : null}
@@ -377,8 +385,70 @@ function HangSoLieu({ trang }: { trang: Trang }) {
   );
 }
 
-/** Tổng quan tài chính — the reason this screen is on the demo path. */
-function TaiChinh({
+/** 07.03. The door to the achievements screen.
+ *
+ * Directly under the stat row because the two are the same subject read at two
+ * depths: that row counts what the ledger knows, and the screen behind this
+ * button turns those same counts into levels, badges and this week's
+ * challenges. It reads the identical route, so nothing here can disagree with
+ * the numbers above it.
+ *
+ * Renders nothing without a handler or without a person, the same rule
+ * `CuaKetBan` follows: a screen that cannot say who is asking would send
+ * `X-Actor-ID: undefined` and read as broken rather than as needing a sign-in.
+ */
+function CuaThanhTich({
+  nguoi,
+  onThanhTich,
+}: {
+  nguoi: DemoPerson | null;
+  onThanhTich?: () => void;
+}) {
+  const c = usePalette();
+  if (!nguoi || !onThanhTich) return null;
+  return (
+    <Card>
+      <Text style={{ ...type.title, color: c.ink }}>Thành tích</Text>
+      <Text style={{ ...type.label, color: c.inkSoft }}>
+        Level, huy hiệu và thử thách tuần này, tính từ chính cuốn sổ ở trên. Bốn huy
+        hiệu mở được bằng hoạt động thật; bốn cái còn lại ghi rõ sản phẩm còn thiếu
+        bảng nào mới đo được.
+      </Text>
+      <View style={{ marginTop: space.xs }}>
+        <Button label="Xem thành tích của bạn" onPress={onThanhTich} tone="ghost" />
+      </View>
+    </Card>
+  );
+}
+
+/** Tổng quan tài chính — the reason this screen is on the demo path.
+ *
+ * Mockup 07.02 puts three figures in a row: *Đã trả*, *Còn nhận*, *Còn phải
+ * trả*. Only two of them existed here, and both were about money going out --
+ * so the person who put the bill on their own card, which on the demo path is
+ * the person running the demo, split a dinner, came back, and read `Còn nợ 0đ`
+ * with nothing anywhere saying the money was coming back to them. `Còn nhận`
+ * is the missing third, and it is read from the ledger like every other number
+ * on this screen; see `receivable_vnd` in `repository.py`.
+ *
+ * The mockup's three tiles are laid out here as one total and a pair beneath
+ * it, rather than three abreast. Three tiles across 390pt leaves about 90pt of
+ * text width each, and `2.100.000đ` does not fit in it -- the same measurement
+ * that put `minWidth: 0` on the transaction rows below. The information is the
+ * mockup's; the row count is what the device allows.
+ *
+ * `Đã thanh toán` is kept although the mockup has no tile for it, because it
+ * is the half of the total that `Còn phải trả` does not account for, and the
+ * two are printed directly under the number they add up to.
+ *
+ * Exported for the renderer, not for other screens. `CaNhan` reaches its
+ * loaded state through `useEffect`, which `renderToStaticMarkup` does not run
+ * -- so rendering the whole screen only ever produces the spinner, and these
+ * three figures could be missing from the markup with every test still green.
+ * This is the seam that lets a test hand in a finished `Finance` and read what
+ * a browser really gets. See `tests/tai-chinh-tren-man.test.mjs`.
+ */
+export function TaiChinh({
   trang,
   onThuLai,
   coNguoi,
@@ -428,28 +498,52 @@ function TaiChinh({
       {trang.pha === "xong" ? (
         <View style={{ gap: space.sm }}>
           <View style={{ gap: 2 }}>
-            <Text style={{ ...type.label, color: c.inkSoft }}>Tổng chi tiêu</Text>
+            <Text style={{ ...type.label, color: c.inkSoft }}>Đã trả</Text>
             <Text style={{ ...type.amount, color: c.ink }}>
               {tienVnd(trang.so.spend_vnd)}
+            </Text>
+            <Text style={{ ...type.micro, color: c.inkSoft }}>
+              Tổng bạn đã chi. Đã thanh toán xong {tienVnd(trang.so.settled_vnd)}.
             </Text>
           </View>
           <View style={{ flexDirection: "row", gap: space.sm }}>
             <ONho
-              label="Đã thanh toán"
-              value={tienVnd(trang.so.settled_vnd)}
+              label="Còn nhận"
+              value={tienVnd(trang.so.receivable_vnd)}
+              chu="Người khác nợ bạn"
               mau={c.split}
               nen={c.splitSoft}
             />
             <ONho
-              label="Còn nợ"
+              label="Còn phải trả"
               value={tienVnd(trang.so.outstanding_vnd)}
+              chu="Bạn còn nợ người khác"
               mau={c.accent}
               nen={c.accentSoft}
             />
           </View>
+          {/* The five states of mockup 07.02, said in words. Two coloured
+              numbers do not tell somebody in three seconds whether this is a
+              good month, and colour is forbidden from carrying it alone. */}
+          <Text style={{ ...type.body, color: c.ink }}>
+            {tinhTrangNo(trang.so).cau}
+          </Text>
           <Text style={{ ...type.micro, color: c.inkFaint }}>
-            Tính lại từ sổ mỗi lần mở màn này. Chia một khoản chi rồi quay lại, hai ô
-            trên đổi theo.
+            Tính lại từ sổ mỗi lần mở màn này. Chia một khoản chi rồi quay lại, ba số
+            trên đổi theo. Một khoản chỉ rời khỏi "còn nhận" khi bạn xác nhận đã nhận
+            được tiền. Người kia báo đã chuyển thì chưa tính.
+          </Text>
+          {/* Stated, not drawn. The mockup breaks the month down into Ăn uống,
+              Di chuyển, Cafe and Vui chơi, and no expense in this product
+              carries a category -- there is no column, no field on the create
+              request, and nothing that could fill those four bars except a
+              guess. Four plausible bars would read exactly as real as the
+              three figures above them, which is the substitution this screen
+              is built to refuse. Saying so is the honest version of drawing
+              it. */}
+          <Text style={{ ...type.micro, color: c.inkFaint }}>
+            Chưa tách được theo nhóm chi (ăn uống, đi lại, cafe…): khoản chi trong sản
+            phẩm này chưa mang danh mục nào.
           </Text>
         </View>
       ) : null}
@@ -460,11 +554,18 @@ function TaiChinh({
 function ONho({
   label,
   value,
+  chu,
   mau,
   nen,
 }: {
   label: string;
   value: string;
+  /** Which direction the money runs, spelled out. The mockup prints it under
+   *  each tile, and it is the part that survives a greyscale screenshot: the
+   *  two tiles are otherwise a green number and a coral number, and "còn
+   *  nhận" versus "còn phải trả" is exactly the distinction somebody skims
+   *  past. */
+  chu?: string;
   mau: string;
   nen: string;
 }) {
@@ -483,6 +584,7 @@ function ONho({
     >
       <Text style={{ ...type.label, color: c.inkSoft }}>{label}</Text>
       <Text style={{ ...type.amountSmall, color: mau }}>{value}</Text>
+      {chu ? <Text style={{ ...type.micro, color: c.inkSoft }}>{chu}</Text> : null}
     </View>
   );
 }
@@ -492,6 +594,7 @@ function GiaoDich({ trang }: { trang: Trang }) {
   const c = usePalette();
   if (trang.pha !== "xong") return null;
   const list = trang.so.movements;
+  const gioiHan = ghiChuGioiHan(list);
   return (
     <Card>
       <Text style={{ ...type.title, color: c.ink }}>Giao dịch gần đây</Text>
@@ -503,6 +606,11 @@ function GiaoDich({ trang }: { trang: Trang }) {
       ) : (
         list.map((m, i) => <DongGiaoDich key={m.obligation_id + i} m={m} />)
       )}
+      {/* Only on a full page. A list of six rows is the whole history and
+          saying otherwise would be its own small lie. */}
+      {gioiHan ? (
+        <Text style={{ ...type.micro, color: c.inkFaint }}>{gioiHan}</Text>
+      ) : null}
     </Card>
   );
 }

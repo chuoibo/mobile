@@ -23,6 +23,7 @@ import {
   khoangGia,
   theTuCard,
 } from "../dist-test/screens/chat/ke-hoach.js";
+import { personById } from "../dist-test/navigation/nhom-demo.js";
 import { khoiDongNhom, thanNhuSeed } from "../dist-test/screens/chat/nhom.js";
 import {
   cursorCuNhat,
@@ -323,6 +324,106 @@ test("ai-turn không gửi thân request: máy chủ tự chọn cửa sổ 40 t
   assert.equal(seen.body, undefined);
 });
 
+/* --- người hỏi thẳng: `requested: true` ----------------------------------
+ *
+ * Nhịp 90 giây được viết cho lượt AI TỰ lên tiếng. Người gõ hẳn một câu hỏi
+ * rồi bấm hỏi là chuyện khác: bỏ qua nó không phải là ý tứ, mà là đánh rơi
+ * câu hỏi, và người dùng không phân biệt được với máy chủ chết.
+ */
+
+test("hỏi thẳng gửi {requested:true}; lượt tự động vẫn không gửi thân nào", async () => {
+  const than = [];
+  for (const hoiThang of [true, false, undefined]) {
+    await withFetch(
+      async (_url, init) => {
+        than.push(init.body);
+        return res(turn());
+      },
+      () => goiAiTurn({ contextId: CTX, actorId: ACTOR, base: "http://x", hoiThang }),
+    );
+  }
+  assert.deepEqual(JSON.parse(than[0]), { requested: true });
+  // Lượt AI tự lên tiếng phải giữ NGUYÊN hình dạng cũ: không byte nào. Đó là
+  // hình dạng máy chủ đặt mặc định quanh nó (#378).
+  assert.equal(than[1], undefined);
+  assert.equal(than[2], undefined);
+});
+
+test("hỏi thẳng mà máy chủ vẫn cooldown thì NÓI RA, không vẽ im lặng", async () => {
+  // Chính triệu chứng của phiếu này. Máy chủ cũ (trước #378) bỏ qua cờ và vẫn
+  // trả cooldown. Đọc nó thành im-lang là bấm nút xong màn hình đứng yên.
+  for (const reason of ["cooldown", "already_spoke_last", "rate_limited"]) {
+    const s = await withFetch(
+      async () => res(turn({ reason })),
+      () => goiAiTurn({ contextId: CTX, actorId: ACTOR, base: "http://x", hoiThang: true }),
+    );
+    assert.equal(s.kind, "khong-tra-loi-duoc", reason);
+    assert.ok(s.cau.length > 0, reason);
+    assert.ok(!s.cau.includes("—"), s.cau);
+  }
+});
+
+test("cùng bốn lý do đó, lượt TỰ ĐỘNG vẫn là im lặng", async () => {
+  // Đối chứng cho ca trên. Nếu ca trên xanh vì mọi lý do đều thành câu nói thì
+  // AI sẽ lải nhải sau mỗi tin, và ca này là cái bắt được điều đó.
+  for (const reason of ["no_conversation", "already_spoke_last", "rate_limited", "cooldown"]) {
+    const s = await withFetch(
+      async () => res(turn({ reason })),
+      () => goiAiTurn({ contextId: CTX, actorId: ACTOR, base: "http://x" }),
+    );
+    assert.equal(s.kind, "im-lang", reason);
+  }
+});
+
+test("asked_too_often có câu riêng, không dùng câu chung của unavailable", async () => {
+  const hoi = await withFetch(
+    async () => res(turn({ reason: "asked_too_often" })),
+    () => goiAiTurn({ contextId: CTX, actorId: ACTOR, base: "http://x", hoiThang: true }),
+  );
+  const chung = await withFetch(
+    async () => res(turn({ reason: "unavailable" })),
+    () => goiAiTurn({ contextId: CTX, actorId: ACTOR, base: "http://x", hoiThang: true }),
+  );
+  assert.equal(hoi.kind, "khong-tra-loi-duoc");
+  // Trần nhịp là cái đang giữ hoá đơn, không phải sự cố. Nói y như lúc mất
+  // khoá API là dạy người dùng bỏ qua đúng câu cần đọc.
+  assert.notEqual(hoi.cau, chung.cau);
+  assert.ok(!hoi.cau.includes("—"), hoi.cau);
+});
+
+test("hỏi thẳng lúc nhóm chưa có tin nào thì nói rõ, không đứng yên", async () => {
+  const s = await withFetch(
+    async () => res(turn({ reason: "no_conversation" })),
+    () => goiAiTurn({ contextId: CTX, actorId: ACTOR, base: "http://x", hoiThang: true }),
+  );
+  assert.equal(s.kind, "khong-tra-loi-duoc");
+  assert.ok(s.cau.length > 0);
+});
+
+test("hỏi thẳng mà máy chủ trả 204 rỗng cũng không được nuốt", async () => {
+  const s = await withFetch(
+    async () => ({ ok: true, status: 204, json: async () => null, text: async () => "" }),
+    () => goiAiTurn({ contextId: CTX, actorId: ACTOR, base: "http://x", hoiThang: true }),
+  );
+  assert.equal(s.kind, "khong-tra-loi-duoc");
+});
+
+test("hỏi thẳng KHÔNG mua thêm quyền: header và địa chỉ y hệt lượt tự động", async () => {
+  const seen = [];
+  for (const hoiThang of [true, false]) {
+    await withFetch(
+      async (url, init) => {
+        seen.push({ url: String(url), headers: init.headers, method: init.method });
+        return res(turn());
+      },
+      () => goiAiTurn({ contextId: CTX, actorId: ACTOR, base: "http://x", hoiThang }),
+    );
+  }
+  assert.equal(seen[0].url, seen[1].url);
+  assert.equal(seen[0].method, seen[1].method);
+  assert.deepEqual(seen[0].headers, seen[1].headers);
+});
+
 test("ai-turn 404 là chua-noi-duoc và câu có nhắc rd-be-04", async () => {
   const s = await withFetch(
     async () => res("", { status: 404, ok: false }),
@@ -465,7 +566,7 @@ test("409 khi accept là thành công, không phải lỗi", async () => {
       });
     }
     return res("unexpected", { status: 500, ok: false });
-  }, () => khoiDongNhom("trang", { base: "http://x" }));
+  }, () => khoiDongNhom(personById("trang"), { base: "http://x" }));
   assert.equal(s.kind, "xong", s.kind === "hong" ? `${s.buoc} ${s.url} ${s.detail}` : "");
   assert.equal(s.contextId, CTX);
   assert.equal(s.members.length, 1);
@@ -476,7 +577,7 @@ test("bước hỏng nói rõ bước nào và địa chỉ đã thử", async (
   const s = await withFetch(async (url, init) => {
     if ((init?.method ?? "GET") === "PUT") return res({ id: "p", display_name: "Minh" }, { status: 201 });
     return res("boom", { status: 500, ok: false });
-  }, () => khoiDongNhom("minh", { base: "http://x.invalid" }));
+  }, () => khoiDongNhom(personById("minh"), { base: "http://x.invalid" }));
   assert.equal(s.kind, "hong");
   assert.equal(s.buoc, "tao-nhom");
   assert.match(s.url, /http:\/\/x\.invalid\/contexts$/);
@@ -491,7 +592,7 @@ test("POST /contexts gửi đúng khoá write:context", async () => {
       return res("nope", { status: 500, ok: false });
     }
     return res({ id: "p", display_name: "Minh" }, { status: 201 });
-  }, () => khoiDongNhom("minh", { base: "http://x" }));
+  }, () => khoiDongNhom(personById("minh"), { base: "http://x" }));
   assert.deepEqual(keys, ["a871a4f2-6a3c-5202-9bba-a3120e1f4c76"]);
 });
 
@@ -527,7 +628,7 @@ test("POST /contexts gửi thân theo byte của seed, không phải JSON.string
       return res("nope", { status: 500, ok: false });
     }
     return res({ id: "p", display_name: "Minh" }, { status: 201 });
-  }, () => khoiDongNhom("minh", { base: "http://x" }));
+  }, () => khoiDongNhom(personById("minh"), { base: "http://x" }));
   assert.deepEqual(bodies, ['{"display_name": "Team \\u0110\\u00e0 L\\u1ea1t"}']);
   assert.notEqual(bodies[0], JSON.stringify({ display_name: "Team Đà Lạt" }));
 });

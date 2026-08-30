@@ -199,6 +199,11 @@ async function main() {
    * is evidence about the picture -- see the header. */
   let soTrenAnh = 0;
   let soNenDac = 0;
+  /* Counted and printed, never silent. An exclusion nobody can see in the
+   * output is indistinguishable from coverage, and this one is load-bearing:
+   * it is the only thing standing between a covered stand-in and a red build,
+   * so a reader has to be able to ask what it swallowed. */
+  let boQua = 0;
   try {
     const port = await listen(server);
     browser = await puppeteer.launch({
@@ -261,7 +266,8 @@ async function main() {
 
     const tong =
       `${soTrenAnh} chu do TREN PIXEL ANH that, ${soNenDac} chu do tren nen dac ` +
-      `(chip/ruy bang/hop -- khong noi gi ve anh), tren ${manCoAnh.length} man`;
+      `(chip/ruy bang/hop -- khong noi gi ve anh), ${boQua} bo qua vi khong ve ra ` +
+      `kinh, tren ${manCoAnh.length} man`;
 
     if (hong) {
       console.log(
@@ -544,15 +550,64 @@ async function main() {
     );
     let teNhat = null;
     for (const m of muc.muc) {
+      const o = { x: m.x, y: m.y, width: m.w, height: m.h };
+
+      /* The third question, added after this tool failed a screen over a
+       * sentence nobody can see.
+       *
+       * `Anh` mounts its stand-in as a floor UNDER the photograph and leaves it
+       * mounted -- its own header says why, and that is the right shape. So on a
+       * loaded frame the words "Đang tải ảnh…" are still in the DOM, still have
+       * a box, and that box is still full of photograph. Every filter above says
+       * yes: leaf node, non-empty text, real rectangle, not `visibility:hidden`,
+       * and `chupHaiLan` confirms the picture reaches those pixels. The tool
+       * then read the photo as that text's GROUND and reported 1.77:1 -- a hard
+       * failure, on type that is painted over and invisible.
+       *
+       * `elementsFromPoint` is the reflex here and it is wrong: `Anh` puts
+       * `pointerEvents: none` on the stand-in layer, so its text is absent from
+       * the hit-test stack whether covered or not. Measured on the widget
+       * screen the text reports index -1, exactly like a covered one, and the
+       * two cases are indistinguishable.
+       *
+       * The question that does not care about hit testing is whether the glyphs
+       * change any pixel. Same clip, once with them and once without: identical
+       * bytes mean nothing this text draws reaches the glass, so it has no
+       * contrast to pass or fail. Anything that peeks through by one pixel still
+       * differs and is still measured. */
+      const coChu = await page.screenshot({ encoding: "base64", clip: o });
+
       // Hide only the glyphs. `visibility` keeps the box, so the ground behind
       // it is unchanged -- `display:none` would reflow and sample elsewhere.
       await page.evaluate((id) => {
         document.querySelector(`[data-soi="${id}"]`).style.visibility = "hidden";
       }, m.id);
 
-      const { co: anhB64, trenAnh } = await chupHaiLan(page, {
-        x: m.x, y: m.y, width: m.w, height: m.h,
-      });
+      const { co: anhB64, trenAnh } = await chupHaiLan(page, o);
+
+      if (coChu === anhB64) {
+        await page.evaluate((id) => {
+          document.querySelector(`[data-soi="${id}"]`).style.visibility = "";
+        }, m.id);
+        /* The probe is placed on top of the picture by this file itself. If it
+         * comes back invisible then the placer and the camera disagree about
+         * the same DOM, and every other verdict in the run is suspect -- that is
+         * an instrument fault, not a quiet screen. */
+        if (m.pheptThu) {
+          throw new Error(
+            `${man.step}: PHEP_THU khong ve ra kinh. An no di khong doi mot pixel ` +
+              "nao, nghia la co gi do dac dang che chinh phep thu -- ca bang nay " +
+              "khong tin duoc.",
+          );
+        }
+        boQua += 1;
+        console.log(
+          `  bo qua  KHONG VE RA KINH: an chu di khong doi mot pixel nao, nen ` +
+            `khong co tuong phan de cham  "${m.chu}"`,
+        );
+        continue;
+      }
+
       if (trenAnh) soTrenAnh += 1;
       else soNenDac += 1;
 

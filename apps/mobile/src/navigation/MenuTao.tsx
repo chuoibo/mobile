@@ -1,8 +1,8 @@
-/** What [+] opens: the four things a group starts from the bar.
+/** What [+] opens: the things a group reaches from the bar.
  *
- * Three of the four reach real behaviour today. The remaining one is drawn
- * to the same spec and marked `vỏ`, because the alternative -- four identical
- * rows, three of which do nothing -- is the failure the brief names outright:
+ * Every row here reaches real behaviour today. A row that did not would be
+ * drawn to the same spec and marked `vỏ`, because the alternative -- identical
+ * rows, some of which do nothing -- is the failure the brief names outright:
  * a shell is fine, a shell hiding that it is one is not. The mark is a word,
  * not a disabled state, because a disabled row cannot be pressed and so cannot
  * explain itself.
@@ -16,6 +16,7 @@ import React from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { radius, space, type, usePalette } from "../theme";
 import {
+  IconAlbum,
   IconChuyen,
   IconKhoanChi,
   IconKyNiem,
@@ -24,10 +25,13 @@ import {
 } from "./icons";
 import { CREATE_ACTIONS, type CreateActionId } from "./tabs";
 
+// A `Record` over the closed union, so adding a row to `tabs.ts` without giving
+// it a glyph is a compile error rather than a blank square in the sheet.
 const GLYPHS: Record<CreateActionId, (p: IconProps) => React.ReactElement> = {
   "tao-chuyen": IconChuyen,
   "tao-khoan-chi": IconKhoanChi,
   "dang-ky-niem": IconKyNiem,
+  "xem-album": IconAlbum,
   "tao-nhom": IconNhom,
 };
 
@@ -58,6 +62,19 @@ export function MenuTao({ onPick, onClose }: {
 
       <View
         style={{
+          // A sheet stops being a sheet somewhere before it owns half the
+          // screen -- past that it is a full page wearing a grab handle, and
+          // the backdrop it is supposed to leave tappable stops being a target
+          // anybody can hit. The rows inside already live in a `ScrollView`, so
+          // this caps the panel instead of clipping anything.
+          //
+          // The fifth row (F36's album) is what forced the number to be
+          // written down: four rows fitted under the midpoint by luck, and
+          // `tests/vo-tab-web.test.mjs` measured the loss the moment a fifth
+          // arrived -- the backdrop's own centre went under the panel, which is
+          // the point where "tap outside to dismiss" starts being a gesture
+          // with nowhere to land.
+          maxHeight: "45%",
           backgroundColor: c.card,
           borderTopLeftRadius: radius.base,
           borderTopRightRadius: radius.base,

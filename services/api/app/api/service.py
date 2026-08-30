@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 from app.api import companion_places
 from app.api.chat_expense_skill import ChatExpenseReader, run_chat_expense_skill
 from app.api.cursors import CursorError, decode_cursor, encode_cursor
-from app.api.deps import Actor, Companion, ContextualSuggester, Suggester
+from app.api.deps import Actor, Companion, ContextualSuggester, Reeler, Suggester
 from app.api.errors import ApiProblem, RepositoryConflict
 from app.api.limits import OBJECTION_KINDS, QUOTA_CONSUMING_OBJECTIONS
 from app.api.repository import (
@@ -138,6 +138,8 @@ from app.api.schemas import (
     RecapOutingResponse,
     ReceiptConfirmationRequest,
     ReceiptConfirmationResponse,
+    ReelPick,
+    ReelResponse,
     SettlementTransferProposal,
     SocialMapResponse,
     StopCheckinResponse,
@@ -188,6 +190,7 @@ from app.domain.ledger import (
     settlement_plan,
 )
 from app.domain.preferences import build_preference_profile
+from app.domain.reel import ReelError, ground_reel
 from app.domain.suggestion import (
     SuggestionError,
     ground_suggestion,
@@ -2047,6 +2050,119 @@ class ApiService:
             headcount=found.outing.headcount,
         )
 
+    def trip_reel(
+        self,
+        context_id: uuid.UUID,
+        outing_id: uuid.UUID,
+        actor: Actor,
+        reeler: Reeler,
+    ) -> ReelResponse:
+        """F37 -- AI picks memories without taking ownership of their facts.
+
+        The access boundary is the exact three-layer security argument
+        documented by ``trip_album``.  This workflow keeps the same order and
+        the same 404 rather than creating a second explanation that can drift
+        away from the album beside it.
+        """
+
+        _require_permission(
+            "view_trip_album",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+
+        today = _now().astimezone(ZoneInfo(WALL_CLOCK_ZONE)).date()
+        found = next(
+            (
+                record
+                for record in self.repository.group_recap(context_id, today=today)
+                if record.outing.id == outing_id
+            ),
+            None,
+        )
+        if found is None:
+            raise ApiProblem(404, "album_not_found", "Chuyến đi này không có ở đây.")
+
+        rows = self.repository.list_outing_memories(
+            found.outing.id,
+            limit=ALBUM_MEMORY_LIMIT,
+            viewer_id=actor.id,
+        )
+        considered_count = len(rows)
+
+        def _silent(reason: str) -> ReelResponse:
+            return ReelResponse(
+                context_id=context_id,
+                outing_id=outing_id,
+                reeled=False,
+                reason=reason,
+                source="none",
+                title=None,
+                picks=[],
+                considered_count=considered_count,
+            )
+
+        if not rows:
+            return _silent("no_memories")
+
+        grounding_rows = [
+            {
+                "id": memory.id,
+                "kind": memory.kind,
+                "image_url": memory.image_url,
+                "caption": memory.caption,
+                "place_name": memory.place_name,
+                "created_at": memory.created_at,
+                "reaction_count": memory.reaction_count,
+                "comment_count": memory.comment_count,
+            }
+            for memory in rows
+        ]
+        trip = {
+            "title": found.outing.title,
+            "starts_on": found.outing.starts_on.isoformat(),
+            "ends_on": found.outing.ends_on.isoformat(),
+            "headcount": found.outing.headcount,
+        }
+        offered = [
+            {
+                "id": str(memory["id"]),
+                "kind": memory["kind"],
+                "caption": memory["caption"],
+                "place_name": memory["place_name"],
+                "created_at": memory["created_at"].isoformat(),
+                "reaction_count": memory["reaction_count"],
+                "comment_count": memory["comment_count"],
+            }
+            for memory in grounding_rows
+        ]
+
+        try:
+            raw = reeler(trip, offered)
+        except Exception as error:  # noqa: BLE001 - an album read must not 500
+            logger.warning("trip reel: backend failed (%s)", type(error).__name__)
+            return _silent("unavailable")
+        if raw is None:
+            return _silent("unavailable")
+
+        try:
+            grounded = ground_reel(raw, grounding_rows)
+        except ReelError as error:
+            # Closed code only.  Model prose and group metadata stay out of logs.
+            logger.warning("trip reel: answer refused (%s)", error.code)
+            return _silent("ungrounded")
+
+        return ReelResponse(
+            context_id=context_id,
+            outing_id=outing_id,
+            reeled=True,
+            reason="ok",
+            source="ai",
+            title=grounded["title"],
+            picks=[ReelPick(**pick) for pick in grounded["picks"]],
+            considered_count=considered_count,
+        )
+
     def _album_of(self, record: RecapOutingRecord, actor: Actor) -> dict:
         """Assemble one album from a recap row and the memories of its days.
 
@@ -2963,12 +3079,19 @@ class ApiService:
         context_id: uuid.UUID,
         actor: Actor,
         companion: Companion,
+        *,
+        requested: bool = False,
     ) -> CompanionTurnResponse:
         """Let the companion suggest one grounded card, or stay silent.
 
         The speaking decision receives metadata only, and this workflow has one
         write capability: creating an AI message after grounding succeeds. It
         cannot create expenses or obligations on behalf of a model.
+
+        `requested` says a person asked for this turn rather than the client
+        offering one, and only reaches `plan_turn`. It buys no permission and no
+        extra data: the membership check above and the catalogue grounding below
+        are identical either way.
         """
 
         _require_permission(
@@ -2987,7 +3110,9 @@ class ApiService:
             }
             for message in messages
         ]
-        decision = plan_turn({"messages": metadata, "now": _now().isoformat()})
+        decision = plan_turn(
+            {"messages": metadata, "now": _now().isoformat()}, requested=requested
+        )
         if not decision["may_speak"]:
             return CompanionTurnResponse(
                 context_id=context_id,
@@ -3477,7 +3602,14 @@ class ApiService:
             allocation_result = allocate(_allocator_input(proposal))
         except AllocationError as exc:
             raise ApiProblem(422, exc.code, "Expense cannot be allocated") from exc
-        identity = self.repository.create_expense(proposal.context_id)
+        try:
+            identity = self.repository.create_expense(proposal.context_id)
+        except RepositoryConflict as exc:
+            if exc.code == "EXPENSE_CONTEXT_NOT_FOUND":
+                raise ApiProblem(
+                    404, "context_not_found", "Context does not exist"
+                ) from exc
+            raise
         return ExpenseProposalResponse(
             expense_id=identity.id,
             proposal=proposal,

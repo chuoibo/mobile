@@ -730,6 +730,52 @@ def test_a_vote_from_another_group_never_appears_in_this_contexts_list(
     assert other_vote["question"] not in listed.text
 
 
+def test_an_outsider_cannot_list_a_groups_votes(
+    postgres_session: Session, monkeypatch: pytest.MonkeyPatch
+):
+    """The guard on the list route, measured by tripping it.
+
+    Every sibling read route in this API has a test that watches it refuse a
+    stranger. This one did not: across the whole suite ``GET /contexts/{id}/
+    votes`` had only ever answered 200, so the ``is_group_member`` check in
+    ``list_context_votes`` was load-bearing and unheld. Deleting it left the
+    suite green while the questions a group is deciding on -- and the place
+    names in them -- became readable by anyone who could name the context.
+    """
+    context, owner, outsider = _group(postgres_session)
+    app = _http(postgres_session, monkeypatch)
+    vote = _make_vote(app, owner, context, question="Ăn tối ở đâu?")
+
+    listed = _request(app, "GET", f"/contexts/{context.id}/votes", outsider)
+
+    assert listed.status_code == 403, listed.text
+    assert vote["question"] not in listed.text
+    assert OPTIONS[0]["place_name"] not in listed.text
+
+
+def test_someone_who_left_stops_listing_the_groups_votes(
+    postgres_session: Session, monkeypatch: pytest.MonkeyPatch
+):
+    """A historical membership row is not current authorization.
+
+    Separate from the outsider case because it fails differently: this one
+    survives a guard that asks only whether a membership row exists.
+    """
+    context, owner, _ = _group(postgres_session)
+    former = _person(postgres_session, "Quang Huy")
+    membership = _join(postgres_session, context, former)
+    app = _http(postgres_session, monkeypatch)
+    vote = _make_vote(app, owner, context, question="Ăn tối ở đâu?")
+    membership.state = MembershipState.LEFT
+    membership.left_at = NOW
+    postgres_session.flush()
+
+    listed = _request(app, "GET", f"/contexts/{context.id}/votes", former)
+
+    assert listed.status_code == 403, listed.text
+    assert vote["question"] not in listed.text
+
+
 def test_an_option_from_another_vote_is_rejected_as_unknown(
     postgres_session: Session, monkeypatch: pytest.MonkeyPatch
 ):

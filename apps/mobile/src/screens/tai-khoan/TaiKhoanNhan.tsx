@@ -24,11 +24,12 @@
  * "Mã ngân hàng 970999" for a code nobody has, and a free-text box is how that
  * code gets in.
  */
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { space, type, usePalette } from "../../theme";
 import { Button, Card, Choice, Field, Screen } from "../../ui/Kit";
 import { bankDisplayName, maskAccount } from "../../ui/vietqr";
+import { docTaiKhoanNhan, type StoredBankRecipient } from "../../api";
 import {
   chuanHoaSoTaiKhoan,
   chuanHoaTen,
@@ -70,6 +71,7 @@ export function TaiKhoanNhan({
   banDau,
   onLuu,
   onBack,
+  docDaLuu = docTaiKhoanNhan,
 }: {
   /** Whose account this is. The server only lets a person set their own. */
   nguoiNhan: { id: string; name: string };
@@ -91,6 +93,8 @@ export function TaiKhoanNhan({
   banDau?: { form: FormTaiKhoan; dangDuyet: boolean };
   onLuu: (dichDen: DichDen) => void;
   onBack: () => void;
+  /** Seam for the tests and for the URL view, which has no server. */
+  docDaLuu?: typeof docTaiKhoanNhan;
 }) {
   const c = usePalette();
   const [form, setForm] = useState<FormTaiKhoan>(banDau?.form ?? FORM_TRONG);
@@ -98,6 +102,41 @@ export function TaiKhoanNhan({
   // The review step is a step, not a dialog. A confirm dialog over a form is
   // read as "are you sure" and dismissed as one; this has to be read.
   const [dangDuyet, setDangDuyet] = useState(banDau?.dangDuyet ?? false);
+
+  /* What is already on file, from `GET /bank-recipients/{id}`.
+   *
+   * The hole this closes is small and was real: this form always opened empty,
+   * so somebody who had already saved a destination could not tell that from
+   * never having saved one. The only way to find out was to type an account
+   * number in again -- on the one screen in the app where re-typing a number is
+   * how a transposed digit gets in.
+   *
+   * `undefined` means the question has not been answered yet, `null` means the
+   * server answered "nothing on file". Three states rather than two, because
+   * "we do not know" and "there is none" print different sentences and the
+   * first one must not be allowed to print the second's. */
+  const [daLuu, setDaLuu] = useState<StoredBankRecipient | null | undefined>(undefined);
+
+  useEffect(() => {
+    let huy = false;
+    setDaLuu(undefined);
+    // Actor is the person themself: the server only lets somebody read the
+    // destination they own, which is the same rule that governs the write.
+    docDaLuu(nguoiNhan.id, nguoiNhan.id)
+      .then((r) => {
+        if (!huy) setDaLuu(r);
+      })
+      // Swallowed on purpose, and only here. This read is an aid to the person
+      // filling the form; a failure costs them the reminder and costs nothing
+      // else, and an error banner over a form that still works perfectly is how
+      // people learn to dismiss banners. The WRITE has no such treatment.
+      .catch(() => {
+        if (!huy) setDaLuu(null);
+      });
+    return () => {
+      huy = true;
+    };
+  }, [nguoiNhan.id, docDaLuu]);
 
   const set = <K extends keyof FormTaiKhoan>(key: K, value: FormTaiKhoan[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -201,6 +240,36 @@ export function TaiKhoanNhan({
         contentContainerStyle={{ gap: space.md }}
         keyboardShouldPersistTaps="handled"
       >
+        {daLuu ? (
+          <Card style={{ borderColor: c.split }}>
+            <Text style={{ ...type.label, color: c.split }}>
+              Đã có tài khoản trên máy chủ
+            </Text>
+            <Text style={{ ...type.title, color: c.ink }}>
+              {/* The server's own name for the BIN. `bank_recognised` false
+                  means the code is not in its directory, and the screen says
+                  so rather than letting "Mã ngân hàng 970999" read as a bank. */}
+              {daLuu.bankName}
+              {daLuu.bankRecognised ? "" : " (mã lạ)"}
+            </Text>
+            <Text style={{ ...type.amountSmall, color: c.ink }}>{daLuu.accountMasked}</Text>
+            {daLuu.accountName ? (
+              <Text style={{ ...type.label, color: c.inkSoft }}>{daLuu.accountName}</Text>
+            ) : null}
+            <Text style={{ ...type.micro, color: c.inkFaint }}>
+              Lưu lúc {ngayGio(daLuu.confirmedAt)}. Điền form dưới rồi lưu là
+              thay hẳn tài khoản này: tiền của cả nhóm sẽ về số mới.
+            </Text>
+          </Card>
+        ) : daLuu === null ? (
+          <Card>
+            <Text style={{ ...type.label, color: c.inkSoft }}>
+              Chưa có tài khoản nào trên máy chủ cho {nguoiNhan.name}. Đây là lần
+              đầu.
+            </Text>
+          </Card>
+        ) : null}
+
         <Card>
           <Field
             label="Tìm ngân hàng"
@@ -275,6 +344,20 @@ export function TaiKhoanNhan({
       </ScrollView>
     </Screen>
   );
+}
+
+/**
+ * "14:32 ngày 30/8" from an ISO-8601 instant, or "" when it is not one.
+ *
+ * Absolute rather than relative. "2 ngày trước" is fine for a photograph and
+ * wrong here: the question this line answers is "is the account on file the one
+ * I set up after the last dinner or before it", and that is a date.
+ */
+export function ngayGio(iso: string): string {
+  const t = new Date(iso);
+  if (Number.isNaN(t.getTime())) return "";
+  const hai = (n: number) => `${n}`.padStart(2, "0");
+  return `${hai(t.getHours())}:${hai(t.getMinutes())} ngày ${t.getDate()}/${t.getMonth() + 1}`;
 }
 
 /** One line naming a saved destination, safe to show anywhere in the group. */

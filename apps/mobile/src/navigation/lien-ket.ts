@@ -41,10 +41,51 @@ import { TABS } from "./tabs";
  * `ban-be` is the F03/F04 friend screen, which sits behind a button on the Cá
  * nhân tab. It is here for the same reason and one more: the gate that
  * measures it drives a real DOM, and a screen a URL cannot name is a screen no
- * detector, screenshot pass or accessibility sweep can reach at all. */
-export type ManVaoCua = "dang-ky" | "nhom" | "ky-niem" | "ban-be";
+ * detector, screenshot pass or accessibility sweep can reach at all.
+ *
+ * `widget` is F38, and it was added at the same moment the screen was, not
+ * afterwards. rd-fe-33 shipped two map screens whose commit said they were
+ * "URL-reachable" without adding them to any probe, and for one merge that
+ * claim was read as "measured" -- ~780 lines nothing had scanned, under a table
+ * printing a clean row for every screen it did visit. Reachable and measured
+ * are two claims; this one carries both or neither.
+ *
+ * `quan-tri` is the group administration screen (roles, leaving, outing
+ * invites). It sits behind a button on the group screen, which itself sits
+ * behind the [+] menu -- two taps deep, so nothing that loads a URL cold could
+ * reach it. Added with the screen rather than after it, for the reason spelled
+ * out one paragraph up.
+ *
+ * `thanh-tich` is 07.03 of the mockup set, behind a button on the Cá nhân tab.
+ * Same shape as `ban-be`, and named here in the same commit that adds the
+ * screen -- the paragraph above is about the one time that was done afterwards
+ * and what it cost.
+ *
+ * `album` is F36/F37, and it is here for one reason the others do not have:
+ * the screen it opens is three deep (shelf -> one album -> the AI reel), and
+ * only the shelf is reachable without walking. An address that lands on the
+ * shelf is still the whole difference between "one tool can start the walk"
+ * and "nothing can open this at all". */
+export type ManVaoCua =
+  | "dang-ky"
+  | "nhom"
+  | "ky-niem"
+  | "ban-be"
+  | "widget"
+  | "quan-tri"
+  | "thanh-tich"
+  | "album";
 
-const MAN_VAO_CUA: ManVaoCua[] = ["dang-ky", "nhom", "ky-niem", "ban-be"];
+const MAN_VAO_CUA: ManVaoCua[] = [
+  "dang-ky",
+  "nhom",
+  "ky-niem",
+  "ban-be",
+  "widget",
+  "quan-tri",
+  "thanh-tich",
+  "album",
+];
 
 export type DiemDen = {
   /** Which tab to open on, or null to use the default. */
@@ -97,6 +138,19 @@ export type DiemDen = {
   banDo: boolean;
   /** rd-fe-33. Open Điểm hẹn (F45) directly, from `#ban-do=hen`. */
   diemHen: boolean;
+  /** F36. Which trip's album to open on, from `#chuyen=<uuid>`, or null for
+   *  the shelf.
+   *
+   *  The album screen is three deep and only its first level has an address
+   *  without this. Naming the trip is what lets anything that loads a URL cold
+   *  -- a shared link, the snapshot probe, an accessibility sweep -- reach the
+   *  photo grid and the AI reel underneath instead of stopping at the shelf and
+   *  reporting a clean number for two screens it never rendered.
+   *
+   *  UUID-checked for the same reason `nhomId` is: it goes straight into a
+   *  request path, and a screen that asks the server about `../../etc` is a
+   *  screen writing somebody else's URL. */
+  albumChuyen: string | null;
   /** F14. An outing-invite token from `#moi=<token>`, or null.
    *
    *  The token is a free server string, not a UUID. Empty becomes null.
@@ -116,6 +170,7 @@ export const KHONG_CO_DIEM_DEN: DiemDen = {
   diaDiem: null,
   banDo: false,
   diemHen: false,
+  albumChuyen: null,
   moiBuoiDi: null,
   boQuaMoDau: false,
 };
@@ -173,6 +228,9 @@ export function docDiemDen(hash: string, search = ""): DiemDen {
   // feature inherit that result.
   const diemHen = banDoAsked === "hen";
 
+  const chuyenAsked = params.get("chuyen");
+  const albumChuyen = chuyenAsked && UUID_RE.test(chuyenAsked) ? chuyenAsked : null;
+
   const moiAsked = (params.get("moi") ?? "").trim();
   const moiBuoiDi =
     moiAsked === "" || moiAsked.includes("/") || moiAsked.includes("..")
@@ -188,6 +246,7 @@ export function docDiemDen(hash: string, search = ""): DiemDen {
     diaDiem,
     banDo,
     diemHen,
+    albumChuyen,
     moiBuoiDi,
     // A recognised tab is enough to enter: opening the app on a named screen
     // with nobody signed in is a real state, and the screens render it.
@@ -207,6 +266,21 @@ export function docDiemDen(hash: string, search = ""): DiemDen {
       vao === "nhom" ||
       vao === "ky-niem" ||
       vao === "ban-be" ||
+      // F38. Inside the shell like the three above, and with nothing to show
+      // outside it: the widget reads one group's newest photograph, and the
+      // opening screen has no group.
+      vao === "widget" ||
+      // Group administration is inside the shell too, and it opens the group
+      // itself -- stopping at the sunset would mean the link silently does
+      // nothing, which is the failure this whole field was added to stop.
+      vao === "quan-tri" ||
+      // Thành tích reads one person's ledger, so it has nothing to show outside
+      // the shell either. Same clause, same reason as the five above.
+      vao === "thanh-tich" ||
+      // F36/F37. Inside the shell like the rest, and with nothing to show
+      // outside it: an album belongs to one group, and the opening screen has
+      // no group.
+      vao === "album" ||
       diaDiem !== null ||
       banDo ||
       moiBuoiDi !== null,

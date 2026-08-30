@@ -118,6 +118,50 @@ export async function serve(root) {
 /* --------------------------------------------------------------- the pipe --- */
 
 /**
+ * Measure where a press should land, running inside the page.
+ *
+ * Module scope, not inline, because `evaluate` stringifies whatever it is
+ * given: a closure would arrive in the browser with its free variables gone
+ * and throw `ReferenceError` on a line nobody is looking at. Both `clickLabel`
+ * and `clickChu` hand it to `evaluate`, so the scroll-then-measure rule below
+ * is written once.
+ *
+ * `kieu` is `"nhan"` (exact `aria-label`) or `"chu"` (exact visible words of a
+ * button, whitespace collapsed). Returns `null` when nothing matched and
+ * `{ trung }` when more than one did -- the caller turns both into an error
+ * naming itself, rather than pressing nothing and failing three steps later.
+ */
+function doHopBam(kieu, khoa) {
+  const els =
+    kieu === "nhan"
+      ? [...document.querySelectorAll("[aria-label]")].filter(
+          (e) => e.getAttribute("aria-label") === khoa,
+        )
+      : [...document.querySelectorAll("button, [role='button']")].filter(
+          (e) => e.textContent.replace(/\s+/g, " ").trim() === khoa,
+        );
+  if (els.length === 0) return null;
+  if (els.length > 1) return { trung: els.length };
+  const el = els[0];
+  // Scroll it into view BEFORE measuring. `Input.dispatchMouseEvent`
+  // takes viewport coordinates, so a control below the fold is clicked
+  // at a y the window does not contain and the press lands on nothing --
+  // no error, no handler, an entirely silent no-op. Measured here: the
+  // comment composer's "Gửi" button sits at y 837-881 on a 390x844
+  // screen, `elementFromPoint` at its centre returned null, and the test
+  // failed much later at "the comment never appeared" while pointing at
+  // the product rather than at this function.
+  //
+  // `nearest` rather than `center`: it scrolls only when it has to, so
+  // tests that assert on scroll position are not moved out from under.
+  el.scrollIntoView({ block: "nearest", inline: "nearest" });
+  const r = el.getBoundingClientRect();
+  const x = r.left + r.width / 2;
+  const y = r.top + r.height / 2;
+  return { x, y, trongMan: x >= 0 && x <= innerWidth && y >= 0 && y <= innerHeight };
+}
+
+/**
  * Launch Chrome and attach to one page.
  *
  * `--headless=new` is the mode that renders like the real browser; the old
@@ -258,32 +302,41 @@ export async function launch(bin) {
      *  the gate would report a menu that never opened as a menu with nothing
      *  in it. */
     async clickLabel(label) {
-      const box = await this.evaluate((sel) => {
-        const el = document.querySelector(`[aria-label="${sel}"]`);
-        if (!el) return null;
-        // Scroll it into view BEFORE measuring. `Input.dispatchMouseEvent`
-        // takes viewport coordinates, so a control below the fold is clicked
-        // at a y the window does not contain and the press lands on nothing --
-        // no error, no handler, an entirely silent no-op. Measured here: the
-        // comment composer's "Gửi" button sits at y 837-881 on a 390x844
-        // screen, `elementFromPoint` at its centre returned null, and the test
-        // failed much later at "the comment never appeared" while pointing at
-        // the product rather than at this function.
-        //
-        // `nearest` rather than `center`: it scrolls only when it has to, so
-        // tests that assert on scroll position are not moved out from under.
-        el.scrollIntoView({ block: "nearest", inline: "nearest" });
-        const r = el.getBoundingClientRect();
-        const x = r.left + r.width / 2;
-        const y = r.top + r.height / 2;
-        return { x, y, trongMan: x >= 0 && x <= innerWidth && y >= 0 && y <= innerHeight };
-      }, label);
-      if (!box) throw new Error(`no element with aria-label ${JSON.stringify(label)}`);
+      await this.bamVaoHop(await this.evaluate(doHopBam, "nhan", label), `aria-label ${JSON.stringify(label)}`);
+    },
+
+    /** The same real press, on the control whose visible words are `chu`.
+     *
+     *  `Button` in `ui/Kit.tsx` sets `accessibilityRole="button"` and no
+     *  `accessibilityLabel`: its name comes from the `<Text>` inside it, so
+     *  react-native-web emits `role="button"` with no `aria-label` attribute
+     *  at all and `clickLabel` cannot find it. Most buttons in this app are
+     *  that one -- pressing them by their words is what a person does anyway.
+     *
+     *  Exact match after whitespace collapse, and two matches is an error
+     *  rather than "take the first". A test that silently pressed a different
+     *  control with the same words would report on a screen nobody asked for. */
+    async clickChu(chu) {
+      await this.bamVaoHop(await this.evaluate(doHopBam, "chu", chu), `chữ ${JSON.stringify(chu)}`);
+    },
+
+    /** Dispatch at a box `doHopBam` measured, or say why it refused to.
+     *
+     *  Separate from the two finders so "scroll it in, take the centre, refuse
+     *  if it is still off screen" has one spelling. Both finders can return
+     *  `null` (nothing matched) or `{ trung: n }` (ambiguous); neither is a
+     *  press, and both have to name themselves rather than fail later at
+     *  "the screen never changed". */
+    async bamVaoHop(box, moTa) {
+      if (!box) throw new Error(`no element with ${moTa}`);
+      if (box.trung !== undefined) {
+        throw new Error(`${box.trung} elements match ${moTa}; refusing to guess which one to press`);
+      }
       // Refusing to dispatch is the point. Clicking into empty space and
       // returning normally is how a dead control passes for a live one.
       if (!box.trongMan) {
         throw new Error(
-          `element with aria-label ${JSON.stringify(label)} is outside the viewport even ` +
+          `element with ${moTa} is outside the viewport even ` +
             `after scrolling (centre ${Math.round(box.x)},${Math.round(box.y)}); a click there hits nothing`,
         );
       }

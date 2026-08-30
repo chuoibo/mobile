@@ -103,15 +103,20 @@ THESIS: AI ngoi trong nhom chu khong dung ngoai. No doc ngu canh roi tu len
 tieng, va thu no noi ra la mot ke hoach bam vao duoc, khong phai chu tron.
 
 OWN-WORLD: The gioi Ru Di, khong them mau. Dan cam "accent" nhu vo tab. Tim
-"ai" cham dung ba cho: avatar AI, nhan "Ru Di AI", the ke hoach. Mockup ve dau
-man tim; o day khong, vi tim trong he nay co nghia la "may sinh ra", va mot dau
-man tim lam ca doan chat trong nhu do may viet.
+"ai" cham dung bon cho: avatar AI, nhan "Ru Di AI", the ke hoach, va nut "Hoi
+Ru Di AI" -- nut goi may thi mang mau may, khong thi no lan giua ba nut chua
+dung. Vien va nen nhat, khong phai thanh tim dac: dac se lan at nut Gui.
+Mockup ve dau man tim; o day khong, vi tim trong he nay co nghia la "may sinh
+ra", va mot dau man tim lam ca doan chat trong nhu do may viet.
 
 STORY: Cuon nguoc len thay nhom ban gi. Go mot cau, gui. AI tu noi, khong ai
-goi ten no. Cau cua no la mot the lich trinh, bam vao la sang man ke hoach.
+goi ten no. Hoi ai muon hoi thang thi co nut, va luot do AI luon tra loi mot
+cau -- ke ca cau tu choi. Cau cua no la mot the lich trinh, bam vao la sang
+man ke hoach.
 
 FIRST VIEWPORT: Avatar nhom + so thanh vien that, hang bon chip Chat/Plan/Thanh
-vien/File, ba bong bong cuoi cua dong tin, o nhap ghim day man.
+vien/File, ba bong bong cuoi cua dong tin, nut "Hoi Ru Di AI" va o nhap ghim
+day man.
 
 FORM: Bong bong cua minh lech phai nen "accentSoft"; cua nguoi khac lech trai
 nen "card" vien "line"; cua AI rong het be ngang nen "aiSoft" vien "ai". Vien
@@ -308,6 +313,51 @@ FORM: The, khong phai bang -- ba ban doc nay deu it dong. Con so tien dung chu
 so tabular nhu moi cho khac. Bam >= 44. Cau "chua ghi gi" nam TRONG the, tren
 nut, chu khong phai chu thich duoi chan: no la dieu kien de bam nut chu khong
 phai ghi chu ve nut.
+
+FINISH: build fully, then hand off to the finish reviewer with captures.
+`.trim();
+
+/** The direction contract for the two self-tagging screens, F22 (rd-fe-22).
+ *
+ * F17's server-backed vote screen deliberately has NO contract of its own: it
+ * runs under `DIRECTION_CONTRACT_BINH_CHON` above, unchanged. That contract was
+ * written for the message-backed card, and every line of it is about the
+ * surface rather than the transport -- a tie is a result, no teal because
+ * nobody has paid anything yet, the count is visible to everyone at once. None
+ * of that changes when the tally starts arriving from `GET /votes/{id}` instead
+ * of being folded out of chat messages. Writing a second contract here would
+ * have been a second answer to a question already answered, which is the same
+ * mistake as a second vote counter.
+ *
+ * These two screens do need their own, because their failure mode is new. The
+ * vote screen must not break a tie; these must not let the MACHINE say who a
+ * person is. A rectangle is a rectangle, and a dish is claimed by whoever is
+ * holding the phone. Both are undecided on purpose, and both look unfinished
+ * because of it, which is exactly the pressure this contract exists to resist.
+ *
+ * An EXTENSION. No colour, radius or type step that `packages/shared/tokens.json`
+ * does not already own.
+ */
+export const DIRECTION_CONTRACT_NHAN_PHAN_MINH = `
+THESIS: May khoanh, nguoi tu nhan. O vuong tren anh la mot hinh chu nhat, khong
+phai mot cai ten. Mon an la cua nguoi dang cam may, khong phai cua ai khac.
+
+OWN-WORLD: Ke thua the gioi Ru Di, khong them mau. Cam "accent" dan man anh: day
+la hanh dong cua NGUOI. Teal "split" chi cham vao dong tien cua mon da nhan, va
+chi o man mon. Tim "ai" chi dat len o vuong may khoanh, khong bao gio len phan
+nguoi da tu nhan.
+
+STORY: May khoanh cac o vuong vo danh tren anh nhom, toi bam o cua toi. O man
+bill, toi tich nhung mon toi da an; danh sach gui di la TOAN BO phan toi nhan,
+nen bo tich la nha mon ra chu khong phai giu lai.
+
+FIRST VIEWPORT: Man anh mo bang chinh tam anh, o vuong ve ngay tren no, mot cau
+noi ro may khong biet ai la ai. Man mon mo bang ba dong mon dau va dong "Phan
+cua ban" ghim duoi.
+
+FORM: O vuong ve theo ti le anh, khong theo pixel -- box_key khong on dinh giua
+hai lan goi nen khong duoc luu. Bam >= 44. So tien dung chu so tabular, canh
+phai. Trang thai da chon mang ca dau tich lan chu, khong chi mau.
 
 FINISH: build fully, then hand off to the finish reviewer with captures.
 `.trim();

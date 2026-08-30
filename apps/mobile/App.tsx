@@ -47,7 +47,20 @@ import {
   type PublishGates,
   type SavedBankRecipient,
   type SplitPreview,
+  type CuocBinhChonWire,
 } from "./src/api";
+import { BinhChon } from "./src/screens/binh-chon/BinhChon";
+import { bangKetQuaTuWire } from "./src/screens/binh-chon/ket-qua";
+import { MonCuaToi } from "./src/screens/bill/MonCuaToi";
+import { NhanMatTrenAnh } from "./src/screens/nhan-mat/NhanMatTrenAnh";
+import { MoiVaoChuyen } from "./src/screens/len-plan/MoiVaoChuyen";
+import type { LoiMoiBuoiDi } from "./src/screens/quan-tri/quan-tri";
+// Aliased, not imported bare: `App.tsx` already holds a `ThanhVien` from
+// `chat/nhom`, and the two are different shapes -- that one is a chat
+// participant, this one is the membership row `GET /contexts/{id}/members`
+// answers. Importing both under one name compiled as `Duplicate identifier`
+// and then mis-typed three unrelated lines further down the file.
+import type { ThanhVien as HangThanhVien } from "./src/screens/vao-cua/cong-api";
 import type { BillWire, SoDu } from "./src/bill";
 import { CoLoi, DangTai, TrongRong } from "./src/ui/TrangThai";
 import { moTaLoi } from "./src/ui/loi-tren-man";
@@ -93,7 +106,13 @@ import {
   type GroupMember,
 } from "./src/participants";
 import { DEMO_PEOPLE, type DemoPerson } from "./src/navigation/nhom-demo";
-import { cauBuocNhom, khoiDongNhom, type NhomMan, type ThanhVien } from "./src/screens/chat/nhom";
+import {
+  cauBuocNhom,
+  moNhomChoMan,
+  type NhomMan,
+  type NhomPhien,
+  type ThanhVien,
+} from "./src/screens/chat/nhom";
 import { space, type, usePalette } from "./src/theme";
 import { Button, Screen } from "./src/ui/Kit";
 import {
@@ -209,7 +228,15 @@ function nguoiCoTheChia(members: ThanhVien[]): GroupMember[] {
     }));
 }
 
-function LuongKhoanChi({ onExit, nguoi }: { onExit: () => void; nguoi: DemoPerson | null }) {
+function LuongKhoanChi({ onExit, nguoi, nhomPhien }: {
+  onExit: () => void;
+  nguoi: DemoPerson | null;
+  /** The group this session opened, from `VoTab`. The bill has to land in the
+   *  same group the conversation about it happened in; see `TinNhan`'s copy of
+   *  this prop and `nhom.ts` on why one screen resolving the group its own way
+   *  is bug-223337. */
+  nhomPhien: NhomPhien | null;
+}) {
   const c = usePalette();
   const scheme = useColorScheme();
   // The bill comes first. This is the hero path: photograph the paper, let the
@@ -484,13 +511,13 @@ function LuongKhoanChi({ onExit, nguoi }: { onExit: () => void; nguoi: DemoPerso
     }
     let huy = false;
     setNhom({ kind: "dang-tai" });
-    khoiDongNhom(nguoi.id).then((s) => {
+    moNhomChoMan(nguoi, nhomPhien).then((s) => {
       if (!huy) setNhom(s);
     });
     return () => {
       huy = true;
     };
-  }, [nguoi]);
+  }, [nguoi, nhomPhien]);
 
   useEffect(() => {
     if (step !== "goi-y" || reading === null || nhom.kind !== "xong") return;
@@ -580,7 +607,7 @@ function LuongKhoanChi({ onExit, nguoi }: { onExit: () => void; nguoi: DemoPerso
               onThuLai={() => {
                 if (!nguoi) return;
                 setNhom({ kind: "dang-tai" });
-                khoiDongNhom(nguoi.id).then(setNhom);
+                moNhomChoMan(nguoi, nhomPhien).then(setNhom);
               }}
             />
           )}
@@ -1313,12 +1340,244 @@ function XemGoiYChia() {
   );
 }
 
+/* ---- F17 and F22, from a URL, web only ------------------------------------
+ *
+ * Same contract as the scan targets above: one exact parameter value, nothing
+ * on native, the real components with the real copy, no writes, and no route
+ * from here into the product. These three are the newest screens in the app
+ * and the ones a headless browser could otherwise never open -- a vote needs a
+ * group with a vote in it, and both F22 screens need a photograph somebody
+ * took. Without a door, "the app was scanned" would be silent about all three.
+ *
+ * `?man=binh-chon-hoa` exists as its own value rather than a toggle because a
+ * TIE is the state the whole surface is built around, it cannot be reached by
+ * pressing anything from the open state, and it is the one a reviewer most
+ * needs to see. The two vote fixtures go through `bangKetQuaTuWire` rather
+ * than being hand-written view models, so a door that renders is also evidence
+ * the translation runs -- a fixture typed straight into `BangKetQua` would
+ * keep painting after the wire changed shape underneath it.
+ */
+const WIRE_BINH_CHON: CuocBinhChonWire = {
+  id: "d1d1d1d1-aaaa-4aaa-8aaa-d1d1d1d1d1d1",
+  context_id: "d2d2d2d2-bbbb-4bbb-8bbb-d2d2d2d2d2d2",
+  outing_id: null,
+  created_by_id: "d3d3d3d3-cccc-4ccc-8ccc-d3d3d3d3d3d3",
+  question: "Tối nay nhóm mình ăn ở đâu?",
+  created_at: "2026-08-30T12:00:00Z",
+  closed_at: null,
+  is_closed: false,
+  options: [
+    { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", position: 0, label: "Lẩu Cô Ba", place_name: "Lẩu Cô Ba, Bàn Cờ", ballot_count: 3 },
+    { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", position: 1, label: "Nướng Ngói", place_name: "Nướng Ngói, Quận 3", ballot_count: 2 },
+    { id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", position: 2, label: "Cơm tấm bà Tư", place_name: null, ballot_count: 1 },
+  ],
+  total_ballots: 6,
+  leading_option_ids: ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
+  is_tie: false,
+  decided_option_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  my_option_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+};
+
+/* Closed, and tied three-all. `decided_option_id` is null because the server
+ * refuses to name a winner here, and the screen must refuse too. */
+const WIRE_BINH_CHON_HOA: CuocBinhChonWire = {
+  ...WIRE_BINH_CHON,
+  is_closed: true,
+  closed_at: "2026-08-30T13:30:00Z",
+  options: WIRE_BINH_CHON.options.map((o, i) => ({ ...o, ballot_count: [3, 3, 0][i] })),
+  total_ballots: 6,
+  leading_option_ids: [
+    "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+  ],
+  is_tie: true,
+  decided_option_id: null,
+};
+
+function XemBinhChon() {
+  const c = usePalette();
+  const hoa = manThamSo() === "binh-chon-hoa";
+  const wire = hoa ? WIRE_BINH_CHON_HOA : WIRE_BINH_CHON;
+  // Local, so a keyboard pass can actually move the ballot. A radio group whose
+  // selection never changes is a control a walk-through cannot exercise.
+  const [phieu, setPhieu] = useState<string | null>(wire.my_option_id);
+  const bang = bangKetQuaTuWire({ ...wire, my_option_id: phieu });
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
+      <StatusBar style="dark" />
+      <BinhChon
+        bang={bang}
+        dangGui={null}
+        loi={null}
+        laNguoiMo={!hoa}
+        onChonPhieu={setPhieu}
+        onDong={() => {}}
+        onQuayLai={() => {}}
+      />
+    </SafeAreaView>
+  );
+}
+
+const MON_DEMO = [
+  { itemKey: "lau-thai", ten: "Lẩu Thái chua cay", soLuong: 1, tienVnd: 320000 },
+  { itemKey: "bo-my", ten: "Bò Mỹ cuộn nấm", soLuong: 2, tienVnd: 240000 },
+  { itemKey: "rau", ten: "Rau nhúng thập cẩm", soLuong: 1, tienVnd: 60000 },
+  { itemKey: "bia", ten: "Bia Sài Gòn", soLuong: 6, tienVnd: 150000 },
+  { itemKey: "trang-mieng", ten: "Chè khúc bạch", soLuong: 3, tienVnd: 75000 },
+];
+
+function XemMonCuaToi() {
+  const c = usePalette();
+  const [daChon, setDaChon] = useState<string[]>(["lau-thai", "bia"]);
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
+      <StatusBar style="dark" />
+      <MonCuaToi
+        tenNhom="Hội bạn Bàn Cờ"
+        mon={MON_DEMO}
+        daChon={daChon}
+        dangLuu={false}
+        loi={null}
+        onBat={(key) =>
+          setDaChon((cu) =>
+            cu.includes(key) ? cu.filter((k) => k !== key) : [...cu, key],
+          )
+        }
+        onLuu={() => {}}
+        onQuayLai={() => {}}
+      />
+    </SafeAreaView>
+  );
+}
+
+/**
+ * The stand-in photograph, drawn rather than taken.
+ *
+ * A real file at a real URL, served next to the bundle from `public/`. The
+ * first attempt was an inline `data:` SVG, which is smaller and commits no
+ * asset -- and it renders as NOTHING. react-native-web's image loader leaves
+ * the backdrop div's inline style empty for a data URI, with no failed request
+ * and no console error, so the screen came out as three boxes floating on a
+ * blank white card. Measured, not guessed: the same door pointed at an ordinary
+ * http URL emits both the `<img>` and the `background-image`, which is how the
+ * component was cleared of the fault.
+ *
+ * It is a drawing, and `anh-nhom-dung-san.svg` says why it must stay one.
+ */
+const ANH_NHOM_DEMO = "/anh-nhom-dung-san.svg";
+
+/* Boxes as the server would return them: fractions of the frame, never pixels.
+ * These three sit over the three shapes drawn above. */
+const O_DEMO = [
+  { boxKey: "0", x: 0.08, y: 0.18, width: 0.22, height: 0.3 },
+  { boxKey: "1", x: 0.4, y: 0.12, width: 0.2, height: 0.28 },
+  { boxKey: "2", x: 0.68, y: 0.22, width: 0.21, height: 0.29 },
+];
+
+function XemNhanMat() {
+  const c = usePalette();
+  const [oCuaToi, setOCuaToi] = useState<string | null>(null);
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
+      <StatusBar style="dark" />
+      <NhanMatTrenAnh
+        anhUri={ANH_NHOM_DEMO}
+        o={O_DEMO}
+        dangTim={false}
+        oCuaToi={oCuaToi}
+        loi={null}
+        onTim={() => {}}
+        onChonO={setOCuaToi}
+        onXong={() => {}}
+        onQuayLai={() => {}}
+      />
+    </SafeAreaView>
+  );
+}
+
+/* ---- F14, from a URL, web only --------------------------------------------
+ *
+ * Same contract as the scan targets above: one exact parameter value, the real
+ * component with the real copy, no writes, and no route from here into the
+ * product. This screen needs a group, a trip in it, and a roster read before
+ * it can exist inside the app, so a headless browser could otherwise never
+ * open it -- and "the app was scanned" would be silent about the one screen
+ * F14 adds.
+ *
+ * The fixture carries all four row states on purpose: one member who may be
+ * invited, one already invited in this session, one whose invite was revoked
+ * (which is a one-way door -- see `moi-vao-chuyen.ts`), and one who has not
+ * accepted the group yet. A door that only rendered the happy row would leave
+ * the three sentences this screen exists to say unmeasured.
+ */
+const NGUOI_QUET = "e1e1e1e1-aaaa-4aaa-8aaa-e1e1e1e1e1e1";
+const CHUYEN_QUET = "e2e2e2e2-bbbb-4bbb-8bbb-e2e2e2e2e2e2";
+
+const THANH_VIEN_QUET: HangThanhVien[] = [
+  { id: "m1", context_id: "c1", person_id: NGUOI_QUET, display_name: "Minh", state: "active", role: "admin", invited_by_id: null, joined_at: "2026-08-01T00:00:00Z", left_at: null, created_at: "2026-08-01T00:00:00Z" },
+  { id: "m2", context_id: "c1", person_id: "e3e3e3e3-cccc-4ccc-8ccc-e3e3e3e3e3e3", display_name: "Quyên", state: "active", role: "member", invited_by_id: null, joined_at: "2026-08-01T00:00:00Z", left_at: null, created_at: "2026-08-01T00:00:00Z" },
+  { id: "m3", context_id: "c1", person_id: "e4e4e4e4-dddd-4ddd-8ddd-e4e4e4e4e4e4", display_name: "Hà", state: "active", role: "member", invited_by_id: null, joined_at: "2026-08-01T00:00:00Z", left_at: null, created_at: "2026-08-01T00:00:00Z" },
+  { id: "m4", context_id: "c1", person_id: "e5e5e5e5-eeee-4eee-8eee-e5e5e5e5e5e5", display_name: "Tú", state: "active", role: "member", invited_by_id: null, joined_at: "2026-08-01T00:00:00Z", left_at: null, created_at: "2026-08-01T00:00:00Z" },
+  { id: "m5", context_id: "c1", person_id: "e6e6e6e6-ffff-4fff-8fff-e6e6e6e6e6e6", display_name: "Sơn", state: "invited", role: "member", invited_by_id: NGUOI_QUET, joined_at: null, left_at: null, created_at: "2026-08-01T00:00:00Z" },
+];
+
+const MOI_QUET: LoiMoiBuoiDi[] = [
+  { id: "i1", outing_id: CHUYEN_QUET, source: "link", invited_person_id: null, invited_by_id: NGUOI_QUET, created_at: "2026-08-31T00:00:00Z", expires_at: "2026-09-07T00:00:00Z", revoked_at: null, invite_token: "quet-khong-phai-token-that", invite_path: "/outing-invites/quet-khong-phai-token-that" },
+  { id: "i2", outing_id: CHUYEN_QUET, source: "group", invited_person_id: "e3e3e3e3-cccc-4ccc-8ccc-e3e3e3e3e3e3", invited_by_id: NGUOI_QUET, created_at: "2026-08-31T00:00:00Z", expires_at: "2026-09-07T00:00:00Z", revoked_at: null, invite_token: null, invite_path: null },
+  { id: "i3", outing_id: CHUYEN_QUET, source: "group", invited_person_id: "e4e4e4e4-dddd-4ddd-8ddd-e4e4e4e4e4e4", invited_by_id: NGUOI_QUET, created_at: "2026-08-31T00:00:00Z", expires_at: "2026-09-07T00:00:00Z", revoked_at: "2026-08-31T00:10:00Z", invite_token: null, invite_path: null },
+];
+
+function XemMoiVaoChuyen() {
+  const c = usePalette();
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
+      <StatusBar style="dark" />
+      <MoiVaoChuyen
+        buoi={{
+          id: CHUYEN_QUET,
+          context_id: "c1",
+          created_by_id: NGUOI_QUET,
+          title: "Đà Lạt cuối tuần",
+          starts_on: "2026-10-17",
+          ends_on: "2026-10-19",
+          headcount: 8,
+          budget_per_person_vnd: 2500000,
+          created_at: "2026-08-31T00:00:00Z",
+          stops: [],
+        }}
+        roster={{ kind: "xong", ds: THANH_VIEN_QUET }}
+        toiId={NGUOI_QUET}
+        daMoi={MOI_QUET}
+        // Frozen, so two screenshots of this door are the same screenshot.
+        // `Date.now()` here would make "còn hiệu lực" flip to "đã hết hạn" on
+        // whatever day somebody next runs the scan.
+        bayGio={Date.parse("2026-08-31T00:30:00Z")}
+        onMoiThanhVien={() => {}}
+        onTaoLink={() => {}}
+        onThuHoi={() => {}}
+        onTaiLaiRoster={() => {}}
+        onQuayLai={() => {}}
+      />
+    </SafeAreaView>
+  );
+}
+
 export default function App() {
   if (manDo()) return <XemKetQuaThanhToan />;
   if (manThamSo() === "trang-thai") return <XemTrangThai />;
   if (manThamSo() === "nhan-dien") return <XemNhanDien />;
   if (manThamSo() === "goi-y-chia") return <XemGoiYChia />;
+  if (manThamSo()?.startsWith("binh-chon")) return <XemBinhChon />;
+  if (manThamSo() === "mon-cua-toi") return <XemMonCuaToi />;
+  if (manThamSo() === "nhan-mat") return <XemNhanMat />;
+  if (manThamSo() === "moi-vao-chuyen") return <XemMoiVaoChuyen />;
   if (manThamSo()?.startsWith("doc-bill")) return <XemDocBill />;
   if (manThamSo()?.startsWith("tai-khoan-nhan")) return <XemTaiKhoanNhan />;
-  return <AppRoot renderKhoanChi={(onExit, nguoi) => <LuongKhoanChi onExit={onExit} nguoi={nguoi} />} />;
+  return (
+    <AppRoot
+      renderKhoanChi={(onExit, nguoi, nhomPhien) => (
+        <LuongKhoanChi onExit={onExit} nguoi={nguoi} nhomPhien={nhomPhien} />
+      )}
+    />
+  );
 }

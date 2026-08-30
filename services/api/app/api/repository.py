@@ -549,6 +549,15 @@ class PersonFinanceSummary:
     have to add up to the total above them, and deriving one of them from the
     other is the only way to guarantee that without a reconciliation step
     nobody would run.
+
+    `receivable_vnd` is the other direction and belongs to no part of that
+    sum. It is what other people still owe *this* person for shares they
+    fronted, and money advanced for somebody else was never this person's
+    spend -- adding it to the total above would invent an amount nobody owes.
+    It exists because every other figure here reads the ledger from the side
+    of whoever is in debt, so the person who puts the bill on their own card
+    -- which on the demo path is the person running the demo -- had no figure
+    on the screen at all.
     """
 
     person_id: uuid.UUID
@@ -556,6 +565,9 @@ class PersonFinanceSummary:
     spend_vnd: int
     settled_vnd: int
     outstanding_vnd: int
+    #: What other people still owe this person. A separate axis from the three
+    #: above, never a term in `settled + outstanding == spend`.
+    receivable_vnd: int
     #: Confirmed expenses this person appears in. A count, not money.
     expense_count: int
     #: Groups they are an accepted member of.
@@ -2053,12 +2065,57 @@ class SqlAlchemyApiRepository:
 
         existing_stops = list(
             self.session.scalars(
-                select(OutingStop).where(OutingStop.outing_id == outing_id)
+                select(OutingStop)
+                .where(OutingStop.outing_id == outing_id)
+                .order_by(OutingStop.position)
             )
         )
+        # A stop that says the same thing as before is the same stop, and keeps
+        # its row -- so the check-ins hanging off that row survive an edit that
+        # never touched it. Deleting and re-inserting the whole plan on every
+        # save cascaded everybody's "đã tới" away for adding one stop at the
+        # end. The request carries no stop ids, so identity has to be read off
+        # what the stop says; a retyped stop reads as a different stop.
+        unclaimed: dict[tuple[int, str, str | None], list[OutingStop]] = {}
         for stop in existing_stops:
-            self.session.delete(stop)
-        # Reused positions remain unique only after the previous plan is gone.
+            key = (stop.minute_of_day, stop.label, stop.place_name)
+            unclaimed.setdefault(key, []).append(stop)
+
+        kept: list[tuple[int, OutingStop]] = []
+        added: list[tuple[int, dict]] = []
+        for position, stop in enumerate(stops):
+            key = (stop["minute_of_day"], stop["label"], stop["place_name"])
+            same = unclaimed.get(key)
+            if same:
+                kept.append((position, same.pop(0)))
+            else:
+                added.append((position, stop))
+
+        # `uq_outing_stops_position` is not deferrable and the ORM emits one
+        # UPDATE per row, so a stop cannot move straight into a position that
+        # another surviving stop is still sitting on. Park every survivor above
+        # both the old plan and the new one, then bring them down. Read while
+        # the old rows are still alive -- after the delete below they are not
+        # a safe thing to ask about.
+        parking = (
+            max(
+                max((stop.position for stop in existing_stops), default=-1),
+                len(stops) - 1,
+            )
+            + 1
+        )
+
+        claimed = {row.id for _position, row in kept}
+        for stop in existing_stops:
+            if stop.id not in claimed:
+                self.session.delete(stop)
+        self.session.flush()
+
+        for offset, (_position, row) in enumerate(kept):
+            row.position = parking + offset
+        self.session.flush()
+        for position, row in kept:
+            row.position = position
         self.session.flush()
 
         self.session.add_all(
@@ -2070,7 +2127,7 @@ class SqlAlchemyApiRepository:
                     label=stop["label"],
                     place_name=stop["place_name"],
                 )
-                for position, stop in enumerate(stops)
+                for position, stop in added
             ]
         )
         self.session.flush()
@@ -3006,7 +3063,22 @@ class SqlAlchemyApiRepository:
     def create_expense(self, context_id: uuid.UUID) -> ExpenseIdentity:
         expense = Expense(context_id=context_id)
         self.session.add(expense)
-        self.session.flush()
+        try:
+            self.session.flush()
+        except IntegrityError as exc:
+            # `expenses.context_id` has referenced `contexts` since
+            # b3c7e0d24f19. `context_id` arrives straight from the request
+            # body, so naming a group nobody created is an ordinary thing for
+            # a caller to do -- and left alone the key answers it by throwing
+            # a `ForeignKeyViolation` out of this flush, which reaches the
+            # client as 500. Same house rule as the bill writes above: no
+            # integrity violation escapes as a raw database error.
+            constraint = getattr(
+                getattr(exc.orig, "diag", None), "constraint_name", None
+            )
+            if constraint == "fk_expenses_context_id":
+                raise RepositoryConflict("EXPENSE_CONTEXT_NOT_FOUND") from exc
+            raise
         return ExpenseIdentity(id=expense.id, context_id=expense.context_id)
 
     def get_expense(self, expense_id: uuid.UUID) -> ExpenseIdentity | None:
@@ -4296,6 +4368,66 @@ class SqlAlchemyApiRepository:
         # past what was ever spent.
         outstanding_vnd = max(0, owed_vnd - paid_vnd)
 
+        # The same question asked from the other side: what is still owed *to*
+        # this person. Mockup 07.02 puts it between *Đã trả* and *Còn phải
+        # trả*, and until it existed the person who fronted the bill read
+        # `Còn nợ 0đ` with nothing on the screen saying money was coming back.
+        #
+        # Its own subquery rather than a reuse of `current_allocations`: that
+        # one is filtered to rows where this person is the *participant*, and
+        # this is every row where they are the *payer* and somebody else is
+        # the participant. The `!=` is the load-bearing half -- without it a
+        # payer's own share would count as money owed to themselves, and the
+        # figure would be the whole bill rather than the part they fronted.
+        #
+        # Same newest-version filter for the same reason as spend: a
+        # correction writes a new version, so an unfiltered sum bills the
+        # sender for the mistake and the fix at once.
+        advanced_allocations = (
+            select(ConfirmedAllocation.amount_vnd.label("amount_vnd"))
+            .select_from(ConfirmedAllocation)
+            .join(
+                ExpenseVersion,
+                ExpenseVersion.id == ConfirmedAllocation.expense_version_id,
+            )
+            .join(
+                newest,
+                (newest.c.expense_id == ExpenseVersion.expense_id)
+                & (newest.c.version_number == ExpenseVersion.version_number),
+            )
+            .where(
+                ExpenseVersion.paid_by_id == person_id,
+                ConfirmedAllocation.participant_id != person_id,
+            )
+            .subquery()
+        )
+        advanced_vnd = int(
+            self.session.scalar(
+                select(func.coalesce(func.sum(advanced_allocations.c.amount_vnd), 0))
+            )
+            or 0
+        )
+        # Arrivals, never claims -- the mirror of `paid_vnd`. Counting
+        # `PaymentReport` here would tell the creditor they had been paid on
+        # the word of the person who owes them, which is the one direction
+        # where self-report is most obviously not evidence.
+        collected_vnd = int(
+            self.session.scalar(
+                select(func.coalesce(func.sum(ReceiptConfirmation.amount_vnd), 0))
+                .select_from(ReceiptConfirmation)
+                .join(
+                    CollectionObligation,
+                    CollectionObligation.id == ReceiptConfirmation.obligation_id,
+                )
+                .where(CollectionObligation.recipient_id == person_id)
+            )
+            or 0
+        )
+        # Clamped for the same reason the debt is: nothing caps a second
+        # receipt confirmation, and an unclamped negative here would read on
+        # screen as the creditor owing money they are in fact owed.
+        receivable_vnd = max(0, advanced_vnd - collected_vnd)
+
         return PersonFinanceSummary(
             person_id=person_id,
             display_name=person.display_name if person else None,
@@ -4304,6 +4436,7 @@ class SqlAlchemyApiRepository:
             # have to add back up to it on screen.
             settled_vnd=spend_vnd - outstanding_vnd,
             outstanding_vnd=outstanding_vnd,
+            receivable_vnd=receivable_vnd,
             expense_count=expense_count,
             group_count=group_count,
             movements=self._finance_movements(person_id, movement_limit),

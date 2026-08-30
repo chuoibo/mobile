@@ -7,8 +7,9 @@
  * this. Spending it on the header would say the whole conversation was
  * machine-written, which is the defect the direction contract exists to
  * prevent. The header is `accent` orange, like the tab shell. Purple is
- * spent on four things only: the AI avatar, the "Rủ Đi AI" label, the
- * plan card, and the expense-draft card (a machine reading, not a write).
+ * spent on five things only: the AI avatar, the "Rủ Đi AI" label, the
+ * plan card, the expense-draft card (a machine reading, not a write), and
+ * the "Hỏi Rủ Đi AI" button, which is the one control that addresses it.
  *
  * This file is the React that stands on the five logic modules. It does not
  * invent a member count, a plan, a total, or a day boundary. `khoiDongNhom`
@@ -25,14 +26,30 @@ import React, { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { DEMO_PEOPLE, type DemoPerson } from "../../navigation/nhom-demo";
 import { radius, space, type, usePalette } from "../../theme";
-import { napNhapKhoanChiTuChat } from "../../api";
+import {
+  attemptFor,
+  confirmExpense,
+  napNhapKhoanChiTuChat,
+  proposeSplit,
+  type Attempt,
+} from "../../api";
 import { Card } from "../../ui/Kit";
 import { themChiTiet } from "../../ui/loi-may-chu";
+import { AiHieuNhom } from "../ai-hieu-nhom/AiHieuNhom";
+import {
+  napAiHieuNhom,
+  type AiHieuNhomState,
+} from "../ai-hieu-nhom/ai-hieu-nhom";
 import { goiAiTurn, type AiTurnState } from "./ai";
 import { TheNhapChiTuChat } from "./TheNhapChiTuChat";
 import {
+  banNhapDeGhi,
+  CHUA_GHI,
+  dongChiaTuAllocation,
+  ghiHongTuLoi,
   trangTuLoi,
   trangTuWire,
+  type TrangGhiKhoanChi,
   type TrangNhapTuChat,
 } from "./nhap-tu-chat";
 import {
@@ -46,7 +63,13 @@ import { BongBong, type NguoiHienThi } from "./BongBong";
 import { ChiTietKeHoach } from "./ChiTietKeHoach";
 import { keHoachTuCard, type DiaDiem, type KeHoach } from "./ke-hoach";
 import { MoBinhChon } from "./MoBinhChon";
-import { cauBuocNhom, khoiDongNhom, type NhomMan, type ThanhVien } from "./nhom";
+import {
+  cauBuocNhom,
+  moNhomChoMan,
+  type NhomMan,
+  type NhomPhien,
+  type ThanhVien,
+} from "./nhom";
 import { ONhap } from "./ONhap";
 import { TheBinhChon } from "./TheBinhChon";
 import {
@@ -71,7 +94,19 @@ const CHIPS: { id: ChipId; label: string }[] = [
   { id: "file", label: "File" },
 ];
 
-export function TinNhan({ nguoi }: { nguoi: DemoPerson | null }) {
+export function TinNhan({ nguoi, nhomPhien }: {
+  nguoi: DemoPerson | null;
+  /** The group this session opened on F03/F04, held by `VoTab` so it outlives
+   *  the screen that created it. Null means the app has not been told of one,
+   *  and chat falls back to the demo group.
+   *
+   *  Required rather than optional on purpose. It is one prop in one place and
+   *  the cost of forgetting it is the defect this prop exists to fix -- chat
+   *  quietly showing a different group from the one the person is in -- which
+   *  no test in this repo could see. Making it required moves that mistake to
+   *  `tsc --noEmit`, which `npm test` runs and fails on. */
+  nhomPhien: NhomPhien | null;
+}) {
   const c = usePalette();
   const [nhom, setNhom] = useState<NhomMan>(nguoi ? { kind: "dang-tai" } : { kind: "chua-chon" });
   const [tin, setTin] = useState<TinMan>({ kind: "dang-tai" });
@@ -81,17 +116,27 @@ export function TinNhan({ nguoi }: { nguoi: DemoPerson | null }) {
   const [dangNapCu, setDangNapCu] = useState(false);
   const [thongBao, setThongBao] = useState<string | null>(null);
   const [aiYen, setAiYen] = useState<AiYen | null>(null);
+  const [aiHieu, setAiHieu] = useState<AiHieuNhomState>({ kind: "dang-tai" });
+  // Not a fifth chip. `AiHieuNhom` brings its own "Đóng" button and drops you
+  // back on the chat, which is dismiss semantics; you leave a tab by picking
+  // another tab. Kept as its own flag so the tablist stays four tabs.
+  const [moAiHieu, setMoAiHieu] = useState(false);
   const [keHoachDangXem, setKeHoachDangXem] = useState<KeHoach | null>(null);
   const [dangMoBinhChon, setDangMoBinhChon] = useState(false);
+  const [dangHoiAi, setDangHoiAi] = useState(false);
   const [dangBoPhieu, setDangBoPhieu] = useState(false);
   // One draft card at a time. Opening another message replaces this; there
   // is no stack, because two readings at once would look like two writes.
   const [theNhap, setTheNhap] = useState<{
     messageId: string;
     trang: TrangNhapTuChat;
+    ghi: TrangGhiKhoanChi;
   } | null>(null);
 
   const cuonRef = useRef<ScrollView>(null);
+  // Attempt keys, in a ref so a re-render between the press and the reply
+  // cannot lose one and turn a retry into a second write.
+  const soKhoa = useRef<Record<string, Attempt>>({});
   const dangGoiAi = useRef(false);
   const messages = tin.kind === "co-tin" ? tin.messages : [];
   const cuoiTin = messages[messages.length - 1]?.id;
@@ -112,13 +157,13 @@ export function TinNhan({ nguoi }: { nguoi: DemoPerson | null }) {
     }
     let huy = false;
     setNhom({ kind: "dang-tai" });
-    khoiDongNhom(nguoi.id).then((s) => {
+    moNhomChoMan(nguoi, nhomPhien).then((s) => {
       if (!huy) setNhom(s);
     });
     return () => {
       huy = true;
     };
-  }, [nguoi]);
+  }, [nguoi, nhomPhien]);
 
   useEffect(() => {
     if (!nguoi || nhom.kind !== "xong") return;
@@ -131,6 +176,37 @@ export function TinNhan({ nguoi }: { nguoi: DemoPerson | null }) {
       huy = true;
     };
   }, [nguoi, nhom]);
+
+  useEffect(() => {
+    if (!moAiHieu) return;
+    if (!nguoi || nhom.kind === "chua-chon") {
+      setAiHieu({ kind: "chua-biet-la-ai" });
+      return;
+    }
+    if (nhom.kind === "dang-tai") {
+      setAiHieu({ kind: "dang-tai" });
+      return;
+    }
+    if (nhom.kind === "hong") {
+      if (nhom.status === 401 || nhom.status === 403) {
+        setAiHieu({ kind: "bi-tu-choi", url: nhom.url });
+      } else if (nhom.status === 0) {
+        setAiHieu({ kind: "khong-noi-duoc", url: nhom.url, detail: nhom.detail });
+      } else {
+        setAiHieu({ kind: "may-chu-loi", url: nhom.url, detail: nhom.detail });
+      }
+      return;
+    }
+
+    let huy = false;
+    setAiHieu({ kind: "dang-tai" });
+    napAiHieuNhom(nhom.contextId, { actorId: nguoi.personId }).then((state) => {
+      if (!huy) setAiHieu(state);
+    });
+    return () => {
+      huy = true;
+    };
+  }, [moAiHieu, nguoi, nhom]);
 
   useEffect(() => {
     if (!cuoiTin) return;
@@ -240,15 +316,68 @@ export function TinNhan({ nguoi }: { nguoi: DemoPerson | null }) {
     const members = nhom.members;
     const contextId = nhom.contextId;
     const actorId = nguoi.personId;
-    setTheNhap({ messageId, trang: { kind: "dang-doc" } });
+    setTheNhap({ messageId, trang: { kind: "dang-doc" }, ghi: CHUA_GHI });
     try {
       const wire = await napNhapKhoanChiTuChat(contextId, messageId, actorId);
-      setTheNhap({ messageId, trang: trangTuWire(wire, members) });
+      setTheNhap({ messageId, trang: trangTuWire(wire, members), ghi: CHUA_GHI });
     } catch (err) {
-      setTheNhap({ messageId, trang: trangTuLoi(err) });
+      setTheNhap({ messageId, trang: trangTuLoi(err), ghi: CHUA_GHI });
     }
   }
 
+  /**
+   * Write the reading the card is showing into the ledger.
+   *
+   * Two calls, both already in `api.ts`, and no new route: `proposeSplit` is
+   * `POST /expenses`, which is where the allocator divides the total, and
+   * `confirmExpense` is `POST /expenses/{id}/confirm`, which is the one that
+   * writes. The numbers drawn on the confirmation are the server's own
+   * allocation, echoed back; this screen never divides anything.
+   *
+   * The attempt key is derived from the proposal body rather than from the
+   * message id. Pressing the same unchanged draft twice must replay one write,
+   * but the reader is a model and a second read of the same message can come
+   * back different -- keying on the message alone would send changed bytes
+   * under a used key, which the server answers with a refusal aimed at somebody
+   * who did nothing wrong.
+   */
+  async function ghiKhoanChi(messageId: string) {
+    if (!nguoi || nhom.kind !== "xong") return;
+    const the = theNhap;
+    if (!the || the.messageId !== messageId) return;
+    if (the.trang.kind !== "co-nhap" || the.ghi.kind === "dang-ghi" || the.ghi.kind === "da-ghi") {
+      return;
+    }
+    const members = nhom.members;
+    const contextId = nhom.contextId;
+    const trang = the.trang;
+    const ban = banNhapDeGhi(trang, members);
+    const khoa = `nhap-chat:${ban.advancerId}:${ban.totalVnd}:${ban.participants
+      .map((p) => p.id)
+      .join(",")}:${ban.occasion}`;
+
+    setTheNhap({ messageId, trang, ghi: { kind: "dang-ghi" } });
+    try {
+      const deXuat = await proposeSplit(contextId, ban, attemptFor(soKhoa.current, khoa));
+      await confirmExpense(deXuat, attemptFor(soKhoa.current, `chot:${khoa}`));
+      setTheNhap({
+        messageId,
+        trang,
+        ghi: {
+          kind: "da-ghi",
+          dong: dongChiaTuAllocation(deXuat.allocations, trang.nguoiChiaIds, members),
+        },
+      });
+    } catch (err) {
+      setTheNhap({ messageId, trang, ghi: ghiHongTuLoi(err) });
+    }
+  }
+
+  /**
+   * The turn the companion is OFFERED after every message. No flag, on
+   * purpose: this is the volunteering turn, and the 90-second cadence is what
+   * keeps it from answering every line of a fast exchange.
+   */
   async function goiAiSauKhiGui(contextId: string, actorId: string) {
     if (dangGoiAi.current) return;
     dangGoiAi.current = true;
@@ -256,6 +385,37 @@ export function TinNhan({ nguoi }: { nguoi: DemoPerson | null }) {
       const s = await goiAiTurn({ contextId, actorId, idempotencyKey: taoKhoa() });
       xuLyAi(s);
     } finally {
+      dangGoiAi.current = false;
+    }
+  }
+
+  /**
+   * The turn a person ASKED for. Carries `requested: true`, which is the only
+   * way past the cadence, and is why "lên giúp lịch trình chi tiết từng giờ"
+   * used to sit unanswered for ninety seconds with the model never called.
+   *
+   * Sends no message. The server already reads the last 40, so the question
+   * the group typed is what it answers; posting a second copy of it as an
+   * invisible message would put words in the group's mouth.
+   *
+   * Shares `dangGoiAi` with the offered turn: two in flight would spend two of
+   * the three turns the window allows on one press.
+   */
+  async function hoiThangAi() {
+    if (!nguoi || nhom.kind !== "xong" || dangGoiAi.current) return;
+    dangGoiAi.current = true;
+    setDangHoiAi(true);
+    setAiYen(null);
+    try {
+      const s = await goiAiTurn({
+        contextId: nhom.contextId,
+        actorId: nguoi.personId,
+        idempotencyKey: taoKhoa(),
+        hoiThang: true,
+      });
+      xuLyAi(s);
+    } finally {
+      setDangHoiAi(false);
       dangGoiAi.current = false;
     }
   }
@@ -297,9 +457,15 @@ export function TinNhan({ nguoi }: { nguoi: DemoPerson | null }) {
   return (
     <View style={{ flex: 1, backgroundColor: c.ground }}>
       <DauMan nhom={nhom} />
-      <HangChip chip={chip} onDoi={setChip} />
+      <HangChip chip={chip} onDoi={setChip} onMoAiHieu={() => setMoAiHieu(true)} />
 
       <View style={{ flex: 1 }}>
+        {/* One place decides panel-or-tabs, so a later fifth tab cannot forget
+            to hide itself behind the overlay. */}
+        {moAiHieu ? (
+          <AiHieuNhom state={aiHieu} onDong={() => setMoAiHieu(false)} />
+        ) : (
+          <>
         {chip === "chat" ? (
           <DongTin
             nhom={nhom}
@@ -319,6 +485,9 @@ export function TinNhan({ nguoi }: { nguoi: DemoPerson | null }) {
             theNhap={theNhap}
             onTachTien={(messageId) => {
               void tachTien(messageId);
+            }}
+            onGhiKhoanChi={(messageId) => {
+              void ghiKhoanChi(messageId);
             }}
             onDongTheNhap={() => setTheNhap(null)}
           />
@@ -340,11 +509,13 @@ export function TinNhan({ nguoi }: { nguoi: DemoPerson | null }) {
         ) : null}
         {chip === "thanh-vien" ? <TabThanhVien nhom={nhom} /> : null}
         {chip === "file" ? <TabFile /> : null}
+          </>
+        )}
       </View>
 
       {thongBao ? <BangThongBao text={thongBao} onClose={() => setThongBao(null)} /> : null}
 
-      {chip === "chat" ? (
+      {chip === "chat" && !moAiHieu ? (
         <ONhap
           value={nhap}
           onChangeText={setNhap}
@@ -353,6 +524,10 @@ export function TinNhan({ nguoi }: { nguoi: DemoPerson | null }) {
           }}
           dangGui={dangGui}
           onChuaDung={setThongBao}
+          onHoiAi={() => {
+            void hoiThangAi();
+          }}
+          dangHoiAi={dangHoiAi}
         />
       ) : null}
     </View>
@@ -408,18 +583,18 @@ function DauMan({ nhom }: { nhom: NhomMan }) {
   );
 }
 
-function HangChip({ chip, onDoi }: { chip: ChipId; onDoi: (id: ChipId) => void }) {
+function HangChip({ chip, onDoi, onMoAiHieu }: {
+  chip: ChipId;
+  onDoi: (id: ChipId) => void;
+  onMoAiHieu: () => void;
+}) {
   const c = usePalette();
   return (
-    <View
-      accessibilityRole="tablist"
-      style={{
-        flexDirection: "row",
-        gap: space.xs,
-        paddingHorizontal: space.md,
-        paddingBottom: space.sm,
-      }}
-    >
+    <View style={{ paddingHorizontal: space.md, paddingBottom: space.sm, gap: space.xs }}>
+      <View
+        accessibilityRole="tablist"
+        style={{ flexDirection: "row", gap: space.xs }}
+      >
       {CHIPS.map((m) => {
         const chon = m.id === chip;
         return (
@@ -448,6 +623,30 @@ function HangChip({ chip, onDoi }: { chip: ChipId; onDoi: (id: ChipId) => void }
           </Pressable>
         );
       })}
+      </View>
+
+      {/* Outside the tablist on purpose. `aria-required-children` makes a
+          non-tab child of a tablist an axe violation at critical, and a screen
+          reader would announce a fifth thing to switch between when this one
+          opens a panel you close again. Its own row, so the long label is not
+          squeezed against four chips at 320px. */}
+      <Pressable
+        onPress={onMoAiHieu}
+        accessibilityRole="button"
+        accessibilityLabel="AI hiểu nhóm"
+        style={({ pressed }) => ({
+          minHeight: 44,
+          borderRadius: radius.pill,
+          borderWidth: 1,
+          borderColor: c.lineStrong,
+          alignItems: "center",
+          justifyContent: "center",
+          paddingHorizontal: space.sm,
+          opacity: pressed ? 0.85 : 1,
+        })}
+      >
+        <Text style={{ ...type.label, color: c.ink }}>AI hiểu nhóm</Text>
+      </Pressable>
     </View>
   );
 }
@@ -467,6 +666,7 @@ function DongTin({
   onBoPhieu,
   theNhap,
   onTachTien,
+  onGhiKhoanChi,
   onDongTheNhap,
 }: {
   nhom: NhomMan;
@@ -483,8 +683,9 @@ function DongTin({
   soThanhVien: number;
   dangBoPhieu: boolean;
   onBoPhieu: (pollId: string, optionId: string) => void;
-  theNhap: { messageId: string; trang: TrangNhapTuChat } | null;
+  theNhap: { messageId: string; trang: TrangNhapTuChat; ghi: TrangGhiKhoanChi } | null;
   onTachTien: (messageId: string) => void;
+  onGhiKhoanChi: (messageId: string) => void;
   onDongTheNhap: () => void;
 }) {
   const c = usePalette();
@@ -645,7 +846,12 @@ function DongTin({
                 </Pressable>
               ) : null}
               {theNhap?.messageId === m.id ? (
-                <TheNhapChiTuChat trang={theNhap.trang} onDong={onDongTheNhap} />
+                <TheNhapChiTuChat
+                  trang={theNhap.trang}
+                  ghi={theNhap.ghi}
+                  onGhi={() => onGhiKhoanChi(m.id)}
+                  onDong={onDongTheNhap}
+                />
               ) : null}
             </View>
           );
