@@ -101,7 +101,7 @@ import puppeteer from "file:///home/lakiet/.claude/node_modules/puppeteer-core/l
 
 import { laLoiThat, phanLoai } from "./che-chu.mjs";
 import { CHROME, closeServer, createStaticServer, listen } from "./screen-snapshots.mjs";
-import { API_BASE, NGUOI, moiMan, installTabStubs, taoFixtures } from "./tab-snapshots.mjs";
+import { API_BASE, NGUOI, moiMan, installTabStubs, taoFixtures, themAnhDiaDiem } from "./tab-snapshots.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MOBILE_ROOT = path.resolve(HERE, "..");
@@ -244,6 +244,11 @@ const MAN_TUONG_TAC = [
     frag: `tab=kham-pha&nguoi=${NGUOI}`,
     bam: "Xem tất cả",
     needle: "Cà Phê Vợt Hẻm 330",
+    // Still one. Expanding the grid reveals four more cards and no more
+    // photographs -- the fixture gives `photo_url` to the first row only -- so
+    // a number above one here means the expanded grid started painting
+    // something into frames the server said nothing about.
+    anh: 1,
   },
   // rd-fe-33. The comment panel is the only place on the wall with an input,
   // a send button and a list of somebody else's words, and none of it exists
@@ -492,6 +497,58 @@ async function demEls(browser, url) {
   }
 }
 
+/**
+ * How many of these frames a person actually sees a photograph in, from pixels.
+ *
+ * The column this feeds used to be `imgs.filter((i) => i.naturalWidth > 0)
+ * .length`, and it was a lie on every row it appeared in. react-native-web
+ * renders `<Image>` as TWO nodes: an `<img>` pinned at `opacity: 0` whose only
+ * job is to decode and fire `onLoad`, and a wrapper `<div>` that paints the
+ * picture through an inline `background-image`. The stub in `tab-snapshots.mjs`
+ * answered the `<img>`, so `naturalWidth` came back 480 while the div dialled
+ * the API host on the real network and got `requestfailed` /
+ * `decodedBodySize: 0`. Every place card drew its category ramp under a column
+ * reading "1 anh giai ma duoc".
+ *
+ * The obvious repair -- re-request the URL and see if it decodes -- is wrong
+ * here, and measurably so. `installTabStubs` patches
+ * `HTMLImageElement.prototype.src`, so a fresh `new Image()` created to test an
+ * address gets the stub's answer rather than the painter's. Run with the
+ * painter's supply deliberately removed, that version still counted the frame:
+ * the check was asking the faker whether the faker had faked it.
+ *
+ * So this measures the composite instead. Shoot the frame, take the picture
+ * away, shoot again: if no pixel moved, nothing was being shown there. The same
+ * discriminator `soi-tuong-phan-anh.mjs` uses, and it cannot be fooled by any
+ * amount of patching further up, because it looks at what was drawn.
+ */
+async function demAnhVeDuoc(page, khung) {
+  let n = 0;
+  for (let i = 0; i < khung.length; i += 1) {
+    const o = khung[i];
+    const clip = {
+      x: Math.max(0, o.x), y: Math.max(0, o.y),
+      width: Math.min(o.width, 2000), height: Math.min(o.height, 2000),
+    };
+    if (clip.width < 1 || clip.height < 1) continue;
+    const co = await page.screenshot({ encoding: "base64", clip });
+    await page.evaluate((k) => {
+      const el = document.querySelector(`[data-khung-anh="${k}"]`);
+      el.dataset.khungNen = el.style.backgroundImage;
+      el.style.backgroundImage = "none";
+      if (el.tagName === "IMG") el.style.visibility = "hidden";
+    }, i);
+    const khong = await page.screenshot({ encoding: "base64", clip });
+    await page.evaluate((k) => {
+      const el = document.querySelector(`[data-khung-anh="${k}"]`);
+      el.style.backgroundImage = el.dataset.khungNen || "";
+      if (el.tagName === "IMG") el.style.visibility = "";
+    }, i);
+    if (co !== khong) n += 1;
+  }
+  return n;
+}
+
 async function kiemManHinh(browser, url, needle) {
   const page = await browser.newPage();
   const loi = [];
@@ -507,15 +564,42 @@ async function kiemManHinh(browser, url, needle) {
     const r = await page.evaluate(async () => {
       const imgs = [...document.querySelectorAll("img")];
       await Promise.all(imgs.map((i) => (i.complete ? null : i.decode().catch(() => {}))));
+
+      /* Candidate photo frames. Whether any of them actually SHOWS a picture is
+       * decided outside, from pixels -- see `demAnhVeDuoc`. */
+      const khung = [];
+      const them = (el) => {
+        const b = el.getBoundingClientRect();
+        if (b.width <= 0 || b.height <= 0) return;
+        const st = getComputedStyle(el);
+        if (st.visibility === "hidden" || st.display === "none" || Number(st.opacity) === 0) return;
+        if (
+          khung.some(
+            (o) =>
+              Math.abs(o.x - b.x) < 1 && Math.abs(o.y - b.y) < 1 &&
+              Math.abs(o.width - b.width) < 1 && Math.abs(o.height - b.height) < 1,
+          )
+        ) return;
+        el.setAttribute("data-khung-anh", String(khung.length));
+        khung.push({ x: b.x, y: b.y, width: b.width, height: b.height });
+      };
+
+      for (const i of imgs) {
+        if (i.naturalWidth > 0) them(i);
+      }
+      // Inline only: that is where react-native-web puts a dynamic image URL,
+      // and walking every element's computed style would cost a full style
+      // resolution on a page with thousands of nodes.
+      for (const e of document.querySelectorAll("[style*='background-image']")) them(e);
+
       return {
         text: (document.body.innerText || "").replace(/\s+/g, " ").trim(),
         els: document.querySelectorAll("*").length,
-        // Frames the browser got real pixels for. An `<img>` that 404'd has
-        // naturalWidth 0 and is not one of these.
-        anh: imgs.filter((i) => i.naturalWidth > 0).length,
+        khung,
       };
     });
-    return { co: r.text.includes(needle), chars: r.text.length, els: r.els, anh: r.anh, loi };
+    const anh = await demAnhVeDuoc(page, r.khung);
+    return { co: r.text.includes(needle), chars: r.text.length, els: r.els, anh, loi };
   } finally {
     await page.close();
   }
@@ -532,7 +616,10 @@ async function main() {
     throw new Error(`Khong tim thay imp o ${IMP}. Dat IMP_BIN neu no nam cho khac.`);
   }
 
-  const fixtures = taoFixtures();
+  // Khám phá is the first screen of the demo and its cards are photographs.
+  // Without this the six cards all draw the stand-in, and every number this
+  // tool prints for `kham-pha` is a number about a screen the demo never shows.
+  const fixtures = themAnhDiaDiem(taoFixtures());
   const indexHtml = fs.readFileSync(indexPath, "utf8");
   const viet = [];
   const ghi = (ten, noiDung) => {
