@@ -43,6 +43,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import puppeteer from "file:///home/lakiet/.claude/node_modules/puppeteer-core/lib/puppeteer/puppeteer-core.js";
 
+import { pngThuBytes } from "./png-thu.mjs";
+
 import {
   CHROME,
   closeServer,
@@ -72,7 +74,15 @@ export const NGUOI = "minh";
  * ones, so it would wave through exactly the failure it exists to catch.
  */
 export const SCREENS = [
-  { step: "kham-pha", tab: "kham-pha", needle: "Tiệm Nướng Xóm Lào" },
+  /* `anh: 1` -- see the check in `quet-tab-url.mjs`. Khám phá is the screen the
+   * demo opens on and its cards ARE photographs, but its needle is a place
+   * name, and a place name paints on a card whose frame is empty exactly as
+   * loudly as on one holding a picture. So this row scored `findings=0 ...
+   * needle OK` for a grid of six drawn stand-ins, which is the wall bug of
+   * rd-fe-33 one surface along. One, not six: only the first fixture row
+   * carries a `photo_url`, so the grid shows a filled card next to waiting
+   * ones and a stub that started answering everything fails here too. */
+  { step: "kham-pha", tab: "kham-pha", needle: "Tiệm Nướng Xóm Lào", anh: 1 },
   { step: "len-plan", tab: "len-plan", needle: "Đà Lạt cuối tuần" },
   { step: "tin-nhan", tab: "tin-nhan", needle: "Tối nay ăn gì?" },
   { step: "ca-nhan", tab: "ca-nhan", needle: "Giao dịch gần đây" },
@@ -114,7 +124,12 @@ export const MAN_KHAC = [
   { step: "ky-niem", frag: `vao=ky-niem&nguoi=${NGUOI}`, needle: "Đã đi cùng nhau", anh: 1 },
   { step: "nhom", frag: `vao=nhom&nguoi=${NGUOI}`, needle: "Lập hội mới" },
   { step: "ban-be", frag: `vao=ban-be&nguoi=${NGUOI}`, needle: "Bạn bè (" },
-  { step: "dia-diem", frag: `dia-diem=p-1&nguoi=${NGUOI}`, needle: "Khoảng giá" },
+  /* `p-1` is the one fixture row with a `photo_url`, chosen so this row can
+   * carry `anh: 1`. The detail screen's frame is the biggest in the app and it
+   * was drawing the category mark on top of a photograph the server had sent;
+   * without a count here that stays invisible, because "Khoảng giá" prints from
+   * the price card either way. */
+  { step: "dia-diem", frag: `dia-diem=p-1&nguoi=${NGUOI}`, needle: "Khoảng giá", anh: 1 },
   // F01, and the one row here that must NOT name a person. `DangKy` renders
   // from `AppRoot`'s pre-shell branch, which only runs while `boQuaMoDau` is
   // false -- and `nguoi=` alone makes it true. So `vao=dang-ky&nguoi=minh`
@@ -210,6 +225,76 @@ function place(over = {}) {
 export function installTabStubs(apiBase, fixtures) {
   const originalFetch = window.fetch.bind(window);
   window.__snapshotApiLog = [];
+
+  /* ---- PLACE photograph bytes, which cannot come through the fetch stub.
+   *
+   * A wall photograph is permission-checked, so `Anh` fetches it with the actor
+   * header and paints a `blob:` -- that call goes through the patched
+   * `window.fetch` above and the `/contexts/{id}/photos/{id}` route answers it.
+   * A place photograph is unauthenticated. `Anh` hands the address straight to
+   * an `<Image>` and the BROWSER dials it, touching no `fetch` at all.
+   *
+   * `tab-snapshots.mjs` used to answer that one request with
+   * `page.setRequestInterception`. `quet-tab-url.mjs` cannot: the detector
+   * drives its own browser and we get no handle on its network layer. So the
+   * two tools were serving the same screen differently, and only one of them
+   * served it at all -- Khám phá scanned with six drawn stand-ins and no
+   * photograph, under a row that read as measured. That is the same shape as
+   * the wall bug this stub already fixed once, one surface along.
+   *
+   * Swapping the address for a `data:` URL is the transport standing in, which
+   * is exactly what the fetch stub does for JSON. What it deliberately does NOT
+   * stand in for is the app's own rule about which addresses may be dialled:
+   * only the ONE address `nguonAnhAnToan` produces from the fixture's relative
+   * `photo_url` is answered here. Anything else is passed through untouched and
+   * fails to resolve, so a gate that stopped resolving addresses -- or started
+   * accepting foreign ones -- shows up as a frame with no pixels rather than as
+   * a photograph somebody else served.
+   *
+   * Installed only when `anhDiaDiem` is present, so tools that do not opt in
+   * through `themAnhDiaDiem` see the untouched app. */
+  if (fixtures.anhDiaDiem) {
+    const dia = `${String(apiBase).replace(/\/+$/, "")}${fixtures.anhDiaDiem.duong}`;
+    // Không có byte ảnh nào trong dòng dưới, và cũng không có trong cây: `b64`
+    // là một biến, `png-thu.mjs` sinh nó ra lúc quét. Luật này tồn tại để chặn
+    // ảnh thật bị dán vào repo và nó đúng khi chặn; cái nó bắt được ở đây là
+    // biểu thức dựng chuỗi, dài đúng 69 byte. Ghi chú đặt sát dòng vì
+    // `inline_allows` chỉ đọc chính dòng đó và dòng ngay trên.
+    // repo-guard: allow=data-uri-base64 reason=anh-thu-sinh-luc-quet
+    const nguon = `data:image/png;base64,${fixtures.anhDiaDiem.b64}`;
+    window.__anhDiaDiemDaPhucVu = 0;
+
+    const proto = HTMLImageElement.prototype;
+    const goc = Object.getOwnPropertyDescriptor(proto, "src");
+    if (goc && goc.set) {
+      Object.defineProperty(proto, "src", {
+        configurable: true,
+        enumerable: goc.enumerable,
+        get: goc.get,
+        set(v) {
+          if (v === dia) {
+            window.__anhDiaDiemDaPhucVu += 1;
+            goc.set.call(this, nguon);
+            return;
+          }
+          goc.set.call(this, v);
+        },
+      });
+    }
+    // Both, because React DOM reaches `src` through the property on some paths
+    // and `setAttribute` on others, and which one it picks is a detail of a
+    // dependency rather than something this file should bet on. Measured on
+    // this bundle: the property setter fires 3 times and `setAttribute` once
+    // for a single card.
+    const sa = proto.setAttribute;
+    proto.setAttribute = function (ten, giaTri) {
+      if (ten === "src" && giaTri === dia) {
+        window.__anhDiaDiemDaPhucVu += 1;
+        return sa.call(this, ten, nguon);
+      }
+      return sa.call(this, ten, giaTri);
+    };
+  }
 
   const json = (body, status = 200) =>
     new Response(JSON.stringify(body), {
@@ -493,69 +578,38 @@ export function installTabStubs(apiBase, fixtures) {
 }
 
 /**
- * Write a real PNG next to the bundle, so one card in the snapshot holds an
- * actual photograph rather than the drawn stand-in.
+ * Give the FIRST place a photograph, and hand the stub the bytes to serve it.
  *
- * The point is not decoration. Until `ui/Anh.tsx` landed the app rendered no
- * images at all, and the easy way to "add images" is to write an `<Image>`
- * branch that nothing ever reaches: `photo_url` is null on every row the
- * server sends today, so the frame would draw its stand-in forever and a
- * screenshot could not tell a working image path from a dead one. Serving a
- * byte-real PNG to exactly one of the two fixture rows makes the snapshot show
- * both states side by side -- one photo, one stand-in -- which is the only
- * version of this evidence that can fail.
+ * Exported and called by both tools rather than written out twice. The two
+ * copies this replaces did not merely duplicate -- they disagreed:
+ * `tab-snapshots.mjs` served the bytes through `page.setRequestInterception`
+ * and photographed a filled card, while `quet-tab-url.mjs` had no equivalent
+ * and scanned the same screen with the frame empty. One tool's picture and the
+ * other tool's number were of different screens, and nothing said so.
  *
- * Generated at scan time and written into `.expo-build-check`, never
- * committed. The repo guard refuses binaries on sight and it is right to; this
- * is a build artifact in an ignored directory, not an asset.
+ * The path is RELATIVE, which is both the shape the photo route returns and the
+ * only shape the app will now dial: `nguonAnhAnToan` resolves it against
+ * `EXPO_PUBLIC_API_URL` and refuses anything off that origin. An absolute
+ * `http://127.0.0.1:<port>/...` would be declined and the card would draw its
+ * stand-in -- turning the scan back into decoration without changing a line of
+ * it. So the fixture keeps the relative path and the stub answers the resolved
+ * address, which means the resolution itself is on the measured path.
  *
- * Hand-rolled because there is no image library here and adding one for four
- * chunks would be worse. A PNG is a signature plus length/type/data/CRC
- * chunks; `zlib.crc32` and `zlib.deflateSync` do the two hard parts.
+ * Only the first of six rows. The other five keep their empty `photo_url` on
+ * purpose: a grid where every card is the same state cannot tell a working
+ * image path from a dead one, and the counts in `quet-tab-url.mjs` assert the
+ * split rather than "some image appeared".
  */
-function pngThuBytes(w = 480, h = 360) {
-  const raw = Buffer.alloc(h * (w * 3 + 1));
-  let o = 0;
-  for (let y = 0; y < h; y++) {
-    raw[o++] = 0; // filter: none
-    for (let x = 0; x < w; x++) {
-      // A warm dusk wash with a lighter horizon band. Deliberately unlike the
-      // drawn category marks, so nobody can mistake one for the other in a
-      // screenshot.
-      const t = (x / w) * 0.55 + (y / h) * 0.45;
-      const band = Math.abs(y / h - 0.62) < 0.05 ? 42 : 0;
-      raw[o++] = Math.min(255, Math.round(232 - t * 96 + band));
-      raw[o++] = Math.min(255, Math.round(122 - t * 44 + band));
-      raw[o++] = Math.min(255, Math.round(96 + t * 78 + band));
-    }
-  }
-
-  const chunk = (type, data) => {
-    const len = Buffer.alloc(4);
-    len.writeUInt32BE(data.length);
-    const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
-    const crc = Buffer.alloc(4);
-    crc.writeUInt32BE(zlib.crc32(body) >>> 0);
-    return Buffer.concat([len, body, crc]);
+export function themAnhDiaDiem(fixtures, { duong = "/anh-thu-dia-diem.png" } = {}) {
+  fixtures.places[0].photo_url = duong;
+  fixtures.anhDiaDiem = {
+    duong,
+    // `dayChoi`: the bottom third blown out to near-white, so the white place
+    // name over it is measured against the hardest realistic ground rather than
+    // the most convenient one. See `pngThuBytes`.
+    b64: pngThuBytes(480, 360, { dayChoi: true }).toString("base64"),
   };
-
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(w, 0);
-  ihdr.writeUInt32BE(h, 4);
-  ihdr[8] = 8; // bit depth
-  ihdr[9] = 2; // colour type: truecolour
-  return Buffer.concat([
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    chunk("IHDR", ihdr),
-    chunk("IDAT", zlib.deflateSync(raw)),
-    chunk("IEND", Buffer.alloc(0)),
-  ]);
-}
-
-/** The same bytes, on disk. Place photographs are loaded by the browser itself
- *  rather than through the fetch stub, so that one address needs a file. */
-function vietPngThu(file, w = 480, h = 360) {
-  fs.writeFileSync(file, pngThuBytes(w, h));
+  return fixtures;
 }
 
 /**
@@ -1144,28 +1198,18 @@ async function main() {
     }
   }
 
-  const fixtures = taoFixtures();
+  const fixtures = themAnhDiaDiem(taoFixtures());
 
   const server = createStaticServer(buildDir);
   let browser = null;
   try {
     const port = await listen(server);
 
-    // `photo_url` is a RELATIVE path, which is both the shape the photo route
-    // actually returns and the only shape the app will now dial: `Anh` refuses
-    // any address that is not on `EXPO_PUBLIC_API_URL`, so the old absolute
-    // `http://127.0.0.1:<port>/...` would be declined and this card would draw
-    // its stand-in -- turning this whole scan back into decoration without
-    // changing a line of it. Serving the bytes on the API origin instead keeps
-    // the scan honest AND makes it exercise the real resolution path.
-    //
-    // The first row gets a photograph and the second deliberately does not, so
-    // `kham-pha.png` shows the loaded state and the waiting state in one frame.
-    const anhThuFile = path.join(buildDir, "anh-thu-dia-diem.png");
-    vietPngThu(anhThuFile);
-    const anhThuBytes = fs.readFileSync(anhThuFile);
-    const anhThuUrl = `${API_BASE}/anh-thu-dia-diem.png`;
-    fixtures.places[0].photo_url = "/anh-thu-dia-diem.png";
+    // The place photograph is set up by `themAnhDiaDiem` above and served by
+    // `installTabStubs`, so this tool and `quet-tab-url.mjs` show and score the
+    // same screen. It used to be answered here with request interception, which
+    // no browser but this one's would honour; see that helper for what the
+    // split cost.
     browser = await puppeteer.launch({
       executablePath: CHROME,
       headless: true,
@@ -1184,28 +1228,6 @@ async function main() {
       page.setDefaultTimeout(30000);
       const pageErrors = [];
       page.on("pageerror", (err) => pageErrors.push(String(err)));
-
-      /* The PLACE photograph is the one request that does not go through the
-       * fetch stub: it is unauthenticated, so `Anh` hands the address straight
-       * to an `<Image>` and the browser loads it itself.
-       * `api.build-check.invalid` resolves nowhere on purpose, so it is
-       * answered here instead.
-       *
-       * The wall photograph used to be answered here too and no longer is,
-       * because it never could be: `taiAnhCoQuyen` calls the patched
-       * `window.fetch`, which returns a synthetic Response without ever
-       * reaching the network layer this handler sits on. That branch had been
-       * dead for as long as wall photographs have been permission-checked, and
-       * it read as the thing keeping them alive. Wall bytes now come from the
-       * stub's own photo route, which is the only place that can serve them. */
-      await page.setRequestInterception(true);
-      page.on("request", (req) => {
-        if (req.url() === anhThuUrl) {
-          req.respond({ status: 200, contentType: "image/png", body: anhThuBytes });
-          return;
-        }
-        req.continue();
-      });
 
       await page.evaluateOnNewDocument(installTabStubs, API_BASE, fixtures);
 
@@ -1233,24 +1255,38 @@ async function main() {
       // success either way. `naturalWidth > 0` is the browser saying it got
       // real pixels, not merely that an element exists.
       if (step === "kham-pha") {
-        const daTai = await page.evaluate(async (src) => {
+        const daTai = await page.evaluate(async () => {
           const imgs = [...document.querySelectorAll("img")];
-          const anh = imgs.find((i) => i.src === src || i.currentSrc === src);
-          if (!anh) return { found: false, srcs: imgs.map((i) => i.src).slice(0, 5) };
-          if (!anh.complete) await anh.decode().catch(() => {});
-          return { found: true, width: anh.naturalWidth, height: anh.naturalHeight };
-        }, anhThuUrl);
-        if (!daTai.found) {
+          await Promise.all(imgs.map((i) => (i.complete ? null : i.decode().catch(() => {}))));
+          const giaiMa = imgs.filter((i) => i.naturalWidth > 0);
+          return {
+            // How many times the app asked for the ONE address the stub
+            // answers. Zero means the app never produced it -- a refused
+            // origin, a dropped `photo_url`, or an `<Image>` that stopped
+            // rendering -- and the two are worth telling apart, because only
+            // this number distinguishes "the gate declined the address" from
+            // "the bytes did not decode".
+            phucVu: window.__anhDiaDiemDaPhucVu ?? null,
+            tong: imgs.length,
+            giaiMa: giaiMa.length,
+            kichThuoc: giaiMa.map((i) => `${i.naturalWidth}x${i.naturalHeight}`),
+          };
+        });
+        if (!daTai.phucVu) {
           throw new Error(
-            `kham-pha: khong tim thay <img> cho ${anhThuUrl}. ` +
-              `Cong origin tu choi dia chi nay, hoac <Image> khong con render. ` +
-              `src dang co: ${JSON.stringify(daTai.srcs)}`,
+            `kham-pha: khong co <img> nao hoi dia chi anh dia diem (phucVu=${daTai.phucVu}). ` +
+              `Cong origin tu choi dia chi nay, hoac \`photo_url\` khong con toi \`Anh\`. ` +
+              `<img> dang co: ${daTai.tong}`,
           );
         }
-        if (!daTai.width) {
-          throw new Error(`kham-pha: <img> ${anhThuUrl} khong giai ma duoc (naturalWidth=0)`);
+        if (daTai.giaiMa !== 1) {
+          throw new Error(
+            `kham-pha: can dung 1 anh giai ma duoc, dang co ${daTai.giaiMa} tren ${daTai.tong} <img>. ` +
+              `Nhieu hon 1 nghia la khung "cho san" da bien mat khoi luoi, nen mot nua trang thai ` +
+              `ma fixture dung ra phai cho thay dang khong duoc chup.`,
+          );
         }
-        console.log(`  anh dia diem da tai that: ${daTai.width}x${daTai.height}`);
+        console.log(`  anh dia diem da tai that: ${daTai.kichThuoc.join(", ")}`);
       }
 
       // rd-fe-25, and the same reasoning one screen over. The memory wall's

@@ -101,7 +101,7 @@ import puppeteer from "file:///home/lakiet/.claude/node_modules/puppeteer-core/l
 
 import { laLoiThat, phanLoai } from "./che-chu.mjs";
 import { CHROME, closeServer, createStaticServer, listen } from "./screen-snapshots.mjs";
-import { API_BASE, NGUOI, moiMan, installTabStubs, taoFixtures } from "./tab-snapshots.mjs";
+import { API_BASE, NGUOI, moiMan, installTabStubs, taoFixtures, themAnhDiaDiem } from "./tab-snapshots.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MOBILE_ROOT = path.resolve(HERE, "..");
@@ -244,6 +244,11 @@ const MAN_TUONG_TAC = [
     frag: `tab=kham-pha&nguoi=${NGUOI}`,
     bam: "Xem tất cả",
     needle: "Cà Phê Vợt Hẻm 330",
+    // Still one. Expanding the grid reveals four more cards and no more
+    // photographs -- the fixture gives `photo_url` to the first row only -- so
+    // a number above one here means the expanded grid started painting
+    // something into frames the server said nothing about.
+    anh: 1,
   },
   // rd-fe-33. The comment panel is the only place on the wall with an input,
   // a send button and a list of somebody else's words, and none of it exists
@@ -532,7 +537,10 @@ async function main() {
     throw new Error(`Khong tim thay imp o ${IMP}. Dat IMP_BIN neu no nam cho khac.`);
   }
 
-  const fixtures = taoFixtures();
+  // Khám phá is the first screen of the demo and its cards are photographs.
+  // Without this the six cards all draw the stand-in, and every number this
+  // tool prints for `kham-pha` is a number about a screen the demo never shows.
+  const fixtures = themAnhDiaDiem(taoFixtures());
   const indexHtml = fs.readFileSync(indexPath, "utf8");
   const viet = [];
   const ghi = (ten, noiDung) => {

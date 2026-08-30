@@ -47,7 +47,20 @@ export function ChiTietDiaDiem({ place, nguoi, nhom, onQuayLai }: {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: space.md }}
       >
-        <AnhDiaDiem category={place.category} height={248} rounded={0}>
+        {/* `uri`/`name` are passed here for the same reason the grid card passes
+            them, and their absence was a real hole rather than a style choice:
+            this is the LARGEST photo frame in the app -- 248pt, full bleed --
+            and it drew the category mark even when the server had sent a
+            `photo_url` the grid card two taps back was already rendering. The
+            parsed field existed, the frame existed, and nothing joined them, so
+            opening a place made its photograph disappear. */}
+        <AnhDiaDiem
+          category={place.category}
+          height={248}
+          rounded={0}
+          uri={place.photoUrl}
+          name={place.name}
+        >
           <View
             style={{
               flex: 1,
