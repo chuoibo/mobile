@@ -78,7 +78,14 @@ COVERED_BY: dict[str, tuple[str, ...]] = {
     # preflight at all. They share a job because they need the identical
     # setup, and stay two stages for the reason given just above.
     "contract": ("contract", "cors"),
-    "docker": ("docker",),
+    # `pinned-import` has no job of its own because the `docker` job already
+    # proves what it proves: it builds the image and starts the container, so
+    # an app that cannot be imported under the pinned fastapi fails there too.
+    # It is a separate LOCAL stage because that proof cost a full image build
+    # and a HEALTHCHECK wait, so in practice it was skipped before pushing --
+    # and an app that could not be imported at all reached main that way. Two
+    # seconds gets run; ninety seconds gets skipped.
+    "docker": ("docker", "pinned-import"),
     "shared": ("shared",),
     "mobile": ("mobile",),
     "repository-postgres": ("postgres",),

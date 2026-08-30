@@ -65,7 +65,7 @@ REPO_ROOT="$PWD"
 
 # Every stage, in run order: cheapest and most likely to fail first, so a
 # broken tree is reported in seconds rather than after a docker build.
-STAGES=(guard guard-range ruff contract client-routes cors api migration shared mobile docker postgres e2e)
+STAGES=(guard guard-range ruff contract client-routes cors api migration pinned-import shared mobile docker postgres e2e)
 
 stage_help() {
   case "$1" in
@@ -77,6 +77,7 @@ stage_help() {
     cors)      echo "every header and method apps/mobile sends survives the CORS preflight (test.yml: contract)" ;;
     api)       echo "pytest services/api/tests tests (test.yml: api)" ;;
     migration) echo "alembic upgrade head --sql, no database (test.yml: api, inline)" ;;
+    pinned-import) echo "app imports under the fastapi version pinned in requirements-dev.txt, not the machine's (test.yml: docker, cheap half)" ;;
     shared)    echo "node packages/shared/money.test.mjs (test.yml: shared)" ;;
     mobile)    echo "tsc, npm test with MOBILE_REQUIRE_WEB_A11Y=1, expo export --platform all (test.yml: mobile)" ;;
     docker)    echo "image pinned, builds, non-root, no dev tooling, serves /healthz (test.yml: docker)" ;;
@@ -374,6 +375,16 @@ do_mobile() {
   echo "bundled for web, ios and android"
 }
 
+do_pinned-import() {
+  # The cheap half of `docker`. That stage is the only one that has ever loaded
+  # the app with the pinned fastapi, but it builds an image, starts a container
+  # and waits on a HEALTHCHECK, so it got skipped on exactly the PRs that
+  # needed it -- including the one that shipped an app which could not be
+  # imported at all. Same proof, about two seconds, so there is no longer a
+  # reason to skip it. `docker` still runs everything else it checks.
+  scripts/check_pinned_import.sh
+}
+
 do_docker() {
   echo "--- base image pinned by digest"
   scripts/check_dockerfile_pinning.sh services/api/Dockerfile || return 1
@@ -536,7 +547,7 @@ check_prereq() {
       [ -d apps/mobile ] || { echo "apps/mobile không có trên nhánh này"; return 1; }
       [ -f apps/mobile/package-lock.json ] || return 2
       [ -d apps/mobile/node_modules ] || { echo "chưa 'npm ci' trong apps/mobile"; return 1; } ;;
-    docker)
+    pinned-import|docker)
       have docker || { echo "không có docker"; return 1; }
       docker info >/dev/null 2>&1 || { echo "docker daemon không chạy"; return 1; } ;;
     postgres)

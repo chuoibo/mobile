@@ -72,6 +72,7 @@ STAGE_CHECKERS: dict[str, str] = {
     "client-routes": "check_api_contract.py",
     "cors": "check_cors_contract.py",
     "docker": "check_dockerfile_pinning.sh",
+    "pinned-import": "check_pinned_import.sh",
 }
 
 
