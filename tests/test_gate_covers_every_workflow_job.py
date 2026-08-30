@@ -126,6 +126,18 @@ LOCAL_ONLY: dict[str, str] = {
         "against 62 for sixteen commits, then 65 against 69 -- and neither time "
         "was a gate failing: the gate that would have caught it had no caller."
     ),
+    "hero-walk": (
+        "asks whether somebody recently walked the whole hero path -- photo to "
+        "Gemini to assignment to split to guest page -- on the demo box, and "
+        "whether it worked. Local for the same reason as demo-watch (a runner "
+        "has no demo box) and for one of its own: the walk spends a real Gemini "
+        "call, which is not something to put on every push. It exists because "
+        "the scan seam had no gate at all: `duong-bill.test.mjs` starts from a "
+        "hand-written reading, the client unit tests replay a wire body frozen "
+        "on 2026-08-29, and the live model tier is opt-in behind "
+        "MOBILE_LIVE_GEMINI, which `grep -rn` finds in no script and no "
+        "workflow. Two green halves that never met."
+    ),
 }
 
 JOB_ID = re.compile(r"^  ([A-Za-z0-9_-]+):\s*$", re.M)

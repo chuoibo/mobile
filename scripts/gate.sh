@@ -72,7 +72,7 @@ REPO_ROOT="$PWD"
 
 # Every stage, in run order: cheapest and most likely to fail first, so a
 # broken tree is reported in seconds rather than after a docker build.
-STAGES=(guard guard-range ruff contract client-routes server-routes cors api migration pinned-import demo-watch shared mobile docker postgres e2e)
+STAGES=(guard guard-range ruff contract client-routes server-routes cors api migration pinned-import demo-watch hero-walk shared mobile docker postgres e2e)
 
 stage_help() {
   case "$1" in
@@ -87,6 +87,7 @@ stage_help() {
     migration) echo "alembic upgrade head --sql, no database (test.yml: api, inline)" ;;
     pinned-import) echo "app imports under the fastapi version pinned in requirements-dev.txt, not the machine's (test.yml: docker, cheap half)" ;;
     demo-watch) echo "the demo box is still being watched, and its last verdict was about main (máy này thôi)" ;;
+    hero-walk) echo "somebody walked ảnh->món->chia->trang khách on the demo box recently, and it worked (máy này thôi)" ;;
     shared)    echo "node packages/shared/money.test.mjs (test.yml: shared)" ;;
     mobile)    echo "tsc, npm test with MOBILE_REQUIRE_WEB_A11Y=1, expo export --platform all (test.yml: mobile)" ;;
     docker)    echo "image pinned, builds, non-root, no dev tooling, serves /healthz (test.yml: docker)" ;;
@@ -424,6 +425,26 @@ do_demo-watch() {
   python3 scripts/demo_watch.py status --expect-ref origin/main
 }
 
+# The scan seam -- `POST /receipts/scan` -> `readingFromWire()` -> `POST /bills`
+# -- is the one joint of the hero path no other stage crosses. `e2e` runs
+# `duong-bill.test.mjs`, which begins at a `reading` written by hand; the client
+# unit tests replay a wire body frozen on 2026-08-29; the live model tier is
+# opt-in behind a variable nothing sets. Two green halves, no path.
+#
+# Like `demo-watch`, this reads a RECORDED verdict instead of measuring live: a
+# real walk costs a Gemini call, and a paid nondeterministic step in the list
+# that runs dozens of times a day would be removed within the week. The live
+# walk is `make hero-walk`; this asserts somebody ran it, recently, against this
+# box, and that it worked.
+#
+# What it does NOT prove: nothing here is measured now. A demo that broke five
+# minutes ago passes this stage until the verdict ages out.
+do_hero-walk() {
+  # --url spelled out for the same reason demo-watch spells out --expect-ref:
+  # a verdict about another box is the failure that looks most like a pass.
+  scripts/hero_walk.sh --status --url http://127.0.0.1:8099
+}
+
 do_shared() { node packages/shared/money.test.mjs; }
 
 do_mobile() {
@@ -645,6 +666,16 @@ check_prereq() {
           return 1
         }
       fi ;;
+    hero-walk)
+      # Only this machine hosts the demo, so on a CI runner or a fresh clone the
+      # question is meaningless and the stage says so rather than being red for
+      # everyone forever. Deleting the runner is a different matter: that is the
+      # one edit that must not turn this green.
+      [ -f scripts/hero_walk.sh ] || return 2
+      (exec 3<>/dev/tcp/127.0.0.1/8099) 2>/dev/null || {
+        echo "máy này không dựng demo: 8099 không trả lời"
+        return 1
+      } ;;
     shared)
       have node || { echo "không có node"; return 1; }
       [ -d packages/shared ] || { echo "packages/shared không có trên nhánh này"; return 1; }
@@ -706,6 +737,7 @@ broken_why() {
     mobile) echo "apps/mobile có mặt nhưng thiếu package-lock.json -- từ chối bỏ qua" ;;
     e2e) echo "apps/mobile có mặt nhưng thiếu tests/e2e/vertical-slice.test.mjs -- từ chối bỏ qua" ;;
     demo-watch) echo "thiếu scripts/demo_watch.py -- xoá canh gác không được biến chặng này thành xanh" ;;
+    hero-walk) echo "thiếu scripts/hero_walk.sh -- xoá bài đi bộ không được biến chặng này thành xanh" ;;
     *) echo "thiếu file mà chặng này cần -- từ chối bỏ qua" ;;
   esac
 }
