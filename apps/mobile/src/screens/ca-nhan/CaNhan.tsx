@@ -440,8 +440,15 @@ function CuaThanhTich({
  * `Đã thanh toán` is kept although the mockup has no tile for it, because it
  * is the half of the total that `Còn phải trả` does not account for, and the
  * two are printed directly under the number they add up to.
+ *
+ * Exported for the renderer, not for other screens. `CaNhan` reaches its
+ * loaded state through `useEffect`, which `renderToStaticMarkup` does not run
+ * -- so rendering the whole screen only ever produces the spinner, and these
+ * three figures could be missing from the markup with every test still green.
+ * This is the seam that lets a test hand in a finished `Finance` and read what
+ * a browser really gets. See `tests/tai-chinh-tren-man.test.mjs`.
  */
-function TaiChinh({
+export function TaiChinh({
   trang,
   onThuLai,
   coNguoi,
