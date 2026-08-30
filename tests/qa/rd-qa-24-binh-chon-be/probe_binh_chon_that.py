@@ -525,9 +525,29 @@ def fire_together(
 
 
 def probe_concurrent_same_voter(
-    context_id: str, people: dict[str, str], rounds: int
+    context_id: str,
+    people: dict[str, str],
+    rounds: int,
+    fanout: int = 2,
+    warm_first: bool = False,
 ) -> None:
-    print(f"\n[5] Ca DONG THOI: cung mot nguoi, hai phieu cung luc x{rounds} vong")
+    """Fire ``fanout`` ballots from ONE voter at one instant, ``rounds`` times.
+
+    ``warm_first`` decides which race is under test. False means the voter has
+    no row yet, so every request races to INSERT and the unique constraint is
+    the only thing standing between them -- that is the case where a
+    ``SELECT ... FOR UPDATE`` on the ballot row locks nothing, because the row
+    does not exist yet. True means the row already exists, so the requests race
+    to UPDATE the same row instead.
+    """
+    label = (
+        "UPDATE vs UPDATE (da co phieu)"
+        if warm_first
+        else "INSERT vs INSERT (chua co phieu)"
+    )
+    print(
+        f"\n[5] Ca DONG THOI: {fanout} phieu cung luc, mot nguoi, x{rounds} vong -- {label}"
+    )
     duplicate_rows = 0
     server_errors: list[str] = []
     non_200: list[str] = []
@@ -541,10 +561,26 @@ def probe_concurrent_same_voter(
         vote_id, options = vote["id"], vote["options"]
         voter = people["binh"]
 
+        if warm_first:
+            must(
+                call(
+                    "POST",
+                    f"/votes/{vote_id}/ballots",
+                    voter,
+                    {"option_id": options[0]["id"]},
+                ),
+                200,
+                "warm-up ballot",
+            )
+
         responses = fire_together(
             [
-                (voter, f"/votes/{vote_id}/ballots", {"option_id": options[0]["id"]}),
-                (voter, f"/votes/{vote_id}/ballots", {"option_id": options[1]["id"]}),
+                (
+                    voter,
+                    f"/votes/{vote_id}/ballots",
+                    {"option_id": options[i % len(options)]["id"]},
+                )
+                for i in range(fanout)
             ]
         )
 
@@ -570,7 +606,7 @@ def probe_concurrent_same_voter(
                 non_200.append(
                     f"vong {round_no}: HTTP {response.status_code} {response.text[:200]}"
                 )
-        if codes == [200, 200]:
+        if codes == [200] * fanout:
             both_ok += 1
 
         reread = call("GET", f"/votes/{vote_id}", voter)
@@ -608,7 +644,7 @@ def probe_concurrent_same_voter(
         not reread_failures,
         "; ".join(reread_failures[:3]) if reread_failures else "moi lan doc deu dung",
     )
-    print(f"    (ca hai request cung 200 o {both_ok}/{rounds} vong)")
+    print(f"    (moi request deu 200 o {both_ok}/{rounds} vong)")
 
 
 def probe_concurrent_different_voters(context_id: str, people: dict[str, str]) -> None:
@@ -706,7 +742,8 @@ def probe_concurrent_ballot_and_close(context_id: str, people: dict[str, str]) -
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--rounds", type=int, default=30)
-    parser.add_argument("--only", default="", help="chi chay mot probe: 1..5c")
+    parser.add_argument("--only", default="", help="chi chay mot probe: 1..5d")
+    parser.add_argument("--fanout", type=int, default=2)
     args = parser.parse_args()
 
     health = httpx.get(f"{BASE_URL}/healthz", timeout=TIMEOUT)
@@ -732,7 +769,11 @@ def main() -> int:
     if not only or only == "4":
         probe_outsider(context_id, people, outsider)
     if not only or only == "5":
-        probe_concurrent_same_voter(context_id, people, args.rounds)
+        probe_concurrent_same_voter(context_id, people, args.rounds, args.fanout)
+    if not only or only == "5d":
+        probe_concurrent_same_voter(
+            context_id, people, args.rounds, args.fanout, warm_first=True
+        )
     if not only or only == "5b":
         probe_concurrent_different_voters(context_id, people)
     if not only or only == "5c":
