@@ -226,6 +226,54 @@ def test_the_ninth_window_does_not_share_a_window_with_the_eighth(client):
     assert contextual.tracked() == 1
 
 
+def test_the_ceiling_counts_admissions_not_requests_that_finished():
+    """The `#297` lesson, checked rather than assumed.
+
+    If a limiter admitted first and counted only after the work returned, the
+    number it actually enforces would be "concurrent requests per minute", not
+    "requests per minute": thirty callers arriving together would all see a
+    count of zero and all be let through. Sync routes run in a threadpool, so
+    that race is reachable, not theoretical.
+
+    `FixedWindowLimiter.check` increments inside the lock at admission time, so
+    there is no in-flight marker to keep -- the count already reflects every
+    caller that got past. This drives it from twenty threads at once and
+    asserts the ceiling held exactly.
+    """
+
+    import threading
+
+    limiter = FixedWindowLimiter(
+        limit=5,
+        window_seconds=60,
+        code="face_detection_rate_limited",
+        message="Quá nhiều lượt tìm khuôn mặt trong ảnh.",
+    )
+    key = MEMBER_ID
+    start = threading.Barrier(20)
+    admitted: list[int] = []
+    lock = threading.Lock()
+
+    def call() -> None:
+        start.wait()
+        try:
+            limiter.check(key)
+        except Exception:
+            return
+        with lock:
+            admitted.append(1)
+
+    threads = [threading.Thread(target=call) for _ in range(20)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    # Exactly the ceiling, not "at most roughly the ceiling". A count-after-work
+    # implementation lets all twenty through here.
+    assert sum(admitted) == 5
+
+
 def _state_windows(app) -> dict[str, FixedWindowLimiter]:
     """Every limiter `create_app` hung on the application, found by walking it.
 
