@@ -153,9 +153,9 @@ def test_the_survey_counts_every_pin_in_the_shipping_file():
     )
     assert expected > 0, "the shipping file has no pins at all -- read it by hand"
     result = run_checker()
-    assert f"pin đọc từ services/api/requirements-dev.txt: {expected}" in result.stdout, (
-        f"expected {expected} pins in the survey header\n{result.stdout}"
-    )
+    assert (
+        f"pin đọc từ services/api/requirements-dev.txt: {expected}" in result.stdout
+    ), f"expected {expected} pins in the survey header\n{result.stdout}"
 
 
 # --- the gate knows how to be red ----------------------------------------

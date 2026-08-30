@@ -75,16 +75,36 @@ STAGE_CHECKERS: dict[str, str] = {
     "pinned-import": "check_pinned_import.sh",
 }
 
+# Checkers the gate runs from top-level code rather than from a stage, and why
+# that is deliberate rather than a mistake.
+#
+# `check_pin_drift.py` asks whether the run tested the library versions the image
+# installs. The hole it closes IS stage selection: `scripts/gate.sh api` exited 0
+# on a tree that could not boot, because the stage that would have noticed was
+# simply not chosen. Putting the question in a stage would leave it deselectable
+# by the same move, so it runs in the verdict block after the loop, on every
+# invocation that reaches an exit code.
+#
+# Top-level code cannot be shadowed by a duplicate function definition, so a
+# checker invoked from there is reachable by construction -- which is the
+# property this whole file is about. It still has to be *recorded*, or the table
+# goes stale by omission exactly as STAGE_CHECKERS would.
+VERDICT_CHECKERS: frozenset[str] = frozenset({"check_pin_drift.py"})
 
-def _stage_bodies() -> list[tuple[str, str]]:
-    """Every `do_<stage>()` definition in file order, as (stage, body).
+
+def _scan() -> list[tuple[str, str, int, int]]:
+    """Every `do_<stage>()` definition as (stage, body, first_line, last_line).
 
     Duplicates are kept -- finding them is the point. `do_api() { ...; }` on one
     line closes on that line; the multi-line form closes on a `}` in column 1,
     which is the shape every body in the file uses.
+
+    The line span is returned alongside the text so `_toplevel_code` can subtract
+    the bodies without a second parser. Two parsers over the same file is the
+    drift this directory keeps finding in other people's gates.
     """
     lines = GATE.read_text(encoding="utf-8").splitlines()
-    bodies: list[tuple[str, str]] = []
+    found: list[tuple[str, str, int, int]] = []
     index = 0
     while index < len(lines):
         match = DEF.match(lines[index])
@@ -93,7 +113,7 @@ def _stage_bodies() -> list[tuple[str, str]]:
             continue
         stage = match.group(1)
         if lines[index].rstrip().endswith("}"):
-            bodies.append((stage, lines[index]))
+            found.append((stage, lines[index], index, index))
             index += 1
             continue
         end = index + 1
@@ -106,9 +126,32 @@ def _stage_bodies() -> list[tuple[str, str]]:
                 "or it is truncated; this parser cannot tell, so it refuses to "
                 "report the rest of the file as clean."
             )
-        bodies.append((stage, "\n".join(lines[index : end + 1])))
+        found.append((stage, "\n".join(lines[index : end + 1]), index, end))
         index = end + 1
-    return bodies
+    return found
+
+
+def _stage_bodies() -> list[tuple[str, str]]:
+    """Every `do_<stage>()` definition in file order, as (stage, body)."""
+    return [(stage, body) for stage, body, _, _ in _scan()]
+
+
+def _toplevel_code() -> list[str]:
+    """Non-comment lines that are outside every `do_<stage>()` body.
+
+    Shadowed duplicates are subtracted too, not just the effective ones: a line
+    inside the first of two same-named bodies is dead, and calling it top level
+    would hand back the exact blindness this file exists to remove.
+    """
+    lines = GATE.read_text(encoding="utf-8").splitlines()
+    inside = set()
+    for _, _, start, end in _scan():
+        inside.update(range(start, end + 1))
+    return [
+        line
+        for number, line in enumerate(lines)
+        if number not in inside and not line.lstrip().startswith("#")
+    ]
 
 
 def _effective_bodies() -> dict[str, str]:
@@ -237,6 +280,14 @@ class GateStageBodiesAreUnique(unittest.TestCase):
             for body in _effective_bodies().values()
             for name in CHECKER.findall(body)
         }
+        # Top-level code runs on every invocation, so a checker called from there
+        # is reachable in the strongest sense available in this file -- more so
+        # than one in a stage body, which a caller can deselect. Adding it does
+        # not soften the original question: a checker stranded behind a shadowed
+        # body still appears in `invoked` and in neither set.
+        reachable |= {
+            name for line in _toplevel_code() for name in CHECKER.findall(line)
+        }
         stranded = sorted(invoked - reachable)
         self.assertEqual(
             stranded,
@@ -244,6 +295,26 @@ class GateStageBodiesAreUnique(unittest.TestCase):
             f"scripts/gate.sh invokes these checkers from somewhere no stage "
             f"reaches: {stranded}. The usual cause is a second definition of a "
             "stage further down the file shadowing the one that called them.",
+        )
+
+    def test_every_verdict_checker_really_runs_outside_a_stage(self):
+        """VERDICT_CHECKERS must describe the file, not a past version of it.
+
+        The entries there are exempt from belonging to a stage, so the exemption
+        has to be paid for: each one must actually be invoked from top-level
+        code. Move `check_pin_drift.py` into a stage body and this goes red,
+        which is correct -- it would have become deselectable again, and being
+        deselectable is the whole defect it was written against.
+        """
+        toplevel = {name for line in _toplevel_code() for name in CHECKER.findall(line)}
+        misplaced = sorted(VERDICT_CHECKERS - toplevel)
+        self.assertEqual(
+            misplaced,
+            [],
+            f"VERDICT_CHECKERS names these, but scripts/gate.sh does not invoke "
+            f"them from top-level code any more: {misplaced}. Either they moved "
+            "into a stage -- in which case record them in STAGE_CHECKERS "
+            "instead, and know they can now be skipped -- or they are gone.",
         )
 
     def test_each_stage_still_invokes_the_checker_it_is_named_for(self):
@@ -280,14 +351,17 @@ class GateStageBodiesAreUnique(unittest.TestCase):
         listed, and the mapping test would pass by not looking at it.
         """
         invoked = {name for line in _code_lines() for name in CHECKER.findall(line)}
-        unrecorded = sorted(invoked - set(STAGE_CHECKERS.values()))
+        recorded = set(STAGE_CHECKERS.values()) | set(VERDICT_CHECKERS)
+        unrecorded = sorted(invoked - recorded)
         self.assertEqual(
             unrecorded,
             [],
-            f"scripts/gate.sh invokes these checkers that STAGE_CHECKERS in "
-            f"this file does not name: {unrecorded}. Add the stage that runs "
-            "each one, so a later edit that points a stage somewhere else is "
-            "caught here rather than by whoever notices the gate went quiet.",
+            f"scripts/gate.sh invokes these checkers that neither STAGE_CHECKERS "
+            f"nor VERDICT_CHECKERS in this file names: {unrecorded}. Add the "
+            "stage that runs each one -- or, if it runs outside every stage on "
+            "purpose, record it in VERDICT_CHECKERS with the reason. Either way "
+            "a later edit that points it somewhere else is caught here rather "
+            "than by whoever notices the gate went quiet.",
         )
 
 
