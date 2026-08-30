@@ -1731,3 +1731,32 @@ class AlbumResponse(ApiModel):
     split_total_vnd: MoneyVnd
     expense_count: int
     headcount: int
+
+
+class ReelPick(ApiModel):
+    """One AI-picked memory with every displayed fact owned by the server."""
+
+    memory_id: UUID
+    image_url: RelativePhotoUrl | None
+    caption: str | None
+    place_name: str | None
+    created_at: datetime
+    reaction_count: int
+    comment_count: int
+    note: StrictStr
+
+    _created_at_has_timezone = field_validator("created_at")(_require_timezone)
+
+
+class ReelResponse(ApiModel):
+    """F37. AI provenance stays separate from the group's heart highlights."""
+
+    context_id: UUID
+    outing_id: UUID
+    reeled: bool
+    reason: Literal["ok", "no_memories", "unavailable", "ungrounded"]
+    source: Literal["ai", "none"]
+    title: StrictStr | None
+    picks: list[ReelPick]
+    #: Rows offered by the server, never a count restated by the model.
+    considered_count: int

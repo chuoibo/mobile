@@ -84,6 +84,7 @@ _KNOWN_DOORS = frozenset(
         "reason_writer",
         "contextual_suggestion_limiter",
         "face_detection_limiter",
+        "reel_limiter",
     }
 )
 
