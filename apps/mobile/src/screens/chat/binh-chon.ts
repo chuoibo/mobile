@@ -266,10 +266,10 @@ export function tongHopBinhChon(messages: MessageWire[], toiLaAi: string | null)
   // to person -> option here, as this used to, would throw away the one field
   // that says which side of the line a ballot fell on.
   const phieu: { pollId: string; nguoi: string; optionId: string; viTri: number }[] = [];
-  // poll_id -> earliest position a close card for it appeared, per author.
-  // Whether that author was allowed to close is decided below, once the poll
-  // it names is known: a close can be read before its poll only if the thread
-  // is out of order, but the rule should not depend on that.
+  // Every close card seen, with who wrote it and where it sat. Kept as a list
+  // rather than resolved here, because whether its author was allowed to close
+  // is a question about a poll this pass may not have reached yet -- and a rule
+  // that only holds when the thread arrives in order is not a rule.
   const dong: { pollId: string; nguoi: string; viTri: number }[] = [];
 
   messages.forEach((m, viTri) => {
