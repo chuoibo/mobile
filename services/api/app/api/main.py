@@ -36,6 +36,7 @@ from app.api.routes import (
     friends,
     guests,
     identity,
+    albums,
     memories,
     messages,
     obligations,
@@ -48,6 +49,7 @@ from app.api.routes import (
     receipts,
     screenshots,
     social_map,
+    preferences,
     suggestions,
 )
 from app.api.routes.places import CachedReasonWriter
@@ -142,6 +144,8 @@ def create_app(
     application.include_router(screenshots.router)
     application.include_router(suggestions.router)
     application.include_router(social_map.router)
+    application.include_router(albums.router)
+    application.include_router(preferences.router)
 
     # Middleware, not a decorator on each route: a write route added later is
     # covered the moment it is registered, with no list for anyone to forget.

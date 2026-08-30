@@ -17,9 +17,21 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
 
-from app.api.deps import Actor, Suggester, get_actor, get_repository, get_suggester
+from app.api.deps import (
+    Actor,
+    ContextualSuggester,
+    Suggester,
+    get_actor,
+    get_contextual_suggester,
+    get_repository,
+    get_suggester,
+)
 from app.api.repository import ApiRepository
-from app.api.schemas import ErrorResponse, GroupSuggestionResponse
+from app.api.schemas import (
+    ContextualSuggestionResponse,
+    ErrorResponse,
+    GroupSuggestionResponse,
+)
 from app.api.search_rate_limit import FixedWindowLimiter
 from app.api.service import ApiService
 
@@ -69,3 +81,29 @@ def read_group_suggestion(
 
     limiter.check(actor.id)
     return ApiService(repository).group_suggestion(context_id, actor, suggester)
+
+
+@router.get(
+    "/contexts/{context_id}/contextual-suggestion",
+    response_model=ContextualSuggestionResponse,
+    responses={
+        403: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+    },
+)
+def read_contextual_suggestion(
+    context_id: UUID,
+    actor: Annotated[Actor, Depends(get_actor)],
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+    suggester: Annotated[ContextualSuggester, Depends(get_contextual_suggester)],
+) -> ContextualSuggestionResponse:
+    """F33. Also a GET, and also creates nothing.
+
+    The trigger is opening the chat screen, not sending anything: the server
+    reads the group's own last few messages, which it already has. A POST
+    carrying the conversation would mean the client got to choose what the
+    model reads, and a caller who chooses the evidence chooses the answer.
+    """
+
+    return ApiService(repository).contextual_suggestion(context_id, actor, suggester)
