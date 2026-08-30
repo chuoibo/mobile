@@ -25,7 +25,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import puppeteer from "file:///home/lakiet/.claude/node_modules/puppeteer-core/lib/puppeteer/puppeteer-core.js";
+import puppeteer from "puppeteer-core";
 
 import {
   CHROME,
@@ -38,7 +38,7 @@ import {
   waitForScreen,
   clickAria,
   clickButton,
-} from "./tools/screen-snapshots.mjs";
+} from "../../../apps/mobile/tools/screen-snapshots.mjs";
 
 const NHAN = process.argv[2] ?? "khong-ten";
 const API_BASE = "http://api.build-check.invalid";

@@ -29,10 +29,27 @@ a failure**, not a pass:
     no status file at all   -> exit 2, the watcher has never run
     status older than max   -> exit 2, the watcher has stopped
     status unreadable       -> exit 2, never a 0
+    verdict about another ref -> exit 2, it did not answer this question
 
 `status` is the half you put in a dashboard or another gate. Asking `run`
 directly only tells you about the demo; asking `status` tells you about the
 demo AND about whether anybody is still watching it.
+
+## The fourth line above, and why staleness alone did not catch it
+
+The first three all rest on the record being old or absent. On 2026-08-30 the
+demo drifted again -- 65 routes served against main's 69, the four album and
+contextual-suggestion routes -- and the record on the box was none of those
+things. It was well-formed, said `"state": "khop"`, and named
+`"ref": "devops/may-demo-theo-main"`: the branch this file was written on.
+True, and about a ref main had already moved past.
+
+So a watcher can be alive, on schedule, and green forever while measuring the
+wrong thing. Staleness cannot see it, because a wrong-ref verdict is refreshed
+on time like any other. `status` therefore checks WHICH ref the verdict was
+about, defaults that to `origin/main`, and accepts another name only when its
+recorded `ref_sha` is the commit `origin/main` points at right now. `--any-ref`
+is the way to say you meant a branch -- typed out loud, and visible in the log.
 
 ## Why it runs the gate out of a freshly fetched `main` worktree
 
@@ -333,6 +350,12 @@ def cmd_run(args: argparse.Namespace) -> int:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def resolve_ref(ref: str, repo: Path) -> str | None:
+    """The commit `ref` names right now, or None if this tree cannot say."""
+    done = git("rev-parse", "--verify", f"{ref}^{{commit}}", cwd=repo)
+    return done.stdout.strip() if done.returncode == 0 else None
+
+
 def ago(seconds: float) -> str:
     """A duration a human can act on.
 
@@ -392,6 +415,32 @@ def cmd_status(args: argparse.Namespace) -> int:
             "   Canh gác đã dừng. Im lặng của nó đọc y hệt 'máy demo vẫn đúng' — không phải.\n"
             f"   Kiểm:  crontab -l | grep -A2 '{CRON_BEGIN}'"
         )
+
+    # A verdict names the ref it was measured against, and until now `status`
+    # printed that name without ever comparing it. On 2026-08-30 the only record
+    # on the demo host said state "khop", ref "devops/may-demo-theo-main",
+    # 65/65 -- perfectly true, and about a branch main had already left behind.
+    # 8099 was missing four of main's routes at that moment. The record was
+    # fresh, so the staleness threshold above could not see it: a watcher that
+    # is alive, on schedule, and pointed at the wrong ref reports green forever.
+    if not args.any_ref:
+        recorded = data.get("ref")
+        if recorded != args.expect_ref:
+            # The same commit reached by another name still answers the right
+            # question -- a manual `--ref <sha>` run against exactly the commit
+            # main is at is a verdict about main. Failing that would be a red
+            # nobody can act on, and a gate that cries wolf gets switched off.
+            want = resolve_ref(args.expect_ref, Path(args.repo).resolve())
+            got = data.get("ref_sha")
+            if not (want and isinstance(got, str) and got == want):
+                return cannot(
+                    f"phán quyết gần nhất là về '{recorded}', không phải '{args.expect_ref}'.\n"
+                    "   Khớp một nhánh khác KHÔNG có nghĩa là khớp main — nhánh đó có thể\n"
+                    "   đã bị main bỏ lại. Đây đúng là hình dạng đã để 8099 thiếu 4 route\n"
+                    "   trong khi bản ghi vẫn ghi 'khop' mỗi 10 phút.\n"
+                    f"   Chĩa lại lượt canh:  scripts/demo_watch.py install --apply --ref {args.expect_ref}\n"
+                    "   Cố ý đo nhánh khác:  thêm --any-ref"
+                )
 
     state = data.get("state")
     if state == STATE_MATCH:
@@ -540,6 +589,19 @@ def build_parser() -> argparse.ArgumentParser:
     status.add_argument("--state-dir", default=None)
     status.add_argument("--max-age", type=int, default=DEFAULT_MAX_AGE)
     status.add_argument("--json", action="store_true")
+    status.add_argument("--repo", default=str(REPO_ROOT))
+    # Defaulting to origin/main rather than to "whatever was measured" is the
+    # point: the permissive reading is the one that has to be typed out loud.
+    status.add_argument(
+        "--expect-ref",
+        default=DEFAULT_REF,
+        help=f"phán quyết phải là về ref này, mặc định '{DEFAULT_REF}'",
+    )
+    status.add_argument(
+        "--any-ref",
+        action="store_true",
+        help="nhận phán quyết về bất kỳ ref nào (lượt chạy tay trên nhánh đang mở)",
+    )
     status.set_defaults(func=cmd_status)
 
     install = sub.add_parser("install", help="khối crontab cho lượt canh định kỳ")

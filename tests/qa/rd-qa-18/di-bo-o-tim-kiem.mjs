@@ -22,10 +22,10 @@
 import { chromium } from "playwright";
 import { AxeBuilder } from "@axe-core/playwright";
 
+import { timTrinhDuyet } from "../tim-trinh-duyet.mjs";
+
 const STATIC = process.env.QA18_STATIC ?? "http://127.0.0.1:8331";
-const CHROME =
-  process.env.PUPPETEER_EXECUTABLE_PATH ??
-  "/home/lakiet/.cache/ms-playwright/chromium-1194/chrome-linux/chrome";
+const CHROME = timTrinhDuyet();
 
 // The catalogue is the only thing a card may come from. Anything rendered as a
 // place name that is not in here is a fabrication that reached a screen.

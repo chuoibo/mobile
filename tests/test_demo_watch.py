@@ -245,6 +245,146 @@ def test_ba_ma_thoat_la_ba_gia_tri_khac_nhau():
     assert len({watch.EXIT_OK, watch.EXIT_DIFFERS, watch.EXIT_CANNOT_RUN}) == 3
 
 
+# --- status: phán quyết về ref NÀO -----------------------------------------
+#
+# Sự cố 30/08 18:08 (bug-180816). Máy demo 8099 phục vụ 65 route trong khi
+# `origin/main` khai 69 — thiếu đúng bốn route album kỷ niệm và gợi ý ngữ cảnh
+# mà #301 vừa đưa vào main. Bản ghi DUY NHẤT trên máy lúc đó, còn nguyên trong
+# ~/.cache/mobile-demo-watch/status.json, là:
+#
+#     {"state": "khop", "ref": "devops/may-demo-theo-main",
+#      "ref_routes": 65, "served": 65, "missing": []}
+#
+# `status` đọc bản ghi đó và in "KHỚP — 65 route", mã 0. Nó ĐÚNG: máy demo khớp
+# đúng cái nhánh nó được đem ra so. Nhưng câu người đọc tưởng mình vừa được trả
+# lời là "máy demo có khớp MAIN không", và hai câu đó khác nhau kể từ lúc nhánh
+# kia bị main bỏ lại.
+#
+# Nên đây là lỗ hổng thứ hai, độc lập với việc crontab rỗng: cắm lịch mà trỏ
+# `--ref` vào một nhánh đang mở thì lượt canh chạy đều mỗi 10 phút, ghi "khop"
+# mỗi 10 phút, và không bao giờ đỏ — một canh gác còn sống, còn ghi, còn tươi,
+# đo sai đối tượng. Ngưỡng quá hạn không bắt được nó vì bản ghi luôn mới.
+
+
+def test_phan_quyet_ve_nhanh_khac_khong_phai_phan_quyet_ve_main(tmp_path, capsys):
+    """Bản ghi TƯƠI, state "khop", nhưng về một nhánh khác — không phải là đạt.
+
+    Đây là hình dạng thật của bug-180816, dựng lại nguyên văn. Trước bản sửa ca
+    này ra mã 0: `cmd_status` in `data["ref"]` ra màn hình nhưng không so nó với
+    cái gì, nên mọi ref đều được nhận. Một trường được IN không phải là một
+    trường được KIỂM.
+    """
+    _write_status(
+        tmp_path,
+        ts=time.time() - 60,
+        state=watch.STATE_MATCH,
+        ref="devops/may-demo-theo-main",
+        ref_sha="29bd93f0e7f8fb1836ef29ec2f0dadf9864ffa65",
+        ref_routes=65,
+        served=65,
+    )
+    assert _status(tmp_path) == watch.EXIT_CANNOT_RUN
+    err = capsys.readouterr().err
+    assert "devops/may-demo-theo-main" in err, (
+        "phải nêu ref đã đo, để người đọc thấy nó lệch đâu"
+    )
+    assert "origin/main" in err, "và nêu ref lẽ ra phải đo"
+
+
+def test_ref_dung_thi_van_dat(tmp_path):
+    """Đối chứng bắt buộc: bản sửa không được biến mọi bản ghi thành đỏ.
+
+    Không có ca này thì `return EXIT_CANNOT_RUN` vô điều kiện cũng làm ca trên
+    xanh — và một cổng đỏ với mọi đầu vào bị tắt trong một ngày.
+    """
+    _write_status(tmp_path, ts=time.time() - 60, state=watch.STATE_MATCH)
+    assert _status(tmp_path) == watch.EXIT_OK
+
+
+def test_ref_khac_ten_nhung_cung_commit_van_la_phan_quyet_ve_main(tmp_path):
+    """Đo bằng SHA tuyệt đối của main thì vẫn là đo main, dù tên ref không khớp.
+
+    `demo_watch.py run` ghi lại cả `ref` lẫn `ref_sha`. Cron mặc định trỏ
+    `origin/main`, nhưng một lượt chạy tay bằng `--ref <sha>` vẫn trả lời đúng
+    câu hỏi nếu sha đó CHÍNH LÀ main lúc này. So tên mà không xét sha thì ca đó
+    đỏ oan, và một cổng đỏ oan cũng bị tắt như một cổng câm.
+    """
+    sha = subprocess.run(
+        ["git", "rev-parse", "origin/main^{commit}"],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    if sha.returncode != 0:
+        pytest.skip("cây này không phân giải được origin/main")
+    _write_status(
+        tmp_path,
+        ts=time.time() - 60,
+        state=watch.STATE_MATCH,
+        ref=sha.stdout.strip(),
+        ref_sha=sha.stdout.strip(),
+    )
+    assert _status(tmp_path) == watch.EXIT_OK
+
+
+def test_any_ref_la_loi_thoat_co_y_chu_khong_phai_mac_dinh(tmp_path):
+    """Bỏ kiểm ref phải là một câu người ta gõ ra, không phải điều xảy ra khi im lặng.
+
+    Mặc định của mọi cổng trong repo này là phía nghiêm; `--any-ref` tồn tại cho
+    lượt chạy tay đang chĩa vào một nhánh đang mở, và nó hiện diện trong dòng
+    lệnh nên đọc log là thấy.
+    """
+    _write_status(
+        tmp_path, ts=time.time() - 60, state=watch.STATE_MATCH, ref="nhanh/dang-mo"
+    )
+    assert _status(tmp_path) == watch.EXIT_CANNOT_RUN
+    assert _status(tmp_path, ["--any-ref"]) == watch.EXIT_OK
+
+
+def test_lech_van_la_lech_du_ref_dung(tmp_path):
+    """Kiểm ref chen thêm một mã 2 vào đường đi — nó không được nuốt mã 1.
+
+    Gộp "đo nhầm chỗ" với "đo đúng chỗ và thấy lệch" là mất đúng thông tin cần
+    để biết phải dựng lại máy demo hay phải sửa dòng cron.
+    """
+    _write_status(
+        tmp_path,
+        ts=time.time() - 60,
+        state=watch.STATE_DIFFERS,
+        exit=1,
+        missing=["/contexts/{context_id}/albums"],
+    )
+    assert _status(tmp_path) == watch.EXIT_DIFFERS
+
+
+# --- canh gác phải có chỗ gọi, nếu không nó là đồ trang trí ----------------
+
+
+def test_gate_co_chang_goi_canh_gac(tmp_path):
+    """`scripts/gate.sh` phải có chặng `demo-watch`, và nó phải chạy mặc định.
+
+    Cả sự cố này lẫn sự cố 30/08 nó sinh ra để bắt đều KHÔNG phải lỗi của cổng:
+    cổng chạy đúng cả hai lần. Lỗi là không ai gọi nó. `check_demo_matches_main.py`
+    có `make demo-check` — một chỗ gọi TAY, chỉ được gõ khi đã có người nghi ngờ.
+    `demo_watch.py status` thì trước bản sửa này không có chỗ gọi nào.
+
+    `--list` in ra từ mảng STAGES, tức là chính danh sách được chạy khi không
+    chọn chặng nào — nên có tên trong đó nghĩa là chạy mặc định, không phải một
+    chặng phải nhớ mà bật.
+    """
+    listed = subprocess.run(
+        ["bash", str(REPO_ROOT / "scripts" / "gate.sh"), "--list"],
+        capture_output=True,
+        text=True,
+        cwd=str(REPO_ROOT),
+    )
+    assert listed.returncode == 0, listed.stderr
+    assert "demo-watch" in listed.stdout, (
+        "gate.sh không có chặng nào đọc phán quyết canh gác — "
+        "đúng hình dạng đã để máy demo lệch 4 route mà cả đội không thấy"
+    )
+
+
 # --- run: giữ nguyên ba trạng thái, và ghi lại chúng ----------------------
 
 
@@ -256,7 +396,10 @@ def test_run_khop_ghi_lai_phan_quyet(repo, tmp_path):
     assert data["served"] == 7
     assert data["ref_routes"] == 7
     # Ghi xong thì `status` phải đọc lại được — hai nửa nói cùng một ngôn ngữ.
-    assert _status(state) == watch.EXIT_OK
+    # `--expect-ref main`: repo giả này chỉ có nhánh `main`, và `_run` đo đúng
+    # nhánh đó. Mặc định của `status` là `origin/main` vì đó là ref thật của
+    # máy demo; ở đây phải nói ra ref của fixture, chứ không nới mặc định.
+    assert _status(state, ["--expect-ref", "main"]) == watch.EXIT_OK
 
 
 def test_run_lech_giu_ma_1_va_giu_ten_route(repo, tmp_path):
@@ -277,7 +420,7 @@ def test_run_lech_giu_ma_1_va_giu_ten_route(repo, tmp_path):
     data = json.loads(watch.status_path(state).read_text(encoding="utf-8"))
     assert data["state"] == watch.STATE_DIFFERS
     assert data["missing"] == ["/areas", "/posts"]
-    assert _status(state) == watch.EXIT_DIFFERS
+    assert _status(state, ["--expect-ref", "main"]) == watch.EXIT_DIFFERS
 
 
 def test_run_cong_khong_chay_duoc_ra_ma_2_chu_khong_phai_1(repo, tmp_path):

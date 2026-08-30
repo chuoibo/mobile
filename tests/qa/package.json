@@ -1,0 +1,16 @@
+{
+  "name": "qa-harness",
+  "private": true,
+  "type": "module",
+  "description": "Shared dependencies for the QA evidence scripts under tests/qa. Not shipped, not imported by the app. Exists so probes can say `import puppeteer from \"puppeteer-core\"` instead of naming one laptop's node_modules by absolute path. rd-qa-02/ and rd-qa-06/ keep their own manifests; node resolves the nearest one.",
+  "scripts": {
+    "selfcheck": "node --test tim-trinh-duyet.selfcheck.mjs"
+  },
+  "dependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "axe-core": "4.13.0",
+    "playwright": "1.62.1",
+    "playwright-core": "1.62.1",
+    "puppeteer-core": "24.43.1"
+  }
+}

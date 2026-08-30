@@ -13,9 +13,7 @@ import { chromium } from "playwright";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 
-const require = createRequire(
-  "/home/lakiet/agent-harness/wt/qa/tests/qa/rd-qa-02/node_modules/"
-);
+const require = createRequire(import.meta.url);
 const AXE_SOURCE = readFileSync(require.resolve("axe-core"), "utf8");
 const WEB = process.env.MOBILE_WEB || "http://localhost:8911";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

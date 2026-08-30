@@ -1,10 +1,10 @@
 // The "Bỏ qua" path: skip the login screen entirely, so the app holds no
 // person, then search. #158 says this must answer without a round trip. Both
 // halves matter -- the sentence on screen AND zero requests on the wire.
-import { chromium } from "playwright";
+import { chromium } from "playwright-core";
+import { timTrinhDuyet } from "../tim-trinh-duyet.mjs";
 
-const CHROME =
-  "/home/lakiet/.cache/ms-playwright/chromium-1194/chrome-linux/chrome";
+const CHROME = timTrinhDuyet();
 const url = process.argv[2];
 const label = process.argv[3] ?? "?";
 

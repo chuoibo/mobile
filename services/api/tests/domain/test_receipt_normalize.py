@@ -193,6 +193,71 @@ class RefusedInput(unittest.TestCase):
         self.assertEqual(caught.exception.code, "UNREADABLE_AMOUNT")
 
 
+class TheUnitWrittenAsAWord(unittest.TestCase):
+    """The unit is a word before it is a sign, and people type the word.
+
+    The reader is instructed to preserve the money form exactly as written, so
+    whatever a person typed in chat -- or a cashier printed on paper -- arrives
+    here untouched. Accepting ``219.000đ`` while refusing ``219.000 đồng`` made
+    the product blame the message for a reading it had got completely right
+    (qa-tt-0034: 4 of 13 real spellings refused, three of them this one).
+    """
+
+    def test_plain_digits_followed_by_the_word(self):
+        self.assertEqual(normalize_vnd("480000 đồng"), 480000)
+
+    def test_grouped_digits_followed_by_the_word(self):
+        self.assertEqual(normalize_vnd("480.000 đồng"), 480000)
+
+    def test_word_without_diacritics(self):
+        """A plain keyboard types "dong"; it is the same unit."""
+        self.assertEqual(normalize_vnd("480000 dong"), 480000)
+
+    def test_word_in_capitals(self):
+        """Receipts print the unit in capitals under the total line."""
+        self.assertEqual(normalize_vnd("480000 ĐỒNG"), 480000)
+
+    def test_word_after_a_thousand_suffix(self):
+        """One amount, not a thousand-suffix plus a leftover word."""
+        self.assertEqual(normalize_vnd("480 nghìn đồng"), 480000)
+
+    def test_the_word_alone_is_not_an_amount(self):
+        with self.assertRaises(ReceiptError):
+            normalize_vnd("đồng")
+
+    def test_a_word_merely_containing_the_unit_is_still_refused(self):
+        """A uniform is "đồng phục". Stripping a unit must not read a word."""
+        with self.assertRaises(ReceiptError):
+            normalize_vnd("đồng phục")
+
+
+class HundredThousandWrittenAsACompound(unittest.TestCase):
+    """The compound "trăm nghìn" names 200000 exactly; bare "trăm" does not."""
+
+    def test_tram_nghin(self):
+        self.assertEqual(normalize_vnd("2 trăm nghìn"), 200000)
+
+    def test_tram_ngan(self):
+        self.assertEqual(normalize_vnd("2 trăm ngàn"), 200000)
+
+    def test_fractional_hundred_thousand_scales_by_a_hundred_thousand(self):
+        """1,5 hundred-thousand is 150000.
+
+        The regression this guards is arithmetic, not parsing: a fractional
+        part scaled as if the multiplier were 1000 reads this as 100500 -- a
+        wrong amount that still looks like money.
+        """
+        self.assertEqual(normalize_vnd("1,5 trăm nghìn"), 150000)
+
+    def test_bare_tram_is_ambiguous_and_refused(self):
+        """Bare "2 trăm" is 200 dong on paper and 200000 in speech."""
+        with self.assertRaises(ReceiptError):
+            normalize_vnd("2 trăm")
+
+    def test_compound_with_the_unit_word(self):
+        self.assertEqual(normalize_vnd("2 trăm nghìn đồng"), 200000)
+
+
 class NoFloatEverAppears(unittest.TestCase):
     def test_every_accepted_form_returns_a_strict_int(self):
         """``type(...) is int`` on purpose: ``bool`` is an ``int`` subclass."""
@@ -204,6 +269,10 @@ class NoFloatEverAppears(unittest.TestCase):
             "1,5 triệu",
             "28,5k",
             "0",
+            "480000 đồng",
+            "480 nghìn đồng",
+            "2 trăm nghìn",
+            "1,5 trăm nghìn",
         ):
             with self.subTest(spelling=spelling):
                 self.assertIs(type(normalize_vnd(spelling)), int)

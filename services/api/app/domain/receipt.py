@@ -36,11 +36,40 @@ DOCUMENT_TYPE_PRICE_LIST = "price_list"
 DOCUMENT_TYPE_OTHER = "other"
 
 
-_CURRENCY_MARKER = r"(?:VND|VNĐ|đ|₫|d)"
+# The unit is a word before it is a sign, and both reach this function
+# unchanged: the readers are told to preserve the money form exactly as
+# written, so "480.000đ" and "480000 đồng" both arrive as typed. Listing only
+# the signs made the product refuse a reading it had got right and blame the
+# person who wrote the message (qa-tt-0034).
+#
+# "đ" and "d" already stood alone here, so "đồng phục" is not newly at risk: a
+# marker is only stripped when it is the entire head or tail of the field, and
+# what survives ("phục") is still refused.
+#
+# Longest form first is convention, not load-bearing: measured both ways, the
+# engine backtracks past "đ" and reaches "đồng" regardless. Written this way so
+# a reader need not reason about backtracking to see which form is meant.
+_CURRENCY_MARKER = r"(?:VND|VNĐ|đồng|dong|đ|₫|d)"
+# The compound precedes "nghìn" for the same reason and with the same caveat:
+# alternation is retried in full at each expansion of the lazy number, so "2
+# trăm nghìn" reads the same with the compound listed last.
 _SUFFIX_PATTERN = re.compile(
-    r"^(?P<number>.+?)\s*(?P<suffix>nghìn|ngàn|triệu|tr|k)$",
+    r"^(?P<number>.+?)\s*"
+    r"(?P<suffix>trăm\s*nghìn|trăm\s*ngàn|nghìn|ngàn|triệu|tr|k)$",
     re.IGNORECASE,
 )
+# Bare "trăm" is deliberately absent. "2 trăm" is 200 dong on a price list and
+# 200000 in conversation; a function that cannot tell them apart must refuse
+# rather than pick one.
+_SUFFIX_MULTIPLIERS = {
+    "trămnghìn": 100_000,
+    "trămngàn": 100_000,
+    "nghìn": 1_000,
+    "ngàn": 1_000,
+    "k": 1_000,
+    "triệu": 1_000_000,
+    "tr": 1_000_000,
+}
 _GROUPED_PATTERN = re.compile(
     r"\d{1,3}(?P<separator>[., ])\d{3}(?:(?P=separator)\d{3})*"
 )
@@ -114,7 +143,11 @@ def _parse_suffixed(number: str, multiplier: int) -> int:
 
     whole = match.group("whole")
     fraction = match.group("fraction")
-    scale_digits = 6 if multiplier == 1_000_000 else 3
+    # How many digits the fractional part is worth, read off the multiplier
+    # itself rather than listed by hand. Hard-coding 3 for everything that is
+    # not a million read "1,5 trăm nghìn" as 100500 -- a wrong amount that
+    # still looks like money.
+    scale_digits = len(str(multiplier)) - 1
     if len(fraction) > scale_digits and any(
         digit != "0" for digit in fraction[scale_digits:]
     ):
@@ -138,8 +171,8 @@ def normalize_vnd(text: str) -> int:
 
     suffix = _SUFFIX_PATTERN.fullmatch(value)
     if suffix is not None:
-        suffix_text = suffix.group("suffix").casefold()
-        multiplier = 1_000_000 if suffix_text in {"tr", "triệu"} else 1_000
+        suffix_text = re.sub(r"\s+", "", suffix.group("suffix").casefold())
+        multiplier = _SUFFIX_MULTIPLIERS[suffix_text]
         return _parse_suffixed(suffix.group("number").strip(), multiplier)
 
     if _PLAIN_PATTERN.fullmatch(value):

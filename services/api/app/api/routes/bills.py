@@ -13,6 +13,7 @@ from app.api.schemas import (
     BillAssignmentsRequest,
     BillCreateRequest,
     BillResponse,
+    BillSelfClaimRequest,
     BillSplitRequest,
     BillSplitResponse,
     ErrorResponse,
@@ -67,6 +68,28 @@ def confirm_bill_assignments(
     repository: Annotated[ApiRepository, Depends(get_repository)],
 ) -> BillResponse:
     return ApiService(repository).confirm_bill_assignments(bill_id, request, actor)
+
+
+@router.post(
+    "/bills/{bill_id}/my-items",
+    response_model=BillResponse,
+    responses=ERRORS,
+)
+def claim_bill_items(
+    bill_id: UUID,
+    request: BillSelfClaimRequest,
+    actor: Annotated[Actor, Depends(get_actor)],
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+) -> BillResponse:
+    """F22 self-tagging. The person charged is the caller, with no way to say otherwise.
+
+    `my-items` and not `assignments`: the path says whose dishes these are, and
+    the body has no field that could contradict it. Its neighbour above takes
+    `participant_ids` from the request and needs a roster check to stay honest;
+    this one cannot express a name at all.
+    """
+
+    return ApiService(repository).claim_bill_items(bill_id, request, actor)
 
 
 @router.post(

@@ -79,7 +79,6 @@ LEGACY_UNFORMATTED = frozenset(
         "tests/qa/rd-qa-10/repro_ghi_xong_doc_khong_thay.py",
         "tests/qa/rd-qa-11/forward_link_to_active.py",
         "tests/qa/rd-qa-11/race_invite_link.py",
-        "tests/qa/rd-qa-12/probe_may_da_seed.py",
         "tests/qa/rd-qa-18/tan-cong-tim-dia-diem.py",
         "tests/qa/rd-qa-24/f16-di-bo.py",
         "tests/qa/rd-qa-27/f32-di-bo.py",
