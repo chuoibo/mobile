@@ -2,7 +2,7 @@
   "_doc": [
     "Route may chu khai ma KHONG man nao trong apps/mobile/src nhac toi.",
     "Do bang scripts/check_server_routes_called.py. Lan cap nhat gan nhat: 2026-08-30,",
-    "sau khi F38 (widget) duoc tra no bang mot man that.",
+    "sau khi man Quan tri nhom tra no 5 dong (vai tro, roi nhom, moi/thu hoi loi moi).",
     "",
     "Day la DANH SACH NO, khong phai danh sach mien. Moi dong o day la mot",
     "tinh nang da merge, da co test xanh, va nguoi dung chua cham toi duoc.",
@@ -32,7 +32,8 @@
     "             URL do may chu tra ve nen client khong bao gio viet no thanh",
     "             literal. Dung doc so 0 cua cong thanh 'route chet'.",
     "",
-    "Con so hom nay, sau khi F38 duoc tra: 16 tinh-nang, 5 ha-tang, 1 cong-mu."
+    "Con so hom nay, sau khi man Quan tri nhom tra 5 dong: 12 tinh-nang, 4 ha-tang,",
+    "1 cong-mu, va 1 dong (.../albums/{outing_id}/reel) chua phan loai."
   ],
   "uncalled": [
     {
@@ -54,11 +55,6 @@
       "route": "/bills/{bill_id}/split",
       "loai": "ha-tang",
       "reason": "CUA THU HAI vao cung mot allocator, khong phai phep chia thu hai. Cau hoi 'thua hay chua lam man' o dong nay da duoc tra loi bang code: client lay phan bo tu POST /expenses (api.ts:592 va :620) roi chot bang /expenses/{id}/confirm; duong hero di bill -> /bills/{id}/assignments -> /expenses. Ca hai duong deu goi domain allocator, nen khong co hai phep tinh song song va khong co rui ro tien. Cai con lai la mot route tien SONG ma khong ai goi: chu so huu backend xac nhan xoa hay giu."
-    },
-    {
-      "route": "/contexts/{context_id}",
-      "loai": "ha-tang",
-      "reason": "Client gọi GET /contexts (nhom.ts:305) để lấy danh sách nhóm, không đọc chi tiết một nhóm."
     },
     {
       "route": "/contexts/{context_id}/albums",
@@ -85,16 +81,6 @@
       "reason": "Gợi ý theo ngữ cảnh. Cùng lý do với /suggestion: chưa màn nào gọi, AI đi qua /ai-turn."
     },
     {
-      "route": "/contexts/{context_id}/members/{person_id}",
-      "loai": "tinh-nang",
-      "reason": "ROI NHOM. Ly do cu o dong nay sai va da lam no doc nhu ha tang: no viet 'khong co man nao thao tac len mot thanh vien cu the', nghe nhu mot duong DOC. openapi.json noi day la DELETE, summary 'Leave Context' -- mot nut nguoi dung bam, khong phai mot truy van."
-    },
-    {
-      "route": "/contexts/{context_id}/members/{person_id}/role",
-      "loai": "tinh-nang",
-      "reason": "Đổi vai trò thành viên. Cùng lý do: chưa có màn quản trị nhóm."
-    },
-    {
       "route": "/contexts/{context_id}/photos/{photo_id}",
       "loai": "cong-mu",
       "reason": "DA CO NGUOI GOI THAT, va cong nay khong the thay -- day la o duy nhat trong file thuoc loai do. URL do MAY CHU tra ve trong image_url (schemas.py:1496 cho album, va WidgetPhotoResponse.image_url cho F38), roi client dua thang chuoi ay cho <Anh uri=...>, nen khong bao gio co literal de quet. Truoc day dong nay con dung theo mot nghia khac: duong DUY NHAT toi no la /contexts/{id}/albums, ma route do cung chua ai goi. Nghia do het han hom nay -- man widget (F38) doc anh moi nhat cua nhom qua chinh duong nay, nen byte cua route nay dang chay tren mot man that. Giu dong nay lai la de KHONG ai doc so 0 cua cong thanh 'route nay chet'."
@@ -118,16 +104,6 @@
       "route": "/contexts/{context_id}/votes",
       "loai": "tinh-nang",
       "reason": "F17 Bình chọn, merge #133 hôm nay 2026-08-30. Domain và tầng postgres đã xong (490 ca, ràng buộc một-người-một-phiếu có ca gác ở DB), nhưng chưa màn nào gọi. Frontend đang làm màn (frontend-193436). Gỡ dòng này khi màn xem cuộc bình chọn gọi nó."
-    },
-    {
-      "route": "/outings/{outing_id}/invites",
-      "loai": "tinh-nang",
-      "reason": "Tao loi moi vao buoi di. Nua kia da co man: #moi= mo man nhan loi moi va no duoc quet moi luot (hang nhan-loi-moi trong tab-snapshots). Thieu dung cai nut sinh ra loi moi ay."
-    },
-    {
-      "route": "/outings/{outing_id}/invites/{invite_id}/revoke",
-      "loai": "tinh-nang",
-      "reason": "Thu hoi loi moi da phat. Cung lo voi POST /outings/{id}/invites."
     },
     {
       "route": "/places/{place_id}",

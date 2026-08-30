@@ -140,7 +140,9 @@ def main() -> int:
     st, chi = goi("GET", f"/contexts/{cid}", actor=TRANG, contexts=cid)
     can("đọc nhóm bằng tư cách thành viên", st, 200)
     if st == 200:
-        print(f"    display_name = {chi['display_name']!r}, created_by_id = {chi['created_by_id']}")  # type: ignore[index]
+        print(
+            f"    display_name = {chi['display_name']!r}, created_by_id = {chi['created_by_id']}"
+        )  # type: ignore[index]
 
     print("\n## đối chứng âm — người ngoài nhóm phải bị từ chối")
     nguoi_la = str(uuid.uuid4())
@@ -160,8 +162,12 @@ def main() -> int:
         body={"role": "member"},
         key=str(uuid.uuid4()),
     )
-    can("Trang (member) tự nhận group_admin rồi hạ Minh", st, 403,
-        f"code={than.get('code') if isinstance(than, dict) else than}")
+    can(
+        "Trang (member) tự nhận group_admin rồi hạ Minh",
+        st,
+        403,
+        f"code={than.get('code') if isinstance(than, dict) else than}",
+    )
 
     print("\n## route 2 — PUT /contexts/{context_id}/members/{person_id}/role")
     st, sau = goi(
@@ -178,8 +184,12 @@ def main() -> int:
         print(f"    role sau khi ghi = {sau['role']!r}, state = {sau['state']!r}")  # type: ignore[index]
     st, ds = goi("GET", f"/contexts/{cid}/members", actor=MINH, contexts=cid)
     vai = {m["person_id"]: m["role"] for m in ds["members"]}  # type: ignore[index]
-    can("đọc lại roster thấy vai trò mới", 200 if vai.get(TRANG) == "admin" else 0, 200,
-        f"roster nói {vai.get(TRANG)!r}")
+    can(
+        "đọc lại roster thấy vai trò mới",
+        200 if vai.get(TRANG) == "admin" else 0,
+        200,
+        f"roster nói {vai.get(TRANG)!r}",
+    )
 
     print("\n## nền cho lời mời: một chuyến đi")
     st, buoi = goi(
@@ -225,7 +235,9 @@ def main() -> int:
     )
     can("mời một thành viên trong nhóm", st, 201)
     if st == 201:
-        print(f"    invited_person_id = {moi_nhom['invited_person_id']}, token = {moi_nhom['invite_token']!r}")  # type: ignore[index]
+        print(
+            f"    invited_person_id = {moi_nhom['invited_person_id']}, token = {moi_nhom['invite_token']!r}"
+        )  # type: ignore[index]
 
     print("\n## route 4 — POST /outings/{outing_id}/invites/{invite_id}/revoke")
     st, thu = goi(
@@ -265,8 +277,12 @@ def main() -> int:
         contexts=cid,
         key=str(uuid.uuid4()),
     )
-    can("Trang xoá Minh khỏi nhóm", st, 403,
-        f"code={than.get('code') if isinstance(than, dict) else than}")
+    can(
+        "Trang xoá Minh khỏi nhóm",
+        st,
+        403,
+        f"code={than.get('code') if isinstance(than, dict) else than}",
+    )
 
     print("\n## route 5 — DELETE /contexts/{context_id}/members/{person_id} (rời nhóm)")
     st, _ = goi(
@@ -279,7 +295,8 @@ def main() -> int:
     can("Trang tự rời nhóm", st, 204)
     st, ds = goi("GET", f"/contexts/{cid}/members", actor=MINH, contexts=cid)
     trang_state = next(
-        (m["state"] for m in ds["members"] if m["person_id"] == TRANG), None  # type: ignore[index]
+        (m["state"] for m in ds["members"] if m["person_id"] == TRANG),
+        None,  # type: ignore[index]
     )
     print(f"    roster (Minh đọc) sau khi rời: Trang = {trang_state!r}")
 
