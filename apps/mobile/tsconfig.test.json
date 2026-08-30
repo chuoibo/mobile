@@ -143,6 +143,19 @@
     // id. Compiled so a test can assert the client refuses a bad number
     // BEFORE it travels, which is a property of this file and not of the API.
     "src/screens/vao-cua/cong-api.ts",
+    // F01.03's answers. Compiled because the rules that matter are arithmetic
+    // and negative -- the budget bands are integer đồng that tile without a gap
+    // or an overlap, a skipped band stays `null` instead of being back-filled,
+    // and the default address-book seam resolves to "chưa có" rather than to a
+    // granted it cannot honour. None of those is visible in a screenshot.
+    "src/screens/vao-cua/so-thich.ts",
+    // The screen itself, for the same reason `ThanhTab.tsx` two blocks down is
+    // compiled: every control on it carries an ARIA role, and a role is only
+    // real once react-native-web has emitted it. The tastes are `checkbox` in a
+    // `group` and the budget bands are `radio` in a `radiogroup` -- picking the
+    // wrong one of those pairs compiles fine and tells a screen reader the
+    // opposite of what the screen does. See `tests/so-thich-web.test.mjs`.
+    "src/screens/vao-cua/CaNhanHoa.tsx",
     // F05's friend code. Same reason as the line above, and one more: the
     // property that matters most here is a *negative* one -- no telephone
     // number reaches the payload -- and a negative is only worth asserting
