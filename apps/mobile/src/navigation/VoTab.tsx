@@ -22,12 +22,13 @@ import { TinNhan } from "../screens/chat/TinNhan";
 import { KhamPha } from "../screens/kham-pha/KhamPha";
 import { KyNiem } from "../screens/ky-niem/KyNiem";
 import { LenPlan } from "../screens/len-plan/LenPlan";
+import { NhanLoiMoi } from "../screens/len-plan/NhanLoiMoi";
 import { Nhom } from "../screens/vao-cua/Nhom";
 import { MenuTao } from "./MenuTao";
 import { ThanhTab } from "./ThanhTab";
 import { useInertBackground } from "./modal";
 import { CREATE_ACTIONS, DEFAULT_TAB, type CreateActionId, type CreateFlowId } from "./tabs";
-import type { DemoPerson } from "./nhom-demo";
+import { DEMO_GROUP_NAME, type DemoPerson } from "./nhom-demo";
 import type { Nhom as NhomWire } from "../screens/vao-cua/cong-api";
 import type { TheBan } from "../screens/vao-cua/ma-ban";
 
@@ -42,6 +43,7 @@ export function VoTab({
   diaDiemDau,
   moBanDoNgay,
   moDiemHenNgay,
+  moiBuoiDi,
   renderKhoanChi,
 }: {
   nguoi: DemoPerson | null;
@@ -75,6 +77,9 @@ export function VoTab({
   moBanDoNgay?: boolean;
   /** rd-fe-33. Open Điểm hẹn straight away, from `#ban-do=hen`. */
   moDiemHenNgay?: boolean;
+  /** F14. An outing-invite token from `#moi=`. Opens the accept screen
+   *  full-screen, the same way a group or a memory wall does. */
+  moiBuoiDi?: string | null;
   /** The organiser flow, handed in with the way back out of it and with whoever
    *  is signed in. The person is not a decoration: the expense flow opens the
    *  group under their id (`khoiDongNhom`), and a bill has to be written into a
@@ -101,6 +106,7 @@ export function VoTab({
   // from the bar, so leaving the bar underneath would offer two ways out of
   // one task.
   const [luongBanBe, setLuongBanBe] = useState(moBanBeNgay ?? false);
+  const [luongLoiMoi, setLuongLoiMoi] = useState(Boolean(moiBuoiDi));
   // The group handle, lifted out of the group screen.
   //
   // It used to live inside `Nhom.tsx` and die when that screen closed, which
@@ -149,6 +155,19 @@ export function VoTab({
   // The expense flow takes the whole screen: it is a task with its own steps,
   // and leaving the tab bar under it would offer an exit that loses a
   // half-written expense without saying so.
+  if (luongLoiMoi && moiBuoiDi) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
+        <StatusBar style={scheme === "dark" ? "light" : "dark"} />
+        <NhanLoiMoi
+          token={moiBuoiDi}
+          nguoi={nguoi}
+          onDong={() => setLuongLoiMoi(false)}
+        />
+      </SafeAreaView>
+    );
+  }
+
   if (luongKhoanChi) {
     return <>{renderKhoanChi(() => setLuongKhoanChi(false), nguoi)}</>;
   }
@@ -214,7 +233,17 @@ export function VoTab({
           {tab === "len-plan" ? <LenPlan nguoi={nguoi} /> : null}
           {tab === "tin-nhan" ? <TinNhan nguoi={nguoi} /> : null}
           {tab === "ca-nhan" ? (
-            <CaNhan nguoi={nguoi} onKetBan={() => setLuongBanBe(true)} />
+            <CaNhan
+              nguoi={nguoi}
+              onKetBan={() => setLuongBanBe(true)}
+              nhom={
+                nhom
+                  ? [{ id: nhom.id, name: nhom.display_name }]
+                  : nhomId
+                    ? [{ id: nhomId, name: DEMO_GROUP_NAME }]
+                    : []
+              }
+            />
           ) : null}
         </View>
 

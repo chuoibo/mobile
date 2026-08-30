@@ -314,6 +314,32 @@ _TABLE: dict[str, dict] = {
         "roles": {"group_admin", "member"},
         "requires": ("is_group_member",),
     },
+    # F31. The implicit profile is the most concentrated thing the product
+    # knows about a group: what they eat, what they do, and what they spend,
+    # in one screen. It is derived from exactly the rows `view_group_memories`
+    # guards, so it reuses that predicate rather than minting a softer one --
+    # a profile is not "less private than the check-ins it was computed from"
+    # merely because it arrives as scores instead of rows.
+    "view_group_preference_profile": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    # F33. Reading this card means the server read the group's last few
+    # messages. The gate is therefore the message gate, not a weaker one:
+    # anyone who may not read the conversation may not read a card built out
+    # of it either.
+    "view_contextual_suggestion": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    # F36. An album is a way of reading photographs that already exist, so its
+    # gate is deliberately the identical predicate the photo route uses. A
+    # looser one here would make the album a way around that route -- which is
+    # the whole failure mode a "collection" feature invites.
+    "view_trip_album": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
     # F43, F44, F45. All three read or answer about where the group goes, and
     # all three reuse `is_group_member` rather than minting a predicate: the
     # fact needed is identical to the one `view_group_memories` proves, because

@@ -97,7 +97,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import puppeteer from "file:///home/lakiet/.claude/node_modules/puppeteer-core/lib/puppeteer/puppeteer-core.js";
+import puppeteer from "puppeteer-core";
 
 import { laLoiThat, phanLoai } from "./che-chu.mjs";
 import { CHROME, closeServer, createStaticServer, listen } from "./screen-snapshots.mjs";
@@ -288,6 +288,30 @@ const MAN_TUONG_TAC = [
     frag: `ban-do=hen&nguoi=${NGUOI}`,
     bam: ["+", "+", "Tìm chỗ gặp"],
     needle: "Cân bằng nhất",
+  },
+  /* F24. The purple draft card under a group-chat bubble. There is no
+   * `tab=nhom`: the shell's chat tab is `tin-nhan`, and "Tách tiền" lives
+   * on its default Chat chip. A fragment naming a tab the router drops
+   * would land on Khám phá and this needle would fail for the right reason.
+   *
+   * `anh: 0` is measured on this run: the cold `tin-nhan` row also decoded
+   * zero photographs, and the draft card adds none. */
+  {
+    step: "nhap-chi-tu-chat",
+    frag: `tab=tin-nhan&nguoi=${NGUOI}`,
+    bam: "Tách tiền",
+    needle: "Lẩu Thái tối qua",
+    anh: 0,
+  },
+  /* F39/F42. The wall on Cá nhân: compose is behind "Viết lên tường", and
+   * the needle is a post body that only the loaded wall prints. `anh: 0`
+   * because a post is a sentence, not a photograph. */
+  {
+    step: "ca-nhan-tuong",
+    frag: `tab=ca-nhan&nguoi=${NGUOI}`,
+    bam: "Viết lên tường",
+    needle: "Sương đèo Pren chưa tan",
+    anh: 0,
   },
 ];
 
@@ -643,9 +667,12 @@ async function main() {
     // assertion after the screen loop.
     const tenNang = ghi("__canary-nang.html", canaryNang(300));
     const tenNangSach = ghi("__canary-nang-sach.html", canaryNang(300, false));
-    const trang = fs.readFileSync(indexPath, "utf8") === indexHtml ? trangCoStub(indexHtml, fixtures) : null;
-    if (trang === null) throw new Error("index.html doi giua chung");
-    for (const { step } of moiMan()) ghi(`__quet-${step}.html`, trang);
+    if (fs.readFileSync(indexPath, "utf8") !== indexHtml) {
+      throw new Error("index.html doi giua chung");
+    }
+    for (const { step, bam } of moiMan()) {
+      ghi(`__quet-${step}.html`, trangCoStub(indexHtml, fixtures, bam ?? null));
+    }
     for (const { step, bam } of MAN_TUONG_TAC) {
       ghi(`__quet-${step}.html`, trangCoStub(indexHtml, fixtures, bam));
     }

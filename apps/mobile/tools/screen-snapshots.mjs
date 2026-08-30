@@ -17,7 +17,13 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import puppeteer from "file:///home/lakiet/.claude/node_modules/puppeteer-core/lib/puppeteer/puppeteer-core.js";
+import puppeteer from "puppeteer-core";
+
+/* The browser search lives in the test helper because that is where it was
+ * written and where ten test files already import it from. Pointing at it from
+ * here keeps one search rather than two; `chrome-cdp.mjs` is a pure module with
+ * no top-level effects, so importing it costs nothing. */
+import { findChrome } from "../tests/chrome-cdp.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MOBILE_ROOT = path.resolve(HERE, "..");
@@ -36,6 +42,7 @@ export const STEPS = [
   // screen every demo starts on.
   "mo-dau",
   "chup-bill",
+  "ket-qua-quet-anh",
   "ket-qua",
   "goi-y",
   "nhap",
@@ -132,9 +139,27 @@ const MIME = {
   ".png": "image/png",
 };
 
+/**
+ * The browser these tools drive, and the one constant eleven of them import.
+ *
+ * This used to be a literal path into one developer's Playwright cache, with
+ * PUPPETEER_EXECUTABLE_PATH in front of it. Anywhere else that fallback names a
+ * file that does not exist, so every tool importing CHROME died with "Chromium
+ * not found at /home/lakiet/..." -- naming a home directory belonging to nobody
+ * on that machine.
+ *
+ * `findChrome()` is reused rather than reimplemented: it already searches the
+ * Playwright cache under the *current* user's home, newest build first, then
+ * /usr/bin/google-chrome and four other system names. A second copy of that
+ * search would be a second thing to keep correct.
+ *
+ * PUPPETEER_EXECUTABLE_PATH still wins, because the detector and the mutation
+ * harnesses set it deliberately and an override that can be silently outvoted
+ * is not an override. The last resort is the path GitHub's ubuntu image ships,
+ * so when nothing is found at all the error names somewhere real.
+ */
 export const CHROME =
-  process.env.PUPPETEER_EXECUTABLE_PATH ||
-  "/home/lakiet/.cache/ms-playwright/chromium-1194/chrome-linux/chrome";
+  process.env.PUPPETEER_EXECUTABLE_PATH || findChrome() || "/usr/bin/google-chrome";
 
 /**
  * A real 32x32 JPEG, not a truncated stub. Written to a temp file at runtime
@@ -330,6 +355,55 @@ export function installBeforeApp(apiBase, scanBody, vietqrPayload) {
     }
 
     if (method === "POST" && path === "/receipts/scan") return json(scanBody);
+
+    /* F26. Same verb and field as the paper-bill scan, different path and a
+     * thinner body: one merchant, one total, no line items, no people. A stub
+     * that reused SCAN_FIXTURE here would teach the screenshot card to draw
+     * dishes and names the server never sends. */
+    if (method === "POST" && path === "/screenshots/scan") {
+      return json({
+        source: "grab",
+        merchant: "Quán Bún Chả Hương Liên",
+        total_vnd: 285000,
+        occurred_on: "2026-08-29",
+        needs_review: false,
+      });
+    }
+
+    /* F24. Identities are roster ids, not invented ones: the card resolves
+     * them against GET /contexts/{id}/members, and an id that is not on that
+     * list prints "Thành viên". The three below are the first three of the
+     * seeded seven this stub already returns for that GET. */
+    const nhapTuChat = /^\/contexts\/[^/]+\/messages\/([^/]+)\/expense-draft$/.exec(path);
+    if (method === "POST" && nhapTuChat) {
+      return json({
+        context_id: db.contextId,
+        message_id: nhapTuChat[1],
+        detected: true,
+        draft: {
+          title: "Lẩu Thái tối qua",
+          amount_vnd: 450000,
+          paid_by_id: NHOM_DEMO_IDS[0],
+          shared_by: [NHOM_DEMO_IDS[0], NHOM_DEMO_IDS[1], NHOM_DEMO_IDS[2]],
+          needs_review: false,
+        },
+        reason: null,
+      });
+    }
+
+    /* F14. Ids and membership_state only -- the screen must not invent a
+     * group name or a trip name from this reply. `active` is the branch the
+     * scan waits on ("Bạn đã vào buổi đi."). */
+    const nhanMoiBuoi = /^\/outing-invites\/[^/]+\/accept$/.exec(path);
+    if (method === "POST" && nhanMoiBuoi) {
+      return json({
+        invite_id: "d4e5f6a7-8b9c-4d0e-9f1a-2b3c4d5e6f70",
+        outing_id: "e5f6a7b8-9c0d-4e1f-8a2b-3c4d5e6f7081",
+        context_id: db.contextId,
+        membership_id: "b8e4f6a1-3c7d-4b2e-9a5f-6d1c8b3e7f2a",
+        membership_state: "active",
+      });
+    }
 
     const person = /^\/people\/([^/]+)$/.exec(path);
     if (method === "PUT" && person) {
@@ -888,6 +962,20 @@ async function drive(page, outDir, jpegPath) {
   await clickAria(page, "Tạo khoản chi. Chụp bill hoặc nhập tay, AI chia tiền");
   await waitForScreen(page, step, "Chụp bill");
   await snapshot(page, outDir, step);
+
+  /* F26 sits on this same viewfinder, behind a second picker. The walk has
+   * to visit it and come back: leaving it would mean STEPS named a file
+   * `drive` never wrote, and skipping the return would send the rest of
+   * the hero path through a screenshot reading instead of a paper bill. */
+  step = "ket-qua-quet-anh";
+  const shotChooserP = page.waitForFileChooser({ timeout: 20000 });
+  await clickAria(page, "Ảnh chụp màn hình");
+  const shotChooser = await shotChooserP;
+  await shotChooser.accept([jpegPath]);
+  await waitForScreen(page, step, "Quán Bún Chả Hương Liên", 45000);
+  await snapshot(page, outDir, step);
+  await clickAria(page, "Huỷ");
+  await waitForScreen(page, "chup-bill", "Chụp bill");
 
   step = "ket-qua";
   // Register the chooser first: the click both opens Expo's hidden <input>

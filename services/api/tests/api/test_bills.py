@@ -30,15 +30,18 @@ OTHER_CONTEXT_ID = uuid.UUID("6ff00000-ffff-4fff-8fff-0000f0000001")
 def bill_payload(*, context_id=CONTEXT_ID, printed_total_vnd=135000, items=None):
     """Two lines, two people, one dish each -- the smallest bill that can be
     got wrong. An even split and a per-item split return the same numbers when
-    both people ate the same amount, so the amounts here differ on purpose."""
+    both people ate the same amount, so the amounts here differ on purpose.
 
-    return {
-        "context_id": str(context_id),
-        "printed_total_vnd": printed_total_vnd,
-        "items_total_vnd": 135000,
-        "confidence": 88,
-        "needs_review": False,
-        "items": items
+    `items_total_vnd` is derived from `items` rather than written out, so the
+    helper cannot emit a bill whose declared total contradicts its own lines.
+    It used to: passing `items=[]` still sent 135.000, and `POST /bills` stored
+    that pair without complaint because nothing compared them. A test that
+    wants the contradiction now has to ask for it by name, which is what
+    `test_bill_items_total_matches_lines.py` does.
+    """
+
+    lines = (
+        items
         if items is not None
         else [
             {
@@ -57,7 +60,16 @@ def bill_payload(*, context_id=CONTEXT_ID, printed_total_vnd=135000, items=None)
                 "line_total_vnd": 70000,
                 "suggested_participant_ids": [str(ADVANCER_ID)],
             },
-        ],
+        ]
+    )
+
+    return {
+        "context_id": str(context_id),
+        "printed_total_vnd": printed_total_vnd,
+        "items_total_vnd": sum(line["line_total_vnd"] for line in lines),
+        "confidence": 88,
+        "needs_review": False,
+        "items": lines,
     }
 
 
@@ -129,9 +141,7 @@ class TestBillDraftCreation:
         the money was right. It is stored and it gates server-side;
         `needs_review` is what a client gets to branch on."""
 
-        response = client.post(
-            "/bills", headers=actor_headers(), json=bill_payload()
-        )
+        response = client.post("/bills", headers=actor_headers(), json=bill_payload())
 
         assert "confidence" not in response.json()
         # Walk the decoded body rather than grepping the raw text. The claim is
@@ -151,9 +161,7 @@ class TestBillDraftCreation:
 
 
 class TestAssignmentConfirmation:
-    def test_confirming_marks_the_shares_as_decided_and_names_the_decider(
-        self, client
-    ):
+    def test_confirming_marks_the_shares_as_decided_and_names_the_decider(self, client):
         bill = create_bill(client)
 
         response = confirm_all(client, bill["id"])
@@ -199,9 +207,7 @@ class TestAssignmentConfirmation:
             f"/bills/{bill['id']}/assignments",
             headers=actor_headers(),
             json={
-                "assignments": [
-                    {"item_key": "i1", "participant_ids": [str(SENDER_ID)]}
-                ]
+                "assignments": [{"item_key": "i1", "participant_ids": [str(SENDER_ID)]}]
             },
         )
 
@@ -340,9 +346,7 @@ class TestTheLedgerGate:
             f"/bills/{bill['id']}/assignments",
             headers=actor_headers(),
             json={
-                "assignments": [
-                    {"item_key": "i1", "participant_ids": [str(SENDER_ID)]}
-                ]
+                "assignments": [{"item_key": "i1", "participant_ids": [str(SENDER_ID)]}]
             },
         )
 
@@ -390,9 +394,7 @@ class TestGroupBoundary:
     def test_an_outsider_cannot_read_the_dishes_of_another_group(self, client):
         bill = create_bill(client)
 
-        response = client.get(
-            f"/bills/{bill['id']}", headers=self._outsider_headers()
-        )
+        response = client.get(f"/bills/{bill['id']}", headers=self._outsider_headers())
 
         assert response.status_code == 403, response.text
         assert "Phở bò" not in response.text

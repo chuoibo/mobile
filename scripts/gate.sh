@@ -72,7 +72,7 @@ REPO_ROOT="$PWD"
 
 # Every stage, in run order: cheapest and most likely to fail first, so a
 # broken tree is reported in seconds rather than after a docker build.
-STAGES=(guard guard-range ruff contract client-routes cors api migration pinned-import shared mobile docker postgres e2e)
+STAGES=(guard guard-range ruff contract client-routes cors api migration pinned-import demo-watch shared mobile docker postgres e2e)
 
 stage_help() {
   case "$1" in
@@ -85,6 +85,7 @@ stage_help() {
     api)       echo "pytest services/api/tests tests (test.yml: api)" ;;
     migration) echo "alembic upgrade head --sql, no database (test.yml: api, inline)" ;;
     pinned-import) echo "app imports under the fastapi version pinned in requirements-dev.txt, not the machine's (test.yml: docker, cheap half)" ;;
+    demo-watch) echo "the demo box is still being watched, and its last verdict was about main (máy này thôi)" ;;
     shared)    echo "node packages/shared/money.test.mjs (test.yml: shared)" ;;
     mobile)    echo "tsc, npm test with MOBILE_REQUIRE_WEB_A11Y=1, expo export --platform all (test.yml: mobile)" ;;
     docker)    echo "image pinned, builds, non-root, no dev tooling, serves /healthz (test.yml: docker)" ;;
@@ -372,6 +373,33 @@ PY
   )
 }
 
+# The demo box on 8099 is what the leader opens to decide whether the product
+# runs. Twice now it has served an older main than the one it claims to:
+# 58 routes against 62 for sixteen commits, then 65 against 69 for the four
+# album and contextual-suggestion routes. Neither was a gate failing.
+# `check_demo_matches_main.py` answered correctly both times -- it was simply
+# never asked, because its only caller was `make demo-check`, which nobody
+# types until they already suspect the answer.
+#
+# So this stage is the caller, and it is deliberately in the DEFAULT list.
+# `make gate` is the one thing on this machine that gets run dozens of times a
+# day; a check wired anywhere else is decoration with extra steps. It reads the
+# recorded verdict rather than measuring live -- `run` builds a worktree and
+# renders main's OpenAPI, which is far too slow to sit in every gate run, and
+# duplicating it here would just be a second unscheduled call site.
+#
+# What it does NOT prove: nothing here calls a product route, so a demo serving
+# every path of main and answering 500 to all of them passes this stage. It
+# says nothing about the mobile bundle, which is built separately and can be
+# older than the API on the same box. And `status` proves a check RAN, not that
+# the box was reachable between two runs.
+do_demo-watch() {
+  # --expect-ref is the default, spelled out because this is the assertion the
+  # stage exists to make: a verdict about somebody's open branch is not a
+  # verdict about main, however fresh it is.
+  python3 scripts/demo_watch.py status --expect-ref origin/main
+}
+
 do_shared() { node packages/shared/money.test.mjs; }
 
 do_mobile() {
@@ -558,6 +586,30 @@ check_prereq() {
       [ -d apps/mobile/src ] || return 2
       python3 -c "import fastapi" 2>/dev/null || {
         echo "chưa cài fastapi (pip install -r services/api/requirements-dev.txt)"; return 1; } ;;
+    demo-watch)
+      # Only this machine hosts the demo. On a CI runner or a fresh clone there
+      # is no box on 8099 and no crontab of ours, so the question is meaningless
+      # and the stage says so out loud instead of being red for everyone forever
+      # -- which is how the `guard history` variant would have died.
+      #
+      # Two signals, either one enough, because they fail in opposite
+      # directions. The crontab block says "this machine took on the job of
+      # watching"; that alone must keep the stage running even while the box is
+      # down, since a demo that stopped answering is exactly what wants
+      # reporting. The live port says "there is a demo here"; that alone keeps
+      # the stage running on a host that has one but never installed the
+      # schedule -- the state this repo was in when 8099 drifted twice.
+      #
+      # The hole left: kill the container AND clear the crontab and this skips.
+      # It is a skip with a printed reason, and --strict turns it into a
+      # failure, which is the most this file can honestly claim.
+      [ -f scripts/demo_watch.py ] || return 2
+      if ! crontab -l 2>/dev/null | grep -q 'mobile-demo-watch'; then
+        (exec 3<>/dev/tcp/127.0.0.1/8099) 2>/dev/null || {
+          echo "máy này không dựng demo: không có khối cron canh gác, và 8099 không trả lời"
+          return 1
+        }
+      fi ;;
     shared)
       have node || { echo "không có node"; return 1; }
       [ -d packages/shared ] || { echo "packages/shared không có trên nhánh này"; return 1; }
@@ -618,6 +670,7 @@ broken_why() {
     shared) echo "packages/shared có mặt nhưng thiếu money.test.mjs -- từ chối bỏ qua" ;;
     mobile) echo "apps/mobile có mặt nhưng thiếu package-lock.json -- từ chối bỏ qua" ;;
     e2e) echo "apps/mobile có mặt nhưng thiếu tests/e2e/vertical-slice.test.mjs -- từ chối bỏ qua" ;;
+    demo-watch) echo "thiếu scripts/demo_watch.py -- xoá canh gác không được biến chặng này thành xanh" ;;
     *) echo "thiếu file mà chặng này cần -- từ chối bỏ qua" ;;
   esac
 }
@@ -671,6 +724,80 @@ if [ ${#SKIPPED[@]} -gt 0 ]; then
   echo "BỎ QUA KHÔNG PHẢI ĐẠT. Trước khi merge chạy lại với --strict."
 fi
 
+# --- verdict: did this run test what actually ships? ----------------------
+#
+# Every stage above answers "did the thing I ran work". None of them answers
+# "was the thing I ran the thing that ships", and on 2026-08-30 the difference
+# cost the team a morning: 2305 pytest cases green on fastapi 0.135.3 while the
+# image, on the pinned 0.115.6, could not import the app at all. The demo
+# machine stayed dead for hours.
+#
+# The lead's response was a rule held in a person's head -- "a PR that changes a
+# route declaration does not merge until the docker stage is green". That is the
+# right rule and the wrong enforcement: it had already been skipped on nearly
+# every backend PR for two days, by the person who wrote it, because `pytest`
+# and the mutation table were green and there was no reason on screen to run
+# anything more. This block is that rule with the person taken out of it.
+#
+# The shape it refuses: a green that was earned on different software. It fires
+# only when the run actually claims something about the application code --
+# `guard` alone says nothing about libraries and must stay green without docker.
+#
+# It is deliberately NOT a stage. A stage can be deselected, and the hole being
+# closed here IS deselection: `scripts/gate.sh api` printed "ĐẠT 1 HỎNG 0" and
+# exited 0 while the tree could not boot. So the check runs on every invocation
+# that reaches a verdict, costs milliseconds, and needs nothing but python3.
+in_list() {
+  local needle="$1" x
+  shift
+  for x in "$@"; do [ "$x" = "$needle" ] && return 0; done
+  return 1
+}
+
+# Stages whose green is read as "the application code works".
+DRIFT_CODE_TIERS=(api migration postgres e2e)
+# Stages that load the app under the versions the image installs, and are
+# therefore the only ones whose green survives a drifted machine.
+DRIFT_SHIPPING_PROOF=(pinned-import docker)
+
+drift_ran_code_tier=0
+drift_proved_shipping=0
+for s in ${PASSED[@]+"${PASSED[@]}"}; do
+  in_list "$s" "${DRIFT_CODE_TIERS[@]}" && drift_ran_code_tier=1
+  in_list "$s" "${DRIFT_SHIPPING_PROOF[@]}" && drift_proved_shipping=1
+done
+
+DRIFT_STATE="not-applicable"
+DRIFT_NAMES=""
+if [ "$drift_ran_code_tier" -eq 1 ]; then
+  DRIFT_NAMES="$(python3 scripts/check_pin_drift.py --names-only 2>/dev/null)"
+  case $? in
+    0) DRIFT_STATE="clean" ;;
+    1) DRIFT_STATE="drift" ;;
+    # Could not measure. Never a silent pass -- an unreadable requirements file
+    # or a python3 that cannot import its own metadata is a broken gate, and a
+    # broken gate reporting green is the thing this whole file exists against.
+    *) DRIFT_STATE="unknown" ;;
+  esac
+fi
+
+DRIFT_BLOCKS=0
+if [ "$DRIFT_STATE" = "drift" ] && [ "$drift_proved_shipping" -eq 0 ]; then
+  DRIFT_BLOCKS=1
+fi
+[ "$DRIFT_STATE" = "unknown" ] && DRIFT_BLOCKS=1
+
+# The escape hatch exists because the alternative is worse. A machine with no
+# docker cannot run `pinned-import` at all, and a gate that is red with no way
+# out on such a machine gets deleted within a day -- `do_guard-range` says the
+# same thing about `repo_guard.py history` a few hundred lines up. So the way
+# past is explicit, printed, and recorded in the summary a merge reads. It is
+# not silent, which is the only property that matters.
+if [ "$DRIFT_BLOCKS" -eq 1 ] && [ "${MOBILE_GATE_ALLOW_DRIFT:-0}" = "1" ]; then
+  DRIFT_BLOCKS=0
+  DRIFT_STATE="drift-waived"
+fi
+
 # The same counts, for a program rather than a person.
 #
 # `scripts/gate_merge.sh` has to tell "every stage ran and passed" apart from
@@ -701,6 +828,11 @@ if [ -n "${GATE_SUMMARY_FILE:-}" ]; then
     # The reason travels with the name. A caller that can only print "2 chặng
     # bỏ qua" sends the reader back here to find out which and why.
     for w in ${SKIP_WHY[@]+"${SKIP_WHY[@]}"}; do printf 'skipped-stage=%s\n' "$w"; done
+    # A merge decision needs to know the run tested what ships, not only that
+    # it was green. Absent key = old gate.sh; the reader must treat that as
+    # "cannot tell" rather than "clean", the same rule as the counts above.
+    printf 'pin-drift=%s\n' "$DRIFT_STATE"
+    for n in $DRIFT_NAMES; do printf 'pin-drift-name=%s\n' "$n"; done
   } > "$GATE_SUMMARY_FILE"
 fi
 
@@ -744,6 +876,46 @@ if [ ${#FAILED[@]} -gt 0 ]; then
   exit 1
 fi
 
+if [ "$DRIFT_BLOCKS" -eq 1 ]; then
+  echo
+  echo "================================================================"
+  if [ "$DRIFT_STATE" = "unknown" ]; then
+    echo "KHÔNG ĐO ĐƯỢC bản thư viện đang chạy."
+    echo
+    echo "scripts/check_pin_drift.py không trả lời được, nên cổng này không biết"
+    echo "bộ test vừa chạy trên bản nào. Không biết thì không được báo xanh."
+    python3 scripts/check_pin_drift.py >&2 || true
+  else
+    echo "MỌI CHẶNG ĐẠT — NHƯNG KHÔNG PHẢI TRÊN BẢN SẼ SHIP."
+    echo
+    echo "Các chặng vừa xanh chạy bằng thư viện của MÁY NÀY. Những pin quan"
+    echo "trọng dưới đây khác bản mà ảnh cài, và chúng quyết định hành vi ngay"
+    echo "lúc import — trước khi một assertion nào kịp chạy:"
+    echo
+    for n in $DRIFT_NAMES; do echo "    $n"; done
+    echo
+    echo "Đây đúng là hình dạng đã giết máy demo ngày 30/08: 2305 ca xanh tại"
+    echo "chỗ, container không import nổi app. Chặng chứng minh được điều còn"
+    echo "thiếu mất khoảng 2 giây:"
+    echo
+    echo "    scripts/gate.sh ${SELECTED[*]} pinned-import"
+    echo
+    echo "Máy không có docker thì nói ra chứ đừng lờ đi:"
+    echo "    MOBILE_GATE_ALLOW_DRIFT=1 scripts/gate.sh ${SELECTED[*]}"
+  fi
+  echo "================================================================"
+  echo "Log đầy đủ: $LOG_DIR"
+  exit 1
+fi
+
 rm -rf "$LOG_DIR"
 echo "Tất cả chặng đã chạy đều ĐẠT."
+if [ "$DRIFT_STATE" = "drift-waived" ]; then
+  echo
+  echo "LƯU Ý: MOBILE_GATE_ALLOW_DRIFT=1 — pin quan trọng đang lệch và lượt này"
+  echo "KHÔNG chứng minh được ảnh sẽ ship chạy được. Đã bỏ qua theo yêu cầu:"
+  for n in $DRIFT_NAMES; do echo "    $n"; done
+elif [ "$DRIFT_STATE" = "clean" ]; then
+  echo "Và đã chạy đúng bản thư viện mà ảnh sẽ cài."
+fi
 exit 0

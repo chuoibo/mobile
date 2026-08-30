@@ -7,13 +7,14 @@ from dataclasses import dataclass
 from typing import Annotated, Protocol
 from uuid import UUID
 
-from fastapi import Header
+from fastapi import Header, Request
 
 from app.api.chat_expense_skill import ChatExpenseReader
 from app.api.errors import ApiProblem
 from app.api.receipt_skill import ReceiptReader
 from app.api.repository import ApiRepository, SqlAlchemyApiRepository
 from app.api.screenshot_skill import ScreenshotReader
+from app.api.unit_of_work import register_session
 from app.db.session import get_session_factory
 from app.domain.permissions import ROLES
 from app.media.storage import PhotoStorage
@@ -54,9 +55,20 @@ class Suggester(Protocol):
     Returning `None` is an allowed answer and means "no suggestion right now".
     """
 
-    def __call__(
-        self, history: dict, places: list[dict]
-    ) -> dict | None: ...
+    def __call__(self, history: dict, places: list[dict]) -> dict | None: ...
+
+
+class ContextualSuggester(Protocol):
+    """A model backend that returns an untrusted, raw F33 card.
+
+    Separate from `Suggester` on purpose. This one is handed a digest of what
+    the group just *said*, which is the only place in the product where a
+    member's own sentences are put in front of a model; keeping the two seams
+    apart means a test that stubs one cannot silently stand in for the other,
+    and the riskier prompt cannot inherit the safer one's envelope by accident.
+    """
+
+    def __call__(self, digest: dict, places: list[dict]) -> dict | None: ...
 
 
 def _csv(value: str | None) -> list[str]:
@@ -95,10 +107,20 @@ def get_actor(
     return Actor(id=parsed_id, roles=roles, context_ids=contexts)
 
 
-def get_repository() -> Generator[ApiRepository]:
+def get_repository(request: Request) -> Generator[ApiRepository]:
     factory = get_session_factory()
-    with factory.begin() as session:
+    session = factory()
+    register_session(request, session)
+    try:
         yield SqlAlchemyApiRepository(session)
+    except BaseException:
+        session.rollback()
+        raise
+    else:
+        if session.in_transaction():
+            session.commit()
+    finally:
+        session.close()
 
 
 def get_photo_storage() -> PhotoStorage:
@@ -148,3 +170,16 @@ def get_suggester() -> Suggester:
     from app.api.suggestion_gemini import gemini_suggestion
 
     return gemini_suggestion
+
+
+def get_contextual_suggester() -> ContextualSuggester:
+    """Seam for tests, and the F33 backend for everyone else.
+
+    Not memoised, for the reason above and one more: a contextual card is a
+    function of one group's last few messages, and any cache coarser than that
+    would hand one group's conversation to another.
+    """
+
+    from app.api.suggestion_gemini import gemini_contextual_suggestion
+
+    return gemini_contextual_suggestion
