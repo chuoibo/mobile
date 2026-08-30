@@ -35,6 +35,8 @@ from app.db.models import BillItemShare, BillShareSource
 from app.domain.allocator import allocate
 from app.domain.bill import allocator_input_from_bill
 
+from .conftest import seed_context
+
 NOW = datetime(2030, 8, 29, 9, 0, tzinfo=UTC)
 LATER = datetime(2030, 8, 29, 10, 30, tzinfo=UTC)
 
@@ -81,6 +83,7 @@ def _create_bill(session: Session, an: uuid.UUID, binh: uuid.UUID, **overrides):
         "now": NOW,
     }
     payload.update(overrides)
+    payload["context_id"] = seed_context(session, payload["context_id"])
     return repository.create_bill(**payload)
 
 
@@ -177,8 +180,7 @@ class TestTheDatabaseEnforcesTheDistinction:
         bill = _create_bill(postgres_session, an, binh)
         item_id = postgres_session.scalar(
             text(
-                "SELECT id FROM bill_items WHERE bill_id = :bill_id"
-                " AND item_key = 'i1'"
+                "SELECT id FROM bill_items WHERE bill_id = :bill_id AND item_key = 'i1'"
             ),
             {"bill_id": bill.id},
         )
@@ -207,8 +209,7 @@ class TestTheDatabaseEnforcesTheDistinction:
         bill = _create_bill(postgres_session, an, binh)
         item_id = postgres_session.scalar(
             text(
-                "SELECT id FROM bill_items WHERE bill_id = :bill_id"
-                " AND item_key = 'i1'"
+                "SELECT id FROM bill_items WHERE bill_id = :bill_id AND item_key = 'i1'"
             ),
             {"bill_id": bill.id},
         )
@@ -237,8 +238,7 @@ class TestTheDatabaseEnforcesTheDistinction:
         bill = _create_bill(postgres_session, an, binh)
         item_id = postgres_session.scalar(
             text(
-                "SELECT id FROM bill_items WHERE bill_id = :bill_id"
-                " AND item_key = 'i1'"
+                "SELECT id FROM bill_items WHERE bill_id = :bill_id AND item_key = 'i1'"
             ),
             {"bill_id": bill.id},
         )
@@ -268,9 +268,7 @@ class TestRefusals:
         with pytest.raises(RepositoryConflict):
             SqlAlchemyApiRepository(postgres_session).confirm_bill_assignments(
                 bill_id=bill.id,
-                assignments=[
-                    {"item_key": "khong-ton-tai", "participant_ids": [an]}
-                ],
+                assignments=[{"item_key": "khong-ton-tai", "participant_ids": [an]}],
                 decided_by_id=an,
                 now=LATER,
             )

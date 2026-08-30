@@ -47,6 +47,8 @@ from app.api.repository import (
 from app.api.service import ExpenseInput
 from app.db.models import BankRecipient
 
+from .conftest import seed_context
+
 NOW = datetime(2030, 8, 29, 12, 0, tzinfo=UTC)
 
 # Two participants, an even split of a round number, so every figure below can
@@ -62,7 +64,7 @@ class Slice:
     def __init__(self, session: Session):
         self.session = session
         self.repository = SqlAlchemyApiRepository(session)
-        self.context_id = uuid.uuid4()
+        self.context_id = seed_context(session)
         # `payer` fronts the bill; `sender` owes them a share. The names are
         # the roles the ledger uses, not the roles the screen shows.
         self.payer_id = uuid.uuid4()
@@ -109,7 +111,10 @@ class Slice:
                 "discount_amount_vnd": 0,
                 "total_amount_vnd": total_vnd,
             },
-            allocations={self.sender_id: share_vnd, self.payer_id: total_vnd - share_vnd},
+            allocations={
+                self.sender_id: share_vnd,
+                self.payer_id: total_vnd - share_vnd,
+            },
             confirmed_by_id=self.payer_id,
             payer_acknowledgement="acknowledged",
             now=NOW,
@@ -379,7 +384,9 @@ def test_every_money_figure_arrives_as_a_python_int(slice_: Slice):
 
     for field in ("spend_vnd", "settled_vnd", "outstanding_vnd"):
         value = getattr(summary, field)
-        assert type(value) is int, f"{field} came back as {type(value).__name__}: {value!r}"
+        assert type(value) is int, (
+            f"{field} came back as {type(value).__name__}: {value!r}"
+        )
 
     (movement,) = summary.movements
     assert type(movement.amount_vnd) is int, (
@@ -466,9 +473,9 @@ def test_the_two_figures_under_the_total_always_add_back_up_to_it(slice_: Slice)
     def holds(stage: str):
         for person_id in (slice_.sender_id, slice_.payer_id):
             summary = slice_.summary(person_id)
-            assert (
-                summary.settled_vnd + summary.outstanding_vnd == summary.spend_vnd
-            ), stage
+            assert summary.settled_vnd + summary.outstanding_vnd == summary.spend_vnd, (
+                stage
+            )
             assert summary.outstanding_vnd >= 0, stage
             assert summary.settled_vnd >= 0, stage
 

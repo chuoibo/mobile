@@ -37,6 +37,8 @@ from app.db.models import (
     Person,
 )
 
+from .conftest import seed_context
+
 pytestmark = pytest.mark.postgres
 
 NOW = datetime(2030, 8, 29, 9, 0, tzinfo=UTC)
@@ -107,7 +109,7 @@ class TestWhatSurvivesACommit:
 
         an, binh = uuid.uuid4(), uuid.uuid4()
         bill = SqlAlchemyApiRepository(postgres_session).create_bill(
-            context_id=uuid.uuid4(),
+            context_id=seed_context(postgres_session),
             created_by_id=an,
             printed_total_vnd=PRINTED_TOTAL_VND,
             items_total_vnd=ITEMS_TOTAL_VND,
@@ -139,7 +141,7 @@ class TestWhatSurvivesACommit:
 
         an, binh = uuid.uuid4(), uuid.uuid4()
         bill = SqlAlchemyApiRepository(postgres_session).create_bill(
-            context_id=uuid.uuid4(),
+            context_id=seed_context(postgres_session),
             created_by_id=an,
             printed_total_vnd=PRINTED_TOTAL_VND - 30000,
             items_total_vnd=ITEMS_TOTAL_VND,
@@ -184,9 +186,7 @@ def _group(session: Session) -> tuple[Context, Person, Person]:
     binh = Person(id=uuid.uuid4(), display_name="Bình")
     session.add_all([an, binh])
     session.flush()
-    context = Context(
-        id=uuid.uuid4(), display_name="Nhóm ăn tối", created_by_id=an.id
-    )
+    context = Context(id=uuid.uuid4(), display_name="Nhóm ăn tối", created_by_id=an.id)
     session.add(context)
     session.flush()
     session.add_all(
@@ -284,9 +284,10 @@ def test_the_four_routes_split_a_vat_bill_to_the_printed_total_over_http(
             # any commit; GET below answers from a fresh read. Asserting only
             # the second would leave the first free to return a shape the
             # client never gets to see.
-            assert [
-                line["surcharge_key"] for line in created.json()["surcharges"]
-            ] == ["phi-phuc-vu", "vat"]
+            assert [line["surcharge_key"] for line in created.json()["surcharges"]] == [
+                "phi-phuc-vu",
+                "vat",
+            ]
 
             fetched = await client.get(f"/bills/{bill_id}", headers=headers)
             assert fetched.status_code == 200, fetched.text
