@@ -23,7 +23,7 @@ import {
   loiWidget,
   moTaAnh,
   ngayVietNam,
-} from "../dist-test/screens/widget/widget.js";
+} from "../dist-test/screens/widget/cau-chu.js";
 
 /** 2026-08-30T20:00:00+07:00, viết ra một lần để mọi ca đếm ngược từ đây. */
 const BAY_GIO = Date.parse("2026-08-30T20:00:00+07:00");
@@ -94,7 +94,7 @@ test("ca ngày chạy thật dưới TZ âm, không chỉ nói là đúng", () =
   // theo cấu tạo. Ca này chạy nó ở một tiến trình có TZ âm để chứng minh điều
   // đó thay vì tin vào lập luận — cùng cách `ky-uc.test.mjs` làm.
   const ma = `
-    import { ngayVietNam } from "${new URL("../dist-test/screens/widget/widget.js", import.meta.url).pathname}";
+    import { ngayVietNam } from "${new URL("../dist-test/screens/widget/cau-chu.js", import.meta.url).pathname}";
     if (ngayVietNam(Date.parse("2026-08-24T00:30:00+07:00")) !== "24/08/2026") {
       throw new Error("sai ngày dưới TZ âm");
     }

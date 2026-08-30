@@ -60,7 +60,7 @@ import { Card } from "../../ui/Kit";
 import { CoLoi, DangTai } from "../../ui/TrangThai";
 import { radius, space, type, usePalette } from "../../theme";
 import { timNhomDemo } from "../ky-niem/ky-uc";
-import { dongTacGia, loiWidget, moTaAnh } from "./widget";
+import { dongTacGia, loiWidget, moTaAnh } from "./cau-chu";
 
 type Trang =
   | { pha: "dang-tai" }

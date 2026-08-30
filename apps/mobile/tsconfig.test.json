@@ -107,7 +107,7 @@
     // six days versus seven -- and a source read cannot stand on either side of
     // a boundary. The timezone case is the same shape as `ky-uc.ts` one line
     // above: invisible at +07 and at UTC, visible only in a negative offset.
-    "src/screens/widget/widget.ts",
+    "src/screens/widget/cau-chu.ts",
     // The screen itself, for the two states a screenshot run never reaches.
     // `quet-tab-url.mjs` drives the LOADED widget against a stub that always
     // has a photograph, so "the group has none yet" and "the server refused"
