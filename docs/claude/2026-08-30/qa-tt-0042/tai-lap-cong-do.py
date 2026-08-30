@@ -45,7 +45,11 @@ def main() -> int:
     shapes = [
         ("call<SoDuWire>(path, { actorId })", "generic la mot ten", True),
         ("call<{ a: string }>(path, { actorId })", "inline, khong long <>", True),
-        ("call<{ a: Record<string, number> }>(path, { actorId })", "inline, CO long <>", False),
+        (
+            "call<{ a: Record<string, number> }>(path, { actorId })",
+            "inline, CO long <>",
+            False,
+        ),
     ]
     print("1. Regex `<[^<>()]*>` gap ba hinh dang generic:")
     for src, ten, mong_doi in shapes:
@@ -66,7 +70,9 @@ def main() -> int:
     print(f"   than ham chua 'actorId,' : {'actorId,' in r.text}")
     print(f"   call_args(...,'call')    : {blobs}")
     print(f"   passes_an_actor          : {g.passes_an_actor(r, 'call')}")
-    assert "actorId," in r.text, "than ham phai chua actorId — neu khong, day la bug that"
+    assert "actorId," in r.text, (
+        "than ham phai chua actorId — neu khong, day la bug that"
+    )
     assert blobs == [], "call_args da doc duoc lenh goi — cong co the da duoc va"
     assert not g.passes_an_actor(r, "call"), "cong khong con bao vi pham — da duoc va"
 
@@ -79,7 +85,9 @@ def main() -> int:
     print("\n3. Cung than ham, chi bo <> long trong generic:")
     print(f"   so blob doc duoc         : {len(blobs_fixed)}")
     print(f"   blob co chua actorId     : {co_actor}")
-    assert len(blobs_fixed) == 1 and co_actor, "doi hinh dang ma van khong doc duoc — chan doan sai"
+    assert len(blobs_fixed) == 1 and co_actor, (
+        "doi hinh dang ma van khong doc duoc — chan doan sai"
+    )
 
     print("\nKET LUAN: cong do dung mot lo hong co that trong chinh no, khong do")
     print("client quen gui header. San pham gui header — xem do-header-tren-day.mjs.")
