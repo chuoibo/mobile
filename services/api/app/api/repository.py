@@ -53,7 +53,9 @@ from app.db.models import (
     MembershipRole,
     MembershipState,
     Memory,
+    MemoryComment,
     MemoryKind,
+    MemoryReaction,
     Message,
     MessageKind,
     Outing,
@@ -153,6 +155,45 @@ class MemoryRecord:
     lat: float | None
     lng: float | None
     created_at: datetime
+    #: F40/F41. Recomputed from `memory_reactions` and `memory_comments` on
+    #: every read, never stored on the memory row. A counter column would be a
+    #: cache, and invariant 3 says a cache is never the source of truth: two
+    #: hearts pressed in the same instant both read the old total.
+    #:
+    #: Defaulted so the writers -- `create_memory`, `create_checkin` -- keep
+    #: their existing call shape. A row that has just been created has no
+    #: hearts and no comments, and saying so is not a guess.
+    reaction_count: int = 0
+    comment_count: int = 0
+    #: Whether *this reader* left a heart. Answered per caller, so it is only
+    #: ever filled in by a read that was given a viewer.
+    viewer_has_reacted: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryReactionRecord:
+    """One heart. Carries no body, because a heart says nothing but itself."""
+
+    id: uuid.UUID
+    memory_id: uuid.UUID
+    person_id: uuid.UUID
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryCommentRecord:
+    """One sentence under a photograph, and who wrote it.
+
+    `body` is group-private at the rank of a phone number. Nothing in this
+    layer puts it into a log line or an exception message, and no guest-facing
+    view model has a slot for it.
+    """
+
+    id: uuid.UUID
+    memory_id: uuid.UUID
+    author_id: uuid.UUID
+    body: str
+    created_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +214,15 @@ class UploadedImageRecord:
 class MemoryPage:
     memories: tuple[MemoryRecord, ...]
     has_more: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _MemorySocialCounts:
+    """Internal to the adapter: hearts and comments for one page of the wall."""
+
+    reactions: dict[uuid.UUID, int]
+    comments: dict[uuid.UUID, int]
+    viewer_reacted: frozenset[uuid.UUID]
 
 
 @dataclass(frozen=True, slots=True)
@@ -794,7 +844,46 @@ class ApiRepository(Protocol):
         before: tuple[datetime, uuid.UUID] | None = None,
         kind: str | None = None,
         place_id: str | None = None,
+        viewer_id: uuid.UUID | None = None,
     ) -> MemoryPage: ...
+
+    def get_context_memory(
+        self,
+        context_id: uuid.UUID,
+        memory_id: uuid.UUID,
+        *,
+        viewer_id: uuid.UUID | None = None,
+    ) -> MemoryRecord | None:
+        """One row of one group's wall, or nothing.
+
+        Scoped by `context_id` on purpose, and not by `memory_id` alone. The
+        routes above check membership of the *context* in the path before they
+        ask for the memory, so a lookup that ignored the context would let a
+        member of group A confirm which memory ids exist in group B by reading
+        the difference between 404 and 200.
+        """
+        ...
+
+    def add_memory_reaction(
+        self, *, memory_id: uuid.UUID, person_id: uuid.UUID, now: datetime
+    ) -> MemoryReactionRecord: ...
+
+    def remove_memory_reaction(
+        self, *, memory_id: uuid.UUID, person_id: uuid.UUID
+    ) -> bool: ...
+
+    def create_memory_comment(
+        self,
+        *,
+        memory_id: uuid.UUID,
+        author_id: uuid.UUID,
+        body: str,
+        now: datetime,
+    ) -> MemoryCommentRecord: ...
+
+    def list_memory_comments(
+        self, memory_id: uuid.UUID
+    ) -> tuple[MemoryCommentRecord, ...]: ...
 
     def create_message(
         self,
@@ -1049,7 +1138,13 @@ class SqlAlchemyApiRepository:
         )
 
     @staticmethod
-    def _memory_record(memory: Memory) -> MemoryRecord:
+    def _memory_record(
+        memory: Memory,
+        *,
+        reaction_count: int = 0,
+        comment_count: int = 0,
+        viewer_has_reacted: bool = False,
+    ) -> MemoryRecord:
         return MemoryRecord(
             id=memory.id,
             context_id=memory.context_id,
@@ -1062,6 +1157,9 @@ class SqlAlchemyApiRepository:
             lat=memory.lat,
             lng=memory.lng,
             created_at=memory.created_at,
+            reaction_count=reaction_count,
+            comment_count=comment_count,
+            viewer_has_reacted=viewer_has_reacted,
         )
 
     @staticmethod
@@ -1966,6 +2064,7 @@ class SqlAlchemyApiRepository:
         before: tuple[datetime, uuid.UUID] | None = None,
         kind: str | None = None,
         place_id: str | None = None,
+        viewer_id: uuid.UUID | None = None,
     ) -> MemoryPage:
         statement = select(Memory).where(Memory.context_id == context_id)
         if kind is not None:
@@ -1980,9 +2079,165 @@ class SqlAlchemyApiRepository:
 
         rows = list(self.session.scalars(statement.limit(limit + 1)))
         has_more = len(rows) > limit
+        page = rows[:limit]
+        counts = self._memory_social_counts(
+            tuple(row.id for row in page), viewer_id=viewer_id
+        )
         return MemoryPage(
-            memories=tuple(self._memory_record(row) for row in rows[:limit]),
+            memories=tuple(
+                self._memory_record(
+                    row,
+                    reaction_count=counts.reactions.get(row.id, 0),
+                    comment_count=counts.comments.get(row.id, 0),
+                    viewer_has_reacted=row.id in counts.viewer_reacted,
+                )
+                for row in page
+            ),
             has_more=has_more,
+        )
+
+    def _memory_social_counts(
+        self, memory_ids: tuple[uuid.UUID, ...], *, viewer_id: uuid.UUID | None
+    ) -> _MemorySocialCounts:
+        """Hearts and comments for one page of the wall.
+
+        Three grouped queries over the page rather than two outer joins on the
+        feed query. Joining both children to the same parent multiplies their
+        rows together -- a memory with 3 hearts and 2 comments would report 6
+        of each -- and the bug reads as a plausible number rather than as a
+        crash. Counting each side on its own cannot produce that.
+        """
+
+        if not memory_ids:
+            return _MemorySocialCounts({}, {}, frozenset())
+
+        reactions = {
+            memory_id: int(total)
+            for memory_id, total in self.session.execute(
+                select(MemoryReaction.memory_id, func.count(MemoryReaction.id))
+                .where(MemoryReaction.memory_id.in_(memory_ids))
+                .group_by(MemoryReaction.memory_id)
+            )
+        }
+        comments = {
+            memory_id: int(total)
+            for memory_id, total in self.session.execute(
+                select(MemoryComment.memory_id, func.count(MemoryComment.id))
+                .where(MemoryComment.memory_id.in_(memory_ids))
+                .group_by(MemoryComment.memory_id)
+            )
+        }
+        viewer_reacted: frozenset[uuid.UUID] = frozenset()
+        if viewer_id is not None:
+            viewer_reacted = frozenset(
+                self.session.scalars(
+                    select(MemoryReaction.memory_id).where(
+                        MemoryReaction.memory_id.in_(memory_ids),
+                        MemoryReaction.person_id == viewer_id,
+                    )
+                )
+            )
+        return _MemorySocialCounts(reactions, comments, viewer_reacted)
+
+    def get_context_memory(
+        self,
+        context_id: uuid.UUID,
+        memory_id: uuid.UUID,
+        *,
+        viewer_id: uuid.UUID | None = None,
+    ) -> MemoryRecord | None:
+        memory = self.session.scalars(
+            select(Memory).where(
+                Memory.id == memory_id, Memory.context_id == context_id
+            )
+        ).one_or_none()
+        if memory is None:
+            return None
+        counts = self._memory_social_counts((memory.id,), viewer_id=viewer_id)
+        return self._memory_record(
+            memory,
+            reaction_count=counts.reactions.get(memory.id, 0),
+            comment_count=counts.comments.get(memory.id, 0),
+            viewer_has_reacted=memory.id in counts.viewer_reacted,
+        )
+
+    def add_memory_reaction(
+        self, *, memory_id: uuid.UUID, person_id: uuid.UUID, now: datetime
+    ) -> MemoryReactionRecord:
+        reaction = MemoryReaction(
+            memory_id=memory_id, person_id=person_id, created_at=now
+        )
+        # The unique index is the rule. Asking "has this person already reacted?"
+        # and branching on the answer is this same code with a race inside it:
+        # two taps in the same instant both read "no".
+        try:
+            with self.session.begin_nested():
+                self.session.add(reaction)
+                self.session.flush()
+        except IntegrityError as exc:
+            constraint = getattr(
+                getattr(exc.orig, "diag", None), "constraint_name", None
+            )
+            if constraint == "uq_memory_reactions_person":
+                raise RepositoryConflict("ALREADY_REACTED") from exc
+            raise
+        return MemoryReactionRecord(
+            id=reaction.id,
+            memory_id=reaction.memory_id,
+            person_id=reaction.person_id,
+            created_at=reaction.created_at,
+        )
+
+    def remove_memory_reaction(
+        self, *, memory_id: uuid.UUID, person_id: uuid.UUID
+    ) -> bool:
+        """Take back one's own heart. Answers whether there was one to take."""
+
+        reaction = self.session.scalars(
+            select(MemoryReaction).where(
+                MemoryReaction.memory_id == memory_id,
+                MemoryReaction.person_id == person_id,
+            )
+        ).one_or_none()
+        if reaction is None:
+            return False
+        self.session.delete(reaction)
+        self.session.flush()
+        return True
+
+    def create_memory_comment(
+        self,
+        *,
+        memory_id: uuid.UUID,
+        author_id: uuid.UUID,
+        body: str,
+        now: datetime,
+    ) -> MemoryCommentRecord:
+        comment = MemoryComment(
+            memory_id=memory_id, author_id=author_id, body=body, created_at=now
+        )
+        self.session.add(comment)
+        self.session.flush()
+        return self._memory_comment_record(comment)
+
+    def list_memory_comments(
+        self, memory_id: uuid.UUID
+    ) -> tuple[MemoryCommentRecord, ...]:
+        rows = self.session.scalars(
+            select(MemoryComment)
+            .where(MemoryComment.memory_id == memory_id)
+            .order_by(MemoryComment.created_at, MemoryComment.id)
+        )
+        return tuple(self._memory_comment_record(row) for row in rows)
+
+    @staticmethod
+    def _memory_comment_record(comment: MemoryComment) -> MemoryCommentRecord:
+        return MemoryCommentRecord(
+            id=comment.id,
+            memory_id=comment.memory_id,
+            author_id=comment.author_id,
+            body=comment.body,
+            created_at=comment.created_at,
         )
 
     def create_message(

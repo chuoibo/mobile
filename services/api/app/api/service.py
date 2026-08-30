@@ -25,6 +25,7 @@ from app.api.repository import (
     FriendEdgeRecord,
     GuestLinkDraft,
     MembershipRecord,
+    MemoryCommentRecord,
     MemoryRecord,
     MessageRecord,
     ObligationDraft,
@@ -84,9 +85,13 @@ from app.api.schemas import (
     MembershipInviteRequest,
     MembershipListResponse,
     MembershipResponse,
+    MemoryCommentCreateRequest,
+    MemoryCommentListResponse,
+    MemoryCommentResponse,
     MemoryCreateRequest,
     MemoryListResponse,
     MemoryQuery,
+    MemoryReactionResponse,
     MemoryResponse,
     MessageCreateRequest,
     MessageListResponse,
@@ -495,6 +500,9 @@ def _wire_memory(record: MemoryRecord) -> MemoryResponse:
         lng=record.lng,
         created_at=record.created_at,
         cursor=encode_cursor(record.created_at, record.id),
+        reaction_count=record.reaction_count,
+        comment_count=record.comment_count,
+        viewer_has_reacted=record.viewer_has_reacted,
     )
 
 
@@ -1530,6 +1538,11 @@ class ApiService:
             before=before,
             kind=query.kind,
             place_id=query.place_id,
+            # "Did *I* leave a heart" is a fact about the reader, so the reader
+            # is the actor the gateway proved and never an id from the query
+            # string. A `viewer_id` parameter on the request would let anyone
+            # in the group read back whether somebody else had liked a photo.
+            viewer_id=actor.id,
         )
         memories = [_wire_memory(record) for record in page.memories]
         return MemoryListResponse(
@@ -1708,6 +1721,145 @@ class ApiService:
             origins=[AreaSummary(**area_summary(area)) for area in origins],
             candidates=[MeetingCandidate(**row) for row in candidates],
             two_origin_inversion=len(origins) == 2,
+        )
+
+    def _memory_of_member(
+        self,
+        context_id: uuid.UUID,
+        memory_id: uuid.UUID,
+        actor: Actor,
+        action: str,
+    ) -> MemoryRecord:
+        """Prove the caller belongs here, then find the row. In that order.
+
+        Membership is asked of the *database* -- `repository.is_member` reads
+        the membership row and its ACTIVE state -- and never of
+        `actor.context_ids`, which is a claim the gateway copied from a header.
+        A person who left, and a person who has only been invited, both have a
+        membership row and neither has an ACTIVE one.
+
+        Permission comes before the lookup so a non-member gets the same 403
+        whether or not the memory exists. Reversing these two lines turns the
+        pair into an oracle: a stranger walking ids would learn which of them
+        name a real memory from the difference between 404 and 403.
+        """
+
+        _require_permission(
+            action,
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        memory = self.repository.get_context_memory(context_id, memory_id)
+        if memory is None:
+            raise ApiProblem(404, "memory_not_found", "Memory does not exist")
+        return memory
+
+    def react_to_memory(
+        self, context_id: uuid.UUID, memory_id: uuid.UUID, actor: Actor
+    ) -> MemoryReactionResponse:
+        """F40. Leave a heart, once.
+
+        The route takes no body at all, so there is no field in which a caller
+        could name whose heart this is. The reactor is the actor.
+        """
+
+        self._memory_of_member(context_id, memory_id, actor, "post_group_memory")
+        try:
+            record = self.repository.add_memory_reaction(
+                memory_id=memory_id, person_id=actor.id, now=_now()
+            )
+        except RepositoryConflict as exc:
+            if exc.code == "ALREADY_REACTED":
+                raise ApiProblem(
+                    409,
+                    "already_reacted",
+                    "This person has already reacted to this memory",
+                ) from exc
+            raise
+        return MemoryReactionResponse(
+            id=record.id,
+            memory_id=record.memory_id,
+            person_id=record.person_id,
+            created_at=record.created_at,
+            # Recounted from the reaction rows after the write, not incremented
+            # from a total read before it. The read-modify-write that would
+            # produce is exactly what two simultaneous taps break.
+            reaction_count=self._reaction_count(context_id, memory_id),
+        )
+
+    def unreact_to_memory(
+        self, context_id: uuid.UUID, memory_id: uuid.UUID, actor: Actor
+    ) -> None:
+        """Take back one's own heart, and only one's own.
+
+        `person_id` is the actor here for the same reason it is on the write.
+        A caller who could name the person would be able to un-like on
+        somebody else's behalf, which is a write to another member's record.
+        """
+
+        self._memory_of_member(context_id, memory_id, actor, "post_group_memory")
+        removed = self.repository.remove_memory_reaction(
+            memory_id=memory_id, person_id=actor.id
+        )
+        if not removed:
+            raise ApiProblem(
+                404, "reaction_not_found", "This person has not reacted to this memory"
+            )
+
+    def _reaction_count(self, context_id: uuid.UUID, memory_id: uuid.UUID) -> int:
+        """Recount from the reaction rows. There is no stored total to read.
+
+        Called after the row is in place, so it reports what the database
+        holds rather than what this request believes it just did.
+        """
+
+        memory = self.repository.get_context_memory(context_id, memory_id)
+        return 0 if memory is None else memory.reaction_count
+
+    def post_memory_comment(
+        self,
+        context_id: uuid.UUID,
+        memory_id: uuid.UUID,
+        request: MemoryCommentCreateRequest,
+        actor: Actor,
+    ) -> MemoryCommentResponse:
+        """F41. Say something under a photograph on the group's own wall.
+
+        `author_id` is the actor and is not a field of the request. The body
+        is never logged and never quoted into an error: it is group-private
+        text at the same rank as a phone number.
+        """
+
+        self._memory_of_member(context_id, memory_id, actor, "post_group_memory")
+        record = self.repository.create_memory_comment(
+            memory_id=memory_id,
+            author_id=actor.id,
+            body=request.body,
+            now=_now(),
+        )
+        return self._wire_memory_comment(record)
+
+    def list_memory_comments(
+        self, context_id: uuid.UUID, memory_id: uuid.UUID, actor: Actor
+    ) -> MemoryCommentListResponse:
+        self._memory_of_member(context_id, memory_id, actor, "view_group_memories")
+        return MemoryCommentListResponse(
+            memory_id=memory_id,
+            comments=[
+                self._wire_memory_comment(record)
+                for record in self.repository.list_memory_comments(memory_id)
+            ],
+        )
+
+    def _wire_memory_comment(self, record: MemoryCommentRecord) -> MemoryCommentResponse:
+        person = self.repository.get_person(record.author_id)
+        return MemoryCommentResponse(
+            id=record.id,
+            memory_id=record.memory_id,
+            author_id=record.author_id,
+            display_name=None if person is None else person.display_name,
+            body=record.body,
+            created_at=record.created_at,
         )
 
     def post_context_message(

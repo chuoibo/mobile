@@ -1531,6 +1531,102 @@ class Memory(Base):
     )
 
 
+class MemoryReaction(Base):
+    """F40. One person, one memory, one heart.
+
+    ## Why the uniqueness lives here and not in a read
+
+    The mockup draws "❤️ 18" -- a count. A count computed by a reader that
+    de-duplicates on the way out looks identical to a correct one until two
+    devices press the heart in the same second, and then the wall says 19 for
+    a photograph eighteen people liked. `uq_memory_reactions_person` is the
+    rule; the writer attempts the insert and lets the index answer, the same
+    way `OutingStopCheckin` does.
+
+    ## There is no `kind`
+
+    One reaction, spelled one way. A `kind` column would be the seed of an
+    emoji palette nobody has designed, and every row written before that
+    design would have to be migrated into whichever default it picked.
+
+    ## The row dies with the memory it is about
+
+    `ON DELETE CASCADE`: a heart on a deleted photograph is a count attached
+    to nothing, and there is no screen that could ever draw it.
+    """
+
+    __tablename__ = "memory_reactions"
+    __table_args__ = (
+        UniqueConstraint("memory_id", "person_id", name="uq_memory_reactions_person"),
+        # "How many hearts does this row have, and did I leave one" is the read
+        # the wall makes, once per memory it draws.
+        Index("ix_memory_reactions_memory", "memory_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    memory_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("memories.id", name="fk_memory_reactions_memory", ondelete="CASCADE"),
+        nullable=False,
+    )
+    person_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_memory_reactions_person"),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class MemoryComment(Base):
+    """F41. What somebody said under a photograph on the group's own wall.
+
+    ## This body is group-private data
+
+    It is written by a member, addressed to a group, and read only behind the
+    same `view_group_memories` gate the wall itself is behind. It is at the
+    rank of a phone number: it never reaches a log line, an exception message
+    or the guest page. The guest page matters specifically -- that link is a
+    bearer capability held by somebody outside the group, and its view model
+    (`app/web/guest_view.py`) is a whitelist for exactly this reason.
+
+    ## No `edited_at`, no soft delete
+
+    A comment is either there or it is not. An edit history on a sentence in a
+    friend group is a feature with a privacy question attached, and answering
+    it is not what F41 asks for. Recorded rather than hidden.
+    """
+
+    __tablename__ = "memory_comments"
+    __table_args__ = (
+        CheckConstraint("body <> ''", name="body_not_blank"),
+        # The read is "this memory's comments, oldest first" -- a conversation
+        # under a photograph runs forward, unlike the feed above it.
+        Index("ix_memory_comments_memory", "memory_id", "created_at", "id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    memory_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("memories.id", name="fk_memory_comments_memory", ondelete="CASCADE"),
+        nullable=False,
+    )
+    author_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_memory_comments_author"),
+        nullable=False,
+    )
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class Message(Base):
     """One immutable entry in a context's conversation feed."""
 

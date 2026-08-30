@@ -693,6 +693,15 @@ class MemoryResponse(ApiModel):
     lng: float | None
     created_at: datetime
     cursor: str
+    #: F40/F41. The mockup draws "❤️ 18 · 💬 6" under every row, so the feed
+    #: carries both totals. Recomputed per read from the reaction and comment
+    #: rows -- never a stored counter, which would be a cache standing in for
+    #: the sum it is meant to summarise.
+    reaction_count: int = 0
+    comment_count: int = 0
+    #: Whether the actor making *this* request left a heart. It is a fact about
+    #: the reader, so it is answered per request and never cached in a row.
+    viewer_has_reacted: bool = False
 
 
 class MemoryListResponse(ApiModel):
@@ -700,6 +709,57 @@ class MemoryListResponse(ApiModel):
     memories: list[MemoryResponse]
     next_cursor: str | None
     has_more: bool
+
+
+class MemoryReactionResponse(ApiModel):
+    """F40. One heart, named by who left it.
+
+    `person_id` is echoed from the actor and never read off the request body.
+    A body field naming the reactor would let anyone with a session put a
+    heart under somebody else's name -- the shape that opened six holes on the
+    money routes, avoided here by not offering the field at all.
+    """
+
+    id: UUID
+    memory_id: UUID
+    person_id: UUID
+    created_at: datetime
+    #: The total after this write, so a client need not re-read the feed to
+    #: redraw one number.
+    reaction_count: int
+
+
+class MemoryCommentCreateRequest(ApiModel):
+    """F41. What one member wants to say under one photograph.
+
+    One field. There is deliberately no `author_id` here: the writer is the
+    caller, proved by the gateway, not a name the body gets to assert.
+    """
+
+    body: Annotated[StrictStr, Field(min_length=1, max_length=2000)]
+
+
+class MemoryCommentResponse(ApiModel):
+    """One comment as it goes back to a member of the group that owns it.
+
+    `body` is group-private. It leaves the server only on this model and on
+    the list below, both of which sit behind `view_group_memories`. The guest
+    page builds its view model from a whitelist (`app/web/guest_view.py`) that
+    has no slot for any of these fields, so this text cannot reach a link
+    holder standing outside the group.
+    """
+
+    id: UUID
+    memory_id: UUID
+    author_id: UUID
+    display_name: str | None
+    body: str
+    created_at: datetime
+
+
+class MemoryCommentListResponse(ApiModel):
+    memory_id: UUID
+    comments: list[MemoryCommentResponse]
 
 
 class MessageCreateRequest(ApiModel):
