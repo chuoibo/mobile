@@ -40,7 +40,7 @@ DC = $(COMPOSE) -p $(PROJECT)
 WAIT_TIMEOUT ?= 300
 
 .DEFAULT_GOAL := help
-.PHONY: help gate gate-merge test-db e2e up down clean logs ps migrate db-check seed demo demo-reset demo-check demo-data-check demo-key-check demo-watch demo-watch-status demo-watch-install smoke
+.PHONY: help gate gate-merge test-db e2e up down clean logs ps migrate db-check seed demo demo-reset demo-check demo-data-check demo-persona-check demo-key-check demo-watch demo-watch-status demo-watch-install smoke
 
 # `demo` phải gọi đúng bộ container mà `up` vừa dựng. Trên nhánh này biến đó là
 # $(COMPOSE); PR #60 (đang mở, cùng lane) đổi nó thành $(DC) = compose kèm
@@ -255,6 +255,18 @@ demo-check: ## Hỏi máy demo có phục vụ ĐÚNG bộ route của main khô
 # hành vi của chính make, không phải của target này (`demo-check` cũng vậy).
 demo-data-check: ## Hỏi bộ dữ liệu trên máy demo có dùng để demo được không — DSN= để đổi đích
 	@python3 scripts/check_demo_data.py $(if $(DSN),--dsn $(DSN))
+
+# `demo-data-check` hỏi "nhóm demo dựng đủ chưa". Mục dưới hỏi câu ngược lại và
+# nó là câu đã trượt: nhóm demo đủ, mà NGƯỜI thì thừa. Đo 30/08 trên 8099, màn
+# Cá nhân của Minh in 3.613.333đ trong khi nhóm demo chỉ giải thích được
+# 1.603.666đ — hơn một nửa số tiền trên màn đến từ nhóm tên là "KHÔNG dùng để
+# demo". Không cổng nào đỏ, vì không cổng nào so hai con số đó với nhau.
+#
+# Mã thoát: đọc chữ khi gọi qua `make` (xem ghi chú ở `demo-data-check` — GNU
+# make ép cả 1 lẫn 2 thành 2). Cần mã thoát thật thì gọi thẳng script.
+demo-persona-check: ## Hỏi persona demo có lịch sử NGOÀI nhóm demo không — DSN=, API= để đổi đích
+	@python3 scripts/cong_persona_demo_sach.py \
+	  $(if $(DSN),--dsn $(DSN)) $(if $(API),--api $(API))
 
 # `demo-data-check` hỏi về DỮ LIỆU trên máy demo. Mục dưới hỏi về KHOÁ của nó, và đó
 # là câu đã trượt ngày 30/08: leader xoay GEMINI_API_KEY lúc 22:19:45, container

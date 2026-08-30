@@ -96,7 +96,13 @@ function tenCuaNguoi(personId, displayName) {
 async function moNhom() {
   let state = null;
   for (const slug of SLUGS) {
-    state = await khoiDongNhom(slug, { base: BASE_URL });
+    // `khoiDongNhom` takes the person, not the slug (bug-223337): a slug has no
+    // `.personId`, so passing one addresses `PUT /people/undefined` and the run
+    // dies at `dat-ten` on `X-Actor-ID must be a UUID`. `.mjs` is not typed, so
+    // only a live run says so.
+    const nguoi = personById(slug);
+    assert.ok(nguoi, `khong co nguoi "${slug}" trong nhom demo`);
+    state = await khoiDongNhom(nguoi, { base: BASE_URL });
     if (state.kind !== "xong") {
       assert.fail(
         `khong mo duoc nhom o buoc "${state.buoc}" (${state.status}) ${state.url}: ${state.detail}`,

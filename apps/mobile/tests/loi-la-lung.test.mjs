@@ -279,8 +279,25 @@ test("goiAiTurn: không thứ gì bị ném thành chữ máy", async () => {
   );
 });
 
+/* Một người có thật, không phải một slug.
+ *
+ * Dòng này từng là `khoiDongNhom("an", ...)`, và "an" không phải một trong bảy
+ * người của `nhom-demo.ts`. Bản cũ tra bảng rồi trả `hong` ngay ở dòng đầu, nên
+ * transport hay ném ở đây KHÔNG BAO GIỜ ĐƯỢC GỌI: phép quét chạy 1 lần cho mỗi
+ * tổ hợp và đo đúng một nhánh không đi qua mạng. Đường lỗi của cả năm request
+ * chưa từng bị soi. Sửa cùng bug-223337, vì chính bản vá làm cho lời gọi này đi
+ * ra tới transport được. */
+const NGUOI_THAT = {
+  id: "980ebea7-0f5e-4f7c-9a3f-1c2d3e4f5a6b",
+  personId: "980ebea7-0f5e-4f7c-9a3f-1c2d3e4f5a6b",
+  name: "Bảo",
+  initials: "B",
+};
+
 test("khoiDongNhom: không thứ gì bị ném thành chữ máy", async () => {
-  await quetMotCua("khoiDongNhom", (f) => voiFetch(f, () => khoiDongNhom("an", { base: BASE })));
+  await quetMotCua("khoiDongNhom", (f) =>
+    voiFetch(f, () => khoiDongNhom(NGUOI_THAT, { base: BASE })),
+  );
 });
 
 test("napTinNhan và hai bản phân trang: không thứ gì bị ném thành chữ máy", async () => {

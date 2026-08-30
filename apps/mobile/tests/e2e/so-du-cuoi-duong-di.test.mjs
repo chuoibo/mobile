@@ -40,6 +40,7 @@ import test from "node:test";
 
 import * as api from "../../dist-test/api.js";
 import { khoiDongNhom } from "../../dist-test/screens/chat/nhom.js";
+import { personById } from "../../dist-test/navigation/nhom-demo.js";
 
 const { BASE_URL, docSoDu } = api;
 
@@ -94,7 +95,8 @@ async function nhomAppDung() {
  * blamed on the balances route.
  */
 async function nhomThat() {
-  const state = await khoiDongNhom("minh");
+  // The person, not the slug (bug-223337): a bare string has no `.personId`.
+  const state = await khoiDongNhom(personById("minh"));
   assert.equal(
     state?.kind,
     "xong",
