@@ -7,8 +7,9 @@
  * this. Spending it on the header would say the whole conversation was
  * machine-written, which is the defect the direction contract exists to
  * prevent. The header is `accent` orange, like the tab shell. Purple is
- * spent on four things only: the AI avatar, the "Rủ Đi AI" label, the
- * plan card, and the expense-draft card (a machine reading, not a write).
+ * spent on five things only: the AI avatar, the "Rủ Đi AI" label, the
+ * plan card, the expense-draft card (a machine reading, not a write), and
+ * the "Hỏi Rủ Đi AI" button, which is the one control that addresses it.
  *
  * This file is the React that stands on the five logic modules. It does not
  * invent a member count, a plan, a total, or a day boundary. `khoiDongNhom`
@@ -101,6 +102,7 @@ export function TinNhan({ nguoi, nhomPhien }: {
   const [aiYen, setAiYen] = useState<AiYen | null>(null);
   const [keHoachDangXem, setKeHoachDangXem] = useState<KeHoach | null>(null);
   const [dangMoBinhChon, setDangMoBinhChon] = useState(false);
+  const [dangHoiAi, setDangHoiAi] = useState(false);
   const [dangBoPhieu, setDangBoPhieu] = useState(false);
   // One draft card at a time. Opening another message replaces this; there
   // is no stack, because two readings at once would look like two writes.
@@ -267,6 +269,11 @@ export function TinNhan({ nguoi, nhomPhien }: {
     }
   }
 
+  /**
+   * The turn the companion is OFFERED after every message. No flag, on
+   * purpose: this is the volunteering turn, and the 90-second cadence is what
+   * keeps it from answering every line of a fast exchange.
+   */
   async function goiAiSauKhiGui(contextId: string, actorId: string) {
     if (dangGoiAi.current) return;
     dangGoiAi.current = true;
@@ -274,6 +281,37 @@ export function TinNhan({ nguoi, nhomPhien }: {
       const s = await goiAiTurn({ contextId, actorId, idempotencyKey: taoKhoa() });
       xuLyAi(s);
     } finally {
+      dangGoiAi.current = false;
+    }
+  }
+
+  /**
+   * The turn a person ASKED for. Carries `requested: true`, which is the only
+   * way past the cadence, and is why "lên giúp lịch trình chi tiết từng giờ"
+   * used to sit unanswered for ninety seconds with the model never called.
+   *
+   * Sends no message. The server already reads the last 40, so the question
+   * the group typed is what it answers; posting a second copy of it as an
+   * invisible message would put words in the group's mouth.
+   *
+   * Shares `dangGoiAi` with the offered turn: two in flight would spend two of
+   * the three turns the window allows on one press.
+   */
+  async function hoiThangAi() {
+    if (!nguoi || nhom.kind !== "xong" || dangGoiAi.current) return;
+    dangGoiAi.current = true;
+    setDangHoiAi(true);
+    setAiYen(null);
+    try {
+      const s = await goiAiTurn({
+        contextId: nhom.contextId,
+        actorId: nguoi.personId,
+        idempotencyKey: taoKhoa(),
+        hoiThang: true,
+      });
+      xuLyAi(s);
+    } finally {
+      setDangHoiAi(false);
       dangGoiAi.current = false;
     }
   }
@@ -371,6 +409,10 @@ export function TinNhan({ nguoi, nhomPhien }: {
           }}
           dangGui={dangGui}
           onChuaDung={setThongBao}
+          onHoiAi={() => {
+            void hoiThangAi();
+          }}
+          dangHoiAi={dangHoiAi}
         />
       ) : null}
     </View>

@@ -2,7 +2,7 @@
   "_doc": [
     "Route may chu khai ma KHONG man nao trong apps/mobile/src nhac toi.",
     "Do bang scripts/check_server_routes_called.py. Lan cap nhat gan nhat: 2026-08-30,",
-    "sau khi F38 (widget) duoc tra no bang mot man that.",
+    "sau khi man Quan tri nhom tra no 5 dong (vai tro, roi nhom, moi/thu hoi loi moi).",
     "",
     "Day la DANH SACH NO, khong phai danh sach mien. Moi dong o day la mot",
     "tinh nang da merge, da co test xanh, va nguoi dung chua cham toi duoc.",
@@ -32,15 +32,18 @@
     "             URL do may chu tra ve nen client khong bao gio viet no thanh",
     "             literal. Dung doc so 0 cua cong thanh 'route chet'.",
     "",
-    "Con so hom nay, sau khi F17/F22 (main) va nam route le (nhanh nay) duoc tra:",
-    "10 tinh-nang, 2 ha-tang, 1 cong-mu, 1 chua phan loai (/albums/{outing_id}/reel,",
-    "F37, cua lane khac).",
+    "/bills/{id}/my-items, /photos/{id}/face-boxes) VA man Quan tri nhom tra 5 dong",
+    "(GET /contexts/{id}, hai route thanh vien, va hai route loi moi buoi di):",
+    "Con so hom nay, sau khi main tra 6 dong (bon route binh chon,",
+    "/bills/{id}/my-items, /photos/{id}/face-boxes), man Quan tri nhom tra 5 dong",
+    "(GET /contexts/{id}, hai route thanh vien, hai route loi moi buoi di), VA nam",
+    "man chi tiet tra 3 dong: 6 tinh-nang, 1 ha-tang, 1 cong-mu, 1 chua phan loai",
+    "(/albums/{outing_id}/reel, F37, cua lane khac).",
+    "Ba ben tra ba bo dong khac nhau va gop lai la HOP cua ca ba, khong phai mot ben",
+    "thang: moi dong duoc go deu co mot man that bam toi no.",
     "",
-    "Luot truoc do 6 dong roi khoi danh sach: bon route binh chon, /bills/{id}/my-items",
-    "va /photos/{id}/face-boxes. Luot nay them 3: /places/{place_id},",
-    "/bills/{bill_id}/split va /bank-recipients/{recipient_id} -- ca ba deu tung mang",
-    "'loai: ha-tang', tuc la tung duoc doc thanh 'khong man nao NEN goi'. Ly do do sai",
-    "va day la cho ghi lai vi sao, khong phai xoa im lang:",
+    "Ba dong luot nay tung mang 'loai: ha-tang', tuc tung duoc doc thanh 'khong man",
+    "nao NEN goi'. Ly do do sai, va day la cho ghi lai vi sao chu khong xoa im lang:",
     "  /places/{place_id}          mang description + reviews, hai truong GET /places",
     "                              KHONG mang. Danh sach khong 'da du truong'.",
     "  /bills/{bill_id}/split      la cua thu hai vao CUNG allocator, dung -- nhung do",
@@ -49,20 +52,13 @@
     "                              lech nhau. Khong co phep chia thu hai.",
     "  /bank-recipients/{id}       duong doc; duong GHI bi thay bang per-person, duong",
     "                              DOC thi khong, va thieu no thi nguoi da luu tai khoan",
-    "                              khong phan biet duoc voi nguoi chua luu.",
-    "Tat ca deu duoc tra bang mot man that co nguoi bam, khong phai bang mot dong",
-    "ngoai le."
+    "                              khong phan biet duoc voi nguoi chua luu."
   ],
   "uncalled": [
     {
       "route": "/bank-recipients",
       "loai": "ha-tang",
       "reason": "Client cố ý dùng PUT /people/{id}/bank-recipient thay cho POST /bank-recipients — api.ts:867 ghi rõ lựa chọn đó và api.ts:895 là chỗ gọi. Route collection này không có người gọi theo thiết kế, không phải do quên."
-    },
-    {
-      "route": "/contexts/{context_id}",
-      "loai": "ha-tang",
-      "reason": "Client gọi GET /contexts (nhom.ts:305) để lấy danh sách nhóm, không đọc chi tiết một nhóm."
     },
     {
       "route": "/contexts/{context_id}/albums",
@@ -89,16 +85,6 @@
       "reason": "Gợi ý theo ngữ cảnh. Cùng lý do với /suggestion: chưa màn nào gọi, AI đi qua /ai-turn."
     },
     {
-      "route": "/contexts/{context_id}/members/{person_id}",
-      "loai": "tinh-nang",
-      "reason": "ROI NHOM. Ly do cu o dong nay sai va da lam no doc nhu ha tang: no viet 'khong co man nao thao tac len mot thanh vien cu the', nghe nhu mot duong DOC. openapi.json noi day la DELETE, summary 'Leave Context' -- mot nut nguoi dung bam, khong phai mot truy van."
-    },
-    {
-      "route": "/contexts/{context_id}/members/{person_id}/role",
-      "loai": "tinh-nang",
-      "reason": "Đổi vai trò thành viên. Cùng lý do: chưa có màn quản trị nhóm."
-    },
-    {
       "route": "/contexts/{context_id}/photos/{photo_id}",
       "loai": "cong-mu",
       "reason": "DA CO NGUOI GOI THAT, va cong nay khong the thay -- day la o duy nhat trong file thuoc loai do. URL do MAY CHU tra ve trong image_url (schemas.py:1496 cho album, va WidgetPhotoResponse.image_url cho F38), roi client dua thang chuoi ay cho <Anh uri=...>, nen khong bao gio co literal de quet. Truoc day dong nay con dung theo mot nghia khac: duong DUY NHAT toi no la /contexts/{id}/albums, ma route do cung chua ai goi. Nghia do het han hom nay -- man widget (F38) doc anh moi nhat cua nhom qua chinh duong nay, nen byte cua route nay dang chay tren mot man that. Giu dong nay lai la de KHONG ai doc so 0 cua cong thanh 'route nay chet'."
@@ -112,16 +98,6 @@
       "route": "/contexts/{context_id}/suggestion",
       "loai": "tinh-nang",
       "reason": "Gợi ý của AI. Client không có literal nào bắt đầu bằng /suggest; đường AI đang dùng là /contexts/{}/ai-turn (ai.ts:105)."
-    },
-    {
-      "route": "/outings/{outing_id}/invites",
-      "loai": "tinh-nang",
-      "reason": "Tao loi moi vao buoi di. Nua kia da co man: #moi= mo man nhan loi moi va no duoc quet moi luot (hang nhan-loi-moi trong tab-snapshots). Thieu dung cai nut sinh ra loi moi ay."
-    },
-    {
-      "route": "/outings/{outing_id}/invites/{invite_id}/revoke",
-      "loai": "tinh-nang",
-      "reason": "Thu hoi loi moi da phat. Cung lo voi POST /outings/{id}/invites."
     }
   ]
 }

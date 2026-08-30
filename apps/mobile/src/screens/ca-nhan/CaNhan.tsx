@@ -48,6 +48,7 @@ type Trang =
 export function CaNhan({
   nguoi,
   onKetBan,
+  onThanhTich,
   nhom = [],
   doc = layTaiChinh,
 }: {
@@ -58,6 +59,10 @@ export function CaNhan({
    *  screen's own tests -- keep compiling; a missing handler hides the row
    *  rather than rendering a button that does nothing. */
   onKetBan?: () => void;
+  /** 07.03. Open the achievements screen. Handed in by the shell for the same
+   *  reason `onKetBan` is, and optional in the same way: no handler hides the
+   *  row rather than drawing a button that does nothing. */
+  onThanhTich?: () => void;
   /** Groups this person can address a post to. Empty until the shell knows one. */
   nhom?: { id: string; name: string }[];
   /** Injected so the screen can be exercised without a server. */
@@ -128,6 +133,7 @@ export function CaNhan({
           />
         ) : null}
         <HangSoLieu trang={trang} />
+        <CuaThanhTich nguoi={nguoi} onThanhTich={onThanhTich} />
         <TaiChinh trang={trang} onThuLai={lamMoi} coNguoi={Boolean(nguoi)} />
         <GiaoDich trang={trang} />
         {nguoi?.personId ? <Tuong nguoi={nguoi} nhom={nhom} /> : null}
@@ -373,6 +379,42 @@ function HangSoLieu({ trang }: { trang: Trang }) {
       <Text style={{ ...type.micro, color: c.inkFaint }}>
         Hai số đầu đọc từ sổ. Kỷ niệm và đánh giá chưa có trong sản phẩm nên để trống.
       </Text>
+    </Card>
+  );
+}
+
+/** 07.03. The door to the achievements screen.
+ *
+ * Directly under the stat row because the two are the same subject read at two
+ * depths: that row counts what the ledger knows, and the screen behind this
+ * button turns those same counts into levels, badges and this week's
+ * challenges. It reads the identical route, so nothing here can disagree with
+ * the numbers above it.
+ *
+ * Renders nothing without a handler or without a person, the same rule
+ * `CuaKetBan` follows: a screen that cannot say who is asking would send
+ * `X-Actor-ID: undefined` and read as broken rather than as needing a sign-in.
+ */
+function CuaThanhTich({
+  nguoi,
+  onThanhTich,
+}: {
+  nguoi: DemoPerson | null;
+  onThanhTich?: () => void;
+}) {
+  const c = usePalette();
+  if (!nguoi || !onThanhTich) return null;
+  return (
+    <Card>
+      <Text style={{ ...type.title, color: c.ink }}>Thành tích</Text>
+      <Text style={{ ...type.label, color: c.inkSoft }}>
+        Level, huy hiệu và thử thách tuần này, tính từ chính cuốn sổ ở trên. Bốn huy
+        hiệu mở được bằng hoạt động thật; bốn cái còn lại ghi rõ sản phẩm còn thiếu
+        bảng nào mới đo được.
+      </Text>
+      <View style={{ marginTop: space.xs }}>
+        <Button label="Xem thành tích của bạn" onPress={onThanhTich} tone="ghost" />
+      </View>
     </Card>
   );
 }

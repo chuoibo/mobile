@@ -48,10 +48,36 @@ import { TABS } from "./tabs";
  * "URL-reachable" without adding them to any probe, and for one merge that
  * claim was read as "measured" -- ~780 lines nothing had scanned, under a table
  * printing a clean row for every screen it did visit. Reachable and measured
- * are two claims; this one carries both or neither. */
-export type ManVaoCua = "dang-ky" | "nhom" | "ky-niem" | "ban-be" | "widget";
+ * are two claims; this one carries both or neither.
+ *
+ * `quan-tri` is the group administration screen (roles, leaving, outing
+ * invites). It sits behind a button on the group screen, which itself sits
+ * behind the [+] menu -- two taps deep, so nothing that loads a URL cold could
+ * reach it. Added with the screen rather than after it, for the reason spelled
+ * out one paragraph up.
+ *
+ * `thanh-tich` is 07.03 of the mockup set, behind a button on the Cá nhân tab.
+ * Same shape as `ban-be`, and named here in the same commit that adds the
+ * screen -- the paragraph above is about the one time that was done afterwards
+ * and what it cost. */
+export type ManVaoCua =
+  | "dang-ky"
+  | "nhom"
+  | "ky-niem"
+  | "ban-be"
+  | "widget"
+  | "quan-tri"
+  | "thanh-tich";
 
-const MAN_VAO_CUA: ManVaoCua[] = ["dang-ky", "nhom", "ky-niem", "ban-be", "widget"];
+const MAN_VAO_CUA: ManVaoCua[] = [
+  "dang-ky",
+  "nhom",
+  "ky-niem",
+  "ban-be",
+  "widget",
+  "quan-tri",
+  "thanh-tich",
+];
 
 export type DiemDen = {
   /** Which tab to open on, or null to use the default. */
@@ -218,6 +244,13 @@ export function docDiemDen(hash: string, search = ""): DiemDen {
       // outside it: the widget reads one group's newest photograph, and the
       // opening screen has no group.
       vao === "widget" ||
+      // Group administration is inside the shell too, and it opens the group
+      // itself -- stopping at the sunset would mean the link silently does
+      // nothing, which is the failure this whole field was added to stop.
+      vao === "quan-tri" ||
+      // Thành tích reads one person's ledger, so it has nothing to show outside
+      // the shell either. Same clause, same reason as the five above.
+      vao === "thanh-tich" ||
       diaDiem !== null ||
       banDo ||
       moiBuoiDi !== null,

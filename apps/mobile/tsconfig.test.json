@@ -190,6 +190,25 @@
     "src/screens/len-plan/TaoBuoiDi.tsx",
     "src/screens/len-plan/DongThoiGian.tsx",
     "src/screens/len-plan/NhanLoiMoi.tsx",
+    // F14's other half. `NhanLoiMoi.tsx` above redeems an invite; this decides
+    // whether one may be OFFERED, and every rule in it is a claim about what
+    // `create_outing_invite` will accept. Compiled rather than read as source
+    // because the sharpest of those claims is a negative one -- thu hồi does
+    // not free the person to be invited again, because the unique index does
+    // not care about `revoked_at` -- and a source read cannot tell a rule that
+    // holds from one that was merely written down. See
+    // `tests/moi-vao-chuyen.test.mjs`.
+    "src/screens/len-plan/moi-vao-chuyen.ts",
+    "src/screens/len-plan/MoiVaoChuyen.tsx",
+    // 07.03. Every figure on the achievements screen is derived here from one
+    // finance response -- level, all eight badges, all three weekly challenges.
+    // Compiled rather than read as source because the claim worth pinning is
+    // that those numbers MOVE with the ledger: a screen full of constants would
+    // read identically in the source and identically on a screenshot, which is
+    // exactly how a mockup gets typed in and shipped as a feature. The clock is
+    // a parameter, so the seven-day window can be proved to be a window rather
+    // than a lifetime count. See `tests/thanh-tich.test.mjs`.
+    "src/screens/thanh-tich/thanh-tich.ts",
     "src/screens/quet-anh.ts",
     // The frozen bill behind the `?man=` scan pages. Compiled because the
     // claim it carries is arithmetic, not markup: the eight lines and the

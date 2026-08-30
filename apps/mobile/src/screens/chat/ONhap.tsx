@@ -13,6 +13,19 @@
  * (react-native-web 0.21.2 forwards none of it). The box itself is a
  * control, so its edge is `lineStrong`, the token that clears the 3:1
  * non-text floor. `line` here is how a 1.21:1 input happened once already.
+ *
+ * Why "Hỏi Rủ Đi AI" is its own row above, and not a sixth control in the
+ * compose row: that row already walked off a 390px viewport once, and the
+ * fix was `minWidth: 0` on the input, not spare room. A sixth 44px target
+ * spends the margin that fix bought back. The strip above is also where the
+ * mockup puts its quick actions, so the slot is drawn, not invented.
+ *
+ * Purple. The direction contract spends `ai` on four things, and this is the
+ * fourth: the control that summons the machine reads in the machine's colour,
+ * or the one button in the app that talks to the AI looks like the three that
+ * are not built. Outline and tint, never a filled slab -- a solid purple bar
+ * across the bottom would out-shout Send, which is the control that matters
+ * more often.
  */
 import React from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
@@ -24,19 +37,64 @@ export function ONhap({
   onGui,
   dangGui,
   onChuaDung,
+  onHoiAi,
+  dangHoiAi,
 }: {
   value: string;
   onChangeText: (text: string) => void;
   onGui: () => void;
   dangGui: boolean;
   onChuaDung: (text: string) => void;
+  /** Ask the companion for a turn on the thread as it stands. Sends no
+   *  message: this is the group asking, not the group saying. */
+  onHoiAi: () => void;
+  dangHoiAi: boolean;
 }) {
   const c = usePalette();
   const tat = value.trim() === "" || dangGui;
 
   return (
-    <View
-      style={{
+    <View>
+      <View
+        style={{
+          flexDirection: "row",
+          paddingHorizontal: space.sm,
+          paddingTop: space.xs,
+          backgroundColor: c.ground,
+        }}
+      >
+        <Pressable
+          onPress={onHoiAi}
+          disabled={dangHoiAi}
+          accessibilityRole="button"
+          // The label stays put while the text inside changes, so a screen
+          // reader user can still find this control mid-request, and so the
+          // browser gate measures one name across both states.
+          accessibilityLabel="Hỏi Rủ Đi AI"
+          aria-label="Hỏi Rủ Đi AI"
+          aria-disabled={dangHoiAi}
+          style={({ pressed }) => ({
+            minHeight: 44,
+            justifyContent: "center",
+            paddingHorizontal: space.sm,
+            borderRadius: radius.pill,
+            borderWidth: 1,
+            // Colour does not move when the button is busy. Fading it is how a
+            // pending control drops under the contrast floor exactly when the
+            // person is staring at it waiting.
+            borderColor: c.ai,
+            backgroundColor: c.aiSoft,
+            opacity: pressed && !dangHoiAi ? 0.85 : 1,
+          })}
+        >
+          <Text style={{ ...type.label, fontWeight: "700", color: c.ai }}>
+            {dangHoiAi ? "Đang hỏi Rủ Đi AI…" : "Hỏi Rủ Đi AI"}
+          </Text>
+        </Pressable>
+      </View>
+
+      <View
+        style={{
         flexDirection: "row",
         alignItems: "center",
         gap: space.xs,
@@ -133,6 +191,7 @@ export function ONhap({
           Gửi
         </Text>
       </Pressable>
+      </View>
     </View>
   );
 }
