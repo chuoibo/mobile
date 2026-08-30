@@ -19,7 +19,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import puppeteer from "file:///home/lakiet/.claude/node_modules/puppeteer-core/lib/puppeteer/puppeteer-core.js";
+import puppeteer from "puppeteer-core";
 
 import { CHROME, closeServer, createStaticServer, listen } from "./screen-snapshots.mjs";
 import { API_BASE, installTabStubs, moiMan, taoFixtures } from "./tab-snapshots.mjs";
