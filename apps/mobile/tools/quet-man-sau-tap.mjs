@@ -52,19 +52,47 @@
  * would be real, the screen it names would be wrong, and nothing would say so.
  *
  * So there is a third canary, and it is the one that makes the other two worth
- * running. It drives the real bundle through the LONGEST scenario here, and
- * only then paints `CANARY LAI DA CHAY` in near-invisible grey. The run is
- * refused unless a finding comes back whose snippet contains that marker:
+ * running. It drives the real bundle through a scenario and only then paints
+ * `CANARY LAI DA CHAY` in near-invisible grey. A screen's number is refused
+ * unless a finding comes back whose snippet contains that marker:
  *
  *   - marker present  -> the detector waited for a full walk before measuring,
- *                        so every step's number describes the screen it names.
- *   - marker missing  -> it measured early. Every number below is the opening
- *                        screen wearing another screen's label, and the run
- *                        aborts instead of reporting them.
+ *                        so that step's number describes the screen it names.
+ *   - marker missing  -> it measured early. That number would be the opening
+ *                        screen wearing another screen's label, so the screen is
+ *                        reported as CHUA KET LUAN DUOC and no number is printed
+ *                        for it.
  *
  * Counting findings would not do: a page measured too early still scores
  * whatever `MoDau` scores, and `> 0` would pass while proving nothing. The
  * assertion has to name something that can only exist after the walk.
+ *
+ * ## It runs per screen, and the inference it replaced pointed the wrong way
+ *
+ * This canary used to run ONCE, on one pinned scenario, and the rest of the
+ * table inherited the result: "the LONGEST scenario, so proving the detector
+ * waited for it proves it waited for every shorter one too."
+ *
+ * The scenario pinned was `de-xuat`, at 23 steps. It is not the longest.
+ * `dot-thu` is 25, `ket-qua-thanh-toan` 27, `chia-se` 29. So the inference ran
+ * backwards over precisely the last three screens of the hero path -- where the
+ * money is proposed, collected, turned into a VietQR and shared -- and their
+ * `findings= 0` rows rested on nothing.
+ *
+ * The reason written down for pinning it was that those three "exceed the
+ * 30000ms navigation budget of imp detect". Nothing measured that. Measured
+ * now, all nine scenarios finish in 2.6-3.4s, `chia-se` the longest at 2.74s --
+ * under a tenth of the budget they were excused against. A gate that states a
+ * number it never took is guessing in the voice of a measurement.
+ *
+ * Step count is not time either: a 9-step scenario can hold one slow step. So
+ * the inference is gone rather than re-tuned, and every screen now proves the
+ * detector waited for ITS OWN walk. The cost is nine more scans, about 25s.
+ *
+ * What it still does NOT prove, stated plainly: the canary page and the scanned
+ * page are two separate loads, so this is "the detector can wait out this walk",
+ * not "the detector did wait during that other load". The marker has to sit on
+ * a page nobody measures, or it would land in the real findings.
  *
  * ## Coverage is derived, not remembered
  *
@@ -737,48 +765,44 @@ async function main() {
   const server = serverGiuNhip(buildDir);
   let browser = null;
   let bad = 0;
+  /** Số màn không kết luận được. Khai ở đây chứ không trong `try` vì mã thoát
+   *  đọc nó sau `finally`. */
+  let khongKetLuan = 0;
   try {
     const port = await listen(server);
     const goc = `http://127.0.0.1:${port}`;
 
     const tenXau = ghi("__canary-xau.html", CANARY_XAU);
     const tenSach = ghi("__canary-sach.html", CANARY_SACH);
-    // The drive canary runs the LONGEST scenario here, so proving the detector
-    // waited for it proves it waited for every shorter one too.
-    /* Kịch bản dài NHẤT MÀ VỪA ngân sách của chính máy quét, không phải dài nhất
-     * tuyệt đối.
+    /* Mỗi màn một canary lái, chứ không một canary cho cả bảng.
      *
-     * `imp detect` mở trang bằng puppeteer với hạn điều hướng 30 giây cứng, và
-     * không có cờ nào chỉnh được. Trang tự lái chạy hết kịch bản TRONG lúc tải,
-     * nên một kịch bản quá 30 giây làm chính canary chết vì hết giờ điều hướng
-     * -- và lúc đó nó không còn nói được điều nó sinh ra để nói.
+     * Bản trước ghim canary vào đúng một kịch bản và suy ra phần còn lại: "chạy
+     * cái DÀI NHẤT, nên đợi được nó là đợi được mọi cái ngắn hơn". Hai chỗ hỏng.
      *
-     * `chia-se` vượt hạn đó kể từ khi đường đi phải ĐĂNG NHẬP (bug-053800: khoản
-     * chi ghi vào nhóm mở dưới danh nghĩa người đăng nhập, nên "Bỏ qua" không đi
-     * tiếp được). Nên canary lấy kịch bản dài nhất còn về đích trong hạn.
+     * Thứ nhất, kịch bản được ghim là `de-xuat` (23 bước) — KHÔNG phải dài nhất.
+     * `dot-thu` 25, `ket-qua-thanh-toan` 27, `chia-se` 29. Nên phép suy luận
+     * chạy ngược chiều với đúng ba màn cuối của đường đi hero: chỗ tiền được
+     * chốt, thu, dựng thành VietQR và chia sẻ. Ba dòng `findings= 0` đó không có
+     * gì đỡ.
      *
-     * Vẫn đủ sức làm việc của nó: đây là một đường đi nhiều chục thao tác qua
-     * đăng nhập, chụp bill, đọc món, gán người và gõ chữ. Nếu detector đo sớm,
-     * nó đo màn mở đầu và dấu sẽ vắng mặt y như trước. Cái mất là vài bước cuối,
-     * và mất bao nhiêu thì ghi ra đây chứ không im lặng thu hẹp. */
-    const NGAN_SACH_MS = 30000;
-    const KICH_BAN_CANARY = "de-xuat";
-    const sauNhat =
-      MAN_SAU_TAP.find((m) => m.step === KICH_BAN_CANARY) ??
-      MAN_SAU_TAP.reduce((a, b) => (b.kichBan.length > a.kichBan.length ? b : a));
-    const boQuaCuoi = MAN_SAU_TAP.filter((m) => m.kichBan.length > sauNhat.kichBan.length).map(
-      (m) => m.step,
-    );
-    if (boQuaCuoi.length > 0) {
-      console.log(
-        `  canary lai dung kich ban "${sauNhat.step}" (${sauNhat.kichBan.length} buoc), ` +
-          `khong phai dai nhat: ${boQuaCuoi.join(", ")} vuot han dieu huong ` +
-          `${NGAN_SACH_MS}ms cua imp detect.`,
-      );
-    }
-    const tenLai = ghi("__canary-lai.html", trangTuLai(indexHtml, sauNhat.kichBan, DAU_MAU));
+     * Thứ hai, lý do viết ra để bào chữa cho việc ghim — ba kịch bản kia "vượt
+     * hạn điều hướng 30000ms của imp detect" — chưa từng được đo. Đo rồi: cả
+     * chín kịch bản về đích trong 2.6-3.4 giây, `chia-se` dài nhất mất 2.74s.
+     * Chưa cái nào tới một phần mười cái hạn ấy. Một cổng khai một con số nó
+     * không đo là một cổng đang đoán bằng giọng của phép đo.
+     *
+     * Số bước cũng không phải thời gian: một kịch bản 9 bước có thể chứa một
+     * bước chậm. Nên bản này bỏ hẳn phép suy luận thay vì sửa hằng số của nó —
+     * mỗi màn tự chứng minh detector đã đợi hết đường đi CỦA CHÍNH NÓ. Giá là
+     * chín lượt quét nữa, khoảng 25 giây.
+     *
+     * Cái nó vẫn KHÔNG chứng minh, nói thẳng ra ở đây: trang canary và trang
+     * quét là hai lượt tải khác nhau, nên đây là "detector đợi được đường đi
+     * này", không phải "detector đã đợi trong đúng lượt tải kia". Dấu phải nằm
+     * trên trang không bị đo mới không lẫn vào findings thật. */
     for (const { step, kichBan } of MAN_SAU_TAP) {
       ghi(`__quet-${step}.html`, trangTuLai(indexHtml, kichBan));
+      ghi(`__canary-lai-${step}.html`, trangTuLai(indexHtml, kichBan, DAU_MAU));
     }
 
     console.log(`== doi chung may quet (viewport ${VIEWPORT}) ==`);
@@ -803,52 +827,6 @@ async function main() {
       );
     }
 
-    // The third canary. Not a count -- a marker, because a page measured too
-    // early still scores whatever the opening screen scores.
-    const lai = await quet(`${goc}/${tenLai}`);
-    const thayDau = lai.findings.some((f) => JSON.stringify(f).includes(DAU_MAU.chu));
-    console.log(
-      `  canary lai   findings=${lai.findings.length} exit=${lai.status}` +
-        `  (can chua "${DAU_MAU.chu}": ${thayDau ? "CO" : "KHONG"})`,
-    );
-    for (const f of lai.findings) {
-      console.log(`      [${f.severity}] ${f.antipattern}: ${(f.snippet ?? "").slice(0, 120)}`);
-    }
-    if (!thayDau) {
-      // Say WHERE the walk stopped, not just that the marker is missing.
-      //
-      // Both causes print the same line otherwise, and they need opposite
-      // fixes: a detector that measured too early is a timing problem in this
-      // file, while a walk that died on press four is a broken screen. The
-      // driver already records its own progress on `window.__lai` for exactly
-      // this, so the diagnosis costs one page load.
-      let chan = null;
-      try {
-        const tam = await puppeteer.launch({
-          executablePath: process.env.PUPPETEER_EXECUTABLE_PATH ?? CHROME,
-          headless: true,
-          defaultViewport: { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
-          args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
-        });
-        try {
-          chan = await kiemManHinh(tam, `${goc}/${tenLai}`, DAU_MAU.chu);
-        } finally {
-          await tam.close();
-        }
-      } catch (err) {
-        chan = { loiChanDoan: String(err) };
-      }
-      throw new Error(
-        `MAY QUET DO SOM: canary lai chay het kich ban "${sauNhat.step}" roi moi ve dau ` +
-          `"${DAU_MAU.chu}", va detector khong thay dau do. Nghia la no do TRUOC khi trang ` +
-          `lai xong, nen moi con so duoi day se la man mo dau doi ten thanh man khac. ` +
-          `Khong bao cao so nao het.\n` +
-          `  chan doan: lai.xong=${chan?.lai?.xong} lai.loi=${chan?.lai?.loi ?? "-"}\n` +
-          `  buoc da qua (${chan?.lai?.buoc?.length ?? 0}): ${(chan?.lai?.buoc ?? []).join(" | ")}\n` +
-          `  pageerror: ${(chan?.loi ?? []).slice(0, 2).join(" ; ") || "(khong co)"}`,
-      );
-    }
-
     browser = await puppeteer.launch({
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH ?? CHROME,
       headless: true,
@@ -858,8 +836,61 @@ async function main() {
 
     console.log(`\n== ${MAN_SAU_TAP.length} man sau tap, tren trang that ==`);
     const bangKe = [];
+    const chuaKetLuan = [];
     for (const { step, needle } of MAN_SAU_TAP) {
       const url = `${goc}/__quet-${step}.html`;
+
+      /* Canary lái CỦA MÀN NÀY, chạy trước khi con số của màn này được đọc.
+       *
+       * Không đếm findings mà tìm dấu: một trang bị đo sớm vẫn ra đúng số điểm
+       * của màn mở đầu, nên `> 0` sẽ xanh mà chẳng chứng minh gì. Dấu là thứ
+       * chỉ tồn tại sau khi kịch bản chạy hết. */
+      const lai = await quet(`${goc}/__canary-lai-${step}.html`);
+      const thayDau = lai.findings.some((f) => JSON.stringify(f).includes(DAU_MAU.chu));
+      if (!thayDau) {
+        /* Trạng thái thứ ba. Không phải ĐẠT, cũng không phải HỎNG.
+         *
+         * Cái sai ở đây không phải "màn này bẩn" mà "không biết con số này nói
+         * về màn nào". In `findings= 0` cho nó là nhập "không biết" vào "sạch",
+         * đúng cái nhập mà cả đội đang gỡ khỏi từng cổng một. Nên màn này không
+         * có số, không được cộng vào tổng, và cả lượt chạy thoát mã 4.
+         *
+         * Nói WHERE đường đi dừng, không chỉ nói dấu vắng mặt: detector đo sớm
+         * là lỗi thời gian trong file này, còn kịch bản chết ở bước bốn là màn
+         * hỏng, và hai thứ đó cần hai bản sửa ngược nhau. Driver đã tự ghi tiến
+         * độ lên `window.__lai` sẵn cho việc này. */
+        let chan = null;
+        try {
+          chan = await kiemManHinh(browser, `${goc}/__canary-lai-${step}.html`, DAU_MAU.chu);
+        } catch (err) {
+          chan = { loiChanDoan: String(err) };
+        }
+        const buoc = chan?.lai?.buoc ?? [];
+        chuaKetLuan.push({
+          step,
+          laiXong: chan?.lai?.xong ?? null,
+          laiLoi: chan?.lai?.loi ?? null,
+          soBuocDaQua: buoc.length,
+          buoc,
+          pageerror: (chan?.loi ?? []).slice(0, 2),
+          loiChanDoan: chan?.loiChanDoan ?? null,
+        });
+        console.log(
+          `  ${step.padEnd(10)} CHUA KET LUAN DUOC  (canary lai khong thay dau "${DAU_MAU.chu}")`,
+        );
+        console.log(
+          `      detector do TRUOC khi trang lai xong, nen mot con so o day se la man ` +
+            `mo dau doi ten thanh "${step}". Khong bao cao so nao cho man nay.`,
+        );
+        console.log(
+          `      chan doan: lai.xong=${chan?.lai?.xong} lai.loi=${chan?.lai?.loi ?? "-"} ` +
+            `buoc da qua (${buoc.length}): ${buoc.join(" | ") || "(khong co)"}`,
+        );
+        if ((chan?.loi ?? []).length) {
+          console.log(`      pageerror: ${chan.loi.slice(0, 2).join(" ; ")}`);
+        }
+        continue;
+      }
 
       const man = await kiemManHinh(browser, url, needle);
       if (!man.co) {
@@ -877,7 +908,7 @@ async function main() {
       bangKe.push({ step, findings, status, chars: man.chars, els: man.els });
       console.log(
         `  ${step.padEnd(10)} findings=${String(findings.length).padStart(2)} exit=${status}` +
-          `  (da render: els=${man.els} chars=${man.chars}, needle OK)`,
+          `  (da render: els=${man.els} chars=${man.chars}, needle OK, canary lai OK)`,
       );
       for (const f of findings) {
         console.log(`      [${f.severity}] ${f.antipattern}: ${(f.snippet ?? "").slice(0, 150)}`);
@@ -895,7 +926,11 @@ async function main() {
         {
           viewport: VIEWPORT,
           canaryXau: xau.findings.length,
-          canaryLaiThayDau: thayDau,
+          // Per screen now, not one flag for the table. `chuaKetLuan` non-empty
+          // is what makes the run inconclusive; `man` only ever holds screens
+          // whose own drive canary came back with the marker.
+          canaryLaiTungMan: Object.fromEntries(bangKe.map((m) => [m.step, true])),
+          chuaKetLuan,
           man: bangKe,
           chuaQuet: CHUA_QUET,
         },
@@ -904,7 +939,18 @@ async function main() {
       ),
     );
     console.log(`\ntong findings tren cac man: ${bad}`);
+    if (chuaKetLuan.length > 0) {
+      console.log(
+        `\n${chuaKetLuan.length}/${MAN_SAU_TAP.length} man CHUA KET LUAN DUOC: ` +
+          `${chuaKetLuan.map((m) => m.step).join(", ")}`,
+      );
+      console.log(
+        "DAY KHONG PHAI DAT. Khong man nao HONG, nhung cung khong biet con so cua " +
+          "nhung man tren noi ve man nao. Tong o tren chi tinh cac man da ket luan duoc.",
+      );
+    }
     console.log(`chi tiet: ${path.join(outDir, "ket-qua-sau-tap.json")}`);
+    khongKetLuan = chuaKetLuan.length;
   } finally {
     if (browser) await browser.close();
     // Any `/__giu` still held open owns a socket, and `server.close()` waits on
@@ -934,7 +980,17 @@ async function main() {
       }
     }
   }
-  process.exitCode = bad > 0 ? 2 : 0;
+  /* Ba trạng thái, không phải hai.
+   *
+   *   0  đạt        — mọi màn có canary lái của chính nó, và sạch.
+   *   2  hỏng       — có finding thật trên một màn đã kết luận được.
+   *   4  chưa kết luận được — không màn nào hỏng, nhưng ít nhất một màn bị đo
+   *                   trước khi đường đi của nó chạy xong, nên số của nó nói về
+   *                   màn khác. Đây KHÔNG phải đạt.
+   *
+   * Hỏng xếp trên chưa-kết-luận: một finding thật đã đủ để dừng, còn phần không
+   * biết thì đọc trong log. */
+  process.exitCode = bad > 0 ? 2 : khongKetLuan > 0 ? 4 : 0;
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
