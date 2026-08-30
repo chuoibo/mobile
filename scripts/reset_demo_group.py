@@ -60,6 +60,20 @@ written for that was 29 rows out of 879 -- the other 850 belong to other lanes
 and are never candidates, because a key that this script cannot derive is a key
 it does not own. `IMMUTABLE_TABLES` below is asserted against, not remembered.
 
+Which database it opens
+-----------------------
+`--dsn`, else `MOBILE_DATABASE_URL`, else the local stack. The middle one was
+missing until 2026-08-31 and cost a real incident: a lane pointed the variable
+at its own throwaway stack, ran with `--yes`, and this script renamed the demo
+group on the SHARED database at 5432 instead. Every other component reads that
+variable -- `seed_demo_data.py`, `app/db/session.py`, `app/db/migrations/env.py`,
+`e2e_slice.sh` -- so setting it and being ignored is the one outcome nobody
+checks for. Nothing was printed either, so the only trace was a key count that
+looks reasonable right up until you notice it counted somebody else's keys.
+
+Both halves are fixed: the variable is read, and the target is printed before
+anything is opened, so a wrong one is visible on a dry run.
+
 Usage:
     python3 scripts/reset_demo_group.py                 # dry run, writes nothing
     python3 scripts/reset_demo_group.py --yes           # actually rename + clear
@@ -71,7 +85,10 @@ Then `make demo` (or the `demo` compose service) to build the fresh group.
 from __future__ import annotations
 
 import argparse
+import os
+import re
 import sys
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -82,6 +99,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import seed_demo_data as seed  # noqa: E402  - path set above
 
 DEFAULT_DSN = "postgresql://mobile:mobile-dev-only@127.0.0.1:5432/mobile"
+
+# The variable every other component in this repo resolves its database from.
+DSN_ENV_VAR = "MOBILE_DATABASE_URL"
 
 EXIT_OK = 0
 EXIT_NOTHING_TO_DO = 1
@@ -176,16 +196,56 @@ def archive_name(now: datetime) -> str:
     return stamped
 
 
+def resolve_dsn(cli_dsn: str | None, environ: Mapping[str, str]) -> tuple[str, str]:
+    """The database to open, and -- as important -- who chose it.
+
+    Returned as a pair because the caller prints both. "Which database" alone
+    is not enough to catch the mistake this exists for: the incident's operator
+    would have read `...@127.0.0.1:5432/mobile` and seen a database that does
+    exist and does hold a demo group. What tells them something is wrong is
+    that the source says `mặc định` while they are certain they exported
+    `MOBILE_DATABASE_URL`.
+
+    The env value is translated through the fixture's own `psycopg_dsn`, not a
+    second copy of that rule: everything that exports this variable exports the
+    SQLAlchemy spelling `postgresql+psycopg://`, which libpq rejects outright.
+    """
+
+    if cli_dsn:
+        return seed.psycopg_dsn(cli_dsn), "--dsn"
+    from_env = environ.get(DSN_ENV_VAR)
+    if from_env:
+        return seed.psycopg_dsn(from_env), DSN_ENV_VAR
+    return DEFAULT_DSN, "mặc định (không có --dsn, không có $" + DSN_ENV_VAR + ")"
+
+
+def redacted(dsn: str) -> str:
+    """The DSN with its password blanked, for a line that is printed every run.
+
+    Printed output reaches terminals, CI logs and pasted reports, and the repo
+    rule about secrets does not soften because the password happens to be a
+    development one today.
+    """
+
+    return re.sub(r"(?<=://)([^:/@\s]+):[^@/\s]*@", r"\1:***@", dsn)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Giải phóng tên nhóm demo để `make demo` dựng lại được, KHÔNG xoá sổ cái."
     )
-    parser.add_argument("--dsn", default=DEFAULT_DSN, help=f"mặc định {DEFAULT_DSN}")
+    parser.add_argument(
+        "--dsn",
+        default=None,
+        help=f"đích ghi; thiếu thì lấy ${DSN_ENV_VAR}, thiếu nữa thì {DEFAULT_DSN}",
+    )
     parser.add_argument(
         "--yes", action="store_true", help="ghi thật; thiếu cờ này là chạy khô"
     )
     parser.add_argument("--timeout", default=10, type=int)
     args = parser.parse_args()
+
+    dsn, dsn_source = resolve_dsn(args.dsn, os.environ)
 
     # Cheap, and it has caught a real edit: a second DELETE added later would
     # otherwise reach a ledger table with nothing standing in the way.
@@ -196,8 +256,15 @@ def main() -> int:
     now = datetime.now(UTC)
     keys = fixture_write_keys(now)
 
+    # Before the connection, not after: a dry run against the wrong database
+    # still reads the wrong database, and the operator should be able to see
+    # that from the run that writes nothing. On stderr so it survives a piped
+    # stdout, which is how the summary below is usually captured.
+    print(f"Database   {redacted(dsn)}", file=sys.stderr)
+    print(f"  đích từ  {dsn_source}", file=sys.stderr)
+
     try:
-        connection = psycopg.connect(args.dsn, connect_timeout=args.timeout)
+        connection = psycopg.connect(dsn, connect_timeout=args.timeout)
     except Exception as exc:  # noqa: BLE001 - driver raises many shapes
         print(f"KHÔNG CHẠY ĐƯỢC — không nối được database: {exc}", file=sys.stderr)
         return EXIT_CANNOT_RUN
