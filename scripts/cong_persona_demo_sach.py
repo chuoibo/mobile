@@ -68,6 +68,18 @@ EXIT_OK = 0
 EXIT_DIRTY = 1
 EXIT_CANNOT_RUN = 2
 
+# The floor under the denominator. `demo_identity()` reads the cast off the
+# builder so that an eighth demo person cannot slip past unmeasured -- that
+# guards the list GROWING. This guards it SHRINKING, which is the half that was
+# missing: with `PEOPLE` empty the per-person loop below never runs, `failures`
+# stays empty, and the gate prints "SẠCH -- cả 0 persona" and exits 0. An empty
+# denominator is not a clean result, it is the absence of a measurement.
+#
+# Deliberately a floor and not an equality: adding a demo person must not red
+# this gate, only removing one. If the cast is meant to shrink, change this
+# number in the same commit -- loudly, and on purpose.
+DEMO_CAST_SIZE = 7
+
 
 def die(message: str) -> int:
     print(f"KHÔNG ĐO ĐƯỢC — {message}", file=sys.stderr)
@@ -180,6 +192,16 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001 - any import failure is cannot-run
         return die(f"không đọc được seed_demo_data.py: {exc}")
 
+    # Guard the denominator before spending a database connection on it: every
+    # assertion this gate makes lives inside the per-person loop, so a cast that
+    # arrived short makes the whole verdict vacuous rather than wrong.
+    if len(people) < DEMO_CAST_SIZE:
+        return die(
+            f"chỉ đọc được {len(people)} persona từ seed_demo_data.py, cần ít nhất "
+            f"{DEMO_CAST_SIZE}. Danh sách PEOPLE bị rút ngắn, hoặc file đã đổi hình "
+            f"dạng — mẫu số thiếu thì 'sạch' không có nghĩa gì."
+        )
+
     ids = [pid for pid, _ in people]
 
     try:
@@ -224,6 +246,7 @@ def main() -> int:
 
     failures: list[str] = []
     moved: list[str] = []
+    measured = 0
 
     header = f"{'ai':6s} {'nhóm':>4s} {'spend_vnd':>12s} {'chi':>4s}  kết luận"
     print(header)
@@ -287,7 +310,18 @@ def main() -> int:
             print(f"        {problem}")
             failures.append(f"{name} — {problem}")
 
+        measured += 1
+
     print()
+
+    # The loop above is the only place this gate looks at anything. If it ran
+    # fewer times than the cast it was handed, the tables printed above describe
+    # a subset and the verdict below would be about people nobody looked at.
+    if measured != len(people):
+        return die(
+            f"đo được {measured}/{len(people)} persona — vòng đo kết thúc sớm, "
+            f"phán quyết bên dưới sẽ nói về người chưa ai nhìn."
+        )
     if moved:
         print(
             "Số đổi giữa lúc đo — có lane khác đang ghi vào máy này:", file=sys.stderr
@@ -306,7 +340,10 @@ def main() -> int:
             print(f"    {line}", file=sys.stderr)
         return EXIT_DIRTY
 
-    print(f"SẠCH — cả {len(people)} persona demo chỉ có lịch sử trong {group_name!r}.")
+    print(
+        f"SẠCH — đo đủ {measured} persona demo (sàn {DEMO_CAST_SIZE}), "
+        f"cả {measured} chỉ có lịch sử trong {group_name!r}."
+    )
     return EXIT_OK
 
 
