@@ -58,6 +58,7 @@ import { ChiTietDiaDiem } from "./ChiTietDiaDiem";
 import type { NguoiDung } from "../../navigation/nhom-demo";
 import type { Nhom as NhomWire } from "../vao-cua/cong-api";
 import { DaiBanDo } from "./DaiBanDo";
+import { BanDoNhom } from "./BanDoNhom";
 import { MAX_QUERY_CHARS, askSearch, type TimKiemState } from "./tim-kiem";
 import {
   PLACES_BASE_URL,
@@ -82,7 +83,7 @@ const TAT_CA = "tat-ca";
  * the link below is a real action, not a decoration sized to never trigger. */
 const SO_THE_MAC_DINH = 4;
 
-export function KhamPha({ nguoi, nhom, diaDiemDau }: {
+export function KhamPha({ nguoi, nhom, diaDiemDau, moBanDoNgay, moDiemHenNgay }: {
   /** Who the app is acting as, passed down to the check-in card. Optional so
    *  the screen still renders for any caller that does not care -- including
    *  the detector runs, which load it cold. */
@@ -93,6 +94,12 @@ export function KhamPha({ nguoi, nhom, diaDiemDau }: {
    *  the list it names has arrived. Null opens the list, and so does an id no
    *  loaded place matches. */
   diaDiemDau?: string | null;
+  /** rd-fe-33. Open the group map as soon as the screen mounts, from
+   *  `#ban-do=1`. Unlike `diaDiemDau` this waits for nothing: the map fetches
+   *  its own three routes and does not need the catalogue to have arrived. */
+  moBanDoNgay?: boolean;
+  /** rd-fe-33. Open Điểm hẹn straight away, from `#ban-do=hen`. */
+  moDiemHenNgay?: boolean;
 } = {}) {
   const c = usePalette();
   const [state, setState] = useState<PlacesState>({ kind: "dang-tai" });
@@ -100,6 +107,9 @@ export function KhamPha({ nguoi, nhom, diaDiemDau }: {
   const [cau, setCau] = useState("");
   const [tim, setTim] = useState<TimKiemState>({ kind: "chua-tim" });
   const [dangXem, setDangXem] = useState<Place | null>(null);
+  // The group map (rd-fe-33). A full-screen sibling of the detail view rather
+  // than a fifth tab: it answers a question about the places on *this* tab.
+  const [moBanDo, setMoBanDo] = useState((moBanDoNgay ?? false) || (moDiemHenNgay ?? false));
   // Whether the grid is showing everything or just the first `SO_THE_MAC_DINH`.
   // Reset on every category change below, because "Xem tất cả" was a statement
   // about the list the person was looking at, not a standing preference.
@@ -176,6 +186,21 @@ export function KhamPha({ nguoi, nhom, diaDiemDau }: {
   // it for real. A substring stand-in beside the real thing would be two
   // different meanings for one box.
   const hienThi = useMemo(() => places.slice().sort(byMatchThenRating), [places]);
+
+  // Gated on `nguoi`, and the button below is too. All three group-map routes
+  // are member-gated, so opening this screen without an actor would produce a
+  // 403 that says "bạn không còn trong nhóm này" to somebody who never
+  // identified themselves in the first place -- true of the request, and
+  // misleading about why.
+  if (moBanDo && nguoi) {
+    return (
+      <BanDoNhom
+        nguoi={nguoi}
+        moDiemHenNgay={moDiemHenNgay ?? false}
+        onQuayLai={() => setMoBanDo(false)}
+      />
+    );
+  }
 
   if (dangXem) {
     return (
@@ -270,6 +295,19 @@ export function KhamPha({ nguoi, nhom, diaDiemDau }: {
                     "where are these" answer, and answering it about four of
                     twelve pins would be a different and worse answer. */}
                 <DaiBanDo places={hienThi} />
+
+                {/* The strip above draws the catalogue; this opens the same
+                    geography asked about *this group*. Kept as its own labelled
+                    button rather than by making the strip pressable: the strip
+                    is documented as one diagram with one name, and hanging a
+                    navigation action on it would give that name two meanings. */}
+                {nguoi ? (
+                  <Button
+                    label="Xem bản đồ của nhóm"
+                    tone="ghost"
+                    onPress={() => setMoBanDo(true)}
+                  />
+                ) : null}
               </>
             ) : null}
           </>

@@ -108,7 +108,10 @@ export const SCREENS = [
  * behind it does not.
  */
 export const MAN_KHAC = [
-  { step: "ky-niem", frag: `vao=ky-niem&nguoi=${NGUOI}`, needle: "Đã đi cùng nhau" },
+  /* `anh: 1` -- exactly one decoded photograph, which is the wall's whole
+   * subject and which its needle cannot speak for. See the check in
+   * `quet-tab-url.mjs` for what the number is doing and why it is a count. */
+  { step: "ky-niem", frag: `vao=ky-niem&nguoi=${NGUOI}`, needle: "Đã đi cùng nhau", anh: 1 },
   { step: "nhom", frag: `vao=nhom&nguoi=${NGUOI}`, needle: "Lập hội mới" },
   { step: "ban-be", frag: `vao=ban-be&nguoi=${NGUOI}`, needle: "Bạn bè (" },
   { step: "dia-diem", frag: `dia-diem=p-1&nguoi=${NGUOI}`, needle: "Khoảng giá" },
@@ -120,6 +123,34 @@ export const MAN_KHAC = [
   // purpose; `tests/quet-man-sau-nut.test.mjs` holds that difference so it
   // cannot be "tidied" into consistency with the rows above.
   { step: "dang-ky", frag: "vao=dang-ky", needle: "Vào Rủ Đi" },
+
+  /* rd-fe-33. The two map screens, and the reason they are here at all.
+   *
+   * `#ban-do=1` and `#ban-do=hen` shipped as URL-reachable in the same change
+   * that built these screens, and the commit said so -- but neither step was
+   * added to this list, so nothing measured them. Reachable by URL and
+   * measured by URL are different claims, and for one merge the first was
+   * being read as the second: ~780 lines of new screen, scanned by nothing,
+   * under a table that printed a clean row for every screen it did visit.
+   *
+   * Both needles are loaded-state text, and each says what it proves.
+   * "Nhóm hay tụ ở đâu" is the heatmap section heading, which needs `/heatmap`
+   * to have returned AND parsed AND held at least one district -- and it is
+   * the LAST section on the screen, so it cannot paint until everything above
+   * it has laid out. It does not by itself prove the `/map` half loaded; that
+   * half draws its own refusal panel independently. The two share one stub
+   * block and one 404 fallthrough, so the realistic failure takes both down
+   * together, and the els/chars columns move loudly when only one does.
+   *
+   * Điểm hẹn waits on "Ai xuất phát từ đâu", the origin picker, which renders
+   * only in the `co-du-lieu` branch of the `/areas` read. It is honestly what
+   * a cold link opens: the result cards need two origins chosen and a button
+   * pressed, so they are NOT in this row. That state is scanned separately as
+   * `diem-hen-ket-qua` in `quet-tab-url.mjs`; a needle here naming a
+   * candidate would be naming text this URL never reaches.
+   */
+  { step: "ban-do", frag: `ban-do=1&nguoi=${NGUOI}`, needle: "Nhóm hay tụ ở đâu" },
+  { step: "diem-hen", frag: `ban-do=hen&nguoi=${NGUOI}`, needle: "Ai xuất phát từ đâu" },
 ];
 
 /** Every screen this tool visits, tabs and links alike, in one list. */
@@ -353,6 +384,108 @@ export function installTabStubs(apiBase, fixtures) {
       });
     }
 
+    /* ---- Bản đồ nhóm, nhiệt độ quận, điểm hẹn (rd-fe-33, F43/F44/F45).
+     *
+     * `/areas` is ungated on the server and is answered the same way here.
+     * The other three are group-scoped, and the 404 fallthrough below is
+     * exactly what they hit before this block existed: the client reads 404
+     * as `chua-co-endpoint` and draws "Máy chủ này chưa có bản đồ nhóm", so
+     * both screens rendered a refusal panel. A scan of a refusal panel is
+     * short, quiet and scores zero findings, which is why the needle column
+     * for these two rows names text only the loaded screen prints.
+     *
+     * `/meet` is POST and is answered without reading the body. That is a
+     * deliberate limit and not an oversight: this stub photographs a screen,
+     * it does not re-implement `app/places/meeting.py`. The arithmetic tying
+     * origins to distances is the server's, and `tests/ban-do-nhom.test.mjs`
+     * is where the client's half of it is held. What this answer has to be is
+     * well-formed and stable, so the pixels under measurement are the app's.
+     */
+    if (route === "/areas") {
+      return json(fixtures.khuVuc);
+    }
+    if (route.endsWith("/map")) {
+      return json(fixtures.banDo);
+    }
+    if (route.endsWith("/heatmap")) {
+      return json(fixtures.nhietDo);
+    }
+    if (method === "POST" && route.endsWith("/meet")) {
+      // `origins` is ECHOED from the request, not replayed from the fixture.
+      // The server echoes because every kilometre in `travel` is measured from
+      // those centroids, and a screen that lists three districts the picker
+      // never offered is a screen contradicting itself in the one place a
+      // reader would check the arithmetic. `two_origin_inversion` is derived
+      // here for the same reason: it is a property of what was sent, and a
+      // hardcoded `false` would draw the answer on exactly the run that is
+      // supposed to withhold it behind the inversion warning.
+      let from = [];
+      try {
+        from = JSON.parse(init?.body ?? "{}").from_areas ?? [];
+      } catch {
+        /* no body, or not JSON; an empty origin list is the honest reading */
+      }
+      const bang = Object.fromEntries(fixtures.khuVuc.map((k) => [k.id, k]));
+      const origins = from.map((id) => bang[id]).filter(Boolean);
+      const candidates = fixtures.diemHen.candidates.map((ung) => {
+        const travel = origins.map((o) => ({ ...o, km: ung.km_theo_khu[o.id] ?? 0 }));
+        const kms = travel.map((t) => t.km);
+        const r1 = (n) => Math.round(n * 10) / 10;
+        return {
+          place_id: ung.place_id,
+          place_name: ung.place_name,
+          category: ung.category,
+          address: ung.address,
+          lat: ung.lat,
+          lng: ung.lng,
+          fairness: {
+            worst_km: r1(Math.max(0, ...kms)),
+            total_km: r1(kms.reduce((a, b) => a + b, 0)),
+            spread_km: r1(Math.max(0, ...kms) - Math.min(...(kms.length ? kms : [0]))),
+          },
+          travel,
+        };
+      });
+      // Ranked on `worst_km`, the same key the server sorts on and the key the
+      // screen's "Cân bằng nhất" badge is pinned to the first row by. Leaving
+      // the fixture order would put that badge on whichever candidate happens
+      // to be written first, which is the badge saying something false.
+      candidates.sort((a, b) => a.fairness.worst_km - b.fairness.worst_km);
+      return json({
+        context_id: fixtures.contextId,
+        origins,
+        candidates,
+        two_origin_inversion: new Set(from).size === 2,
+      });
+    }
+
+    /* ---- The wall's photograph bytes (rd-fe-33).
+     *
+     * Matched here rather than beside `/memories` because this address carries
+     * no `memories` segment and is not a JSON route at all: it answers image
+     * bytes, and `json()` would hand `<Image>` a body it cannot decode.
+     *
+     * An id this fixture does not carry gets 404 -- the same answer the server
+     * gives for a photograph that is not there, and the answer the second wall
+     * row depends on to keep drawing its stand-in. Serving every id would erase
+     * that half of the frame.
+     *
+     * See `anhTheoId` in `taoFixtures` for why this route has to exist at all. */
+    const anhWall = route.match(/^\/contexts\/[^/]+\/photos\/([^/]+)$/);
+    if (anhWall) {
+      const b64 = fixtures.anhTheoId?.[anhWall[1]];
+      if (!b64) {
+        return json({ code: "photo_not_found", detail: "không có ảnh này" }, 404);
+      }
+      const nhiPhan = atob(b64);
+      const bytes = new Uint8Array(nhiPhan.length);
+      for (let i = 0; i < nhiPhan.length; i++) bytes[i] = nhiPhan.charCodeAt(i);
+      return new Response(new Blob([bytes], { type: "image/png" }), {
+        status: 200,
+        headers: { "Content-Type": "image/png" },
+      });
+    }
+
     // Reached only by a route this file does not know about. Answering 404
     // rather than a plausible empty body keeps an unstubbed call loud.
     return json({ detail: `tab-snapshots: unstubbed ${method} ${route}` }, 404);
@@ -380,7 +513,7 @@ export function installTabStubs(apiBase, fixtures) {
  * chunks would be worse. A PNG is a signature plus length/type/data/CRC
  * chunks; `zlib.crc32` and `zlib.deflateSync` do the two hard parts.
  */
-function vietPngThu(file, w = 480, h = 360) {
+function pngThuBytes(w = 480, h = 360) {
   const raw = Buffer.alloc(h * (w * 3 + 1));
   let o = 0;
   for (let y = 0; y < h; y++) {
@@ -411,15 +544,18 @@ function vietPngThu(file, w = 480, h = 360) {
   ihdr.writeUInt32BE(h, 4);
   ihdr[8] = 8; // bit depth
   ihdr[9] = 2; // colour type: truecolour
-  fs.writeFileSync(
-    file,
-    Buffer.concat([
-      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-      chunk("IHDR", ihdr),
-      chunk("IDAT", zlib.deflateSync(raw)),
-      chunk("IEND", Buffer.alloc(0)),
-    ]),
-  );
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", zlib.deflateSync(raw)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+/** The same bytes, on disk. Place photographs are loaded by the browser itself
+ *  rather than through the fetch stub, so that one address needs a file. */
+function vietPngThu(file, w = 480, h = 360) {
+  fs.writeFileSync(file, pngThuBytes(w, h));
 }
 
 /**
@@ -749,6 +885,33 @@ export function taoFixtures() {
         viewer_has_reacted: true,
       },
     ],
+    /* The wall's photograph bytes, keyed by the photo id in `image_url`.
+     *
+     * rd-fe-33. Wall photographs are permission-checked: `Anh` is given
+     * `nguoiXem={personId}`, so it does NOT hand the address to an `<Image>` --
+     * it calls `taiAnhCoQuyen`, which `fetch`es the bytes with the actor header
+     * and paints a `blob:` URL. That fetch goes through this stub, and this
+     * stub had no photo route, so both rows fell through to the 404 at the
+     * bottom and `Anh` absorbed it into its stand-in.
+     *
+     * The effect was a wall of grey frames scanned under the wall's own name.
+     * Measured before this block existed: `#vao=ky-niem` rendered ZERO `<img>`
+     * elements and logged two `/photos/... -> 404`, while the detector reported
+     * `ky-niem findings=0 ... needle OK` -- the needle is recap text and paints
+     * whether or not a photograph ever arrived. A surface nobody had measured,
+     * under a row that read as measured.
+     *
+     * Only the FIRST row is served. The second keeps its 404 on purpose, so one
+     * frame holds a real photograph and the next holds the stand-in: a wall
+     * where every row is the same state cannot tell a working image path from a
+     * dead one. `main()` asserts exactly that split rather than "some image
+     * appeared", which is what makes serving everything fail too.
+     *
+     * Base64 because this object is JSON-serialised into the page ahead of the
+     * bundle; a Buffer would arrive as `{"type":"Buffer","data":[...]}`. */
+    anhTheoId: {
+      "5dd00000-dddd-4ddd-8ddd-0000d0000002": pngThuBytes(320, 240).toString("base64"),
+    },
     // Comments that already exist, keyed by the memory they hang under. Only
     // the first photograph has one, which is what makes its `comment_count: 1`
     // a claim the GET can be checked against rather than a number nobody reads.
@@ -803,6 +966,157 @@ export function taoFixtures() {
           context_name: "Hội Đà Lạt",
           occasion: "Lẩu gà lá é",
           occurred_at: "2026-08-28T13:00:00Z",
+        },
+      ],
+    },
+
+    /* ---- rd-fe-33. Bản đồ nhóm, nhiệt độ quận, điểm hẹn (F43/F44/F45).
+     *
+     * Three screens' worth of data, and the field names are the server's, not
+     * a convenient paraphrase: `parseBanDoNhom`, `parseNhietDo` and
+     * `parseDiemHen` in `screens/kham-pha/ban-do-nhom.ts` read `place_id`,
+     * `share_percent`, `two_origin_inversion` and the rest by those exact
+     * names and throw on anything missing. A misnamed key here does not
+     * degrade quietly -- it renders the "Dữ liệu bản đồ không đúng dạng"
+     * panel, the needle check below fails, and the run refuses to report.
+     * That is the intended failure: a fixture that has drifted from the
+     * schema cannot be mistaken for a screen that has a layout problem.
+     *
+     * The district ids are the real eight from `app/places/areas.py`, read off
+     * that module rather than invented, because `POST /contexts/{id}/meet`
+     * answers 422 for an id it does not know and the picker offers exactly
+     * what `/areas` returns. Inventing ids here would build a fixture that
+     * the real server would reject, which is the drift this stub exists to
+     * avoid.
+     */
+    khuVuc: [
+      { id: "da-lat", label: "Đà Lạt", lat: 11.9429, lng: 108.4428 },
+      { id: "hcm-quan-1", label: "Quận 1, TP.HCM", lat: 10.7769, lng: 106.7009 },
+      { id: "hcm-quan-3", label: "Quận 3, TP.HCM", lat: 10.784, lng: 106.687 },
+      { id: "hcm-quan-4", label: "Quận 4, TP.HCM", lat: 10.759, lng: 106.705 },
+    ],
+
+    // `unavailable` carries a row on purpose. The "saved" layer is declared
+    // rather than served, and `BanDoNhom` draws a card naming it -- an empty
+    // array here would photograph a map that quietly has three layers instead
+    // of one that says out loud which fourth it does not have.
+    banDo: {
+      context_id: contextId,
+      visited: [
+        {
+          place_id: "p-1",
+          place_name: "Tiệm Nướng Xóm Lào",
+          lat: 11.9404,
+          lng: 108.4419,
+          visit_count: 6,
+        },
+        {
+          place_id: "p-2",
+          place_name: "Cà phê Vườn",
+          lat: 11.9451,
+          lng: 108.4382,
+          visit_count: 3,
+        },
+      ],
+      trending: [
+        {
+          place_id: "p-3",
+          place_name: "Lẩu gà lá é Tao Ngộ",
+          lat: 11.9388,
+          lng: 108.4471,
+          rating: 4.6,
+          rating_count: 218,
+        },
+      ],
+      recommended: [
+        {
+          place_id: "p-4",
+          place_name: "Bánh căn Nhà Chung",
+          lat: 11.9462,
+          lng: 108.4395,
+          rating: 4.4,
+          rating_count: 91,
+        },
+      ],
+      unavailable: [
+        { layer: "saved", reason: "Chưa có chỗ nào được lưu, và màn lưu chỗ chưa dựng." },
+      ],
+      scanned_checkins: 42,
+      truncated: false,
+    },
+
+    // `unknown_area_count` is not zero, because the sentence disclosing it is
+    // a line of copy on the screen and a zero would hide it from every scan.
+    nhietDo: {
+      context_id: contextId,
+      areas: [
+        {
+          id: "da-lat",
+          label: "Đà Lạt",
+          lat: 11.9429,
+          lng: 108.4428,
+          visit_count: 22,
+          share_percent: 61,
+        },
+        {
+          id: "hcm-quan-1",
+          label: "Quận 1, TP.HCM",
+          lat: 10.7769,
+          lng: 106.7009,
+          visit_count: 9,
+          share_percent: 25,
+        },
+        {
+          id: "hcm-quan-3",
+          label: "Quận 3, TP.HCM",
+          lat: 10.784,
+          lng: 106.687,
+          visit_count: 5,
+          share_percent: 14,
+        },
+      ],
+      resolved_checkins: 36,
+      unknown_area_count: 6,
+      scanned_checkins: 42,
+      truncated: false,
+    },
+
+    /* The meeting-point answer, stored as distances PER DISTRICT rather than
+     * as a finished `travel` list.
+     *
+     * The screen prints one leg per origin, and the origins are whatever the
+     * picker was driven to choose -- which is not known when this fixture is
+     * written. A canned `travel` list would therefore render legs for
+     * districts nobody selected, on the one screen whose entire purpose is
+     * showing that the distances are fair to the people present. That is a
+     * fixture contradicting itself in the exact place a reader checks.
+     *
+     * So `km_theo_khu` is a lookup, and the stub builds `travel` and
+     * `fairness` from it against the origins actually sent. That is arithmetic
+     * over a table, not a second copy of `app/places/meeting.py`: no distance
+     * is computed here, only selected, summed and ranged. The real geometry
+     * stays on the server, where `tests/api/test_areas.py` holds it.
+     */
+    diemHen: {
+      context_id: contextId,
+      candidates: [
+        {
+          place_id: "p-5",
+          place_name: "Quán Cơm Niêu Sài Gòn",
+          category: "quan-an-local",
+          address: "148 Nguyễn Đình Chiểu, Quận 3, TP.HCM",
+          lat: 10.7825,
+          lng: 106.6889,
+          km_theo_khu: { "da-lat": 231.4, "hcm-quan-1": 4.0, "hcm-quan-3": 0.8, "hcm-quan-4": 3.1 },
+        },
+        {
+          place_id: "p-6",
+          place_name: "Cà phê Thềm Xưa",
+          category: "cafe",
+          address: "31 Lê Thánh Tôn, Quận 1, TP.HCM",
+          lat: 10.7776,
+          lng: 106.7015,
+          km_theo_khu: { "da-lat": 233.9, "hcm-quan-1": 0.1, "hcm-quan-3": 4.6, "hcm-quan-4": 2.2 },
         },
       ],
     },
@@ -865,23 +1179,28 @@ async function main() {
       args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
     });
 
-    // rd-fe-25. The first wall row's bytes, so the memory grid holds a real
-    // photograph. The second row's address is deliberately NOT served, so the
-    // same grid also holds the stand-in -- both states in one snapshot.
-    const anhKyNiemUrl = API_BASE + fixtures.kyNiem[0].image_url;
-
     for (const { step, frag, needle } of moiMan()) {
       const page = await browser.newPage();
       page.setDefaultTimeout(30000);
       const pageErrors = [];
       page.on("pageerror", (err) => pageErrors.push(String(err)));
 
-      // The photograph is the one request that does NOT go through the fetch
-      // stub: an <Image> loads it itself. `api.build-check.invalid` resolves
-      // nowhere on purpose, so it is answered here instead.
+      /* The PLACE photograph is the one request that does not go through the
+       * fetch stub: it is unauthenticated, so `Anh` hands the address straight
+       * to an `<Image>` and the browser loads it itself.
+       * `api.build-check.invalid` resolves nowhere on purpose, so it is
+       * answered here instead.
+       *
+       * The wall photograph used to be answered here too and no longer is,
+       * because it never could be: `taiAnhCoQuyen` calls the patched
+       * `window.fetch`, which returns a synthetic Response without ever
+       * reaching the network layer this handler sits on. That branch had been
+       * dead for as long as wall photographs have been permission-checked, and
+       * it read as the thing keeping them alive. Wall bytes now come from the
+       * stub's own photo route, which is the only place that can serve them. */
       await page.setRequestInterception(true);
       page.on("request", (req) => {
-        if (req.url() === anhThuUrl || req.url() === anhKyNiemUrl) {
+        if (req.url() === anhThuUrl) {
           req.respond({ status: 200, contentType: "image/png", body: anhThuBytes });
           return;
         }
@@ -940,25 +1259,42 @@ async function main() {
       // first row is asserted to have decoded AND the picker is asserted to be
       // on screen -- a wall nobody can add to is not the feature.
       if (step === "ky-niem") {
-        const daTai = await page.evaluate(async (src) => {
+        /* The address is NOT what to look for here, and looking for it is how
+         * this check spent its life passing nothing.
+         *
+         * Wall photographs are permission-checked, so `Anh` never points an
+         * `<Image>` at the API: `taiAnhCoQuyen` fetches the bytes with the
+         * actor header and the frame is handed a `blob:` URL. An `<img>` whose
+         * `src` equals `anhKyNiemUrl` therefore cannot exist on this screen --
+         * the old check asked for one, got `srcs: []`, and reported the failure
+         * as "tường ảnh không còn render", blaming the screen for a hole in the
+         * stub feeding it.
+         *
+         * So: count the frames that actually decoded, and require EXACTLY one.
+         * Both wall rows carry an `image_url`; only the first has bytes behind
+         * it. One decoded frame means the fetch-with-header path works AND the
+         * stand-in path still draws, which is the pair this snapshot exists to
+         * show. Zero means the photo route regressed; two means the stub grew
+         * an answer for everything and the stand-in half is gone. */
+        const daTai = await page.evaluate(async () => {
           const imgs = [...document.querySelectorAll("img")];
-          const anh = imgs.find((i) => i.src === src || i.currentSrc === src);
+          await Promise.all(imgs.map((i) => (i.complete ? null : i.decode().catch(() => {}))));
+          const giaiMa = imgs
+            .filter((i) => i.naturalWidth > 0)
+            .map((i) => ({ src: i.src.slice(0, 24), w: i.naturalWidth, h: i.naturalHeight }));
           const nut = [...document.querySelectorAll('[role="button"]')].map(
             (b) => b.getAttribute("aria-label") ?? b.textContent,
           );
-          if (!anh) return { found: false, srcs: imgs.map((i) => i.src).slice(0, 5), nut };
-          if (!anh.complete) await anh.decode().catch(() => {});
-          return { found: true, width: anh.naturalWidth, height: anh.naturalHeight, nut };
-        }, anhKyNiemUrl);
-        if (!daTai.found) {
+          return { tong: imgs.length, giaiMa, srcs: imgs.map((i) => i.src.slice(0, 40)), nut };
+        });
+        if (daTai.giaiMa.length !== 1) {
           throw new Error(
-            `ky-niem: khong tim thay <img> cho ${anhKyNiemUrl}. ` +
-              `Cong origin tu choi dia chi nay, hoac tuong anh khong con render. ` +
+            `ky-niem: can DUNG 1 anh giai ma duoc tren tuong, dang co ${daTai.giaiMa.length} ` +
+              `(tong <img> = ${daTai.tong}). 0 = route anh trong stub hong hoac ` +
+              `\`Anh\` khong con tai duoc; 2 = stub tra byte cho ca hai hang va ` +
+              `nua "cho san" cua khung anh da bien mat. ` +
               `src dang co: ${JSON.stringify(daTai.srcs)}`,
           );
-        }
-        if (!daTai.width) {
-          throw new Error(`ky-niem: <img> ${anhKyNiemUrl} khong giai ma duoc (naturalWidth=0)`);
         }
         const coNutThem = daTai.nut.some((n) => n && n.includes("ảnh"));
         if (!coNutThem) {
@@ -967,7 +1303,15 @@ async function main() {
               `role=button dang co: ${JSON.stringify(daTai.nut)}`,
           );
         }
-        console.log(`  anh ky niem da tai that: ${daTai.width}x${daTai.height}, co nut chon anh`);
+        const khung = daTai.giaiMa[0];
+        // The stand-in is a drawn View, not an empty <img>, so the second wall
+        // row contributes no element to count here. "One decoded frame out of
+        // two rows" is the whole statement, and it is the assertion above that
+        // makes it -- this line only prints what that assertion accepted.
+        console.log(
+          `  anh ky niem da tai that: ${khung.w}x${khung.h} qua ${khung.src}..., ` +
+            `hang thu hai ve cho san (${daTai.tong} <img> cho 2 hang), co nut chon anh`,
+        );
       }
 
       await snapshot(page, outDir, step);

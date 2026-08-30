@@ -65,6 +65,8 @@ export function AppRoot({ renderKhoanChi }: {
       nhomId={diemDen.nhomId}
       banQuetDuoc={diemDen.ban}
       diaDiemDau={diemDen.diaDiem}
+      moBanDoNgay={diemDen.banDo}
+      moDiemHenNgay={diemDen.diemHen}
       renderKhoanChi={renderKhoanChi}
     />
   );

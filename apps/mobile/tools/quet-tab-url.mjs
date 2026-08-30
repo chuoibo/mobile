@@ -259,20 +259,65 @@ const MAN_TUONG_TAC = [
     frag: `vao=ky-niem&nguoi=${NGUOI}`,
     bam: "☰",
     needle: "Quang Huy",
+    // Same wall, comment panel open. The photograph is still on screen behind
+    // it, so the count is the same one `ky-niem` is held to.
+    anh: 1,
+  },
+  /* rd-fe-33. Điểm hẹn's answer, which is the whole feature and which no cold
+   * URL reaches: the button that asks for it is disabled until two people have
+   * been placed, so `ban-do=hen` alone only ever renders the picker.
+   *
+   * Three presses, and "+" twice is not a typo -- each press adds one person to
+   * the first district, and two people is the minimum the request accepts.
+   * Both start from Đà Lạt, which makes this one origin rather than two, and
+   * that is deliberate: with two DISTINCT areas the answer is invertible and
+   * `DiemHen` withholds the result behind the inversion warning, so a
+   * two-district selection would scan the warning under this filename.
+   *
+   * The needle is "Cân bằng nhất", the badge on the winning candidate. It is
+   * printed by nothing else on the screen and cannot render before the answer
+   * arrives, so a press that missed cannot pass as a result.
+   */
+  {
+    step: "diem-hen-ket-qua",
+    frag: `ban-do=hen&nguoi=${NGUOI}`,
+    bam: ["+", "+", "Tìm chỗ gặp"],
+    needle: "Cân bằng nhất",
   },
 ];
 
-/** Serialised into the page, so it can reference nothing outside itself. */
-function tuDongBam(tienTo) {
+/** Serialised into the page, so it can reference nothing outside itself.
+ *
+ * `chuoiBam` is a LIST of prefixes pressed in order, each one waited for
+ * separately. One press was enough while every interactive state on this app
+ * was one button away from a cold URL, but Điểm hẹn's result is three: two
+ * origins have to be chosen before "Tìm chỗ gặp" stops being disabled. Pressing
+ * them in a single pass without re-waiting would click a control that the
+ * previous press had not yet caused to render, and the miss would surface as a
+ * needle failure naming the wrong cause.
+ *
+ * Each step waits for a control whose text starts with the prefix AND which is
+ * not disabled -- the button here spends its first two presses disabled, and
+ * clicking a disabled button succeeds silently while doing nothing.
+ */
+function tuDongBam(chuoiBam) {
+  const buoc = Array.isArray(chuoiBam) ? chuoiBam : [chuoiBam];
   const t0 = Date.now();
+  let i = 0;
   (function poll() {
-    const el = [...document.querySelectorAll("button, [role='button']")].find((n) =>
-      n.textContent.replace(/\s+/g, " ").trim().startsWith(tienTo),
-    );
+    if (i >= buoc.length) return;
+    const el = [...document.querySelectorAll("button, [role='button']")].find((n) => {
+      if (n.disabled || n.getAttribute("aria-disabled") === "true") return false;
+      return n.textContent.replace(/\s+/g, " ").trim().startsWith(buoc[i]);
+    });
     if (el) {
       el.scrollIntoView({ block: "center", inline: "nearest" });
       if (document.scrollingElement) document.scrollingElement.scrollLeft = 0;
       el.click();
+      i += 1;
+      // Back through the poller rather than straight on to the next prefix:
+      // the control the next step wants is usually rendered BY this click.
+      setTimeout(poll, 60);
       return;
     }
     // Give up quietly. The needle check downstream is what turns a missed press
@@ -459,11 +504,18 @@ async function kiemManHinh(browser, url, needle) {
       { timeout: 20000 },
       needle,
     ).catch(() => {});
-    const r = await page.evaluate(() => ({
-      text: (document.body.innerText || "").replace(/\s+/g, " ").trim(),
-      els: document.querySelectorAll("*").length,
-    }));
-    return { co: r.text.includes(needle), chars: r.text.length, els: r.els, loi };
+    const r = await page.evaluate(async () => {
+      const imgs = [...document.querySelectorAll("img")];
+      await Promise.all(imgs.map((i) => (i.complete ? null : i.decode().catch(() => {}))));
+      return {
+        text: (document.body.innerText || "").replace(/\s+/g, " ").trim(),
+        els: document.querySelectorAll("*").length,
+        // Frames the browser got real pixels for. An `<img>` that 404'd has
+        // naturalWidth 0 and is not one of these.
+        anh: imgs.filter((i) => i.naturalWidth > 0).length,
+      };
+    });
+    return { co: r.text.includes(needle), chars: r.text.length, els: r.els, anh: r.anh, loi };
   } finally {
     await page.close();
   }
@@ -585,7 +637,7 @@ async function main() {
       `\n== ${moiMan().length} man tu URL + ${MAN_TUONG_TAC.length} man sau khi bam, tren trang that ==`,
     );
     const bangKe = [];
-    for (const { step, frag, needle } of [...moiMan(), ...MAN_TUONG_TAC]) {
+    for (const { step, frag, needle, anh } of [...moiMan(), ...MAN_TUONG_TAC]) {
       const url = `${goc}/__quet-${step}.html#${frag}`;
 
       const man = await kiemManHinh(browser, url, needle);
@@ -594,6 +646,29 @@ async function main() {
           `${step}: khong thay "${needle}" tren trang da render. Man dang o trang thai loi ` +
             `hoac stub thieu route, nen mot so 0 o day se la so 0 cua panel loi. ` +
             `(els=${man.els} chars=${man.chars}${man.loi.length ? ` loi=${man.loi[0].slice(0, 120)}` : ""})`,
+        );
+      }
+      /* The needle proves TEXT arrived. On a screen whose subject is a
+       * photograph it proves nothing about the photograph, and this run has
+       * already shipped that gap once: `ky-niem`'s needle is recap text that
+       * paints whether or not a single image loaded, so two `/photos/... 404`s
+       * and a wall of grey stand-ins scored `findings=0 ... needle OK` for as
+       * long as wall photographs have been permission-checked.
+       *
+       * A count rather than a boolean, because "some image appeared" is also
+       * true of a wall serving bytes for every row, and that erases the
+       * stand-in half the fixture is built to show. Rows without `anh` are
+       * screens with nothing to decode and are not asked the question. */
+      if (typeof anh === "number" && man.anh !== anh) {
+        const viSao =
+          man.anh < anh
+            ? `Thieu anh: so findings duoi day se la so cua mot man KHONG co anh, ghi duoi ` +
+              `ten mot man co anh. Kiem route /contexts/{id}/photos/{id} trong installTabStubs.`
+            : `Thua anh: khung "cho san" da bien mat khoi man, nen mot nua trang thai ma ` +
+              `fixture dung ra phai bay ra dang khong duoc quet. Kiem \`anhTheoId\`.`;
+        throw new Error(
+          `${step}: can ${anh} anh giai ma duoc, dang co ${man.anh}. ${viSao} ` +
+            `(els=${man.els} chars=${man.chars})`,
         );
       }
 
@@ -608,10 +683,23 @@ async function main() {
       // buried count. The rest are printed, never dropped in silence.
       const { that, aoAnh } = await loc(browser, url, needle, findings);
       bad += that.length;
-      bangKe.push({ step, findings: that, aoAnh, status, chars: man.chars, els: man.els });
+      // `anh` rides along into the JSON so a reader of `ket-qua.json` can tell a
+      // measured photo surface from one that scored 0 with nothing on it. That
+      // distinction is invisible in a findings count, which is how it was
+      // missed the first time.
+      bangKe.push({
+        step,
+        findings: that,
+        aoAnh,
+        status,
+        chars: man.chars,
+        els: man.els,
+        anh: man.anh,
+      });
       console.log(
         `  ${step.padEnd(10)} findings=${String(that.length).padStart(2)} exit=${status}` +
-          `  (da render: els=${man.els} chars=${man.chars}, needle OK)`,
+          `  (da render: els=${man.els} chars=${man.chars}, needle OK` +
+          `${typeof anh === "number" ? `, ${man.anh} anh giai ma duoc` : ""})`,
       );
       for (const f of that) {
         console.log(`      [${f.severity}] ${f.antipattern}: ${(f.snippet ?? "").slice(0, 150)}`);
