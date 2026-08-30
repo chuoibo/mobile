@@ -104,6 +104,7 @@ def _by_identity(guards: dict[str, object]) -> dict[int, list[str]]:
         grouped.setdefault(id(guard), []).append(name)
     return grouped
 
+
 # Invented here rather than read from the shipped catalogue: what is under test
 # is a counter, and a test that also depended on which places the product ships
 # would go red the day somebody edits a seed file.
@@ -382,11 +383,7 @@ def test_every_door_onto_the_model_carries_its_own_guard():
 
     guards = _model_guards(create_app())
 
-    shared = [
-        names
-        for names in _by_identity(guards).values()
-        if len(names) > 1
-    ]
+    shared = [names for names in _by_identity(guards).values() if len(names) > 1]
 
     assert not shared, f"doors sharing one guard object: {shared}"
 

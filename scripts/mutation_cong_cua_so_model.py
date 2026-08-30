@@ -231,10 +231,15 @@ def main() -> int:
                 restore()
             rows.append((mutation, new_green, legacy_green))
             print(f"\n{mutation.name}")
-            print(textwrap.fill(mutation.why, 78, initial_indent="  ",
-                                subsequent_indent="  "))
-            print(f"  cổng mới: {'XANH' if new_green else 'ĐỎ'}"
-                  f"   cổng cũ: {'XANH' if legacy_green else 'ĐỎ'}")
+            print(
+                textwrap.fill(
+                    mutation.why, 78, initial_indent="  ", subsequent_indent="  "
+                )
+            )
+            print(
+                f"  cổng mới: {'XANH' if new_green else 'ĐỎ'}"
+                f"   cổng cũ: {'XANH' if legacy_green else 'ĐỎ'}"
+            )
 
         print("\n" + "=" * 78)
         failures = []
@@ -247,9 +252,7 @@ def main() -> int:
                 if new_green:
                     failures.append(f"{mutation.name}: cổng MỚI không bắt được")
             elif not new_green:
-                failures.append(
-                    f"{mutation.name}: đối chứng phải XANH mà lại ĐỎ"
-                )
+                failures.append(f"{mutation.name}: đối chứng phải XANH mà lại ĐỎ")
 
         print(f"đột biến phá tính chất: {breakers}")
         print(f"  cổng mới bắt được: {caught_new}/{breakers}")
