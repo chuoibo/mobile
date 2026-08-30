@@ -100,7 +100,10 @@ for pid, name in NAMES.items():
 status, fr = call("POST", "/friends/requests", actor=AN, body={"addressee_id": BAN})
 must("An gui loi moi ket ban toi Ban", status == 201, f"status={status} {fr}")
 status, fr2 = call(
-    "POST", f"/friends/requests/{fr['id']}/respond", actor=BAN, body={"decision": "accept"}
+    "POST",
+    f"/friends/requests/{fr['id']}/respond",
+    actor=BAN,
+    body={"decision": "accept"},
 )
 must("Ban chap nhan", status == 200, f"status={status} {fr2}")
 
@@ -179,7 +182,9 @@ rows = page["posts"] if isinstance(page, dict) else []
 check("Duyen khai minh o trong nhom -> feed", audiences_in(rows), {"public"})
 status, _ = call("GET", f"/posts/{POSTS['group']}", actor=DUYEN, contexts=GROUP)
 check("Duyen khai o trong nhom -> doc bai group", status, 404)
-status, page = call("GET", "/posts", actor=DUYEN, contexts=GROUP, roles="group_admin,member")
+status, page = call(
+    "GET", "/posts", actor=DUYEN, contexts=GROUP, roles="group_admin,member"
+)
 rows = page["posts"] if isinstance(page, dict) else []
 check("Duyen tu phong group_admin -> feed", audiences_in(rows), {"public"})
 
@@ -204,7 +209,9 @@ status, _ = call("POST", "/posts", actor=AN, body={"body": "x", "audience": "gro
 check("group thieu context_id", status, 422)
 
 print("\n== Bai group cua nhom NGUOI KHAC: Cuong khong doc duoc ==")
-status, ctx2 = call("POST", "/contexts", actor=DUYEN, body={"display_name": "Nhom khac"})
+status, ctx2 = call(
+    "POST", "/contexts", actor=DUYEN, body={"display_name": "Nhom khac"}
+)
 GROUP2 = ctx2["id"]
 status, p2 = call(
     "POST",
@@ -217,7 +224,9 @@ status, _ = call("GET", f"/posts/{p2['id']}", actor=CUONG)
 check("Cuong doc bai nhom khac", status, 404)
 status, page = call("GET", "/posts", actor=CUONG)
 rows = page["posts"] if isinstance(page, dict) else []
-check("bai nhom khac lot vao feed Cuong", sum(1 for r in rows if r["id"] == p2["id"]), 0)
+check(
+    "bai nhom khac lot vao feed Cuong", sum(1 for r in rows if r["id"] == p2["id"]), 0
+)
 
 print("\n== Roi nhom thi mat quyen doc (group phan giai luc DOC) ==")
 # The existing route only lets a person remove themselves (`is_self`), so
