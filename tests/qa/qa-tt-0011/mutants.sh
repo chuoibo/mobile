@@ -142,7 +142,7 @@ old = """        self._require_participants_are_members(
 assert old in s, "call site not found"
 assert s.count(old) == 1, "anchor is not unique"
 s = s.replace(old, "", 1)
-' red green green
+' red red green
 
 # 2. HALF THE FIX, UNDONE: the storage half. `POST /bills` accepts a stranger
 #    again. Anchored on the guard itself rather than on the permission check
@@ -198,6 +198,51 @@ assert old in s, "mapping not found"
 assert s.count(old) == 1, "anchor is not unique"
 s = s.replace(old, new, 1)
 ' green green green
+
+# 5. THE ACTOR CHECK `#253` PUT ON `create_bill`, REMOVED. The two empty-roster
+#    cases are pinned to this door: without it the payer gets in, and the
+#    refusal they name stops happening. Before those cases asserted a door this
+#    row was GREEN on the live tier -- which is what made the tier inert.
+#
+#    The anchor carries the whole `def` line. `is_member(request.context_id,
+#    actor.id)` alone appears twice in this file, and a `.replace(..., 1)` on it
+#    lands on whichever came first rather than on the door being tested.
+mutant "actor check removed from create_bill" '
+old = """    def create_bill(self, request: BillCreateRequest, actor: Actor) -> BillResponse:
+        _require_permission(
+            \"confirm_expense_proposal\",
+            actor,
+            {
+                \"is_group_member\": self.repository.is_member(
+                    request.context_id, actor.id
+                )
+            },
+        )"""
+assert old in s, "create_bill head not found"
+assert s.count(old) == 1, "anchor is not unique"
+s = s.replace(old, old.replace("""self.repository.is_member(
+                    request.context_id, actor.id
+                )""", "True"), 1)
+' green red green
+
+# 6. THE ACTOR CHECK ON THE READ PATH `split_bill` GOES THROUGH. This is what
+#    makes an emptied roster a refusal instead of a trip into the allocator, so
+#    it is the door the emptied-roster case names. Same anchoring rule as row 5.
+mutant "actor check removed from _bill_for_actor" '
+old = """    def _bill_for_actor(self, bill_id: uuid.UUID, actor: Actor) -> BillRecord:
+        record = self.repository.get_bill(bill_id)
+        if record is None:
+            raise ApiProblem(404, \"bill_not_found\", \"Bill does not exist\")
+        _require_permission(
+            \"confirm_expense_proposal\",
+            actor,
+            {\"is_group_member\": self.repository.is_member(record.context_id, actor.id)},
+        )"""
+assert old in s, "_bill_for_actor not found"
+assert s.count(old) == 1, "anchor is not unique"
+s = s.replace(old, old.replace(
+    "self.repository.is_member(record.context_id, actor.id)", "True"), 1)
+' green red green
 
 echo
 if [[ $FAILURES -eq 0 ]]; then

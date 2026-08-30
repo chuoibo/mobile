@@ -60,8 +60,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from typing import NamedTuple
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.api.deps import Actor
@@ -159,19 +161,28 @@ def _bill_request(
     )
 
 
-def _money_reaching(
+class Walk(NamedTuple):
+    """What a walk of the two doors actually did.
+
+    `allocations` alone cannot judge the two empty-roster cases. An empty dict
+    comes back both when the stranger was refused and when the *payer* was
+    refused, and those are different products: the second satisfies "no
+    stranger was paid" without the stranger ever being considered. Recording
+    the door and the code keeps them apart.
+    """
+
+    refused_at: str | None
+    code: str | None
+    allocations: dict[uuid.UUID, int]
+
+
+def _walk(
     session: Session,
     context_id: uuid.UUID,
     payer_id: uuid.UUID,
     pho_owner: uuid.UUID,
-) -> dict[uuid.UUID, int]:
-    """Walk `POST /bills` then `POST /bills/{id}/split` and return who got paid.
-
-    A refusal at either door means nobody was allocated anything, which is the
-    property under test being satisfied -- so it maps to an empty dict rather
-    than to an error. That keeps this usable no matter which door the eventual
-    fix puts the guard behind.
-    """
+) -> Walk:
+    """Walk `POST /bills` then `POST /bills/{id}/split` and report both doors."""
 
     service = ApiService(SqlAlchemyApiRepository(session))
     actor = Actor(id=payer_id, roles=ROLES, context_ids=frozenset({context_id}))
@@ -180,15 +191,26 @@ def _money_reaching(
         bill = service.create_bill(
             _bill_request(context_id, pho_owner, payer_id), actor
         )
-    except ApiProblem:
-        return {}
+    except ApiProblem as exc:
+        return Walk("create_bill", exc.code, {})
 
     try:
         split = service.split_bill(bill.id, BillSplitRequest(for_ledger=False), actor)
-    except ApiProblem:
-        return {}
+    except ApiProblem as exc:
+        return Walk("split_bill", exc.code, {})
 
-    return dict(split.allocation.allocations)
+    return Walk(None, None, dict(split.allocation.allocations))
+
+
+def _money_reaching(
+    session: Session,
+    context_id: uuid.UUID,
+    payer_id: uuid.UUID,
+    pho_owner: uuid.UUID,
+) -> dict[uuid.UUID, int]:
+    """Who got paid, for the cases that only care about the money."""
+
+    return _walk(session, context_id, payer_id, pho_owner).allocations
 
 
 def test_a_group_with_members_splits_its_own_bill(postgres_session: Session):
@@ -227,31 +249,116 @@ def test_a_stranger_is_refused_while_the_roster_is_not_empty(
 def test_no_membership_rows_must_not_turn_a_stranger_into_a_participant(
     postgres_session: Session,
 ):
+    """The `bug-053800` shape: a context with no membership row at all.
+
+    The second assertion is the load-bearing one, and it is here because the
+    first one alone was measured passing on a build with the hole reinstated.
+    `#253` made `create_bill` ask `is_member`, so in this setup the *payer* is
+    refused before the stranger is ever considered -- "no stranger was paid"
+    is true because nobody was paid. Naming the door means a change that moves
+    the refusal is visible here instead of silently keeping the case green.
+    """
+
     payer = _person(postgres_session, "Nam")
     stranger = _person(postgres_session, "Người lạ")
     context_id = _context(postgres_session, payer.id)
     # deliberately no membership rows: the `bug-053800` shape
 
-    allocations = _money_reaching(postgres_session, context_id, payer.id, stranger.id)
+    walk = _walk(postgres_session, context_id, payer.id, stranger.id)
 
-    assert stranger.id not in allocations, (
-        f"{allocations.get(stranger.id)}đ allocated to a non-member"
+    assert stranger.id not in walk.allocations, (
+        f"{walk.allocations.get(stranger.id)}đ allocated to a non-member"
     )
+    assert (walk.refused_at, walk.code) == ("create_bill", "permission_denied"), walk
 
 
 def test_a_group_of_pending_invitations_must_not_pay_a_stranger(
     postgres_session: Session,
 ):
+    """Rows exist and none is ACTIVE -- a group where nobody has accepted yet.
+
+    `models.py` says being added to a group is something that happens to you,
+    so a roster of pending invitations is a normal state, not a corrupt one.
+    Same two assertions and the same reason as the case above.
+    """
+
     payer = _person(postgres_session, "Nam")
     stranger = _person(postgres_session, "Người lạ")
     context_id = _context(postgres_session, payer.id)
     _membership(postgres_session, context_id, payer.id, MembershipState.INVITED)
 
-    allocations = _money_reaching(postgres_session, context_id, payer.id, stranger.id)
+    walk = _walk(postgres_session, context_id, payer.id, stranger.id)
 
-    assert stranger.id not in allocations, (
-        f"{allocations.get(stranger.id)}đ allocated to a non-member"
+    assert stranger.id not in walk.allocations, (
+        f"{walk.allocations.get(stranger.id)}đ allocated to a non-member"
     )
+    assert (walk.refused_at, walk.code) == ("create_bill", "permission_denied"), walk
+
+
+def test_a_stranger_on_the_bill_is_refused_by_the_door_that_stores_the_share(
+    postgres_session: Session,
+):
+    """`#260`'s guard, pinned on a real roster rather than the fake's.
+
+    The live tier had no case that reached this guard: every setup here either
+    has an empty roster (payer refused first) or a clean one (no stranger to
+    refuse). So `#260` could be reverted and every live case would stay green
+    -- measured, and the reason this case exists.
+    """
+
+    payer = _person(postgres_session, "Nam")
+    stranger = _person(postgres_session, "Người lạ")
+    context_id = _context(postgres_session, payer.id)
+    _membership(postgres_session, context_id, payer.id, MembershipState.ACTIVE)
+
+    walk = _walk(postgres_session, context_id, payer.id, stranger.id)
+
+    assert walk.allocations == {}
+    assert (walk.refused_at, walk.code) == (
+        "create_bill",
+        "participant_not_in_context",
+    ), walk
+
+
+def test_an_emptied_roster_refuses_the_split_instead_of_inventing_participants(
+    postgres_session: Session,
+):
+    """The deleted fallback, pinned live so it cannot come back unnoticed.
+
+    `#260` removed "if the roster is empty, the participants are whoever the
+    shares name" and pinned it at the fake layer in
+    `tests/api/test_split_does_not_invent_participants.py`. That file builds an
+    empty roster directly. This one gets there the way a group actually would
+    -- everybody leaves after the bill exists -- which is the only version that
+    also proves the route cannot be walked into the same state.
+
+    The bill names only members on purpose: a stranger here would be refused at
+    `create_bill` by `#260` and the case would never reach the question.
+    """
+
+    payer = _person(postgres_session, "Nam")
+    friend = _person(postgres_session, "Hà")
+    context_id = _context(postgres_session, payer.id)
+    _membership(postgres_session, context_id, payer.id, MembershipState.ACTIVE)
+    _membership(postgres_session, context_id, friend.id, MembershipState.ACTIVE)
+
+    service = ApiService(SqlAlchemyApiRepository(postgres_session))
+    actor = Actor(id=payer.id, roles=ROLES, context_ids=frozenset({context_id}))
+    bill = service.create_bill(_bill_request(context_id, friend.id, payer.id), actor)
+
+    postgres_session.execute(
+        text(
+            "UPDATE memberships SET state = 'left', left_at = :now "
+            "WHERE context_id = :context_id"
+        ),
+        {"now": NOW, "context_id": context_id},
+    )
+    postgres_session.flush()
+
+    with pytest.raises(ApiProblem) as refused:
+        service.split_bill(bill.id, BillSplitRequest(for_ledger=False), actor)
+
+    assert refused.value.code == "permission_denied", refused.value.code
 
 
 def test_the_money_rules_hold_even_while_the_wrong_person_is_paid(
