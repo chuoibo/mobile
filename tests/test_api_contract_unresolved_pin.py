@@ -269,6 +269,48 @@ class TheRealTreeAndTheRealPinFile(unittest.TestCase):
                 gate.UNRESOLVED_PIN = original
 
 
+class BlindIsNotTheSameAnswerAsBroken(unittest.TestCase):
+    """`route_khong_ton_tai` và `duong_dan_khong_phan_giai_duoc` là hai câu khác nhau.
+
+    Câu đầu: app gọi một route máy chủ không có — mọi lần gọi sẽ 404. Khuyết tật
+    của SẢN PHẨM. Câu sau: bộ đọc không lần ra được URL, nên nó chưa kết luận
+    được gì cả. Khuyết tật của CỔNG.
+
+    Cả hai từng thoát `1`, và docstring của chính script đã hứa từ đầu rằng `2`
+    là "the check could not run -- and could not run is never a pass". Chỗ mù
+    thì đúng là không chạy được. Đây là ghim lại lời hứa đó.
+
+    Cùng một lỗi ở `check_actor_headers.py` đã làm QA đọc #379 thành FAIL cho
+    một client vốn đúng.
+    """
+
+    def _finding(self, kind: str) -> "gate.Finding":
+        return gate.Finding(kind, "a.ts", 1, "…")
+
+    def test_only_blind_spots_exit_two(self):
+        self.assertEqual(
+            gate.EXIT_CANNOT_READ,
+            gate.verdict([self._finding(BLIND)]),
+            "chỗ mù phải là 'không đo được' (2), không phải 'client sai' (1)",
+        )
+
+    def test_a_missing_route_exits_one(self):
+        self.assertEqual(
+            gate.EXIT_VIOLATION,
+            gate.verdict([self._finding("route_khong_ton_tai")]),
+        )
+
+    def test_a_real_mismatch_wins_over_a_blind_spot(self):
+        """Có cả hai thì `1` — vi phạm đã xác nhận là cái hành động được."""
+        self.assertEqual(
+            gate.EXIT_VIOLATION,
+            gate.verdict([self._finding(BLIND), self._finding("route_khong_ton_tai")]),
+        )
+
+    def test_nothing_found_exits_zero(self):
+        self.assertEqual(gate.EXIT_OK, gate.verdict([]))
+
+
 class TheGateProvesItCanBeRed(unittest.TestCase):
     def test_selftest_exits_zero(self):
         done = subprocess.run(
