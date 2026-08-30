@@ -236,12 +236,18 @@ demo-watch: ## Một lượt canh máy demo, ghi lại phán quyết — URL=, R
 	@python3 scripts/demo_watch.py run \
 	  $(if $(URL),--url $(URL)) $(if $(REF),--ref $(REF))
 
-demo-watch-status: ## Lượt canh gần nhất nói gì — và có còn ai canh không (mã 2 nếu im quá lâu)
-	@python3 scripts/demo_watch.py status $(if $(MAXAGE),--max-age $(MAXAGE))
+demo-watch-status: ## Lượt canh gần nhất nói gì — và có còn ai canh không (mã 2 nếu im quá lâu, hoặc nếu nó đo nhánh khác)
+	@python3 scripts/demo_watch.py status $(if $(MAXAGE),--max-age $(MAXAGE)) \
+	  $(if $(EXPECTREF),--expect-ref $(EXPECTREF)) $(if $(ANYREF),--any-ref)
 
-demo-watch-install: ## Cắm lượt canh định kỳ vào crontab — APPLY=1 để ghi thật, REMOVE=1 để gỡ
+# REPO= là tham số hay bị quên nhất ở đây, và quên nó thì hỏng im lặng: dòng
+# cron sinh ra sẽ trỏ vào worktree của lane đang gõ lệnh, mà những cây đó bị
+# xoá. Cron vẫn chạy, vẫn thất bại mỗi 10 phút vào một log không ai đọc, và
+# `status` thì đỏ vì quá hạn chứ không nói được là đường dẫn sai.
+demo-watch-install: ## Cắm lượt canh định kỳ vào crontab — APPLY=1 để ghi thật, REMOVE=1 để gỡ, REPO= checkout ổn định
 	@python3 scripts/demo_watch.py install \
-	  $(if $(URL),--url $(URL)) $(if $(APPLY),--apply) $(if $(REMOVE),--remove)
+	  $(if $(URL),--url $(URL)) $(if $(REPO),--repo $(REPO)) $(if $(REF),--ref $(REF)) \
+	  $(if $(APPLY),--apply) $(if $(REMOVE),--remove)
 
 smoke: ## Gọi thật /healthz qua cổng đã publish và in địa chỉ ra
 	@# `smoke` là việc cuối `up` chạy, nên nó giữ màn hình cuối cùng. Nhắc lại
