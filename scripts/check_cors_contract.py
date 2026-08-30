@@ -95,6 +95,8 @@ and names the file and line.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import re
 import subprocess
@@ -112,6 +114,13 @@ CLIENT_DIR = REPO_ROOT / "apps" / "mobile" / "src"
 EXIT_OK = 0
 EXIT_MISMATCH = 1
 EXIT_CANNOT_RUN = 2
+
+# A finding of this kind says the reader could not follow a call site -- never
+# that the client is wrong. `check_actor_headers.py` draws the same line with
+# EXIT_VIOLATION vs EXIT_CANNOT_READ; this gate used to fold both into exit 1
+# and print "client sẽ bị trình duyệt chặn" over a call that sent every header
+# correctly. That is what #379 was accused of and did not have.
+BLIND_KIND = "vi_tri_header_khong_doc_duoc"
 
 # Fetch standard, CORS-safelisted request-header names. `content-type` is
 # excluded on purpose -- see the module docstring.
@@ -215,7 +224,9 @@ _KEY = re.compile(
 )
 
 
-def _literal_keys(text: str, blank: str, start: int, end: int) -> tuple[list[str], bool]:
+def _literal_keys(
+    text: str, blank: str, start: int, end: int
+) -> tuple[list[str], bool]:
     """Top-level keys of the object literal spanning [start, end).
 
     `blank` drives the structure (commas at depth 1) and `text` supplies the
@@ -346,7 +357,11 @@ def read_client(root: Path) -> ClientFacts:
         # every NAME comes from `named` (comments gone, strings intact).
         blank = _strip_to_spaces(src)
         named = _strip_to_spaces(src, blank_strings=False)
-        rel = str(path.relative_to(REPO_ROOT)) if path.is_relative_to(REPO_ROOT) else path.name
+        rel = (
+            str(path.relative_to(REPO_ROOT))
+            if path.is_relative_to(REPO_ROOT)
+            else path.name
+        )
         facts.files_read += 1
 
         # Names bound from a header-producing function, so `...headers` and
@@ -354,7 +369,9 @@ def read_client(root: Path) -> ClientFacts:
         producers = {m.group("name") for m in _HEADERS_FN.finditer(blank)}
         producers.add("headers")
         bound: set[str] = set()
-        for m in re.finditer(r"(?<![\w$])(?:const|let|var)\s+(?P<lhs>[^=;]+)=(?P<rhs>[^;\n]*)", blank):
+        for m in re.finditer(
+            r"(?<![\w$])(?:const|let|var)\s+(?P<lhs>[^=;]+)=(?P<rhs>[^;\n]*)", blank
+        ):
             if any(p in m.group("rhs") for p in producers):
                 bound.update(_IDENT.findall(m.group("lhs")))
         # Names that hold a header object in THIS file: something that builds
@@ -630,19 +647,42 @@ def run(client_dir: Path, api_dir: Path, as_json: bool) -> int:
         print(f"  header: {', '.join(sorted(facts.headers))}")
         print(f"  method: {', '.join(sorted(facts.methods))}")
 
+    blind = [f for f in findings if f.kind == BLIND_KIND]
+    defects = [f for f in findings if f.kind != BLIND_KIND]
+
     if not findings:
         if not as_json:
             print("Mọi header và method client gửi đều qua được preflight.")
         return EXIT_OK
 
     if not as_json:
-        print()
-        for f in findings:
-            print(f"{f.file}:{f.line}  [{f.kind}]")
-            print(f"    {f.message}")
-        print()
-        print(f"{len(findings)} chỗ client sẽ bị trình duyệt chặn ở preflight.")
-    return EXIT_MISMATCH
+        if defects:
+            print()
+            for f in defects:
+                print(f"{f.file}:{f.line}  [{f.kind}]")
+                print(f"    {f.message}")
+            print()
+            print(f"{len(defects)} chỗ client sẽ bị trình duyệt chặn ở preflight.")
+
+        # Deliberately a separate block with no verdict about the client. Both
+        # print when both apply; only the exit code has to pick one.
+        if blind:
+            print()
+            print(f"MÙ — {len(blind)} chỗ dựng header mà cổng không đọc được:")
+            for f in blind:
+                print(f"  {f.file}:{f.line}")
+                print(f"      {f.message}")
+            print()
+            print("Đây KHÔNG phải kết luận là client sai. Cổng nhận ra chỗ dựng")
+            print("header theo TÊN hàm, nên một tên nó không biết đọc thành chỗ mù")
+            print("dù lời gọi có gửi đủ header. Đặt tên hàm theo mẫu `...Headers(`")
+            print("để cổng truy được, hoặc dựng header ngay tại chỗ gọi.")
+
+    # An actionable defect outranks a blind spot: letting `MÙ` win would report
+    # a header the browser really refuses as merely unreadable.
+    if defects:
+        return EXIT_MISMATCH
+    return EXIT_CANNOT_RUN
 
 
 # ----------------------------------------------------------------- selftest
@@ -750,6 +790,28 @@ CANARIES: list[tuple[str, str, int]] = [
         EXIT_CANNOT_RUN,
     ),
     (
+        "mu-mot-phan-khong-phai-client-sai",
+        # The #379 shape, and the branch the canary above does not reach: a
+        # tree the reader mostly understands, with one producer whose name it
+        # cannot recognise. Every header here is allowed, so the only honest
+        # answer is "could not read", never "the client is wrong".
+        """
+        function actorHeaders(a: string): Record<string, string> {
+          return { "X-Actor-ID": a, "Content-Type": "application/json" };
+        }
+        function tieuDe(a: string): Record<string, string> {
+          return { "X-Actor-ID": a };
+        }
+        export async function ok(a: string) {
+          return fetch("/x", { method: "POST", headers: actorHeaders(a) });
+        }
+        export async function blind(a: string) {
+          return fetch("/y", { method: "POST", headers: tieuDe(a) });
+        }
+        """,
+        EXIT_CANNOT_RUN,
+    ),
+    (
         "accept-duoc-safelist",
         # Accept is CORS-safelisted; flagging it would make the gate noise.
         """
@@ -764,19 +826,24 @@ CANARIES: list[tuple[str, str, int]] = [
 
 def selftest(api_dir: Path) -> int:
     """Run every canary and report which of them the gate answered wrong."""
-    policy = server_policy(api_dir)
+    # Kept as a preflight: it raises if the server allowlist cannot be imported,
+    # which would otherwise surface once per canary as a confusing failure.
+    server_policy(api_dir)
     failures: list[str] = []
     for name, source, want in CANARIES:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "src"
             root.mkdir()
             (root / "canary.ts").write_text(source, encoding="utf-8")
+            # Call the real entry point. This used to re-derive the verdict
+            # from `read_client`/`compare`, which meant the canaries graded a
+            # copy of the logic: the classification `run()` actually returns
+            # could drift from what they asserted and every canary would still
+            # say `ok`. A gate's self-test has to run the gate.
             try:
-                facts = read_client(root)
-                if facts.files_read == 0 or facts.literal_sites == 0 or not facts.headers:
-                    got = EXIT_CANNOT_RUN
-                else:
-                    got = EXIT_MISMATCH if compare(facts, policy) else EXIT_OK
+                buffered = io.StringIO()
+                with contextlib.redirect_stdout(buffered):
+                    got = run(root, api_dir, False)
             except SystemExit as exc:
                 got = int(exc.code or 0)
         mark = "ok  " if got == want else "SAI "
