@@ -23,10 +23,15 @@ is a blast-radius cap for a single-box demo, not a quota -- the same limit
 `test_receipts_scan_rate_limit.py` states about the route it covers.
 
 It also does not prove anything about ``GET /places``, which reaches Gemini
-too. That one is bounded already and by a different mechanism: `_reason_cache`
-is keyed per place over a fixed seed catalogue, so a loop against it costs one
-call per place per process rather than one per request. A window there would be
-protecting something that is not exposed.
+too and is bounded by a cache rather than a window.
+
+That paragraph used to end "bounded already ... one call per place per process,
+so a window there would be protecting something that is not exposed", and it
+was wrong -- measured on `d4bf672`, 25 requests bought 25 model calls as soon
+as one row's reason was dropped. The cache stored successes only, so a row the
+model would not answer was indistinguishable from one nobody had asked about.
+See `tests/api/test_places_reason_retry_storm.py`; the bound is real now, and
+it is a cooldown, not a window.
 """
 
 from __future__ import annotations

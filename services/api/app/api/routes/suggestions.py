@@ -57,7 +57,9 @@ def read_group_suggestion(
     """F32, capped per caller before the model is reached.
 
     This route had nothing in front of it. `GET /places` reaches Gemini too and
-    is bounded by `_reason_cache`, one call per place over a fixed catalogue;
+    is bounded by `CachedReasonWriter`, one call per place over a fixed
+    catalogue per cooldown -- a bound this comment claimed before it was true,
+    see `tests/api/test_places_reason_retry_storm.py`;
     there is no equivalent here, because a suggestion is a function of a
     group's own history and caching one keyed on anything coarser would serve
     one group's evening to another. So it is one model call per request, on a
