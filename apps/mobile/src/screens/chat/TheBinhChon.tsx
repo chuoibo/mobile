@@ -24,38 +24,50 @@ import React from "react";
 import { Pressable, Text, View } from "react-native";
 import { radius, space, type, usePalette } from "../../theme";
 import { toggleState } from "../../ui/a11y";
-import { Card } from "../../ui/Kit";
+import { Button, Card } from "../../ui/Kit";
 import { cauKetQua, type KetQuaBinhChon, type KetQuaLuaChon } from "./binh-chon";
 
 export function TheBinhChon({
   ketQua,
   soThanhVien,
   dangGui,
+  laNguoiMo,
   onChon,
+  onDong,
 }: {
   ketQua: KetQuaBinhChon;
   soThanhVien: number;
   dangGui: boolean;
+  /** Whether the person holding this phone is the one who opened this poll.
+   *  Decided by the parent against `ketQua.taoBoi`, which the server wrote. */
+  laNguoiMo: boolean;
   onChon: (optionId: string) => void;
+  onDong: () => void;
 }) {
   const c = usePalette();
+  const daDong = ketQua.daDong;
 
   return (
     <Card>
       <Text style={{ ...type.body, fontWeight: "700", color: c.ink }}>{ketQua.cauHoi}</Text>
 
-      {ketQua.dangHoa ? (
+      {/* The standing is spelt out whenever it is news: a tie, or a poll that
+          has stopped moving. An open poll with a clear lead says it on the
+          rows themselves and does not need a second sentence. */}
+      {daDong || ketQua.dangHoa ? (
         <View style={{ gap: space.xs }}>
           <View
             style={{
               alignSelf: "flex-start",
-              backgroundColor: c.aiSoft,
+              backgroundColor: daDong ? c.line : c.aiSoft,
               borderRadius: radius.pill,
               paddingHorizontal: space.sm,
               paddingVertical: 4,
             }}
           >
-            <Text style={{ ...type.micro, fontWeight: "700", color: c.ai }}>Hoà</Text>
+            <Text style={{ ...type.micro, fontWeight: "700", color: daDong ? c.ink : c.ai }}>
+              {daDong ? "Đã đóng" : "Hoà"}
+            </Text>
           </View>
           <Text style={{ ...type.micro, color: c.inkSoft }}>{cauKetQua(ketQua)}</Text>
         </View>
@@ -69,6 +81,7 @@ export function TheBinhChon({
             cuaToi={ketQua.luaChonCuaToi === hang.optionId}
             // A crown on a tied row would name a winner the count did not.
             vuongMien={!ketQua.dangHoa && hang.dangDan}
+            daDong={daDong}
             dangGui={dangGui}
             onChon={onChon}
           />
@@ -78,6 +91,14 @@ export function TheBinhChon({
       <Text style={{ ...type.micro, color: c.inkSoft }}>
         {ketQua.soNguoiDaBoPhieu}/{soThanhVien} thành viên đã bỏ phiếu
       </Text>
+
+      {/* Only the opener, and only while it is open. Drawing it greyed for
+          everybody else would put a control on six phones that answers one,
+          and `tongHopBinhChon` drops a close card from anybody else anyway --
+          so the button would be lying about what pressing it does. */}
+      {laNguoiMo && !daDong ? (
+        <Button label="Đóng bình chọn" tone="quiet" onPress={onDong} disabled={dangGui} />
+      ) : null}
     </Card>
   );
 }
@@ -87,26 +108,32 @@ function HangLuaChon({
   hang,
   cuaToi,
   vuongMien,
+  daDong,
   dangGui,
   onChon,
 }: {
   hang: KetQuaLuaChon;
   cuaToi: boolean;
   vuongMien: boolean;
+  daDong: boolean;
   dangGui: boolean;
   onChon: (optionId: string) => void;
 }) {
   const c = usePalette();
+  // A closed poll counts nothing further, so the row must not take the press.
+  // Leaving it live would send a ballot the fold discards -- a tick that
+  // appears, travels, and then is not there on anybody's next read.
+  const khoa = daDong || dangGui;
 
   return (
     <Pressable
       onPress={() => onChon(hang.optionId)}
-      disabled={dangGui}
+      disabled={khoa}
       // `disabled` on a Pressable emits `aria-disabled` by itself; the tick
       // needs `toggleState`, because `accessibilityState` reaches no DOM on
       // react-native-web 0.21.2.
       {...toggleState("radio", cuaToi)}
-      accessibilityLabel={nhanDocHang(hang)}
+      accessibilityLabel={nhanDocHang(hang, daDong)}
       style={({ pressed }) => ({
         minHeight: 44,
         paddingHorizontal: space.sm,
@@ -116,7 +143,7 @@ function HangLuaChon({
         borderWidth: 1,
         borderColor: hang.dangDan ? c.ai : c.line,
         backgroundColor: hang.dangDan ? c.aiSoft : "transparent",
-        opacity: dangGui ? 0.6 : pressed ? 0.85 : 1,
+        opacity: dangGui ? 0.6 : pressed && !khoa ? 0.85 : 1,
         flexDirection: "row",
         alignItems: "center",
       })}
@@ -199,8 +226,13 @@ function HangLuaChon({
  *  string is the only place a non-sighted person learns the standings. It
  *  carries the count, which is the same number a sighted person reads; the
  *  bar's share is not restated, because it is a redrawing of that count and
- *  not a second fact. */
-function nhanDocHang(hang: KetQuaLuaChon): string {
+ *  not a second fact.
+ *
+ *  A closed row says so in words. `disabled` emits `aria-disabled`, but a name
+ *  that only reads "radio, checked, dimmed" does not tell somebody why the tap
+ *  died -- the same reason `BinhChon.tsx` spells it out. */
+function nhanDocHang(hang: KetQuaLuaChon, daDong: boolean): string {
   const dan = hang.dangDan ? "đang dẫn" : "không đang dẫn";
-  return `${hang.nhan}, ${hang.phieu} phiếu, ${dan}`;
+  const dong = daDong ? ", đã đóng, không chọn được" : "";
+  return `${hang.nhan}, ${hang.phieu} phiếu, ${dan}${dong}`;
 }
