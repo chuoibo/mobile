@@ -181,14 +181,30 @@ test("con số trong câu chữ khớp DEFAULT_LIMITS của backend", () => {
   const nhip = nhipCuaMayChu();
   console.log(`  DEFAULT_LIMITS đọc từ Python: ${JSON.stringify(nhip)}`);
 
-  assert.match(
-    CAU_THEO_LY_DO.cooldown,
-    new RegExp(`${nhip.giay} giây`),
-    `câu cooldown phải nói đúng ${nhip.giay} giây như plan_turn`,
-  );
+  // Bản đầu của ca này chỉ hỏi "số đúng có xuất hiện không", và một đột biến
+  // đổi "chưa tới 90 giây" thành "chưa tới 60 giây" đi lọt: câu còn nhắc 90
+  // giây một lần nữa ở vế sau, nên phép match vẫn xanh. Nên luật ở đây là
+  // MỌI con số đi kèm đơn vị đều phải bằng hằng số của backend, không phải là
+  // có ít nhất một chỗ đúng.
+  const DON_VI = { giây: nhip.giay, lượt: nhip.luot, tin: nhip.tin };
+  for (const [ly, cau] of Object.entries(CAU_THEO_LY_DO)) {
+    for (const [donVi, dung] of Object.entries(DON_VI)) {
+      for (const m of cau.matchAll(new RegExp(`(\\d+)\\s+${donVi}\\b`, "g"))) {
+        assert.equal(
+          Number(m[1]),
+          dung,
+          `${ly} nói "${m[0]}" nhưng backend để ${dung} ${donVi}: ${cau}`,
+        );
+      }
+    }
+  }
+
+  // Và ba chỗ PHẢI nói ra con số, để một bản viết lại mơ hồ ("một lát", "vài
+  // giây") không lặng lẽ qua được vòng trên bằng cách không có số nào cả.
+  assert.match(CAU_THEO_LY_DO.cooldown, new RegExp(`${nhip.giay}\\s+giây`), "cooldown mất số giây");
   for (const ly of ["rate_limited", "asked_too_often"]) {
-    assert.match(CAU_THEO_LY_DO[ly], new RegExp(`${nhip.luot} lượt`), `${ly}: sai số lượt`);
-    assert.match(CAU_THEO_LY_DO[ly], new RegExp(`${nhip.tin} tin`), `${ly}: sai cỡ cửa sổ`);
+    assert.match(CAU_THEO_LY_DO[ly], new RegExp(`${nhip.luot}\\s+lượt`), `${ly}: mất số lượt`);
+    assert.match(CAU_THEO_LY_DO[ly], new RegExp(`${nhip.tin}\\s+tin`), `${ly}: mất cỡ cửa sổ`);
   }
 });
 
