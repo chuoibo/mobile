@@ -1082,6 +1082,15 @@ class ApiRepository(Protocol):
         now: datetime,
     ) -> BillRecord: ...
 
+    def claim_bill_items(
+        self,
+        *,
+        bill_id: uuid.UUID,
+        participant_id: uuid.UUID,
+        item_keys: list[str],
+        now: datetime,
+    ) -> BillRecord: ...
+
     def save_expense_confirmation(
         self,
         *,
@@ -2920,6 +2929,77 @@ class SqlAlchemyApiRepository:
                         decided_at=now,
                     )
                 )
+        self.session.flush()
+        return self._bill_record(bill)
+
+    def claim_bill_items(
+        self,
+        *,
+        bill_id: uuid.UUID,
+        participant_id: uuid.UUID,
+        item_keys: list[str],
+        now: datetime,
+    ) -> BillRecord:
+        """Replace one person's own claims across the whole bill.
+
+        Deliberately not written in terms of `confirm_bill_assignments`. That
+        method clears **every** share on the item keys it is handed, which is
+        correct for a screen where one person confirms the table's whole
+        allocation and catastrophic here: tapping "this is me" on the spring
+        rolls would silently drop everybody else who had also claimed them.
+
+        The scope is therefore the person, not the item. Every share this
+        participant holds on this bill is removed and the requested set written
+        back, so an item this caller no longer claims is released while the
+        same item stays assigned to whoever else claimed it. Repeating a call
+        lands on the same state.
+
+        `decided_by_id` is the participant, always -- there is no parameter for
+        anything else. A self-claim is the one assignment where the person who
+        decided and the person charged cannot differ.
+        """
+
+        bill = self.session.scalar(
+            select(Bill).where(Bill.id == bill_id).with_for_update()
+        )
+        if bill is None:
+            raise RepositoryConflict("BILL_NOT_FOUND")
+
+        item_rows = list(
+            self.session.scalars(
+                select(BillItem).where(BillItem.bill_id == bill_id).with_for_update()
+            )
+        )
+        items_by_key = {item.item_key: item for item in item_rows}
+        # De-duplicated, because two copies of one key would otherwise violate
+        # `uq_bill_item_shares_item_participant` at flush and surface as an
+        # opaque integrity error rather than as the harmless repeat it is.
+        requested = dict.fromkeys(item_keys)
+        unknown = set(requested) - set(items_by_key)
+        if unknown:
+            raise RepositoryConflict("UNKNOWN_BILL_ITEM")
+
+        if item_rows:
+            mine = self.session.scalars(
+                select(BillItemShare)
+                .where(BillItemShare.bill_item_id.in_([item.id for item in item_rows]))
+                .where(BillItemShare.participant_id == participant_id)
+                .with_for_update()
+            )
+            for share in mine:
+                self.session.delete(share)
+            self.session.flush()
+
+        for item_key in requested:
+            self.session.add(
+                BillItemShare(
+                    bill_item_id=items_by_key[item_key].id,
+                    participant_id=participant_id,
+                    source=BillShareSource.CONFIRMED,
+                    decided_by_id=participant_id,
+                    decided_at=now,
+                )
+            )
         self.session.flush()
         return self._bill_record(bill)
 

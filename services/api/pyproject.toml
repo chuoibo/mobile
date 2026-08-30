@@ -12,6 +12,11 @@ dependencies = [
   "google-genai>=1.0,<3",
   # Web layer (Claude): server-rendered guest page and its QR image.
   "jinja2>=3.1,<4",
+  # F22 face detection. Headless on purpose: the GUI build pulls in an X11
+  # stack the container has no display for, and the cascade this uses needs
+  # none of it. The classifier XML ships inside the wheel, so no model file
+  # enters git -- which the repo guard would refuse anyway.
+  "opencv-python-headless>=4.10,<5",
   "python-multipart>=0.0.20,<1",
   "segno>=1.6,<2",
   "fastapi>=0.115,<1",

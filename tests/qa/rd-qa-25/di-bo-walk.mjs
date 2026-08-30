@@ -3,10 +3,10 @@
 // (status, and whether X-Actor-ID rode along) and what the screen ended up
 // saying. The two together are the point -- a screen that says "server error"
 // while the wire says 401 is the #158 bug, and neither half shows it alone.
-import { chromium } from "playwright";
+import { chromium } from "playwright-core";
+import { timTrinhDuyet } from "../tim-trinh-duyet.mjs";
 
-const CHROME =
-  "/home/lakiet/.cache/ms-playwright/chromium-1194/chrome-linux/chrome";
+const CHROME = timTrinhDuyet();
 const url = process.argv[2];
 const label = process.argv[3] ?? "?";
 const query = process.argv[4] ?? "quán nướng ngoài trời cho 6 người dưới 300k";

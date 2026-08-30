@@ -12,6 +12,13 @@ jinja2==3.1.5
 # tests/media died at collection on the runner while staying green here -- this
 # machine had Pillow pulled in by something unrelated.
 pillow==12.2.0
+# F22 runs its face cascade in-process; nothing about a group photo leaves
+# the box. This pin is what the container gets. Note the skew it creates:
+# a dev machine may already carry a different OpenCV (this one has 4.13.0
+# via conda), and the two can disagree about how many faces are in a
+# picture. Nothing in the suite depends on the count -- the API tier stubs
+# the detector and tests/live asserts a floor of one, not an exact number.
+opencv-python-headless==4.14.0.94
 psycopg[binary]==3.2.3
 # FastAPI needs this for the guest payment-report form. It was missing, and
 # the suite passed locally only because another package had pulled it in.

@@ -7,7 +7,7 @@
  *  so a bug in the probe cannot produce the answer here too.
  */
 import http from "node:http";
-import puppeteer from "file:///home/lakiet/.claude/node_modules/puppeteer-core/lib/puppeteer/puppeteer-core.js";
+import puppeteer from "puppeteer-core";
 
 // Chay:  node tests/qa/qa-tt-0016/do-doc-lap-verdict.mjs <duong-dan-pre-patch> [<duong-dan-M3>]
 // Lay ban pre-patch bang: git show c9532cf:apps/mobile/tools/che-chu.mjs > /tmp/prepatch.mjs

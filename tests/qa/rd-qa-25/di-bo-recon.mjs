@@ -1,8 +1,8 @@
 // Recon: what does the app show, and what can be clicked, on first load?
-import { chromium } from "playwright";
+import { chromium } from "playwright-core";
+import { timTrinhDuyet } from "../tim-trinh-duyet.mjs";
 
-const CHROME =
-  "/home/lakiet/.cache/ms-playwright/chromium-1194/chrome-linux/chrome";
+const CHROME = timTrinhDuyet();
 const url = process.argv[2];
 
 const browser = await chromium.launch({ executablePath: CHROME });

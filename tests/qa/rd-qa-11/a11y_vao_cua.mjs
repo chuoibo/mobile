@@ -22,9 +22,7 @@ import { chromium } from "playwright";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 
-const require = createRequire(
-  "/home/lakiet/agent-harness/wt/qa/tests/qa/rd-qa-02/node_modules/"
-);
+const require = createRequire(import.meta.url);
 const axePath = require.resolve("axe-core");
 const AXE_SOURCE = readFileSync(axePath, "utf8");
 

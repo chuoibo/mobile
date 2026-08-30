@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import pathlib
 import random
 import sys
@@ -38,8 +39,17 @@ from app.api.vision_gemini import GeminiReceiptReader  # noqa: E402
 from app.domain.receipt import ReceiptError, read_receipt  # noqa: E402
 
 W, H = 900, 1300
-MOCKUP = pathlib.Path(
-    "/home/lakiet/mobile/product/features/04-chia-bill-thong-minh.png"
+# The product mockups live outside the repository (they are design source,
+# not code). MOBILE_PRODUCT_DIR overrides; the default is the checkout
+# location this repo has always assumed.
+MOCKUP = (
+    pathlib.Path(
+        os.environ.get(
+            "MOBILE_PRODUCT_DIR", str(pathlib.Path.home() / "mobile" / "product")
+        )
+    )
+    / "features"
+    / "04-chia-bill-thong-minh.png"
 )
 # The receipt inside screen 1, with margin, enlarged to print scale.
 CROP_BOX, UPSCALE = (52, 445, 268, 750), 6

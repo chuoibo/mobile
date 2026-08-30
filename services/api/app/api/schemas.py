@@ -234,6 +234,46 @@ class BillSplitResponse(ApiModel):
     total_amount_vnd: MoneyVnd
 
 
+class BillSelfClaimRequest(ApiModel):
+    """The dishes the caller is claiming as their own. Nobody else's.
+
+    Look at what is not declared here. There is no `participant_id`, no
+    `person_id`, no `on_behalf_of`, and `ApiModel` forbids extras -- so a body
+    that names anybody is a 422 from pydantic before a line of our code runs.
+    That is the point: `PUT /bills/{id}/assignments` next door takes ids from
+    the body and therefore needs a roster check to stay honest, and this route
+    is the one that cannot need one, because the only identity it can express
+    is the caller's own.
+
+    The list is the caller's COMPLETE set of claims on this bill, not an
+    addition to it. Absent keys are released, which is how a mis-tap is undone
+    without a second endpoint, and it makes repeated submissions idempotent.
+    It releases only the caller's own shares; everyone else's are untouched.
+    """
+
+    item_keys: list[Annotated[StrictStr, Field(max_length=64)]]
+
+
+class FaceBoxResponse(ApiModel):
+    """One rectangle, as a fraction of the image, and nothing identifying.
+
+    `box_key` is an ordinal within this response. It is not stable between
+    requests and is not derived from the pixels, so two responses cannot be
+    joined on it -- see `app/domain/faces.py` for why that is deliberate.
+    """
+
+    box_key: StrictStr
+    x: Annotated[float, Field(ge=0.0, le=1.0)]
+    y: Annotated[float, Field(ge=0.0, le=1.0)]
+    width: Annotated[float, Field(gt=0.0, le=1.0)]
+    height: Annotated[float, Field(gt=0.0, le=1.0)]
+
+
+class FaceBoxesResponse(ApiModel):
+    photo_id: UUID
+    boxes: list[FaceBoxResponse]
+
+
 class PersonRegistrationRequest(ApiModel):
     """A name asserted for one person id, by whoever is asking.
 

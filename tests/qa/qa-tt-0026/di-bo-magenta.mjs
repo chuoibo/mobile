@@ -29,17 +29,17 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
-// Absolute path, as everything else on this machine does it: puppeteer is not
-// a dependency of the app, it lives in the harness install.
-import puppeteer from "file:///home/lakiet/.claude/node_modules/puppeteer-core/lib/puppeteer/puppeteer-core.js";
+
+import { timTrinhDuyet } from "../tim-trinh-duyet.mjs";
+// puppeteer-core is declared in tests/qa/package.json; node resolves it from
+// tests/qa/node_modules for every probe under this tree.
+import puppeteer from "puppeteer-core";
 
 const DIST = process.argv[2];
 const API = process.env.API_BASE ?? "http://localhost:8137";
 const NGUOI = "minh";
 const DUONG_ANH = "/anh-qa26-magenta.png";
-const CHROME =
-  process.env.PUPPETEER_EXECUTABLE_PATH ??
-  "/home/lakiet/.cache/ms-playwright/chromium-1194/chrome-linux/chrome";
+const CHROME = timTrinhDuyet();
 
 if (!DIST) throw new Error("can <dist-dir>");
 
