@@ -1782,3 +1782,103 @@ class FriendRequest(Base):
     decided_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+
+class PostAudience(StrEnum):
+    """F42's four levels, and they are a vocabulary rather than a ladder.
+
+    `friends` and `group` reach disjoint sets of people: a groupmate is not
+    automatically a friend and a friend is not automatically a groupmate. The
+    ordering of these members carries no meaning and nothing compares two of
+    them -- `app.domain.post_audience` is where the rule lives, and it branches
+    on the value instead of ranking it.
+
+    Stored as a constrained string rather than a native PostgreSQL enum, the
+    same as every other enum in this file, so adding a level later is a CHECK
+    change instead of an `ALTER TYPE` that cannot run inside a transaction.
+    """
+
+    ONLY_ME = "only_me"
+    FRIENDS = "friends"
+    GROUP = "group"
+    PUBLIC = "public"
+
+
+class Post(Base):
+    """F39. One thing a person said, addressed to one audience.
+
+    ## Why `context_id` is nullable and constrained rather than always present
+
+    Only a `group` post is addressed to a group. Giving every post a
+    `context_id` -- filling it with "wherever they happened to be" for the
+    other three levels -- would put a group id on rows that no membership
+    check applies to, and the first query somebody writes joining posts to
+    contexts would quietly widen `only_me`. `audience_matches_target` makes the
+    two fields agree, in the same shape `Memory.payload_matches_kind` uses.
+
+    ## The author is a column, never a body field
+
+    `author_id` is written from the authenticated actor in
+    `ApiService.create_post`. There is no request schema field that reaches it:
+    a route that accepted one would be a route for writing in somebody else's
+    name, and no amount of downstream checking recovers from that.
+
+    ## No `edited_at`, no soft delete
+
+    Same reasoning as `MemoryComment`. Editing the audience of a post that has
+    already been read is a feature with a privacy question attached -- what
+    happens to the people who already saw it -- and F42 does not answer it.
+    """
+
+    __tablename__ = "posts"
+    __table_args__ = (
+        CheckConstraint("body <> ''", name="body_not_blank"),
+        CheckConstraint(
+            "(audience = 'group') = (context_id IS NOT NULL)",
+            name="audience_matches_target",
+        ),
+        # "This person's wall, newest first" -- the profile read.
+        Index("ix_posts_author_feed", "author_id", desc("created_at"), desc("id")),
+        # "What may I read", answered per audience. The partial predicate keeps
+        # the three non-group audiences out of an index that only serves the
+        # group one, and `only_me` rows out of both: they are reachable by
+        # `ix_posts_author_feed` alone, which is the only way they are ever
+        # read.
+        Index(
+            "ix_posts_group_feed",
+            "context_id",
+            desc("created_at"),
+            postgresql_where=text("audience = 'group'"),
+        ),
+        Index(
+            "ix_posts_public_feed",
+            desc("created_at"),
+            postgresql_where=text("audience = 'public'"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    author_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_posts_author"),
+        nullable=False,
+    )
+    audience: Mapped[PostAudience] = mapped_column(
+        _enum_type(PostAudience, "post_audience"), nullable=False
+    )
+    context_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("contexts.id", name="fk_posts_context"),
+        nullable=True,
+    )
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    #: A relative `/contexts/{id}/photos/{id}` url produced by F38's upload
+    #: route, or nothing. Posts carry the url and not the bytes for the same
+    #: reason memories do: the image is already stored, already sanitised of
+    #: EXIF, and already behind a membership-gated read.
+    image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

@@ -51,6 +51,7 @@ from app.api.repository import (
     PaymentReportTarget,
     PersonFinanceSummary,
     PersonRecord,
+    PostRecord,
     PublishObligation,
     ReceiptRecord,
     ReceiptTarget,
@@ -118,6 +119,7 @@ class FakeRepository:
         self.outing_invites: dict[uuid.UUID, OutingInviteRecord] = {}
         self.outing_invite_ids_by_digest: dict[bytes, uuid.UUID] = {}
         self.friend_edges: dict[uuid.UUID, dict] = {}
+        self.posts: dict[uuid.UUID, PostRecord] = {}
         self.leak_guest_input = False
 
     @staticmethod
@@ -255,6 +257,67 @@ class FakeRepository:
             if edge["state"] == "accepted"
             and person_id in (edge["requester_id"], edge["addressee_id"])
         ]
+
+    # --- F39 posts, F42 audiences ---------------------------------------
+    #
+    # This fake re-implements the visibility predicate that
+    # `SqlAlchemyApiRepository._readable_by` writes in SQL, so `tests/api` is
+    # proving the *service*, not the query. The query has its own live cases in
+    # tests/postgres/test_posts_postgres.py, and it has to: a dict cannot show
+    # that `only_me` rows are excluded by the SELECT rather than by a Python
+    # loop that runs after them, and "excluded by the SELECT" is the claim.
+
+    def create_post(self, *, author_id, audience, context_id, body, image_url, now):
+        record = PostRecord(
+            id=uuid.uuid4(),
+            author_id=author_id,
+            audience=audience,
+            context_id=context_id,
+            body=body,
+            image_url=image_url,
+            created_at=now,
+        )
+        self.posts[record.id] = record
+        return record
+
+    def get_post(self, post_id):
+        return self.posts.get(post_id)
+
+    def _post_visible_to(self, record, reader_id):
+        if record.author_id == reader_id:
+            return True
+        if record.audience == "public":
+            return True
+        if record.audience == "friends":
+            edge = self.get_friend_edge(reader_id, record.author_id)
+            return edge is not None and edge.state == "accepted"
+        if record.audience == "group":
+            return record.context_id is not None and self.is_member(
+                record.context_id, reader_id
+            )
+        return False
+
+    def _posts_newest_first(self):
+        return sorted(
+            self.posts.values(),
+            key=lambda record: (record.created_at, record.id.bytes),
+            reverse=True,
+        )
+
+    def list_posts_visible_to(self, reader_id, *, limit):
+        return tuple(
+            record
+            for record in self._posts_newest_first()
+            if self._post_visible_to(record, reader_id)
+        )[:limit]
+
+    def list_person_posts_visible_to(self, person_id, reader_id, *, limit):
+        return tuple(
+            record
+            for record in self._posts_newest_first()
+            if record.author_id == person_id
+            and self._post_visible_to(record, reader_id)
+        )[:limit]
 
     def is_member(self, context_id, person_id):
         return (context_id, person_id) in self.active_memberships
