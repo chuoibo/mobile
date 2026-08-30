@@ -22,9 +22,13 @@ from app.api.repository import ApiRepository
 from app.api.schemas import (
     CheckinCreateRequest,
     ErrorResponse,
+    MemoryCommentCreateRequest,
+    MemoryCommentListResponse,
+    MemoryCommentResponse,
     MemoryCreateRequest,
     MemoryListResponse,
     MemoryQuery,
+    MemoryReactionResponse,
     MemoryResponse,
 )
 from app.api.service import ApiService
@@ -99,3 +103,96 @@ def list_context_memories(
 
     query = MemoryQuery(limit=limit, before=before, kind=kind, place_id=place_id)
     return ApiService(repository).list_context_memories(context_id, query, actor)
+
+
+# --------------------------------------------------------------------------
+# F40 and F41 -- hearts and comments
+#
+# Every one of these paths carries the context id even though a memory id
+# alone would identify the row. That is the point: the membership check runs
+# against the context in the path *before* the memory is looked up, so a
+# stranger receives the same 403 whether or not the id names a real memory.
+# Keyed on the memory alone, the pair of status codes would tell anyone
+# holding a session which ids exist inside groups they are not in.
+# --------------------------------------------------------------------------
+
+
+@router.post(
+    "/contexts/{context_id}/memories/{memory_id}/reactions",
+    response_model=MemoryReactionResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses=ERRORS,
+)
+def post_memory_reaction(
+    context_id: UUID,
+    memory_id: UUID,
+    actor: Annotated[Actor, Depends(get_actor)],
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+) -> MemoryReactionResponse:
+    """F40. Leave a heart on one row of the wall.
+
+    The route takes no request body. There is therefore no field in which a
+    caller could name whose heart this is -- the reactor is the actor the
+    gateway proved, and the shape of the route makes the alternative
+    unspellable rather than merely unused.
+    """
+
+    return ApiService(repository).react_to_memory(context_id, memory_id, actor)
+
+
+@router.delete(
+    "/contexts/{context_id}/memories/{memory_id}/reactions",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=ERRORS,
+)
+def delete_memory_reaction(
+    context_id: UUID,
+    memory_id: UUID,
+    actor: Annotated[Actor, Depends(get_actor)],
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+) -> None:
+    """Take back one's own heart. There is no path to anybody else's."""
+
+    ApiService(repository).unreact_to_memory(context_id, memory_id, actor)
+
+
+@router.post(
+    "/contexts/{context_id}/memories/{memory_id}/comments",
+    response_model=MemoryCommentResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses=ERRORS,
+)
+def post_memory_comment(
+    context_id: UUID,
+    memory_id: UUID,
+    request: MemoryCommentCreateRequest,
+    actor: Annotated[Actor, Depends(get_actor)],
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+) -> MemoryCommentResponse:
+    """F41. Say something under a photograph, as yourself."""
+
+    return ApiService(repository).post_memory_comment(
+        context_id, memory_id, request, actor
+    )
+
+
+@router.get(
+    "/contexts/{context_id}/memories/{memory_id}/comments",
+    response_model=MemoryCommentListResponse,
+    responses=ERRORS,
+)
+def list_memory_comments(
+    context_id: UUID,
+    memory_id: UUID,
+    actor: Annotated[Actor, Depends(get_actor)],
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+) -> MemoryCommentListResponse:
+    """The conversation under one photograph, oldest first.
+
+    Behind `view_group_memories`, the same gate the wall itself is behind. The
+    bodies returned here are group-private text and reach no other surface --
+    in particular not the guest page, whose view model is a whitelist with no
+    slot for them.
+    """
+
+    return ApiService(repository).list_memory_comments(context_id, memory_id, actor)

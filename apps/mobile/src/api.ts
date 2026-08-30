@@ -359,6 +359,13 @@ async function call<T>(
       IDEMPOTENCY_REFUSALS[code.toLowerCase()] ?? thongDiepNguoiDoc(response.status, detail),
     );
   }
+  // 204 means the server did the thing and has nothing to say about it, so
+  // there is no body to parse. `response.json()` on an empty body throws a raw
+  // SyntaxError, which is not an `ApiError` and so escapes every refusal table
+  // in this file -- a caller would show the browser's own English parser text
+  // for a call that actually SUCCEEDED. `DELETE .../reactions` is the first
+  // route here to answer 204; before it, this line was unreachable-but-wrong.
+  if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
 
@@ -1556,7 +1563,22 @@ export function boNguonCucBo(uri: string): void {
 
 /* --------------------------------------------------- the memory wall (rd-be-07) */
 
-/** One keepsake on the wall, as the server describes it. */
+/** One keepsake on the wall, as the server describes it.
+ *
+ * The last three fields are optional, and their optionality is load-bearing
+ * rather than defensive typing. They arrive from a server that has the hearts
+ * and comments tables; a server that does not have them omits all three. So
+ * their presence IS the capability check, and the wall reads it that way: no
+ * fields, no heart button drawn at all.
+ *
+ * The alternative -- draw the button always and let it 404 -- is the shape this
+ * screen's own docblock argues against. A heart that fails on press says "your
+ * tap did not register", which is a lie about a feature that was never built.
+ *
+ * `viewer_has_reacted` is computed for the actor making the request. There is
+ * no `viewer_id` query parameter to pass and none should be invented: one would
+ * let a caller ask whether somebody ELSE had reacted.
+ */
 export type KyNiemWire = {
   id: string;
   author_id: string;
@@ -1565,7 +1587,20 @@ export type KyNiemWire = {
   caption: string | null;
   place_name: string | null;
   created_at: string;
+  reaction_count?: number;
+  comment_count?: number;
+  viewer_has_reacted?: boolean;
 };
+
+/** True when the server that answered this feed can hold hearts and comments.
+ *
+ * Keyed on `reaction_count` rather than on truthiness of the whole row: a photo
+ * with zero hearts sends `0`, which is falsy, and a check written as
+ * `if (m.reaction_count)` would hide the buttons on exactly the photographs
+ * that have not been reacted to yet -- that is, on all of them, on day one. */
+export function coTuongTac(kyNiem: KyNiemWire): boolean {
+  return typeof kyNiem.reaction_count === "number";
+}
 
 /**
  * Hang a photograph on the group's wall.
@@ -1611,6 +1646,130 @@ export async function docKyNiem(
     { method: "GET", actorId, roles: "member", contexts: contextId },
   );
   return result.memories ?? [];
+}
+
+/* ------------------------------- hearts and comments on the wall (rd-fe-33) */
+
+/**
+ * One comment under one photograph, as the server describes it.
+ *
+ * `display_name` arrives already resolved. The wall does not hold a roster and
+ * must not go and build one: a second lookup keyed on `author_id` is a second
+ * answer to "who wrote this", and the two disagree the moment somebody renames
+ * themselves between the two calls.
+ */
+export type BinhLuanWire = {
+  id: string;
+  memory_id: string;
+  author_id: string;
+  display_name: string;
+  body: string;
+  created_at: string;
+};
+
+/** Longest body the server will take. Mirrored here so the composer can refuse
+ *  before the round trip; the server is still the one that decides. */
+export const BINH_LUAN_TOI_DA = 2000;
+
+/**
+ * What the wall says when a heart or a comment is refused.
+ *
+ * `is_group_member` is the one worth reading twice. A 403 here does NOT mean
+ * "something went wrong" -- it means the person has been removed from the group
+ * since the wall was drawn, and the sentence has to say that rather than offer
+ * a retry that cannot work.
+ *
+ * `already_reacted` and `reaction_not_found` are both states the button should
+ * never reach, because it knows `viewer_has_reacted` before it presses. They
+ * are here because "should never" means "will, when two devices press at once",
+ * and the honest answer then is that the wall is out of date, not that the
+ * person did something wrong.
+ */
+const XA_HOI_REFUSALS: Record<string, string> = {
+  is_group_member:
+    "Bạn không còn trong nhóm này nên không thả tim hay bình luận được nữa.",
+  memory_not_found: "Ảnh này vừa được gỡ khỏi tường nhóm nên không còn để thả tim.",
+  already_reacted: "Bạn đã thả tim cho ảnh này rồi. Kéo xuống để xem lại tường nhóm.",
+  reaction_not_found: "Tim của bạn ở ảnh này đã được gỡ trước đó rồi.",
+};
+
+/**
+ * Drop a heart on one photograph. The person doing it is the actor header, so
+ * there is no body: there is no field in which to claim to be somebody else.
+ *
+ * Pressing twice is a 409, not a silent toggle. The button decides between this
+ * and `boTim` from `viewer_has_reacted`, which the feed sends for the caller --
+ * so reaching 409 means the wall on screen is older than the database, and the
+ * sentence above says exactly that.
+ */
+export async function thaTim(
+  contextId: string,
+  memoryId: string,
+  actorId: string,
+): Promise<void> {
+  await translated<void>(
+    XA_HOI_REFUSALS,
+    `/contexts/${contextId}/memories/${memoryId}/reactions`,
+    { method: "POST", actorId, roles: "member", contexts: contextId },
+  );
+}
+
+/** Take back your own heart. There is no route for taking back anybody else's,
+ *  which is why this too carries no body. Answers 204. */
+export async function boTim(
+  contextId: string,
+  memoryId: string,
+  actorId: string,
+): Promise<void> {
+  await translated<void>(
+    XA_HOI_REFUSALS,
+    `/contexts/${contextId}/memories/${memoryId}/reactions`,
+    { method: "DELETE", actorId, roles: "member", contexts: contextId },
+  );
+}
+
+/** Read one photograph's comments. Group-private, like everything on this wall. */
+export async function docBinhLuan(
+  contextId: string,
+  memoryId: string,
+  actorId: string,
+): Promise<BinhLuanWire[]> {
+  const result = await translated<{ comments: BinhLuanWire[] }>(
+    XA_HOI_REFUSALS,
+    `/contexts/${contextId}/memories/${memoryId}/comments`,
+    { method: "GET", actorId, roles: "member", contexts: contextId },
+  );
+  return result.comments ?? [];
+}
+
+/**
+ * Say something under a photograph.
+ *
+ * The body is the only field: authorship comes from the header, so this cannot
+ * post in somebody else's name even by accident. Keyed on the memory and the
+ * text so that a second press while the first is still in flight replays the
+ * first answer instead of leaving the same sentence on the wall twice -- the
+ * same trick `themKyNiemAnh` uses, for the same reason.
+ */
+export async function guiBinhLuan(
+  contextId: string,
+  memoryId: string,
+  body: string,
+  actorId: string,
+  attempt: Attempt,
+): Promise<BinhLuanWire> {
+  return translated<BinhLuanWire>(
+    XA_HOI_REFUSALS,
+    `/contexts/${contextId}/memories/${memoryId}/comments`,
+    {
+      method: "POST",
+      body: { body },
+      actorId,
+      attempt,
+      roles: "member",
+      contexts: contextId,
+    },
+  );
 }
 
 /* ------------------------------------------------------- outings (F13/F15) */

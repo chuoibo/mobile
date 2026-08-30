@@ -186,6 +186,33 @@ export function installTabStubs(apiBase, fixtures) {
       headers: { "Content-Type": "application/json" },
     });
 
+  /* ---- hearts and comments hold state, because the wall re-reads (rd-fe-33).
+   *
+   * A canned answer cannot test this feature. The heart sends POST or DELETE
+   * and then asks the wall to re-read itself, and the whole claim being made
+   * is that the number coming back moved. A stub that replays the fixture
+   * would show 2 hearts before the press and 2 after, and the test would be
+   * measuring the fixture instead of the code.
+   *
+   * Reactions are a set of actor ids rather than a counter, which is what makes
+   * a second POST from the same person a 409 the way the contract says instead
+   * of silently counting them twice. */
+  const timTheoAnh = {};
+  const binhLuanTheoAnh = {};
+  for (const m of fixtures.kyNiem ?? []) {
+    // Seeded so the count the feed already claims is a count this stub can
+    // actually produce. `viewer_has_reacted` decides whether the viewer's own
+    // id is one of the members, and the rest are anonymous filler ids -- the
+    // route never reveals who they are, so they need no identity.
+    const nguoiKhac = [];
+    const rieng = m.viewer_has_reacted ? 1 : 0;
+    for (let i = 0; i < (m.reaction_count ?? 0) - rieng; i += 1) nguoiKhac.push(`khach-${i}`);
+    timTheoAnh[m.id] = { nguoiKhac, cuaMinh: m.viewer_has_reacted === true };
+    binhLuanTheoAnh[m.id] = (fixtures.binhLuan?.[m.id] ?? []).slice();
+  }
+  const demTim = (id) =>
+    (timTheoAnh[id]?.nguoiKhac.length ?? 0) + (timTheoAnh[id]?.cuaMinh ? 1 : 0);
+
   window.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input.url;
     if (!url.startsWith(apiBase)) return originalFetch(input, init);
@@ -245,11 +272,73 @@ export function installTabStubs(apiBase, fixtures) {
     // makes the wall show photographs rather than its empty state, and the
     // empty state is what a 404 here would silently produce -- a scan of a
     // wall with nothing on it, filed under the same filename.
+    // rd-fe-33's four routes, matched BEFORE the feed below: `/memories/{id}/
+    // reactions` also "includes /memories", so the feed's looser test would
+    // swallow every one of them and answer a photo list to a heart press.
+    const xaHoi = route.match(/\/memories\/([^/]+)\/(reactions|comments)$/);
+    if (xaHoi) {
+      const [, memoryId, loai] = xaHoi;
+      if (!(memoryId in timTheoAnh)) {
+        return json({ code: "memory_not_found", detail: "không có ảnh này" }, 404);
+      }
+      if (loai === "reactions") {
+        if (method === "POST") {
+          if (timTheoAnh[memoryId].cuaMinh) {
+            return json({ code: "already_reacted", detail: "thả rồi" }, 409);
+          }
+          timTheoAnh[memoryId].cuaMinh = true;
+          return json({ memory_id: memoryId, reaction_count: demTim(memoryId) }, 201);
+        }
+        if (method === "DELETE") {
+          if (!timTheoAnh[memoryId].cuaMinh) {
+            return json({ code: "reaction_not_found", detail: "chưa thả" }, 404);
+          }
+          timTheoAnh[memoryId].cuaMinh = false;
+          // 204, with NO body. This is the shape that used to reach
+          // `response.json()` and throw a raw SyntaxError past every refusal
+          // table in `api.ts`; answering 200-with-a-body here would hide that.
+          return new Response(null, { status: 204 });
+        }
+      }
+      if (loai === "comments") {
+        if (method === "POST") {
+          const than = JSON.parse(init?.body ?? "{}");
+          const chu = typeof than.body === "string" ? than.body : "";
+          if (chu.trim() === "" || chu.length > 2000) {
+            return json({ code: "invalid_body", detail: "1..2000" }, 422);
+          }
+          const moi = {
+            id: `moi-${binhLuanTheoAnh[memoryId].length + 1}`,
+            memory_id: memoryId,
+            author_id: fixtures.personId,
+            display_name: "Minh",
+            body: chu,
+            created_at: "2026-09-07T20:00:00+07:00",
+          };
+          binhLuanTheoAnh[memoryId].push(moi);
+          return json(moi, 201);
+        }
+        return json({ memory_id: memoryId, comments: binhLuanTheoAnh[memoryId] });
+      }
+    }
     if (route.includes("/memories")) {
       if (method === "POST") return json(fixtures.kyNiem[0], 201);
       return json({
         context_id: fixtures.contextId,
-        memories: fixtures.kyNiem,
+        memories: fixtures.kyNiem.map((m) =>
+          // Live counts overlay the fixture ONLY on rows that carried the
+          // social fields to begin with. That is what lets a test strip the
+          // three fields and get a server with no hearts table back, which is
+          // the exact condition `coTuongTac` keys the buttons off.
+          typeof m.reaction_count === "number"
+            ? {
+                ...m,
+                reaction_count: demTim(m.id),
+                comment_count: binhLuanTheoAnh[m.id].length,
+                viewer_has_reacted: timTheoAnh[m.id].cuaMinh,
+              }
+            : m,
+        ),
         next_cursor: null,
         has_more: false,
       });
@@ -612,6 +701,18 @@ export function taoFixtures() {
     // not on `EXPO_PUBLIC_API_URL` before an `<Image>` is ever built. An
     // absolute `http://127.0.0.1:<port>/...` would be declined by the second of
     // those and this scan would quietly become decoration.
+    // The three social fields are on both rows, and they are set to OPPOSITE
+    // states on purpose (rd-fe-33).
+    //
+    // `viewer_has_reacted` decides which verb the heart sends -- POST on false,
+    // DELETE on true -- and a fixture where both rows read the same way
+    // exercises exactly one of the two. The first row is the "chưa thả" case
+    // and the second is the "đã thả" one, so a single render carries both a
+    // hollow heart and a filled one, and pressing either is a different route.
+    //
+    // Counts differ from each other and from the comment counts, so a component
+    // that renders the wrong number of the four still renders A number: 2 and 1
+    // are not interchangeable and neither is 1 and 0.
     kyNiem: [
       {
         id: "5dd00000-dddd-4ddd-8ddd-0000d0000001",
@@ -626,6 +727,9 @@ export function taoFixtures() {
         lng: null,
         created_at: "2026-09-07T07:12:00+07:00",
         cursor: "c1",
+        reaction_count: 2,
+        comment_count: 1,
+        viewer_has_reacted: false,
       },
       {
         id: "5dd00000-dddd-4ddd-8ddd-0000d0000003",
@@ -640,8 +744,26 @@ export function taoFixtures() {
         lng: null,
         created_at: "2026-09-07T19:40:00+07:00",
         cursor: "c2",
+        reaction_count: 1,
+        comment_count: 0,
+        viewer_has_reacted: true,
       },
     ],
+    // Comments that already exist, keyed by the memory they hang under. Only
+    // the first photograph has one, which is what makes its `comment_count: 1`
+    // a claim the GET can be checked against rather than a number nobody reads.
+    binhLuan: {
+      "5dd00000-dddd-4ddd-8ddd-0000d0000001": [
+        {
+          id: "6ee00000-eeee-4eee-8eee-0000e0000001",
+          memory_id: "5dd00000-dddd-4ddd-8ddd-0000d0000001",
+          author_id: "3cc2d09f-8e5b-4a3c-ad4f-c9e7f1a5b3d8",
+          display_name: "Quang Huy",
+          body: "Chuyến này vui xỉu luôn",
+          created_at: "2026-09-07T08:00:00+07:00",
+        },
+      ],
+    },
     // F34, and only the first outing appears: the recap route lists trips the
     // ledger has money for, so the second one having no entry here is the
     // "chưa tiêu gì" case rather than a gap in the fixture.
