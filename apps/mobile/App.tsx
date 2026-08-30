@@ -99,10 +99,15 @@ import { Button, Screen } from "./src/ui/Kit";
 import {
   DEMO_ADVANCER_ID,
   DEMO_ALLOCATIONS,
+  DEMO_ASSIGNMENT,
+  DEMO_BILL_WIRE,
   DEMO_ENVELOPES,
   DEMO_ITEM_COUNT,
+  DEMO_NHOM,
   DEMO_OBLIGATIONS,
+  DEMO_READING,
   DEMO_ROSTER,
+  DEMO_SPLIT_PREVIEW,
 } from "./src/fixtures/thanh-toan-demo";
 
 type Step =
@@ -1222,9 +1227,97 @@ function XemTaiKhoanNhan() {
   );
 }
 
+/**
+ * The two screens between the photograph and the money, from a URL, web only.
+ *
+ * `KetQuaNhanDien` (AI đọc từng món) and `GoiYChia` (gán món cho người, AI
+ * chia) are the middle of the demo path and were the last two screens on it
+ * that no machine could open. `tests/moi-man-co-duong-do.test.mjs` had them
+ * both as `chuaDo`: reachable only after a photograph has been taken and read,
+ * which a headless browser cannot do. So every "the app was scanned" report
+ * this repo has produced was silent about them -- not wrong, just narrower
+ * than it sounded.
+ *
+ * Same contract as the four scan targets above: one exact parameter value,
+ * nothing on native, the real components with the real copy, no writes, and no
+ * route from here into the product. `onChange` and the toggles are wired to
+ * local state rather than to `() => {}` on purpose -- a matrix whose ticks do
+ * not move is a screen a keyboard pass cannot walk, and half of what these two
+ * screens are is what happens when you press something.
+ *
+ * The fixture is `DEMO_READING` + `DEMO_ASSIGNMENT`, which sum to the same
+ * four allocations `?man=ket-qua-thanh-toan` settles. That agreement is what
+ * lets `GoiYChia` paint real dong under the avatars instead of "...", and
+ * `tests/fixture-hai-man-giua.test.mjs` holds it.
+ */
+function XemNhanDien() {
+  const c = usePalette();
+  const [reading, setReading] = useState<BillReading>(DEMO_READING);
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
+      <StatusBar style="dark" />
+      <KetQuaNhanDien
+        reading={reading}
+        onChange={setReading}
+        onRetake={() => {}}
+        onContinue={() => {}}
+      />
+    </SafeAreaView>
+  );
+}
+
+function XemGoiYChia() {
+  const c = usePalette();
+  const [assignment, setAssignment] = useState<Assignment>(DEMO_ASSIGNMENT);
+  const ids = DEMO_ROSTER.participants.map((p) => p.id);
+
+  // Recomputed from the live matrix rather than stored beside it. `GoiYChia`
+  // only paints a preview while the signature matches, so ticking a box here
+  // must drop the dong back to "..." exactly as it does in the product -- a
+  // fixture that kept painting stale numbers after an edit would be showing a
+  // money error the real screen refuses to show.
+  const preview =
+    signature(DEMO_READING, ids, assignment) === signature(DEMO_READING, ids, DEMO_ASSIGNMENT)
+      ? { signature: signature(DEMO_READING, ids, assignment), split: DEMO_SPLIT_PREVIEW }
+      : null;
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
+      <StatusBar style="dark" />
+      <GoiYChia
+        reading={DEMO_READING}
+        roster={DEMO_ROSTER}
+        nhom={DEMO_NHOM}
+        assignment={assignment}
+        preview={preview}
+        bill={DEMO_BILL_WIRE}
+        soDu={null}
+        onBack={() => {}}
+        onReset={() => setAssignment(DEMO_ASSIGNMENT)}
+        onToggle={(lineId, personId) =>
+          setAssignment((cu) => {
+            const dang = cu[lineId] ?? [];
+            return {
+              ...cu,
+              [lineId]: dang.includes(personId)
+                ? dang.filter((id) => id !== personId)
+                : [...dang, personId],
+            };
+          })
+        }
+        onAddMember={() => {}}
+        onRemovePerson={() => {}}
+        onSeeResults={() => {}}
+      />
+    </SafeAreaView>
+  );
+}
+
 export default function App() {
   if (manDo()) return <XemKetQuaThanhToan />;
   if (manThamSo() === "trang-thai") return <XemTrangThai />;
+  if (manThamSo() === "nhan-dien") return <XemNhanDien />;
+  if (manThamSo() === "goi-y-chia") return <XemGoiYChia />;
   if (manThamSo()?.startsWith("doc-bill")) return <XemDocBill />;
   if (manThamSo()?.startsWith("tai-khoan-nhan")) return <XemTaiKhoanNhan />;
   return <AppRoot renderKhoanChi={(onExit, nguoi) => <LuongKhoanChi onExit={onExit} nguoi={nguoi} />} />;
