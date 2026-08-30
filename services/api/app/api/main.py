@@ -29,6 +29,7 @@ from app.api.routes import (
     bank_recipients,
     batches,
     bills,
+    budget,
     contexts,
     expenses,
     finance,
@@ -44,6 +45,7 @@ from app.api.routes import (
     places,
     recap,
     receipts,
+    screenshots,
     social_map,
     suggestions,
 )
@@ -51,6 +53,7 @@ from app.api.schemas import ErrorResponse
 from app.api.search_rate_limit import (
     build_chat_expense_limiter,
     build_receipt_scan_limiter,
+    build_screenshot_scan_limiter,
     build_search_limiter,
 )
 from app.db.session import get_session_factory
@@ -89,6 +92,9 @@ def create_app(
     # F24 is text rather than vision, but it spends the same shared model key.
     # Its own counter keeps a burst on one feature from disabling the other.
     application.state.chat_expense_limiter = build_chat_expense_limiter()
+    # F26 uses vision too, but owns a fourth window so retries do not consume
+    # the bill reader's allowance.
+    application.state.screenshot_scan_limiter = build_screenshot_scan_limiter()
 
     application.mount(
         "/static",
@@ -98,6 +104,7 @@ def create_app(
     application.include_router(expenses.router)
     application.include_router(friends.router)
     application.include_router(bills.router)
+    application.include_router(budget.router)
     application.include_router(contexts.router)
     application.include_router(memories.router)
     application.include_router(photos.router)
@@ -113,6 +120,7 @@ def create_app(
     application.include_router(finance.router)
     application.include_router(recap.router)
     application.include_router(receipts.router)
+    application.include_router(screenshots.router)
     application.include_router(suggestions.router)
     application.include_router(social_map.router)
 

@@ -82,8 +82,8 @@ MUTATIONS = [
     Mutation(
         name="domain stringifies a float amount instead of refusing it",
         path=DOMAIN,
-        old="    amount_text = raw.get(\"amount_text\")\n    if not isinstance(amount_text, str):",
-        new="    amount_text = raw.get(\"amount_text\")\n    if isinstance(amount_text, (int, float)):\n        amount_text = str(amount_text)\n    if not isinstance(amount_text, str):",
+        old='    amount_text = raw.get("amount_text")\n    if not isinstance(amount_text, str):',
+        new='    amount_text = raw.get("amount_text")\n    if isinstance(amount_text, (int, float)):\n        amount_text = str(amount_text)\n    if not isinstance(amount_text, str):',
         expect="RED",
         why="Money law 1: 180000.0 from a model is a float that crossed money.",
     ),
@@ -215,8 +215,10 @@ def main() -> int:
         return 1
     reds = sum(row[0].expect == "RED" for row in rows)
     greens = len(rows) - reds
-    print(f"\nAll {len(rows)} rows matched: {reds} RED (gate bites), "
-          f"{greens} GREEN (gate is not merely edit-detection).")
+    print(
+        f"\nAll {len(rows)} rows matched: {reds} RED (gate bites), "
+        f"{greens} GREEN (gate is not merely edit-detection)."
+    )
     return 0
 
 

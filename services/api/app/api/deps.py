@@ -13,6 +13,7 @@ from app.api.chat_expense_skill import ChatExpenseReader
 from app.api.errors import ApiProblem
 from app.api.receipt_skill import ReceiptReader
 from app.api.repository import ApiRepository, SqlAlchemyApiRepository
+from app.api.screenshot_skill import ScreenshotReader
 from app.db.session import get_session_factory
 from app.domain.permissions import ROLES
 from app.media.storage import PhotoStorage
@@ -118,6 +119,14 @@ def get_chat_expense_reader() -> ChatExpenseReader:
     from app.api.chat_expense_gemini import GeminiChatExpenseReader
 
     return GeminiChatExpenseReader()
+
+
+def get_screenshot_reader() -> ScreenshotReader:
+    """Build the screenshot reader lazily so importing the app needs no key."""
+
+    from app.api.screenshot_gemini import GeminiScreenshotReader
+
+    return GeminiScreenshotReader()
 
 
 def get_companion() -> Companion:

@@ -76,6 +76,7 @@ from app.api.schemas import (
     FriendRequestListResponse,
     FriendRequestResponse,
     FriendSummary,
+    GroupBudgetResponse,
     GroupHeatmapResponse,
     GroupRecapResponse,
     GroupSuggestionResponse,
@@ -131,6 +132,7 @@ from app.domain import permissions
 from app.domain.allocator import allocate
 from app.domain.bank_account import BankAccountError, normalise_destination
 from app.domain.bill import BillError, allocator_input_from_bill
+from app.domain.budget import build_group_budget
 from app.domain.capability import CapabilityScopeError, capability_scope
 from app.domain.collection import CollectionError, transition, unmet_publish_gates
 from app.domain.companion import CompanionError, ground_card, plan_turn
@@ -1100,6 +1102,48 @@ class ApiService:
             # are still on would stop matching the rows printed beneath it.
             split_total_vnd=sum(outing.split_total_vnd for outing in outings),
         )
+
+    def group_budget(
+        self,
+        context_id: uuid.UUID,
+        actor: Actor,
+        *,
+        candidate_per_person_vnd: int | None,
+    ) -> GroupBudgetResponse:
+        """Compare one candidate with current and finished ledger-backed trips."""
+
+        _require_permission(
+            "view_group_budget",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        today = _now().astimezone(ZoneInfo(WALL_CLOCK_ZONE)).date()
+
+        # `group_recap` rebuilds every split total from the newest expense
+        # versions and confirmed allocations on this request. Reusing that
+        # repository read keeps F30, F32 and F34 on one ledger interpretation.
+        records = self.repository.group_recap(context_id, today=today)
+        members = self.repository.list_members(context_id)
+        budget = build_group_budget(
+            [
+                {
+                    "outing_id": record.outing.id,
+                    "title": record.outing.title,
+                    "headcount": record.outing.headcount,
+                    "budget_per_person_vnd": (
+                        record.outing.budget_per_person_vnd
+                    ),
+                    "split_total_vnd": record.split_total_vnd,
+                    "in_progress": record.in_progress,
+                }
+                for record in records
+            ],
+            active_member_count=sum(
+                membership.state == "active" for membership in members
+            ),
+            candidate_per_person_vnd=candidate_per_person_vnd,
+        )
+        return GroupBudgetResponse(context_id=context_id, **budget)
 
     def group_suggestion(
         self,

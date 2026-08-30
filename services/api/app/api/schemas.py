@@ -553,6 +553,53 @@ class GroupRecapResponse(ApiModel):
     split_total_vnd: MoneyVnd
 
 
+class BudgetOutingView(ApiModel):
+    outing_id: UUID
+    title: StrictStr
+    headcount: Annotated[int, Field(strict=True, ge=0)]
+    budget_per_person_vnd: NonNegativeMoneyVnd
+    spent_per_person_vnd: NonNegativeMoneyVnd
+    remaining_per_person_vnd: MoneyVnd
+    over_budget: StrictBool
+
+    @model_validator(mode="after")
+    def _remaining_matches_spend(self) -> BudgetOutingView:
+        expected = self.budget_per_person_vnd - self.spent_per_person_vnd
+        if self.remaining_per_person_vnd != expected:
+            raise ValueError("remaining must be budget minus spent")
+        if self.over_budget != (self.remaining_per_person_vnd < 0):
+            raise ValueError("over_budget must match the remaining sign")
+        return self
+
+
+class BudgetComparison(ApiModel):
+    candidate_per_person_vnd: NonNegativeMoneyVnd
+    delta_vnd: MoneyVnd
+    verdict: Literal["re-hon", "nhu-thuong", "cao-hon"]
+
+
+class GroupBudgetResponse(ApiModel):
+    context_id: UUID
+    outing_count: Annotated[int, Field(strict=True, ge=0)]
+    active_member_count: Annotated[int, Field(strict=True, ge=0)]
+    avg_per_person_vnd: MoneyVnd | None
+    in_progress: list[BudgetOutingView]
+    comparison: BudgetComparison | None
+
+    @model_validator(mode="after")
+    def _comparison_has_a_real_baseline(self) -> GroupBudgetResponse:
+        if self.comparison is not None:
+            if self.avg_per_person_vnd is None:
+                raise ValueError("comparison requires a historical average")
+            expected = (
+                self.comparison.candidate_per_person_vnd
+                - self.avg_per_person_vnd
+            )
+            if self.comparison.delta_vnd != expected:
+                raise ValueError("comparison delta must be candidate minus average")
+        return self
+
+
 class SuggestionPlace(ApiModel):
     """The catalogue row behind one stop, and nothing the model wrote.
 
@@ -921,6 +968,16 @@ class ReceiptScanResponse(ApiModel):
     total_difference_vnd: MoneyVnd | None = None
     needs_review: StrictBool
     warnings: list[StrictStr] = Field(default_factory=list)
+
+
+class ScreenshotScanResponse(ApiModel):
+    """One model-read transaction draft with no identity channel."""
+
+    source: Literal["grab", "shopeefood", "banking", "receipt"]
+    merchant: StrictStr
+    total_vnd: PositiveMoneyVnd
+    occurred_on: date | None
+    needs_review: StrictBool
 
 
 class ReceiptConfirmationRequest(ApiModel):
