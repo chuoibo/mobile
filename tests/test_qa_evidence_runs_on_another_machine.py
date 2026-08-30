@@ -33,14 +33,24 @@ text. It is not a proof that the scripts run.
 It does **not** prove: that puppeteer-core resolves, that a browser is installed,
 that the servers those scripts drive are up, or that the evidence they once
 produced would be produced again. It proves only that the reason they cannot run
-elsewhere is no longer *this* reason. `npm ci`, `tim_trinh_duyet()` and the
-harness READMEs answer the rest.
+elsewhere is no longer *this* reason. `npm ci`, `timTrinhDuyet()` and the harness
+READMEs answer the rest.
 
-Scope is `tests/qa/` because that is what the QA lane owns. `apps/mobile/tools/`
-still carries four such paths after #326 -- that PR fixed the import specifiers
-and said so, leaving the browser-binary constants alone. Those belong to the
-frontend lane and are reported there, not silently widened into this gate where
-nobody who can fix them would see it.
+It also does not prove the scripts *load*. A pasted path replaced by a helper
+call is a two-part edit, and dropping the second part yields a ReferenceError
+that no text scan can see -- so `test_moi_ten_duoc_dung_deu_co_duong_nhap` below
+covers the one shape of that which actually happened here, and the rest was
+checked by hand (`node <each file>`, watching for ReferenceError / SyntaxError /
+ERR_MODULE_NOT_FOUND). Running them in the gate is not an option: they launch
+browsers and drive live servers.
+
+Scope is `tests/qa/` because that is what the QA lane owns. `apps/mobile/` has
+its own equivalent, `tests/nhap-khau-chay-duoc-may-khac.test.mjs`: #326 closed
+the import specifiers there and #329 closed the browser-binary constants, so the
+three remaining mentions of a home directory under `apps/mobile/` are prose in
+banners describing the old defect, not live paths. Two gates rather than one
+widened across both trees, because each lane can only fix its own side and a
+gate nobody can act on is a gate people learn to route around.
 """
 
 from __future__ import annotations
