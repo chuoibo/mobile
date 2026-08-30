@@ -1737,6 +1737,23 @@ class ApiService:
                 )
             },
         )
+        # `#235` put this rule on `confirm_expense` and `#247` on
+        # `confirm_bill_assignments`; this is the third door that writes a
+        # `participant_id`, and it wrote one row per suggested id straight from
+        # the request body. A share is not a draft -- it comes back out of
+        # `GET /bills/{id}` as somebody's dish, and it is what the person
+        # tapping "đúng rồi" is agreeing to. Refusing only later at `split`
+        # would leave that screen naming a stranger, and would leave the share
+        # itself stored: `confirm_bill_assignments` clears only the `item_key`s
+        # it is handed, so nothing the caller can do afterwards removes it.
+        self._require_participants_are_members(
+            request.context_id,
+            [
+                participant_id
+                for item in request.items
+                for participant_id in item.suggested_participant_ids
+            ],
+        )
         try:
             record = self.repository.create_bill(
                 context_id=request.context_id,
@@ -1834,17 +1851,24 @@ class ApiService:
     ) -> BillSplitResponse:
         record = self._bill_for_actor(bill_id, actor)
 
-        list_members = getattr(self.repository, "list_members", None)
-        memberships = list_members(record.context_id) if list_members else []
+        # The participants of a split are the group's roster, never the bill's
+        # own shares. The removed fallback ("if the roster is empty, the
+        # participants are whoever the shares name") handed the allocator the
+        # very list its `UNKNOWN_PARTICIPANT` check exists to judge, so that
+        # check could only ever answer yes. An empty roster means there is
+        # nobody to split between, which is a refusal, not a licence to trust
+        # the request body -- see
+        # `tests/api/test_split_does_not_invent_participants.py`.
+        #
+        # `list_members` is called directly rather than through `getattr`: it
+        # has always been on the `ApiRepository` protocol, and reading it
+        # defensively meant a repository that merely forgot to implement it
+        # degraded silently into that same fallback instead of failing loudly.
         participant_ids = {
             membership.person_id
-            for membership in memberships
+            for membership in self.repository.list_members(record.context_id)
             if membership.state == "active"
         }
-        if not participant_ids:
-            participant_ids = {
-                share.participant_id for item in record.items for share in item.shares
-            }
 
         try:
             projection = allocator_input_from_bill(
