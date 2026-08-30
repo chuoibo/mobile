@@ -23,7 +23,7 @@ import {
   coTheDang,
   loiTuong,
   thanDangBai,
-} from "../dist-test/screens/ca-nhan/tuong.js";
+} from "../dist-test/screens/ca-nhan/bai-dang.js";
 import { Tuong } from "../dist-test/screens/ca-nhan/Tuong.js";
 
 const ACTOR = "46b55e67-932b-5415-a5ee-08fb2641a4ff";
