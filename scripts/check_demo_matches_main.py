@@ -225,6 +225,18 @@ def server_paths(url: str, timeout: float) -> set[str]:
     except json.JSONDecodeError as exc:
         die(f"{doc_url} trả về JSON hỏng: {exc}")
 
+    # `doc` is whatever the far end sent. A JSON array parses fine and then
+    # `.get` raises AttributeError, which nobody catches, so Python exits 1 --
+    # and 1 is this gate's word for "the demo differs from main". Measured on
+    # 2026-08-30: body `["/healthz"]` gave exit 1 plus a traceback, sending the
+    # reader off to rebuild a demo machine for a drift never measured. Exit 2
+    # is the honest answer: the check could not run.
+    if not isinstance(doc, dict):
+        die(
+            f"{doc_url} trả về JSON kiểu {type(doc).__name__}, không phải object.\n"
+            "   Tài liệu OpenAPI phải là một object có mục 'paths'."
+        )
+
     paths = doc.get("paths")
     if not isinstance(paths, dict):
         die(f"{doc_url} không có mục 'paths' — đây không phải tài liệu OpenAPI.")
