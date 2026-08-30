@@ -109,6 +109,34 @@ def absent_critical_name() -> str | None:
     return None
 
 
+def no_drift_copy_of_the_shipping_file(
+    path: pathlib.Path,
+) -> tuple[pathlib.Path, list[str]]:
+    """The shipping file's own pin names, each set to what is installed here.
+
+    This is the state CI is in and this machine has never been in: every pin
+    matches. Built from the real file rather than a literal list, so it exercises
+    the names the gate actually reads, and from `importlib.metadata` rather than
+    hardcoded versions, so it means the same thing on any machine.
+
+    Pins this interpreter does not have are dropped -- they cannot be made to
+    match locally, and their absence is already covered by
+    `test_a_critical_pin_that_is_not_installed_at_all_is_red`.
+    """
+
+    module = load_checker_module()
+    names: list[str] = []
+    lines: list[str] = []
+    for name, _pinned in sorted(module.read_pins(SHIPPING_REQUIREMENTS).items()):
+        here = installed(name)
+        if here is None:
+            continue
+        names.append(name)
+        lines.append(f"{name}=={here}")
+    write_requirements(path, lines)
+    return path, names
+
+
 # --- the gate ------------------------------------------------------------
 
 
@@ -132,6 +160,77 @@ def test_the_shipping_requirements_file_is_readable():
     assert "fastapi" in result.stdout, (
         "fastapi is pinned in the shipping requirements and must appear in the "
         f"survey; the parser has gone blind\n{result.stdout}"
+    )
+
+
+def test_the_survey_names_every_pin_when_nothing_drifts(tmp_path):
+    """The state CI runs in, and the one this machine cannot reach on its own.
+
+    This case exists because the gate above went red on CI at 2862154 while
+    every pin matched -- the exact opposite of its intent. The survey printed pin
+    names only inside an `if drifted or absent:` block, so a clean interpreter
+    got a report that named nothing it had surveyed, and the "has the parser gone
+    blind" assertion had no name to find.
+
+    A survey that speaks only when it has bad news cannot be used as evidence
+    that it read anything, which is the one thing that case needs it for. So the
+    listing is unconditional, and this proves it on the branch the local machine
+    never takes: the drift set here is 6/12, and it was that permanent drift that
+    made the hole invisible to every local run.
+    """
+
+    req, names = no_drift_copy_of_the_shipping_file(tmp_path / "no-drift.txt")
+    assert "fastapi" in names, (
+        "fastapi must be installed and pinned for this case to reproduce CI"
+    )
+
+    result = run_checker("--requirements", str(req))
+    assert result.returncode == 0, (
+        f"every pin was set to the installed version, so there is no drift\n"
+        f"{result.stdout}\n{result.stderr}"
+    )
+    assert "Không pin quan trọng nào lệch" in result.stdout, (
+        f"the clean verdict is missing\n{result.stdout}"
+    )
+
+    missing = [name for name in names if name not in result.stdout]
+    assert not missing, (
+        "a clean survey must still name what it surveyed, or it cannot prove it "
+        f"read the file at all; {len(missing)} of {len(names)} pins unnamed: "
+        f"{missing}\n{result.stdout}"
+    )
+
+
+def test_the_survey_names_matching_pins_alongside_drifted_ones(tmp_path):
+    """Both states in one file, so the listing cannot be made conditional again.
+
+    Printing names only on the clean branch would satisfy the case above and
+    reintroduce the same blindness in reverse. A reader of a red report needs to
+    see what was checked *and passed*, not only the offenders -- otherwise a pin
+    that silently stopped being parsed looks identical to a pin that matched.
+    """
+
+    fastapi_here = installed("fastapi")
+    jinja_here = installed("jinja2")
+    assert fastapi_here and jinja_here
+    req = write_requirements(
+        tmp_path / "r.txt",
+        [
+            "fastapi==0.0.1-not-a-real-version",  # drifted
+            f"jinja2=={jinja_here}",  # matches
+        ],
+    )
+
+    result = run_checker("--requirements", str(req))
+    assert result.returncode == 1, f"critical drift is red\n{result.stdout}"
+    assert "fastapi" in result.stdout, f"the offender must be named\n{result.stdout}"
+    assert "jinja2" in result.stdout, (
+        "a pin that matched must be named too, or a red report cannot "
+        f"distinguish 'checked and fine' from 'never read'\n{result.stdout}"
+    )
+    assert jinja_here in result.stdout, (
+        "the matching row must carry the version it compared, not just the name "
+        f"-- a name alone is not evidence of a comparison\n{result.stdout}"
     )
 
 
