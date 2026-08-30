@@ -95,7 +95,7 @@
     // F39/F42. The wall on Cá nhân: audience copy, refusal sentences, and the
     // screen itself so a test can read the markup react-native-web emits for
     // the four radios and the disabled Đăng button.
-    "src/screens/ca-nhan/tuong.ts",
+    "src/screens/ca-nhan/bai-dang.ts",
     "src/screens/ca-nhan/Tuong.tsx",
     // F30's date arithmetic. Compiled because the rule under test -- a trip's
     // calendar days must not be shifted by the reading machine's timezone -- is
