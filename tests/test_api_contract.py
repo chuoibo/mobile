@@ -78,7 +78,7 @@ class GateBites(unittest.TestCase):
         self.assertEqual(
             kinds(
                 """
-                await translated(PUBLISH_REFUSALS, `/batches/current/publish`, {
+                await translatedAsActor(PUBLISH_REFUSALS, `/batches/current/publish`, {
                   body: { delivery_method: "personal_link" },
                   actorId,
                 });
@@ -131,7 +131,7 @@ class GateStaysQuiet(unittest.TestCase):
                  * never existed.
                  */
                 // there is no `/polls` route to post either one to
-                await translated(TABLE, `/batches/${batchId}/publish`, { actorId });
+                await translatedAsActor(TABLE, `/batches/${batchId}/publish`, { actorId });
                 """
             ),
             [],
@@ -237,6 +237,41 @@ class ReaderDoesNotGoBlind(unittest.TestCase):
                 """
             ),
             1,
+        )
+
+    def test_every_wrapper_it_reads_is_still_declared_in_api_ts(self):
+        # `REQUEST_FUNCTIONS` is the reader's one hardcoded dependency on how
+        # the client spells itself, and drift in it is silent in the worst
+        # direction: a name nobody calls any more matches nothing, every call
+        # site through it stops being read, and the gate still exits 0 on the
+        # sites it can still see.
+        #
+        # That is not hypothetical. This branch renamed `call` and `translated`
+        # into four `*AsActor` / `*Anonymous` wrappers. Measured before the
+        # reader was taught them: 13 paths across 19 call sites, against 65
+        # across 77 after. 58 call sites unread, and the only thing that noticed
+        # was `assertGreater(total, 10)` -- which then stopped noticing the
+        # moment `main` merged three more direct `fetch` calls in and carried
+        # the total from 10 to 13.
+        #
+        # So the count below is a backstop for the reader dying outright, not a
+        # guard against this. This is the guard against this, and it names the
+        # function instead of printing a number that got quietly satisfied.
+        api_ts = contract_gate.CLIENT_ROOT / "api.ts"
+        if not api_ts.is_file():
+            self.skipTest("apps/mobile không có trên nhánh này")
+        source = api_ts.read_text(encoding="utf-8")
+        declared = contract_gate.declarations(
+            source, contract_gate.mask(source, contract_gate.tokenize(source))
+        )
+        unknown = [name for name in contract_gate.WRAPPERS if name not in declared]
+        self.assertEqual(
+            unknown,
+            [],
+            f"bộ đọc còn nhận ra {unknown} nhưng api.ts không khai báo tên đó "
+            "nữa -- mọi lời gọi qua tên mới sẽ KHÔNG được đọc, và cổng vẫn "
+            "xanh trên phần nó còn thấy. Sửa REQUEST_FUNCTIONS trong "
+            "scripts/check_api_contract.py cho khớp tên api.ts đang dùng.",
         )
 
     def test_the_real_client_still_has_routes_to_check(self):

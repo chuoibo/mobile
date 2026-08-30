@@ -6,7 +6,7 @@
     "số dòng — api.ts sửa gần như mỗi ngày, ghim theo dòng sẽ đỏ vì lý do sai.",
     "'count' là số chỗ đã có người đọc và chấp nhận. Vượt count là ĐỎ; thấp hơn",
     "count chỉ in ra GHIM CŨ, vì đó là client vừa dễ đọc hơn, không phải lỗi.",
-    "Xoá file này thì cổng đỏ 9 chỗ — đó là hành vi đúng, không phải hỏng."
+    "Xoá file này thì cổng đỏ 12 chỗ — đó là hành vi đúng, không phải hỏng."
   ],
   "unresolved": [
     {
@@ -21,8 +21,8 @@
     },
     {
       "where": "apps/mobile/src/api.ts :: path",
-      "count": 1,
-      "reason": "translated<T>() chuyển tiếp thẳng vào call<T>(). Cùng lý do với phễu ở trên."
+      "count": 2,
+      "reason": "Thân của translatedAsActor<T>() và translatedAnonymous<T>(), mỗi cái chuyển tiếp thẳng vào callAsActor/callAnonymous. Cùng lý do với phễu ở trên. Hai chỗ chứ không phải một vì mỗi wrapper đã tách đôi: gửi request KHÔNG kèm actor giờ là thứ phải viết ra ở chỗ gọi, không phải một field bỏ quên."
     },
     {
       "where": "apps/mobile/src/api.ts :: url",
@@ -36,13 +36,13 @@
     },
     {
       "where": "apps/mobile/src/api.ts :: path: string",
-      "count": 1,
-      "reason": "Không phải lời gọi mà là KHAI BÁO 'async function call<T>(path: string,' — regex CALLEE khớp nhầm chữ ký hàm. Đây là hạn chế của bộ đọc, không phải của client; sửa nó là một việc riêng, và khi sửa xong ghim này sẽ tự báo GHIM CŨ."
+      "count": 2,
+      "reason": "Không phải lời gọi mà là KHAI BÁO 'async function callAsActor<T>(path: string,' và 'async function callAnonymous<T>(path: string,' — regex CALLEE khớp nhầm chữ ký hàm. Đây là hạn chế của bộ đọc, không phải của client; sửa nó là một việc riêng, và khi sửa xong ghim này sẽ tự báo GHIM CŨ."
     },
     {
       "where": "apps/mobile/src/api.ts :: string>",
-      "count": 1,
-      "reason": "Cùng một hạn chế: khai báo 'export async function translated<T>(' bị đọc thành lời gọi. Xem ghi chú ở mục ngay trên."
+      "count": 2,
+      "reason": "Cùng một hạn chế: khai báo 'export async function translatedAsActor<T>(' và 'export async function translatedAnonymous<T>(' bị đọc thành lời gọi. Xem ghi chú ở mục ngay trên."
     }
   ]
 }

@@ -34,7 +34,7 @@
  * an empty list here means "none created since this screen opened", never
  * "this outing has no invites".
  */
-import { type Attempt, translated } from "../../api";
+import { type Attempt, translatedAsActor } from "../../api";
 import type { ThanhVien } from "../vao-cua/cong-api";
 
 export type VaiTro = "member" | "admin";
@@ -101,7 +101,7 @@ const NHOM_REFUSALS: Record<string, string> = {
  * thing for both because the server deliberately does not distinguish them.
  */
 export async function docNhom(contextId: string, actorId: string): Promise<NhomChiTiet> {
-  return translated<NhomChiTiet>(NHOM_REFUSALS, `/contexts/${contextId}`, {
+  return translatedAsActor<NhomChiTiet>(NHOM_REFUSALS, `/contexts/${contextId}`, {
     method: "GET",
     actorId,
     contexts: contextId,
@@ -129,7 +129,7 @@ export async function datVaiTro(
   actorId: string,
   attempt: Attempt,
 ): Promise<ThanhVienChiTiet> {
-  return translated<ThanhVienChiTiet>(
+  return translatedAsActor<ThanhVienChiTiet>(
     VAI_TRO_REFUSALS,
     `/contexts/${contextId}/members/${personId}/role`,
     {
@@ -165,7 +165,7 @@ export async function roiNhom(
   actorId: string,
   attempt: Attempt,
 ): Promise<void> {
-  await translated<void>(
+  await translatedAsActor<void>(
     ROI_NHOM_REFUSALS,
     `/contexts/${contextId}/members/${personId}`,
     { method: "DELETE", actorId, attempt, contexts: contextId },
@@ -197,7 +197,7 @@ export async function taoLoiMoiBuoiDi(
   attempt: Attempt,
   contextId: string,
 ): Promise<LoiMoiBuoiDi> {
-  return translated<LoiMoiBuoiDi>(LOI_MOI_REFUSALS, `/outings/${outingId}/invites`, {
+  return translatedAsActor<LoiMoiBuoiDi>(LOI_MOI_REFUSALS, `/outings/${outingId}/invites`, {
     method: "POST",
     body: than,
     actorId,
@@ -226,7 +226,7 @@ export async function thuHoiLoiMoi(
   attempt: Attempt,
   contextId: string,
 ): Promise<LoiMoiBuoiDi> {
-  return translated<LoiMoiBuoiDi>(
+  return translatedAsActor<LoiMoiBuoiDi>(
     THU_HOI_REFUSALS,
     `/outings/${outingId}/invites/${inviteId}/revoke`,
     { method: "POST", actorId, attempt, contexts: contextId },
