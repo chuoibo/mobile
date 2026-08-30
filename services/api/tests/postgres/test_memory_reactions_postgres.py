@@ -209,18 +209,33 @@ def test_a_comment_cannot_name_its_own_author(postgres_session, monkeypatch):
 
 
 def test_a_comment_is_written_under_the_callers_name(postgres_session, monkeypatch):
-    app, context, owner, _outsider, memory = _scene(postgres_session, monkeypatch)
+    """The commenter is deliberately NOT the person who posted the photograph.
 
-    response = _comment(app, context.id, memory.id, owner.id)
+    Written the obvious way -- the owner commenting on the owner's own memory
+    -- this test passes just as happily against a service that takes the
+    author from `memory.author_id`. The two ids are the same, so the bug and
+    the fix are the same colour. The mutation table caught exactly that: row 7
+    went red somewhere else while this test stayed green.
+
+    So `friend` comments on `owner`'s photograph, and the two ids differ.
+    """
+    app, context, owner, _outsider, memory = _scene(postgres_session, monkeypatch)
+    friend = _person(postgres_session, "Quyên")
+    _join(postgres_session, context, friend)
+    assert memory.author_id == owner.id
+    assert friend.id != owner.id
+
+    response = _comment(app, context.id, memory.id, friend.id)
 
     assert response.status_code == 201, response.text
     body = response.json()
-    assert body["author_id"] == str(owner.id)
-    assert body["display_name"] == "Minh Anh"
+    assert body["author_id"] == str(friend.id), "the comment took the photo's author"
+    assert body["display_name"] == "Quyên"
     assert body["body"] == COMMENT
 
     row = postgres_session.scalars(select(MemoryComment)).one()
-    assert row.author_id == owner.id
+    assert row.author_id == friend.id
+    assert row.author_id != memory.author_id
 
 
 def test_a_blank_comment_is_refused(postgres_session, monkeypatch):
