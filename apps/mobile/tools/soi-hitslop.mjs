@@ -84,7 +84,11 @@ try {
     console.log(
       rong
         ? `\n=> hitSlop CO tac dung tren web: con trung o ${rong}/${ra.doDuoc.length} diem ngoai box`
-        : "\n=> hitSlop KHONG tac dung tren web: moi diem ngoai box deu truot, vung cham dung bang box 28px",
+        // The width comes from the measurement, not from a literal. It was
+        // `28px` here, which stayed on screen after the button became 44 and
+        // read as "still broken" beside a box this same run had just measured
+        // at 44x44.
+        : `\n=> hitSlop KHONG tac dung tren web: moi diem ngoai box deu truot, vung cham dung bang box ${ra.box.w}px`,
     );
   }
 } finally {
