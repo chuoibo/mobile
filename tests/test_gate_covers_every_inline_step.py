@@ -233,6 +233,36 @@ INLINE_STEPS: dict[str, Covered] = {
         body_sha="7d692291339c065c",
         why="",
     ),
+    # --- test.yml: screens ------------------------------------------------
+    # The third link in the chain `client-routes` and `server-routes` are the
+    # first two of: whether a screen that calls its routes correctly is itself
+    # rendered by anything the entry point reaches.
+    "test.yml::screens::present": Covered(
+        kind=GATE_KIND,
+        stages=("screens",),
+        body_sha="a0ba6bba61abdb0c",
+        # Refuse-to-skip, and the sharpest version of it. With no screen file
+        # to read, every screen is vacuously reachable and the run prints 0/0
+        # and exits 0 -- green because nothing ran, inside the job that exists
+        # to catch code nobody can reach. check_prereq's return 2 is the same
+        # rule, and scripts/check_screens_reachable.py refuses it itself.
+        why="",
+    ),
+    "test.yml::screens::The checker can be red": Covered(
+        kind=GATE_KIND,
+        stages=("screens",),
+        body_sha="207ac933c8cdbbfe",
+        # Runs before the real check, not after, and it has already caught its
+        # own script once: the first draft let plain imports carry the render
+        # chain, so deleting a real `<ChiaSe />` left the gate green.
+        why="",
+    ),
+    "test.yml::screens::Every screen against the render graph from the entry point": Covered(
+        kind=GATE_KIND,
+        stages=("screens",),
+        body_sha="5a60bdf483a68dff",
+        why="",
+    ),
     # --- test.yml: docker -------------------------------------------------
     "test.yml::docker::Base images are pinned by digest": Covered(
         kind=GATE_KIND,
