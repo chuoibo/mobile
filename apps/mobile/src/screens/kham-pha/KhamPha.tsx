@@ -24,10 +24,20 @@
  *
  * | Mockup | Here | Why |
  * |---|---|---|
- * | Photo per card | Real `Anh` frame; drawn mark as stand-in | The frame is sized now; `photo_url` fills it when the server sends one. See `AnhDiaDiem.tsx` |
+ * | Photo per card | Real `Anh` frame; drawn mark as stand-in | The frame is sized now, and `GET /places` sends no `photo_url` at all today -- only `photo_count`. The frame fills the day the field exists. See `AnhDiaDiem.tsx` |
+ * | Name and rating over the photo | Under it | Over a drawn ramp that is white text on a gradient, and `tokens.json` bans small text on the brand layer. The mockup's photo is dark enough to carry it; a stand-in is not |
  * | Search box with placeholder only | Labelled field | The kit's own rule: a placeholder vanishes the moment you type |
+ * | Chips immediately under the search box | Under the search box *and* its button | Splitting a field from its own submit to slot the filter between them separates a control from its action. The chips are still the first thing below the search unit |
  * | Avatar top-right | Not drawn | The Cá nhân tab is one tap away and already owns that |
  * | Real map strip | Relative-position strip, labelled | The coordinates are real; the basemap is not, and it says so |
+ *
+ * ## The grid is cut at four, and that is what makes "Xem tất cả" honest
+ *
+ * The mockup draws a 2x2 with a link beside the heading. Both halves of that
+ * only work together: a link over an already-complete list does nothing, and a
+ * grid of twelve pushes the map off the fold. `SO_THE_MAC_DINH` is the cut, the
+ * link reveals the rest, and when a category holds four or fewer the link is
+ * not drawn at all rather than drawn dead.
  *
  * ## Lead tone
  *
@@ -38,9 +48,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { radius, space, type, usePalette } from "../../theme";
-import { Button, Card, Choice, Field, Screen } from "../../ui/Kit";
+import { Button, Card, Field, Screen } from "../../ui/Kit";
 import { themChiTiet, thanLoiMayChu } from "../../ui/loi-may-chu";
 import { AnhDiaDiem, Ruy, RuyDongCua } from "./AnhDiaDiem";
+import { HangDanhMuc } from "./HangDanhMuc";
 import { HuyHieuMatch } from "./NhanAi";
 import { CauAiHieu, KhongCoKetQua, TimKhongDuoc } from "./CauAiHieu";
 import { ChiTietDiaDiem } from "./ChiTietDiaDiem";
@@ -63,6 +74,14 @@ import {
 
 const TAT_CA = "tat-ca";
 
+/** How many cards the grid shows before "Xem tất cả".
+ *
+ * Four, because the mockup draws a 2x2 and two columns times two rows is what
+ * fits above the map strip on a 390pt phone without the map falling off the
+ * fold entirely. The catalogue is twelve rows today, so this is a real cut and
+ * the link below is a real action, not a decoration sized to never trigger. */
+const SO_THE_MAC_DINH = 4;
+
 export function KhamPha({ nguoi, nhom, diaDiemDau }: {
   /** Who the app is acting as, passed down to the check-in card. Optional so
    *  the screen still renders for any caller that does not care -- including
@@ -81,6 +100,10 @@ export function KhamPha({ nguoi, nhom, diaDiemDau }: {
   const [cau, setCau] = useState("");
   const [tim, setTim] = useState<TimKiemState>({ kind: "chua-tim" });
   const [dangXem, setDangXem] = useState<Place | null>(null);
+  // Whether the grid is showing everything or just the first `SO_THE_MAC_DINH`.
+  // Reset on every category change below, because "Xem tất cả" was a statement
+  // about the list the person was looking at, not a standing preference.
+  const [moRong, setMoRong] = useState(false);
   // Only the newest search may write state. Two taps on "Tìm" race, and the
   // slower reply landing second would overwrite the newer answer with an older
   // one -- results for a sentence the person has already replaced.
@@ -98,6 +121,10 @@ export function KhamPha({ nguoi, nhom, diaDiemDau }: {
   }, []);
 
   useEffect(() => tai(danhMuc), [tai, danhMuc]);
+
+  // A new category is a new list. Carrying the expanded state across would open
+  // the next category fully unrolled with a "Thu gọn" nobody pressed.
+  useEffect(() => setMoRong(false), [danhMuc]);
 
   const places = state.kind === "co-du-lieu" ? state.places : [];
 
@@ -198,24 +225,32 @@ export function KhamPha({ nguoi, nhom, diaDiemDau }: {
           <KetQuaTim state={tim} categories={categories} onChon={setDangXem} />
         ) : (
           <>
-            {categories.length > 0 ? (
-              <Choice
-                label="Danh mục"
-                value={danhMuc}
-                onChange={setDanhMuc}
-                options={[{ id: TAT_CA, label: "Tất cả" }, ...categories.map((k) => ({ id: k.id, label: k.label }))]}
-              />
-            ) : null}
+            <HangDanhMuc
+              value={danhMuc}
+              onChange={setDanhMuc}
+              options={[{ id: TAT_CA, label: "Tất cả" }, ...categories.map((k) => ({ id: k.id, label: k.label }))]}
+            />
 
             {state.kind === "dang-tai" ? <DangTai /> : null}
             {state.kind !== "dang-tai" && state.kind !== "co-du-lieu" ? <ChuaCoDuLieu state={state} /> : null}
 
             {state.kind === "co-du-lieu" ? (
               <>
-                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" }}>
-                  <Text style={{ ...type.title, color: c.ink }}>Gợi ý cho bạn</Text>
-                  <Text style={{ ...type.label, color: c.inkSoft }}>{places.length} chỗ</Text>
-                </View>
+                <TieuDeMuc
+                  title="Gợi ý cho bạn"
+                  // The link only exists when it has somewhere to go. With four
+                  // or fewer places the grid already shows everything, and a
+                  // "Xem tất cả" that reveals nothing is the kind of decoration
+                  // that teaches people to stop trusting the other controls.
+                  action={
+                    hienThi.length > SO_THE_MAC_DINH
+                      ? {
+                          label: moRong ? "Thu gọn" : `Xem tất cả (${hienThi.length})`,
+                          onPress: () => setMoRong((v) => !v),
+                        }
+                      : null
+                  }
+                />
 
                 {hienThi.length === 0 ? (
                   <Card>
@@ -225,9 +260,15 @@ export function KhamPha({ nguoi, nhom, diaDiemDau }: {
                     </Text>
                   </Card>
                 ) : (
-                  <LuoiHaiCot places={hienThi} onChon={setDangXem} />
+                  <LuoiHaiCot
+                    places={moRong ? hienThi : hienThi.slice(0, SO_THE_MAC_DINH)}
+                    onChon={setDangXem}
+                  />
                 )}
 
+                {/* The map keeps every place, collapsed grid or not. It is the
+                    "where are these" answer, and answering it about four of
+                    twelve pins would be a different and worse answer. */}
                 <DaiBanDo places={hienThi} />
               </>
             ) : null}
@@ -299,6 +340,51 @@ function KetQuaTim({
         </>
       )}
     </>
+  );
+}
+
+/**
+ * A section heading with an optional action on its right.
+ *
+ * Mockup: "Gợi ý cho bạn" with "Xem tất cả" opposite it.
+ *
+ * `action` is nullable rather than optional so a caller has to decide. The
+ * heading appears on a list that can and cannot be expanded, and "I forgot to
+ * pass it" and "there is nothing to expand" must not look the same at the call
+ * site. The right-hand slot then holds either a control or nothing; it never
+ * holds a disabled control, because a greyed "Xem tất cả" asks a person to work
+ * out why it is grey when the honest answer is that the list is already whole.
+ */
+function TieuDeMuc({ title, action }: {
+  title: string;
+  action: { label: string; onPress: () => void } | null;
+}) {
+  const c = usePalette();
+  return (
+    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: space.sm }}>
+      <Text style={{ ...type.title, color: c.ink, flexShrink: 1 }}>{title}</Text>
+      {action ? (
+        <Pressable
+          onPress={action.onPress}
+          accessibilityRole="button"
+          // The label already reads as an action; the hint says what changes,
+          // which the word "tất cả" alone does not for someone who cannot see
+          // that the grid below is cut short.
+          accessibilityLabel={action.label}
+          hitSlop={space.sm}
+          style={({ pressed }) => ({
+            // Not a full 44 box: this is inline text beside a heading, and a
+            // 44pt block here would push the heading off its own baseline.
+            // `hitSlop` buys the target back without spending the layout.
+            minHeight: 24,
+            justifyContent: "center",
+            opacity: pressed ? 0.6 : 1,
+          })}
+        >
+          <Text style={{ ...type.label, color: c.accent, fontWeight: "600" }}>{action.label}</Text>
+        </Pressable>
+      ) : null}
+    </View>
   );
 }
 
@@ -435,7 +521,12 @@ function TheDiaDiem({ place, onChon }: { place: Place; onChon: (p: Place) => voi
       </AnhDiaDiem>
 
       <View style={{ padding: space.sm, gap: 2 }}>
-        <Text numberOfLines={1} style={{ ...type.body, fontWeight: "700", color: c.ink }}>
+        {/* Two lines, not one. At two columns on a 390pt phone a single line
+            truncated "Tiệm Nướng Xóm Lào" to "Tiệm Nướng Xóm…" -- the mockup's
+            own headline place, unreadable in the app that copies it. Two lines
+            fit every name in the twelve-row catalogue; the cap stays so a
+            pathological name cannot push the facts under it off the card. */}
+        <Text numberOfLines={2} style={{ ...type.body, fontWeight: "700", color: c.ink }}>
           {place.name}
         </Text>
         <Text numberOfLines={1} style={{ ...type.micro, color: c.inkFaint }}>
