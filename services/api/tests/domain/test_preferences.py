@@ -76,9 +76,10 @@ class TestScore:
         visits = [_visit("quan-an-local", "BBQ")] * 200 + [
             _visit("quan-an-local", "Lẩu")
         ] * 25
-        assert _tastes(build_preference_profile(visits, []), "food")["Lẩu"][
-            "score"
-        ] == 0.13
+        assert (
+            _tastes(build_preference_profile(visits, []), "food")["Lẩu"]["score"]
+            == 0.13
+        )
 
 
 class TestWhatIsNotCounted:

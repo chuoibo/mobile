@@ -77,9 +77,7 @@ def _k(vnd: int) -> int:
     return vnd // 1000
 
 
-def build_suggestion_prompt(
-    history: dict, places: list[dict[str, Any]]
-) -> str:
+def build_suggestion_prompt(history: dict, places: list[dict[str, Any]]) -> str:
     """Rules, then the catalogue, then this group's history, last.
 
     The history goes last so that no catalogue row can be read as commentary on

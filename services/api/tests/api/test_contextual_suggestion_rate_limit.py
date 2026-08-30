@@ -196,9 +196,7 @@ def metered(client):
         code="contextual_suggestion_rate_limited",
         message="Too many cards.",
     )
-    client.app.dependency_overrides[get_contextual_suggestion_limiter] = (
-        lambda: limiter
-    )
+    client.app.dependency_overrides[get_contextual_suggestion_limiter] = lambda: limiter
     return limiter
 
 
@@ -234,7 +232,9 @@ def test_a_burst_from_one_person_is_cut_off(client, metered):
     assert codes == [200, 200, 200, 429, 429]
 
 
-def test_the_refused_cards_are_the_ones_that_never_reach_the_model(client, metered, suggester):
+def test_the_refused_cards_are_the_ones_that_never_reach_the_model(
+    client, metered, suggester
+):
     """A 429 that still spent the call would be a limiter in name only."""
 
     for _ in range(5):
@@ -258,7 +258,9 @@ def test_a_refused_card_names_this_route_and_not_search_or_scans(client, metered
     assert "scan" not in body["detail"].lower()
 
 
-def test_the_cut_off_is_per_person_not_a_switch_that_silences_the_group(client, metered):
+def test_the_cut_off_is_per_person_not_a_switch_that_silences_the_group(
+    client, metered
+):
     """A global counter would let one person take the card from everybody --
     the exact failure the module exists to prevent, caused by us.
     """

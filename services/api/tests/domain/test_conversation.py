@@ -106,7 +106,9 @@ class TestBounds:
 
 class TestThreshold:
     def test_one_turn_is_not_a_conversation(self):
-        assert not has_conversation(summarise_conversation([_text("hi")], member_count=3))
+        assert not has_conversation(
+            summarise_conversation([_text("hi")], member_count=3)
+        )
 
     def test_two_turns_from_one_person_is_still_a_conversation(self):
         """The spec's own example is one person saying they are bored, so the

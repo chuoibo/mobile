@@ -93,8 +93,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         name="f31-unknown-category-gets-filed-under-food",
         kind="BREAKS",
         path="app/domain/preferences.py",
-        old="    section = SECTION_OF_CATEGORY.get(category)\n"
-        "    if section is None:",
+        old="    section = SECTION_OF_CATEGORY.get(category)\n    if section is None:",
         new='    section = SECTION_OF_CATEGORY.get(category, "food")\n'
         "    if section is None:",
         tests=("tests/domain/test_preferences.py",),
@@ -269,8 +268,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         path="app/domain/album.py",
         old="    if ends_on.year != starts_on.year:\n"
         '        return f"{starts_on.year}–{ends_on.year}"',
-        new="    if False:\n"
-        '        return f"{starts_on.year}–{ends_on.year}"',
+        new='    if False:\n        return f"{starts_on.year}–{ends_on.year}"',
         tests=("tests/domain/test_album.py",),
         why="A small lie that appears once a year, which is exactly how long "
         "it survives without anybody noticing.",
@@ -372,7 +370,9 @@ def main() -> int:
         if mutation.old not in original:
             rows.append((mutation, "ANCHOR-MISSING", False))
             ok = False
-            print(f"[{mutation.kind}] {mutation.name}: ANCHOR NOT FOUND -- table is stale")
+            print(
+                f"[{mutation.kind}] {mutation.name}: ANCHOR NOT FOUND -- table is stale"
+            )
             continue
         if original.count(mutation.old) != 1:
             # A duplicate anchor patches whichever copy comes first, which is

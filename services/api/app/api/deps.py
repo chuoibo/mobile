@@ -54,9 +54,7 @@ class Suggester(Protocol):
     Returning `None` is an allowed answer and means "no suggestion right now".
     """
 
-    def __call__(
-        self, history: dict, places: list[dict]
-    ) -> dict | None: ...
+    def __call__(self, history: dict, places: list[dict]) -> dict | None: ...
 
 
 class ContextualSuggester(Protocol):
@@ -69,9 +67,7 @@ class ContextualSuggester(Protocol):
     and the riskier prompt cannot inherit the safer one's envelope by accident.
     """
 
-    def __call__(
-        self, digest: dict, places: list[dict]
-    ) -> dict | None: ...
+    def __call__(self, digest: dict, places: list[dict]) -> dict | None: ...
 
 
 def _csv(value: str | None) -> list[str]:
