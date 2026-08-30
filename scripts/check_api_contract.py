@@ -819,7 +819,26 @@ def lost_wrappers(declared: set[str]) -> list[str]:
     the `api.ts :: path: string` entries in the pin file are. Making
     declarations not count is a real fix and a separate one: it moves the
     counts every other check here is calibrated against.
+
+    An empty `WRAPPERS` is its own complaint, and has to be, because the loop
+    below expresses "no name is missing" and "there is no name to miss" as the
+    same empty list. The second one is the anchor switched off: with no name to
+    hold, every rename this function exists to catch walks past it and the gate
+    reports agreement. Nothing intentional stops that today -- an empty tuple
+    happens to raise `IndexError` while a canary builds `WRAPPERS[0]` at import,
+    which is protection by accident, in the wrong place, and under the wrong
+    exit code. Measured: give the canaries an empty tuple they tolerate and the
+    gate prints "khớp hợp đồng" and exits 0 with the anchor fully disarmed.
     """
+    if not WRAPPERS:
+        return [
+            "WRAPPERS rỗng -- bộ đọc không còn tên wrapper nào để neo, nên phép "
+            "kiểm 'client có đổi tên wrapper không' không hỏi được gì và mọi lần "
+            "đổi tên sẽ đi lọt. Đây là lỗi CẤU HÌNH CỦA BỘ ĐỌC, không phải bằng "
+            "chứng về client: sửa REQUEST_FUNCTIONS/DIRECT_FETCH để ít nhất một "
+            "wrapper của repo này còn nằm ngoài DIRECT_FETCH."
+        ]
+
     return [
         f"`{name}` không còn được khai báo ở đâu trong "
         f"{CLIENT_ROOT.relative_to(REPO_ROOT)} -- bộ đọc này nhận diện lời gọi "
@@ -1012,7 +1031,14 @@ CANARY_ROUTE = "/khong-ton-tai-canary"
 # proved is the shape of the URL expression rather than which function receives
 # it. A name that leaves `REQUEST_FUNCTIONS` stops being read, so those canaries
 # stop biting and this self-test goes red -- which is the direction to fail in.
-CANARY_WRAPPER = "callAsActor"
+#
+# Read off `WRAPPERS` rather than spelled out, for the reason the whole anchor
+# exists: a second hand-written copy of a name is how a rename updates one of
+# them. Identical to `"callAsActor"` today. The `DIRECT_FETCH` fallback keeps
+# the module importable when `WRAPPERS` is empty, so `lost_wrappers` gets to
+# report that as the reader's own misconfiguration instead of the module dying
+# on `IndexError` before `check` can say anything.
+CANARY_WRAPPER = WRAPPERS[0] if WRAPPERS else DIRECT_FETCH[0]
 
 
 def canary_through(name: str, route: str) -> str:
@@ -1111,7 +1137,7 @@ CANARY_WRAPPERS_RENAMED = canary_declaring(tuple(f"{name}Renamed" for name in WR
 # shape where the counts drop least and so look most like a client that got
 # smaller.
 CANARY_WRAPPER_HALF_RENAMED = canary_declaring(
-    (f"{WRAPPERS[0]}Renamed",) + WRAPPERS[1:]
+    tuple(f"{name}Renamed" for name in WRAPPERS[:1]) + WRAPPERS[1:]
 )
 
 # Imports the wrappers and defines none, which is all 110-odd screens. The
@@ -1119,7 +1145,7 @@ CANARY_WRAPPER_HALF_RENAMED = canary_declaring(
 # that no longer exists anywhere.
 CANARY_WRAPPER_ONLY_IMPORTED = (
     f'import {{ {", ".join(WRAPPERS)} }} from "./api";\n'
-    f'export async function a() {{ return {WRAPPERS[0]}<void>("/healthz", '
+    f'export async function a() {{ return {CANARY_WRAPPER}<void>("/healthz", '
     '{ method: "GET" }); }\n'
 )
 
