@@ -11,6 +11,7 @@ import re
 from datetime import datetime
 
 from .contract import MAX_AMOUNT_VND
+from .money import count_violation, vnd_violation
 
 __all__ = [
     "DEFAULT_MAX_MESSAGES",
@@ -63,7 +64,14 @@ class MoneySkillError(Exception):
 
 
 def _strict_positive_int(value: object) -> bool:
-    return type(value) is int and 0 < value <= MAX_AMOUNT_VND
+    """A positive amount in đồng, at or under the cap.
+
+    The integer-shape half is `money.vnd_violation`; only the ceiling is this
+    module's own rule. This used to read `type(value) is int`, a third
+    spelling of law 1 that no count of the copies could see -- neither the one
+    that found four nor the one that corrected it to six.
+    """
+    return vnd_violation(value, positive=True) is None and value <= MAX_AMOUNT_VND
 
 
 def _digits(value: str) -> int | None:
@@ -172,7 +180,7 @@ def validate_context(
 
     if not isinstance(context, dict):
         raise MoneySkillError("INVALID_CONTEXT")
-    if type(max_messages) is not int or max_messages <= 0:
+    if count_violation(max_messages, minimum=1):
         raise ValueError("max_messages must be a positive integer")
 
     members = _member_ids(context)
@@ -206,7 +214,9 @@ def validate_context(
         raise MoneySkillError("CONTEXT_MANIFEST_RANGE_MISMATCH")
     if manifest.get("last_message_id") != message_ids[-1]:
         raise MoneySkillError("CONTEXT_MANIFEST_RANGE_MISMATCH")
-    if type(manifest.get("message_count")) is not int:
+    # `minimum=None`: a negative count was already refused one line below, by
+    # the comparison against the messages actually present.
+    if count_violation(manifest.get("message_count"), minimum=None):
         raise MoneySkillError("INVALID_CONTEXT_MANIFEST")
     if manifest["message_count"] != len(messages):
         raise MoneySkillError("CONTEXT_MANIFEST_COUNT_MISMATCH")

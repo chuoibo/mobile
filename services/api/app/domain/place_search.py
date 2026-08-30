@@ -37,6 +37,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.domain.money import count_violation, vnd_violation
+
 #: Cards a search screen can show before the list stops being an answer and
 #: starts being a catalogue dump.
 MAX_RESULTS = 8
@@ -84,7 +86,7 @@ def _integer_dong(value: Any) -> int | None:
 
     if value is None:
         return None
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+    if vnd_violation(value):
         raise PlaceSearchError("place_search_budget_not_integer")
     return value
 
@@ -92,7 +94,7 @@ def _integer_dong(value: Any) -> int | None:
 def _headcount(value: Any) -> int | None:
     if value is None:
         return None
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+    if count_violation(value, minimum=1):
         raise _malformed()
     return value
 
@@ -110,9 +112,7 @@ def _distance_km(value: Any) -> float | None:
 def _string_list(value: Any) -> list[str]:
     if value is None:
         return []
-    if not isinstance(value, list) or not all(
-        isinstance(item, str) for item in value
-    ):
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise _malformed()
     return value
 
@@ -232,7 +232,9 @@ def ground_search(
         if not isinstance(place_id, str):
             raise _malformed()
         entries.append(
-            _paired(place_id, _reason(item.get("reason")), _verdict(item.get("verdict")))
+            _paired(
+                place_id, _reason(item.get("reason")), _verdict(item.get("verdict"))
+            )
         )
 
     catalogue = {

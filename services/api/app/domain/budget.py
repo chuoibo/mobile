@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.domain.money import vnd_violation
+
 __all__ = [
     "COMPARISON_TOLERANCE_PERCENT",
     "BudgetError",
@@ -36,7 +38,7 @@ def _invalid() -> BudgetError:
 
 def _non_negative_integer(value: Any) -> int:
     # ``bool`` subclasses ``int``; accepting it would turn True into one đồng.
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+    if vnd_violation(value):
         raise _invalid()
     return value
 
@@ -130,9 +132,7 @@ def build_group_budget(
             }
         )
 
-    average = (
-        finished_total // finished_headcount if finished_headcount else None
-    )
+    average = finished_total // finished_headcount if finished_headcount else None
     comparison = (
         _comparison(candidate, average)
         if candidate is not None and average is not None

@@ -31,6 +31,8 @@ the response basis. The counts are what the screen gets to print.
 
 from __future__ import annotations
 
+from app.domain.money import count_violation
+
 #: Messages the digest reads. Anything else is not somebody talking.
 CONVERSATION_KIND = "text"
 
@@ -69,7 +71,7 @@ def summarise_conversation(messages: list[dict], *, member_count: int) -> dict:
     observe, so the field is named for what it actually counts.
     """
 
-    if isinstance(member_count, bool) or not isinstance(member_count, int):
+    if count_violation(member_count, minimum=None):
         raise ConversationError("conversation_member_count_not_integer")
 
     lines: list[str] = []

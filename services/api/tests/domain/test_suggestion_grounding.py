@@ -348,8 +348,14 @@ def test_a_kind_this_module_does_not_serve_is_refused():
         "một chuỗi",
         {"kind": SUGGESTION_KIND},
         {"kind": SUGGESTION_KIND, "payload": []},
-        {"kind": SUGGESTION_KIND, "payload": {"title": 7, "when_text": "x", "stops": []}},
-        {"kind": SUGGESTION_KIND, "payload": {"title": "x", "when_text": "y", "stops": {}}},
+        {
+            "kind": SUGGESTION_KIND,
+            "payload": {"title": 7, "when_text": "x", "stops": []},
+        },
+        {
+            "kind": SUGGESTION_KIND,
+            "payload": {"title": "x", "when_text": "y", "stops": {}},
+        },
     ],
 )
 def test_a_malformed_card_is_refused_rather_than_repaired(bad):
@@ -421,3 +427,24 @@ def test_a_trip_total_that_is_not_integer_dong_is_refused(bad):
     with pytest.raises(SuggestionError) as raised:
         summarise_history([{"title": "x", "split_total_vnd": bad, "headcount": 4}], [])
     assert raised.value.code == "suggestion_history_not_integer_dong"
+
+
+@pytest.mark.parametrize("bad", [4.5, "4", True, 0, -1])
+def test_a_bad_headcount_is_refused_as_a_headcount_and_not_as_money(bad):
+    """The refusal is right; the code it was reported under was not.
+
+    `_headcount` raised `suggestion_history_not_integer_dong` -- the *money*
+    code -- for a number of people. Anyone reading that code, in a log or in a
+    handler, is told a total in đồng was malformed while the total was fine and
+    the headcount was the broken field. A code that names the wrong field sends
+    the next person to the wrong place, which is the whole job of a code.
+
+    `avg_per_person_vnd` divides the total by this number, so a headcount is
+    genuinely refused -- this asserts what it is called, not whether it is
+    checked.
+    """
+    with pytest.raises(SuggestionError) as raised:
+        summarise_history(
+            [{"title": "x", "split_total_vnd": 250_000, "headcount": bad}], []
+        )
+    assert raised.value.code == "suggestion_history_headcount_not_integer"
