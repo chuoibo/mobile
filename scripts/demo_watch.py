@@ -333,6 +333,21 @@ def cmd_run(args: argparse.Namespace) -> int:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def ago(seconds: float) -> str:
+    """A duration a human can act on.
+
+    Integer minutes floor sub-minute gaps to "0 phút", so a real red read
+    "cách đây 0 phút, quá hạn 0 phút" -- which looks like the check is broken,
+    and a gate that looks broken gets switched off.
+    """
+    seconds = max(0.0, seconds)
+    if seconds < 90:
+        return f"{int(seconds)} giây"
+    if seconds < 5400:
+        return f"{int(seconds // 60)} phút"
+    return f"{seconds / 3600:.1f} giờ"
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     """Report the last verdict, and call silence a failure.
 
@@ -364,7 +379,6 @@ def cmd_status(args: argparse.Namespace) -> int:
         return cannot(f"{path} không có mốc thời gian hợp lệ.")
 
     age = time.time() - ts
-    minutes = int(age // 60)
     if args.json:
         print(
             json.dumps(
@@ -374,7 +388,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     if age > args.max_age:
         return cannot(
-            f"lần canh gần nhất cách đây {minutes} phút, quá hạn {args.max_age // 60} phút.\n"
+            f"lần canh gần nhất cách đây {ago(age)}, quá hạn {ago(args.max_age)}.\n"
             "   Canh gác đã dừng. Im lặng của nó đọc y hệt 'máy demo vẫn đúng' — không phải.\n"
             f"   Kiểm:  crontab -l | grep -A2 '{CRON_BEGIN}'"
         )
@@ -382,7 +396,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     state = data.get("state")
     if state == STATE_MATCH:
         print(
-            f"demo_watch: KHỚP {minutes} phút trước — {data.get('served')} route, "
+            f"demo_watch: KHỚP {ago(age)} trước — {data.get('served')} route, "
             f"{data.get('ref')} ({str(data.get('ref_sha'))[:12]})."
         )
         return EXIT_OK
@@ -390,7 +404,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         miss = data.get("missing") or []
         extra = data.get("extra") or []
         print(
-            f"demo_watch: LỆCH {minutes} phút trước — thiếu {len(miss)}, thừa {len(extra)}.",
+            f"demo_watch: LỆCH {ago(age)} trước — thiếu {len(miss)}, thừa {len(extra)}.",
             file=sys.stderr,
         )
         for path_name in miss:
@@ -403,16 +417,30 @@ def cmd_status(args: argparse.Namespace) -> int:
     )
 
 
+def watcher_in(repo: Path) -> Path:
+    """The copy of this script cron should call: the one inside `repo`.
+
+    Deliberately NOT `__file__`. This file is usually being run out of whatever
+    lane worktree its author happened to be standing in, and those get deleted.
+    A crontab line is long-lived; it must name a checkout that will still be
+    there next week, and one that picks up later fixes to this shim when the
+    repo is updated.
+    """
+    return repo / "scripts" / "demo_watch.py"
+
+
 def cron_block(args: argparse.Namespace) -> str:
     """The crontab lines, generated so the paths cannot drift from this file."""
-    script = Path(__file__).resolve()
+    script = watcher_in(Path(args.repo).resolve())
     log = state_dir() / "watch.log"
+    schedule = getattr(args, "schedule", None) or CRON_SCHEDULE
+    ref = getattr(args, "ref", None) or DEFAULT_REF
     return (
         f"{CRON_BEGIN}\n"
         f"# Máy demo phải phục vụ đúng bộ route của main. Sinh bởi {script.name}.\n"
         f"# Hỏi kết quả:  {script} status\n"
-        f"{CRON_SCHEDULE} {sys.executable} {script} run --url {args.url} "
-        f"--repo {Path(args.repo).resolve()} >> {log} 2>&1\n"
+        f"{schedule} {sys.executable} {script} run --url {args.url} "
+        f"--ref {ref} --repo {Path(args.repo).resolve()} >> {log} 2>&1\n"
         f"{CRON_END}"
     )
 
@@ -446,6 +474,19 @@ def cmd_install(args: argparse.Namespace) -> int:
         print("demo_watch: không có lệnh crontab trên máy này.", file=sys.stderr)
         return EXIT_CANNOT_RUN
 
+    # Cài một dòng cron trỏ vào file không tồn tại là dựng đúng thứ file này
+    # phản đối: mỗi 10 phút một lần thất bại không ai đọc, và bảng theo dõi thì
+    # trống — trống đọc y hệt "không có vấn đề".
+    script = watcher_in(Path(args.repo).resolve())
+    if not args.remove and not script.is_file():
+        print(f"demo_watch: {script} không tồn tại.", file=sys.stderr)
+        print(
+            "   Cron phải trỏ vào một checkout ổn định ĐÃ CÓ file này — tức là sau khi\n"
+            "   nó vào main. Chưa merge thì chưa cắm lịch được.",
+            file=sys.stderr,
+        )
+        return EXIT_CANNOT_RUN
+
     current = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
     existing = current.stdout if current.returncode == 0 else ""
     body = strip_block(existing)
@@ -475,7 +516,9 @@ def cmd_install(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return EXIT_CANNOT_RUN
-    print(f"Đã cài. Chạy {CRON_SCHEDULE}, log ở {state_dir() / 'watch.log'}.")
+    # Nhịp phải đọc ra từ dòng vừa ghi, không phải từ hằng số: in một con số
+    # khác con số đã cài là cách người ta tin vào nhịp không tồn tại.
+    print(f"Đã cài. Chạy {args.schedule}, log ở {state_dir() / 'watch.log'}.")
     print(f"Hỏi kết quả:  {Path(__file__).resolve()} status")
     print("Gỡ:           scripts/demo_watch.py install --remove")
     return EXIT_OK
@@ -502,6 +545,12 @@ def build_parser() -> argparse.ArgumentParser:
     install = sub.add_parser("install", help="khối crontab cho lượt canh định kỳ")
     install.add_argument("--url", default=DEFAULT_URL)
     install.add_argument("--repo", default=str(REPO_ROOT))
+    install.add_argument("--ref", default=DEFAULT_REF)
+    install.add_argument(
+        "--schedule",
+        default=CRON_SCHEDULE,
+        help=f"nhịp cron, mặc định '{CRON_SCHEDULE}'",
+    )
     install.add_argument("--apply", action="store_true", help="ghi thật vào crontab")
     install.add_argument(
         "--remove", action="store_true", help="gỡ khối ra khỏi crontab"

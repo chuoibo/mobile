@@ -26,6 +26,7 @@ ca này sinh ra để bắt (dời ngưỡng quá hạn) trở thành vô hình.
 
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import json
 import subprocess
@@ -160,7 +161,27 @@ def test_qua_han_la_canh_gac_da_chet_chu_khong_phai_demo_dung(tmp_path, capsys):
     _write_status(tmp_path, ts=time.time() - 4 * 3600, state=watch.STATE_MATCH)
     assert _status(tmp_path) == watch.EXIT_CANNOT_RUN
     err = capsys.readouterr().err
-    assert "240 phút" in err, "phải nói ra nó im bao lâu"
+    assert "4.0 giờ" in err, "phải nói ra nó im bao lâu"
+
+
+def test_khoang_cach_duoi_mot_phut_khong_bi_lam_tron_thanh_khong(tmp_path, capsys):
+    """ "cách đây 0 phút, quá hạn 0 phút" đọc như cổng hỏng, và cổng trông hỏng thì bị tắt.
+
+    Đây là chữ thật một lượt đỏ đã in ra trước khi sửa: phút nguyên làm tròn mọi
+    khoảng dưới 60 giây xuống 0, nên câu giải thích tự mâu thuẫn.
+    """
+    _write_status(tmp_path, ts=time.time() - 20)
+    assert _status(tmp_path, ["--max-age", "5"]) == watch.EXIT_CANNOT_RUN
+    err = capsys.readouterr().err
+    assert "20 giây" in err and "quá hạn 5 giây" in err
+    assert "0 phút" not in err
+
+
+def test_ago_doc_duoc_o_ca_ba_bac():
+    assert watch.ago(20) == "20 giây"
+    assert watch.ago(600) == "10 phút"
+    assert watch.ago(4 * 3600) == "4.0 giờ"
+    assert watch.ago(-5) == "0 giây"
 
 
 def test_moi_va_khop_thi_dat(tmp_path):
@@ -395,6 +416,46 @@ def test_run_khong_de_lai_worktree_rac(repo, tmp_path):
 
 
 # --- crontab: sửa lịch của người khác là cách mục khác biến mất -----------
+
+
+def test_dong_cron_tro_vao_checkout_on_dinh_chu_khong_phai_cay_dang_dung(repo):
+    """Dòng cron sống lâu; cây worktree của một lane thì không.
+
+    Nếu nó tự ghim `__file__` thì lịch chạy sẽ trỏ vào worktree của người vừa
+    cài, và worktree đó bị xoá là canh gác câm — im lặng đọc y hệt "vẫn ổn".
+    """
+    block = watch.cron_block(
+        argparse.Namespace(url="http://127.0.0.1:8099", repo=str(repo))
+    )
+    assert str(repo / "scripts" / "demo_watch.py") in block
+    assert str(WATCH) not in block, "đang ghim chính cây đang đứng vào crontab"
+
+
+def test_dong_cron_mang_dung_nhip_va_dung_ref_duoc_chon(repo):
+    """Nhịp và ref phải đi vào dòng cron, không bị hằng số mặc định đè lên.
+
+    Cài `* * * * *` mà báo `*/10 * * * *` là cách người ta tin vào một nhịp
+    không tồn tại — bản đầu của file này in ra đúng như thế.
+    """
+    block = watch.cron_block(
+        argparse.Namespace(
+            url="http://127.0.0.1:8099",
+            repo=str(repo),
+            schedule="* * * * *",
+            ref="devops/nhanh-dang-mo",
+        )
+    )
+    assert block.count("* * * * * ") == 1
+    assert watch.CRON_SCHEDULE not in block
+    assert "--ref devops/nhanh-dang-mo" in block
+
+
+def test_khong_cam_lich_tro_vao_file_khong_ton_tai(repo, capsys):
+    """Cắm cron trỏ vào file không có = 10 phút một lần hỏng mà không ai đọc."""
+    (repo / "scripts" / "demo_watch.py").unlink(missing_ok=True)
+    code = watch.main(["install", "--repo", str(repo), "--apply"])
+    assert code == watch.EXIT_CANNOT_RUN
+    assert "không tồn tại" in capsys.readouterr().err
 
 
 def test_go_khoi_khong_dung_toi_dong_cua_nguoi_khac():
