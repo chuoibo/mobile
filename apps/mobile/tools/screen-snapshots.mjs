@@ -603,6 +603,67 @@ export function installBeforeApp(apiBase, scanBody, vietqrPayload) {
         : json(db.bill);
     }
 
+    /* F22 self-tagging. Mirrors `claim_bill_items` in service.py, including the
+     * two things about it that are easy to stub wrong:
+     *
+     *   - The body is the caller's COMPLETE set on the bill, not a delta. Every
+     *     item_key absent from it releases that caller. A stub that only ADDED
+     *     would make un-ticking look like it worked while the screen it tests
+     *     could never release a dish.
+     *   - It touches ONLY the caller's shares. Everybody else's stay exactly as
+     *     they were, which is what separates this route from
+     *     `PUT /bills/{id}/assignments` above.
+     *
+     * The caller is the actor header, never a field in the body -- there is no
+     * field in `BillSelfClaimRequest` that could carry a name. */
+    const billNhan = /^\/bills\/([^/]+)\/my-items$/.exec(path);
+    if (method === "POST" && billNhan) {
+      if (db.bill === null) {
+        return json({ code: "bill_not_found", detail: "no bill" }, 404);
+      }
+      const h = init.headers ?? {};
+      const toi =
+        typeof h.get === "function"
+          ? h.get("X-Actor-ID")
+          : (h["X-Actor-ID"] ?? h["x-actor-id"] ?? null);
+      if (!toi) {
+        return json({ code: "actor_required", detail: "no actor" }, 401);
+      }
+      const nhan = new Set(parsed?.item_keys ?? []);
+      for (const key of nhan) {
+        if (!db.bill.items.some((item) => item.item_key === key)) {
+          return json(
+            { code: "unknown_bill_item", detail: "Bill does not contain one of these items" },
+            422,
+          );
+        }
+      }
+      db.bill = {
+        ...db.bill,
+        items: db.bill.items.map((item) => {
+          const khac = item.shares.filter((share) => share.participant_id !== toi);
+          return {
+            ...item,
+            shares: nhan.has(item.item_key)
+              ? [
+                  ...khac,
+                  {
+                    participant_id: toi,
+                    // A person saying "I ate this" is a decision, not a guess.
+                    // `ai_suggested` here would leave the screen calling the
+                    // claim the machine's opinion.
+                    source: "confirmed",
+                    decided_by_id: toi,
+                    decided_at: "2026-08-30T00:00:00Z",
+                  },
+                ]
+              : khac,
+          };
+        }),
+      };
+      return json(db.bill);
+    }
+
     const billAssign = /^\/bills\/([^/]+)\/assignments$/.exec(path);
     if (method === "PUT" && billAssign) {
       if (db.bill === null) {
