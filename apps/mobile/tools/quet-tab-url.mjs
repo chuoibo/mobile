@@ -497,6 +497,58 @@ async function demEls(browser, url) {
   }
 }
 
+/**
+ * How many of these frames a person actually sees a photograph in, from pixels.
+ *
+ * The column this feeds used to be `imgs.filter((i) => i.naturalWidth > 0)
+ * .length`, and it was a lie on every row it appeared in. react-native-web
+ * renders `<Image>` as TWO nodes: an `<img>` pinned at `opacity: 0` whose only
+ * job is to decode and fire `onLoad`, and a wrapper `<div>` that paints the
+ * picture through an inline `background-image`. The stub in `tab-snapshots.mjs`
+ * answered the `<img>`, so `naturalWidth` came back 480 while the div dialled
+ * the API host on the real network and got `requestfailed` /
+ * `decodedBodySize: 0`. Every place card drew its category ramp under a column
+ * reading "1 anh giai ma duoc".
+ *
+ * The obvious repair -- re-request the URL and see if it decodes -- is wrong
+ * here, and measurably so. `installTabStubs` patches
+ * `HTMLImageElement.prototype.src`, so a fresh `new Image()` created to test an
+ * address gets the stub's answer rather than the painter's. Run with the
+ * painter's supply deliberately removed, that version still counted the frame:
+ * the check was asking the faker whether the faker had faked it.
+ *
+ * So this measures the composite instead. Shoot the frame, take the picture
+ * away, shoot again: if no pixel moved, nothing was being shown there. The same
+ * discriminator `soi-tuong-phan-anh.mjs` uses, and it cannot be fooled by any
+ * amount of patching further up, because it looks at what was drawn.
+ */
+async function demAnhVeDuoc(page, khung) {
+  let n = 0;
+  for (let i = 0; i < khung.length; i += 1) {
+    const o = khung[i];
+    const clip = {
+      x: Math.max(0, o.x), y: Math.max(0, o.y),
+      width: Math.min(o.width, 2000), height: Math.min(o.height, 2000),
+    };
+    if (clip.width < 1 || clip.height < 1) continue;
+    const co = await page.screenshot({ encoding: "base64", clip });
+    await page.evaluate((k) => {
+      const el = document.querySelector(`[data-khung-anh="${k}"]`);
+      el.dataset.khungNen = el.style.backgroundImage;
+      el.style.backgroundImage = "none";
+      if (el.tagName === "IMG") el.style.visibility = "hidden";
+    }, i);
+    const khong = await page.screenshot({ encoding: "base64", clip });
+    await page.evaluate((k) => {
+      const el = document.querySelector(`[data-khung-anh="${k}"]`);
+      el.style.backgroundImage = el.dataset.khungNen || "";
+      if (el.tagName === "IMG") el.style.visibility = "";
+    }, i);
+    if (co !== khong) n += 1;
+  }
+  return n;
+}
+
 async function kiemManHinh(browser, url, needle) {
   const page = await browser.newPage();
   const loi = [];
@@ -513,34 +565,14 @@ async function kiemManHinh(browser, url, needle) {
       const imgs = [...document.querySelectorAll("img")];
       await Promise.all(imgs.map((i) => (i.complete ? null : i.decode().catch(() => {}))));
 
-      /* Frames a person can SEE a photograph in.
-       *
-       * This used to be `imgs.filter((i) => i.naturalWidth > 0).length`, and
-       * that number was a lie on every row it appeared in. react-native-web
-       * renders `<Image>` as TWO nodes: an `<img>` pinned at `opacity: 0` that
-       * exists only to decode and fire `onLoad`, and a wrapper `<div>` that
-       * paints the picture through an inline `background-image`. The stub in
-       * `tab-snapshots.mjs` answered the `<img>`, so `naturalWidth` came back
-       * 480 while the div dialled the API host on the real network and got
-       * `requestfailed` / `decodedBodySize: 0`. Every place card was drawing
-       * its category ramp under a column that read "1 anh giai ma duoc".
-       *
-       * So: an `<img>` counts only if it is actually visible, and the painter
-       * counts only if its URL really decodes. Same dedupe by rectangle as
-       * `soi-tuong-phan-anh.mjs`, because the `<img>` and its wrapper share a
-       * rectangle and one photograph must not count twice. */
-      const veDuoc = (u) =>
-        new Promise((ok) => {
-          const im = new Image();
-          im.onload = () => ok(im.naturalWidth > 0);
-          im.onerror = () => ok(false);
-          im.src = u;
-        });
-
+      /* Candidate photo frames. Whether any of them actually SHOWS a picture is
+       * decided outside, from pixels -- see `demAnhVeDuoc`. */
       const khung = [];
       const them = (el) => {
         const b = el.getBoundingClientRect();
         if (b.width <= 0 || b.height <= 0) return;
+        const st = getComputedStyle(el);
+        if (st.visibility === "hidden" || st.display === "none" || Number(st.opacity) === 0) return;
         if (
           khung.some(
             (o) =>
@@ -548,34 +580,26 @@ async function kiemManHinh(browser, url, needle) {
               Math.abs(o.width - b.width) < 1 && Math.abs(o.height - b.height) < 1,
           )
         ) return;
+        el.setAttribute("data-khung-anh", String(khung.length));
         khung.push({ x: b.x, y: b.y, width: b.width, height: b.height });
       };
 
       for (const i of imgs) {
-        if (i.naturalWidth <= 0) continue;
-        const st = getComputedStyle(i);
-        if (st.visibility === "hidden" || st.display === "none" || Number(st.opacity) === 0) continue;
-        them(i);
+        if (i.naturalWidth > 0) them(i);
       }
       // Inline only: that is where react-native-web puts a dynamic image URL,
       // and walking every element's computed style would cost a full style
       // resolution on a page with thousands of nodes.
-      for (const e of document.querySelectorAll("[style*='background-image']")) {
-        const st = getComputedStyle(e);
-        if (st.visibility === "hidden" || st.display === "none" || Number(st.opacity) === 0) continue;
-        const m = /url\(["']?(.*?)["']?\)/.exec(st.backgroundImage || "");
-        if (!m) continue;
-        if (!(await veDuoc(m[1]))) continue;
-        them(e);
-      }
+      for (const e of document.querySelectorAll("[style*='background-image']")) them(e);
 
       return {
         text: (document.body.innerText || "").replace(/\s+/g, " ").trim(),
         els: document.querySelectorAll("*").length,
-        anh: khung.length,
+        khung,
       };
     });
-    return { co: r.text.includes(needle), chars: r.text.length, els: r.els, anh: r.anh, loi };
+    const anh = await demAnhVeDuoc(page, r.khung);
+    return { co: r.text.includes(needle), chars: r.text.length, els: r.els, anh, loi };
   } finally {
     await page.close();
   }
