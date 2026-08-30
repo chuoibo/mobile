@@ -275,7 +275,7 @@ class FinanceMovementView(ApiModel):
 
     obligation_id: UUID
     direction: Literal["in", "out"]
-    amount_vnd: int
+    amount_vnd: MoneyVnd
     counterparty_id: UUID
     counterparty_name: StrictStr | None
     context_id: UUID
@@ -293,9 +293,9 @@ class PersonFinanceResponse(ApiModel):
 
     person_id: UUID
     display_name: StrictStr | None
-    spend_vnd: int
-    settled_vnd: int
-    outstanding_vnd: int
+    spend_vnd: MoneyVnd
+    settled_vnd: MoneyVnd
+    outstanding_vnd: MoneyVnd
     expense_count: int
     group_count: int
     movements: list[FinanceMovementView]
@@ -400,7 +400,7 @@ class OutingResponse(ApiModel):
     starts_on: date
     ends_on: date
     headcount: int
-    budget_per_person_vnd: int
+    budget_per_person_vnd: MoneyVnd
     created_at: datetime
     stops: list[OutingStopResponse]
 
@@ -526,7 +526,7 @@ class RecapOutingResponse(ApiModel):
     ends_on: date
     headcount: int
     stops: list[OutingStopResponse]
-    split_total_vnd: int
+    split_total_vnd: MoneyVnd
     expense_count: int
     memory_count: int
 
@@ -550,7 +550,7 @@ class GroupRecapResponse(ApiModel):
     context_id: UUID
     outings: list[RecapOutingResponse]
     in_progress: list[RecapOutingResponse]
-    split_total_vnd: int
+    split_total_vnd: MoneyVnd
 
 
 class SuggestionPlace(ApiModel):
@@ -565,8 +565,8 @@ class SuggestionPlace(ApiModel):
     name: str
     category: str
     address: str
-    price_min_vnd: int
-    price_max_vnd: int
+    price_min_vnd: MoneyVnd
+    price_max_vnd: MoneyVnd
     rating: float
     distance_km: float
     open_hours: str
@@ -598,8 +598,8 @@ class SuggestionBasis(ApiModel):
     """
 
     outing_count: int
-    split_total_vnd: int
-    avg_per_person_vnd: int | None
+    split_total_vnd: MoneyVnd
+    avg_per_person_vnd: MoneyVnd | None
     top_categories: list[str]
     recent_titles: list[str]
 

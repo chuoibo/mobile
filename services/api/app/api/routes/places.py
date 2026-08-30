@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field, field_validator
 
 from app.api.deps import Actor, get_actor
+from app.api.schemas import MoneyVnd
 from app.api.search_rate_limit import FixedWindowLimiter
 from app.domain.place_search import PlaceSearchError, ground_search
 from app.places.catalog import CATEGORIES, GROUP, PLACES, GroupProfile
@@ -73,8 +74,8 @@ class Place(BaseModel):
     #: Integer đồng, both ends. Money law 1 does not stop at the ledger: a
     #: price band that leaves this service fractional means a float reached a
     #: money value somewhere upstream.
-    price_min_vnd: int
-    price_max_vnd: int
+    price_min_vnd: MoneyVnd
+    price_max_vnd: MoneyVnd
     address: str
     open_now: bool
     open_hours: str
@@ -102,7 +103,7 @@ class GroupSummary(BaseModel):
 
     size: int
     age_range: str
-    budget_per_person_vnd: int
+    budget_per_person_vnd: MoneyVnd
     likes: list[str]
     max_distance_km: float
     when: str
@@ -123,7 +124,7 @@ class Understood(BaseModel):
     for model prose to reach a card without a label.
     """
 
-    budget_per_person_vnd: int | None
+    budget_per_person_vnd: MoneyVnd | None
     group_size: int | None
     max_distance_km: float | None
     categories: list[str]
@@ -432,7 +433,9 @@ def search_places(
         # bad *sentence* about a real place is not a bad answer -- unlike a
         # place that does not exist, which `ground_search` already refused above.
         if reason is not None and ungrounded_numbers(reason, place, GROUP):
-            logger.warning("place search: dropped ungrounded reason for %s", place["id"])
+            logger.warning(
+                "place search: dropped ungrounded reason for %s", place["id"]
+            )
             reason = None
         if echoes_the_query(reason, query):
             logger.warning("place search: dropped echoed reason for %s", place["id"])
