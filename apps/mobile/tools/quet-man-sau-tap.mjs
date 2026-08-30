@@ -231,6 +231,15 @@ const DEN_KET_QUA = [
   { anh: JPEG_B64 },
   { cho: "Đã nhận diện 3 món", ms: 45000 },
 ];
+/** F26. Same viewfinder as `chup-bill`, then the screenshot picker rather
+ *  than the paper-bill one. The needle is the merchant the stub returns --
+ *  text only `KetQuaQuetAnh` prints, and only after the read has landed. */
+const DEN_KET_QUA_QUET_ANH = [
+  ...DEN_CHUP_BILL,
+  { bam: "Ảnh chụp màn hình" },
+  { anh: JPEG_B64 },
+  { cho: "Quán Bún Chả Hương Liên", ms: 45000 },
+];
 const DEN_GOI_Y = [...DEN_KET_QUA, { bamChu: "Tiếp tục" }, { cho: "Gợi ý chia theo người" }];
 /**
  * `Xem kết quả` is disabled until every đồng on the bill has an eater, so the
@@ -271,6 +280,11 @@ export const MAN_SAU_TAP = [
     kichBan: [{ cho: "AI đi chơi, chia bill thông minh" }],
   },
   { step: "chup-bill", needle: "Đưa bill vào khung hình", kichBan: DEN_CHUP_BILL },
+  {
+    step: "ket-qua-quet-anh",
+    needle: "Quán Bún Chả Hương Liên",
+    kichBan: DEN_KET_QUA_QUET_ANH,
+  },
   { step: "ket-qua", needle: "Đã nhận diện 3 món", kichBan: DEN_KET_QUA },
   { step: "goi-y", needle: "Gợi ý chia theo người", kichBan: DEN_GOI_Y },
   { step: "nhap", needle: "Khoản chi mới", kichBan: DEN_NHAP },

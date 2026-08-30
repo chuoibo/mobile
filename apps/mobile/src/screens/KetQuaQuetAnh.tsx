@@ -13,7 +13,7 @@ import { Pressable, Text, View } from "react-native";
 import type { ScreenshotScanWire } from "../api";
 import { formatVnd } from "../../../../packages/shared/money.mjs";
 import { radius, space, type, usePalette } from "../theme";
-import { CAU_CHUA_GHI_QUET_ANH, tenNguonQuetAnh } from "./quet-anh";
+import { CAU_CHUA_GHI_QUET_ANH, ngayQuetAnh, tenNguonQuetAnh } from "./quet-anh";
 
 const HIT = 44;
 
@@ -52,7 +52,12 @@ export function KetQuaQuetAnh({
         <Text style={{ ...type.label, fontWeight: "700", color: c.ai }}>
           {tenNguonQuetAnh(ketQua.source)}
         </Text>
-        <Text style={{ ...type.title, color: c.ink }}>{ketQua.merchant}</Text>
+        {/* `type.h1`, not `type.title`. This is a whole screen, and DESIGN.md
+         *  gives `h1` to "tiêu đề màn". `title` is the card step: with it
+         *  the scale was 13 / 16 / 17 / 20 (1.5:1), the same flat stack
+         *  `theme.ts` already names. The merchant is what this screen exists
+         *  to show, so it takes the screen step (28 / 13 = 2.2:1). */}
+        <Text style={{ ...type.h1, color: c.ink }}>{ketQua.merchant}</Text>
         <Text
           style={{
             ...type.amountSmall,
@@ -62,8 +67,10 @@ export function KetQuaQuetAnh({
         >
           {formatVnd(ketQua.total_vnd)}đ
         </Text>
-        {ketQua.occurred_on ? (
-          <Text style={{ ...type.body, color: c.ink }}>Ngày {ketQua.occurred_on}</Text>
+        {ngayQuetAnh(ketQua.occurred_on) ? (
+          <Text style={{ ...type.body, color: c.ink }}>
+            Ngày {ngayQuetAnh(ketQua.occurred_on)}
+          </Text>
         ) : null}
         {ketQua.needs_review ? (
           <Text style={{ ...type.label, fontWeight: "700", color: c.ai }}>Cần xem lại</Text>

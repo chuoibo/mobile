@@ -5,9 +5,11 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 
 import { quetAnhChupMan } from "../dist-test/api.js";
-import { tenNguonQuetAnh } from "../dist-test/screens/quet-anh.js";
+import { ngayQuetAnh, tenNguonQuetAnh } from "../dist-test/screens/quet-anh.js";
+import { DIRECTION_CONTRACT_BA_ROUTE } from "../dist-test/ui/direction.js";
 
 const ACTOR = "46b55e67-932b-5415-a5ee-08fb2641a4ff";
 const ANH = { uri: "file:///tmp/anh.jpg", bytes: 1234 };
@@ -102,4 +104,32 @@ test("source dịch đúng bốn giá trị", () => {
   assert.equal(tenNguonQuetAnh("receipt"), "Hoá đơn");
   assert.notEqual(tenNguonQuetAnh("banking"), tenNguonQuetAnh("receipt"));
   assert.notEqual(tenNguonQuetAnh("grab"), "grab");
+});
+
+/* `occurred_on` is a calendar date, so nothing here may build a `Date` from it.
+ * The zone bug this pins is invisible on a machine at +07 and only appears west
+ * of UTC, which is exactly the class of defect that reaches production. */
+test("ngày đọc được, và không bị lệch múi giờ", () => {
+  assert.equal(ngayQuetAnh("2026-08-29"), "29/08/2026");
+  assert.equal(ngayQuetAnh("2026-01-01"), "01/01/2026");
+  // The day must survive regardless of the machine's zone. `new Date("...")`
+  // parses as UTC midnight, so any westward host would render the day before.
+  assert.equal(ngayQuetAnh("2026-08-29").slice(0, 2), "29");
+  assert.equal(ngayQuetAnh(null), "");
+  assert.equal(ngayQuetAnh(""), "");
+  assert.equal(ngayQuetAnh("hôm qua"), "", "chuỗi không phải ngày thì không hiện gì");
+  // Year is kept: a screenshot can be of a receipt from any month.
+  assert.match(ngayQuetAnh("2025-12-31"), /2025/);
+});
+
+test("DIRECTION_CONTRACT_BA_ROUTE có đủ 5 khối, và được nhân bản vào bản dựng", () => {
+  for (const block of ["THESIS", "OWN-WORLD", "STORY", "FIRST VIEWPORT", "FORM"]) {
+    assert.ok(DIRECTION_CONTRACT_BA_ROUTE.includes(block), `thiếu khối ${block}`);
+  }
+  // The contract has to reach the emitted markup, or nobody can audit the
+  // artifact against what it promised. `public/index.html` is the only shell
+  // an Expo app has to carry it.
+  const shell = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  assert.ok(shell.includes("impeccable:direction rd-fe-37"), "bản dựng không mang hợp đồng");
+  assert.ok(shell.includes("DIRECTION_CONTRACT_BA_ROUTE"), "bản dựng không trỏ về hằng");
 });
