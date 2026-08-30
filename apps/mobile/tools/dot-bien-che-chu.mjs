@@ -32,7 +32,14 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MOBILE_ROOT = path.join(HERE, "..");
 const NGUON = path.join(MOBILE_ROOT, "tools/che-chu.mjs");
-const GATE = path.join(MOBILE_ROOT, "tests/che-chu.test.mjs");
+// Both gate files, because they cover different halves of the verdict. Running
+// only `che-chu.test.mjs` is what let the `to-cha` shortcut sit open through
+// #255: every one of its fixtures is decided on the readable branch, so a
+// mutation of the unreadable branch printed GREEN and read like coverage.
+const GATES = [
+  path.join(MOBILE_ROOT, "tests/che-chu.test.mjs"),
+  path.join(MOBILE_ROOT, "tests/che-chu-lo-to-cha.test.mjs"),
+];
 
 const CHROME =
   process.env.CHROME_BIN ??
@@ -42,17 +49,26 @@ const CHROME =
 const BANG = [
   {
     ten: "luôn trả 'cuon-khuat' (bộ lọc xoá sạch mọi cảnh báo)",
-    tim: 'verdict: tyLe >= 0.6 ? (cha ? "to-cha" : "cuon-khuat") : cha ? "to-cha" : "that",',
+    tim: 'verdict: tyLe >= 0.6 ? (cha ? "to-cha" : "cuon-khuat") : "that",',
     thay: 'verdict: "cuon-khuat",',
     mong: "DO",
     vi: "chữ bị hộp đục đè lên vẫn phải là lỗi",
   },
   {
     ten: "luôn trả 'that' (mọi ảo ảnh thành lỗi)",
-    tim: 'verdict: tyLe >= 0.6 ? (cha ? "to-cha" : "cuon-khuat") : cha ? "to-cha" : "that",',
+    tim: 'verdict: tyLe >= 0.6 ? (cha ? "to-cha" : "cuon-khuat") : "that",',
     thay: 'verdict: "that",',
     mong: "DO",
     vi: "chữ chỉ cuộn khuất thì không được tính là lỗi",
+  },
+  {
+    // Đúng dòng code mà #255 để lại và #259 đo được. Hàng này là lý do bảng
+    // phải chạy cả hai file gate: với gate cũ nó in XANH.
+    ten: "khôi phục đường tắt to-cha ở vế chữ KHÔNG đọc được (lỗ của #255)",
+    tim: 'verdict: tyLe >= 0.6 ? (cha ? "to-cha" : "cuon-khuat") : "that",',
+    thay: 'verdict: tyLe >= 0.6 ? (cha ? "to-cha" : "cuon-khuat") : cha ? "to-cha" : "that",',
+    mong: "DO",
+    vi: "chữ bị chôn 0/5 điểm không được thoát chỉ vì kẻ che chia class với tổ tiên",
   },
   {
     ten: "'that' lọt vào danh sách loại trừ",
@@ -75,13 +91,22 @@ const BANG = [
     mong: "XANH",
     vi: "kết quả thật là 5/5 hoặc 0/5, ngưỡng nào giữa 0 và 1 cũng chia y hệt",
   },
+  {
+    // Neo vào đúng dòng mà lập luận của bản vá dựa vào: "tổ tiên nằm trên chữ
+    // đã được tính là đọc được rồi". Đảo thứ tự ba vế OR giữ nguyên tính chất.
+    ten: "GIỮ TÍNH CHẤT: đảo thứ tự ba vế OR của phép kiểm đọc được",
+    tim: "if (tren === el || el.contains(tren) || tren.contains(el)) nhinThay++;",
+    thay: "if (tren.contains(el) || el.contains(tren) || tren === el) nhinThay++;",
+    mong: "XANH",
+    vi: "OR giao hoán: cùng tập điểm được tính là đọc được, mọi verdict giữ nguyên",
+  },
 ];
 
 const goc = fs.readFileSync(NGUON, "utf8");
 
 function chayGate() {
   try {
-    execFileSync(process.execPath, ["--test", GATE], {
+    execFileSync(process.execPath, ["--test", ...GATES], {
       cwd: MOBILE_ROOT,
       env: { ...process.env, CHROME_BIN: CHROME, MOBILE_REQUIRE_CHE_CHU: "1" },
       stdio: "pipe",
