@@ -55,6 +55,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
+      # Delegates so CI and `scripts/gate.sh postgres` cannot define "the live
+      # tier" two different ways. They already had: this step said
+      # `pytest tests/postgres` and the sixteen live cases three lanes put
+      # under `tests/qa/` were in neither, skipping on every run and exiting 0.
+      # MOBILE_TEST_DATABASE_URL is set above, so the runner uses the service
+      # container and provisions nothing -- no Docker-in-Docker here.
       - name: Migrate an isolated schema and exercise the real repository
-        working-directory: services/api
-        run: python -m pytest tests/postgres -q
+        run: scripts/postgres_tier.sh -q

@@ -80,7 +80,7 @@ stage_help() {
     shared)    echo "node packages/shared/money.test.mjs (test.yml: shared)" ;;
     mobile)    echo "tsc, npm test with MOBILE_REQUIRE_WEB_A11Y=1, expo export --platform all (test.yml: mobile)" ;;
     docker)    echo "image pinned, builds, non-root, no dev tooling, serves /healthz (test.yml: docker)" ;;
-    postgres)  echo "pytest tests/postgres against a real PostgreSQL it provisions itself (postgres-repository.yml)" ;;
+    postgres)  echo "every live case -- tests/postgres AND tests/qa -- against a real PostgreSQL it provisions itself (postgres-repository.yml)" ;;
     e2e)       echo "the vertical slice through src/api.ts against an API and database it provisions itself (test.yml: e2e)" ;;
   esac
 }
@@ -415,6 +415,12 @@ do_postgres() {
   # its own throwaway database when no URL is given, which is what stops this
   # stage from being the permanent BO QUA it had been: 147 skips and 0 runs in
   # CI, and a skip locally every time nobody exported a connection string.
+  #
+  # The runner covers `tests/qa` as well as `tests/postgres` since bug-082455.
+  # The two trees looked like one because the stage reported a single number:
+  # 306 passing cases, which is exactly what `tests/postgres` collects alone,
+  # so the sixteen live QA cases were absent from a green nobody could read as
+  # incomplete. The runner now prints a verdict per tree.
   scripts/postgres_tier.sh -q
 }
 
