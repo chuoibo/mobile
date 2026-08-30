@@ -221,7 +221,9 @@ def main() -> int:
             "SELECT count(*) FROM idempotency_keys WHERE idempotency_key = ANY(%s)",
             (keys,),
         ).fetchone()[0]
-        total = connection.execute("SELECT count(*) FROM idempotency_keys").fetchone()[0]
+        total = connection.execute("SELECT count(*) FROM idempotency_keys").fetchone()[
+            0
+        ]
         new_name = archive_name(now)
 
         print(f"Nhóm demo hiện tại   {seed.GROUP_NAME}  ({context_id})")

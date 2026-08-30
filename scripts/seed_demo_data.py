@@ -335,8 +335,16 @@ def outings(now: datetime) -> list[dict]:
             "nights": 2,
             "budget_per_person_vnd": 900_000,
             "stops": [
-                {"at": "07:30", "label": "Xe khách Sài Gòn – Đà Lạt", "place_name": None},
-                {"at": "14:00", "label": "Nhận phòng", "place_name": "Homestay Cỏ Hồng"},
+                {
+                    "at": "07:30",
+                    "label": "Xe khách Sài Gòn – Đà Lạt",
+                    "place_name": None,
+                },
+                {
+                    "at": "14:00",
+                    "label": "Nhận phòng",
+                    "place_name": "Homestay Cỏ Hồng",
+                },
                 {"at": "19:00", "label": "Ăn tối", "place_name": "Tiệm Nướng Xóm Lèo"},
             ],
             "expenses": [

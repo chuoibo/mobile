@@ -97,7 +97,9 @@ class KeysAreDerivedFromTheFixture(unittest.TestCase):
         reset = load_reset()
         source = SEED.read_text()
         found = set(re.findall(r'idempotency_key\(\s*f?"([a-z-]+)(?::|")', source))
-        self.assertTrue(found, "không đọc được call site nào — regex hỏng, không phải fixture")
+        self.assertTrue(
+            found, "không đọc được call site nào — regex hỏng, không phải fixture"
+        )
 
         covered = {slug.split(":", 1)[0] for slug in reset.fixture_write_slugs(NOW)}
         missing = (found - DYNAMIC_PREFIXES) - covered
