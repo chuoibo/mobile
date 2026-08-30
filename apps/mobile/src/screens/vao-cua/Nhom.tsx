@@ -516,14 +516,21 @@ function KhungNhom({ children, onDong }: {
 }) {
   const c = usePalette();
   return (
-    <View style={{ flex: 1, backgroundColor: c.ground, padding: space.md, gap: space.md }}>
+    // One step per relationship, rather than `space.md` for all of them. The
+    // gap between two cards was the same 16 as the padding inside one, so
+    // nothing in the spacing said where a section ended -- the reader had to
+    // get that from the card borders alone. The scale now runs
+    // 6 (title and its subtitle) < 10 (rows inside a card) < 16 (a card's own
+    // padding) < 24 (between sections), so the biggest space on screen is
+    // always the one between separate things.
+    <View style={{ flex: 1, backgroundColor: c.ground, padding: space.md, gap: space.lg }}>
       <View style={{ gap: space.xs }}>
         <Text style={{ ...type.h1, color: c.ink }}>Nhóm của bạn</Text>
         <Text style={{ ...type.label, color: c.inkSoft }}>
           Mở nhóm, rủ bạn vào, và xem ai đã nhận lời.
         </Text>
       </View>
-      <ScrollView contentContainerStyle={{ gap: space.md, paddingBottom: space.md }}>
+      <ScrollView contentContainerStyle={{ gap: space.lg, paddingBottom: space.lg }}>
         {children}
       </ScrollView>
       <Button label="Đóng" onPress={onDong} tone="quiet" />
