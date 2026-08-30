@@ -55,6 +55,8 @@ import { before, describe, test } from "node:test";
 import { findChrome } from "./chrome-cdp.mjs";
 import { MON, doMucHangMon } from "../tools/anh-hang-mon-goi-y.mjs";
 
+import { lyDoBanDungCu } from "./tuoi-ban-dung.mjs";
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const EXPORT_DIR = process.env.MOBILE_WEB_EXPORT ?? join(HERE, "..", ".expo-build-check");
 const ANH = process.env.PH3_ANH ?? "/tmp/ph3-anh";
@@ -74,7 +76,13 @@ if (!chromeBin) {
   reasons.push("no Chrome found (set CHROME_BIN, or install one via playwright)");
 }
 
-if (reasons.length && !REQUIRED) {
+// bug-010019. This gate measures a prebuilt export and opens no source file,
+// so an export older than the tree makes it name a control as missing from a
+// screen that renders it correctly. Refuse to report rather than report wrong.
+const banCu = lyDoBanDungCu(EXPORT_DIR, join(HERE, ".."));
+if (banCu) reasons.push(banCu);
+
+if (reasons.length && !REQUIRED && !banCu) {
   test(`mực hàng món trên goi-y — BỎ QUA: ${reasons.join("; ")}`, { skip: reasons.join("; ") }, () => {});
 } else {
   describe("mực của hàng món trên màn gợi ý, đọc từ ảnh chụp khung 390x844", () => {
