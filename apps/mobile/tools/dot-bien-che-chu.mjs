@@ -29,6 +29,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { findChrome } from "../tests/chrome-cdp.mjs";
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MOBILE_ROOT = path.join(HERE, "..");
 const NGUON = path.join(MOBILE_ROOT, "tools/che-chu.mjs");
@@ -41,9 +43,11 @@ const GATES = [
   path.join(MOBILE_ROOT, "tests/che-chu-lo-to-cha.test.mjs"),
 ];
 
-const CHROME =
-  process.env.CHROME_BIN ??
-  "/home/lakiet/.cache/ms-playwright/chromium-1194/chrome-linux/chrome";
+/* CHROME_BIN first because that is the variable this harness hands down to the
+ * gates it re-runs; the literal it used to fall back to named one developer's
+ * Playwright cache. `findChrome()` searches the current user's cache and the
+ * system paths instead. */
+const CHROME = process.env.CHROME_BIN ?? findChrome() ?? "/usr/bin/google-chrome";
 
 /** @type {{ten:string, tim:string, thay:string, mong:"DO"|"XANH", vi:string}[]} */
 const BANG = [

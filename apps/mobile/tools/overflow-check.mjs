@@ -20,13 +20,16 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import puppeteer from "puppeteer-core";
 
+import { findChrome } from "../tests/chrome-cdp.mjs";
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MOBILE_ROOT = path.resolve(HERE, "..");
 const WIDTH = 390;
 
+/* Same search as `screen-snapshots.mjs`, and for the same reason: the literal
+ * that used to sit here pointed into one developer's Playwright cache. */
 const CHROME =
-  process.env.PUPPETEER_EXECUTABLE_PATH ||
-  "/home/lakiet/.cache/ms-playwright/chromium-1194/chrome-linux/chrome";
+  process.env.PUPPETEER_EXECUTABLE_PATH || findChrome() || "/usr/bin/google-chrome";
 
 function flag(name, fallback) {
   const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
