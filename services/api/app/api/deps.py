@@ -54,9 +54,20 @@ class Suggester(Protocol):
     Returning `None` is an allowed answer and means "no suggestion right now".
     """
 
-    def __call__(
-        self, history: dict, places: list[dict]
-    ) -> dict | None: ...
+    def __call__(self, history: dict, places: list[dict]) -> dict | None: ...
+
+
+class ContextualSuggester(Protocol):
+    """A model backend that returns an untrusted, raw F33 card.
+
+    Separate from `Suggester` on purpose. This one is handed a digest of what
+    the group just *said*, which is the only place in the product where a
+    member's own sentences are put in front of a model; keeping the two seams
+    apart means a test that stubs one cannot silently stand in for the other,
+    and the riskier prompt cannot inherit the safer one's envelope by accident.
+    """
+
+    def __call__(self, digest: dict, places: list[dict]) -> dict | None: ...
 
 
 def _csv(value: str | None) -> list[str]:
@@ -148,3 +159,16 @@ def get_suggester() -> Suggester:
     from app.api.suggestion_gemini import gemini_suggestion
 
     return gemini_suggestion
+
+
+def get_contextual_suggester() -> ContextualSuggester:
+    """Seam for tests, and the F33 backend for everyone else.
+
+    Not memoised, for the reason above and one more: a contextual card is a
+    function of one group's last few messages, and any cache coarser than that
+    would hand one group's conversation to another.
+    """
+
+    from app.api.suggestion_gemini import gemini_contextual_suggestion
+
+    return gemini_contextual_suggestion

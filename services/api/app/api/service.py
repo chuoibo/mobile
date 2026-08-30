@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 from app.api import companion_places
 from app.api.chat_expense_skill import ChatExpenseReader, run_chat_expense_skill
 from app.api.cursors import CursorError, decode_cursor, encode_cursor
-from app.api.deps import Actor, Companion, Suggester
+from app.api.deps import Actor, Companion, ContextualSuggester, Suggester
 from app.api.errors import ApiProblem, RepositoryConflict
 from app.api.limits import OBJECTION_KINDS, QUOTA_CONSUMING_OBJECTIONS
 from app.api.repository import (
@@ -40,6 +40,11 @@ from app.api.repository import (
     UploadedImageRecord,
 )
 from app.api.schemas import (
+    AlbumListResponse,
+    AlbumPhoto,
+    AlbumPlace,
+    AlbumResponse,
+    AlbumSummary,
     AllocationProposal,
     AreaSummary,
     BankRecipientRequest,
@@ -67,6 +72,8 @@ from app.api.schemas import (
     ContextBalancesResponse,
     ContextCreateRequest,
     ContextResponse,
+    ContextualSuggestionResponse,
+    ConversationBasis,
     ExpenseConfirmationRequest,
     ExpenseConfirmationResponse,
     ExpenseInput,
@@ -119,6 +126,9 @@ from app.api.schemas import (
     PostCreateRequest,
     PostListResponse,
     PostResponse,
+    PreferenceProfileResponse,
+    PreferenceSection,
+    PreferenceTaste,
     PublishedGuestLink,
     PublishedObligation,
     RecapOutingResponse,
@@ -134,6 +144,7 @@ from app.api.schemas import (
     VisitedPlace,
 )
 from app.domain import permissions, post_audience
+from app.domain.album import build_album
 from app.domain.allocator import allocate
 from app.domain.bank_account import BankAccountError, normalise_destination
 from app.domain.bill import BillError, allocator_input_from_bill
@@ -142,6 +153,7 @@ from app.domain.capability import CapabilityScopeError, capability_scope
 from app.domain.collection import CollectionError, transition, unmet_publish_gates
 from app.domain.companion import CompanionError, ground_card, plan_turn
 from app.domain.contract import AllocationError
+from app.domain.conversation import has_conversation, summarise_conversation
 from app.domain.expense import component_rollups
 from app.domain.friendship import (
     BLOCKED_IS_SILENT,
@@ -162,6 +174,7 @@ from app.domain.ledger import (
     obligations_from_allocations,
     settlement_plan,
 )
+from app.domain.preferences import build_preference_profile
 from app.domain.suggestion import (
     SuggestionError,
     ground_suggestion,
@@ -195,6 +208,20 @@ CONTEXT_WINDOW = 40
 #: group keeps choosing. A ceiling rather than a window: the digest is a
 #: shape, and one more year of arrivals does not change it.
 SUGGESTION_HISTORY_LIMIT = 100
+#: How far back F31 reads check-ins when building the implicit profile. The
+#: same ceiling as F32 and for the same reason -- both answer "what does this
+#: group keep choosing", and two different ceilings would let the profile
+#: screen and the suggestion card disagree about a group's top category.
+PROFILE_HISTORY_LIMIT = SUGGESTION_HISTORY_LIMIT
+#: Turns F33 reads before digesting. Larger than the digest keeps, because
+#: photographs and AI cards are dropped *after* the read: asking for exactly
+#: `MAX_LINES` rows would hand the model two lines whenever the group had just
+#: shared some pictures.
+CONVERSATION_WINDOW = 60
+#: Memories one album will assemble. A ceiling, and `photo_count` on the
+#: response reports what was actually found, so a trip past the ceiling reads
+#: as truncated rather than as small.
+ALBUM_MEMORY_LIMIT = 400
 OUTING_INVITE_TTL = timedelta(days=7)
 
 #: How many check-ins one page of the F43/F44 scan pulls. Matches the ceiling
@@ -566,6 +593,18 @@ def _wire_memory(record: MemoryRecord) -> MemoryResponse:
         comment_count=record.comment_count,
         viewer_has_reacted=record.viewer_has_reacted,
     )
+
+
+def _wire_album_photo(photo: dict) -> AlbumPhoto:
+    """One album entry, keeping the wall's own media path verbatim.
+
+    `image_url` is passed straight through rather than rebuilt from ids. A
+    second place that formats `/contexts/{id}/photos/{id}` is a second thing to
+    edit, and the album's URLs would drift from the wall's the first time only
+    one of them was.
+    """
+
+    return AlbumPhoto(**photo)
 
 
 def _wire_outing(record: OutingRecord) -> OutingResponse:
@@ -1489,6 +1528,344 @@ class ApiService:
             stops=[SuggestionStop(**stop) for stop in payload["stops"]],
             basis=basis,
             source="ai",
+        )
+
+    # -- F31 / F33 / F36: what the companion knows about a group -------------
+    #
+    # All three sit beside `group_suggestion` because all three answer from the
+    # same rows it reads. Two of them derive a shape from those rows; the third
+    # is a second way of reading them and adds no storage at all.
+
+    def preference_profile(
+        self, context_id: uuid.UUID, actor: Actor
+    ) -> PreferenceProfileResponse:
+        """F31 -- what this group keeps choosing, recomputed on the way out.
+
+        There is no profile table and this method is the reason there is not.
+        Everything below is derived on the request that asks, from check-ins
+        and from ledger-summed trip totals, so the answer cannot be stale
+        relative to the rows it claims to summarise. Invariant 3 is usually
+        argued about money; it applies here for a sharper reason. A wrong
+        balance is eventually caught by somebody adding it up. A wrong
+        affinity has no receipt at all -- "BBQ 0.91" for a group that stopped
+        eating BBQ two months ago is wrong forever and looks exactly like the
+        truth.
+
+        Membership is proved before either read. The profile is the most
+        concentrated thing this product knows about a group -- what they eat,
+        what they do, what they spend, on one screen -- so the gate is the
+        memory-wall gate and not a softer one: arriving as scores instead of
+        rows does not make it less theirs.
+
+        Nothing here is logged. Not the sections, not the counts, not the
+        averages. A log line naming a group's top category is that group's
+        habits in a file they never agreed to.
+        """
+
+        _require_permission(
+            "view_group_preference_profile",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+
+        # The FULL catalogue rows, not `companion_places.load_place_catalogue()`.
+        # That adapter is the *model-facing* projection and deliberately drops
+        # `kinds`, which is exactly the field a taste label comes from. Nothing
+        # here is sent to a model, so there is no reason to read the trimmed
+        # copy -- and reading it produced a profile that was silently empty for
+        # every group, because every visit resolved to a place with no kinds.
+        catalogue = {
+            place["id"]: place for place in PLACES if isinstance(place.get("id"), str)
+        }
+        # Check-ins only. A photograph names no catalogue place, and a caption
+        # is somebody's sentence rather than evidence of a taste; counting one
+        # would put a preference on the screen that nobody expressed.
+        visits = [
+            {
+                "category": catalogue[memory.place_id].get("category"),
+                "kinds": catalogue[memory.place_id].get("kinds"),
+            }
+            for memory in self.repository.list_memories(
+                context_id, limit=PROFILE_HISTORY_LIMIT, kind="checkin"
+            ).memories
+            if memory.place_id in catalogue
+        ]
+
+        today = _now().astimezone(ZoneInfo(WALL_CLOCK_ZONE)).date()
+        trips = [
+            {
+                "split_total_vnd": record.split_total_vnd,
+                "headcount": record.outing.headcount,
+            }
+            for record in self.repository.group_recap(context_id, today=today)
+        ]
+
+        profile = build_preference_profile(visits, trips)
+        sections = [
+            PreferenceSection(
+                section=section["section"],
+                taste_count=section["taste_count"],
+                tastes=[PreferenceTaste(**taste) for taste in section["tastes"]],
+            )
+            for section in profile["sections"]
+        ]
+        return PreferenceProfileResponse(
+            context_id=context_id,
+            # A group that has checked in nowhere has no tastes, and the honest
+            # answer is to say so. Inferring one from photographs would be the
+            # product asserting a preference on their behalf.
+            has_profile=bool(sections),
+            reason="ok" if sections else "no_behaviour",
+            sections=sections,
+            checkin_count=profile["checkin_count"],
+            outing_count=profile["outing_count"],
+            split_total_vnd=profile["split_total_vnd"],
+            avg_per_person_vnd=profile["avg_per_person_vnd"],
+        )
+
+    def contextual_suggestion(
+        self,
+        context_id: uuid.UUID,
+        actor: Actor,
+        suggester: ContextualSuggester,
+    ) -> ContextualSuggestionResponse:
+        """F33 -- the card that answers what the group is saying right now.
+
+        The gate is the message gate. Reading this card means the server read
+        the group's last few turns, so anyone who may not read the
+        conversation may not read a card built out of it either.
+
+        The group's own sentences do reach the model -- that is the feature --
+        and they reach nothing else. They are absent from the response, which
+        carries counts, and absent from every log line on every path out of
+        here, including the failure paths: the refusal below logs a code, and
+        the code is chosen precisely because the thing that provoked it is
+        model output shaped by a private group's text.
+
+        Grounding is `ground_suggestion`, unchanged and deliberately shared
+        with F32. A model talked into naming a restaurant that does not exist
+        produces a refused card on both surfaces, and this is the surface where
+        somebody can try, because this is the one where their sentence is in
+        the prompt.
+        """
+
+        _require_permission(
+            "view_contextual_suggestion",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+
+        members = self.repository.list_members(context_id)
+        digest = summarise_conversation(
+            [
+                {
+                    "kind": message.kind,
+                    "body": message.body,
+                    "author_id": message.author_id,
+                }
+                for message in self.repository.list_messages(
+                    context_id, limit=CONVERSATION_WINDOW
+                ).messages
+            ],
+            member_count=sum(1 for member in members if member.state == "active"),
+        )
+        basis = ConversationBasis(
+            message_count=digest["message_count"],
+            speaker_count=digest["speaker_count"],
+            member_count=digest["member_count"],
+        )
+
+        def _silent(reason: str) -> ContextualSuggestionResponse:
+            return ContextualSuggestionResponse(
+                context_id=context_id,
+                suggested=False,
+                reason=reason,
+                title=None,
+                when_text=None,
+                stops=[],
+                basis=basis,
+                source="none",
+            )
+
+        # A silent group has nothing to react to. Speaking into one is the
+        # product interrupting rather than joining, which is the failure the
+        # spec spends section 3 refusing.
+        if not has_conversation(digest):
+            return _silent("no_conversation")
+
+        places = companion_places.load_place_catalogue()
+        try:
+            raw = suggester(digest, places)
+        except Exception as error:  # noqa: BLE001 - a chat screen must not 500
+            logger.warning(
+                "contextual suggestion: backend failed (%s)", type(error).__name__
+            )
+            return _silent("unavailable")
+        if raw is None:
+            return _silent("unavailable")
+
+        try:
+            grounded = ground_suggestion(raw, places)
+        except SuggestionError as error:
+            # The code, never the card, and never the conversation that shaped
+            # it.
+            logger.warning("contextual suggestion: card refused (%s)", error.code)
+            return _silent("ungrounded")
+
+        payload = grounded["payload"]
+        return ContextualSuggestionResponse(
+            context_id=context_id,
+            suggested=True,
+            reason="ok",
+            title=payload["title"],
+            when_text=payload["when_text"],
+            stops=[SuggestionStop(**stop) for stop in payload["stops"]],
+            basis=basis,
+            source="ai",
+        )
+
+    def list_trip_albums(
+        self, context_id: uuid.UUID, actor: Actor
+    ) -> AlbumListResponse:
+        """F36 -- the shelf. One album per started trip, newest first.
+
+        `group_recap` is the source, so the counts on this shelf and the counts
+        on the recap screen are the same figures and cannot disagree: both come
+        from one window over one set of rows.
+
+        The cover is a photograph the group already published to their own
+        wall, carrying the wall's own URL. Nothing is generated and nothing is
+        copied.
+        """
+
+        _require_permission(
+            "view_trip_album",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+
+        today = _now().astimezone(ZoneInfo(WALL_CLOCK_ZONE)).date()
+        albums = []
+        for record in self.repository.group_recap(context_id, today=today):
+            album = self._album_of(record, actor)
+            albums.append(
+                AlbumSummary(
+                    outing_id=record.outing.id,
+                    title=album["title"],
+                    period_label=album["period_label"],
+                    starts_on=record.outing.starts_on,
+                    ends_on=record.outing.ends_on,
+                    in_progress=record.in_progress,
+                    photo_count=album["photo_count"],
+                    checkin_count=album["checkin_count"],
+                    place_count=album["place_count"],
+                    split_total_vnd=record.split_total_vnd,
+                    expense_count=record.expense_count,
+                    headcount=record.outing.headcount,
+                    cover=_wire_album_photo(album["photos"][0])
+                    if album["photos"]
+                    else None,
+                )
+            )
+        return AlbumListResponse(context_id=context_id, albums=albums)
+
+    def trip_album(
+        self, context_id: uuid.UUID, outing_id: uuid.UUID, actor: Actor
+    ) -> AlbumResponse:
+        """F36 -- one trip, read as an album.
+
+        The order of the three checks below is the whole security argument.
+
+        Membership of the context **in the path** is proved first, so a
+        stranger gets the same 403 whether or not `outing_id` names anything.
+        Reversing that turns the pair into an oracle: somebody walking ids
+        would learn which of them are real trips from the difference between
+        404 and 403 -- the same shape `_memory_of_member` refuses, and the one
+        QA measured at #193.
+
+        Then the outing must belong to *this* context. Without that line, a
+        member of any group could pass another group's outing id and read its
+        album, because the membership check would have passed on their own
+        context. That is exactly the "album as a way around the photo gate"
+        failure: the gate would have been asked about the wrong group.
+
+        The repository then joins memories on the outing's own `context_id`,
+        so even a bug above cannot assemble a foreign photograph into an album.
+        Three layers for one fact, because the photographs are the asset.
+        """
+
+        _require_permission(
+            "view_trip_album",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+
+        today = _now().astimezone(ZoneInfo(WALL_CLOCK_ZONE)).date()
+        found = next(
+            (
+                record
+                for record in self.repository.group_recap(context_id, today=today)
+                if record.outing.id == outing_id
+            ),
+            None,
+        )
+        if found is None:
+            raise ApiProblem(404, "album_not_found", "Chuyến đi này không có ở đây.")
+
+        album = self._album_of(found, actor)
+        return AlbumResponse(
+            context_id=context_id,
+            outing_id=outing_id,
+            title=album["title"],
+            period_label=album["period_label"],
+            starts_on=found.outing.starts_on,
+            ends_on=found.outing.ends_on,
+            in_progress=found.in_progress,
+            photos=[_wire_album_photo(photo) for photo in album["photos"]],
+            photo_count=album["photo_count"],
+            places=[AlbumPlace(**place) for place in album["places"]],
+            place_count=album["place_count"],
+            checkin_count=album["checkin_count"],
+            highlights=[_wire_album_photo(photo) for photo in album["highlights"]],
+            split_total_vnd=found.split_total_vnd,
+            expense_count=found.expense_count,
+            headcount=found.outing.headcount,
+        )
+
+    def _album_of(self, record: RecapOutingRecord, actor: Actor) -> dict:
+        """Assemble one album from a recap row and the memories of its days.
+
+        `viewer_id` is the actor the gateway proved, never an id from a query
+        string, for the same reason the memory wall passes it: "did *I* leave a
+        heart" is a fact about the reader.
+        """
+
+        memories = self.repository.list_outing_memories(
+            record.outing.id, limit=ALBUM_MEMORY_LIMIT, viewer_id=actor.id
+        )
+        return build_album(
+            {
+                "title": record.outing.title,
+                "starts_on": record.outing.starts_on,
+                "ends_on": record.outing.ends_on,
+                "headcount": record.outing.headcount,
+                "split_total_vnd": record.split_total_vnd,
+                "expense_count": record.expense_count,
+            },
+            [
+                {
+                    "id": memory.id,
+                    "kind": memory.kind,
+                    "image_url": memory.image_url,
+                    "caption": memory.caption,
+                    "place_id": memory.place_id,
+                    "place_name": memory.place_name,
+                    "created_at": memory.created_at,
+                    "reaction_count": memory.reaction_count,
+                    "comment_count": memory.comment_count,
+                }
+                for memory in memories
+            ],
         )
 
     def replace_outing_timeline(

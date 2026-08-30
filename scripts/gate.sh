@@ -671,6 +671,80 @@ if [ ${#SKIPPED[@]} -gt 0 ]; then
   echo "BỎ QUA KHÔNG PHẢI ĐẠT. Trước khi merge chạy lại với --strict."
 fi
 
+# --- verdict: did this run test what actually ships? ----------------------
+#
+# Every stage above answers "did the thing I ran work". None of them answers
+# "was the thing I ran the thing that ships", and on 2026-08-30 the difference
+# cost the team a morning: 2305 pytest cases green on fastapi 0.135.3 while the
+# image, on the pinned 0.115.6, could not import the app at all. The demo
+# machine stayed dead for hours.
+#
+# The lead's response was a rule held in a person's head -- "a PR that changes a
+# route declaration does not merge until the docker stage is green". That is the
+# right rule and the wrong enforcement: it had already been skipped on nearly
+# every backend PR for two days, by the person who wrote it, because `pytest`
+# and the mutation table were green and there was no reason on screen to run
+# anything more. This block is that rule with the person taken out of it.
+#
+# The shape it refuses: a green that was earned on different software. It fires
+# only when the run actually claims something about the application code --
+# `guard` alone says nothing about libraries and must stay green without docker.
+#
+# It is deliberately NOT a stage. A stage can be deselected, and the hole being
+# closed here IS deselection: `scripts/gate.sh api` printed "ĐẠT 1 HỎNG 0" and
+# exited 0 while the tree could not boot. So the check runs on every invocation
+# that reaches a verdict, costs milliseconds, and needs nothing but python3.
+in_list() {
+  local needle="$1" x
+  shift
+  for x in "$@"; do [ "$x" = "$needle" ] && return 0; done
+  return 1
+}
+
+# Stages whose green is read as "the application code works".
+DRIFT_CODE_TIERS=(api migration postgres e2e)
+# Stages that load the app under the versions the image installs, and are
+# therefore the only ones whose green survives a drifted machine.
+DRIFT_SHIPPING_PROOF=(pinned-import docker)
+
+drift_ran_code_tier=0
+drift_proved_shipping=0
+for s in ${PASSED[@]+"${PASSED[@]}"}; do
+  in_list "$s" "${DRIFT_CODE_TIERS[@]}" && drift_ran_code_tier=1
+  in_list "$s" "${DRIFT_SHIPPING_PROOF[@]}" && drift_proved_shipping=1
+done
+
+DRIFT_STATE="not-applicable"
+DRIFT_NAMES=""
+if [ "$drift_ran_code_tier" -eq 1 ]; then
+  DRIFT_NAMES="$(python3 scripts/check_pin_drift.py --names-only 2>/dev/null)"
+  case $? in
+    0) DRIFT_STATE="clean" ;;
+    1) DRIFT_STATE="drift" ;;
+    # Could not measure. Never a silent pass -- an unreadable requirements file
+    # or a python3 that cannot import its own metadata is a broken gate, and a
+    # broken gate reporting green is the thing this whole file exists against.
+    *) DRIFT_STATE="unknown" ;;
+  esac
+fi
+
+DRIFT_BLOCKS=0
+if [ "$DRIFT_STATE" = "drift" ] && [ "$drift_proved_shipping" -eq 0 ]; then
+  DRIFT_BLOCKS=1
+fi
+[ "$DRIFT_STATE" = "unknown" ] && DRIFT_BLOCKS=1
+
+# The escape hatch exists because the alternative is worse. A machine with no
+# docker cannot run `pinned-import` at all, and a gate that is red with no way
+# out on such a machine gets deleted within a day -- `do_guard-range` says the
+# same thing about `repo_guard.py history` a few hundred lines up. So the way
+# past is explicit, printed, and recorded in the summary a merge reads. It is
+# not silent, which is the only property that matters.
+if [ "$DRIFT_BLOCKS" -eq 1 ] && [ "${MOBILE_GATE_ALLOW_DRIFT:-0}" = "1" ]; then
+  DRIFT_BLOCKS=0
+  DRIFT_STATE="drift-waived"
+fi
+
 # The same counts, for a program rather than a person.
 #
 # `scripts/gate_merge.sh` has to tell "every stage ran and passed" apart from
@@ -701,6 +775,11 @@ if [ -n "${GATE_SUMMARY_FILE:-}" ]; then
     # The reason travels with the name. A caller that can only print "2 chặng
     # bỏ qua" sends the reader back here to find out which and why.
     for w in ${SKIP_WHY[@]+"${SKIP_WHY[@]}"}; do printf 'skipped-stage=%s\n' "$w"; done
+    # A merge decision needs to know the run tested what ships, not only that
+    # it was green. Absent key = old gate.sh; the reader must treat that as
+    # "cannot tell" rather than "clean", the same rule as the counts above.
+    printf 'pin-drift=%s\n' "$DRIFT_STATE"
+    for n in $DRIFT_NAMES; do printf 'pin-drift-name=%s\n' "$n"; done
   } > "$GATE_SUMMARY_FILE"
 fi
 
@@ -744,6 +823,46 @@ if [ ${#FAILED[@]} -gt 0 ]; then
   exit 1
 fi
 
+if [ "$DRIFT_BLOCKS" -eq 1 ]; then
+  echo
+  echo "================================================================"
+  if [ "$DRIFT_STATE" = "unknown" ]; then
+    echo "KHÔNG ĐO ĐƯỢC bản thư viện đang chạy."
+    echo
+    echo "scripts/check_pin_drift.py không trả lời được, nên cổng này không biết"
+    echo "bộ test vừa chạy trên bản nào. Không biết thì không được báo xanh."
+    python3 scripts/check_pin_drift.py >&2 || true
+  else
+    echo "MỌI CHẶNG ĐẠT — NHƯNG KHÔNG PHẢI TRÊN BẢN SẼ SHIP."
+    echo
+    echo "Các chặng vừa xanh chạy bằng thư viện của MÁY NÀY. Những pin quan"
+    echo "trọng dưới đây khác bản mà ảnh cài, và chúng quyết định hành vi ngay"
+    echo "lúc import — trước khi một assertion nào kịp chạy:"
+    echo
+    for n in $DRIFT_NAMES; do echo "    $n"; done
+    echo
+    echo "Đây đúng là hình dạng đã giết máy demo ngày 30/08: 2305 ca xanh tại"
+    echo "chỗ, container không import nổi app. Chặng chứng minh được điều còn"
+    echo "thiếu mất khoảng 2 giây:"
+    echo
+    echo "    scripts/gate.sh ${SELECTED[*]} pinned-import"
+    echo
+    echo "Máy không có docker thì nói ra chứ đừng lờ đi:"
+    echo "    MOBILE_GATE_ALLOW_DRIFT=1 scripts/gate.sh ${SELECTED[*]}"
+  fi
+  echo "================================================================"
+  echo "Log đầy đủ: $LOG_DIR"
+  exit 1
+fi
+
 rm -rf "$LOG_DIR"
 echo "Tất cả chặng đã chạy đều ĐẠT."
+if [ "$DRIFT_STATE" = "drift-waived" ]; then
+  echo
+  echo "LƯU Ý: MOBILE_GATE_ALLOW_DRIFT=1 — pin quan trọng đang lệch và lượt này"
+  echo "KHÔNG chứng minh được ảnh sẽ ship chạy được. Đã bỏ qua theo yêu cầu:"
+  for n in $DRIFT_NAMES; do echo "    $n"; done
+elif [ "$DRIFT_STATE" = "clean" ]; then
+  echo "Và đã chạy đúng bản thư viện mà ảnh sẽ cài."
+fi
 exit 0

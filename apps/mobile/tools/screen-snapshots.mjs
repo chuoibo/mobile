@@ -17,7 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import puppeteer from "file:///home/lakiet/.claude/node_modules/puppeteer-core/lib/puppeteer/puppeteer-core.js";
+import puppeteer from "puppeteer-core";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MOBILE_ROOT = path.resolve(HERE, "..");
