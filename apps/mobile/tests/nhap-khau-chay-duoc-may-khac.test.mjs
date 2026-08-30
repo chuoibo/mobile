@@ -121,6 +121,35 @@ test("không import nào trỏ ra ngoài package bằng đường dẫn tuyệt 
   );
 });
 
+/* Absolute *data* paths are the softer half of the same defect, and fixing only
+ * the imports proved that in one CI run: the module-not-found errors cleared and
+ * the very next thing the job printed was
+ *
+ *     Chromium not found at /home/lakiet/.cache/ms-playwright/...
+ *
+ * Same cause, one layer down. This is a separate case rather than part of the
+ * import gate because the two are not equally severe -- an import cannot be
+ * overridden and kills the file at load, while a browser path has env overrides
+ * in front of it -- but a literal home directory is somebody else's machine
+ * either way, and CI cannot use it.
+ *
+ * Scoped to /home/<user> and /Users/<user>. Rooted system paths like
+ * /usr/bin/google-chrome are exactly what the fallbacks are supposed to name.
+ */
+test("không đường dẫn nào trỏ vào thư mục nhà của một người cụ thể", () => {
+  const HOME = /["'](\/home\/[^/"']+|\/Users\/[^/"']+)\//g;
+  const found = [];
+  for (const rel of sourceFiles()) {
+    const src = stripComments(readFileSync(join(MOBILE_ROOT, rel), "utf8"));
+    for (const [, prefix] of src.matchAll(HOME)) found.push(`${rel}: ${prefix}/...`);
+  }
+  assert.deepEqual(
+    found,
+    [],
+    `đường dẫn cứng vào thư mục nhà, chỉ tồn tại trên một máy:\n  ${found.join("\n  ")}`,
+  );
+});
+
 /* The gate above is a regex over source, so it is worth one case proving the
  * regex can actually see the shape it was written to catch. Without this, a
  * botched pattern reports zero findings on a tree full of them and reads
@@ -136,7 +165,10 @@ test("phép kiểm bắt được đúng hình dạng đã làm CI đỏ", () =>
    * watching free to carry the exact defect it exists to forbid. Building the
    * fixtures at runtime keeps this file inside the scan and still hands the
    * matcher the byte-for-byte shape that broke CI. */
-  const CU = "file://" + "/home/lakiet/.claude/node_modules/puppeteer-core/lib/puppeteer/puppeteer-core.js";
+  // Assembled from parts so the literal never appears in this file: the second
+  // gate forbids a hardcoded home directory, and it scans this file too.
+  const NHA = ["", "home", "lakiet", ".claude"].join("/");
+  const CU = `file://${NHA}/node_modules/puppeteer-core/lib/puppeteer/puppeteer-core.js`;
   assert.deepEqual(offendingSpecifiers(`import puppeteer from "${CU}";`), [CU]);
 
   // Other shapes of the same defect, so the gate is not pinned to one literal.
