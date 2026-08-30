@@ -27,9 +27,13 @@ ca này sinh ra để bắt (dời ngưỡng quá hạn) trở thành vô hình.
 from __future__ import annotations
 
 import argparse
+import atexit
+import functools
 import importlib.util
 import json
+import shutil
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -37,6 +41,56 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WATCH = REPO_ROOT / "scripts" / "demo_watch.py"
+
+
+def _rev(repo: Path, ref: str) -> str | None:
+    """Commit mà `ref` trỏ tới, hoặc None nếu cây này không nói được."""
+    done = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
+        cwd=str(repo),
+        capture_output=True,
+        text=True,
+    )
+    return done.stdout.strip() or None
+
+
+# Mặc định của `_write_status` phải là một bản ghi GIỐNG THẬT, và `run` không bao
+# giờ ghi một sha bịa: nó ghi commit mà ref vừa được phân giải. Bản đầu của
+# fixture này để `"0" * 40`, và một sha không phân giải được thì mọi phép kiểm
+# ràng buộc vào sha đều không có gì để bám — fixture tự bảo lãnh cho điểm mù mà
+# ca test sinh ra để bắt. Cùng một cái bẫy đã ghi ở FAKE_GATE bên dưới.
+#
+# Nhưng sha đó KHÔNG được lấy từ `origin/main` của cây đang chạy test, và đây là
+# chỗ bản đầu sai. `origin/main` là một ref ĐỘNG dùng chung: mọi worktree trên
+# máy này chia nhau một thư mục .git, nên bất kỳ lane nào chạy `git fetch origin`
+# — hay một lượt merge của Lead — đều dời nó GIỮA LÚC bộ test đang chạy. Hằng số
+# này được chốt lúc import, còn `status` phân giải ref lúc ca test chạy: hai thời
+# điểm cách nhau hàng phút trong một bộ test bốn phút rưỡi.
+#
+# Khi hai bên lệch nhau và phần đổi có đụng `services/api/app/api`, `status` trả
+# mã 2 — và trả ĐÚNG: một bản ghi đo main ở commit trước đó thật sự không trả
+# lời được câu hỏi hôm nay. Ca test đỏ không phải vì sản phẩm sai; nó đỏ vì ca
+# test tự buộc mình vào một cái mốc người khác dời được. Đo lúc 02:5x trên cây
+# này: origin/main nhích 33d16d8 -> 70b5b18 trong một lượt làm việc, và
+# `route_surface_moved` giữa hai commit như vậy trả "28 file đã đổi".
+#
+# Nên cái neo là một repo riêng, có `origin/main` thật và ĐỨNG YÊN suốt lượt
+# chạy. Các ca hỏi thẳng về chuyện sha lệch vẫn tự dựng repo của chúng
+# (`_repo_ba_moc`) và tự truyền `--repo`; cái neo này chỉ đỡ cho phần còn lại.
+@functools.lru_cache(maxsize=1)
+def _neo() -> tuple[Path, str]:
+    """Repo neo: `origin/main` có thật, phân giải được, và không ai dời được."""
+    root = Path(tempfile.mkdtemp(prefix="demo-watch-neo-"))
+    atexit.register(shutil.rmtree, root, ignore_errors=True)
+    (root / "services/api/app/api").mkdir(parents=True)
+    (root / "services/api/app/api/main.py").write_text("# neo\n", encoding="utf-8")
+    _git(root, "init", "--quiet", "-b", "main", ".")
+    _git(root, "add", "-A")
+    _git(root, "commit", "--quiet", "-m", "neo")
+    sha = _git(root, "rev-parse", "HEAD")
+    # `status` hỏi `origin/main`, nên ref đó phải tồn tại trong repo neo.
+    _git(root, "update-ref", "refs/remotes/origin/main", sha)
+    return root, sha
 
 
 def _load():
@@ -78,7 +132,9 @@ def _write_status(tmp_path: Path, **fields) -> Path:
         "exit": 0,
         "url": "http://127.0.0.1:8099",
         "ref": "origin/main",
-        "ref_sha": "0" * 40,
+        # Gọi lúc chạy chứ không chốt lúc import: `_neo` được nhớ nên vẫn là
+        # cùng một repo cho cả lượt, mà `_git` thì đã có mặt khi tới đây.
+        "ref_sha": _neo()[1],
         "ref_routes": 65,
         "served": 65,
         "missing": [],
@@ -92,10 +148,18 @@ def _write_status(tmp_path: Path, **fields) -> Path:
 
 
 def _status(tmp_path: Path, extra: list[str] | None = None) -> int:
-    return watch.main(["status", "--state-dir", str(tmp_path), *(extra or [])])
+    """`status` chạy trên repo neo, trừ khi ca test tự đưa repo của nó.
+
+    Không để mặc định rơi vào cây thật: `status` phân giải `origin/main` trong
+    repo nó được trỏ tới, và cây thật là nơi ref đó nhích dưới chân bộ test.
+    """
+    extra = list(extra or [])
+    if "--repo" not in extra:
+        extra = ["--repo", str(_neo()[0]), *extra]
+    return watch.main(["status", "--state-dir", str(tmp_path), *extra])
 
 
-def _git(repo: Path, *args: str) -> None:
+def _git(repo: Path, *args: str) -> str:
     done = subprocess.run(
         ["git", "-c", "user.email=t@t", "-c", "user.name=t", *args],
         cwd=str(repo),
@@ -103,6 +167,7 @@ def _git(repo: Path, *args: str) -> None:
         text=True,
     )
     assert done.returncode == 0, done.stderr
+    return done.stdout.strip()
 
 
 @pytest.fixture
@@ -375,21 +440,19 @@ def test_ref_khac_ten_nhung_cung_commit_van_la_phan_quyet_ve_main(tmp_path):
     `origin/main`, nhưng một lượt chạy tay bằng `--ref <sha>` vẫn trả lời đúng
     câu hỏi nếu sha đó CHÍNH LÀ main lúc này. So tên mà không xét sha thì ca đó
     đỏ oan, và một cổng đỏ oan cũng bị tắt như một cổng câm.
+
+    Sha lấy từ repo neo chứ không từ cây thật, vì "main lúc này" của cây thật
+    đổi giữa lúc bộ test chạy — xem ghi chú ở `_neo`. Ca này hỏi về việc so TÊN
+    với so SHA, không hỏi gì về lịch sử của repo này, nên buộc nó vào lịch sử
+    đó chỉ thêm một đường đỏ oan chứ không thêm phép kiểm nào.
     """
-    sha = subprocess.run(
-        ["git", "rev-parse", "origin/main^{commit}"],
-        cwd=str(REPO_ROOT),
-        capture_output=True,
-        text=True,
-    )
-    if sha.returncode != 0:
-        pytest.skip("cây này không phân giải được origin/main")
+    sha = _neo()[1]
     _write_status(
         tmp_path,
         ts=time.time() - 60,
         state=watch.STATE_MATCH,
-        ref=sha.stdout.strip(),
-        ref_sha=sha.stdout.strip(),
+        ref=sha,
+        ref_sha=sha,
     )
     assert _status(tmp_path) == watch.EXIT_OK
 
@@ -401,8 +464,15 @@ def test_any_ref_la_loi_thoat_co_y_chu_khong_phai_mac_dinh(tmp_path):
     lượt chạy tay đang chĩa vào một nhánh đang mở, và nó hiện diện trong dòng
     lệnh nên đọc log là thấy.
     """
+    # `ref_sha` phải là một commit KHÁC main, nếu không thì ca này đo nhầm luật:
+    # "cùng commit, khác tên" đã được nhận có chủ ý ngay ở ca trên, nên bản ghi
+    # mang đúng sha của main sẽ xanh vì lý do đó chứ không vì `--any-ref`.
     _write_status(
-        tmp_path, ts=time.time() - 60, state=watch.STATE_MATCH, ref="nhanh/dang-mo"
+        tmp_path,
+        ts=time.time() - 60,
+        state=watch.STATE_MATCH,
+        ref="nhanh/dang-mo",
+        ref_sha="29bd93f0e7f8fb1836ef29ec2f0dadf9864ffa65",
     )
     assert _status(tmp_path) == watch.EXIT_CANNOT_RUN
     assert _status(tmp_path, ["--any-ref"]) == watch.EXIT_OK
@@ -422,6 +492,145 @@ def test_lech_van_la_lech_du_ref_dung(tmp_path):
         missing=["/contexts/{context_id}/albums"],
     )
     assert _status(tmp_path) == watch.EXIT_DIFFERS
+
+
+# --- phán quyết về main CŨ: tươi, đúng tên, và vẫn không trả lời câu hỏi ---
+
+
+def _repo_ba_moc(root: Path) -> tuple[str, str, str]:
+    """Một repo có `main` đi qua ba mốc; trả về sha của A, B, C.
+
+    A→B chỉ đổi tài liệu, A→C thêm một file route. Hai đường đó phải được
+    `status` đối xử KHÁC nhau, nên chúng phải là commit thật: phép kiểm đọc
+    `git diff` giữa hai sha chứ không đọc con số nào trong bản ghi.
+    """
+    (root / "services/api/app/api/routes").mkdir(parents=True)
+    (root / "docs").mkdir(parents=True)
+    _git(root, "init", "--quiet", "-b", "main", ".")
+    (root / "services/api/app/api/routes/expenses.py").write_text("# route\n")
+    (root / "docs/ghi-chu.md").write_text("mốc A\n")
+    _git(root, "add", "-A")
+    _git(root, "commit", "--quiet", "-m", "A")
+    a = _git(root, "rev-parse", "HEAD")
+    (root / "docs/ghi-chu.md").write_text("mốc B — chỉ tài liệu\n")
+    _git(root, "add", "-A")
+    _git(root, "commit", "--quiet", "-m", "B chỉ đụng tài liệu")
+    b = _git(root, "rev-parse", "HEAD")
+    (root / "services/api/app/api/routes/albums.py").write_text("# reel\n")
+    _git(root, "add", "-A")
+    _git(root, "commit", "--quiet", "-m", "C thêm route reel")
+    c = _git(root, "rev-parse", "HEAD")
+    return a, b, c
+
+
+def test_phan_quyet_ve_main_CU_khong_phai_phan_quyet_ve_main_BAY_GIO(tmp_path, capsys):
+    """Bản ghi tươi, state "khop", ref ĐÚNG là 'main' — và vẫn phải ra mã 2.
+
+    Đây là bug-231718 dựng lại nguyên văn. `status` chỉ so TÊN ref; khi tên
+    khớp thì nó bỏ qua `ref_sha` hoàn toàn. Nên một phán quyết đo main ở commit
+    TRƯỚC khi route reel merge vẫn in "KHỚP — 76 route" và thoát 0, trong khi
+    main đã khai 77. Đo trên cây thật lúc 00:5x: bản ghi ref_sha=66a6990 (trước
+    #352) ra `rc=0` với đúng câu "KHỚP 0 giây trước — 76 route".
+
+    Nó còn IN cái sha cũ ra giữa dòng xanh — một trường được in không phải là
+    một trường được kiểm, y hệt hình dạng của bug-180816 ngay bên trên.
+    """
+    root = tmp_path / "repo"
+    root.mkdir()
+    a, _b, c = _repo_ba_moc(root)
+    _write_status(
+        tmp_path,
+        ts=time.time() - 60,
+        state=watch.STATE_MATCH,
+        ref="main",
+        ref_sha=a,
+        ref_routes=76,
+        served=76,
+    )
+    rc = _status(tmp_path, ["--repo", str(root), "--expect-ref", "main"])
+    assert rc == watch.EXIT_CANNOT_RUN, (
+        "phán quyết đo main tại A, nhưng main giờ ở C và C thêm một route — "
+        "bản ghi đó không trả lời được câu hỏi hôm nay"
+    )
+    err = capsys.readouterr().err
+    assert a[:12] in err, "phải nêu commit đã đo"
+    assert c[:12] in err, "và commit main đang đứng, để người đọc thấy nó lệch đâu"
+
+
+def test_main_nhich_ma_be_mat_route_khong_doi_thi_van_dat(tmp_path):
+    """Đối chứng bắt buộc: không được biến mọi lần main nhích thành đỏ.
+
+    Không có ca này thì "ref_sha != main bây giờ -> mã 2" vô điều kiện cũng làm
+    ca trên xanh — và cổng sẽ đỏ sau MỌI merge, kể cả merge tài liệu, tức đỏ
+    gần như liên tục trong một ngày đội merge mỗi vài phút. Một cổng đỏ với mọi
+    đầu vào bị tắt trong một ngày, và lúc đó nó không gác gì nữa.
+
+    Phán quyết đo main tại A vẫn trả lời đúng câu hỏi về main tại B, vì giữa A
+    và B không có file nào dưới bề mặt route đổi.
+    """
+    root = tmp_path / "repo"
+    root.mkdir()
+    a, b, _c = _repo_ba_moc(root)
+    _git(root, "reset", "--hard", "--quiet", b)
+    _write_status(
+        tmp_path,
+        ts=time.time() - 60,
+        state=watch.STATE_MATCH,
+        ref="main",
+        ref_sha=a,
+        ref_routes=76,
+        served=76,
+    )
+    assert _status(tmp_path, ["--repo", str(root), "--expect-ref", "main"]) == (
+        watch.EXIT_OK
+    )
+
+
+def test_ref_sha_cay_nay_khong_co_thi_khong_phai_dat(tmp_path, capsys):
+    """Không phân giải được sha đã đo thì KHÔNG so được, và không so được ≠ đạt.
+
+    Hay gặp thật: cron canh từ một checkout đã fetch, lane chạy `make gate` từ
+    worktree fetch lâu rồi. Trả 0 ở đây là đọc "cây tôi thiếu commit đó" thành
+    "máy demo đúng".
+    """
+    root = tmp_path / "repo"
+    root.mkdir()
+    _repo_ba_moc(root)
+    _write_status(
+        tmp_path,
+        ts=time.time() - 60,
+        state=watch.STATE_MATCH,
+        ref="main",
+        ref_sha="0" * 40,
+    )
+    rc = _status(tmp_path, ["--repo", str(root), "--expect-ref", "main"])
+    assert rc == watch.EXIT_CANNOT_RUN
+    assert "fetch" in capsys.readouterr().err, "phải nói ra cách gỡ"
+
+
+def test_lech_ve_main_cu_van_la_lech_chu_khong_bi_nuot_thanh_ma_2(tmp_path):
+    """Phép kiểm sha mới chen thêm một mã 2 vào đường đi — không được nuốt mã 1.
+
+    Cùng lý do như `test_lech_van_la_lech_du_ref_dung`: gộp "đo chỗ cũ" với "đo
+    và thấy thiếu route" là mất đúng thông tin cần để biết phải dựng lại máy
+    demo hay chỉ cần đo lại.
+    """
+    root = tmp_path / "repo"
+    root.mkdir()
+    a, b, _c = _repo_ba_moc(root)
+    _git(root, "reset", "--hard", "--quiet", b)
+    _write_status(
+        tmp_path,
+        ts=time.time() - 60,
+        state=watch.STATE_DIFFERS,
+        exit=1,
+        ref="main",
+        ref_sha=a,
+        missing=["/contexts/{context_id}/albums/{outing_id}/reel"],
+    )
+    assert _status(tmp_path, ["--repo", str(root), "--expect-ref", "main"]) == (
+        watch.EXIT_DIFFERS
+    )
 
 
 # --- canh gác phải có chỗ gọi, nếu không nó là đồ trang trí ----------------
@@ -466,7 +675,13 @@ def test_run_khop_ghi_lai_phan_quyet(repo, tmp_path):
     # `--expect-ref main`: repo giả này chỉ có nhánh `main`, và `_run` đo đúng
     # nhánh đó. Mặc định của `status` là `origin/main` vì đó là ref thật của
     # máy demo; ở đây phải nói ra ref của fixture, chứ không nới mặc định.
-    assert _status(state, ["--expect-ref", "main"]) == watch.EXIT_OK
+    #
+    # `--repo` cũng phải là repo giả: `status` phân giải ref trong cây được chỉ,
+    # và hỏi cây KHÁC cái cây vừa được đo là so hai commit không liên quan gì
+    # nhau. Thiếu nó thì `main` ở đây là nhánh `main` của chính repo này.
+    assert _status(state, ["--repo", str(repo), "--expect-ref", "main"]) == (
+        watch.EXIT_OK
+    )
 
 
 def test_run_lech_giu_ma_1_va_giu_ten_route(repo, tmp_path):
@@ -487,7 +702,9 @@ def test_run_lech_giu_ma_1_va_giu_ten_route(repo, tmp_path):
     data = json.loads(watch.status_path(state).read_text(encoding="utf-8"))
     assert data["state"] == watch.STATE_DIFFERS
     assert data["missing"] == ["/areas", "/posts"]
-    assert _status(state, ["--expect-ref", "main"]) == watch.EXIT_DIFFERS
+    assert _status(state, ["--repo", str(repo), "--expect-ref", "main"]) == (
+        watch.EXIT_DIFFERS
+    )
 
 
 def test_run_cong_khong_chay_duoc_ra_ma_2_chu_khong_phai_1(repo, tmp_path):
