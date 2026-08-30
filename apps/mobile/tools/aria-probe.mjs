@@ -20,7 +20,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import puppeteer from "file:///home/lakiet/.claude/node_modules/puppeteer-core/lib/puppeteer/puppeteer-core.js";
+import puppeteer from "puppeteer-core";
 
 import {
   CHROME,
@@ -71,14 +71,42 @@ function rolesSummary(page) {
   });
 }
 
+/**
+ * Where to find a copy of axe-core already on this machine.
+ *
+ * The default used to be one pinned path -- a specific plugin version inside a
+ * specific person's home directory -- so on any other machine this probe
+ * reported `skipped` forever, which reads in a log exactly like a scan that ran
+ * and found nothing. Searching under the current user's home instead finds the
+ * same copy without naming whose it is, and finds it after the plugin updates
+ * its version directory.
+ *
+ * Still just a search of what is already installed: axe-core is deliberately
+ * not a dependency of the app.
+ */
+function timAxe() {
+  if (process.env.AXE_CORE) return process.env.AXE_CORE;
+  const goc = path.join(
+    os.homedir(),
+    ".claude/plugins/cache/claude-plugins-official/chrome-devtools-mcp",
+  );
+  if (!fs.existsSync(goc)) return null;
+  // Newest version directory first, so a stale copy is not preferred.
+  for (const v of fs.readdirSync(goc).sort().reverse()) {
+    const bin = path.join(goc, v, "node_modules/axe-core/axe.min.js");
+    if (fs.existsSync(bin)) return bin;
+  }
+  return null;
+}
+
 /** axe-core over the live page. Loaded from whatever copy is already on the
  *  machine (the chrome-devtools plugin ships one), so the probe adds no
  *  dependency to the app. Pass `AXE_CORE` to point it elsewhere. */
 async function axeScan(page) {
-  const axePath =
-    process.env.AXE_CORE ||
-    "/home/lakiet/.claude/plugins/cache/claude-plugins-official/chrome-devtools-mcp/1.6.0/node_modules/axe-core/axe.min.js";
-  if (!fs.existsSync(axePath)) return { skipped: `axe-core not found at ${axePath}` };
+  const axePath = timAxe();
+  if (!axePath || !fs.existsSync(axePath)) {
+    return { skipped: `axe-core not found (set AXE_CORE to a copy of axe.min.js)` };
+  }
   await page.addScriptTag({ path: axePath });
   return page.evaluate(async () => {
     const result = await window.axe.run(document, {

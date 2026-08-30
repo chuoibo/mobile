@@ -97,6 +97,31 @@ COVERED_BY: dict[str, tuple[str, ...]] = {
     "e2e": ("e2e",),
 }
 
+# Stages that deliberately have no workflow job, because the question they ask
+# does not exist on a CI runner.
+#
+# This is the "deliberate, recorded choice" that
+# `test_every_gate_stage_is_claimed_by_some_job` asks for, in the one shape
+# COVERED_BY cannot express: `pinned-import` has no job of its own but the
+# `docker` job does prove what it proves, so it maps honestly. A stage with no
+# CI counterpart at all has nothing to map to, and inventing one would make
+# COVERED_BY say a job checks something it does not.
+#
+# It is not a place to park a stage that is merely inconvenient in CI --
+# `test_local_only_stages_are_really_local` refuses an entry whose name a
+# workflow job declares, an entry already claimed in COVERED_BY, and an entry
+# the gate no longer has.
+LOCAL_ONLY: dict[str, str] = {
+    "demo-watch": (
+        "asks whether the demo box on 8099 is still being watched, and whether "
+        "its last recorded verdict was about main. A CI runner has no demo box "
+        "and no crontab of ours, so a job would be answering about nothing. It "
+        "runs locally because the demo drifted from main twice -- 58 routes "
+        "against 62 for sixteen commits, then 65 against 69 -- and neither time "
+        "was a gate failing: the gate that would have caught it had no caller."
+    ),
+}
+
 JOB_ID = re.compile(r"^  ([A-Za-z0-9_-]+):\s*$", re.M)
 
 
@@ -210,14 +235,51 @@ class GateCoversEveryWorkflowJob(unittest.TestCase):
         may legitimately run more than CI -- but it must be a deliberate,
         recorded choice rather than a leftover, so it is listed here."""
         claimed = {stage for stages in COVERED_BY.values() for stage in stages}
-        unclaimed = sorted(set(_gate_stages()) - claimed)
+        unclaimed = sorted(set(_gate_stages()) - claimed - set(LOCAL_ONLY))
         self.assertEqual(
             unclaimed,
             [],
             f"scripts/gate.sh has stages no workflow job maps to: {unclaimed}. "
             "If that is intended, map them in COVERED_BY with a comment saying "
-            "why the local gate runs more than CI does.",
+            "why the local gate runs more than CI does -- or, if no CI job "
+            "could ever cover them, record them in LOCAL_ONLY with the reason.",
         )
+
+    def test_local_only_stages_are_really_local(self):
+        """LOCAL_ONLY must not become the drawer unclaimed stages go to be quiet.
+
+        It subtracts from the assertion above, so every entry weakens that
+        check by exactly one stage. The three ways it could be abused are the
+        three things refused here: naming a stage CI *does* run, double-listing
+        one COVERED_BY already maps, and leaving behind a stage the gate has
+        since dropped -- the last being how the list would slowly stop
+        describing the gate at all.
+        """
+        stages = set(_gate_stages())
+        jobs = set(_workflow_jobs())
+        claimed = {stage for stages_ in COVERED_BY.values() for stage in stages_}
+        for stage, reason in LOCAL_ONLY.items():
+            self.assertIn(
+                stage,
+                stages,
+                f"LOCAL_ONLY lists '{stage}', which scripts/gate.sh no longer has.",
+            )
+            self.assertNotIn(
+                stage,
+                jobs,
+                f"a workflow job is named '{stage}', so CI does run it -- map it "
+                "in COVERED_BY instead of excusing it here.",
+            )
+            self.assertNotIn(
+                stage,
+                claimed,
+                f"'{stage}' is already claimed in COVERED_BY; listing it here too "
+                "hides which of the two is the real reason it passes.",
+            )
+            self.assertTrue(
+                reason.strip(),
+                f"LOCAL_ONLY['{stage}'] has no reason recorded.",
+            )
 
 
 if __name__ == "__main__":

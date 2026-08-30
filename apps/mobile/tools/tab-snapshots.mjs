@@ -41,12 +41,13 @@ import path from "node:path";
 import zlib from "node:zlib";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import puppeteer from "file:///home/lakiet/.claude/node_modules/puppeteer-core/lib/puppeteer/puppeteer-core.js";
+import puppeteer from "puppeteer-core";
 
 import { pngThuBytes } from "./png-thu.mjs";
 
 import {
   CHROME,
+  clickButton,
   closeServer,
   createStaticServer,
   listen,
@@ -179,6 +180,16 @@ export const MAN_KHAC = [
    */
   { step: "ban-do", frag: `ban-do=1&nguoi=${NGUOI}`, needle: "Nhóm hay tụ ở đâu" },
   { step: "diem-hen", frag: `ban-do=hen&nguoi=${NGUOI}`, needle: "Ai xuất phát từ đâu" },
+  /* F14. `#moi=` is the cold URL; the membership sentence only exists after
+   * "Nhận lời mời" is pressed, so `bam` rides along and both scanners that
+   * walk this list click it before they wait. The needle is the `active`
+   * branch -- `cauSauKhiNhan` -- which no other screen prints. */
+  {
+    step: "nhan-loi-moi",
+    frag: `moi=moi-thu-1&nguoi=${NGUOI}`,
+    needle: "Bạn đã vào buổi đi.",
+    bam: "Nhận lời mời",
+  },
 ];
 
 /** Every screen this tool visits, tabs and links alike, in one list. */
@@ -433,6 +444,37 @@ export function installTabStubs(apiBase, fixtures) {
     if (route.startsWith("/people/") && route.endsWith("/finance")) {
       return json(fixtures.finance);
     }
+    // F39/F42. The personal wall. Matched before PUT /people/ and before the
+    // exact `/posts` list: `/people/{id}/posts` would otherwise fall through
+    // and the wall would render its empty invitation under a scan named as if
+    // it had posts.
+    if (route.startsWith("/people/") && route.endsWith("/posts")) {
+      return json({ person_id: fixtures.personId, posts: fixtures.baiDang ?? [] });
+    }
+    if (method === "POST" && route === "/posts") {
+      const than = JSON.parse(init?.body ?? "{}");
+      return json(
+        {
+          id: "7aa00000-aaaa-4aaa-8aaa-0000a0000001",
+          author_id: fixtures.personId,
+          audience: than.audience ?? "only_me",
+          context_id: than.context_id ?? null,
+          body: than.body ?? "",
+          image_url: than.image_url ?? null,
+          created_at: "2026-08-30T10:00:00Z",
+        },
+        201,
+      );
+    }
+    if (method === "GET" && route === "/posts") {
+      return json({ posts: fixtures.baiDang ?? [] });
+    }
+    if (method === "GET" && route.startsWith("/posts/")) {
+      const id = route.slice("/posts/".length);
+      const bai = (fixtures.baiDang ?? []).find((row) => row.id === id);
+      if (!bai) return json({ code: "post_not_found", detail: "không có bài này" }, 404);
+      return json(bai);
+    }
     if (method === "PUT" && route.startsWith("/people/")) {
       return json({ id: fixtures.personId, display_name: "Minh" });
     }
@@ -537,6 +579,39 @@ export function installTabStubs(apiBase, fixtures) {
         messages: fixtures.messages,
         next_cursor: null,
         has_more: false,
+      });
+    }
+
+    /* F24. Same contract as `installBeforeApp`, keyed off this fixture's
+     * roster: `paid_by_id` / `shared_by` must be `person_id`s that the
+     * members GET below already returns, or the purple card prints
+     * "Thành viên" and the scan is of the failure case. */
+    if (method === "POST" && route.endsWith("/expense-draft")) {
+      const parts = route.split("/");
+      const messageId = parts[parts.length - 2];
+      return json({
+        context_id: fixtures.contextId,
+        message_id: messageId,
+        detected: true,
+        draft: {
+          title: "Lẩu Thái tối qua",
+          amount_vnd: 450000,
+          paid_by_id: fixtures.members[0].person_id,
+          shared_by: fixtures.members.map((m) => m.person_id),
+          needs_review: false,
+        },
+        reason: null,
+      });
+    }
+
+    /* F14. Ids and `membership_state` only -- see `OutingInviteAcceptWire`. */
+    if (method === "POST" && /\/outing-invites\/[^/]+\/accept$/.test(route)) {
+      return json({
+        invite_id: "d4e5f6a7-8b9c-4d0e-9f1a-2b3c4d5e6f70",
+        outing_id: fixtures.outingId,
+        context_id: fixtures.contextId,
+        membership_id: fixtures.members[0].id,
+        membership_state: "active",
       });
     }
 
@@ -873,6 +948,7 @@ export function taoFixtures() {
         id: "6ff5ad2c-3b8e-4d6f-9a7c-f2b0c4d8e6a1",
         context_id: contextId,
         person_id: personId,
+        display_name: "Minh",
         state: "active",
         role: "admin",
       },
@@ -880,6 +956,7 @@ export function taoFixtures() {
         id: "7aa6be3d-2c9f-4e7a-8b8d-a3c1d5e9f7b2",
         context_id: contextId,
         person_id: "3cc2da9f-6e5b-4a3c-8d4f-c9e7f1a5b3d8",
+        display_name: "Trang",
         state: "active",
         role: "member",
       },
@@ -1072,6 +1149,20 @@ export function taoFixtures() {
         },
       ],
     },
+    // F39/F42. One post, and its body is the needle for `ca-nhan-tuong`:
+    // nothing else on Cá nhân prints "Sương đèo Pren", so a wall that failed
+    // to load cannot wave through on finance copy.
+    baiDang: [
+      {
+        id: "7aa00000-aaaa-4aaa-8aaa-0000a0000001",
+        author_id: personId,
+        audience: "friends",
+        context_id: null,
+        body: "Sương đèo Pren chưa tan",
+        image_url: null,
+        created_at: "2026-08-30T03:00:00Z",
+      },
+    ],
     finance: {
       person_id: personId,
       display_name: "Minh",
@@ -1294,7 +1385,7 @@ async function main() {
       args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
     });
 
-    for (const { step, frag, needle } of moiMan()) {
+    for (const { step, frag, needle, bam } of moiMan()) {
       const page = await browser.newPage();
       page.setDefaultTimeout(30000);
       const pageErrors = [];
@@ -1312,6 +1403,10 @@ async function main() {
       });
 
       try {
+        if (bam) {
+          const chuoi = Array.isArray(bam) ? bam : [bam];
+          for (const nut of chuoi) await clickButton(page, nut);
+        }
         await waitForScreen(page, step, needle);
       } catch (err) {
         if (pageErrors.length) console.error(`Page errors:\n${pageErrors.join("\n")}`);

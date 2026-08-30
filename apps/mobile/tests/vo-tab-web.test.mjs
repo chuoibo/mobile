@@ -280,12 +280,17 @@ if (reasons.length && !REQUIRED) {
     test("đổi tab thì aria-selected đi theo", async () => {
       await vaoVoTab(390, 844);
       await page.clickLabel(TAB_LABELS["ca-nhan"]);
+      // No `.catch(() => {})` here, and no 4000 ms ceiling of its own. Both used
+      // to be: swallowing the timeout let the assertion below report the failure
+      // instead, which turns a self-describing "timed out waiting for Cá nhân
+      // được chọn" into an opaque diff of two attribute strings. A run that
+      // fails once in a suite of 743 has to say its own name.
       await page.waitFor(
         (label) =>
           document.querySelector(`[aria-label="${label}"]`)?.getAttribute("aria-selected") === "true",
-        { label: "Cá nhân được chọn", timeout: 4000 },
+        { label: "Cá nhân được chọn" },
         TAB_LABELS["ca-nhan"],
-      ).catch(() => {});
+      );
 
       const after_ = await page.evaluate(readTabBar);
       console.log(`  sau khi bấm Cá nhân: ${JSON.stringify(after_.selected)}`);

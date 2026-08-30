@@ -7,13 +7,14 @@ from dataclasses import dataclass
 from typing import Annotated, Protocol
 from uuid import UUID
 
-from fastapi import Header
+from fastapi import Header, Request
 
 from app.api.chat_expense_skill import ChatExpenseReader
 from app.api.errors import ApiProblem
 from app.api.receipt_skill import ReceiptReader
 from app.api.repository import ApiRepository, SqlAlchemyApiRepository
 from app.api.screenshot_skill import ScreenshotReader
+from app.api.unit_of_work import register_session
 from app.db.session import get_session_factory
 from app.domain.permissions import ROLES
 from app.media.storage import PhotoStorage
@@ -106,10 +107,20 @@ def get_actor(
     return Actor(id=parsed_id, roles=roles, context_ids=contexts)
 
 
-def get_repository() -> Generator[ApiRepository]:
+def get_repository(request: Request) -> Generator[ApiRepository]:
     factory = get_session_factory()
-    with factory.begin() as session:
+    session = factory()
+    register_session(request, session)
+    try:
         yield SqlAlchemyApiRepository(session)
+    except BaseException:
+        session.rollback()
+        raise
+    else:
+        if session.in_transaction():
+            session.commit()
+    finally:
+        session.close()
 
 
 def get_photo_storage() -> PhotoStorage:

@@ -266,3 +266,48 @@ ra canh ten quan de nguoi doc kiem duoc, chu khong bat tin chu "can bang".
 
 FINISH: build fully, then hand off to the finish reviewer with captures.
 `.trim();
+
+/** The direction contract for the three routes nothing on the phone called
+ *  (rd-fe-37): F24 chat expense draft, F14 outing invite accept, F26
+ *  screenshot scan.
+ *
+ * One contract for three surfaces because they share the failure they exist to
+ * avoid, and it is a wording failure rather than a drawing one. Each of these
+ * three routes gives back LESS than the screen would like to say:
+ *
+ *  - `expense-draft` returns a draft and writes nothing. Its own docstring
+ *    says so: "this route never creates or allocates an expense."
+ *  - `outing-invites/{token}/accept` deliberately withholds the group name and
+ *    the trip name, because the person redeeming a link is not a member yet.
+ *  - `screenshots/scan` returns one merchant and one total, never a line-item
+ *    breakdown and never a person.
+ *
+ * So the design job here is subtraction. A card that fills those holes with
+ * something reassuring is the defect, not the empty space.
+ */
+export const DIRECTION_CONTRACT_BA_ROUTE = `
+THESIS: Ba man nay deu la MAY DA DOC XONG, NGUOI CHUA CHOT. Moi man phai noi
+duoc cai no chua lam, bang chu, o cho nguoi doc truoc khi bam.
+
+OWN-WORLD: Ke thua the gioi Ru Di, khong them mau nao. Tim "ai" cho hai ban doc
+cua may (nhap tu chat, quet anh chup) vi DESIGN.md dinh nghia tim la "thu do
+may sinh ra, nguoi con sua duoc" -- dung dinh nghia cua mot ban nhap. Cam
+"accent" cho man nhan loi moi, vi do la hanh dong cua NGUOI chu khong phai ban
+doc cua may. Teal "split" chi cham vao con so tien, khong bao gio dan man.
+
+STORY: F24 -- duoi moi tin nhan chu co nut "Tach tien"; bam thi the tim moc
+ngay duoi DUNG tin do, khong nhay man. F26 -- tu khung den cua Chup bill, nut
+thu hai "Anh chup man hinh"; doc xong ra the tim, chot thi roi vao form nhap
+tay da dien san. F14 -- link mo thang mot the giua man: mot cau, mot nut.
+
+FIRST VIEWPORT: F24 va F26 khong co first viewport rieng, chung moc trong man
+da co. F14 mo bang dung mot the: "Ban duoc moi vao mot buoi di", nut "Nhan loi
+moi", va mot cau noi ro app chua biet do la buoi di nao.
+
+FORM: The, khong phai bang -- ba ban doc nay deu it dong. Con so tien dung chu
+so tabular nhu moi cho khac. Bam >= 44. Cau "chua ghi gi" nam TRONG the, tren
+nut, chu khong phai chu thich duoi chan: no la dieu kien de bam nut chu khong
+phai ghi chu ve nut.
+
+FINISH: build fully, then hand off to the finish reviewer with captures.
+`.trim();

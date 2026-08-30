@@ -1196,13 +1196,7 @@ export async function scanReceipt(
   actorId: string,
 ): Promise<ReceiptScanWire> {
   const form = new FormData();
-  if (photo.uri.startsWith("blob:") || photo.uri.startsWith("data:")) {
-    const blob = await fetch(photo.uri).then((r) => r.blob());
-    form.append("image", blob, "bill.jpg");
-  } else {
-    // React Native's own FormData understands this shape and nothing else.
-    form.append("image", { uri: photo.uri, name: "bill.jpg", type: "image/jpeg" } as never);
-  }
+  await appendImageField(form, photo, "bill.jpg");
 
   const { "Content-Type": _dropped, ...headers } = actorHeaders(actorId);
 
@@ -1264,6 +1258,159 @@ const SCAN_REFUSALS: Record<string, string> = {
   receipt_reader_unavailable:
     "Bộ đọc bill đang không trả lời. Thử lại sau một chút, hoặc nhập tay các món ở bước sau.",
   permission_denied: "Tài khoản này chưa được phép đọc bill trong nhóm.",
+};
+
+/**
+ * Put one image into a multipart field named `image`.
+ *
+ * Shared by `scanReceipt` and `quetAnhChupMan` so the blob:/data: branch
+ * exists in one place. A third copy of `fetch(photo.uri)` would be a third
+ * call site the API-contract reader cannot follow, and that pin is counted.
+ */
+async function appendImageField(
+  form: FormData,
+  photo: { uri: string },
+  filename: string,
+): Promise<void> {
+  if (photo.uri.startsWith("blob:") || photo.uri.startsWith("data:")) {
+    const blob = await fetch(photo.uri).then((r) => r.blob());
+    form.append("image", blob, filename);
+  } else {
+    // React Native's own FormData understands this shape and nothing else.
+    form.append("image", { uri: photo.uri, name: filename, type: "image/jpeg" } as never);
+  }
+}
+
+/**
+ * One model-read transaction from a screenshot. No line items, no people.
+ *
+ * `POST /screenshots/scan` is a read, same shape as `POST /receipts/scan`:
+ * multipart field `image`, no `Content-Type` (the boundary must be chosen by
+ * FormData), no `Idempotency-Key` (nothing is stored). The two ways to put a
+ * file in FormData are the same two `scanReceipt` already has, and they live
+ * in `appendImageField` so they cannot drift.
+ */
+export type ScreenshotScanWire = {
+  source: "grab" | "shopeefood" | "banking" | "receipt";
+  merchant: string;
+  total_vnd: number;
+  occurred_on: string | null;
+  needs_review: boolean;
+};
+
+export async function quetAnhChupMan(
+  photo: { uri: string; bytes: number },
+  actorId: string,
+): Promise<ScreenshotScanWire> {
+  const form = new FormData();
+  await appendImageField(form, photo, "anh.jpg");
+
+  const { "Content-Type": _dropped, ...headers } = actorHeaders(actorId);
+
+  let response: Response;
+  try {
+    response = await fetch(BASE_URL + "/screenshots/scan", { method: "POST", headers, body: form });
+  } catch {
+    throw new ApiError(
+      0,
+      "unreachable",
+      `Không nối được ${BASE_URL}. Máy chủ có đang chạy không?`,
+    );
+  }
+
+  if (!response.ok) {
+    let code = `http_${response.status}`;
+    let detail: unknown = null;
+    try {
+      const problem = await response.json();
+      if (problem?.code) code = problem.code;
+      if (problem?.detail) detail = problem.detail;
+    } catch {
+      /* not JSON; there is nothing to read, so the status chooses the words */
+    }
+    throw new ApiError(
+      response.status,
+      code,
+      SCREENSHOT_REFUSALS[code.toLowerCase()] ?? thongDiepNguoiDoc(response.status, detail),
+    );
+  }
+  return (await response.json()) as ScreenshotScanWire;
+}
+
+/**
+ * What a refusal to read a screenshot means to the person holding the phone.
+ *
+ * Same job as `SCAN_REFUSALS`: replace a machine code with the next move.
+ * The server's own Vietnamese sentences win when they arrive; these cover
+ * the codes that name the reader rather than the photo.
+ */
+const SCREENSHOT_REFUSALS: Record<string, string> = {
+  screenshot_unreadable:
+    "Không đọc được giao dịch từ ảnh chụp màn hình. Kiểm tra ảnh rồi thử lại.",
+  not_a_transaction:
+    "Ảnh này không thể hiện một giao dịch đã xong, nên chưa tạo được khoản chi từ đó.",
+  screenshot_model_named_a_person:
+    "Máy đọc đã nêu tên một người. Kết quả bị từ chối vì tên người chỉ đến từ phiên đăng nhập, không phải từ ảnh.",
+  unsupported_image_type: "Tệp này không phải ảnh mà app đọc được. Chọn một ảnh JPG hoặc PNG.",
+  image_too_large: "Ảnh chụp màn hình nặng quá 8 MB nên máy chủ từ chối. Chọn một ảnh nhẹ hơn.",
+  screenshot_reader_unavailable:
+    "Bộ đọc ảnh chụp màn hình đang không trả lời. Thử lại sau một chút.",
+  screenshot_reader_not_configured:
+    "Máy chủ chưa cấu hình khoá đọc ảnh chụp màn hình. Đây là lỗi phía máy chủ, không phải ảnh bạn chọn.",
+};
+
+/* --------------------------------------------- chat expense draft (F24) */
+
+/**
+ * A model-read draft from one chat message. Identities are roster ids only.
+ *
+ * `POST /contexts/{id}/messages/{id}/expense-draft` never creates or
+ * allocates an expense. The screen that calls this must say so: a draft is
+ * a reading, not a ledger row. `detected === (draft !== null)` is enforced
+ * server-side; this type just carries what arrived.
+ */
+export type ChatExpenseDraftWire = {
+  context_id: string;
+  message_id: string;
+  detected: boolean;
+  draft: {
+    title: string;
+    amount_vnd: number;
+    paid_by_id: string;
+    shared_by: string[];
+    needs_review: boolean;
+  } | null;
+  reason: string | null;
+};
+
+/**
+ * Ask the reader what one message looks like as an expense.
+ *
+ * A POST that writes nothing, so no `Idempotency-Key`. Goes through `call`
+ * like every other JSON route: actor headers, Vietnamese refusals, no
+ * invented codes.
+ */
+export async function napNhapKhoanChiTuChat(
+  contextId: string,
+  messageId: string,
+  actorId: string,
+): Promise<ChatExpenseDraftWire> {
+  return translated<ChatExpenseDraftWire>(
+    CHAT_EXPENSE_REFUSALS,
+    `/contexts/${contextId}/messages/${messageId}/expense-draft`,
+    { method: "POST", actorId, contexts: contextId },
+  );
+}
+
+const CHAT_EXPENSE_REFUSALS: Record<string, string> = {
+  chat_expense_model_named_a_person:
+    "Máy đọc đã nêu tên người trả hoặc người chia. Bản nháp bị từ chối vì tên người chỉ được lấy từ danh sách nhóm, không phải từ tin nhắn.",
+  chat_expense_unreadable:
+    "Không đọc được khoản chi từ tin nhắn. Kiểm tra lại nội dung rồi thử lại.",
+  chat_reader_unavailable:
+    "Bộ đọc tin nhắn đang không trả lời. Thử lại sau một chút.",
+  chat_reader_not_configured:
+    "Máy chủ chưa cấu hình khoá đọc khoản chi từ tin nhắn. Đây là lỗi phía máy chủ, sửa tin nhắn không giúp được.",
 };
 
 /* --------------------------------------------- photographs people keep */
@@ -1798,6 +1945,34 @@ export async function taoBuoiDi(
   });
 }
 
+/**
+ * Accept an outing invite by token.
+ *
+ * A write: the server mints a membership, so this carries `Idempotency-Key`
+ * like every other write. The reply names ids and `membership_state` only.
+ * It does not carry the group name or the trip name -- a link redeemer is
+ * not a member yet, and the screen must not invent either name.
+ */
+export type OutingInviteAcceptWire = {
+  invite_id: string;
+  outing_id: string;
+  context_id: string;
+  membership_id: string;
+  membership_state: "invited" | "active";
+};
+
+export async function nhanLoiMoiBuoiDi(
+  token: string,
+  actorId: string,
+  attempt: Attempt,
+): Promise<OutingInviteAcceptWire> {
+  return call<OutingInviteAcceptWire>(`/outing-invites/${token}/accept`, {
+    method: "POST",
+    actorId,
+    attempt,
+  });
+}
+
 /** List the group's outings. Membership is a query, not the actor header. */
 export async function docDanhSachBuoiDi(
   contextId: string,
@@ -1962,4 +2137,127 @@ export async function docSoDu(
     contexts: contextId,
   });
   return soDuFromWire(wire);
+}
+
+/* --------------------------------------------------- posts (F39) and audiences (F42) */
+
+/**
+ * One of the four words a post can be addressed to.
+ *
+ * A vocabulary, not a ladder: `friends` and `group` reach two disjoint sets of
+ * people, and neither contains the other. Nothing in this file compares two
+ * of these by position.
+ */
+export type PostAudience = "only_me" | "friends" | "group" | "public";
+
+/** One post, as a reader who is allowed to have it receives it. */
+export type PostWire = {
+  id: string;
+  author_id: string;
+  audience: PostAudience;
+  context_id: string | null;
+  body: string;
+  image_url: string | null;
+  created_at: string;
+};
+
+/**
+ * What a refusal to write or read a post means to the person holding the phone.
+ *
+ * The server's own detail for these codes is English (`Post visibility must
+ * be one of the four known levels`). That sentence names the enum, not the
+ * next move, so it is replaced here rather than passed through.
+ */
+const BAI_REFUSALS: Record<string, string> = {
+  unknown_audience:
+    "Mức người đọc này app không gửi được. Chọn lại một trong bốn lựa chọn trên màn.",
+  group_audience_needs_context:
+    "Chọn nhóm đã, rồi mới đăng được bài cho nhóm đó.",
+  context_not_addressable:
+    "Chỉ bài cho một nhóm mới được gắn nhóm. Chọn lại mức người đọc.",
+  post_not_found:
+    "Bài này không còn hoặc không phải dành cho bạn.",
+  permission_denied:
+    "Tài khoản đang dùng chưa được phép đăng bài này.",
+};
+
+export type BodyDangBai = {
+  body: string;
+  audience: PostAudience;
+  contextId?: string | null;
+  imageUrl?: string | null;
+};
+
+/**
+ * Build the POST /posts body. `author_id` is absent on purpose: the writer is
+ * the actor header. `context_id` is present only for `group`.
+ */
+export function thanDangBaiApi(input: BodyDangBai): {
+  body: string;
+  audience: PostAudience;
+  context_id?: string;
+  image_url?: string;
+} {
+  const than: {
+    body: string;
+    audience: PostAudience;
+    context_id?: string;
+    image_url?: string;
+  } = { body: input.body, audience: input.audience };
+  if (input.audience === "group" && input.contextId) {
+    than.context_id = input.contextId;
+  }
+  if (input.imageUrl) than.image_url = input.imageUrl;
+  return than;
+}
+
+/**
+ * F39. Say something, as yourself, to one of F42's four audiences.
+ *
+ * A write, so it carries `Idempotency-Key`. There is no `author_id` in the
+ * body and no recipient list -- both absences are the feature, not omissions.
+ */
+export async function dangBai(
+  input: BodyDangBai,
+  actorId: string,
+  attempt: Attempt,
+): Promise<PostWire> {
+  return translated<PostWire>(BAI_REFUSALS, "/posts", {
+    method: "POST",
+    body: thanDangBaiApi(input),
+    actorId,
+    attempt,
+  });
+}
+
+/** Everything this actor may read, newest first. The reader is the actor. */
+export async function docBangTin(actorId: string, limit = 50): Promise<PostWire[]> {
+  const result = await translated<{ posts: PostWire[] }>(
+    BAI_REFUSALS,
+    `/posts?limit=${limit}`,
+    { method: "GET", actorId },
+  );
+  return result.posts ?? [];
+}
+
+/** One post, or 404 -- including when it exists and is not for you. */
+export async function docBai(postId: string, actorId: string): Promise<PostWire> {
+  return translated<PostWire>(BAI_REFUSALS, `/posts/${postId}`, {
+    method: "GET",
+    actorId,
+  });
+}
+
+/** One person's wall, already narrowed to what this caller may see. */
+export async function docTuongNguoi(
+  personId: string,
+  actorId: string,
+  limit = 50,
+): Promise<PostWire[]> {
+  const result = await translated<{ person_id: string; posts: PostWire[] }>(
+    BAI_REFUSALS,
+    `/people/${personId}/posts?limit=${limit}`,
+    { method: "GET", actorId },
+  );
+  return result.posts ?? [];
 }

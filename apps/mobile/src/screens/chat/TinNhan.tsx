@@ -7,8 +7,8 @@
  * this. Spending it on the header would say the whole conversation was
  * machine-written, which is the defect the direction contract exists to
  * prevent. The header is `accent` orange, like the tab shell. Purple is
- * spent on three things only: the AI avatar, the "Rủ Đi AI" label, and the
- * plan card.
+ * spent on four things only: the AI avatar, the "Rủ Đi AI" label, the
+ * plan card, and the expense-draft card (a machine reading, not a write).
  *
  * This file is the React that stands on the five logic modules. It does not
  * invent a member count, a plan, a total, or a day boundary. `khoiDongNhom`
@@ -25,9 +25,16 @@ import React, { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { DEMO_PEOPLE, type DemoPerson } from "../../navigation/nhom-demo";
 import { radius, space, type, usePalette } from "../../theme";
+import { napNhapKhoanChiTuChat } from "../../api";
 import { Card } from "../../ui/Kit";
 import { themChiTiet } from "../../ui/loi-may-chu";
 import { goiAiTurn, type AiTurnState } from "./ai";
+import { TheNhapChiTuChat } from "./TheNhapChiTuChat";
+import {
+  trangTuLoi,
+  trangTuWire,
+  type TrangNhapTuChat,
+} from "./nhap-tu-chat";
 import {
   cardBoPhieu,
   cardMoBinhChon,
@@ -77,6 +84,12 @@ export function TinNhan({ nguoi }: { nguoi: DemoPerson | null }) {
   const [keHoachDangXem, setKeHoachDangXem] = useState<KeHoach | null>(null);
   const [dangMoBinhChon, setDangMoBinhChon] = useState(false);
   const [dangBoPhieu, setDangBoPhieu] = useState(false);
+  // One draft card at a time. Opening another message replaces this; there
+  // is no stack, because two readings at once would look like two writes.
+  const [theNhap, setTheNhap] = useState<{
+    messageId: string;
+    trang: TrangNhapTuChat;
+  } | null>(null);
 
   const cuonRef = useRef<ScrollView>(null);
   const dangGoiAi = useRef(false);
@@ -217,6 +230,25 @@ export function TinNhan({ nguoi }: { nguoi: DemoPerson | null }) {
     setTin((truoc) => noiTinMoi(truoc, sent.message, nhom.contextId));
   }
 
+  /**
+   * Read one text message as an expense draft. The card grows under that
+   * bubble; nothing is written. A second press replaces the first card.
+   */
+  async function tachTien(messageId: string) {
+    if (!nguoi || nhom.kind !== "xong") return;
+    if (theNhap?.messageId === messageId && theNhap.trang.kind === "dang-doc") return;
+    const members = nhom.members;
+    const contextId = nhom.contextId;
+    const actorId = nguoi.personId;
+    setTheNhap({ messageId, trang: { kind: "dang-doc" } });
+    try {
+      const wire = await napNhapKhoanChiTuChat(contextId, messageId, actorId);
+      setTheNhap({ messageId, trang: trangTuWire(wire, members) });
+    } catch (err) {
+      setTheNhap({ messageId, trang: trangTuLoi(err) });
+    }
+  }
+
   async function goiAiSauKhiGui(contextId: string, actorId: string) {
     if (dangGoiAi.current) return;
     dangGoiAi.current = true;
@@ -284,6 +316,11 @@ export function TinNhan({ nguoi }: { nguoi: DemoPerson | null }) {
             onBoPhieu={(pollId, optionId) => {
               void boPhieu(pollId, optionId);
             }}
+            theNhap={theNhap}
+            onTachTien={(messageId) => {
+              void tachTien(messageId);
+            }}
+            onDongTheNhap={() => setTheNhap(null)}
           />
         ) : null}
         {chip === "plan" ? (
@@ -428,6 +465,9 @@ function DongTin({
   soThanhVien,
   dangBoPhieu,
   onBoPhieu,
+  theNhap,
+  onTachTien,
+  onDongTheNhap,
 }: {
   nhom: NhomMan;
   tin: TinMan;
@@ -443,6 +483,9 @@ function DongTin({
   soThanhVien: number;
   dangBoPhieu: boolean;
   onBoPhieu: (pollId: string, optionId: string) => void;
+  theNhap: { messageId: string; trang: TrangNhapTuChat } | null;
+  onTachTien: (messageId: string) => void;
+  onDongTheNhap: () => void;
 }) {
   const c = usePalette();
 
@@ -571,14 +614,40 @@ function DongTin({
             );
           }
           return (
-            <BongBong
-              key={m.id}
-              message={m}
-              nguoiGui={nguoiTheoAuthor(m.author_id)}
-              cuaMinh={Boolean(nguoi && m.author_id === nguoi.personId)}
-              dauChuoi={i === 0 || messages[i - 1]!.author_id !== m.author_id}
-              onXemKeHoach={onXemKeHoach}
-            />
+            <View key={m.id} style={{ gap: space.xs }}>
+              <BongBong
+                message={m}
+                nguoiGui={nguoiTheoAuthor(m.author_id)}
+                cuaMinh={Boolean(nguoi && m.author_id === nguoi.personId)}
+                dauChuoi={i === 0 || messages[i - 1]!.author_id !== m.author_id}
+                onXemKeHoach={onXemKeHoach}
+              />
+              {m.kind === "text" ? (
+                <Pressable
+                  onPress={() => onTachTien(m.id)}
+                  disabled={theNhap?.messageId === m.id && theNhap.trang.kind === "dang-doc"}
+                  accessibilityRole="button"
+                  accessibilityLabel="Tách tiền"
+                  style={({ pressed }) => ({
+                    alignSelf: "flex-start",
+                    minHeight: 44,
+                    minWidth: 44,
+                    paddingHorizontal: space.sm,
+                    justifyContent: "center",
+                    opacity: pressed ? 0.7 : 1,
+                  })}
+                >
+                  <Text style={{ ...type.label, fontWeight: "700", color: c.accent }}>
+                    {theNhap?.messageId === m.id && theNhap.trang.kind === "dang-doc"
+                      ? "Đang đọc…"
+                      : "Tách tiền"}
+                  </Text>
+                </Pressable>
+              ) : null}
+              {theNhap?.messageId === m.id ? (
+                <TheNhapChiTuChat trang={theNhap.trang} onDong={onDongTheNhap} />
+              ) : null}
+            </View>
           );
         })}
       </View>

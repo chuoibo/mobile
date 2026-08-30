@@ -72,7 +72,7 @@ REPO_ROOT="$PWD"
 
 # Every stage, in run order: cheapest and most likely to fail first, so a
 # broken tree is reported in seconds rather than after a docker build.
-STAGES=(guard guard-range ruff contract client-routes cors api migration pinned-import shared mobile docker postgres e2e)
+STAGES=(guard guard-range ruff contract client-routes cors api migration pinned-import demo-watch shared mobile docker postgres e2e)
 
 stage_help() {
   case "$1" in
@@ -85,6 +85,7 @@ stage_help() {
     api)       echo "pytest services/api/tests tests (test.yml: api)" ;;
     migration) echo "alembic upgrade head --sql, no database (test.yml: api, inline)" ;;
     pinned-import) echo "app imports under the fastapi version pinned in requirements-dev.txt, not the machine's (test.yml: docker, cheap half)" ;;
+    demo-watch) echo "the demo box is still being watched, and its last verdict was about main (máy này thôi)" ;;
     shared)    echo "node packages/shared/money.test.mjs (test.yml: shared)" ;;
     mobile)    echo "tsc, npm test with MOBILE_REQUIRE_WEB_A11Y=1, expo export --platform all (test.yml: mobile)" ;;
     docker)    echo "image pinned, builds, non-root, no dev tooling, serves /healthz (test.yml: docker)" ;;
@@ -372,6 +373,33 @@ PY
   )
 }
 
+# The demo box on 8099 is what the leader opens to decide whether the product
+# runs. Twice now it has served an older main than the one it claims to:
+# 58 routes against 62 for sixteen commits, then 65 against 69 for the four
+# album and contextual-suggestion routes. Neither was a gate failing.
+# `check_demo_matches_main.py` answered correctly both times -- it was simply
+# never asked, because its only caller was `make demo-check`, which nobody
+# types until they already suspect the answer.
+#
+# So this stage is the caller, and it is deliberately in the DEFAULT list.
+# `make gate` is the one thing on this machine that gets run dozens of times a
+# day; a check wired anywhere else is decoration with extra steps. It reads the
+# recorded verdict rather than measuring live -- `run` builds a worktree and
+# renders main's OpenAPI, which is far too slow to sit in every gate run, and
+# duplicating it here would just be a second unscheduled call site.
+#
+# What it does NOT prove: nothing here calls a product route, so a demo serving
+# every path of main and answering 500 to all of them passes this stage. It
+# says nothing about the mobile bundle, which is built separately and can be
+# older than the API on the same box. And `status` proves a check RAN, not that
+# the box was reachable between two runs.
+do_demo-watch() {
+  # --expect-ref is the default, spelled out because this is the assertion the
+  # stage exists to make: a verdict about somebody's open branch is not a
+  # verdict about main, however fresh it is.
+  python3 scripts/demo_watch.py status --expect-ref origin/main
+}
+
 do_shared() { node packages/shared/money.test.mjs; }
 
 do_mobile() {
@@ -558,6 +586,30 @@ check_prereq() {
       [ -d apps/mobile/src ] || return 2
       python3 -c "import fastapi" 2>/dev/null || {
         echo "chưa cài fastapi (pip install -r services/api/requirements-dev.txt)"; return 1; } ;;
+    demo-watch)
+      # Only this machine hosts the demo. On a CI runner or a fresh clone there
+      # is no box on 8099 and no crontab of ours, so the question is meaningless
+      # and the stage says so out loud instead of being red for everyone forever
+      # -- which is how the `guard history` variant would have died.
+      #
+      # Two signals, either one enough, because they fail in opposite
+      # directions. The crontab block says "this machine took on the job of
+      # watching"; that alone must keep the stage running even while the box is
+      # down, since a demo that stopped answering is exactly what wants
+      # reporting. The live port says "there is a demo here"; that alone keeps
+      # the stage running on a host that has one but never installed the
+      # schedule -- the state this repo was in when 8099 drifted twice.
+      #
+      # The hole left: kill the container AND clear the crontab and this skips.
+      # It is a skip with a printed reason, and --strict turns it into a
+      # failure, which is the most this file can honestly claim.
+      [ -f scripts/demo_watch.py ] || return 2
+      if ! crontab -l 2>/dev/null | grep -q 'mobile-demo-watch'; then
+        (exec 3<>/dev/tcp/127.0.0.1/8099) 2>/dev/null || {
+          echo "máy này không dựng demo: không có khối cron canh gác, và 8099 không trả lời"
+          return 1
+        }
+      fi ;;
     shared)
       have node || { echo "không có node"; return 1; }
       [ -d packages/shared ] || { echo "packages/shared không có trên nhánh này"; return 1; }
@@ -618,6 +670,7 @@ broken_why() {
     shared) echo "packages/shared có mặt nhưng thiếu money.test.mjs -- từ chối bỏ qua" ;;
     mobile) echo "apps/mobile có mặt nhưng thiếu package-lock.json -- từ chối bỏ qua" ;;
     e2e) echo "apps/mobile có mặt nhưng thiếu tests/e2e/vertical-slice.test.mjs -- từ chối bỏ qua" ;;
+    demo-watch) echo "thiếu scripts/demo_watch.py -- xoá canh gác không được biến chặng này thành xanh" ;;
     *) echo "thiếu file mà chặng này cần -- từ chối bỏ qua" ;;
   esac
 }
