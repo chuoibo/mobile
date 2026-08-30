@@ -47,6 +47,10 @@
       "reason": "F36 album chuyến đi. Cùng lý do."
     },
     {
+      "route": "/contexts/{context_id}/albums/{outing_id}/reel",
+      "reason": "F37 thước phim kỷ niệm, ship máy chủ trước màn theo thứ tự đã chốt (máy chủ trước, client sau). Route đã có ca live Postgres và cửa sổ nhịp riêng; còn thiếu đúng một màn gọi, và apps/mobile không thuộc lane backend nên việc đó đã báo Lead xếp cho frontend. Nợ này phải được trả bằng cách xoá dòng, không phải bằng cách để nguyên."
+    },
+    {
       "route": "/contexts/{context_id}/budget",
       "reason": "F34 ngân sách. Client tính tại chỗ: ngan-sach.ts:79 gọi tongDuKien(budget_per_person_vnd, headcount) từ trường đã có trong buổi đi, không đọc route này."
     },
