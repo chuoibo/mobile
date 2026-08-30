@@ -3079,12 +3079,19 @@ class ApiService:
         context_id: uuid.UUID,
         actor: Actor,
         companion: Companion,
+        *,
+        requested: bool = False,
     ) -> CompanionTurnResponse:
         """Let the companion suggest one grounded card, or stay silent.
 
         The speaking decision receives metadata only, and this workflow has one
         write capability: creating an AI message after grounding succeeds. It
         cannot create expenses or obligations on behalf of a model.
+
+        `requested` says a person asked for this turn rather than the client
+        offering one, and only reaches `plan_turn`. It buys no permission and no
+        extra data: the membership check above and the catalogue grounding below
+        are identical either way.
         """
 
         _require_permission(
@@ -3103,7 +3110,9 @@ class ApiService:
             }
             for message in messages
         ]
-        decision = plan_turn({"messages": metadata, "now": _now().isoformat()})
+        decision = plan_turn(
+            {"messages": metadata, "now": _now().isoformat()}, requested=requested
+        )
         if not decision["may_speak"]:
             return CompanionTurnResponse(
                 context_id=context_id,
@@ -3593,7 +3602,14 @@ class ApiService:
             allocation_result = allocate(_allocator_input(proposal))
         except AllocationError as exc:
             raise ApiProblem(422, exc.code, "Expense cannot be allocated") from exc
-        identity = self.repository.create_expense(proposal.context_id)
+        try:
+            identity = self.repository.create_expense(proposal.context_id)
+        except RepositoryConflict as exc:
+            if exc.code == "EXPENSE_CONTEXT_NOT_FOUND":
+                raise ApiProblem(
+                    404, "context_not_found", "Context does not exist"
+                ) from exc
+            raise
         return ExpenseProposalResponse(
             expense_id=identity.id,
             proposal=proposal,

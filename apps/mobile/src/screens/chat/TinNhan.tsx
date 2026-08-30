@@ -46,7 +46,13 @@ import { BongBong, type NguoiHienThi } from "./BongBong";
 import { ChiTietKeHoach } from "./ChiTietKeHoach";
 import { keHoachTuCard, type DiaDiem, type KeHoach } from "./ke-hoach";
 import { MoBinhChon } from "./MoBinhChon";
-import { cauBuocNhom, khoiDongNhom, type NhomMan, type ThanhVien } from "./nhom";
+import {
+  cauBuocNhom,
+  moNhomChoMan,
+  type NhomMan,
+  type NhomPhien,
+  type ThanhVien,
+} from "./nhom";
 import { ONhap } from "./ONhap";
 import { TheBinhChon } from "./TheBinhChon";
 import {
@@ -71,7 +77,19 @@ const CHIPS: { id: ChipId; label: string }[] = [
   { id: "file", label: "File" },
 ];
 
-export function TinNhan({ nguoi }: { nguoi: DemoPerson | null }) {
+export function TinNhan({ nguoi, nhomPhien }: {
+  nguoi: DemoPerson | null;
+  /** The group this session opened on F03/F04, held by `VoTab` so it outlives
+   *  the screen that created it. Null means the app has not been told of one,
+   *  and chat falls back to the demo group.
+   *
+   *  Required rather than optional on purpose. It is one prop in one place and
+   *  the cost of forgetting it is the defect this prop exists to fix -- chat
+   *  quietly showing a different group from the one the person is in -- which
+   *  no test in this repo could see. Making it required moves that mistake to
+   *  `tsc --noEmit`, which `npm test` runs and fails on. */
+  nhomPhien: NhomPhien | null;
+}) {
   const c = usePalette();
   const [nhom, setNhom] = useState<NhomMan>(nguoi ? { kind: "dang-tai" } : { kind: "chua-chon" });
   const [tin, setTin] = useState<TinMan>({ kind: "dang-tai" });
@@ -112,13 +130,13 @@ export function TinNhan({ nguoi }: { nguoi: DemoPerson | null }) {
     }
     let huy = false;
     setNhom({ kind: "dang-tai" });
-    khoiDongNhom(nguoi.id).then((s) => {
+    moNhomChoMan(nguoi, nhomPhien).then((s) => {
       if (!huy) setNhom(s);
     });
     return () => {
       huy = true;
     };
-  }, [nguoi]);
+  }, [nguoi, nhomPhien]);
 
   useEffect(() => {
     if (!nguoi || nhom.kind !== "xong") return;

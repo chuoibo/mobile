@@ -92,7 +92,11 @@ export function VoTab({
    *  group under their id (`khoiDongNhom`), and a bill has to be written into a
    *  group that exists -- filing it under a synthetic id is how every confirm
    *  in this app came back `422 participant_not_in_context`. */
-  renderKhoanChi: (onExit: () => void, nguoi: DemoPerson | null) => React.ReactNode;
+  renderKhoanChi: (
+    onExit: () => void,
+    nguoi: DemoPerson | null,
+    nhomPhien: NhomWire | null,
+  ) => React.ReactNode;
 }) {
   const c = usePalette();
   const scheme = useColorScheme();
@@ -180,7 +184,7 @@ export function VoTab({
   }
 
   if (luongKhoanChi) {
-    return <>{renderKhoanChi(() => setLuongKhoanChi(false), nguoi)}</>;
+    return <>{renderKhoanChi(() => setLuongKhoanChi(false), nguoi, nhom)}</>;
   }
 
   if (luongNhom) {
@@ -264,8 +268,11 @@ export function VoTab({
               moDiemHenNgay={moDiemHenNgay ?? false}
             />
           ) : null}
-          {tab === "len-plan" ? <LenPlan nguoi={nguoi} /> : null}
-          {tab === "tin-nhan" ? <TinNhan nguoi={nguoi} /> : null}
+          {tab === "len-plan" ? <LenPlan nguoi={nguoi} nhomPhien={nhom} /> : null}
+          {/* `nhom` is the state object itself, not a fresh literal built here.
+              `TinNhan` keys its open-the-group effect on this prop, and a new
+              object every render would reopen the group on every render. */}
+          {tab === "tin-nhan" ? <TinNhan nguoi={nguoi} nhomPhien={nhom} /> : null}
           {tab === "ca-nhan" ? (
             <CaNhan
               nguoi={nguoi}

@@ -1086,6 +1086,19 @@ class ChatExpenseDraftResponse(ApiModel):
         return self
 
 
+class CompanionTurnRequest(ApiModel):
+    """Whether a person asked for this turn or the client is offering one.
+
+    The body is optional and the default is the offer, because that is what the
+    shipped client sends: it posts this route after every message with no body
+    at all. Only a caller that knows a human addressed the companion should set
+    the flag -- the server cannot tell, and deliberately does not look, since
+    `plan_turn` is handed message metadata and never message text.
+    """
+
+    requested: bool = False
+
+
 class CompanionTurnResponse(ApiModel):
     context_id: UUID
     spoke: bool

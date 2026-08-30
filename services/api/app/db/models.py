@@ -116,7 +116,10 @@ class Bill(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     context_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("contexts.id", name="fk_bills_context_id"),
+        nullable=False,
+        index=True,
     )
     created_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     printed_total_vnd: Mapped[int | None] = mapped_column(BigInteger)
@@ -261,7 +264,14 @@ class BillItemShare(Base):
 
 
 class Expense(Base):
-    """Stable identity for an expense whose facts live in immutable versions."""
+    """Stable identity for an expense whose facts live in immutable versions.
+
+    `context_id` carried no foreign key until b3c7e0d24f19, because this table
+    was created before `contexts` existed and nothing went back for it. Until
+    then any UUID was a valid group here: the demo database ended up with 10932
+    rows naming groups that had no row, and their money kept arriving on the
+    personal finance screen under a name nothing could resolve.
+    """
 
     __tablename__ = "expenses"
 
@@ -269,7 +279,10 @@ class Expense(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     context_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("contexts.id", name="fk_expenses_context_id"),
+        nullable=False,
+        index=True,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -527,7 +540,10 @@ class CollectionBatch(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     context_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("contexts.id", name="fk_collection_batches_context_id"),
+        nullable=False,
+        index=True,
     )
     owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     status: Mapped[CollectionBatchStatus] = mapped_column(

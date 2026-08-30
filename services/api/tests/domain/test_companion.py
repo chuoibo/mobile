@@ -144,6 +144,117 @@ def test_the_companion_does_not_open_an_empty_room():
     }
 
 
+# ---------------------------------------------------------------------------
+# A turn somebody asked for.
+#
+# The rules above are a cadence for a companion that volunteers. They were
+# written for an AI deciding on its own whether the room wants to hear from it,
+# and for that they are right: nobody wants a bot answering every line.
+#
+# `POST /ai-turn` is also the path a person takes to ask the companion a
+# question, and there the same rules read as a broken feature. Measured on a
+# live stack on 2026-08-30: after the companion answered once, "Lên giúp mình
+# lịch trình chi tiết từng giờ" returned HTTP 200 / `spoke=false` /
+# `reason=cooldown` for the next 90 seconds, the model was never called, and
+# the client draws silence as nothing at all. Asking twice looks identical to
+# an outage.
+#
+# So a requested turn skips the two rules that exist to keep a VOLUNTEERING
+# companion quiet -- `cooldown` and `already_spoke_last` -- and keeps the two
+# that bound cost and make sense of the request: the per-window ceiling, and
+# refusing to speak into a room where no human has said anything.
+
+
+def test_a_companion_that_was_asked_answers_inside_its_cooldown():
+    """The exact turn measured as broken, at the layer that refused it."""
+
+    conversation = {
+        "messages": _messages(
+            ("human", "2026-08-29T19:59:00+07:00"),
+            ("ai", "2026-08-29T19:59:30+07:00"),
+            ("human", "2026-08-29T19:59:50+07:00"),
+        ),
+        "now": NOW,
+    }
+
+    assert plan_turn(conversation, requested=True) == {
+        "may_speak": True,
+        "reason": "ok",
+    }
+
+
+def test_a_companion_that_was_asked_again_answers_even_though_it_spoke_last():
+    """Pressing ask a second time means the first card did not answer it.
+
+    Staying quiet here is the same invisible refusal, one rule further along.
+    """
+
+    conversation = {
+        "messages": _messages(
+            ("human", "2026-08-29T19:00:00+07:00"),
+            ("ai", "2026-08-29T19:30:00+07:00"),
+        ),
+        "now": NOW,
+    }
+
+    assert plan_turn(conversation, requested=True)["may_speak"] is True
+
+
+def test_being_asked_does_not_lift_the_ceiling_that_bounds_model_spend():
+    """The cadence rules are courtesy; this one is the bill.
+
+    A caller that can lift it by adding `requested` has no ceiling at all, so
+    the refusal survives -- but under its own name, because a client that sorts
+    reasons into "silence" and "could not answer" must not file a turn somebody
+    asked for under silence.
+    """
+
+    older = "2026-08-29T10:00:00+07:00"
+    conversation = {
+        "messages": _messages(
+            ("ai", older),
+            ("human", older),
+            ("ai", older),
+            ("human", older),
+            ("ai", older),
+            ("human", older),
+        ),
+        "now": NOW,
+    }
+
+    assert plan_turn(conversation, requested=True) == {
+        "may_speak": False,
+        "reason": "asked_too_often",
+    }
+
+
+def test_being_asked_does_not_conjure_a_conversation_out_of_an_empty_room():
+    assert plan_turn({"messages": [], "now": NOW}, requested=True) == {
+        "may_speak": False,
+        "reason": "no_conversation",
+    }
+
+
+def test_an_unasked_turn_keeps_every_rule_it_had():
+    """The default is the old behaviour, byte for byte.
+
+    Without this, "requested" could be read as a rename of the cadence rather
+    than as an addition, and the companion would start answering every line.
+    """
+
+    conversation = {
+        "messages": _messages(
+            ("human", "2026-08-29T19:59:00+07:00"),
+            ("ai", "2026-08-29T19:59:30+07:00"),
+            ("human", "2026-08-29T19:59:50+07:00"),
+        ),
+        "now": NOW,
+    }
+
+    assert plan_turn(conversation) == plan_turn(conversation, requested=False)
+    assert plan_turn(conversation)["reason"] == "cooldown"
+
+
 def test_the_cap_is_decided_without_ever_seeing_what_anyone_wrote():
     """The privacy rule, enforced by shape.
 
@@ -451,7 +562,7 @@ def _two_day_stops(count: int) -> list[dict]:
 
 
 def test_an_itinerary_longer_than_the_display_limit_never_drops_a_stop_in_silence():
-    """"Ghi rõ từng khung giờ của cả hai ngày" is the ordinary request here.
+    """ "Ghi rõ từng khung giờ của cả hai ngày" is the ordinary request here.
 
     Two days is routinely more than six stops, and the payload named only
     `title` and `stops`, so `stops[:MAX_STOPS]` dropped the tail with nothing on
