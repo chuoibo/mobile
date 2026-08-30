@@ -177,6 +177,12 @@ INLINE_STEPS: dict[str, Covered] = {
         body_sha="9e42404468c805b6",
         why="",
     ),
+    "test.yml::api::Every route the API declares is called by some screen": Covered(
+        kind=GATE_KIND,
+        stages=("server-routes",),
+        body_sha="939a78d176bac583",
+        why="",
+    ),
     "test.yml::api::Migration renders to DDL": Covered(
         kind=GATE_KIND,
         stages=("migration",),

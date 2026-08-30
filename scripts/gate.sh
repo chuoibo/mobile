@@ -72,7 +72,7 @@ REPO_ROOT="$PWD"
 
 # Every stage, in run order: cheapest and most likely to fail first, so a
 # broken tree is reported in seconds rather than after a docker build.
-STAGES=(guard guard-range ruff contract client-routes cors api migration pinned-import shared mobile docker postgres e2e)
+STAGES=(guard guard-range ruff contract client-routes server-routes cors api migration pinned-import shared mobile docker postgres e2e)
 
 stage_help() {
   case "$1" in
@@ -81,6 +81,7 @@ stage_help() {
     ruff)      echo "ruff on the files this branch changes, uncommitted ones included (test.yml: lint)" ;;
     contract)  echo "every route wanting X-Actor-ID is called with it (test.yml: contract)" ;;
     client-routes) echo "every route apps/mobile calls exists in the API (test.yml: api, inline)" ;;
+    server-routes) echo "every route the API declares is called by some screen -- the other direction" ;;
     cors)      echo "every header and method apps/mobile sends survives the CORS preflight (test.yml: contract)" ;;
     api)       echo "pytest services/api/tests tests (test.yml: api)" ;;
     migration) echo "alembic upgrade head --sql, no database (test.yml: api, inline)" ;;
@@ -334,6 +335,29 @@ do_client-routes() {
   python3 scripts/check_api_contract.py
 }
 
+do_server-routes() {
+  # `client-routes` asks whether every path the app calls exists. This asks the
+  # other direction, which nothing in this repository asked until 2026-08-30: a
+  # route the API declares that no screen calls does not exist for a user. It
+  # ships, it is tested, it is merged, and it is unreachable.
+  #
+  # Measured on main at 8b6f847: 70 routes declared, 48 called, 5 belonging to
+  # the guest page, and 17 with no caller at all. It earned its place the first
+  # time it ran on a main newer than the tree it was written against: #319
+  # merged /contexts/{id}/widget that morning and no screen calls it.
+  #
+  # The self-test runs first for the reason the two stages above it do, and
+  # with a sharper edge here: this question was attempted twice by hand the
+  # same day and got a different wrong answer each time -- substring matching
+  # called four dead routes alive, whole-string matching called 32 live routes
+  # dead. Six canaries hold both sides, three that must be red and three that
+  # must stay green.
+  echo "--- self-test: the checker has to be able to be red, and to be green"
+  python3 scripts/check_server_routes_called.py --selftest || return 1
+  echo "--- OpenAPI vs client"
+  python3 scripts/check_server_routes_called.py
+}
+
 do_cors() {
   # The third question about one request, and the one no suite here can ask.
   # `contract` asks whether a call sends X-Actor-ID; `client-routes` asks
@@ -549,6 +573,17 @@ check_prereq() {
       [ -d apps/mobile/src ] || return 2
       python3 -c "import fastapi" 2>/dev/null || {
         echo "chưa cài fastapi (pip install -r services/api/requirements-dev.txt)"; return 1; } ;;
+    server-routes)
+      # Same two halves as `client-routes`, asked the other way round. The
+      # "present but no src" case is a defect here for a sharper reason than
+      # elsewhere: with no client source to read, EVERY route on the server
+      # looks uncalled, so a reader that skipped would be replaced by one that
+      # reports 69 findings. The checker refuses that itself by exiting 2 when
+      # it can read no path at all, and this refuses to skip past it.
+      [ -d apps/mobile ] || { echo "apps/mobile không có trên nhánh này"; return 1; }
+      [ -d apps/mobile/src ] || return 2
+      python3 -c "import fastapi" 2>/dev/null || {
+        echo "chưa cài fastapi (pip install -r services/api/requirements-dev.txt)"; return 1; } ;;
     cors)
       # Same two halves again, third question. `apps/mobile` absent is an
       # absence; present with no `src` is a defect, because a reader that
@@ -614,7 +649,7 @@ check_prereq() {
 # The "present but broken" message, kept next to the rule it enforces.
 broken_why() {
   case "$1" in
-    contract|client-routes) echo "apps/mobile có mặt nhưng thiếu src/ -- từ chối bỏ qua" ;;
+    contract|client-routes|server-routes) echo "apps/mobile có mặt nhưng thiếu src/ -- từ chối bỏ qua" ;;
     shared) echo "packages/shared có mặt nhưng thiếu money.test.mjs -- từ chối bỏ qua" ;;
     mobile) echo "apps/mobile có mặt nhưng thiếu package-lock.json -- từ chối bỏ qua" ;;
     e2e) echo "apps/mobile có mặt nhưng thiếu tests/e2e/vertical-slice.test.mjs -- từ chối bỏ qua" ;;
