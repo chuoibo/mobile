@@ -40,7 +40,7 @@ DC = $(COMPOSE) -p $(PROJECT)
 WAIT_TIMEOUT ?= 300
 
 .DEFAULT_GOAL := help
-.PHONY: help gate gate-merge test-db e2e up down clean logs ps migrate db-check seed demo demo-reset demo-check demo-data-check demo-persona-check demo-watch demo-watch-status demo-watch-install smoke
+.PHONY: help gate gate-merge test-db e2e up down clean db-reset logs ps migrate db-check seed demo demo-reset demo-check demo-data-check demo-persona-check demo-watch demo-watch-status demo-watch-install smoke
 
 # `demo` phải gọi đúng bộ container mà `up` vừa dựng. Trên nhánh này biến đó là
 # $(COMPOSE); PR #60 (đang mở, cùng lane) đổi nó thành $(DC) = compose kèm
@@ -169,6 +169,22 @@ clean: ## Tắt hệ và XOÁ volume Postgres + ảnh đã tải lên của cả
 	  exit 1; \
 	fi
 	$(DC) down -v
+
+# Em ruột ít sát thương hơn của `clean`, và lý do nó tồn tại nằm ở chính đoạn
+# từ chối bên trên: "Hai volume, không phải một." Cho tới nay muốn một cái sổ
+# sạch thì phải trả bằng MỌI ẢNH đã tải lên, vì `down -v` không phân biệt.
+#
+# Cái giá đó biến một máy demo bẩn thành không sửa được. Màn Cá nhân cộng
+# `confirmed_allocations` xuyên nhóm, mười bảng đó append-only sau trigger
+# BEFORE DELETE OR UPDATE, nên người đã tiêu tiền trong một nhóm nháp thì mang
+# nó theo vĩnh viễn. Đường về sạch duy nhất là một cái sổ chưa từng thấy nhóm
+# nháp — và với `clean` thì đường đó lấy luôn ảnh bill của người ta.
+#
+# Logic nằm trong script, không nằm trong recipe: recipe không chạy thử được
+# nếu không dựng Docker, còn script thì tests/test_db_reset_guard.py chạy
+# thẳng và kiểm được từng đường từ chối. Cùng lý do với KEY_CHECK ở trên.
+db-reset: ## Xoá SỔ CÁI của project nhưng GIỮ ảnh đã tải lên — cần CONFIRM=<tên project>
+	@PROJECT='$(PROJECT)' CONFIRM='$(CONFIRM)' sh scripts/reset_demo_db.sh
 
 logs: ## Bám log API và Postgres
 	$(DC) logs -f api postgres
