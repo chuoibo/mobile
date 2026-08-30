@@ -1,8 +1,8 @@
 {
   "_doc": [
     "Route may chu khai ma KHONG man nao trong apps/mobile/src nhac toi.",
-    "Do bang scripts/check_server_routes_called.py. Lan cap nhat gan nhat: 2026-08-30,",
-    "sau khi man Quan tri nhom tra no 5 dong (vai tro, roi nhom, moi/thu hoi loi moi).",
+    "Do bang scripts/check_server_routes_called.py. Lan cap nhat gan nhat: 2026-08-31,",
+    "sau khi man Album chuyen di tra no 3 dong (hai route F36 va thuoc phim F37).",
     "",
     "Day la DANH SACH NO, khong phai danh sach mien. Moi dong o day la mot",
     "tinh nang da merge, da co test xanh, va nguoi dung chua cham toi duoc.",
@@ -32,11 +32,11 @@
     "             URL do may chu tra ve nen client khong bao gio viet no thanh",
     "             literal. Dung doc so 0 cua cong thanh 'route chet'.",
     "",
-    "Con so hom nay, sau khi main tra 6 dong (bon route binh chon,",
-    "/bills/{id}/my-items, /photos/{id}/face-boxes) VA man Quan tri nhom tra 5 dong",
-    "(GET /contexts/{id}, hai route thanh vien, va hai route loi moi buoi di):",
-    "6 tinh-nang, 4 ha-tang, 1 cong-mu, 1 chua phan loai",
-    "(/albums/{outing_id}/reel, F37, cua lane khac).",
+    "Con so hom nay, sau khi man Album chuyen di tra NOT 3 dong (hai route F36 va",
+    "thuoc phim F37 -- man Album goi ca ba, va co duong bam toi tu menu [+]):",
+    "4 tinh-nang, 4 ha-tang, 1 cong-mu, 0 chua phan loai.",
+    "Dong 'chua phan loai' duy nhat da bien mat vi no da duoc TRA, khong phai vi",
+    "ai do phan loai no -- day la ket cuc dung cua mot dong no.",
     "Hai ben tra hai bo dong khac nhau va gop lai la HOP cua hai bo, khong phai",
     "mot ben thang: moi dong deu co mot man that bam toi no."
   ],
@@ -55,20 +55,6 @@
       "route": "/bills/{bill_id}/split",
       "loai": "ha-tang",
       "reason": "CUA THU HAI vao cung mot allocator, khong phai phep chia thu hai. Cau hoi 'thua hay chua lam man' o dong nay da duoc tra loi bang code: client lay phan bo tu POST /expenses (api.ts:592 va :620) roi chot bang /expenses/{id}/confirm; duong hero di bill -> /bills/{id}/assignments -> /expenses. Ca hai duong deu goi domain allocator, nen khong co hai phep tinh song song va khong co rui ro tien. Cai con lai la mot route tien SONG ma khong ai goi: chu so huu backend xac nhan xoa hay giu."
-    },
-    {
-      "route": "/contexts/{context_id}/albums",
-      "loai": "tinh-nang",
-      "reason": "F36 album chuyến đi. Không có literal 'albums' nào trong apps/mobile/src."
-    },
-    {
-      "route": "/contexts/{context_id}/albums/{outing_id}",
-      "loai": "tinh-nang",
-      "reason": "F36 album chuyến đi. Cùng lý do."
-    },
-    {
-      "route": "/contexts/{context_id}/albums/{outing_id}/reel",
-      "reason": "F37 thước phim kỷ niệm, ship máy chủ trước màn theo thứ tự đã chốt (máy chủ trước, client sau). Route đã có ca live Postgres và cửa sổ nhịp riêng; còn thiếu đúng một màn gọi, và apps/mobile không thuộc lane backend nên việc đó đã báo Lead xếp cho frontend. Nợ này phải được trả bằng cách xoá dòng, không phải bằng cách để nguyên."
     },
     {
       "route": "/contexts/{context_id}/budget",
