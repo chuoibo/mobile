@@ -306,8 +306,10 @@ export function loiNhacQuanTriCuoi(
   if (soQuanTri(ds) > 1) return null;
   return (
     "Nhóm chỉ còn một quản trị, nên app không cho bỏ quyền của người đó. " +
-    "Máy chủ không có đường phong quản trị mới khi nhóm không còn quản trị nào — " +
-    "đặt thêm một người làm quản trị trước, rồi mới bỏ quyền."
+    // Hyphen, never an em-dash: `tests/dau-gach-dai.test.mjs` gates the source
+    // against one reaching a person's screen, and this string is user-facing.
+    "Máy chủ không có đường phong quản trị mới khi nhóm không còn quản trị nào. " +
+    "Đặt thêm một người làm quản trị trước, rồi mới bỏ quyền."
   );
 }
 

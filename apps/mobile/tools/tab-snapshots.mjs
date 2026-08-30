@@ -196,6 +196,13 @@ export const MAN_KHAC = [
    * says why -- a widget draws a picture nobody vetted at the size where a
    * washed-out caption is unreadable rather than merely ugly. */
   { step: "widget", frag: `vao=widget&nguoi=${NGUOI}`, needle: "Minh · ", anh: 1 },
+  /* Group administration. The needle is the invite card's own sentence, which
+   * only renders once all three reads have landed -- the group row, the roster
+   * and the outings list. Deliberately NOT the screen title or its subtitle:
+   * both are chrome this screen paints in every state including the refusal,
+   * so either would wave through exactly the failure worth catching, which is
+   * one of those three reads 404ing and the roster never appearing. */
+  { step: "quan-tri", frag: `vao=quan-tri&nguoi=${NGUOI}`, needle: "Lời mời gắn với một chuyến đi" },
   { step: "ban-do", frag: `ban-do=1&nguoi=${NGUOI}`, needle: "Nhóm hay tụ ở đâu" },
   { step: "diem-hen", frag: `ban-do=hen&nguoi=${NGUOI}`, needle: "Ai xuất phát từ đâu" },
   /* F14. `#moi=` is the cold URL; the membership sentence only exists after
@@ -523,6 +530,20 @@ export function installTabStubs(apiBase, fixtures) {
     if (route.endsWith("/members")) {
       if (method === "POST") return json({ ok: true }, 201);
       return json({ members: fixtures.members });
+    }
+    // Quản trị nhóm reads the group's own row for the name it prints. It is a
+    // separate route from the create above and from the roster below, so
+    // without this it falls through to the 404 and the screen renders its
+    // refusal card -- under the filename of a screen this tool claims to have
+    // photographed. Matched exactly: `/contexts/{id}` and nothing after it, so
+    // it cannot swallow `/members`, `/outings` or any of the suffixes below.
+    if (method === "GET" && /^\/contexts\/[^/]+$/.test(route)) {
+      return json({
+        id: fixtures.contextId,
+        display_name: "Hội Đà Lạt",
+        created_by_id: fixtures.personId,
+        created_at: "2026-08-01T09:00:00Z",
+      });
     }
     // Lên plan. The list is what the tab opens on; the recap is a second,
     // separate read for the "đã tiêu" half of the budget line. Both are
