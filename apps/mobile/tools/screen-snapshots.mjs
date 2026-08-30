@@ -19,6 +19,12 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import puppeteer from "puppeteer-core";
 
+/* The browser search lives in the test helper because that is where it was
+ * written and where ten test files already import it from. Pointing at it from
+ * here keeps one search rather than two; `chrome-cdp.mjs` is a pure module with
+ * no top-level effects, so importing it costs nothing. */
+import { findChrome } from "../tests/chrome-cdp.mjs";
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MOBILE_ROOT = path.resolve(HERE, "..");
 
@@ -133,9 +139,27 @@ const MIME = {
   ".png": "image/png",
 };
 
+/**
+ * The browser these tools drive, and the one constant eleven of them import.
+ *
+ * This used to be a literal path into one developer's Playwright cache, with
+ * PUPPETEER_EXECUTABLE_PATH in front of it. Anywhere else that fallback names a
+ * file that does not exist, so every tool importing CHROME died with "Chromium
+ * not found at /home/lakiet/..." -- naming a home directory belonging to nobody
+ * on that machine.
+ *
+ * `findChrome()` is reused rather than reimplemented: it already searches the
+ * Playwright cache under the *current* user's home, newest build first, then
+ * /usr/bin/google-chrome and four other system names. A second copy of that
+ * search would be a second thing to keep correct.
+ *
+ * PUPPETEER_EXECUTABLE_PATH still wins, because the detector and the mutation
+ * harnesses set it deliberately and an override that can be silently outvoted
+ * is not an override. The last resort is the path GitHub's ubuntu image ships,
+ * so when nothing is found at all the error names somewhere real.
+ */
 export const CHROME =
-  process.env.PUPPETEER_EXECUTABLE_PATH ||
-  "/home/lakiet/.cache/ms-playwright/chromium-1194/chrome-linux/chrome";
+  process.env.PUPPETEER_EXECUTABLE_PATH || findChrome() || "/usr/bin/google-chrome";
 
 /**
  * A real 32x32 JPEG, not a truncated stub. Written to a temp file at runtime
