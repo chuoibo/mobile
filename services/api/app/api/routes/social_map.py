@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends
 from app.api.deps import Actor, get_actor, get_repository
 from app.api.repository import ApiRepository
 from app.api.schemas import (
+    AreaSummary,
     ErrorResponse,
     GroupHeatmapResponse,
     MeetingPointRequest,
@@ -27,6 +28,7 @@ from app.api.schemas import (
     SocialMapResponse,
 )
 from app.api.service import ApiService
+from app.places.areas import AREAS, area_summary
 
 router = APIRouter(tags=["places"])
 ERRORS = {
@@ -34,6 +36,26 @@ ERRORS = {
     404: {"model": ErrorResponse},
     422: {"model": ErrorResponse},
 }
+
+
+@router.get("/areas", response_model=list[AreaSummary])
+def list_areas() -> list[AreaSummary]:
+    """The districts `POST /contexts/{id}/meet` will accept, and their centroids.
+
+    Ungated on purpose, and it is the one route in this module that is: the
+    answer is a fixed list of Vietnamese districts. It contains no group, no
+    person and no history, and it is identical for every caller, so there is
+    nothing here for membership to protect.
+
+    It exists because the screen that collects origins has to offer real ids.
+    The alternative was to write the eight ids into the app, which
+    `scripts/check_api_contract.py` describes precisely in its own header: a
+    list kept by hand is a third copy to drift. Then the day a district is
+    added or renamed, the picker offers an id the server answers 422 for, and
+    the only symptom is a form that refuses a perfectly reasonable answer.
+    """
+
+    return [AreaSummary.model_validate(area_summary(area)) for area in AREAS]
 
 
 @router.get(

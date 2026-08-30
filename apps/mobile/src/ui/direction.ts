@@ -225,3 +225,44 @@ viet ra bang chu va bang dong, mau chi la kenh thu hai.
 
 FINISH: build fully, then hand off to the finish reviewer with captures.
 `.trim();
+
+/** The direction contract for the group map screens (rd-fe-33: F43, F44, F45).
+ *
+ * An EXTENSION of Khám phá, not a new world. The three routes behind it landed
+ * in the same PR (`/contexts/{id}/map`, `/heatmap`, `/meet`), and the screens
+ * exist so those routes are not four addresses nobody calls.
+ *
+ * The hard part here is not the drawing. It is that every one of these screens
+ * summarises where a group of people physically was, so each block below is as
+ * much a privacy decision as a visual one.
+ */
+export const DIRECTION_CONTRACT_BAN_DO = `
+THESIS: Ban do nay khong noi AI da o dau. No noi NHOM hay lui toi cho nao, va
+noi luon no da dem tu bao nhieu lan check-in de ra con so do.
+
+OWN-WORLD: The gioi Ru Di, khong them mau. Dan cam "accent" nhu Kham pha, vi
+day van la mat di kham pha. KHONG dan teal (teal la tien dang chia) va KHONG
+dan tim (tim la may sinh ra) -- ba man nay chi dem hang co that trong so.
+
+STORY: Tu dai ban do o Kham pha bam vao. Ba lop hien theo thu tu chac chan
+giam dan: da di (dem duoc), dang hot (may xep), nen thu (may goi y). Lop thu
+tu "da luu" duoc GOI TEN la chua dung, khong ve mang rong.
+
+FIRST VIEWPORT: Tieu de man, mot dong noi ro da quet bao nhieu check-in, roi
+lop "Da di" voi so lan ben canh tung cho. Cau tiet lo di TRUOC danh sach chu
+khong phai chu thich duoi chan.
+
+FORM: Danh sach chu khong phai chum cham -- o do phan giai nay tin that la
+"quan nay N lan", khong phai "cho nay o day". Nhiet do ve bang thanh ngang
+theo share_percent, nhung SO LAN moi la phan doc duoc: ADR-0009 cam phan tram
+noi voi nguoi dung, nen share_percent chi vao BE RONG cua thanh chu khong bao
+gio thanh chu. So lan dung chu so tabular. Bam >= 44.
+
+DIEM HEN (F45): man DUY NHAT co canh bao truoc khi thu thap. Khi nguoi dung
+moi chon dung hai khu vuc, may chu tra co two_origin_inversion, va man phai
+noi "hai dau thi suy nguoc duoc" TRUOC khi ai do dua ket qua cho nguoi thu
+hai xem. Ket qua xep theo quang duong NGUOI XA NHAT phai di, va con so do in
+ra canh ten quan de nguoi doc kiem duoc, chu khong bat tin chu "can bang".
+
+FINISH: build fully, then hand off to the finish reviewer with captures.
+`.trim();
