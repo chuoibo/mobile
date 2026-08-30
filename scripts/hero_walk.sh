@@ -59,6 +59,11 @@
 #   - CORS. `node`'s fetch does not enforce it, same blind spot as every other
 #     gate here.
 #   - anything about a second image. One bill, one reading, one run.
+#   - that the tree being gated still walks. `--status` binds the verdict to an
+#     ANCESTOR of HEAD, so commits added after the walk are covered by nothing.
+#     It rules out borrowed evidence, not staleness within the branch.
+#   - that the walk ran on a clean tree. The recorded sha names a commit, and
+#     uncommitted edits are invisible to it. Walk after committing.
 #
 # ## Why it pins the URL instead of letting the client default
 #
@@ -88,6 +93,21 @@
 # assert the recording is recent and about the right target. A stale or missing
 # verdict is red, so "nobody has walked the hero path today" is visible in every
 # gate run instead of being nothing at all.
+#
+# "The right target" is two things, and the first cut of this file only checked
+# one. `url` says which BOX was walked; `sha` says which CLIENT. The sha was
+# recorded and printed on the pass line but compared to nothing, so a walk on
+# any other branch -- or a sha this repo has never heard of -- vouched for
+# whatever tree the gate stood in. With one verdict dir shared by every worktree
+# on this machine, that is the ordinary case, not a contrived one. `--status`
+# now requires the recorded sha to be an ANCESTOR of HEAD.
+#
+# Ancestor rather than equal on purpose: pinning to HEAD would spend a model
+# call on every docs commit, and a stage that expensive gets deleted -- the
+# outcome this whole section is arranged to avoid. So the check refuses a walk
+# this tree does not contain, and does NOT claim the commits added since the
+# walk keep the seam working. That weaker promise is written down below rather
+# than left for a reader to assume the stronger one.
 #
 # Usage:
 #   scripts/hero_walk.sh                      walk the demo box on 8099
@@ -139,12 +159,20 @@ if [ "$MODE" = "status" ]; then
   }
   MOBILE_HERO_WALK_EXPECT_URL="$URL" \
   MOBILE_HERO_WALK_MAX_AGE_HOURS="$MAX_AGE_HOURS" \
+  MOBILE_HERO_WALK_REPO="$REPO_ROOT" \
   python3 - "$VERDICT" <<'PY'
-import json, os, sys, time
+import json, os, subprocess, sys, time
 
 path = sys.argv[1]
 want_url = os.environ["MOBILE_HERO_WALK_EXPECT_URL"]
 max_age = float(os.environ["MOBILE_HERO_WALK_MAX_AGE_HOURS"]) * 3600.0
+repo = os.environ["MOBILE_HERO_WALK_REPO"]
+
+
+def git(*args):
+    return subprocess.run(
+        ["git", "-C", repo, *args], capture_output=True, text=True
+    )
 
 try:
     v = json.load(open(path, encoding="utf-8"))
@@ -163,6 +191,37 @@ if v.get("url") != want_url:
     print(f"hero_walk: phán quyết gần nhất nói về {v.get('url')}, KHÔNG phải {want_url}.")
     raise SystemExit(2)
 
+# ...and a verdict about other CODE is not a verdict about this tree. `url`
+# above answers "which box"; this answers "which client", and until now nothing
+# did. The field was recorded and PRINTED on the pass line but never checked,
+# so a walk on any other branch -- or a sha this repo has never heard of --
+# vouched for whatever tree the gate happened to be standing in. The verdict
+# dir is shared across every worktree on this machine, so that was not a
+# hypothetical: it is the normal case with two lanes working at once.
+sha = v.get("sha") or "?"
+if sha == "?":
+    print("hero_walk: phán quyết KHÔNG GHI ĐƯỢC sha client — không buộc được vào cây nào.")
+    print("  Chạy lại trong một checkout git: make hero-walk")
+    raise SystemExit(2)
+
+head = git("rev-parse", "--short", "HEAD").stdout.strip() or "?"
+if git("cat-file", "-e", f"{sha}^{{commit}}").returncode != 0:
+    # A different clone, a rewritten branch, or a hand-edited verdict. Cannot be
+    # placed relative to HEAD at all, so it cannot vouch for HEAD.
+    print(f"hero_walk: phán quyết nói về client {sha}, cây này KHÔNG CÓ commit đó (HEAD {head}).")
+    print("  Chạy lại trên chính cây đang gác: make hero-walk")
+    raise SystemExit(2)
+
+if git("merge-base", "--is-ancestor", sha, "HEAD").returncode != 0:
+    # Ancestor, not equality: requiring an exact match would burn a model call
+    # on every docs commit, and a stage that expensive gets deleted. Ancestry
+    # still refuses the thing that was broken -- a walk on a branch this tree
+    # does not contain. It does NOT prove the commits added since the walk keep
+    # the seam working; that is stated in KHÔNG chứng minh, not papered over.
+    print(f"hero_walk: lượt đi bộ chạy ở client {sha}, KHÔNG nằm trong HEAD {head} — nhánh khác.")
+    print("  Phán quyết đó không nói gì về cây này. Chạy: make hero-walk")
+    raise SystemExit(2)
+
 if int(v.get("rc", 1)) != 0:
     print(f"hero_walk: lượt gần nhất ({when}) ĐỨT ở '{v.get('buoc_hong','?')}' trên {v['url']}.")
     raise SystemExit(2)
@@ -173,7 +232,8 @@ if age > max_age:
 
 print(
     f"hero_walk: ĐI ĐƯỢC {when} — {v.get('so_chang','?')} chặng, "
-    f"{v['url']}, client {v.get('sha','?')}, model đọc {v.get('so_mon','?')} món."
+    f"{v['url']}, client {sha} (nằm trong HEAD {head}), "
+    f"model đọc {v.get('so_mon','?')} món."
 )
 PY
   exit $?

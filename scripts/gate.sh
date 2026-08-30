@@ -466,10 +466,15 @@ do_demo-watch() {
 # box, and that it worked.
 #
 # What it does NOT prove: nothing here is measured now. A demo that broke five
-# minutes ago passes this stage until the verdict ages out.
+# minutes ago passes this stage until the verdict ages out. Nor does it prove
+# the commits added since the walk still cross the seam -- the verdict binds to
+# an ancestor of HEAD, which rules out evidence borrowed from another branch,
+# not staleness within this one.
 do_hero-walk() {
   # --url spelled out for the same reason demo-watch spells out --expect-ref:
   # a verdict about another box is the failure that looks most like a pass.
+  # The runner separately refuses a verdict about another BRANCH; one shared
+  # verdict dir serves every worktree here, so both halves are load-bearing.
   scripts/hero_walk.sh --status --url http://127.0.0.1:8099
 }
 
