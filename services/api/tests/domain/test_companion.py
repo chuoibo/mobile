@@ -562,7 +562,7 @@ def _two_day_stops(count: int) -> list[dict]:
 
 
 def test_an_itinerary_longer_than_the_display_limit_never_drops_a_stop_in_silence():
-    """"Ghi rõ từng khung giờ của cả hai ngày" is the ordinary request here.
+    """ "Ghi rõ từng khung giờ của cả hai ngày" is the ordinary request here.
 
     Two days is routinely more than six stops, and the payload named only
     `title` and `stops`, so `stops[:MAX_STOPS]` dropped the tail with nothing on

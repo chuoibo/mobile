@@ -85,9 +85,7 @@ def plan_turn(
 
     window_size = resolved_limits["window_messages"]
     recent_messages = messages[-window_size:] if window_size else []
-    ai_messages = sum(
-        message.get("author_kind") == "ai" for message in recent_messages
-    )
+    ai_messages = sum(message.get("author_kind") == "ai" for message in recent_messages)
     if ai_messages >= resolved_limits["max_ai_messages_per_window"]:
         reason = "asked_too_often" if requested else "rate_limited"
         return {"may_speak": False, "reason": reason}
