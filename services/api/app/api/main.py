@@ -49,6 +49,7 @@ from app.api.routes import (
 )
 from app.api.schemas import ErrorResponse
 from app.api.search_rate_limit import (
+    build_chat_expense_limiter,
     build_receipt_scan_limiter,
     build_search_limiter,
 )
@@ -85,6 +86,9 @@ def create_app(
     # `POST /receipts/scan` spends the same key on a vision call. Its own
     # window, not a share of the one above: see `build_receipt_scan_limiter`.
     application.state.receipt_scan_limiter = build_receipt_scan_limiter()
+    # F24 is text rather than vision, but it spends the same shared model key.
+    # Its own counter keeps a burst on one feature from disabling the other.
+    application.state.chat_expense_limiter = build_chat_expense_limiter()
 
     application.mount(
         "/static",

@@ -787,6 +787,35 @@ class MessageResponse(ApiModel):
     cursor: str
 
 
+class ChatExpenseDraft(ApiModel):
+    """A model-read draft whose identities come only from stored group facts."""
+
+    title: StrictStr
+    amount_vnd: PositiveMoneyVnd
+    paid_by_id: UUID
+    shared_by: list[UUID]
+    needs_review: StrictBool
+
+
+class ChatExpenseDraftResponse(ApiModel):
+    context_id: UUID
+    message_id: UUID
+    detected: StrictBool
+    draft: ChatExpenseDraft | None
+    reason: StrictStr | None
+
+    @model_validator(mode="after")
+    def _detection_matches_payload(self) -> ChatExpenseDraftResponse:
+        if self.detected != (self.draft is not None):
+            raise ValueError("detected must match whether draft is present")
+        if self.detected:
+            if self.reason is not None:
+                raise ValueError("a detected expense must not carry a refusal reason")
+        elif self.reason is None or not self.reason.strip():
+            raise ValueError("an undetected message must explain why")
+        return self
+
+
 class CompanionTurnResponse(ApiModel):
     context_id: UUID
     spoke: bool

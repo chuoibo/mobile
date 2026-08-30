@@ -44,6 +44,7 @@ from app.api.repository import (
     GuestEnvelopeRecord,
     GuestLinkDraft,
     MembershipRecord,
+    MessageRecord,
     ObligationDraft,
     OutingInviteRecord,
     PaymentReportRecord,
@@ -110,6 +111,7 @@ class FakeRepository:
         self.receipts: dict[uuid.UUID, FakeReceipt] = {}
         self.people: dict[uuid.UUID, PersonRecord] = {}
         self.contexts: dict[uuid.UUID, ContextRecord] = {}
+        self.messages: dict[uuid.UUID, MessageRecord] = {}
         self.bills: dict[uuid.UUID, BillRecord] = {}
         self.finances: dict[uuid.UUID, PersonFinanceSummary] = {}
         self.active_memberships: set[tuple[uuid.UUID, uuid.UUID]] = set()
@@ -294,6 +296,9 @@ class FakeRepository:
 
     def get_context(self, context_id):
         return self.contexts.get(context_id)
+
+    def get_message(self, message_id):
+        return self.messages.get(message_id)
 
     def create_outing_invite(
         self,

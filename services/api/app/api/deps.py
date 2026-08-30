@@ -9,6 +9,7 @@ from uuid import UUID
 
 from fastapi import Header
 
+from app.api.chat_expense_skill import ChatExpenseReader
 from app.api.errors import ApiProblem
 from app.api.receipt_skill import ReceiptReader
 from app.api.repository import ApiRepository, SqlAlchemyApiRepository
@@ -109,6 +110,14 @@ def get_receipt_reader() -> ReceiptReader:
     from app.api.vision_gemini import GeminiReceiptReader
 
     return GeminiReceiptReader()
+
+
+def get_chat_expense_reader() -> ChatExpenseReader:
+    """Build the text reader lazily so importing the app needs no key."""
+
+    from app.api.chat_expense_gemini import GeminiChatExpenseReader
+
+    return GeminiChatExpenseReader()
 
 
 def get_companion() -> Companion:
