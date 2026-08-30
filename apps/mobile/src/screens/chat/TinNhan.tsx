@@ -26,7 +26,13 @@ import React, { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { DEMO_PEOPLE, type DemoPerson } from "../../navigation/nhom-demo";
 import { radius, space, type, usePalette } from "../../theme";
-import { napNhapKhoanChiTuChat } from "../../api";
+import {
+  attemptFor,
+  confirmExpense,
+  napNhapKhoanChiTuChat,
+  proposeSplit,
+  type Attempt,
+} from "../../api";
 import { Card } from "../../ui/Kit";
 import { themChiTiet } from "../../ui/loi-may-chu";
 import { AiHieuNhom } from "../ai-hieu-nhom/AiHieuNhom";
@@ -37,8 +43,13 @@ import {
 import { goiAiTurn, type AiTurnState } from "./ai";
 import { TheNhapChiTuChat } from "./TheNhapChiTuChat";
 import {
+  banNhapDeGhi,
+  CHUA_GHI,
+  dongChiaTuAllocation,
+  ghiHongTuLoi,
   trangTuLoi,
   trangTuWire,
+  type TrangGhiKhoanChi,
   type TrangNhapTuChat,
 } from "./nhap-tu-chat";
 import {
@@ -119,9 +130,13 @@ export function TinNhan({ nguoi, nhomPhien }: {
   const [theNhap, setTheNhap] = useState<{
     messageId: string;
     trang: TrangNhapTuChat;
+    ghi: TrangGhiKhoanChi;
   } | null>(null);
 
   const cuonRef = useRef<ScrollView>(null);
+  // Attempt keys, in a ref so a re-render between the press and the reply
+  // cannot lose one and turn a retry into a second write.
+  const soKhoa = useRef<Record<string, Attempt>>({});
   const dangGoiAi = useRef(false);
   const messages = tin.kind === "co-tin" ? tin.messages : [];
   const cuoiTin = messages[messages.length - 1]?.id;
@@ -301,12 +316,60 @@ export function TinNhan({ nguoi, nhomPhien }: {
     const members = nhom.members;
     const contextId = nhom.contextId;
     const actorId = nguoi.personId;
-    setTheNhap({ messageId, trang: { kind: "dang-doc" } });
+    setTheNhap({ messageId, trang: { kind: "dang-doc" }, ghi: CHUA_GHI });
     try {
       const wire = await napNhapKhoanChiTuChat(contextId, messageId, actorId);
-      setTheNhap({ messageId, trang: trangTuWire(wire, members) });
+      setTheNhap({ messageId, trang: trangTuWire(wire, members), ghi: CHUA_GHI });
     } catch (err) {
-      setTheNhap({ messageId, trang: trangTuLoi(err) });
+      setTheNhap({ messageId, trang: trangTuLoi(err), ghi: CHUA_GHI });
+    }
+  }
+
+  /**
+   * Write the reading the card is showing into the ledger.
+   *
+   * Two calls, both already in `api.ts`, and no new route: `proposeSplit` is
+   * `POST /expenses`, which is where the allocator divides the total, and
+   * `confirmExpense` is `POST /expenses/{id}/confirm`, which is the one that
+   * writes. The numbers drawn on the confirmation are the server's own
+   * allocation, echoed back; this screen never divides anything.
+   *
+   * The attempt key is derived from the proposal body rather than from the
+   * message id. Pressing the same unchanged draft twice must replay one write,
+   * but the reader is a model and a second read of the same message can come
+   * back different -- keying on the message alone would send changed bytes
+   * under a used key, which the server answers with a refusal aimed at somebody
+   * who did nothing wrong.
+   */
+  async function ghiKhoanChi(messageId: string) {
+    if (!nguoi || nhom.kind !== "xong") return;
+    const the = theNhap;
+    if (!the || the.messageId !== messageId) return;
+    if (the.trang.kind !== "co-nhap" || the.ghi.kind === "dang-ghi" || the.ghi.kind === "da-ghi") {
+      return;
+    }
+    const members = nhom.members;
+    const contextId = nhom.contextId;
+    const trang = the.trang;
+    const ban = banNhapDeGhi(trang, members);
+    const khoa = `nhap-chat:${ban.advancerId}:${ban.totalVnd}:${ban.participants
+      .map((p) => p.id)
+      .join(",")}:${ban.occasion}`;
+
+    setTheNhap({ messageId, trang, ghi: { kind: "dang-ghi" } });
+    try {
+      const deXuat = await proposeSplit(contextId, ban, attemptFor(soKhoa.current, khoa));
+      await confirmExpense(deXuat, attemptFor(soKhoa.current, `chot:${khoa}`));
+      setTheNhap({
+        messageId,
+        trang,
+        ghi: {
+          kind: "da-ghi",
+          dong: dongChiaTuAllocation(deXuat.allocations, trang.nguoiChiaIds, members),
+        },
+      });
+    } catch (err) {
+      setTheNhap({ messageId, trang, ghi: ghiHongTuLoi(err) });
     }
   }
 
@@ -422,6 +485,9 @@ export function TinNhan({ nguoi, nhomPhien }: {
             theNhap={theNhap}
             onTachTien={(messageId) => {
               void tachTien(messageId);
+            }}
+            onGhiKhoanChi={(messageId) => {
+              void ghiKhoanChi(messageId);
             }}
             onDongTheNhap={() => setTheNhap(null)}
           />
@@ -600,6 +666,7 @@ function DongTin({
   onBoPhieu,
   theNhap,
   onTachTien,
+  onGhiKhoanChi,
   onDongTheNhap,
 }: {
   nhom: NhomMan;
@@ -616,8 +683,9 @@ function DongTin({
   soThanhVien: number;
   dangBoPhieu: boolean;
   onBoPhieu: (pollId: string, optionId: string) => void;
-  theNhap: { messageId: string; trang: TrangNhapTuChat } | null;
+  theNhap: { messageId: string; trang: TrangNhapTuChat; ghi: TrangGhiKhoanChi } | null;
   onTachTien: (messageId: string) => void;
+  onGhiKhoanChi: (messageId: string) => void;
   onDongTheNhap: () => void;
 }) {
   const c = usePalette();
@@ -778,7 +846,12 @@ function DongTin({
                 </Pressable>
               ) : null}
               {theNhap?.messageId === m.id ? (
-                <TheNhapChiTuChat trang={theNhap.trang} onDong={onDongTheNhap} />
+                <TheNhapChiTuChat
+                  trang={theNhap.trang}
+                  ghi={theNhap.ghi}
+                  onGhi={() => onGhiKhoanChi(m.id)}
+                  onDong={onDongTheNhap}
+                />
               ) : null}
             </View>
           );
