@@ -90,6 +90,7 @@ export function Anh({
   onTrangThai,
   nguoiXem,
   nhom,
+  vua = "cover",
 }: {
   /** Where the photograph lives. `null` is the normal case today: the server
    *  does not send place or profile photos yet, and a screen must render
@@ -127,6 +128,16 @@ export function Anh({
   /** Which group's photograph, for the routes that check membership of a
    *  context rather than of a person. Ignored when `nguoiXem` is `null`. */
   nhom?: string;
+  /**
+   * How the picture meets the frame. `cover` everywhere except one surface.
+   *
+   * The default is not a preference: a photograph letterboxed inside a card
+   * reads as a broken card, and a frame's whole job is to be filled. The single
+   * exception is a full-screen viewer, whose job is the opposite -- showing the
+   * WHOLE picture, because the tile it was opened from already showed the crop.
+   * Opt-in and named, so no card can pick it up by accident.
+   */
+  vua?: "cover" | "contain";
 }) {
   // `hong` is sticky per URI: once a load has failed, re-rendering must not put
   // the <Image> back and start the same failing request again on every parent
@@ -242,9 +253,10 @@ export function Anh({
       {veAnh ? (
         <Image
           source={{ uri: hienThi }}
-          // Never `contain`: a photograph letterboxed inside a card reads as a
-          // broken card, and the frame's whole job is to be filled.
-          resizeMode="cover"
+          // `cover` unless a caller asks otherwise: a photograph letterboxed
+          // inside a card reads as a broken card, and the frame's whole job is
+          // to be filled. See `vua` for the one surface that wants the reverse.
+          resizeMode={vua}
           style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
           // Labelled on the frame, not here, so the two do not both announce.
           accessibilityElementsHidden

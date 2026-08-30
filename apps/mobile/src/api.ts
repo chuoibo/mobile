@@ -916,6 +916,64 @@ export async function saveBankRecipient(
   };
 }
 
+/** A saved destination, read back, plus when it was put on file. */
+export type StoredBankRecipient = SavedBankRecipient & {
+  /** ISO-8601 from the server. When this destination was last written -- the
+   *  one fact the write path cannot tell a screen, because the screen that
+   *  just saved already knows it was now. */
+  confirmedAt: string;
+};
+
+/**
+ * Read the destination already on file for one person.
+ *
+ * `GET /bank-recipients/{recipient_id}`, which nothing in this app called
+ * before. The hole it leaves is small and real: the account form always opened
+ * empty, so somebody who had already set a destination could not tell that from
+ * having none, and the only way to find out was to type one in again.
+ *
+ * `null` for 404 rather than a throw. "This person has no destination yet" is
+ * the ordinary state of a new group, not a failure, and a caller that has to
+ * catch an exception to render an empty form will eventually catch a 403 with
+ * it. Every other status still throws.
+ *
+ * The number comes back masked, for the reason stated on `SavedBankRecipient`:
+ * this is a READ, so unlike the form there is no copy of the digits anywhere on
+ * this side that a screen could be tempted to show in full.
+ */
+export async function docTaiKhoanNhan(
+  recipientId: string,
+  actorId: string,
+): Promise<StoredBankRecipient | null> {
+  let result: {
+    recipient_id: string;
+    bank_bin: string;
+    bank_name: string;
+    bank_recognised: boolean;
+    account_number: string;
+    account_name: string | null;
+    confirmed_at: string;
+  };
+  try {
+    result = await call(`/bank-recipients/${recipientId}`, {
+      method: "GET",
+      actorId,
+    });
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return null;
+    throw e;
+  }
+  return {
+    recipientId: result.recipient_id,
+    bankBin: result.bank_bin,
+    bankName: result.bank_name,
+    bankRecognised: result.bank_recognised,
+    accountMasked: maskAccount(result.account_number),
+    accountName: result.account_name,
+    confirmedAt: result.confirmed_at,
+  };
+}
+
 export async function openBatch(
   proposal: PendingProposal,
   expenseVersionId: string,
@@ -1795,6 +1853,61 @@ export async function docKyNiem(
   return result.memories ?? [];
 }
 
+/** F38. The one photograph a home-screen widget draws, and who left it. */
+export type AnhWidget = {
+  memoryId: string;
+  imageUrl: string;
+  caption: string | null;
+  authorId: string;
+  authorName: string;
+  createdAt: string;
+};
+
+/**
+ * What this group's widget shows right now, or that it shows nothing.
+ *
+ * `GET /contexts/{id}/widget`. `null` is a 200 and an ordinary answer, not an
+ * error: a group with no photographs yet has a widget with nothing to draw, and
+ * the route deliberately does not answer 404 for it -- a caller must not be able
+ * to tell "empty" from "you are not in this group" by the status code.
+ *
+ * Deliberately not built out of `docKyNiem`. The wall row carries a cursor, two
+ * social counters, a viewer fact and four location columns; a widget renders
+ * outside the app, next to a lock screen, and has no business holding any of
+ * them. Asking the route that returns six fields is the point of the route.
+ */
+export async function docWidgetNhom(
+  contextId: string,
+  actorId: string,
+): Promise<AnhWidget | null> {
+  const result = await translated<{
+    context_id: string;
+    photo: {
+      memory_id: string;
+      image_url: string;
+      caption: string | null;
+      author_id: string;
+      author_name: string;
+      created_at: string;
+    } | null;
+  }>(ANH_REFUSALS, `/contexts/${contextId}/widget`, {
+    method: "GET",
+    actorId,
+    roles: "member",
+    contexts: contextId,
+  });
+  const photo = result.photo;
+  if (!photo) return null;
+  return {
+    memoryId: photo.memory_id,
+    imageUrl: photo.image_url,
+    caption: photo.caption,
+    authorId: photo.author_id,
+    authorName: photo.author_name,
+    createdAt: photo.created_at,
+  };
+}
+
 /* ------------------------------- hearts and comments on the wall (rd-fe-33) */
 
 /**
@@ -2116,6 +2229,78 @@ export async function luuGanMon(
     attempt,
     contexts: contextId,
   });
+}
+
+/** What the server makes of a STORED bill's ticks. */
+export type ChiaBill = {
+  /** Person id -> đồng. Integer đồng throughout; the server sends integers and
+   *  nothing on this side divides. */
+  allocations: Record<string, number>;
+  /** Person id -> the exact rational share, as the server printed it. Carried
+   *  because it is the working behind a dong that looks one off. */
+  exactShares: Record<string, string>;
+  roundingGainers: string[];
+  warnings: string[];
+  /** Whether the ticks this split was computed from are a decision or still the
+   *  reader's guess. The screen says which; it does not decide. */
+  assignmentState: "confirmed" | "ai_suggested";
+  suggestedItemKeys: string[];
+  totalAmountVnd: number;
+};
+
+/**
+ * Ask the server to split a bill it already stored.
+ *
+ * Not `previewSplit`. That one posts a fresh `POST /expenses` built from the
+ * matrix this phone is holding, which is the right call while somebody is still
+ * ticking boxes. This one names a bill id and nothing else: the server reads the
+ * shares IT has, against the roster IT has, and answers. So it is the only way
+ * to ask "what does the server think this bill costs each of us" -- and the only
+ * way for the two to be caught disagreeing.
+ *
+ * The body carries no identity. `BillSplitRequest` has a `paid_by_id`, which is
+ * for writing the split into the ledger; a preview does not need one and does
+ * not send one, so there is no field here in which a caller could name somebody
+ * else. `for_ledger` stays at its `false` default for the same reason: this call
+ * must not write.
+ *
+ * Nothing is computed on this side. Every dong shown from this response is a
+ * dong the allocator produced -- two divisions in one product is how one dinner
+ * shows two numbers.
+ */
+export async function docChiaBill(
+  billId: string,
+  actorId: string,
+  contextId: string,
+  attempt: Attempt,
+): Promise<ChiaBill> {
+  const result = await call<{
+    allocation: {
+      allocations: Record<string, number>;
+      exact_shares: Record<string, string>;
+      rounding_gainers: string[];
+      warnings: string[];
+    };
+    assignment_state: "confirmed" | "ai_suggested";
+    suggested_item_keys: string[];
+    total_amount_vnd: number;
+  }>(`/bills/${billId}/split`, {
+    method: "POST",
+    // Empty on purpose -- see above. `for_ledger` defaults false server-side.
+    body: {},
+    actorId,
+    attempt,
+    contexts: contextId,
+  });
+  return {
+    allocations: result.allocation.allocations,
+    exactShares: result.allocation.exact_shares,
+    roundingGainers: result.allocation.rounding_gainers,
+    warnings: result.allocation.warnings ?? [],
+    assignmentState: result.assignment_state,
+    suggestedItemKeys: result.suggested_item_keys,
+    totalAmountVnd: result.total_amount_vnd,
+  };
 }
 
 /**
