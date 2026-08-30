@@ -25,7 +25,13 @@ import {
 } from "../assignment";
 import { moTaTrangThaiGan, type BillWire, type SoDu } from "../bill";
 import { itemsTotalVnd, type BillLine, type BillReading } from "../receipt";
-import { availableMembers, labelFor, type GroupMember, type Roster } from "../participants";
+import {
+  availableMembers,
+  labelFor,
+  labelInGroup,
+  type GroupMember,
+  type Roster,
+} from "../participants";
 import { attemptFor, docChiaBill, type Attempt, type ChiaBill, type SplitPreview } from "../api";
 import { radius, space, type, usePalette } from "../theme";
 import { toggleState } from "../ui/a11y";
@@ -488,9 +494,9 @@ export function GoiYChia(props: {
           </>
         )}
 
-        <SoDuNhom soDu={props.soDu} roster={roster} />
+        <SoDuNhom soDu={props.soDu} roster={roster} nhom={props.nhom} />
 
-        <MayChuChiaThu bill={props.bill} roster={roster} />
+        <MayChuChiaThu bill={props.bill} roster={roster} nhom={props.nhom} />
 
       </ScrollView>
 
@@ -852,9 +858,13 @@ function LinePicker({
 function SoDuNhom({
   soDu,
   roster,
+  nhom,
 }: {
   soDu: SoDu | null;
   roster: Roster;
+  /** The group's active membership. Needed because these ids come off the
+   *  ledger of the whole group, not off this bill; see `labelInGroup`. */
+  nhom: GroupMember[];
 }): React.JSX.Element | null {
   const c = usePalette();
   if (soDu == null || soDu.transfers.length === 0) return null;
@@ -869,8 +879,8 @@ function SoDuNhom({
             key={`${row.fromId}-${row.toId}`}
             style={{ ...type.body, color: c.ink }}
           >
-            {labelFor(roster, row.fromId)} trả {labelFor(roster, row.toId)}{" "}
-            {formatVnd(row.amountVnd)}đ
+            {labelInGroup(roster, nhom, row.fromId)} trả{" "}
+            {labelInGroup(roster, nhom, row.toId)} {formatVnd(row.amountVnd)}đ
           </Text>
         ))}
         {/* Said only when the server proved it, and never upgraded to a claim
@@ -911,10 +921,15 @@ function SoDuNhom({
 function MayChuChiaThu({
   bill,
   roster,
+  nhom,
   doc = docChiaBill,
 }: {
   bill: BillWire | null;
   roster: Roster;
+  /** The group's active membership. These keys are the server's answer against
+   *  the roster IT holds -- the disagreement this card exists to expose is
+   *  precisely the case where an id is not on the local bill. */
+  nhom: GroupMember[];
   /** Seam for the tests. */
   doc?: typeof docChiaBill;
 }): React.JSX.Element | null {
@@ -983,7 +998,7 @@ function MayChuChiaThu({
             .map(([personId, amountVnd]) => (
               <Row
                 key={personId}
-                left={labelFor(roster, personId)}
+                left={labelInGroup(roster, nhom, personId)}
                 right={`${formatVnd(amountVnd)}đ`}
               />
             ))}
