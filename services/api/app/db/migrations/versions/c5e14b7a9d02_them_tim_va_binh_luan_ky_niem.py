@@ -65,7 +65,9 @@ def upgrade() -> None:
             server_default=sa.text("now()"),
             nullable=False,
         ),
-        sa.CheckConstraint("body <> ''", name=op.f("ck_memory_comments_body_not_blank")),
+        sa.CheckConstraint(
+            "body <> ''", name=op.f("ck_memory_comments_body_not_blank")
+        ),
         sa.ForeignKeyConstraint(
             ["author_id"],
             ["people.id"],

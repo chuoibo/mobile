@@ -4027,7 +4027,9 @@ class SqlAlchemyApiRepository:
         rows = list(
             self.session.scalars(
                 select(FriendRequest)
-                .where(side == person_id, FriendRequest.state == FriendRequestState.PENDING)
+                .where(
+                    side == person_id, FriendRequest.state == FriendRequestState.PENDING
+                )
                 .order_by(FriendRequest.created_at.desc(), FriendRequest.id)
             )
         )
@@ -4038,9 +4040,15 @@ class SqlAlchemyApiRepository:
             }
         )
         return [
-            self._friend_edge(row, person_id, names[
-                row.addressee_id if row.requester_id == person_id else row.requester_id
-            ])
+            self._friend_edge(
+                row,
+                person_id,
+                names[
+                    row.addressee_id
+                    if row.requester_id == person_id
+                    else row.requester_id
+                ],
+            )
             for row in rows
         ]
 
@@ -4070,9 +4078,15 @@ class SqlAlchemyApiRepository:
             }
         )
         return [
-            self._friend_edge(row, person_id, names[
-                row.addressee_id if row.requester_id == person_id else row.requester_id
-            ])
+            self._friend_edge(
+                row,
+                person_id,
+                names[
+                    row.addressee_id
+                    if row.requester_id == person_id
+                    else row.requester_id
+                ],
+            )
             for row in rows
         ]
 

@@ -1851,7 +1851,9 @@ class ApiService:
             ],
         )
 
-    def _wire_memory_comment(self, record: MemoryCommentRecord) -> MemoryCommentResponse:
+    def _wire_memory_comment(
+        self, record: MemoryCommentRecord
+    ) -> MemoryCommentResponse:
         person = self.repository.get_person(record.author_id)
         return MemoryCommentResponse(
             id=record.id,

@@ -1568,7 +1568,9 @@ class MemoryReaction(Base):
     )
     memory_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("memories.id", name="fk_memory_reactions_memory", ondelete="CASCADE"),
+        ForeignKey(
+            "memories.id", name="fk_memory_reactions_memory", ondelete="CASCADE"
+        ),
         nullable=False,
     )
     person_id: Mapped[uuid.UUID] = mapped_column(

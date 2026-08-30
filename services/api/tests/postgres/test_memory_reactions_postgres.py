@@ -248,7 +248,9 @@ def test_a_blank_comment_is_refused(postgres_session, monkeypatch):
     assert postgres_session.scalars(select(MemoryComment)).all() == []
 
 
-def test_the_check_constraint_itself_refuses_a_blank_body(postgres_session, monkeypatch):
+def test_the_check_constraint_itself_refuses_a_blank_body(
+    postgres_session, monkeypatch
+):
     """Proved against the migrated schema, not against the pydantic model."""
     _app, _ctx, _owner, _outsider, memory = _scene(postgres_session, monkeypatch)
     author = postgres_session.scalars(select(Person)).first()
@@ -480,9 +482,7 @@ def test_taking_back_a_heart_that_was_never_left_is_a_404(
     assert response.json()["code"] == "reaction_not_found"
 
 
-def test_one_member_cannot_remove_another_members_heart(
-    postgres_session, monkeypatch
-):
+def test_one_member_cannot_remove_another_members_heart(postgres_session, monkeypatch):
     """`DELETE` names no person, so it can only ever reach the actor's own row."""
     app, context, owner, _outsider, memory = _scene(postgres_session, monkeypatch)
     friend = _person(postgres_session, "Quyên")
@@ -502,7 +502,7 @@ def test_one_member_cannot_remove_another_members_heart(
 
 
 def test_the_feed_carries_both_totals(postgres_session, monkeypatch):
-    """"❤️ 18 · 💬 6" has to come from somewhere, and it is not an N+1."""
+    """ "❤️ 18 · 💬 6" has to come from somewhere, and it is not an N+1."""
     app, context, owner, _outsider, memory = _scene(postgres_session, monkeypatch)
     friend = _person(postgres_session, "Quyên")
     _join(postgres_session, context, friend)
@@ -517,9 +517,7 @@ def test_the_feed_carries_both_totals(postgres_session, monkeypatch):
     assert row["comment_count"] == 1
 
 
-def test_hearts_and_comments_do_not_multiply_each_other(
-    postgres_session, monkeypatch
-):
+def test_hearts_and_comments_do_not_multiply_each_other(postgres_session, monkeypatch):
     """Two outer joins onto one parent multiply the children together.
 
     Three hearts and two comments would both be reported as six, and six is a
@@ -545,9 +543,7 @@ def test_hearts_and_comments_do_not_multiply_each_other(
     assert row["comment_count"] == 2
 
 
-def test_viewer_has_reacted_is_a_fact_about_the_reader(
-    postgres_session, monkeypatch
-):
+def test_viewer_has_reacted_is_a_fact_about_the_reader(postgres_session, monkeypatch):
     """Two members read the same wall and get two different answers."""
     app, context, owner, _outsider, memory = _scene(postgres_session, monkeypatch)
     friend = _person(postgres_session, "Quyên")
@@ -581,9 +577,15 @@ def test_the_comments_come_back_oldest_first(postgres_session, monkeypatch):
     _join(postgres_session, context, friend)
 
     monkeypatch.setattr("app.api.service._now", lambda: NOW)
-    assert _comment(app, context.id, memory.id, owner.id, body="Đi lần nữa đi").status_code == 201
+    assert (
+        _comment(app, context.id, memory.id, owner.id, body="Đi lần nữa đi").status_code
+        == 201
+    )
     monkeypatch.setattr("app.api.service._now", lambda: NOW + timedelta(minutes=5))
-    assert _comment(app, context.id, memory.id, friend.id, body="Ừ, cuối tuần").status_code == 201
+    assert (
+        _comment(app, context.id, memory.id, friend.id, body="Ừ, cuối tuần").status_code
+        == 201
+    )
 
     comments = _read_comments(app, context.id, memory.id, owner.id).json()["comments"]
 
@@ -702,7 +704,9 @@ def test_a_group_comment_never_reaches_the_guest_page(
     postgres_session.flush()
     postgres_session.add(
         Context(
-            id=state.context_id, display_name="Nhóm đi ăn", created_by_id=state.sender_id
+            id=state.context_id,
+            display_name="Nhóm đi ăn",
+            created_by_id=state.sender_id,
         )
     )
     postgres_session.flush()
@@ -725,9 +729,7 @@ def test_a_group_comment_never_reaches_the_guest_page(
         )
     )
     postgres_session.add(
-        MemoryReaction(
-            memory_id=memory.id, person_id=state.sender_id, created_at=NOW
-        )
+        MemoryReaction(memory_id=memory.id, person_id=state.sender_id, created_at=NOW)
     )
     postgres_session.flush()
 
@@ -785,9 +787,7 @@ def test_the_comment_body_is_not_quoted_back_in_any_refusal(
         assert secret not in response.text, response.text
 
 
-def test_the_comment_body_never_reaches_the_logs(
-    postgres_session, monkeypatch, caplog
-):
+def test_the_comment_body_never_reaches_the_logs(postgres_session, monkeypatch, caplog):
     """Group-private text at the rank of a phone number stays out of the log."""
     import logging
 
@@ -809,9 +809,7 @@ def test_the_comment_body_never_reaches_the_logs(
 # --------------------------------------------------------------------------
 
 
-def test_deleting_a_memory_takes_its_hearts_and_comments(
-    postgres_session, monkeypatch
-):
+def test_deleting_a_memory_takes_its_hearts_and_comments(postgres_session, monkeypatch):
     """`ON DELETE CASCADE`, pinned so it cannot change in silence.
 
     A heart on a photograph that no longer exists is a count attached to

@@ -70,16 +70,18 @@ MUTATIONS: list[Mutation] = [
     Mutation(
         name="1. bỏ hẳn phép kiểm quyền trong _memory_of_member",
         expect="RED",
-        edits=[(
-            SERVICE,
-            """        _require_permission(
+        edits=[
+            (
+                SERVICE,
+                """        _require_permission(
             action,
             actor,
             {"is_group_member": self.repository.is_member(context_id, actor.id)},
         )
         memory = self.repository.get_context_memory(context_id, memory_id)""",
-            """        memory = self.repository.get_context_memory(context_id, memory_id)""",
-        )],
+                """        memory = self.repository.get_context_memory(context_id, memory_id)""",
+            )
+        ],
         expect_failing=[
             "test_an_outsider_cannot_leave_a_heart",
             "test_an_outsider_cannot_comment",
@@ -90,21 +92,23 @@ MUTATIONS: list[Mutation] = [
     Mutation(
         name="2. tư cách thành viên đọc từ HEADER thay vì hỏi database (lỗ #253)",
         expect="RED",
-        edits=[(
-            SERVICE,
-            """        _require_permission(
+        edits=[
+            (
+                SERVICE,
+                """        _require_permission(
             action,
             actor,
             {"is_group_member": self.repository.is_member(context_id, actor.id)},
         )
         memory = self.repository.get_context_memory(context_id, memory_id)""",
-            """        _require_permission(
+                """        _require_permission(
             action,
             actor,
             {"is_group_member": context_id in actor.context_ids},
         )
         memory = self.repository.get_context_memory(context_id, memory_id)""",
-        )],
+            )
+        ],
         expect_failing=[
             "test_membership_is_read_from_the_database_not_from_the_header",
         ],
@@ -112,9 +116,10 @@ MUTATIONS: list[Mutation] = [
     Mutation(
         name="3. tra memory TRƯỚC khi kiểm quyền (403/404 thành oracle)",
         expect="RED",
-        edits=[(
-            SERVICE,
-            """        _require_permission(
+        edits=[
+            (
+                SERVICE,
+                """        _require_permission(
             action,
             actor,
             {"is_group_member": self.repository.is_member(context_id, actor.id)},
@@ -123,7 +128,7 @@ MUTATIONS: list[Mutation] = [
         if memory is None:
             raise ApiProblem(404, "memory_not_found", "Memory does not exist")
         return memory""",
-            """        memory = self.repository.get_context_memory(context_id, memory_id)
+                """        memory = self.repository.get_context_memory(context_id, memory_id)
         if memory is None:
             raise ApiProblem(404, "memory_not_found", "Memory does not exist")
         _require_permission(
@@ -132,7 +137,8 @@ MUTATIONS: list[Mutation] = [
             {"is_group_member": self.repository.is_member(context_id, actor.id)},
         )
         return memory""",
-        )],
+            )
+        ],
         expect_failing=["test_an_outsider_learns_nothing_about_which_ids_exist"],
     ),
     Mutation(
@@ -163,13 +169,15 @@ MUTATIONS: list[Mutation] = [
     Mutation(
         name="5. get_context_memory bỏ vị từ context_id (memory nhóm khác với tới được)",
         expect="RED",
-        edits=[(
-            REPOSITORY,
-            """            select(Memory).where(
+        edits=[
+            (
+                REPOSITORY,
+                """            select(Memory).where(
                 Memory.id == memory_id, Memory.context_id == context_id
             )""",
-            """            select(Memory).where(Memory.id == memory_id)""",
-        )],
+                """            select(Memory).where(Memory.id == memory_id)""",
+            )
+        ],
         expect_failing=[
             "test_another_groups_memory_is_not_reachable_through_this_context",
         ],
@@ -177,42 +185,47 @@ MUTATIONS: list[Mutation] = [
     Mutation(
         name="6. gỡ tim theo memory, không theo người (gỡ được tim người khác)",
         expect="RED",
-        edits=[(
-            REPOSITORY,
-            """            select(MemoryReaction).where(
+        edits=[
+            (
+                REPOSITORY,
+                """            select(MemoryReaction).where(
                 MemoryReaction.memory_id == memory_id,
                 MemoryReaction.person_id == person_id,
             )""",
-            """            select(MemoryReaction).where(
+                """            select(MemoryReaction).where(
                 MemoryReaction.memory_id == memory_id,
             )""",
-        )],
+            )
+        ],
         expect_failing=["test_one_member_cannot_remove_another_members_heart"],
     ),
     Mutation(
         name="7. bình luận ghi tên tác giả của ẢNH thay vì người gọi",
         expect="RED",
-        edits=[(
-            SERVICE,
-            """        self._memory_of_member(context_id, memory_id, actor, "post_group_memory")
+        edits=[
+            (
+                SERVICE,
+                """        self._memory_of_member(context_id, memory_id, actor, "post_group_memory")
         record = self.repository.create_memory_comment(
             memory_id=memory_id,
             author_id=actor.id,""",
-            """        memory = self._memory_of_member(
+                """        memory = self._memory_of_member(
             context_id, memory_id, actor, "post_group_memory"
         )
         record = self.repository.create_memory_comment(
             memory_id=memory_id,
             author_id=memory.author_id,""",
-        )],
+            )
+        ],
         expect_failing=["test_a_comment_is_written_under_the_callers_name"],
     ),
     Mutation(
         name="8. đếm tim và bình luận bằng hai outer join (nhân hàng với nhau)",
         expect="RED",
-        edits=[(
-            REPOSITORY,
-            """        reactions = {
+        edits=[
+            (
+                REPOSITORY,
+                """        reactions = {
             memory_id: int(total)
             for memory_id, total in self.session.execute(
                 select(MemoryReaction.memory_id, func.count(MemoryReaction.id))
@@ -228,7 +241,7 @@ MUTATIONS: list[Mutation] = [
                 .group_by(MemoryComment.memory_id)
             )
         }""",
-            """        joined = list(
+                """        joined = list(
             self.session.execute(
                 select(
                     Memory.id,
@@ -244,48 +257,55 @@ MUTATIONS: list[Mutation] = [
         )
         reactions = {row[0]: int(row[1]) for row in joined}
         comments = {row[0]: int(row[2]) for row in joined}""",
-        )],
+            )
+        ],
         expect_failing=["test_hearts_and_comments_do_not_multiply_each_other"],
     ),
     Mutation(
         name="9. feed không truyền viewer_id (viewer_has_reacted luôn False)",
         expect="RED",
-        edits=[(
-            SERVICE,
-            """            viewer_id=actor.id,
+        edits=[
+            (
+                SERVICE,
+                """            viewer_id=actor.id,
         )""",
-            """            viewer_id=None,
+                """            viewer_id=None,
         )""",
-        )],
+            )
+        ],
         expect_failing=["test_viewer_has_reacted_is_a_fact_about_the_reader"],
     ),
     Mutation(
         name="10. văn bản riêng tư của nhóm chảy vào một trường trang khách CÓ vẽ",
         expect="RED",
-        edits=[(
-            REPOSITORY,
-            """        raw_envelope = {
+        edits=[
+            (
+                REPOSITORY,
+                """        raw_envelope = {
             "recorded_by_display_name": recorded_by,""",
-            """        _leaked = self.session.scalars(
+                """        _leaked = self.session.scalars(
             select(MemoryComment.body).limit(1)
         ).first()
         raw_envelope = {
             "recorded_by_display_name": recorded_by + (
                 f" — {_leaked}" if _leaked else ""
             ),""",
-        )],
+            )
+        ],
         expect_failing=["test_a_group_comment_never_reaches_the_guest_page"],
     ),
     Mutation(
         name="11. gỡ handler 422 (thân lỗi đọc lại nguyên văn câu người ta gõ)",
         expect="RED",
         target=API_FILE,
-        edits=[(
-            MAIN,
-            """    @application.exception_handler(RequestValidationError)
+        edits=[
+            (
+                MAIN,
+                """    @application.exception_handler(RequestValidationError)
     async def validation_handler(""",
-            """    async def validation_handler(""",
-        )],
+                """    async def validation_handler(""",
+            )
+        ],
         expect_failing=[
             "test_a_too_long_comment_is_not_repeated_back",
             "test_a_too_long_group_message_is_not_repeated_back",
@@ -308,18 +328,21 @@ MUTATIONS: list[Mutation] = [
     Mutation(
         name="GIỮ TÍNH CHẤT B. đổi câu chữ của lời từ chối 409 (giữ nguyên mã)",
         expect="GREEN",
-        edits=[(
-            SERVICE,
-            '"This person has already reacted to this memory",',
-            '"Bạn đã thả tim cho kỷ niệm này rồi",',
-        )],
+        edits=[
+            (
+                SERVICE,
+                '"This person has already reacted to this memory",',
+                '"Bạn đã thả tim cho kỷ niệm này rồi",',
+            )
+        ],
     ),
     Mutation(
         name="GIỮ TÍNH CHẤT C. đảo thứ tự hai câu đếm, và đếm bằng count() thay vì count(id)",
         expect="GREEN",
-        edits=[(
-            REPOSITORY,
-            """        reactions = {
+        edits=[
+            (
+                REPOSITORY,
+                """        reactions = {
             memory_id: int(total)
             for memory_id, total in self.session.execute(
                 select(MemoryReaction.memory_id, func.count(MemoryReaction.id))
@@ -335,7 +358,7 @@ MUTATIONS: list[Mutation] = [
                 .group_by(MemoryComment.memory_id)
             )
         }""",
-            """        comments = {
+                """        comments = {
             memory_id: int(total)
             for memory_id, total in self.session.execute(
                 select(MemoryComment.memory_id, func.count())
@@ -351,7 +374,8 @@ MUTATIONS: list[Mutation] = [
                 .group_by(MemoryReaction.memory_id)
             )
         }""",
-        )],
+            )
+        ],
     ),
     Mutation(
         name="GIỮ TÍNH CHẤT D. đổi thứ tự cột trong index đọc bình luận",
@@ -420,7 +444,16 @@ def run_gate(target: str) -> tuple[int, str, set[str]]:
     env = dict(os.environ)
     env["MOBILE_REQUIRE_POSTGRES_TESTS"] = "1"
     proc = subprocess.run(
-        [sys.executable, "-m", "pytest", target, "-q", "--no-header", "-p", "no:cacheprovider"],
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            target,
+            "-q",
+            "--no-header",
+            "-p",
+            "no:cacheprovider",
+        ],
         cwd=API,
         env=env,
         capture_output=True,
@@ -476,7 +509,9 @@ def main() -> int:
     print("\n=== BẢNG ===")
     width = max(len(m.name) for m, _, _, _ in rows)
     for mutation, got, verdict, summary in rows:
-        print(f"{mutation.name:<{width}}  chờ {mutation.expect:<5} -> {got:<5}  {verdict}")
+        print(
+            f"{mutation.name:<{width}}  chờ {mutation.expect:<5} -> {got:<5}  {verdict}"
+        )
 
     bad = [row for row in rows if not row[2].startswith("ĐÚNG")]
     print(f"\n{len(rows) - len(bad)}/{len(rows)} hàng đúng dự đoán.")
