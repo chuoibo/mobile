@@ -33,6 +33,7 @@ import shutil
 import sys
 import tempfile
 import textwrap
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -349,6 +350,63 @@ class ReaderKnowsItLostTheWrappers(unittest.TestCase):
     def test_a_healthy_anchor_is_silent(self):
         self.assertEqual(contract_gate.lost_wrappers(set(contract_gate.WRAPPERS)), [])
 
+    def test_an_empty_wrapper_list_is_a_complaint_and_not_silence(self):
+        # "No name is missing" and "there is no name to miss" are the same empty
+        # list to a comprehension, and only one of them is innocent. With no
+        # name to hold, every rename this anchor exists to catch walks past it.
+        #
+        # Nothing intentional stopped this before: an empty tuple happened to
+        # raise IndexError while a canary built `WRAPPERS[0]` at import. That is
+        # protection by accident, and it disappears the moment someone makes
+        # those canaries tolerate an empty tuple -- which is a change that looks
+        # like hardening.
+        with mock.patch.object(contract_gate, "WRAPPERS", ()):
+            problems = contract_gate.lost_wrappers(contract_gate.declared_wrappers())
+        self.assertNotEqual(problems, [])
+
+    def test_the_empty_list_blames_the_reader_and_not_the_client(self):
+        # A misconfigured reader reported as a client problem is the mistake
+        # #398 was opened to undo. The client may be untouched here.
+        with mock.patch.object(contract_gate, "WRAPPERS", ()):
+            problems = contract_gate.lost_wrappers(contract_gate.declared_wrappers())
+        self.assertIn("WRAPPERS", problems[0])
+        self.assertIn("BỘ ĐỌC", problems[0])
+
+    def test_an_empty_wrapper_list_reaches_the_check_instead_of_killing_import(self):
+        # The complaint above is only worth having if it can be reached. The
+        # module builds its canaries from `WRAPPERS` at import time, and those
+        # used to index `WRAPPERS[0]` and spell `CANARY_WRAPPER` out by hand, so
+        # an empty list died on IndexError before `check` could say anything --
+        # exit 1, a traceback, and the client blamed for a reader bug.
+        #
+        # Executed from source rather than patched, because what is under test
+        # happens at import: patching a constant afterwards cannot see it.
+        source = Path(contract_gate.__file__).read_text(encoding="utf-8")
+        literal = 'DIRECT_FETCH = ("fetch", "doFetch")'
+        # Without this the substitution below could silently no-op and the test
+        # would pass while exercising the untouched module.
+        self.assertIn(literal, source)
+        grown = (
+            literal[:-1]
+            + ", "
+            + ", ".join(f'"{n}"' for n in contract_gate.WRAPPERS)
+            + ")"
+        )
+        # A real module registered in `sys.modules`: `@dataclass` resolves
+        # defaults through `sys.modules[cls.__module__]`, so a bare dict raises
+        # before the module finishes executing.
+        name = "cac_empty_wrappers"
+        variant = types.ModuleType(name)
+        variant.__file__ = contract_gate.__file__
+        sys.modules[name] = variant
+        self.addCleanup(sys.modules.pop, name, None)
+        exec(  # noqa: S102 - executing a variant of this very file is the point
+            compile(source.replace(literal, grown), contract_gate.__file__, "exec"),
+            variant.__dict__,
+        )
+        self.assertEqual(variant.WRAPPERS, ())
+        self.assertNotEqual(variant.lost_wrappers(set(contract_gate.WRAPPERS)), [])
+
     def test_a_declaration_is_the_definition_not_the_import(self):
         # Every screen does `import { callAsActor } from "./api"`. If an import
         # counted, the anchor would hold on to a name that no longer exists
@@ -441,6 +499,33 @@ class TheGateItselfStops(unittest.TestCase):
             [f.kind for f in findings if f.kind != contract_gate.BLIND_KIND], []
         )
         self.assertGreater(summary["duong_dan_tim_thay"], 0)
+
+    def test_the_gate_stops_when_the_reader_has_no_wrapper_to_anchor_on(self):
+        # The client here is HEALTHY -- it declares every wrapper. What is empty
+        # is the reader's own list. Measured before this was checked for: give
+        # the canaries an empty tuple they tolerate and the gate printed "Client
+        # và máy chủ khớp hợp đồng" and exited 0 with the anchor fully disarmed.
+        noise = io.StringIO()
+        with self._run(contract_gate.CANARY_WRAPPERS_PRESENT):
+            with (
+                mock.patch.object(contract_gate, "WRAPPERS", ()),
+                mock.patch.object(sys, "argv", ["check_api_contract.py"]),
+                contextlib.redirect_stdout(noise),
+                contextlib.redirect_stderr(noise),
+            ):
+                code = contract_gate.main()
+        # 2, not 0: an empty list must not read as "nothing is wrong". And not
+        # 1 either -- this client did nothing wrong.
+        self.assertEqual(code, contract_gate.EXIT_CANNOT_READ)
+        self.assertNotIn("Client và máy chủ khớp hợp đồng", noise.getvalue())
+        # The exit code alone does NOT prove this. Measured while writing it:
+        # with the anchor blind to an empty list, this run still exited 2 --
+        # because the wrapper's own declaration line scores an unpinned blind
+        # finding, and `verdict` maps blind to CANNOT_READ too. The test passed
+        # for a reason that had nothing to do with what it claims to check.
+        # So the refusal has to be named, not just counted.
+        self.assertIn("KHÔNG CHẠY ĐƯỢC", noise.getvalue())
+        self.assertIn("WRAPPERS rỗng", noise.getvalue())
 
     def test_the_exit_code_is_cannot_read_and_never_violation(self):
         # 2, not 1, and the difference is the whole of #398: `1` says the
