@@ -113,9 +113,7 @@ def test_creating_a_bill_refuses_a_participant_the_group_does_not_contain(client
 
 @pytest.mark.xfail(
     strict=True,
-    reason=(
-        "OPEN: the unchecked id is stored and readable. Remove with the fix."
-    ),
+    reason=("OPEN: the unchecked id is stored and readable. Remove with the fix."),
 )
 def test_a_refused_name_is_not_readable_as_somebodys_dish(client):
     """Refusing later at `split` would still leave this screen wrong.
