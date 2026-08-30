@@ -143,6 +143,13 @@ def post_memory_reaction(
 @router.delete(
     "/contexts/{context_id}/memories/{memory_id}/reactions",
     status_code=status.HTTP_204_NO_CONTENT,
+    # Said out loud because `-> None` cannot say it here. This module uses
+    # `from __future__ import annotations`, so the return annotation resolves
+    # to the class `NoneType` -- truthy -- rather than to the `None` singleton,
+    # and fastapi 0.115.6 (the pinned version, the one in the image) then
+    # asserts that a 204 carries no body and refuses to import the app at all.
+    # scripts/check_pinned_import.sh is the two-second proof of that.
+    response_model=None,
     responses=ERRORS,
 )
 def delete_memory_reaction(
