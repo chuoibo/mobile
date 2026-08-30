@@ -62,6 +62,7 @@ export function AppRoot({ renderKhoanChi }: {
       moNhomNgay={diemDen.vao === "nhom"}
       moKyNiemNgay={diemDen.vao === "ky-niem"}
       moBanBeNgay={diemDen.vao === "ban-be"}
+      moWidgetNgay={diemDen.vao === "widget"}
       nhomId={diemDen.nhomId}
       banQuetDuoc={diemDen.ban}
       diaDiemDau={diemDen.diaDiem}

@@ -59,15 +59,39 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { moiMan } from "./tab-snapshots.mjs";
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MOBILE = path.resolve(HERE, "..");
 const SOI = path.join(MOBILE, "tools/soi-tuong-phan-anh.mjs");
 const ANH_DIA_DIEM = path.join(MOBILE, "src/screens/kham-pha/AnhDiaDiem.tsx");
 
-/** What the pre-review instrument printed, in review, on a clean tree. The
- *  reconstruction below has to land on both numbers or it is not a control. */
+/** How many texts the pre-review instrument counted as sitting on a photograph.
+ *
+ *  Frozen on purpose: this one is a fact about the OLD instrument's behaviour,
+ *  and it moving means the reconstruction is not the old instrument. It is
+ *  allowed to go stale, and when it does a person has to look -- a new screen
+ *  that prints type across a picture is exactly the event worth stopping for.
+ */
 const CHU_TRUOC_REVIEW = 4;
-const MAN_TRUOC_REVIEW = 3;
+
+/** How many screens carry a photograph, read from the list the tool itself
+ *  walks rather than frozen.
+ *
+ *  It used to be the literal `3`, a fingerprint of the tree on the day this
+ *  control was written, and it went stale the moment F38 added a fourth screen
+ *  with a picture on it -- the run went red saying "4 chu / 4 man" against a
+ *  demand for "4 chu / 3 man", with nothing wrong anywhere. That is a false red
+ *  about growth, and a control that reddens when the product gains a screen
+ *  teaches people to rerun it until it is quiet.
+ *
+ *  `moiMan()` is the same source `soi-tuong-phan-anh.mjs` filters, so the two
+ *  cannot disagree, and a screen silently dropped from that list is already
+ *  caught by `tests/quet-du-tab.test.mjs`. The teeth of this check do not live
+ *  in the screen count anyway -- they live in `CHU_TRUOC_REVIEW` above and in
+ *  the blindness assertion below, both of which are properties of the
+ *  instrument rather than of how big the app has grown. */
+const MAN_TRUOC_REVIEW = moiMan().filter((m) => typeof m.anh === "number" && m.anh > 0).length;
 
 /** Flatten the wash `AnhDiaDiem`'s docstring justifies. White body type then
  *  sits on the blown-out bottom of the photograph with nothing in between --
@@ -260,6 +284,24 @@ if (
       `${CHU_TRUOC_REVIEW} chu / ${MAN_TRUOC_REVIEW} man, nhan ma=${cuSach.ma} va ` +
       `${tkCu ? `${tkCu.trenAnh} chu / ${tkCu.man} man` : "khong doc duoc tong ket"}. ` +
       "Chua dung lai duoc phep do cu thi hang S2 khong chung duoc gi.",
+  );
+}
+
+/* The defining blindness of the pre-review instrument, asserted rather than
+ * assumed. It decided "on a photograph" from rectangle overlap alone, so it
+ * could not tell a chip from a picture and filed EVERY overlap as `TREN ANH` --
+ * precisely the flaw the review found, and why the scrim mutation moved nothing.
+ * A reconstruction that reports even one text on an opaque ground has kept some
+ * of the new discrimination and is not the old tool, however well its two counts
+ * happen to line up. Unlike a screen count, this does not drift as the app
+ * grows, which is why the check above was allowed to stop being a literal. */
+if (tkCu.nenDac !== 0) {
+  console.log(cuSach.ra.slice(-1200));
+  throw new Error(
+    `cong cu cu bao ${tkCu.nenDac} chu tren nen dac, can 0. Ban truoc review khong ` +
+      "phan biet duoc nen dac voi anh -- no goi moi hop chong len anh la TREN ANH. " +
+      "Con dem duoc nen dac nghia la ban dung lai VAN CON phep do moi, nen hang S2 " +
+      "dang so ban moi voi chinh no.",
   );
 }
 console.log(

@@ -74,6 +74,70 @@
         "long-number"
       ],
       "reason": "Synthetic attack fixtures documented by reviewer"
+    },
+    {
+      "path": "docs/assets/banner.svg",
+      "sha256": "9a29042863b2bd4fcaa685d2d8908868b96a992da273f562792e8b00a285b715",
+      "rules": [
+        "controlled-artifact"
+      ],
+      "reason": "Hand-authored SVG banner for the README: the brand gradient, the wordmark and the three functional tones. Text, not a raster, but `.svg` is a controlled extension so the guard fails closed on it by design.\n\nAll of docs/assets/ is derived from the design mockups under product/, which are not themselves committed. These are concept renders: the names (Minh Anh, Quang Huy, Thu Ha), the ratings and the account number visible in them are demonstration data invented for the mockup, recorded as such in PRODUCT.md under \"Evidence on Hand\". No photograph of a real receipt, no real bank account and no real participant appears in any of them, and none may be added later under these paths.\n\nPinned by exact digest rather than exempted by directory, for the reason spelled out on the apps/mobile entries: a path-based exemption would turn docs/assets/ into a hole the guard cannot see into, and re-cropping or re-exporting any of these images must come back through review with a fresh digest."
+    },
+    {
+      "path": "docs/assets/bang-mau.svg",
+      "sha256": "00afe812d243f83885d0542391d9180830b30b5e2c489bafc0d244ae9ac28322",
+      "rules": [
+        "controlled-artifact"
+      ],
+      "reason": "Hand-authored SVG swatch board for the README design section. Every hex and contrast ratio on it is copied from packages/shared/tokens.json and DESIGN.md, so it is a rendering of numbers that already live in the repo as text.\n\nAll of docs/assets/ is derived from the design mockups under product/, which are not themselves committed. These are concept renders: the names (Minh Anh, Quang Huy, Thu Ha), the ratings and the account number visible in them are demonstration data invented for the mockup, recorded as such in PRODUCT.md under \"Evidence on Hand\". No photograph of a real receipt, no real bank account and no real participant appears in any of them, and none may be added later under these paths.\n\nPinned by exact digest rather than exempted by directory, for the reason spelled out on the apps/mobile entries: a path-based exemption would turn docs/assets/ into a hole the guard cannot see into, and re-cropping or re-exporting any of these images must come back through review with a fresh digest."
+    },
+    {
+      "path": "docs/assets/hero-mockup.jpg",
+      "sha256": "7184ca67ad5a92e67ac3c0fd6b10daf58aee1b2a4b1d26c17295e5ba337f37f7",
+      "rules": [
+        "controlled-artifact"
+      ],
+      "reason": "README hero: the six-screen concept mockup, downscaled to 1280px and re-encoded from product/mockup.png.\n\nAll of docs/assets/ is derived from the design mockups under product/, which are not themselves committed. These are concept renders: the names (Minh Anh, Quang Huy, Thu Ha), the ratings and the account number visible in them are demonstration data invented for the mockup, recorded as such in PRODUCT.md under \"Evidence on Hand\". No photograph of a real receipt, no real bank account and no real participant appears in any of them, and none may be added later under these paths.\n\nPinned by exact digest rather than exempted by directory, for the reason spelled out on the apps/mobile entries: a path-based exemption would turn docs/assets/ into a hole the guard cannot see into, and re-cropping or re-exporting any of these images must come back through review with a fresh digest."
+    },
+    {
+      "path": "docs/assets/man-kham-pha.jpg",
+      "sha256": "c954ae1edaee65c51ed95d2a040a7aeebfd1255b5c268a94b027c8167c92f50a",
+      "rules": [
+        "controlled-artifact"
+      ],
+      "reason": "README screen strip, Kham pha. Phone frame cropped out of the approved Discovery mockup sheet and downscaled to 420px.\n\nAll of docs/assets/ is derived from the design mockups under product/, which are not themselves committed. These are concept renders: the names (Minh Anh, Quang Huy, Thu Ha), the ratings and the account number visible in them are demonstration data invented for the mockup, recorded as such in PRODUCT.md under \"Evidence on Hand\". No photograph of a real receipt, no real bank account and no real participant appears in any of them, and none may be added later under these paths.\n\nPinned by exact digest rather than exempted by directory, for the reason spelled out on the apps/mobile entries: a path-based exemption would turn docs/assets/ into a hole the guard cannot see into, and re-cropping or re-exporting any of these images must come back through review with a fresh digest."
+    },
+    {
+      "path": "docs/assets/man-chat-ai.jpg",
+      "sha256": "1c8b0575e91ef044083d904fbf16c23aba042fa477b1197fff31c3b410c249e3",
+      "rules": [
+        "controlled-artifact"
+      ],
+      "reason": "README screen strip, Nhom chat. Phone frame cropped out of the approved Group-chat mockup sheet and downscaled to 420px.\n\nAll of docs/assets/ is derived from the design mockups under product/, which are not themselves committed. These are concept renders: the names (Minh Anh, Quang Huy, Thu Ha), the ratings and the account number visible in them are demonstration data invented for the mockup, recorded as such in PRODUCT.md under \"Evidence on Hand\". No photograph of a real receipt, no real bank account and no real participant appears in any of them, and none may be added later under these paths.\n\nPinned by exact digest rather than exempted by directory, for the reason spelled out on the apps/mobile entries: a path-based exemption would turn docs/assets/ into a hole the guard cannot see into, and re-cropping or re-exporting any of these images must come back through review with a fresh digest."
+    },
+    {
+      "path": "docs/assets/man-thanh-toan.jpg",
+      "sha256": "982ed0ab9134da0f0ad8abe6bb64717f0ae205a0045281c8e6613367e19200d2",
+      "rules": [
+        "controlled-artifact"
+      ],
+      "reason": "README screen strip, Ket qua thanh toan. Phone frame cropped out of the approved Settlement mockup sheet and downscaled to 420px. Named for the screen, not for the word bill: `export-filename` fires on a bill/receipt token in a filename precisely to catch a real receipt image arriving, and allowlisting that rule here would have spent a privacy signal on a drawing.\n\nAll of docs/assets/ is derived from the design mockups under product/, which are not themselves committed. These are concept renders: the names (Minh Anh, Quang Huy, Thu Ha), the ratings and the account number visible in them are demonstration data invented for the mockup, recorded as such in PRODUCT.md under \"Evidence on Hand\". No photograph of a real receipt, no real bank account and no real participant appears in any of them, and none may be added later under these paths.\n\nPinned by exact digest rather than exempted by directory, for the reason spelled out on the apps/mobile entries: a path-based exemption would turn docs/assets/ into a hole the guard cannot see into, and re-cropping or re-exporting any of these images must come back through review with a fresh digest."
+    },
+    {
+      "path": "docs/assets/man-tai-chinh.jpg",
+      "sha256": "0ddec80de6db3ca492a2d17a0925908ebccc557f5896a8b02f8fa38a15e3c320",
+      "rules": [
+        "controlled-artifact"
+      ],
+      "reason": "README screen strip, Tai chinh ca nhan. Phone frame cropped out of the approved Profile-finance mockup sheet and downscaled to 420px.\n\nAll of docs/assets/ is derived from the design mockups under product/, which are not themselves committed. These are concept renders: the names (Minh Anh, Quang Huy, Thu Ha), the ratings and the account number visible in them are demonstration data invented for the mockup, recorded as such in PRODUCT.md under \"Evidence on Hand\". No photograph of a real receipt, no real bank account and no real participant appears in any of them, and none may be added later under these paths.\n\nPinned by exact digest rather than exempted by directory, for the reason spelled out on the apps/mobile entries: a path-based exemption would turn docs/assets/ into a hole the guard cannot see into, and re-cropping or re-exporting any of these images must come back through review with a fresh digest."
+    },
+    {
+      "path": "docs/assets/luong-chia-tien.jpg",
+      "sha256": "612ac0fedbe7c2b53f3283cb7e008cc29af16a7a87bec54732bb6a64a83c2750",
+      "rules": [
+        "controlled-artifact"
+      ],
+      "reason": "README illustration of the four bill-splitting steps, downscaled to 1000px from the approved feature sheet. Same naming note as man-thanh-toan.jpg.\n\nAll of docs/assets/ is derived from the design mockups under product/, which are not themselves committed. These are concept renders: the names (Minh Anh, Quang Huy, Thu Ha), the ratings and the account number visible in them are demonstration data invented for the mockup, recorded as such in PRODUCT.md under \"Evidence on Hand\". No photograph of a real receipt, no real bank account and no real participant appears in any of them, and none may be added later under these paths.\n\nPinned by exact digest rather than exempted by directory, for the reason spelled out on the apps/mobile entries: a path-based exemption would turn docs/assets/ into a hole the guard cannot see into, and re-cropping or re-exporting any of these images must come back through review with a fresh digest."
     }
   ]
 }

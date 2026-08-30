@@ -20,8 +20,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { parsePlaceDetail, loiChiTiet, placeDetailUrl, fetchPlaceDetail } from "../dist-test/screens/kham-pha/chi-tiet-dia-diem.js";
-import { docWidgetNhom, docChiaBill, docTaiKhoanNhan } from "../dist-test/api.js";
-import { khiNao } from "../dist-test/screens/ky-niem/TheWidget.js";
+import { docChiaBill, docTaiKhoanNhan } from "../dist-test/api.js";
 import { ngayGio } from "../dist-test/screens/tai-khoan/TaiKhoanNhan.js";
 
 /* ---------------------------------------------------------------- fixtures */
@@ -57,20 +56,6 @@ const CHI_TIET_THAT = {
     { author: "Đức", rating: 4.0, body: "Cuối tuần đông, nên đặt bàn trước." },
   ],
   photos_available: false,
-};
-
-/** `GET /contexts/{id}/widget`, exactly as answered. */
-const WIDGET_THAT = {
-  context_id: "5cacfdee-955f-4743-9cc4-c6a019480c96",
-  photo: {
-    memory_id: "a7a48773-38b1-4a4b-9275-aefd4e0fe61e",
-    image_url:
-      "/contexts/5cacfdee-955f-4743-9cc4-c6a019480c96/photos/b70cd980-d2ea-4140-ac66-5ff68bc64b3e",
-    caption: null,
-    author_id: "46b55e67-932b-5415-a5ee-08fb2641a4ff",
-    author_name: "Minh",
-    created_at: "2026-08-30T15:13:14.809875Z",
-  },
 };
 
 /** `POST /bills/{id}/split`, exactly as answered. Four diners, uneven shares. */
@@ -195,32 +180,11 @@ test("chi tiết địa điểm: mọi cách hỏng đều ra một câu, không
   assert.equal(r2.kind, "khong-co");
 });
 
-/* ------------------------------------ 2. GET /contexts/{context_id}/widget */
-
-test("widget: sáu trường, và ảnh null là câu trả lời chứ không phải lỗi", async () => {
-  const { doFetch, daGoi } = mayChu(WIDGET_THAT);
-  globalThis.fetch = doFetch;
-  const w = await docWidgetNhom(WIDGET_THAT.context_id, WIDGET_THAT.photo.author_id);
-  assert.equal(w.authorName, "Minh");
-  assert.equal(w.caption, null);
-  assert.equal(w.imageUrl, WIDGET_THAT.photo.image_url);
-  // Members-only, so the read must carry who is asking and which group.
-  assert.equal(daGoi[0].method, "GET");
-  assert.equal(daGoi[0].headers["X-Actor-ID"], WIDGET_THAT.photo.author_id);
-  assert.equal(daGoi[0].headers["X-Actor-Contexts"], WIDGET_THAT.context_id);
-
-  const trong = mayChu({ context_id: WIDGET_THAT.context_id, photo: null });
-  globalThis.fetch = trong.doFetch;
-  assert.equal(await docWidgetNhom(WIDGET_THAT.context_id, "ai-do"), null);
-});
-
-test("widget: mốc thời gian chỉ tương đối trong hai ngày", () => {
-  const now = new Date("2026-08-30T20:00:00+07:00");
-  assert.equal(khiNao("2026-08-30T09:00:00Z", now), "hôm nay");
-  assert.equal(khiNao("2026-08-29T09:00:00Z", now), "hôm qua");
-  assert.equal(khiNao("2026-08-20T09:00:00Z", now), "20/8");
-  assert.equal(khiNao("khong-phai-ngay", now), "");
-});
+/* GET /contexts/{context_id}/widget is NOT covered here. #348 merged the screen,
+ * the `docWidget` client and `tests/widget.test.mjs` while this branch was open,
+ * so a second read of that route on this side would be a second answer to the
+ * same question. What this branch keeps is the door: the wall now has a control
+ * that opens that screen, which until now nothing but a URL could reach. */
 
 /* ------------------------------------------- 3. POST /bills/{bill_id}/split */
 

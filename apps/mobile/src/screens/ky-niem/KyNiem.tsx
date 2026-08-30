@@ -47,7 +47,6 @@ import {
 } from "../../api";
 import { TimVaBinhLuan } from "./TimVaBinhLuan";
 import { AnhToanMan } from "./AnhToanMan";
-import { TheWidget } from "./TheWidget";
 import {
   KyUcError,
   khoangNgay,
@@ -72,6 +71,7 @@ export function KyNiem({
   doc = layKyUc,
   timNhom = timNhomDemo,
   docAnh = docKyNiem,
+  onMoWidget,
 }: {
   nguoi: NguoiDung | null;
   /** Which group's wall, when the link named one. Null means "go and find it". */
@@ -82,6 +82,10 @@ export function KyNiem({
   doc?: typeof layKyUc;
   timNhom?: typeof timNhomDemo;
   docAnh?: typeof docKyNiem;
+  /** Open F38's widget screen. Absent when there is nowhere to go -- the wall
+   *  is rendered standalone by the URL view too, and a button that leads
+   *  nowhere is worse than no button. */
+  onMoWidget?: () => void;
 }) {
   const c = usePalette();
   const [trang, setTrang] = useState<Trang>({ pha: "dang-tai" });
@@ -188,6 +192,7 @@ export function KyNiem({
             contextId={nhomDangXem}
             personId={nguoi.personId}
             onThemXong={taiAnh}
+            onMoWidget={onMoWidget}
           />
         ) : null}
 
@@ -516,12 +521,14 @@ function TuongAnh({
   contextId,
   personId,
   onThemXong,
+  onMoWidget,
 }: {
   anh: KyNiemWire[];
   loi: string | null;
   contextId: string;
   personId: string;
   onThemXong: () => void;
+  onMoWidget?: () => void;
 }) {
   const c = usePalette();
   // Keyed per photo url, so a retry after a failed "hang it on the wall" sends
@@ -558,9 +565,6 @@ function TuongAnh({
   );
 
   return (
-    <>
-    <TheWidget contextId={contextId} personId={personId} />
-
     <Card>
       <Text style={{ ...type.title, color: c.ink }}>Ảnh của nhóm</Text>
       <Text style={{ ...type.label, color: c.inkSoft }}>
@@ -611,6 +615,27 @@ function TuongAnh({
         </View>
       ) : null}
 
+      {/* F38's screen, which until now no control in the app pointed at. Here
+          rather than in the [+] menu: that menu is for making things, and the
+          widget makes nothing -- it is another way of looking at the wall this
+          card already holds. */}
+      {onMoWidget ? (
+        <Pressable
+          onPress={onMoWidget}
+          accessibilityRole="button"
+          accessibilityLabel="Xem widget ảnh mới nhất của nhóm"
+          style={({ pressed }) => ({
+            marginTop: space.xs,
+            paddingVertical: space.sm,
+            opacity: pressed ? 0.7 : 1,
+          })}
+        >
+          <Text style={{ ...type.label, color: c.accent }}>
+            Xem widget ảnh mới nhất của nhóm ›
+          </Text>
+        </Pressable>
+      ) : null}
+
       <AnhToanMan
         kyNiem={dangXem}
         personId={personId}
@@ -618,7 +643,6 @@ function TuongAnh({
         onDong={() => setXemId(null)}
       />
     </Card>
-    </>
   );
 }
 
