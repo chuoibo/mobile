@@ -873,6 +873,14 @@ class ApiRepository(Protocol):
         viewer_id: uuid.UUID | None = None,
     ) -> MemoryPage: ...
 
+    def list_outing_memories(
+        self,
+        outing_id: uuid.UUID,
+        *,
+        limit: int,
+        viewer_id: uuid.UUID | None = None,
+    ) -> tuple[MemoryRecord, ...]: ...
+
     def get_context_memory(
         self,
         context_id: uuid.UUID,
@@ -2165,6 +2173,63 @@ class SqlAlchemyApiRepository:
                 for row in page
             ),
             has_more=has_more,
+        )
+
+    def list_outing_memories(
+        self,
+        outing_id: uuid.UUID,
+        *,
+        limit: int,
+        viewer_id: uuid.UUID | None = None,
+    ) -> tuple[MemoryRecord, ...]:
+        """F36. The memories that fall inside one trip's days.
+
+        There is no `memories.outing_id` -- a photograph is not filed against a
+        trip when it is taken -- so a trip claims the memories that happened on
+        its days, exactly as `group_recap` claims the spending that happened on
+        its days. The predicate below is deliberately the same one
+        `group_recap` uses for `memory_count`: same wall-clock date cast, same
+        inclusive `between`, same `Memory.context_id == Outing.context_id`.
+
+        Two copies of one rule is a drift waiting to happen, and here the drift
+        would be visible and embarrassing: the recap screen would say "18 ảnh"
+        over an album that listed 17. `tests/postgres` pins the two together
+        rather than trusting this comment.
+
+        The context join is not decoration. Without it the window is a pure
+        date range, and any group whose trip overlapped these dates would have
+        its photographs assembled into this album -- the album becoming a way
+        around the one gate the photo route has.
+        """
+
+        outing = self.session.get(Outing, outing_id)
+        if outing is None:
+            return ()
+
+        rows = list(
+            self.session.scalars(
+                select(Memory)
+                .where(
+                    Memory.context_id == outing.context_id,
+                    _wall_clock_date(Memory.created_at).between(
+                        outing.starts_on, outing.ends_on
+                    ),
+                )
+                .order_by(Memory.created_at.desc(), Memory.id.desc())
+                .limit(limit)
+            )
+        )
+        counts = self._memory_social_counts(
+            tuple(row.id for row in rows), viewer_id=viewer_id
+        )
+        return tuple(
+            self._memory_record(
+                row,
+                reaction_count=counts.reactions.get(row.id, 0),
+                comment_count=counts.comments.get(row.id, 0),
+                viewer_has_reacted=row.id in counts.viewer_reacted,
+            )
+            for row in rows
         )
 
     def _memory_social_counts(
