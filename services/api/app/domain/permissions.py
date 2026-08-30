@@ -355,6 +355,23 @@ _TABLE: dict[str, dict] = {
         "roles": {"group_admin", "member"},
         "requires": ("is_group_member",),
     },
+    # F39. Writing a post at all. Deliberately has no `is_group_member`: three
+    # of the four F42 audiences address people rather than a group, and
+    # requiring group membership to write an `only_me` note would make the
+    # narrowest level the one hardest to reach.
+    "create_post": {"roles": {"group_admin", "member"}, "requires": ()},
+    # F42, and the only audience that needs a second permission. `create_post`
+    # says the actor may write; this says they may point that writing at *this*
+    # group. Two actions rather than one action with a conditional predicate,
+    # because a predicate that is only sometimes required is a predicate
+    # somebody eventually forgets to prove -- and here the thing forgotten
+    # would be the roster check that keeps a stranger from posting into a
+    # group's feed. Reuses `is_group_member`, the same fact
+    # `post_group_memory` proves, rather than minting a name for it.
+    "address_post_to_group": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
     # Administration is scoped to one group, so `is_group_admin` must come
     # from that group's active membership row. X-Actor-Roles cannot prove
     # which group its broad `group_admin` claim applies to.

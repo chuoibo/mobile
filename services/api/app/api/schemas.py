@@ -885,6 +885,70 @@ class MemoryCommentListResponse(ApiModel):
     comments: list[MemoryCommentResponse]
 
 
+class PostCreateRequest(ApiModel):
+    """F39/F42. What a person said, and who they addressed it to.
+
+    There is no `author_id` here and there is no recipient list. Both absences
+    are the feature:
+
+    * The author is the actor the gateway proved. A body field naming the
+      writer is a field for writing in somebody else's name, and no downstream
+      check recovers from one.
+    * `audience` is one of four words, not a list of people. A route that took
+      a list of identities from the body would be granting read access to
+      people nobody verified the caller may name -- and it would freeze that
+      list at write time, so removing a friend afterwards would take nothing
+      back.
+
+    `context_id` is meaningful only for `group`; the pairing is checked in
+    `app.domain.post_audience.check_writable` and again by a CHECK constraint
+    on the table.
+    """
+
+    body: Annotated[StrictStr, Field(min_length=1, max_length=5000)]
+    audience: Literal["only_me", "friends", "group", "public"]
+    #: Which group, when and only when `audience` is `group`. Naming a group
+    #: here is a claim; membership of it is checked server-side against the
+    #: roster, never against the caller's `X-Actor-Contexts` header.
+    context_id: UUID | None = None
+    image_url: RelativePhotoUrl | None = None
+
+
+class PostResponse(ApiModel):
+    """One post, as it goes back to a reader who is allowed to have it.
+
+    Every route that emits this model has already run
+    `app.domain.post_audience.can_read` for the actor making the request. The
+    model itself carries no `visible_to` field and computes nothing: a reader
+    holding this object is proof enough that they were allowed to.
+    """
+
+    id: UUID
+    author_id: UUID
+    audience: Literal["only_me", "friends", "group", "public"]
+    context_id: UUID | None
+    body: str
+    image_url: str | None
+    created_at: datetime
+
+
+class PostListResponse(ApiModel):
+    posts: list[PostResponse]
+
+
+class PersonPostListResponse(ApiModel):
+    """One person's wall, already narrowed to what this reader may see.
+
+    `person_id` is echoed so a client can tell whose wall it drew. There is no
+    total alongside it on purpose -- a count computed over all of somebody's
+    posts and returned next to a filtered list is the leak this feature is
+    about, stated as a number instead of as a row.
+    """
+
+    person_id: UUID
+    posts: list[PostResponse]
+
+
 class MessageCreateRequest(ApiModel):
     kind: Literal["text", "image", "ai_card"]
     body: Annotated[StrictStr, Field(max_length=4000)] | None = None

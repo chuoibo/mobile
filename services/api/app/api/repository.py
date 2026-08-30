@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Protocol
 
-from sqlalchemy import Date, cast, func, or_, select, tuple_
+from sqlalchemy import Date, and_, cast, func, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased
 
@@ -66,6 +66,8 @@ from app.db.models import (
     PayerAcknowledgement,
     PaymentReport,
     Person,
+    Post,
+    PostAudience,
     ReceiptConfirmation,
     UploadedImage,
     VerificationScope,
@@ -171,6 +173,30 @@ class MemoryRecord:
     #: Whether *this reader* left a heart. Answered per caller, so it is only
     #: ever filled in by a read that was given a viewer.
     viewer_has_reacted: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class PostRecord:
+    """F39. One post as it comes out of the database, before anyone is judged.
+
+    This record is *not* itself proof that a reader may have it. The two list
+    methods below only ever return rows the reader may read, but `get_post`
+    returns whatever the id names, and the service runs
+    `app.domain.post_audience.can_read` over it before anything is serialised.
+    Keeping the record honest about that -- rather than adding a
+    `visible_to_reader` flag here -- means there is no field a future caller
+    could read instead of asking.
+    """
+
+    id: uuid.UUID
+    author_id: uuid.UUID
+    audience: str
+    #: Set on a `group` post and null on the other three. The database refuses
+    #: any other combination via `ck_posts_audience_matches_target`.
+    context_id: uuid.UUID | None
+    body: str
+    image_url: str | None
+    created_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -951,6 +977,49 @@ class ApiRepository(Protocol):
     def list_memory_comments(
         self, memory_id: uuid.UUID
     ) -> tuple[MemoryCommentRecord, ...]: ...
+
+    # --- F39 posts, F42 audiences ------------------------------------------
+    #
+    # Both reads take a `reader_id` and nothing else about the reader. They do
+    # not accept a list of friend ids or a list of context ids, and that is the
+    # design: friendship and membership are resolved inside the query, against
+    # `friend_requests` and `memberships`, at the moment of the read. A method
+    # that accepted those lists would work exactly as well against lists the
+    # caller made up, and the caller is the one party whose account of their
+    # own friendships is worth nothing.
+    #
+    # It also settles the "unfriend" question by construction: there is no
+    # recipient list stored anywhere to go stale.
+
+    def create_post(
+        self,
+        *,
+        author_id: uuid.UUID,
+        audience: str,
+        context_id: uuid.UUID | None,
+        body: str,
+        image_url: str | None,
+        now: datetime,
+    ) -> PostRecord: ...
+
+    def get_post(self, post_id: uuid.UUID) -> PostRecord | None:
+        """Whatever the id names, judged by nobody.
+
+        Unlike `get_context_memory` this takes no scope, because a post has no
+        container to be scoped by -- an `only_me` post lives in no group. The
+        access decision therefore cannot happen here and happens in
+        `ApiService.read_post`, which answers 404 rather than 403 for a post
+        the actor may not read: a 403 would confirm the id exists.
+        """
+        ...
+
+    def list_posts_visible_to(
+        self, reader_id: uuid.UUID, *, limit: int
+    ) -> tuple[PostRecord, ...]: ...
+
+    def list_person_posts_visible_to(
+        self, person_id: uuid.UUID, reader_id: uuid.UUID, *, limit: int
+    ) -> tuple[PostRecord, ...]: ...
 
     def create_message(
         self,
@@ -2468,6 +2537,124 @@ class SqlAlchemyApiRepository:
             body=comment.body,
             created_at=comment.created_at,
         )
+
+    # --- F39 posts, F42 audiences ------------------------------------------
+
+    @staticmethod
+    def _post_record(post: Post) -> PostRecord:
+        return PostRecord(
+            id=post.id,
+            author_id=post.author_id,
+            audience=str(post.audience),
+            context_id=post.context_id,
+            body=post.body,
+            image_url=post.image_url,
+            created_at=post.created_at,
+        )
+
+    @staticmethod
+    def _readable_by(reader_id: uuid.UUID):
+        """The F42 rule, spelled in SQL.
+
+        This is the second spelling of `app.domain.post_audience.can_read`, and
+        the duplication is deliberate in the same way `uq_friend_edge_live`
+        duplicates `friendship.pair_key`: the domain function is what the
+        service checks each row against, and this is what stops the rows from
+        being fetched at all. Change either and change both -- and note that
+        the `tests/api` layer runs against a dict-backed fake, so this spelling
+        is exercised only by `tests/postgres/test_posts_postgres.py`.
+
+        Read the disjuncts as the answer to "on what grounds": authorship,
+        then the three audiences that can reach somebody else. `only_me`
+        appears in none of them, so an `only_me` row belonging to another
+        person is not merely filtered after the fact -- it is never selected.
+        """
+        friendship = (
+            select(FriendRequest.id)
+            .where(
+                FriendRequest.state == FriendRequestState.ACCEPTED,
+                or_(
+                    and_(
+                        FriendRequest.requester_id == reader_id,
+                        FriendRequest.addressee_id == Post.author_id,
+                    ),
+                    and_(
+                        FriendRequest.addressee_id == reader_id,
+                        FriendRequest.requester_id == Post.author_id,
+                    ),
+                ),
+            )
+            .exists()
+        )
+        membership = (
+            select(Membership.id)
+            .where(
+                Membership.context_id == Post.context_id,
+                Membership.person_id == reader_id,
+                Membership.state == MembershipState.ACTIVE,
+                Membership.left_at.is_(None),
+            )
+            .exists()
+        )
+        return or_(
+            Post.author_id == reader_id,
+            Post.audience == PostAudience.PUBLIC,
+            and_(Post.audience == PostAudience.FRIENDS, friendship),
+            and_(
+                Post.audience == PostAudience.GROUP,
+                Post.context_id.is_not(None),
+                membership,
+            ),
+        )
+
+    def create_post(
+        self,
+        *,
+        author_id: uuid.UUID,
+        audience: str,
+        context_id: uuid.UUID | None,
+        body: str,
+        image_url: str | None,
+        now: datetime,
+    ) -> PostRecord:
+        post = Post(
+            id=uuid.uuid4(),
+            author_id=author_id,
+            audience=PostAudience(audience),
+            context_id=context_id,
+            body=body,
+            image_url=image_url,
+            created_at=now,
+        )
+        self.session.add(post)
+        self.session.flush()
+        return self._post_record(post)
+
+    def get_post(self, post_id: uuid.UUID) -> PostRecord | None:
+        post = self.session.get(Post, post_id)
+        return None if post is None else self._post_record(post)
+
+    def list_posts_visible_to(
+        self, reader_id: uuid.UUID, *, limit: int
+    ) -> tuple[PostRecord, ...]:
+        rows = self.session.scalars(
+            select(Post)
+            .where(self._readable_by(reader_id))
+            .order_by(Post.created_at.desc(), Post.id.desc())
+            .limit(limit)
+        )
+        return tuple(self._post_record(row) for row in rows)
+
+    def list_person_posts_visible_to(
+        self, person_id: uuid.UUID, reader_id: uuid.UUID, *, limit: int
+    ) -> tuple[PostRecord, ...]:
+        rows = self.session.scalars(
+            select(Post)
+            .where(Post.author_id == person_id, self._readable_by(reader_id))
+            .order_by(Post.created_at.desc(), Post.id.desc())
+            .limit(limit)
+        )
+        return tuple(self._post_record(row) for row in rows)
 
     def create_message(
         self,
