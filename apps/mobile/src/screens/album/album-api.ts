@@ -151,7 +151,14 @@ export class AlbumError extends Error {
   }
 }
 
-function tieuDe(contextId: string, personId: string): Record<string, string> {
+/* Named `headers` rather than `tieuDe`, matching `ai.ts`, `tin-nhan.ts` and
+ * `nhom.ts`. `check_cors_contract.py` recognises a header producer by its NAME
+ * (`_HEADERS_FN`, `function ...[Hh]eaders(`), so a Vietnamese name made this
+ * the one call site in the tree it could not trace -- it reported the actor
+ * headers as unreadable and therefore as a preflight the browser would block,
+ * on a call that in fact sends all three. It also collided with `tieuDe` in
+ * `AlbumChuyenDi.tsx`, which means the screen's TITLE, not an HTTP header. */
+function headers(contextId: string, personId: string): Record<string, string> {
   return {
     "X-Actor-ID": personId,
     "X-Actor-Roles": "member",
@@ -183,7 +190,7 @@ async function doc<T>(
     // literals by the three exported functions, so the gate does read them --
     // the blind spot here was redundant, and pinning it would have claimed an
     // unchecked route where there is none.
-    response = await fetchImpl(BASE_URL + duong, { headers: tieuDe(contextId, personId) });
+    response = await fetchImpl(BASE_URL + duong, { headers: headers(contextId, personId) });
   } catch {
     // Names the address it tried. "Không kết nối được" on its own sends
     // somebody to check their wifi when the real answer is that the phone is
