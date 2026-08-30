@@ -433,7 +433,9 @@ def search_places(
         # bad *sentence* about a real place is not a bad answer -- unlike a
         # place that does not exist, which `ground_search` already refused above.
         if reason is not None and ungrounded_numbers(reason, place, GROUP):
-            logger.warning("place search: dropped ungrounded reason for %s", place["id"])
+            logger.warning(
+                "place search: dropped ungrounded reason for %s", place["id"]
+            )
             reason = None
         if echoes_the_query(reason, query):
             logger.warning("place search: dropped echoed reason for %s", place["id"])
