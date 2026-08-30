@@ -172,6 +172,19 @@ class Verdicts(unittest.TestCase):
         code = self.run_gate(FakeDocker(container_key="", env_key=NEW_KEY))
         self.assertEqual(code, self.gate.EXIT_BROKEN)
 
+    def test_container_without_a_key_is_red_even_with_no_reference(self):
+        """No key in the container is broken on its own terms.
+
+        Found by running the gate against two REAL containers, 8299 and 8489,
+        which carry no key at all: it answered "chưa kết luận được" because it
+        went looking for a `.env` to compare against first. But a container
+        with no key cannot read a bill whatever any `.env` holds, so there is
+        nothing to compare and no reason to need a comparison. Order matters,
+        and this pins the order.
+        """
+        code = self.run_gate(FakeDocker(container_key="", env_key=""))
+        self.assertEqual(code, self.gate.EXIT_BROKEN)
+
     def test_transport_failure_is_not_a_pass(self):
         """No network means UNKNOWN. Calling that ĐẠT is the whole disease.
 

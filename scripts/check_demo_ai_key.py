@@ -304,6 +304,20 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:  # noqa: BLE001 - exec can fail many ways
         return die(f"không đọc được biến môi trường trong container {name}: {exc}")
 
+    # Asked BEFORE the reference key is resolved, and that order is the point:
+    # a container with no key cannot read a bill no matter what any `.env`
+    # says, so there is nothing to compare against and no reason to need a
+    # comparison. Resolving the reference first -- as this did until the canary
+    # run against 8299 and 8489 caught it -- turns a machine that is definitely
+    # broken into "chưa kết luận được": a weaker answer about a worse machine.
+    if not container_key:
+        return broken(
+            f"container {name} KHÔNG có {KEY_NAME}.\n"
+            "  Đường hero sẽ trả 503 receipt_reader_not_configured ở bước quét bill.\n"
+            "  Compose chỉ chuyển biến nào service khai, nên dựng lại container\n"
+            "  chưa chắc sửa được. Xem:  sh scripts/check_ai_key.sh"
+        )
+
     try:
         compose_dir = compose_dir_of(name)
     except Exception:  # noqa: BLE001 - inspect failing is not fatal, only less precise
@@ -311,19 +325,12 @@ def main(argv: list[str] | None = None) -> int:
     resolver = resolver_for(compose_dir)
     env_key = read_env_key(resolver)
     if not env_key:
-        # No key anywhere is a different fault with its own gate and its own
-        # advice; saying so here and stopping beats guessing which key is right.
+        # No reference anywhere is a different fault with its own gate and its
+        # own advice; saying so and stopping beats guessing which key is right.
         return die(
             f"{KEY_NAME} chưa đặt ở .env lẫn shell của dự án {compose_dir or '(không rõ)'}"
             " — không có gì để đối chiếu.\n"
             "  Đây là lỗi khác, xem:  sh scripts/check_ai_key.sh"
-        )
-
-    if not container_key:
-        return broken(
-            f"container {name} KHÔNG có {KEY_NAME}.\n"
-            "  Đường hero sẽ trả 503 receipt_reader_not_configured ở bước quét bill.\n"
-            f"  Compose chỉ chuyển biến nào service khai; dựng lại:  docker restart {name}"
         )
 
     if container_key != env_key:
