@@ -6,8 +6,22 @@
 # Chay:  bash tests/qa/qa-tt-0016/dot-bien-probe.sh   (tu goc repo, sau khi
 #        da `cd apps/mobile && npm run build:check`)
 set -uo pipefail
-cd "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)/apps/mobile"
-export PUPPETEER_EXECUTABLE_PATH=/home/lakiet/.cache/ms-playwright/chromium-1194/chrome-linux/chrome
+GOC="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
+cd "$GOC/apps/mobile"
+
+# Let the probe find its own browser unless the caller pinned one. Resolved by
+# absolute path off $GOC, not relative to this cwd -- the `cd` above lands in
+# apps/mobile, where a `../tests/qa/...` would silently mean apps/tests/qa.
+if [ -z "${PUPPETEER_EXECUTABLE_PATH:-}" ]; then
+  PUPPETEER_EXECUTABLE_PATH="$(node -e '
+    import(process.argv[1]).then((m) => console.log(m.timTrinhDuyet()))
+      .catch((e) => { console.error(e.message); process.exit(1); })
+  ' "$GOC/tests/qa/tim-trinh-duyet.mjs")" || {
+    echo "khong tim thay trinh duyet" >&2
+    exit 1
+  }
+fi
+export PUPPETEER_EXECUTABLE_PATH
 SRC=tools/che-chu.mjs
 D=/tmp/qa16-mutants
 rm -rf "$D"; mkdir -p "$D"
