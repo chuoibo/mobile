@@ -54,6 +54,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from _workflow_step_exec import FILE, WorkflowStepSandbox  # noqa: E402
 from _workflow_steps import run_steps  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -66,6 +67,25 @@ WORKFLOW = REPO_ROOT / ".github" / "workflows" / "postgres-repository.yml"
 # rejects a non-PostgreSQL backend before it ever dials, so a sqlite URL would
 # make these tests pass for the wrong reason. Port 1 is never a database.
 UNREACHABLE_POSTGRES = "postgresql+psycopg://mobile:x@127.0.0.1:1/none"
+
+
+def _looks_like_pytest(inv) -> bool:
+    """Does this invocation start a pytest run?
+
+    Read off the argv the shell actually built, so continuations, variables and
+    `cd` are already applied. It is still a judgement about names, and so the
+    weaker of the two halves below: `python -c "import pytest; pytest.main()"`
+    would not be recognised. The half that carries the weight is
+    `test_the_workflow_actually_executes_the_runner`, which asks which FILE ran
+    and cannot be fooled by spelling at all.
+    """
+    if os.path.basename(inv.name) in ("pytest", "py.test"):
+        return True
+    args = list(inv.args)
+    return any(
+        flag == "-m" and value in ("pytest", "py.test")
+        for flag, value in zip(args, args[1:])
+    )
 
 
 class RunnerIsWiredIn(unittest.TestCase):
@@ -314,22 +334,69 @@ class WorkflowAndRunnerCannotDrift(unittest.TestCase):
     asks for a re-review when they change, which catches drift in one
     direction; delegating removes the direction entirely.
 
-    ## Why this reads step bodies and not the file
+    ## Why this runs the steps instead of reading them
 
-    The first version of this class asked `assertIn("scripts/postgres_tier.sh",
-    workflow_text)`. Re-running the mutation table after a rebase found what
-    that misses: write the drift back in as
+    This is the third round of one mistake, and the first two are worth naming
+    because the third looks nothing like them until you write it down.
 
-        # was: scripts/postgres_tier.sh -q
-        run: cd services/api && python3 -m pytest tests/postgres -q
+    Round one asked `assertIn("scripts/postgres_tier.sh", <whole file>)`.
+    Round two (`#271`) found what that misses -- write the drift back in as
+
+        run: |
+          # was: scripts/postgres_tier.sh -q
+          cd services/api && python3 -m pytest tests/postgres -q
 
     and the assertion is satisfied by the COMMENT while the step runs the
-    narrow tier again -- 13 passed, exit 0, the hole fully reopened. A
-    substring over a whole file cannot tell a command from a mention of one.
-    So the parser that `test_gate_covers_every_inline_step.py` already uses
-    supplies the actual `run:` bodies, and both halves are asserted: some step
-    invokes the runner, and no step spells the tier out for itself.
+    narrow tier again. The diagnosis was exactly right: "a substring over a
+    whole file cannot tell a command from a mention of one." The repair
+    narrowed the search from the file to the `run:` body and kept the
+    substring -- but a comment inside a `run:` block is part of that body, so
+    every word of the diagnosis stayed true one level down.
+
+    Round three is `bug-095404`, which measured what survived: five shapes,
+    five green. One ran nothing at all and named the runner only in a comment.
+    The other four wrote the same inline `pytest tests/postgres` with a shell
+    line-continuation, with one more `cd`, with a `./` prefix, and with the
+    path in a variable -- none of which a per-line regex can see, because in
+    each of them it is the SHELL that assembles the command, at run time.
+
+    So this class stops reading the workflow and runs it. `_workflow_step_exec`
+    executes each `run:` body in a throwaway tree where every command is a
+    recorder, and reports what was actually invoked and from which directory.
+    Two facts follow that no amount of pattern-matching could establish:
+
+      - The runner's identity comes from THE FILE THAT RAN, not from how it was
+        spelled. `scripts/postgres_tier.sh`, `./scripts/postgres_tier.sh`,
+        `bash scripts/postgres_tier.sh` and `$RUNNER` all record the same file;
+        a comment naming it records nothing.
+      - Arguments are resolved against the directory the command really ran in,
+        so `cd services/api/tests && pytest postgres` and `cd services/api &&
+        pytest ./tests/postgres` and `pytest "$TIER"` are one fact, not three
+        spellings.
+
+    The cost is that this executes shell out of a workflow file on a laptop.
+    `_workflow_step_exec` defuses it -- empty `PATH`, `HOME` and cwd inside a
+    temporary tree, every script replaced by a stub -- and says so at length.
     """
+
+    LIVE_TIER_TREES = ("services/api/tests/postgres", "tests/qa")
+    """The trees `scripts/postgres_tier.sh` exists to run as one unit.
+
+    A step naming either of them is writing the second definition of the live
+    tier that this class exists to prevent -- that is how the sixteen cases
+    under `tests/qa/` came to run nowhere.
+    """
+
+    RUNNER_REL = "scripts/postgres_tier.sh"
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._sandbox = WorkflowStepSandbox()
+        cls._executed: dict[str, list] | None = None
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._sandbox.close()
 
     def _postgres_workflow_steps(self) -> list:
         steps = [s for s in run_steps() if s.workflow == WORKFLOW.name]
@@ -344,40 +411,171 @@ class WorkflowAndRunnerCannotDrift(unittest.TestCase):
         )
         return steps
 
-    def test_the_workflow_runs_the_same_runner(self) -> None:
-        steps = self._postgres_workflow_steps()
-        calling = [s for s in steps if "scripts/postgres_tier.sh" in s.body]
+    def _executed_steps(self) -> list:
+        """(step, invocations) for every `run:` step of the workflow.
+
+        Run once per class: the sandbox is a stub tree, so a step's answer
+        cannot change between two calls, and the pip step in this workflow has
+        no reason to be replayed for each assertion.
+        """
+        if type(self)._executed is None:
+            type(self)._executed = [
+                (step, self._sandbox.run(step.body, step.working_directory))
+                for step in self._postgres_workflow_steps()
+            ]
+        return type(self)._executed
+
+    def _ran_the_runner(self, invocations: list) -> bool:
+        return any(
+            inv.kind == FILE and inv.name == self.RUNNER_REL for inv in invocations
+        )
+
+    def _reaches_the_live_tier(self, inv) -> list:
+        """Arguments of `inv` that point into a tree the runner owns."""
+        hits = []
+        for arg in inv.args:
+            resolved = inv.resolved(arg)
+            for tree in self.LIVE_TIER_TREES:
+                if resolved == tree or resolved.startswith(tree + "/"):
+                    hits.append(f"{arg} -> {resolved}")
+        return hits
+
+    def test_the_measuring_instrument_answers_both_ways(self) -> None:
+        """Before believing either verdict below, check the instrument.
+
+        A sandbox that recorded nothing would report "the runner never ran" for
+        a healthy workflow, and one that recorded indiscriminately would report
+        a violation for every step. Neither failure is visible from the result
+        alone, so both directions are forced here on synthetic bodies.
+
+        The dirty body is deliberately the HEAVIEST shape this class claims to
+        cover, not the most convenient one: a comment naming the runner, a
+        variable holding the path, a `cd` two levels deep, and a
+        line-continuation splitting the command -- all four evasions of
+        `bug-095404` stacked into one step. A canary run on the easy shape
+        would license conclusions about the hard ones it never touched.
+        """
+        dirty = (
+            "# was: scripts/postgres_tier.sh -q\n"
+            "TIER=postgres\n"
+            "cd services/api/tests && python3 -m pytest \\\n"
+            '  "$TIER" -q'
+        )
+        clean = "bash ./scripts/postgres_tier.sh -q"
+
+        dirty_invocations = self._sandbox.run(dirty)
+        self.assertFalse(
+            self._ran_the_runner(dirty_invocations),
+            "máy đo nói bước KHÔNG chạy runner đã chạy nó — nó đang đọc chữ "
+            f"trong comment\n{[str(i) for i in dirty_invocations]}",
+        )
+        self.assertNotEqual(
+            [h for inv in dirty_invocations for h in self._reaches_the_live_tier(inv)],
+            [],
+            "máy đo không thấy `pytest` trỏ vào tầng live dù bốn hình dạng né "
+            "được xếp chồng trong một bước — mọi số 0 dưới đây là số 0 của một "
+            f"máy đo chết\n{[str(i) for i in dirty_invocations]}",
+        )
+
+        clean_invocations = self._sandbox.run(clean)
+        self.assertTrue(
+            self._ran_the_runner(clean_invocations),
+            "máy đo không nhận ra runner khi nó thật sự chạy — cổng sẽ đỏ với "
+            f"mọi cách viết hợp lệ\n{[str(i) for i in clean_invocations]}",
+        )
+        self.assertEqual(
+            [h for inv in clean_invocations for h in self._reaches_the_live_tier(inv)],
+            [],
+            "máy đo tố một bước hợp lệ — cổng này sẽ bị tắt trong một tuần"
+            f"\n{[str(i) for i in clean_invocations]}",
+        )
+
+    def test_the_workflow_actually_executes_the_runner(self) -> None:
+        """Not "names the runner" -- executes it.
+
+        This is the half that catches all five shapes of `bug-095404` at once,
+        including the one that ran nothing at all, because in every one of them
+        the file `scripts/postgres_tier.sh` is never reached.
+        """
+        executed = self._executed_steps()
+        calling = [step for step, invs in executed if self._ran_the_runner(invs)]
         self.assertNotEqual(
             calling,
             [],
-            "không bước `run:` nào của postgres-repository.yml gọi "
-            "scripts/postgres_tier.sh, nếu không CI và cổng máy này định nghĩa "
-            "'tầng live' theo hai cách"
-            "\n--- các bước đọc được ---\n"
-            + "\n".join(f"{s.label}: {s.body}" for s in steps),
+            "chạy hết các bước `run:` của postgres-repository.yml mà "
+            "scripts/postgres_tier.sh KHÔNG hề được thực thi — nhắc tên nó "
+            "trong một comment không phải là gọi nó, và CI với cổng máy này "
+            "đang định nghĩa 'tầng live' theo hai cách"
+            "\n--- những gì các bước thật sự chạy ---\n"
+            + "\n".join(
+                f"[{step.label}]\n  "
+                + ("\n  ".join(str(i) for i in invs) or "(không chạy lệnh nào)")
+                for step, invs in executed
+            ),
         )
 
-    def test_no_step_spells_the_live_tier_out_for_itself(self) -> None:
+    def test_no_step_reaches_the_live_tier_by_itself(self) -> None:
         """The other half: delegating is only one edit away from being undone.
 
-        `pytest tests/postgres` written inline is the exact shape that let CI
-        stay narrow while the local runner grew a second tree. Naming it here
-        means the next person to type it is told why not, instead of finding
-        out when sixteen cases stop running somewhere nobody looks.
+        Asserted on the argv the shell actually built, so the four spellings
+        `bug-095404` used are the same fact here. A step that runs pytest at
+        all is included even when it names no path, because pytest with no
+        target is a third definition of the tier -- the widest one.
         """
-        inline = re.compile(r"pytest\s+(?:[^\s]+\s+)*tests/postgres\b")
-        offenders = [
-            (s.label, line)
-            for s in self._postgres_workflow_steps()
-            for line in s.body.splitlines()
-            if inline.search(line)
-        ]
+        offenders = []
+        for step, invocations in self._executed_steps():
+            for inv in invocations:
+                if inv.kind == FILE and inv.name == self.RUNNER_REL:
+                    continue  # arguments handed TO the runner are the runner's
+                hits = self._reaches_the_live_tier(inv)
+                if _looks_like_pytest(inv):
+                    hits.append("chạy pytest trực tiếp")
+                if hits:
+                    offenders.append(f"[{step.label}] {inv}  <- {', '.join(hits)}")
         self.assertEqual(
             offenders,
             [],
-            "một bước tự viết `pytest tests/postgres` — đó là hai định nghĩa của "
-            "'tầng live' trở lại, và cây tests/qa không nằm trong định nghĩa thứ hai"
-            f"\n{offenders}",
+            "một bước tự chạy tầng live thay vì gọi runner — đó là hai định "
+            "nghĩa của 'tầng live' trở lại, và cây tests/qa không nằm trong "
+            "định nghĩa thứ hai\n" + "\n".join(offenders),
+        )
+
+    def test_no_step_of_this_workflow_is_conditional(self) -> None:
+        """A step behind `if:` may never run, and nothing here can tell.
+
+        The sandbox executes a body regardless of its condition, so
+        `if: ${{ false }}` on the runner's step would leave every assertion
+        above green while CI ran nothing -- the same class of defect as the
+        five shapes, reached through YAML instead of through shell.
+
+        Nothing in this repository evaluates GitHub expressions, and a gate
+        that guessed would be worse than one that refuses. So this is the
+        refusal: a condition anywhere in this workflow is CHƯA KẾT LUẬN ĐƯỢC,
+        reported as a failure rather than folded into a pass.
+        """
+        conditional = [
+            f"{s.label}: if: {s.condition}"
+            for s in self._postgres_workflow_steps()
+            if s.condition
+        ]
+        # Job-level `if:` sits at four spaces, above the `steps:` list, so the
+        # step parser never sees it. Matching the key here is not the mistake
+        # this class was written about: `if` is a declarative YAML key with one
+        # spelling, not a shell command a comment can imitate.
+        text = WORKFLOW.read_text(encoding="utf-8")
+        jobs = text.split("\njobs:", 1)[-1]
+        conditional += [
+            f"job-level: {line.strip()}"
+            for line in jobs.splitlines()
+            if re.match(r"^    if:", line)
+        ]
+        self.assertEqual(
+            conditional,
+            [],
+            "postgres-repository.yml có `if:` — phép kiểm ở trên chạy thân "
+            "bước bất kể điều kiện, nên nó KHÔNG kết luận được là CI có chạy "
+            "tầng live hay không. Đây là 'chưa biết', không phải 'đạt'."
+            f"\n{conditional}",
         )
 
 
