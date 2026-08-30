@@ -187,11 +187,19 @@ assert s.count(old) == 1, "predicate not found"
 s = s.replace(old, """                \"is_own_account\": True,""", 1)
 ' red
 
+# The anchor carries the `try:` after it because `create_outing_invite` now
+# calls the same helper with the same argument, one indent level deeper -- and
+# a shorter-indented anchor is a SUBSTRING of a deeper-indented line, so the
+# bare call matched twice the moment hole 4 was gated. `s.count(old) == 1`
+# turned that into a loud PATCH FAILED instead of a `replace(..., 1)` landing
+# on the wrong method and reporting a colour belonging to another guarantee.
 mutant GATED "invite_context_member: registration check removed" "$SERVICE" '
 old = """        self._require_registered_person(request.person_id)
+        try:
 """
 assert s.count(old) == 1, "call site not unique"
-s = s.replace(old, "", 1)
+s = s.replace(old, """        try:
+""", 1)
 ' red
 
 mutant GATED "send_friend_request: addressee existence check removed" "$SERVICE" '
