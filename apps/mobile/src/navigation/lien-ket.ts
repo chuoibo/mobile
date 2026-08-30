@@ -97,6 +97,12 @@ export type DiemDen = {
   banDo: boolean;
   /** rd-fe-33. Open Điểm hẹn (F45) directly, from `#ban-do=hen`. */
   diemHen: boolean;
+  /** F14. An outing-invite token from `#moi=<token>`, or null.
+   *
+   *  The token is a free server string, not a UUID. Empty becomes null.
+   *  A value carrying `/` or `..` is refused: it is interpolated into a
+   *  request path, the same reason a malformed `nhomId` is dropped. */
+  moiBuoiDi: string | null;
   /** Whether the fragment asked to skip the opening screen at all. */
   boQuaMoDau: boolean;
 };
@@ -110,6 +116,7 @@ export const KHONG_CO_DIEM_DEN: DiemDen = {
   diaDiem: null,
   banDo: false,
   diemHen: false,
+  moiBuoiDi: null,
   boQuaMoDau: false,
 };
 
@@ -166,6 +173,12 @@ export function docDiemDen(hash: string, search = ""): DiemDen {
   // feature inherit that result.
   const diemHen = banDoAsked === "hen";
 
+  const moiAsked = (params.get("moi") ?? "").trim();
+  const moiBuoiDi =
+    moiAsked === "" || moiAsked.includes("/") || moiAsked.includes("..")
+      ? null
+      : moiAsked;
+
   return {
     tab: tab ?? (diaDiem || banDo ? "kham-pha" : null),
     nguoi,
@@ -175,6 +188,7 @@ export function docDiemDen(hash: string, search = ""): DiemDen {
     diaDiem,
     banDo,
     diemHen,
+    moiBuoiDi,
     // A recognised tab is enough to enter: opening the app on a named screen
     // with nobody signed in is a real state, and the screens render it.
     //
@@ -194,7 +208,8 @@ export function docDiemDen(hash: string, search = ""): DiemDen {
       vao === "ky-niem" ||
       vao === "ban-be" ||
       diaDiem !== null ||
-      banDo,
+      banDo ||
+      moiBuoiDi !== null,
   };
 }
 

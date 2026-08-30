@@ -24,7 +24,7 @@
  */
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, normalize } from "node:path";
 
@@ -125,6 +125,11 @@ export async function serve(root) {
  * measurement of the wrong thing.
  */
 export async function launch(bin) {
+  // Named here rather than inline in the args so `close()` can delete it. A
+  // profile dir is ~4 MB and every test file makes one; left behind they had
+  // reached 2421 dirs / 9.9 GB of /tmp on this machine, which is a slow way to
+  // take down every lane sharing it.
+  const profileDir = join(process.env.TMPDIR ?? "/tmp", `cdp-${process.pid}`);
   const chrome = spawn(
     bin,
     [
@@ -136,7 +141,7 @@ export async function launch(bin) {
       "--force-device-scale-factor=1",
       "--no-first-run",
       "--no-default-browser-check",
-      "--user-data-dir=" + join(process.env.TMPDIR ?? "/tmp", `cdp-${process.pid}`),
+      "--user-data-dir=" + profileDir,
       "about:blank",
     ],
     { stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"] },
@@ -317,6 +322,13 @@ export async function launch(bin) {
         chrome.kill("SIGKILL");
       }
       await new Promise((ok) => chrome.once("exit", ok));
+      // Only after the process is gone: deleting the profile under a live
+      // Chrome makes it rewrite parts of it on the way out.
+      try {
+        rmSync(profileDir, { recursive: true, force: true });
+      } catch {
+        /* A profile we cannot delete is not worth failing a passing test over. */
+      }
     },
   };
 }
