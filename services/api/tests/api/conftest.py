@@ -44,6 +44,8 @@ from app.api.repository import (
     GuestEnvelopeRecord,
     GuestLinkDraft,
     MembershipRecord,
+    MemoryPage,
+    MemoryRecord,
     MessageRecord,
     ObligationDraft,
     OutingInviteRecord,
@@ -120,6 +122,7 @@ class FakeRepository:
         self.outing_invite_ids_by_digest: dict[bytes, uuid.UUID] = {}
         self.friend_edges: dict[uuid.UUID, dict] = {}
         self.posts: dict[uuid.UUID, PostRecord] = {}
+        self.memories: dict[uuid.UUID, MemoryRecord] = {}
         self.leak_guest_input = False
 
     @staticmethod
@@ -318,6 +321,44 @@ class FakeRepository:
             if record.author_id == person_id
             and self._post_visible_to(record, reader_id)
         )[:limit]
+
+    def list_memories(
+        self,
+        context_id,
+        *,
+        limit,
+        before=None,
+        kind=None,
+        place_id=None,
+        viewer_id=None,
+    ):
+        """Enough of the wall for F38's widget probe to count rows.
+
+        Added for one reason: the leak probe has to be able to see the leak.
+        Without a wall in this fake, an outsider whose membership check had
+        been broken would receive an *empty* widget, and "no photo because the
+        group has none" and "no photo because the gate held" are the same body.
+        A probe that cannot tell those apart proves nothing, so the fake has to
+        hold at least one photograph for the gate to withhold.
+
+        Ordering, `kind` and the `has_more` flag match
+        `SqlAlchemyApiRepository.list_memories`. `before`, `place_id` and
+        `viewer_id` are accepted and unused: the widget passes none of them,
+        and a fake that pretended to page or to count hearts would be a second
+        implementation of behaviour `tests/postgres` already proves.
+        """
+
+        rows = sorted(
+            (
+                record
+                for record in self.memories.values()
+                if record.context_id == context_id
+                and (kind is None or record.kind == kind)
+            ),
+            key=lambda record: (record.created_at, record.id.bytes),
+            reverse=True,
+        )
+        return MemoryPage(memories=tuple(rows[:limit]), has_more=len(rows) > limit)
 
     def is_member(self, context_id, person_id):
         return (context_id, person_id) in self.active_memberships
