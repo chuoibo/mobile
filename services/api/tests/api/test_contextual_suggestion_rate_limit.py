@@ -52,16 +52,27 @@ MEMBER_ID = uuid.UUID("4dd00000-dddd-4ddd-8ddd-0000d0000031")
 
 HEADERS = {"X-Actor-ID": str(MEMBER_ID), "X-Actor-Roles": "member"}
 
-# What counts as standing in front of a paid model call. Both shapes belong:
-# a window for the doors that have an actor to count, a cache for `GET /places`
+# What counts as standing in front of an expensive call. Both shapes belong: a
+# window for the doors that have an actor to count, a cache for `GET /places`
 # which has none. Abuse limits like `friend_lookup_limit` are a different class
-# (`FixedWindowLimit`) and are deliberately not here -- they meter a caller, not
-# the model key.
+# (`FixedWindowLimit`) and are deliberately not here -- they meter a caller
+# rather than a cost the product pays per call.
 _MODEL_GUARD_TYPES = (FixedWindowLimiter, CachedReasonWriter)
 
-# The doors onto the shared model key as of this commit. The point of writing
-# them down is that the set below is *discovered*: a mismatch means a door was
-# added or dropped, and either way somebody has to look.
+# The doors as of this commit. The point of writing them down is that the set
+# they are compared against is *discovered*: a mismatch means a door was added
+# or dropped, and either way somebody has to look.
+#
+# Most of these open onto the shared Gemini key. `face_detection_limiter` does
+# not -- F22's cascade runs in this process and the bytes never leave it -- and
+# it is here anyway, because the property this file guards is not "who pays the
+# vendor" but "no two doors resolve to one object". A burst of face detection
+# sharing the receipt window would disable bill scanning just as effectively as
+# if it had been billed, and the cost it spends is this box's CPU.
+#
+# This entry arrived the way the mechanism intends: F22 was written on a branch
+# stacked on this one, and the roster case went red naming
+# `face_detection_limiter` rather than letting a ninth door land unremarked.
 _KNOWN_DOORS = frozenset(
     {
         "search_limiter",
@@ -72,6 +83,7 @@ _KNOWN_DOORS = frozenset(
         "suggestion_limiter",
         "reason_writer",
         "contextual_suggestion_limiter",
+        "face_detection_limiter",
     }
 )
 
@@ -376,6 +388,10 @@ def test_every_door_onto_the_model_carries_its_own_guard():
     that must not happen is either of them being the *same object* as another
     door's -- that is the cheap way to "add" a limiter, and it makes one
     feature's burst disable its neighbour.
+
+    F22's local cascade is in this set too. See `_KNOWN_DOORS` for why a door
+    that bills nobody still belongs: the neighbour it would disable does not
+    care whose budget the burst spent.
 
     The roster is read off the application, so a door added later is inside
     this check without anyone remembering to put it there.

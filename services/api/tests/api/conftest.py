@@ -607,6 +607,44 @@ class FakeRepository:
         self.bills[bill_id] = updated
         return self._ordered_bill(updated)
 
+    def claim_bill_items(self, *, bill_id, participant_id, item_keys, now):
+        """Mirror of the SQL version: this participant's claims, bill-wide.
+
+        Written to the same contract rather than to whatever made the cases
+        pass. The one that matters is scope -- shares belonging to other people
+        are never touched -- because a fake that dropped them would let the
+        route's most damaging bug through the whole API tier.
+        """
+
+        bill = self.bills.get(bill_id)
+        if bill is None:
+            raise RepositoryConflict("BILL_NOT_FOUND")
+
+        requested = dict.fromkeys(item_keys)
+        item_keys_present = {item.item_key for item in bill.items}
+        if set(requested) - item_keys_present:
+            raise RepositoryConflict("UNKNOWN_BILL_ITEM")
+
+        updated_items = []
+        for item in bill.items:
+            others = [
+                share for share in item.shares if share.participant_id != participant_id
+            ]
+            if item.item_key in requested:
+                others.append(
+                    BillShareRecord(
+                        participant_id=participant_id,
+                        source="confirmed",
+                        decided_by_id=participant_id,
+                        decided_at=now,
+                    )
+                )
+            updated_items.append(replace(item, shares=others))
+
+        updated = replace(bill, items=updated_items)
+        self.bills[bill_id] = updated
+        return self._ordered_bill(updated)
+
     def create_expense(self, context_id):
         record = ExpenseIdentity(id=uuid.uuid4(), context_id=context_id)
         self.expenses[record.id] = record

@@ -17,6 +17,10 @@ from app.api.screenshot_skill import ScreenshotReader
 from app.api.unit_of_work import register_session
 from app.db.session import get_session_factory
 from app.domain.permissions import ROLES
+
+# Safe at module scope: this module defers cv2, numpy and PIL into function
+# bodies, so importing it costs a Protocol and two dataclasses.
+from app.media.face_detection import FaceDetector
 from app.media.storage import PhotoStorage
 
 
@@ -170,6 +174,26 @@ def get_suggester() -> Suggester:
     from app.api.suggestion_gemini import gemini_suggestion
 
     return gemini_suggestion
+
+
+def get_face_detector() -> FaceDetector:
+    """Seam for tests, and the shipped local detector for everyone else.
+
+    Imported lazily like its neighbours, but for a different reason. Those
+    defer a *credential*; this defers a *wheel*. `opencv-python-headless` is
+    the largest dependency the image carries, and importing it at module scope
+    would mean a machine without it cannot start the API at all rather than
+    losing one route -- the shape of the outage that killed the demo box on
+    2026-08-30.
+
+    Note what is not here: no parameter. A caller cannot name a detector,
+    because a seam reachable from a request body is not a seam, it is a way to
+    choose which code runs over somebody else's photograph.
+    """
+
+    from app.media.face_detection import HaarFaceDetector
+
+    return HaarFaceDetector()
 
 
 def get_contextual_suggester() -> ContextualSuggester:

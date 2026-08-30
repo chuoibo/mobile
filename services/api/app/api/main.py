@@ -33,6 +33,7 @@ from app.api.routes import (
     budget,
     contexts,
     expenses,
+    faces,
     finance,
     friends,
     guests,
@@ -58,6 +59,7 @@ from app.api.search_rate_limit import (
     build_chat_expense_limiter,
     build_companion_turn_limiter,
     build_contextual_suggestion_limiter,
+    build_face_detection_limiter,
     build_receipt_scan_limiter,
     build_screenshot_scan_limiter,
     build_search_limiter,
@@ -125,6 +127,10 @@ def create_app(
     application.state.contextual_suggestion_limiter = (
         build_contextual_suggestion_limiter()
     )
+    # F22 runs its model locally, so this window guards the box's CPU rather
+    # than the shared key -- and a member looping it is the cheapest way to
+    # stop this API answering anything at all, money routes included.
+    application.state.face_detection_limiter = build_face_detection_limiter()
 
     application.mount(
         "/static",
@@ -156,6 +162,7 @@ def create_app(
     application.include_router(social_map.router)
     application.include_router(albums.router)
     application.include_router(preferences.router)
+    application.include_router(faces.router)
 
     # Middleware, not a decorator on each route: a write route added later is
     # covered the moment it is registered, with no list for anyone to forget.

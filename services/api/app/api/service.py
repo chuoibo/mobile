@@ -60,6 +60,7 @@ from app.api.schemas import (
     BillDiscountResponse,
     BillItemResponse,
     BillResponse,
+    BillSelfClaimRequest,
     BillShareResponse,
     BillSplitRequest,
     BillSplitResponse,
@@ -78,6 +79,8 @@ from app.api.schemas import (
     ExpenseConfirmationResponse,
     ExpenseInput,
     ExpenseProposalResponse,
+    FaceBoxesResponse,
+    FaceBoxResponse,
     FriendListResponse,
     FriendRequestCreate,
     FriendRequestDecision,
@@ -157,6 +160,7 @@ from app.domain.companion import CompanionError, ground_card, plan_turn
 from app.domain.contract import AllocationError
 from app.domain.conversation import has_conversation, summarise_conversation
 from app.domain.expense import component_rollups
+from app.domain.faces import MAX_FACES, FaceError, anonymous_boxes
 from app.domain.friendship import (
     BLOCKED_IS_SILENT,
     Decision,
@@ -182,6 +186,7 @@ from app.domain.suggestion import (
     ground_suggestion,
     summarise_history,
 )
+from app.media.face_detection import FaceDetector, FaceDetectorUnavailable
 from app.media.images import ImageRejected, sanitize_image
 from app.media.storage import PhotoStorage, new_storage_key
 from app.payments.banks import describe_bank
@@ -3037,6 +3042,138 @@ class ApiService:
                 raise ApiProblem(404, "bill_not_found", "Bill does not exist") from exc
             raise ApiProblem(409, exc.code, "Bill assignment conflicted") from exc
         return _wire_bill(record)
+
+    def claim_bill_items(
+        self,
+        bill_id: uuid.UUID,
+        request: BillSelfClaimRequest,
+        actor: Actor,
+    ) -> BillResponse:
+        """F22 self-tagging: the caller says which dishes are theirs.
+
+        There is no `_require_participants_are_members` call here, and its
+        absence is the feature rather than an omission. The other two doors
+        that write a `participant_id` take that id from the request body, so
+        they must prove it names a member. This one takes it from `actor.id`,
+        which `_bill_for_actor` has just proved is an active member of the
+        group that owns the bill. Adding a roster check would be checking the
+        same fact twice and would suggest the body could carry a name -- which
+        `BillSelfClaimRequest` makes impossible to express.
+
+        This writes to a bill draft, not to the ledger. `split_bill` projects
+        the draft and returns an allocation; nothing here reaches
+        `confirmed_allocations`. Re-tagging before the split therefore changes
+        no money that has been recorded. Once a split has been confirmed into
+        an expense, changing who shares a dish is an edit to that expense and
+        goes through `confirm_expense`, which writes a new `ExpenseVersion` --
+        this route cannot reach that table and is not a second way to.
+        """
+
+        record = self._bill_for_actor(bill_id, actor)
+        try:
+            record = self.repository.claim_bill_items(
+                bill_id=bill_id,
+                participant_id=actor.id,
+                item_keys=list(request.item_keys),
+                now=_now(),
+            )
+        except RepositoryConflict as exc:
+            if exc.code == "BILL_NOT_FOUND":
+                raise ApiProblem(404, "bill_not_found", "Bill does not exist") from exc
+            if exc.code == "UNKNOWN_BILL_ITEM":
+                raise ApiProblem(
+                    422,
+                    "unknown_bill_item",
+                    "Bill does not contain one of these items",
+                ) from exc
+            raise ApiProblem(409, exc.code, "Bill assignment conflicted") from exc
+        return _wire_bill(record)
+
+    def detect_faces_in_context_photo(
+        self,
+        context_id: uuid.UUID,
+        photo_id: uuid.UUID,
+        actor: Actor,
+        detector: FaceDetector,
+    ) -> FaceBoxesResponse:
+        """Rectangles on a group photo, for a caller who may already see it.
+
+        The gate is `view_group_memories` -- the identical action the photo
+        route itself uses, not a new one. Minting `view_face_boxes` would have
+        read as diligence and would have created a second, independently
+        editable answer to "who may look at this picture", which is how a
+        feature becomes a way around the route it is derived from. ADR-0011 and
+        the F36 album entry in `permissions.py` make the same argument.
+
+        Nothing is stored. No table records that this ran, no row remembers a
+        rectangle, and the response is the only place the coordinates exist. A
+        face detected here leaves no trace once the response is written, which
+        is what makes this feature carry no consent question: there is nothing
+        retained to withdraw.
+        """
+
+        _require_permission(
+            "view_group_memories",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        record = self.repository.get_context_image(context_id, photo_id)
+        if record is None:
+            raise ApiProblem(404, "photo_not_found", "Photo does not exist")
+        try:
+            content = self.photo_storage.read(record.storage_key)
+        except FileNotFoundError:
+            raise ApiProblem(404, "photo_not_found", "Photo does not exist") from None
+
+        try:
+            detection = detector.detect(content)
+        except FaceDetectorUnavailable:
+            # 503 and not 422: no photograph the caller could send would fix a
+            # model that is not installed, so this is not their request being
+            # wrong. Same distinction `receipts.py` draws for a missing key.
+            raise ApiProblem(
+                503,
+                "face_detector_not_configured",
+                "Máy chủ chưa cài mô hình tìm khuôn mặt nên không quét được "
+                "ảnh. Đây là lỗi cấu hình phía máy chủ, không phải ảnh bạn "
+                "chụp — chụp lại cũng không giúp được.",
+            ) from None
+
+        try:
+            boxes = anonymous_boxes(
+                [
+                    {
+                        "x": box.x,
+                        "y": box.y,
+                        "width": box.width,
+                        "height": box.height,
+                    }
+                    for box in detection.boxes
+                ],
+                image_width=detection.image_width,
+                image_height=detection.image_height,
+            )
+        except FaceError as exc:
+            if exc.code == "TOO_MANY_FACES":
+                raise ApiProblem(
+                    422,
+                    "too_many_faces",
+                    f"Ảnh này có quá nhiều khuôn mặt (tối đa {MAX_FACES}). "
+                    "Hãy chọn ảnh chụp gần hơn để mọi người bấm đúng ô của mình.",
+                ) from None
+            # Everything else is the detector contradicting itself -- a
+            # negative size, a rectangle outside the picture. The caller cannot
+            # act on that and must not be told it was their photograph's fault.
+            raise ApiProblem(
+                502,
+                "face_detection_failed",
+                "Không tìm được khuôn mặt trong ảnh lúc này, thử lại sau.",
+            ) from None
+
+        return FaceBoxesResponse(
+            photo_id=photo_id,
+            boxes=[FaceBoxResponse.model_validate(box) for box in boxes],
+        )
 
     def split_bill(
         self,
