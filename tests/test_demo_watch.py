@@ -227,6 +227,73 @@ def test_luot_canh_khong_doi_chieu_duoc_khong_bi_doc_thanh_khop(tmp_path):
     assert _status(tmp_path) == watch.EXIT_CANNOT_RUN
 
 
+def test_khong_doi_chieu_duoc_phai_noi_LY_DO_chu_khong_phai_do_lien_ref(
+    tmp_path, capsys
+):
+    """Mã thoát đúng mà chẩn đoán sai vẫn gửi người đọc đi sửa nhầm chỗ.
+
+    Đo trên máy demo lúc 19:25 ngày 30/08. Lượt cron 19:20 hỏng vì `git fetch`
+    đụng nhau trong `/home/lakiet/mobile` (repo dùng chung nhiều lane):
+
+        state: "khong-doi-chieu-duoc"
+        reason: "không fetch được ...: cannot lock ref 'refs/remotes/origin/main'"
+
+    Bản ghi loại này KHÔNG có trường `ref` — lượt canh chết trước khi kịp chọn
+    ref. Nhưng phép kiểm `--expect-ref` chạy TRƯỚC phép kiểm `state`, nên
+    `data.get("ref")` ra `None`, lệch `origin/main`, và `status` in ra:
+
+        phán quyết gần nhất là về 'None', không phải 'origin/main'.
+        Chĩa lại lượt canh:  scripts/demo_watch.py install --apply --ref origin/main
+
+    Lượt canh ĐANG chĩa đúng `origin/main`. Lệnh gợi ý là no-op, và lý do thật
+    (fetch hỏng) bị nuốt hoàn toàn. Người vận hành chạy lệnh đó, thấy không đổi
+    gì, và mất niềm tin vào chính cái cổng đang nói thật.
+    """
+    # Ghi qua chính `record()` mà `cmd_run` dùng, KHÔNG qua `_write_status`.
+    # Helper kia bơm sẵn `ref` + `ref_sha` vào mọi bản ghi, nên nó dựng ra một
+    # hình dạng sản phẩm không bao giờ sinh ra — và với nó ca này xanh sẵn,
+    # trong khi máy thật đang đỏ. Bản ghi thật của một lượt hỏng có đúng sáu
+    # trường: schema, ts, ts_iso, state, exit, reason.
+    watch.record(
+        watch.status_path(tmp_path),
+        state=watch.STATE_CANNOT,
+        code=watch.EXIT_CANNOT_RUN,
+        detail={
+            "reason": "không fetch được 'origin': "
+            "cannot lock ref 'refs/remotes/origin/main'"
+        },
+    )
+    assert "ref" not in json.loads(
+        watch.status_path(tmp_path).read_text(encoding="utf-8")
+    ), "fixture hỏng: bản ghi thật của lượt hỏng KHÔNG có trường ref"
+
+    assert _status(tmp_path) == watch.EXIT_CANNOT_RUN
+
+    err = capsys.readouterr().err
+    assert "cannot lock ref" in err, (
+        "lý do thật của lượt canh bị nuốt — bản ghi có ghi, status không in ra"
+    )
+    assert "về 'None'" not in err, (
+        "bản ghi 'không đối chiếu được' không có ref; báo nó là 'phán quyết về "
+        "nhánh None' là chẩn đoán sai"
+    )
+    assert "install --apply --ref" not in err, (
+        "gợi ý chĩa lại lượt canh là no-op ở đây: nó đã chĩa đúng origin/main"
+    )
+
+
+def test_state_la_khong_bao_gio_la_dat(tmp_path, capsys):
+    """Một `state` bản này không biết đọc là "không biết", và không biết ≠ đạt.
+
+    Bản ghi có thể do một bản demo_watch mới hơn viết ra, hoặc do người sửa tay.
+    Nhánh mặc định phải đi về mã 2. Đây là chỗ dễ trượt thành `return EXIT_OK`
+    khi ai đó dọn if/elif.
+    """
+    _write_status(tmp_path, ts=time.time() - 60, state="mot-trang-thai-tuong-lai")
+    assert _status(tmp_path) == watch.EXIT_CANNOT_RUN
+    assert "KHÔNG ĐỐI CHIẾU ĐƯỢC" in capsys.readouterr().err
+
+
 def test_ban_ghi_hong_khong_bao_gio_la_dat(tmp_path):
     """JSON hỏng và schema lạ đều là "không biết", và không biết thì không đạt."""
     path = watch.status_path(tmp_path)

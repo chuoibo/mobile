@@ -49,8 +49,25 @@ MUTATIONS = [
         "KHONG-SO-DUOC-LA-DAT",
         RED,
         "lượt canh 'không đối chiếu được' bị đọc thành khớp",
-        '    return cannot(\n        f"lần canh gần nhất không đối chiếu được:',
-        '    return EXIT_OK\n    return cannot(\n        f"lần canh gần nhất không đối chiếu được:',
+        '    if data.get("state") == STATE_CANNOT:\n        return khong_doi_chieu_duoc()',
+        '    if data.get("state") == STATE_CANNOT:\n        return EXIT_OK',
+    ),
+    (
+        "LY-DO-BI-NUOT-BOI-KIEM-REF",
+        RED,
+        "bản ghi hỏng rơi vào phép kiểm --expect-ref, ra 'phán quyết về None' và "
+        "nuốt lý do thật — mã đúng, chẩn đoán sai",
+        '    if data.get("state") == STATE_CANNOT:\n        return khong_doi_chieu_duoc()\n\n',
+        "",
+    ),
+    (
+        "TRANG-THAI-LA-LA-DAT",
+        RED,
+        "state lạ (bản ghi của bản sau, hoặc bị sửa tay) bị đọc thành khớp",
+        "    # Any state that is neither khop nor lech: a record this version does not\n"
+        "    # know how to read is not a pass.\n"
+        "    return khong_doi_chieu_duoc()",
+        "    return EXIT_OK",
     ),
     (
         "BAN-GHI-LA-VAN-DOC",

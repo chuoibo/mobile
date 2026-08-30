@@ -416,6 +416,27 @@ def cmd_status(args: argparse.Namespace) -> int:
             f"   Kiểm:  crontab -l | grep -A2 '{CRON_BEGIN}'"
         )
 
+    def khong_doi_chieu_duoc() -> int:
+        return cannot(
+            f"lần canh gần nhất không đối chiếu được: {data.get('reason', '(không ghi)')}"
+        )
+
+    # A "could not compare" record never got as far as choosing a ref, so it has
+    # no `ref` field at all. Letting the --expect-ref check below see it first
+    # reads that absence as `None`, reports "the last verdict is about 'None',
+    # not 'origin/main'", and offers to re-point a watcher that is already
+    # pointed at origin/main -- while swallowing the reason the record does
+    # carry. Measured on the demo host at 19:25 on 2026-08-30, after a
+    # concurrent `git fetch` in the shared checkout failed the round:
+    #
+    #   ghi:  reason "không fetch được ... cannot lock ref refs/remotes/origin/main"
+    #   in :  "phán quyết gần nhất là về 'None'" + install --apply --ref origin/main
+    #
+    # Exit 2 was right and the repair it named was a no-op. So this state is
+    # answered before the ref question, which does not apply to it.
+    if data.get("state") == STATE_CANNOT:
+        return khong_doi_chieu_duoc()
+
     # A verdict names the ref it was measured against, and until now `status`
     # printed that name without ever comparing it. On 2026-08-30 the only record
     # on the demo host said state "khop", ref "devops/may-demo-theo-main",
@@ -461,9 +482,9 @@ def cmd_status(args: argparse.Namespace) -> int:
         for path_name in extra:
             print(f"      THỪA  {path_name}", file=sys.stderr)
         return EXIT_DIFFERS
-    return cannot(
-        f"lần canh gần nhất không đối chiếu được: {data.get('reason', '(không ghi)')}"
-    )
+    # Any state that is neither khop nor lech: a record this version does not
+    # know how to read is not a pass.
+    return khong_doi_chieu_duoc()
 
 
 def watcher_in(repo: Path) -> Path:
