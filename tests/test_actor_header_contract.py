@@ -30,6 +30,7 @@ tội oan. Phần "không chứng minh gì" đầy đủ nằm ở đầu script
 
 from __future__ import annotations
 
+import os
 import pathlib
 import subprocess
 import sys
@@ -42,13 +43,14 @@ SCRIPT = REPO_ROOT / "scripts" / "check_actor_headers.py"
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 
-def _run(*args: str) -> subprocess.CompletedProcess:
+def _run(*args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, str(SCRIPT), *args],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
         timeout=300,
+        env={**os.environ, **(env or {})},
     )
 
 
@@ -381,15 +383,19 @@ export async function askSearch(query: string): Promise<void> {
 """
 
     def _run_with(self, source: str) -> subprocess.CompletedProcess:
-        """Thả một file vào cây client thật rồi chạy cổng, y như --selftest làm."""
+        """Chạy cổng với một file mẫu ở thư mục tạm, KHÔNG đụng cây client thật.
+
+        Bản trước thả file vào chính `apps/mobile/src` rồi xoá đi. Đo được: cây
+        client bẩn 9,3 giây trên 12 giây mà file này chạy, và mọi bộ đọc khác
+        soi thư mục đó trong cửa sổ ấy đều đọc lệch — kể cả chính cổng này, nó
+        in "HỎNG" và trỏ vào một file không nằm trong git.
+        `tests/test_gates_do_not_touch_the_client_tree.py` gác chỗ này.
+        """
         import check_actor_headers as mod
 
-        target = mod.CLIENT_DIR / "__actor_exit_code_case__.ts"
-        target.write_text(source, encoding="utf-8")
-        try:
-            return _run()
-        finally:
-            target.unlink(missing_ok=True)
+        with tempfile.TemporaryDirectory(prefix="actor-exit-code-") as tmp:
+            (pathlib.Path(tmp) / "mau.ts").write_text(source, encoding="utf-8")
+            return _run(env={mod.EXTRA_CLIENT_DIR_ENV: tmp})
 
     def test_a_url_it_cannot_read_exits_two_not_one(self):
         done = self._run_with(self.BLIND_BUT_CORRECT)

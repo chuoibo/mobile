@@ -233,7 +233,14 @@ class Region:
 
     @property
     def where(self) -> str:
-        return f"{self.file.relative_to(REPO_ROOT)}:{self.line} {self.name}()"
+        # Một file dựng tạm (canary, ca test) nằm ngoài repo, và `relative_to`
+        # ném ValueError chứ không trả về đường dẫn tuyệt đối. Rơi về đường dẫn
+        # đầy đủ thay vì làm cổng chết giữa lúc đang in báo cáo.
+        try:
+            where = self.file.relative_to(REPO_ROOT)
+        except ValueError:
+            where = self.file
+        return f"{where}:{self.line} {self.name}()"
 
 
 def strip_noise(src: str) -> str:
@@ -374,12 +381,28 @@ def regions_of(path: Path) -> list[Region]:
     return out
 
 
+#: Thư mục ĐỌC THÊM, dành cho ca test cần thả một file mẫu trước mặt bộ đọc mà
+#: không được bẩn cây client thật. Cố ý là CỘNG THÊM chứ không phải THAY THẾ:
+#: một biến môi trường đổi được phạm vi quét là một cửa hậu — trỏ nó vào một
+#: thư mục chỉ có một lời gọi sạch thì cổng xanh trong khi cây thật đang hỏng,
+#: và phép gác `call_sites == 0` không bắt được vì con số đó là 1. Cộng thêm thì
+#: chỉ làm cổng ồn hơn, không bao giờ làm nó im hơn.
+EXTRA_CLIENT_DIR_ENV = "MOBILE_ACTOR_EXTRA_CLIENT_DIR"
+
+
+def _scan_roots() -> list[Path]:
+    roots = [CLIENT_DIR]
+    extra = os.environ.get(EXTRA_CLIENT_DIR_ENV)
+    if extra:
+        roots.append(Path(extra))
+    return [r for r in roots if r.is_dir()]
+
+
 def client_files() -> list[Path]:
-    if not CLIENT_DIR.is_dir():
-        return []
     return sorted(
         p
-        for p in CLIENT_DIR.rglob("*")
+        for root in _scan_roots()
+        for p in root.rglob("*")
         if p.suffix in {".ts", ".tsx"}
         and ".test." not in p.name
         and "__tests__" not in p.parts
@@ -861,7 +884,12 @@ def selftest() -> int:
         ("canary mù/sạch", CANARY_GOOD, _blind_url, False),
     ):
         tmp = Path(tempfile.mkdtemp(prefix="actor-canary-"))
-        target = CLIENT_DIR / "__actor_canary__.ts"
+        # Cố ý KHÔNG ghi vào CLIENT_DIR. `build_graph` nhận thẳng danh sách file
+        # nên canary không cần nằm trong cây client để được đọc; bản trước ghi
+        # vào đó và cây client thật bẩn trong lúc mỗi lượt gate chạy, đủ để bộ
+        # đọc của lane khác thấy và buộc tội sản phẩm. Thư mục tạm này vốn đã
+        # được tạo sẵn ở dòng trên mà không ai dùng — đây là chỗ nó phải dùng.
+        target = tmp / "__actor_canary__.ts"
         try:
             target.write_text(source, encoding="utf-8")
             regions = build_graph([target])
