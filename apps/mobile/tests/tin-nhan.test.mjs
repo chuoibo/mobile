@@ -23,6 +23,7 @@ import {
   khoangGia,
   theTuCard,
 } from "../dist-test/screens/chat/ke-hoach.js";
+import { personById } from "../dist-test/navigation/nhom-demo.js";
 import { khoiDongNhom, thanNhuSeed } from "../dist-test/screens/chat/nhom.js";
 import {
   cursorCuNhat,
@@ -465,7 +466,7 @@ test("409 khi accept là thành công, không phải lỗi", async () => {
       });
     }
     return res("unexpected", { status: 500, ok: false });
-  }, () => khoiDongNhom("trang", { base: "http://x" }));
+  }, () => khoiDongNhom(personById("trang"), { base: "http://x" }));
   assert.equal(s.kind, "xong", s.kind === "hong" ? `${s.buoc} ${s.url} ${s.detail}` : "");
   assert.equal(s.contextId, CTX);
   assert.equal(s.members.length, 1);
@@ -476,7 +477,7 @@ test("bước hỏng nói rõ bước nào và địa chỉ đã thử", async (
   const s = await withFetch(async (url, init) => {
     if ((init?.method ?? "GET") === "PUT") return res({ id: "p", display_name: "Minh" }, { status: 201 });
     return res("boom", { status: 500, ok: false });
-  }, () => khoiDongNhom("minh", { base: "http://x.invalid" }));
+  }, () => khoiDongNhom(personById("minh"), { base: "http://x.invalid" }));
   assert.equal(s.kind, "hong");
   assert.equal(s.buoc, "tao-nhom");
   assert.match(s.url, /http:\/\/x\.invalid\/contexts$/);
@@ -491,7 +492,7 @@ test("POST /contexts gửi đúng khoá write:context", async () => {
       return res("nope", { status: 500, ok: false });
     }
     return res({ id: "p", display_name: "Minh" }, { status: 201 });
-  }, () => khoiDongNhom("minh", { base: "http://x" }));
+  }, () => khoiDongNhom(personById("minh"), { base: "http://x" }));
   assert.deepEqual(keys, ["a871a4f2-6a3c-5202-9bba-a3120e1f4c76"]);
 });
 
@@ -527,7 +528,7 @@ test("POST /contexts gửi thân theo byte của seed, không phải JSON.string
       return res("nope", { status: 500, ok: false });
     }
     return res({ id: "p", display_name: "Minh" }, { status: 201 });
-  }, () => khoiDongNhom("minh", { base: "http://x" }));
+  }, () => khoiDongNhom(personById("minh"), { base: "http://x" }));
   assert.deepEqual(bodies, ['{"display_name": "Team \\u0110\\u00e0 L\\u1ea1t"}']);
   assert.notEqual(bodies[0], JSON.stringify({ display_name: "Team Đà Lạt" }));
 });
