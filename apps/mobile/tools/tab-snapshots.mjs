@@ -120,6 +120,34 @@ export const MAN_KHAC = [
   // purpose; `tests/quet-man-sau-nut.test.mjs` holds that difference so it
   // cannot be "tidied" into consistency with the rows above.
   { step: "dang-ky", frag: "vao=dang-ky", needle: "Vào Rủ Đi" },
+
+  /* rd-fe-33. The two map screens, and the reason they are here at all.
+   *
+   * `#ban-do=1` and `#ban-do=hen` shipped as URL-reachable in the same change
+   * that built these screens, and the commit said so -- but neither step was
+   * added to this list, so nothing measured them. Reachable by URL and
+   * measured by URL are different claims, and for one merge the first was
+   * being read as the second: ~780 lines of new screen, scanned by nothing,
+   * under a table that printed a clean row for every screen it did visit.
+   *
+   * Both needles are loaded-state text, and each says what it proves.
+   * "Nhóm hay tụ ở đâu" is the heatmap section heading, which needs `/heatmap`
+   * to have returned AND parsed AND held at least one district -- and it is
+   * the LAST section on the screen, so it cannot paint until everything above
+   * it has laid out. It does not by itself prove the `/map` half loaded; that
+   * half draws its own refusal panel independently. The two share one stub
+   * block and one 404 fallthrough, so the realistic failure takes both down
+   * together, and the els/chars columns move loudly when only one does.
+   *
+   * Điểm hẹn waits on "Ai xuất phát từ đâu", the origin picker, which renders
+   * only in the `co-du-lieu` branch of the `/areas` read. It is honestly what
+   * a cold link opens: the result cards need two origins chosen and a button
+   * pressed, so they are NOT in this row. That state is scanned separately as
+   * `diem-hen-ket-qua` in `quet-tab-url.mjs`; a needle here naming a
+   * candidate would be naming text this URL never reaches.
+   */
+  { step: "ban-do", frag: `ban-do=1&nguoi=${NGUOI}`, needle: "Nhóm hay tụ ở đâu" },
+  { step: "diem-hen", frag: `ban-do=hen&nguoi=${NGUOI}`, needle: "Ai xuất phát từ đâu" },
 ];
 
 /** Every screen this tool visits, tabs and links alike, in one list. */
@@ -350,6 +378,81 @@ export function installTabStubs(apiBase, fixtures) {
         messages: fixtures.messages,
         next_cursor: null,
         has_more: false,
+      });
+    }
+
+    /* ---- Bản đồ nhóm, nhiệt độ quận, điểm hẹn (rd-fe-33, F43/F44/F45).
+     *
+     * `/areas` is ungated on the server and is answered the same way here.
+     * The other three are group-scoped, and the 404 fallthrough below is
+     * exactly what they hit before this block existed: the client reads 404
+     * as `chua-co-endpoint` and draws "Máy chủ này chưa có bản đồ nhóm", so
+     * both screens rendered a refusal panel. A scan of a refusal panel is
+     * short, quiet and scores zero findings, which is why the needle column
+     * for these two rows names text only the loaded screen prints.
+     *
+     * `/meet` is POST and is answered without reading the body. That is a
+     * deliberate limit and not an oversight: this stub photographs a screen,
+     * it does not re-implement `app/places/meeting.py`. The arithmetic tying
+     * origins to distances is the server's, and `tests/ban-do-nhom.test.mjs`
+     * is where the client's half of it is held. What this answer has to be is
+     * well-formed and stable, so the pixels under measurement are the app's.
+     */
+    if (route === "/areas") {
+      return json(fixtures.khuVuc);
+    }
+    if (route.endsWith("/map")) {
+      return json(fixtures.banDo);
+    }
+    if (route.endsWith("/heatmap")) {
+      return json(fixtures.nhietDo);
+    }
+    if (method === "POST" && route.endsWith("/meet")) {
+      // `origins` is ECHOED from the request, not replayed from the fixture.
+      // The server echoes because every kilometre in `travel` is measured from
+      // those centroids, and a screen that lists three districts the picker
+      // never offered is a screen contradicting itself in the one place a
+      // reader would check the arithmetic. `two_origin_inversion` is derived
+      // here for the same reason: it is a property of what was sent, and a
+      // hardcoded `false` would draw the answer on exactly the run that is
+      // supposed to withhold it behind the inversion warning.
+      let from = [];
+      try {
+        from = JSON.parse(init?.body ?? "{}").from_areas ?? [];
+      } catch {
+        /* no body, or not JSON; an empty origin list is the honest reading */
+      }
+      const bang = Object.fromEntries(fixtures.khuVuc.map((k) => [k.id, k]));
+      const origins = from.map((id) => bang[id]).filter(Boolean);
+      const candidates = fixtures.diemHen.candidates.map((ung) => {
+        const travel = origins.map((o) => ({ ...o, km: ung.km_theo_khu[o.id] ?? 0 }));
+        const kms = travel.map((t) => t.km);
+        const r1 = (n) => Math.round(n * 10) / 10;
+        return {
+          place_id: ung.place_id,
+          place_name: ung.place_name,
+          category: ung.category,
+          address: ung.address,
+          lat: ung.lat,
+          lng: ung.lng,
+          fairness: {
+            worst_km: r1(Math.max(0, ...kms)),
+            total_km: r1(kms.reduce((a, b) => a + b, 0)),
+            spread_km: r1(Math.max(0, ...kms) - Math.min(...(kms.length ? kms : [0]))),
+          },
+          travel,
+        };
+      });
+      // Ranked on `worst_km`, the same key the server sorts on and the key the
+      // screen's "Cân bằng nhất" badge is pinned to the first row by. Leaving
+      // the fixture order would put that badge on whichever candidate happens
+      // to be written first, which is the badge saying something false.
+      candidates.sort((a, b) => a.fairness.worst_km - b.fairness.worst_km);
+      return json({
+        context_id: fixtures.contextId,
+        origins,
+        candidates,
+        two_origin_inversion: new Set(from).size === 2,
       });
     }
 
@@ -803,6 +906,157 @@ export function taoFixtures() {
           context_name: "Hội Đà Lạt",
           occasion: "Lẩu gà lá é",
           occurred_at: "2026-08-28T13:00:00Z",
+        },
+      ],
+    },
+
+    /* ---- rd-fe-33. Bản đồ nhóm, nhiệt độ quận, điểm hẹn (F43/F44/F45).
+     *
+     * Three screens' worth of data, and the field names are the server's, not
+     * a convenient paraphrase: `parseBanDoNhom`, `parseNhietDo` and
+     * `parseDiemHen` in `screens/kham-pha/ban-do-nhom.ts` read `place_id`,
+     * `share_percent`, `two_origin_inversion` and the rest by those exact
+     * names and throw on anything missing. A misnamed key here does not
+     * degrade quietly -- it renders the "Dữ liệu bản đồ không đúng dạng"
+     * panel, the needle check below fails, and the run refuses to report.
+     * That is the intended failure: a fixture that has drifted from the
+     * schema cannot be mistaken for a screen that has a layout problem.
+     *
+     * The district ids are the real eight from `app/places/areas.py`, read off
+     * that module rather than invented, because `POST /contexts/{id}/meet`
+     * answers 422 for an id it does not know and the picker offers exactly
+     * what `/areas` returns. Inventing ids here would build a fixture that
+     * the real server would reject, which is the drift this stub exists to
+     * avoid.
+     */
+    khuVuc: [
+      { id: "da-lat", label: "Đà Lạt", lat: 11.9429, lng: 108.4428 },
+      { id: "hcm-quan-1", label: "Quận 1, TP.HCM", lat: 10.7769, lng: 106.7009 },
+      { id: "hcm-quan-3", label: "Quận 3, TP.HCM", lat: 10.784, lng: 106.687 },
+      { id: "hcm-quan-4", label: "Quận 4, TP.HCM", lat: 10.759, lng: 106.705 },
+    ],
+
+    // `unavailable` carries a row on purpose. The "saved" layer is declared
+    // rather than served, and `BanDoNhom` draws a card naming it -- an empty
+    // array here would photograph a map that quietly has three layers instead
+    // of one that says out loud which fourth it does not have.
+    banDo: {
+      context_id: contextId,
+      visited: [
+        {
+          place_id: "p-1",
+          place_name: "Tiệm Nướng Xóm Lào",
+          lat: 11.9404,
+          lng: 108.4419,
+          visit_count: 6,
+        },
+        {
+          place_id: "p-2",
+          place_name: "Cà phê Vườn",
+          lat: 11.9451,
+          lng: 108.4382,
+          visit_count: 3,
+        },
+      ],
+      trending: [
+        {
+          place_id: "p-3",
+          place_name: "Lẩu gà lá é Tao Ngộ",
+          lat: 11.9388,
+          lng: 108.4471,
+          rating: 4.6,
+          rating_count: 218,
+        },
+      ],
+      recommended: [
+        {
+          place_id: "p-4",
+          place_name: "Bánh căn Nhà Chung",
+          lat: 11.9462,
+          lng: 108.4395,
+          rating: 4.4,
+          rating_count: 91,
+        },
+      ],
+      unavailable: [
+        { layer: "saved", reason: "Chưa có chỗ nào được lưu, và màn lưu chỗ chưa dựng." },
+      ],
+      scanned_checkins: 42,
+      truncated: false,
+    },
+
+    // `unknown_area_count` is not zero, because the sentence disclosing it is
+    // a line of copy on the screen and a zero would hide it from every scan.
+    nhietDo: {
+      context_id: contextId,
+      areas: [
+        {
+          id: "da-lat",
+          label: "Đà Lạt",
+          lat: 11.9429,
+          lng: 108.4428,
+          visit_count: 22,
+          share_percent: 61,
+        },
+        {
+          id: "hcm-quan-1",
+          label: "Quận 1, TP.HCM",
+          lat: 10.7769,
+          lng: 106.7009,
+          visit_count: 9,
+          share_percent: 25,
+        },
+        {
+          id: "hcm-quan-3",
+          label: "Quận 3, TP.HCM",
+          lat: 10.784,
+          lng: 106.687,
+          visit_count: 5,
+          share_percent: 14,
+        },
+      ],
+      resolved_checkins: 36,
+      unknown_area_count: 6,
+      scanned_checkins: 42,
+      truncated: false,
+    },
+
+    /* The meeting-point answer, stored as distances PER DISTRICT rather than
+     * as a finished `travel` list.
+     *
+     * The screen prints one leg per origin, and the origins are whatever the
+     * picker was driven to choose -- which is not known when this fixture is
+     * written. A canned `travel` list would therefore render legs for
+     * districts nobody selected, on the one screen whose entire purpose is
+     * showing that the distances are fair to the people present. That is a
+     * fixture contradicting itself in the exact place a reader checks.
+     *
+     * So `km_theo_khu` is a lookup, and the stub builds `travel` and
+     * `fairness` from it against the origins actually sent. That is arithmetic
+     * over a table, not a second copy of `app/places/meeting.py`: no distance
+     * is computed here, only selected, summed and ranged. The real geometry
+     * stays on the server, where `tests/api/test_areas.py` holds it.
+     */
+    diemHen: {
+      context_id: contextId,
+      candidates: [
+        {
+          place_id: "p-5",
+          place_name: "Quán Cơm Niêu Sài Gòn",
+          category: "quan-an-local",
+          address: "148 Nguyễn Đình Chiểu, Quận 3, TP.HCM",
+          lat: 10.7825,
+          lng: 106.6889,
+          km_theo_khu: { "da-lat": 231.4, "hcm-quan-1": 4.0, "hcm-quan-3": 0.8, "hcm-quan-4": 3.1 },
+        },
+        {
+          place_id: "p-6",
+          place_name: "Cà phê Thềm Xưa",
+          category: "cafe",
+          address: "31 Lê Thánh Tôn, Quận 1, TP.HCM",
+          lat: 10.7776,
+          lng: 106.7015,
+          km_theo_khu: { "da-lat": 233.9, "hcm-quan-1": 0.1, "hcm-quan-3": 4.6, "hcm-quan-4": 2.2 },
         },
       ],
     },

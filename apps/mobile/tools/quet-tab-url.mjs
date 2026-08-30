@@ -260,19 +260,61 @@ const MAN_TUONG_TAC = [
     bam: "☰",
     needle: "Quang Huy",
   },
+  /* rd-fe-33. Điểm hẹn's answer, which is the whole feature and which no cold
+   * URL reaches: the button that asks for it is disabled until two people have
+   * been placed, so `ban-do=hen` alone only ever renders the picker.
+   *
+   * Three presses, and "+" twice is not a typo -- each press adds one person to
+   * the first district, and two people is the minimum the request accepts.
+   * Both start from Đà Lạt, which makes this one origin rather than two, and
+   * that is deliberate: with two DISTINCT areas the answer is invertible and
+   * `DiemHen` withholds the result behind the inversion warning, so a
+   * two-district selection would scan the warning under this filename.
+   *
+   * The needle is "Cân bằng nhất", the badge on the winning candidate. It is
+   * printed by nothing else on the screen and cannot render before the answer
+   * arrives, so a press that missed cannot pass as a result.
+   */
+  {
+    step: "diem-hen-ket-qua",
+    frag: `ban-do=hen&nguoi=${NGUOI}`,
+    bam: ["+", "+", "Tìm chỗ gặp"],
+    needle: "Cân bằng nhất",
+  },
 ];
 
-/** Serialised into the page, so it can reference nothing outside itself. */
-function tuDongBam(tienTo) {
+/** Serialised into the page, so it can reference nothing outside itself.
+ *
+ * `chuoiBam` is a LIST of prefixes pressed in order, each one waited for
+ * separately. One press was enough while every interactive state on this app
+ * was one button away from a cold URL, but Điểm hẹn's result is three: two
+ * origins have to be chosen before "Tìm chỗ gặp" stops being disabled. Pressing
+ * them in a single pass without re-waiting would click a control that the
+ * previous press had not yet caused to render, and the miss would surface as a
+ * needle failure naming the wrong cause.
+ *
+ * Each step waits for a control whose text starts with the prefix AND which is
+ * not disabled -- the button here spends its first two presses disabled, and
+ * clicking a disabled button succeeds silently while doing nothing.
+ */
+function tuDongBam(chuoiBam) {
+  const buoc = Array.isArray(chuoiBam) ? chuoiBam : [chuoiBam];
   const t0 = Date.now();
+  let i = 0;
   (function poll() {
-    const el = [...document.querySelectorAll("button, [role='button']")].find((n) =>
-      n.textContent.replace(/\s+/g, " ").trim().startsWith(tienTo),
-    );
+    if (i >= buoc.length) return;
+    const el = [...document.querySelectorAll("button, [role='button']")].find((n) => {
+      if (n.disabled || n.getAttribute("aria-disabled") === "true") return false;
+      return n.textContent.replace(/\s+/g, " ").trim().startsWith(buoc[i]);
+    });
     if (el) {
       el.scrollIntoView({ block: "center", inline: "nearest" });
       if (document.scrollingElement) document.scrollingElement.scrollLeft = 0;
       el.click();
+      i += 1;
+      // Back through the poller rather than straight on to the next prefix:
+      // the control the next step wants is usually rendered BY this click.
+      setTimeout(poll, 60);
       return;
     }
     // Give up quietly. The needle check downstream is what turns a missed press
