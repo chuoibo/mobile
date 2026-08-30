@@ -2327,3 +2327,241 @@ export async function docTuongNguoi(
   );
   return result.posts ?? [];
 }
+
+/* ------------------------------------------- group voting, F17 (rd-fe-17) */
+
+/**
+ * One choice on the ballot, as the server counts it.
+ *
+ * `ballot_count` arrives already tallied. The app must not recount it from
+ * anything else it holds: `src/screens/chat/binh-chon.ts` folds ballots out of
+ * chat messages for the older message-backed card, and two live vote counters
+ * in one product is the same class of failure as two splitters. These types
+ * are the server's answer, and nothing here derives a second one.
+ */
+export type LuaChonWire = {
+  id: string;
+  position: number;
+  label: string;
+  place_name: string | null;
+  ballot_count: number;
+};
+
+/**
+ * One vote, with the result already decided by the domain.
+ *
+ * Four fields carry the outcome and none of them is computed here:
+ *
+ *  - `leading_option_ids` is every option level at the top. It has more than
+ *    one entry exactly when the vote is tied.
+ *  - `is_tie` says so directly, so no screen has to infer a tie from a list
+ *    length and get it wrong on the empty-vote case.
+ *  - `decided_option_id` is null while it is tied and while it is open. A
+ *    screen that wants "the winner" must read this and accept null, never
+ *    fall back to `leading_option_ids[0]` -- picking the first of a tie is
+ *    choosing a side the group did not choose.
+ *  - `my_option_id` is the caller's own ballot, resolved from the actor
+ *    header. There is no request field that could name anybody else.
+ */
+export type CuocBinhChonWire = {
+  id: string;
+  context_id: string;
+  outing_id: string | null;
+  created_by_id: string;
+  question: string;
+  created_at: string;
+  closed_at: string | null;
+  is_closed: boolean;
+  options: LuaChonWire[];
+  total_ballots: number;
+  leading_option_ids: string[];
+  is_tie: boolean;
+  decided_option_id: string | null;
+  my_option_id: string | null;
+};
+
+/** The receipt for one ballot. `replaced_previous_ballot` is how the screen
+ *  knows to say "đã đổi phiếu" rather than "đã bỏ phiếu". */
+export type PhieuDaBoWire = {
+  vote_id: string;
+  option_id: string;
+  voter_id: string;
+  created_at: string;
+  updated_at: string;
+  replaced_previous_ballot: boolean;
+};
+
+/**
+ * What a refused ballot means to the person holding the phone.
+ *
+ * `vote_closed` is the one worth having words for: it is not an error the
+ * person can fix, it is news. Somebody closed the vote between the screen
+ * loading and the tap landing, and the answer is to re-read the result, not
+ * to try again.
+ */
+const BINH_CHON_REFUSALS: Record<string, string> = {
+  vote_closed:
+    "Cuộc bình chọn này đã đóng nên không đổi phiếu được nữa. Kéo xuống để xem kết quả.",
+  vote_already_closed:
+    "Cuộc bình chọn này đã đóng nên không đổi phiếu được nữa. Kéo xuống để xem kết quả.",
+  option_not_found:
+    "Lựa chọn này không còn trong cuộc bình chọn. Tải lại rồi chọn lại giúp mình.",
+  permission_denied:
+    "Bạn không ở trong nhóm này nên không xem được cuộc bình chọn.",
+  not_vote_creator:
+    "Chỉ người mở cuộc bình chọn mới đóng được nó.",
+};
+
+/** Every vote in one group, newest handling left to the server's order. */
+export async function docDanhSachBinhChon(
+  contextId: string,
+  actorId: string,
+): Promise<CuocBinhChonWire[]> {
+  const result = await translated<{ context_id: string; votes: CuocBinhChonWire[] }>(
+    BINH_CHON_REFUSALS,
+    `/contexts/${contextId}/votes`,
+    { method: "GET", actorId, roles: "member", contexts: contextId },
+  );
+  return result.votes ?? [];
+}
+
+/** One vote and its current tally. Members only, enforced server-side. */
+export async function docBinhChon(
+  voteId: string,
+  actorId: string,
+  contextId: string,
+): Promise<CuocBinhChonWire> {
+  return translated<CuocBinhChonWire>(BINH_CHON_REFUSALS, `/votes/${voteId}`, {
+    method: "GET",
+    actorId,
+    roles: "member",
+    contexts: contextId,
+  });
+}
+
+/**
+ * Cast, or change, this caller's ballot.
+ *
+ * The body carries `option_id` and nothing else -- there is no `voter_id` to
+ * send, because the server reads the voter off the actor header. Changing your
+ * mind is the same call with a different option, which is why no
+ * `Idempotency-Key` is sent: the route is idempotent by design, and a key
+ * fingerprinted on method + path + body would refuse the honest case of
+ * somebody tapping back onto the option they had already chosen.
+ */
+export async function boPhieu(
+  voteId: string,
+  optionId: string,
+  actorId: string,
+  contextId: string,
+): Promise<PhieuDaBoWire> {
+  return translated<PhieuDaBoWire>(BINH_CHON_REFUSALS, `/votes/${voteId}/ballots`, {
+    method: "POST",
+    body: { option_id: optionId },
+    actorId,
+    roles: "member",
+    contexts: contextId,
+  });
+}
+
+/**
+ * Close the vote. The answer is the vote re-read, not an acknowledgement.
+ *
+ * The caller replaces its state with the response for the same reason
+ * `luuGanMon` does: `is_closed`, `decided_option_id` and `is_tie` become true
+ * because the server said so, not because the app decided locally that the
+ * tap had worked.
+ */
+export async function dongBinhChon(
+  voteId: string,
+  actorId: string,
+  contextId: string,
+): Promise<CuocBinhChonWire> {
+  return translated<CuocBinhChonWire>(BINH_CHON_REFUSALS, `/votes/${voteId}/close`, {
+    method: "POST",
+    actorId,
+    roles: "member",
+    contexts: contextId,
+  });
+}
+
+/* -------------------------------------- self-tagging, F22 (rd-fe-22) */
+
+/**
+ * Claim the dishes you ate. Only ever your own.
+ *
+ * `item_keys` is the caller's COMPLETE set of claims on this bill, not an
+ * addition to it -- the server releases every key absent from the list. That
+ * is how a mis-tap is undone without a second endpoint, and it is why the
+ * screen sends the whole tick state rather than a delta.
+ *
+ * There is no `participant_id` in the body and there cannot be one: the
+ * server's model forbids extra fields, so a body naming anybody is a 422
+ * before a line of its code runs. The person charged is the caller.
+ */
+export async function nhanMonCuaToi(
+  billId: string,
+  itemKeys: readonly string[],
+  actorId: string,
+  contextId: string,
+): Promise<BillWire> {
+  return call<BillWire>(`/bills/${billId}/my-items`, {
+    method: "POST",
+    body: { item_keys: [...itemKeys] },
+    actorId,
+    roles: "member",
+    contexts: contextId,
+  });
+}
+
+/**
+ * One rectangle on a group photograph, as a fraction of the image.
+ *
+ * Fractions rather than pixels, so the overlay is drawn against whatever size
+ * the frame happens to be laid out at. There is nothing identifying in here:
+ * `box_key` is an ordinal within one response, is not derived from the pixels,
+ * and is NOT stable between requests -- so two responses cannot be joined on
+ * it, and a claim stored against one is meaningless after a re-scan.
+ */
+export type OKhuonMatWire = {
+  box_key: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type KhuonMatWire = {
+  photo_id: string;
+  boxes: OKhuonMatWire[];
+};
+
+const KHUON_MAT_REFUSALS: Record<string, string> = {
+  rate_limited:
+    "Máy đang tìm khuôn mặt cho nhiều tấm quá. Chờ một chút rồi thử lại giúp mình.",
+  face_detection_unavailable:
+    "Máy chưa tìm được khuôn mặt trên tấm này. Bạn vẫn chọn người bằng tay được.",
+  permission_denied:
+    "Bạn không ở trong nhóm này nên không mở được tấm ảnh.",
+};
+
+/**
+ * Find the faces in one group photograph the caller may already see.
+ *
+ * POST on a route that reads and stores nothing, which looks wrong until you
+ * read the server's note: a GET invites a client to poll it and a remounting
+ * screen to re-issue it, and each run is a multi-megapixel cascade on the box
+ * the money routes share. There is no request body, so there is no field
+ * through which this app could name a person or pick a detector.
+ */
+export async function timKhuonMat(
+  contextId: string,
+  photoId: string,
+  actorId: string,
+): Promise<KhuonMatWire> {
+  return translated<KhuonMatWire>(
+    KHUON_MAT_REFUSALS,
+    `/contexts/${contextId}/photos/${photoId}/face-boxes`,
+    { method: "POST", actorId, roles: "member", contexts: contextId },
+  );
+}

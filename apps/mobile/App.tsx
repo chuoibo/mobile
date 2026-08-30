@@ -47,7 +47,12 @@ import {
   type PublishGates,
   type SavedBankRecipient,
   type SplitPreview,
+  type CuocBinhChonWire,
 } from "./src/api";
+import { BinhChon } from "./src/screens/binh-chon/BinhChon";
+import { bangKetQuaTuWire } from "./src/screens/binh-chon/ket-qua";
+import { MonCuaToi } from "./src/screens/bill/MonCuaToi";
+import { NhanMatTrenAnh } from "./src/screens/nhan-mat/NhanMatTrenAnh";
 import type { BillWire, SoDu } from "./src/bill";
 import { CoLoi, DangTai, TrongRong } from "./src/ui/TrangThai";
 import { moTaLoi } from "./src/ui/loi-tren-man";
@@ -1313,11 +1318,169 @@ function XemGoiYChia() {
   );
 }
 
+/* ---- F17 and F22, from a URL, web only ------------------------------------
+ *
+ * Same contract as the scan targets above: one exact parameter value, nothing
+ * on native, the real components with the real copy, no writes, and no route
+ * from here into the product. These three are the newest screens in the app
+ * and the ones a headless browser could otherwise never open -- a vote needs a
+ * group with a vote in it, and both F22 screens need a photograph somebody
+ * took. Without a door, "the app was scanned" would be silent about all three.
+ *
+ * `?man=binh-chon-hoa` exists as its own value rather than a toggle because a
+ * TIE is the state the whole surface is built around, it cannot be reached by
+ * pressing anything from the open state, and it is the one a reviewer most
+ * needs to see. The two vote fixtures go through `bangKetQuaTuWire` rather
+ * than being hand-written view models, so a door that renders is also evidence
+ * the translation runs -- a fixture typed straight into `BangKetQua` would
+ * keep painting after the wire changed shape underneath it.
+ */
+const WIRE_BINH_CHON: CuocBinhChonWire = {
+  id: "d1d1d1d1-aaaa-4aaa-8aaa-d1d1d1d1d1d1",
+  context_id: "d2d2d2d2-bbbb-4bbb-8bbb-d2d2d2d2d2d2",
+  outing_id: null,
+  created_by_id: "d3d3d3d3-cccc-4ccc-8ccc-d3d3d3d3d3d3",
+  question: "Tối nay nhóm mình ăn ở đâu?",
+  created_at: "2026-08-30T12:00:00Z",
+  closed_at: null,
+  is_closed: false,
+  options: [
+    { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", position: 0, label: "Lẩu Cô Ba", place_name: "Lẩu Cô Ba, Bàn Cờ", ballot_count: 3 },
+    { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", position: 1, label: "Nướng Ngói", place_name: "Nướng Ngói, Quận 3", ballot_count: 2 },
+    { id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", position: 2, label: "Cơm tấm bà Tư", place_name: null, ballot_count: 1 },
+  ],
+  total_ballots: 6,
+  leading_option_ids: ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
+  is_tie: false,
+  decided_option_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  my_option_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+};
+
+/* Closed, and tied three-all. `decided_option_id` is null because the server
+ * refuses to name a winner here, and the screen must refuse too. */
+const WIRE_BINH_CHON_HOA: CuocBinhChonWire = {
+  ...WIRE_BINH_CHON,
+  is_closed: true,
+  closed_at: "2026-08-30T13:30:00Z",
+  options: WIRE_BINH_CHON.options.map((o, i) => ({ ...o, ballot_count: [3, 3, 0][i] })),
+  total_ballots: 6,
+  leading_option_ids: [
+    "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+  ],
+  is_tie: true,
+  decided_option_id: null,
+};
+
+function XemBinhChon() {
+  const c = usePalette();
+  const hoa = manThamSo() === "binh-chon-hoa";
+  const wire = hoa ? WIRE_BINH_CHON_HOA : WIRE_BINH_CHON;
+  // Local, so a keyboard pass can actually move the ballot. A radio group whose
+  // selection never changes is a control a walk-through cannot exercise.
+  const [phieu, setPhieu] = useState<string | null>(wire.my_option_id);
+  const bang = bangKetQuaTuWire({ ...wire, my_option_id: phieu });
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
+      <StatusBar style="dark" />
+      <BinhChon
+        bang={bang}
+        dangGui={null}
+        loi={null}
+        laNguoiMo={!hoa}
+        onChonPhieu={setPhieu}
+        onDong={() => {}}
+        onQuayLai={() => {}}
+      />
+    </SafeAreaView>
+  );
+}
+
+const MON_DEMO = [
+  { itemKey: "lau-thai", ten: "Lẩu Thái chua cay", soLuong: 1, tienVnd: 320000 },
+  { itemKey: "bo-my", ten: "Bò Mỹ cuộn nấm", soLuong: 2, tienVnd: 240000 },
+  { itemKey: "rau", ten: "Rau nhúng thập cẩm", soLuong: 1, tienVnd: 60000 },
+  { itemKey: "bia", ten: "Bia Sài Gòn", soLuong: 6, tienVnd: 150000 },
+  { itemKey: "trang-mieng", ten: "Chè khúc bạch", soLuong: 3, tienVnd: 75000 },
+];
+
+function XemMonCuaToi() {
+  const c = usePalette();
+  const [daChon, setDaChon] = useState<string[]>(["lau-thai", "bia"]);
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
+      <StatusBar style="dark" />
+      <MonCuaToi
+        tenNhom="Hội bạn Bàn Cờ"
+        mon={MON_DEMO}
+        daChon={daChon}
+        dangLuu={false}
+        loi={null}
+        onBat={(key) =>
+          setDaChon((cu) =>
+            cu.includes(key) ? cu.filter((k) => k !== key) : [...cu, key],
+          )
+        }
+        onLuu={() => {}}
+        onQuayLai={() => {}}
+      />
+    </SafeAreaView>
+  );
+}
+
+/**
+ * The stand-in photograph, drawn rather than taken.
+ *
+ * A real file at a real URL, served next to the bundle from `public/`. The
+ * first attempt was an inline `data:` SVG, which is smaller and commits no
+ * asset -- and it renders as NOTHING. react-native-web's image loader leaves
+ * the backdrop div's inline style empty for a data URI, with no failed request
+ * and no console error, so the screen came out as three boxes floating on a
+ * blank white card. Measured, not guessed: the same door pointed at an ordinary
+ * http URL emits both the `<img>` and the `background-image`, which is how the
+ * component was cleared of the fault.
+ *
+ * It is a drawing, and `anh-nhom-dung-san.svg` says why it must stay one.
+ */
+const ANH_NHOM_DEMO = "/anh-nhom-dung-san.svg";
+
+/* Boxes as the server would return them: fractions of the frame, never pixels.
+ * These three sit over the three shapes drawn above. */
+const O_DEMO = [
+  { boxKey: "0", x: 0.08, y: 0.18, width: 0.22, height: 0.3 },
+  { boxKey: "1", x: 0.4, y: 0.12, width: 0.2, height: 0.28 },
+  { boxKey: "2", x: 0.68, y: 0.22, width: 0.21, height: 0.29 },
+];
+
+function XemNhanMat() {
+  const c = usePalette();
+  const [oCuaToi, setOCuaToi] = useState<string | null>(null);
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
+      <StatusBar style="dark" />
+      <NhanMatTrenAnh
+        anhUri={ANH_NHOM_DEMO}
+        o={O_DEMO}
+        dangTim={false}
+        oCuaToi={oCuaToi}
+        loi={null}
+        onTim={() => {}}
+        onChonO={setOCuaToi}
+        onXong={() => {}}
+        onQuayLai={() => {}}
+      />
+    </SafeAreaView>
+  );
+}
+
 export default function App() {
   if (manDo()) return <XemKetQuaThanhToan />;
   if (manThamSo() === "trang-thai") return <XemTrangThai />;
   if (manThamSo() === "nhan-dien") return <XemNhanDien />;
   if (manThamSo() === "goi-y-chia") return <XemGoiYChia />;
+  if (manThamSo()?.startsWith("binh-chon")) return <XemBinhChon />;
+  if (manThamSo() === "mon-cua-toi") return <XemMonCuaToi />;
+  if (manThamSo() === "nhan-mat") return <XemNhanMat />;
   if (manThamSo()?.startsWith("doc-bill")) return <XemDocBill />;
   if (manThamSo()?.startsWith("tai-khoan-nhan")) return <XemTaiKhoanNhan />;
   return <AppRoot renderKhoanChi={(onExit, nguoi) => <LuongKhoanChi onExit={onExit} nguoi={nguoi} />} />;
