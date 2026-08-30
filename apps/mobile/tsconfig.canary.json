@@ -1,0 +1,23 @@
+{
+  // The program that must FAIL. `tests/canary/` holds one file: a call to an
+  // actor-guarded route with no actor. `tests/actor-id-bat-buoc.test.mjs` runs
+  // this project and requires a non-zero exit naming that file.
+  //
+  // `exclude` is restated rather than inherited. `tsconfig.json` excludes
+  // `tests/canary` so that `npm run typecheck` stays green, and `exclude`
+  // filters `include` -- inheriting it would drop the one file this program
+  // exists to compile, leaving a config that passes by having nothing in it.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["src", "tests/canary"],
+  "exclude": [
+    "node_modules",
+    "dist-test",
+    ".expo-build-check",
+    ".expo",
+    "dist",
+    "web-build"
+  ]
+}

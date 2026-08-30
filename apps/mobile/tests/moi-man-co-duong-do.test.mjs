@@ -139,6 +139,14 @@ const SO_DO = {
   // being unmeasured while this row read green.
   "binh-chon/BinhChon": { quet: "binh-chon" },
   "bill/MonCuaToi": { quet: "mon-cua-toi" },
+  // The step wrapper around the screen above. It renders no pixels of its own
+  // -- `?man=mon-cua-toi` scans the same `MonCuaToi` markup -- so the detector
+  // question is already answered on that row. What this wrapper adds is the
+  // bill, the identity and the write, and those are measured by pressing them:
+  // `duong-vao-mon-cua-toi.test.mjs` walks the hero path in Chrome, opens it
+  // from `goi-y`, unticks two dishes, saves, and reopens to see what the server
+  // kept. A detector pass would say nothing about any of that.
+  "bill/BuocMonCuaToi": { chuaDo: "vỏ bọc bước, không vẽ gì riêng — đo bằng duong-vao-mon-cua-toi.test.mjs" },
   "nhan-mat/NhanMatTrenAnh": { quet: "nhan-mat" },
   // F14. Inside the app this screen sits three taps deep -- a group, a trip in
   // it, and a roster read -- so nothing that loads a URL cold could reach it.

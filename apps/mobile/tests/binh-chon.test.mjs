@@ -16,6 +16,7 @@ import assert from "node:assert/strict";
 import {
   binhChonTuCard,
   cardBoPhieu,
+  cardDongBinhChon,
   cardMoBinhChon,
   cauKetQua,
   diaDiemDaGoiY,
@@ -316,4 +317,162 @@ test("chữ người gõ không thành lựa chọn: chỉ thẻ máy chủ mớ
     tin(AN, cardBoPhieu("p1", "o1")),
   ]);
   assert.deepEqual(ds, []);
+});
+
+/* ── Đóng bình chọn (F17) ────────────────────────────────────────────────────
+ *
+ * A close is a third card in the same thread, so every rule below is a rule
+ * about the fold, not about a screen. They are here rather than in a render
+ * test because "who may close" and "which ballots still count" are arithmetic
+ * over an array, and a screen that draws them cannot prove them.
+ *
+ * The one that matters most is `phiếu bỏ SAU khi đóng không được tính`. Without
+ * it, "đã đóng" is paint: a label over a tally that still moves.
+ */
+
+const DONG_P1 = cardDongBinhChon("p1");
+
+test("người mở đóng được: thẻ đóng của chính tác giả làm bình chọn khép lại", () => {
+  const [kq] = tongHopBinhChon([tin(AN, MO), tin(BINH, cardBoPhieu("p1", "o1")), tin(AN, DONG_P1)], null);
+  assert.equal(kq.daDong, true);
+  assert.equal(kq.taoBoi, AN);
+  assert.equal(kq.tongPhieu, 1);
+});
+
+test("bình chọn chưa ai đóng thì đang mở", () => {
+  const [kq] = tongHopBinhChon([tin(AN, MO), tin(BINH, cardBoPhieu("p1", "o1"))], null);
+  assert.equal(kq.daDong, false);
+});
+
+test("người KHÁC không đóng được bình chọn của người mở", () => {
+  // author_id is written by the server off the trusted actor header, so this
+  // is the same field "một người một phiếu" is enforced against. A close card
+  // from anybody else is dropped, not honoured with a different label.
+  const [kq] = tongHopBinhChon([tin(AN, MO), tin(BINH, DONG_P1)], null);
+  assert.equal(kq.daDong, false);
+});
+
+test("máy không đóng được: thẻ đóng không có tác giả bị bỏ", () => {
+  const [kq] = tongHopBinhChon([tin(AN, MO), tin(null, DONG_P1)], null);
+  assert.equal(kq.daDong, false);
+});
+
+test("bình chọn do máy mở thì không ai đóng được, kể cả người bỏ phiếu", () => {
+  // `taoBoi` null means there is no person to match a close against. Letting
+  // any member close it would hand the ballot to whoever pressed first.
+  const [kq] = tongHopBinhChon([tin(null, MO), tin(AN, DONG_P1)], null);
+  assert.equal(kq.taoBoi, null);
+  assert.equal(kq.daDong, false);
+});
+
+test("phiếu bỏ SAU khi đóng không được tính", () => {
+  const [kq] = tongHopBinhChon(
+    [
+      tin(AN, MO),
+      tin(BINH, cardBoPhieu("p1", "o1")),
+      tin(AN, DONG_P1),
+      tin(CUONG, cardBoPhieu("p1", "o2")),
+      tin(DUNG, cardBoPhieu("p1", "o2")),
+    ],
+    null,
+  );
+  assert.equal(kq.daDong, true);
+  assert.equal(kq.tongPhieu, 1, "hai phiếu sau khi đóng vẫn được đếm");
+  assert.deepEqual(kq.dienDau, ["o1"]);
+});
+
+test("đổi phiếu sau khi đóng không ghi đè phiếu đã bỏ trước đó", () => {
+  // The hard half of the rule above: a late ballot must not merely fail to
+  // add, it must not replace. Last-write-wins is what counts an open poll.
+  const [kq] = tongHopBinhChon(
+    [tin(AN, MO), tin(BINH, cardBoPhieu("p1", "o1")), tin(AN, DONG_P1), tin(BINH, cardBoPhieu("p1", "o2"))],
+    BINH,
+  );
+  assert.equal(kq.luaChonCuaToi, "o1");
+  assert.equal(kq.ketQua.find((r) => r.optionId === "o1").phieu, 1);
+  assert.equal(kq.ketQua.find((r) => r.optionId === "o2").phieu, 0);
+});
+
+test("đóng hai lần thì lần đầu tính, phiếu giữa hai thẻ đóng không sống lại", () => {
+  const [kq] = tongHopBinhChon(
+    [tin(AN, MO), tin(AN, DONG_P1), tin(BINH, cardBoPhieu("p1", "o1")), tin(AN, DONG_P1)],
+    null,
+  );
+  assert.equal(kq.daDong, true);
+  assert.equal(kq.tongPhieu, 0);
+});
+
+test("thẻ đóng gọi tên một bình chọn không tồn tại thì không đóng cái nào", () => {
+  const [kq] = tongHopBinhChon([tin(AN, MO), tin(AN, cardDongBinhChon("p-khong-co"))], null);
+  assert.equal(kq.daDong, false);
+});
+
+test("thẻ đóng dị dạng bị bỏ, không đóng nhầm", () => {
+  for (const xau of [
+    { kind: "poll_close", payload: {} },
+    { kind: "poll_close", payload: { poll_id: "  " } },
+    { kind: "poll_close" },
+    { kind: "poll_close", payload: null },
+  ]) {
+    const [kq] = tongHopBinhChon([tin(AN, MO), tin(AN, xau)], null);
+    assert.equal(kq.daDong, false, `thẻ ${JSON.stringify(xau)} không được đóng bình chọn`);
+  }
+});
+
+test("cardDongBinhChon dựng đúng hình dạng đường dây", () => {
+  assert.deepEqual(cardDongBinhChon("p1"), { kind: "poll_close", payload: { poll_id: "p1" } });
+});
+
+test("câu kết quả của bình chọn đã đóng nói ĐÃ ĐÓNG và gọi tên bên được chọn", () => {
+  const [kq] = tongHopBinhChon(
+    [tin(AN, MO), tin(BINH, cardBoPhieu("p1", "o2")), tin(AN, DONG_P1)],
+    null,
+  );
+  const cau = cauKetQua(kq);
+  assert.match(cau, /Đã đóng/);
+  assert.match(cau, /Lẩu gà lá é Tao Ngộ/);
+});
+
+test("hoà lúc đóng vẫn là hoà: không bên nào được gọi là bên được chọn", () => {
+  const [kq] = tongHopBinhChon(
+    [
+      tin(AN, MO),
+      tin(BINH, cardBoPhieu("p1", "o1")),
+      tin(CUONG, cardBoPhieu("p1", "o2")),
+      tin(AN, DONG_P1),
+    ],
+    null,
+  );
+  assert.equal(kq.daDong, true);
+  assert.equal(kq.dangHoa, true);
+  assert.deepEqual(kq.dienDau.sort(), ["o1", "o2"]);
+  assert.match(cauKetQua(kq), /Đã đóng/);
+  assert.match(cauKetQua(kq), /[Hh]oà/);
+});
+
+test("đóng lúc chưa ai bỏ phiếu thì nói rõ chưa có phiếu nào, không gọi ai là bên thắng", () => {
+  const [kq] = tongHopBinhChon([tin(AN, MO), tin(AN, DONG_P1)], null);
+  assert.equal(kq.daDong, true);
+  assert.deepEqual(kq.dienDau, []);
+  assert.equal(kq.dangHoa, false);
+  assert.match(cauKetQua(kq), /Đã đóng/);
+  assert.match(cauKetQua(kq), /[Cc]hưa có phiếu nào/);
+});
+
+test("đóng bình chọn này không đụng bình chọn kia trong cùng luồng", () => {
+  const MO2 = cardMoBinhChon({
+    pollId: "p2",
+    cauHoi: "Sáng mai ăn gì?",
+    luaChon: [
+      { optionId: "q1", nhan: "Bánh mì" },
+      { optionId: "q2", nhan: "Phở" },
+    ],
+  });
+  const [mot, hai] = tongHopBinhChon(
+    [tin(AN, MO), tin(AN, MO2), tin(AN, DONG_P1), tin(BINH, cardBoPhieu("p2", "q1"))],
+    null,
+  );
+  assert.equal(mot.daDong, true);
+  assert.equal(hai.daDong, false);
+  assert.equal(hai.tongPhieu, 1);
 });

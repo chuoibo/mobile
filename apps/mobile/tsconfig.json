@@ -21,8 +21,15 @@
   // default list rather than adding to it. `tests/ten-module-trung-chu-hoa
   // .test.mjs` plants a collision in `dist-test/` and requires the compiler to
   // stay silent, so this line cannot rot into a comment.
+  //
+  // `tests/canary` is excluded for a different reason from the rest: the file
+  // in it is *supposed* not to compile. It is the fixture behind
+  // `tests/actor-id-bat-buoc.test.mjs`, which compiles it through
+  // `tsconfig.canary.json` and requires the failure. Leaving it in this
+  // program would turn `npm run typecheck` permanently red.
   "exclude": [
     "node_modules",
+    "tests/canary",
     "dist-test",
     ".expo-build-check",
     ".expo",

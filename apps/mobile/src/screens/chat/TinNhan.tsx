@@ -54,6 +54,7 @@ import {
 } from "./nhap-tu-chat";
 import {
   cardBoPhieu,
+  cardDongBinhChon,
   cardMoBinhChon,
   diaDiemDaGoiY,
   tongHopBinhChon,
@@ -289,6 +290,37 @@ export function TinNhan({ nguoi, nhomPhien }: {
    * and the number beside it would be wrong for exactly as long as the
    * request takes -- on a slow link, long enough to be read aloud.
    */
+  /**
+   * Close a poll, as a third card in the same thread.
+   *
+   * Not a local flag. A close that lived in this component's state would show
+   * "Đã đóng" on the phone that pressed it and leave the ballot open on every
+   * other phone in the group -- and the tally would keep moving underneath the
+   * word. It goes on the wire for the same reason the ballots do.
+   *
+   * Who is allowed is decided in `tongHopBinhChon` against `author_id`, which
+   * the server writes; this function does not check it, and must not, because
+   * a check that only lives on the client is a check the next client skips.
+   * The button is hidden for non-openers so nobody is offered a press that
+   * does nothing, but hiding is the courtesy and the fold is the rule.
+   */
+  async function dongBinhChon(pollId: string) {
+    if (!nguoi || nhom.kind !== "xong" || dangBoPhieu) return;
+    setDangBoPhieu(true);
+    const sent = await guiTheAi({
+      contextId: nhom.contextId,
+      actorId: nguoi.personId,
+      card: cardDongBinhChon(pollId),
+      idempotencyKey: taoKhoa(),
+    });
+    setDangBoPhieu(false);
+    if (sent.kind !== "xong") {
+      setThongBao(cauGuiHong(sent));
+      return;
+    }
+    setTin((truoc) => noiTinMoi(truoc, sent.message, nhom.contextId));
+  }
+
   async function boPhieu(pollId: string, optionId: string) {
     if (!nguoi || nhom.kind !== "xong" || dangBoPhieu) return;
     setDangBoPhieu(true);
@@ -479,8 +511,12 @@ export function TinNhan({ nguoi, nhomPhien }: {
             binhChonTheoTin={binhChonTheoTin}
             soThanhVien={soThanhVien}
             dangBoPhieu={dangBoPhieu}
+            toiLaAi={nguoi?.personId ?? null}
             onBoPhieu={(pollId, optionId) => {
               void boPhieu(pollId, optionId);
+            }}
+            onDongBinhChon={(pollId) => {
+              void dongBinhChon(pollId);
             }}
             theNhap={theNhap}
             onTachTien={(messageId) => {
@@ -498,10 +534,14 @@ export function TinNhan({ nguoi, nhomPhien }: {
             binhChon={binhChon}
             soThanhVien={soThanhVien}
             dangBoPhieu={dangBoPhieu}
+            toiLaAi={nguoi?.personId ?? null}
             coDiaDiem={diaDiem.length >= 2}
             keHoach={keHoachMoi}
             onBoPhieu={(pollId, optionId) => {
               void boPhieu(pollId, optionId);
+            }}
+            onDongBinhChon={(pollId) => {
+              void dongBinhChon(pollId);
             }}
             onMoBinhChon={() => setDangMoBinhChon(true)}
             onXemKeHoach={setKeHoachDangXem}
@@ -663,7 +703,9 @@ function DongTin({
   binhChonTheoTin,
   soThanhVien,
   dangBoPhieu,
+  toiLaAi,
   onBoPhieu,
+  onDongBinhChon,
   theNhap,
   onTachTien,
   onGhiKhoanChi,
@@ -682,7 +724,11 @@ function DongTin({
   binhChonTheoTin: Map<string, KetQuaBinhChon>;
   soThanhVien: number;
   dangBoPhieu: boolean;
+  /** This device's person, for `laNguoiMo`. Null before one is chosen, which
+   *  is a person who opened nothing, so no close button is drawn. */
+  toiLaAi: string | null;
   onBoPhieu: (pollId: string, optionId: string) => void;
+  onDongBinhChon: (pollId: string) => void;
   theNhap: { messageId: string; trang: TrangNhapTuChat; ghi: TrangGhiKhoanChi } | null;
   onTachTien: (messageId: string) => void;
   onGhiKhoanChi: (messageId: string) => void;
@@ -810,7 +856,9 @@ function DongTin({
                 ketQua={kq}
                 soThanhVien={soThanhVien}
                 dangGui={dangBoPhieu}
+                laNguoiMo={laNguoiMoBinhChon(kq, toiLaAi)}
                 onChon={(optionId) => onBoPhieu(kq.pollId, optionId)}
+                onDong={() => onDongBinhChon(kq.pollId)}
               />
             );
           }
@@ -872,20 +920,28 @@ function DongTin({
  * that a group with a vote running lands on the vote. The timeline is one
  * tap away and draws the same `ChiTietKeHoach` it always did.
  *
- * The mockup's "Chốt plan với kết quả bình chọn" button and its "Kết thúc
- * sau 2h" countdown are not drawn. There is no endpoint that closes a poll
- * and no field that stores a deadline, so both would be paint: a button that
- * settles nothing and a clock counting down to nothing. Same rule the
- * reactions in `BongBong` are held to.
+ * The mockup's "Kết thúc sau 2h" countdown is still not drawn: no field
+ * anywhere stores a deadline, so it would be a clock counting down to nothing.
+ * Same rule the reactions in `BongBong` are held to.
+ *
+ * Closing, which this comment used to refuse on the same grounds, now settles
+ * something real. A `poll_close` card written by the opener stops the count at
+ * its own position in the thread -- ballots after it are not merely uncounted,
+ * they cannot overwrite one cast while the poll was open. So "Đóng bình chọn"
+ * is not paint: pressing it changes what every other phone in the group reads.
+ * The mockup's "Chốt plan với kết quả bình chọn" is still absent, because
+ * writing the winner into a plan is a second thing and nothing stores it yet.
  */
 function TabPlan({
   dangTai,
   binhChon,
   soThanhVien,
   dangBoPhieu,
+  toiLaAi,
   coDiaDiem,
   keHoach,
   onBoPhieu,
+  onDongBinhChon,
   onMoBinhChon,
   onXemKeHoach,
 }: {
@@ -893,10 +949,12 @@ function TabPlan({
   binhChon: KetQuaBinhChon[];
   soThanhVien: number;
   dangBoPhieu: boolean;
+  toiLaAi: string | null;
   /** Whether the thread holds two or more places to put on a ballot. */
   coDiaDiem: boolean;
   keHoach: KeHoach | null;
   onBoPhieu: (pollId: string, optionId: string) => void;
+  onDongBinhChon: (pollId: string) => void;
   onMoBinhChon: () => void;
   onXemKeHoach: (k: KeHoach) => void;
 }) {
@@ -934,7 +992,9 @@ function TabPlan({
             ketQua={kq}
             soThanhVien={soThanhVien}
             dangGui={dangBoPhieu}
+            laNguoiMo={laNguoiMoBinhChon(kq, toiLaAi)}
             onChon={(optionId) => onBoPhieu(kq.pollId, optionId)}
+            onDong={() => onDongBinhChon(kq.pollId)}
           />
         ))
       )}
@@ -1262,12 +1322,30 @@ function keHoachGanNhat(messages: MessageWire[]): KeHoach | null {
   return null;
 }
 
-/** A ballot message, which the thread counts but does not draw. Read off the
- *  wire shape rather than off a parsed card, so a malformed ballot is still
- *  recognised as a ballot and still stays out of the conversation. */
+/** A ballot or a close: messages the thread counts but does not draw. Read off
+ *  the wire shape rather than off a parsed card, so a malformed one is still
+ *  recognised for what it is and still stays out of the conversation.
+ *
+ *  The close is hidden for the same reason the ballots are, and it loses
+ *  nothing: the card it closed redraws itself as "Đã đóng" and names the
+ *  result, which is the whole of what a bubble reading "đã đóng bình chọn"
+ *  would have said. */
 function laPhieuBau(m: MessageWire): boolean {
   if (m.kind !== "ai_card" || m.card === null || typeof m.card !== "object") return false;
-  return (m.card as Record<string, unknown>).kind === "poll_vote";
+  const kind = (m.card as Record<string, unknown>).kind;
+  return kind === "poll_vote" || kind === "poll_close";
+}
+
+/** Whether this device's person opened this poll, and so is the one offered
+ *  the close.
+ *
+ *  Both nulls matter and neither is an accident: a poll the companion opened
+ *  (`taoBoi === null`) has no opener, and a session with nobody chosen
+ *  (`toiLaAi === null`) is not the opener of anything. Comparing the two
+ *  directly would make `null === null` true and hand the close to whoever
+ *  happened to be looking. */
+function laNguoiMoBinhChon(kq: KetQuaBinhChon, toiLaAi: string | null): boolean {
+  return kq.taoBoi !== null && toiLaAi !== null && kq.taoBoi === toiLaAi;
 }
 
 function nguoiTheoAuthor(authorId: string | null): NguoiHienThi | null {

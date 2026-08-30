@@ -182,7 +182,7 @@ async function doc<T>(
 ): Promise<T> {
   let response: Response;
   try {
-    // Concatenated rather than interpolated, which is the shape `call<T>()` in
+    // Concatenated rather than interpolated, which is the shape `send<T>()` in
     // `api.ts` already uses. A template whose first two holes are adjacent
     // (`${BASE_URL}${duong}`) is exactly the shape `check_actor_headers.py`
     // refuses to resolve: it cannot name WHICH route this helper is asking
