@@ -144,11 +144,30 @@ ghi     POST /contexts/{id}/checkins p-lung-chung-cafe    -> 201
 sau     GET  /heatmap -> 200  khu=1 scanned=2  [('da-lat', 2)]
 ```
 
-Nên với ca test chập chờn qa3 vừa sửa (#407): khẳng định thứ ba — *"/heatmap trả
-về ≥1 khu"* — **không bao giờ xanh được trên dữ liệu seed**, kể cả sau khi sửa
-`contextId`, vì `scripts/seed_demo_data.py` không tạo một memory `kind="checkin"`
-nào. Cách sửa là **seed dữ liệu**, không phải sửa quyền. Lead đoán đúng là hai
-chuyện này cùng gốc, nhưng gốc chung là *nhóm rỗng*, không phải *quyền*.
+Cách sửa cho màn hình là **seed dữ liệu**, không phải sửa quyền:
+`scripts/seed_demo_data.py` dựng 3 buổi đi chơi và 8 chặng nhưng **không tạo một
+memory `kind="checkin"` nào**, nên mọi lượt đi bộ live đều gặp heatmap rỗng.
+
+### Nhưng giả thuyết "cùng gốc với ca test chập chờn" thì KHÔNG đúng
+
+Lead đoán ca test chập chờn (#407) và ba con 403 có thể cùng một gốc. Tôi đã
+kiểm và **không phải**, nên xin đừng đi tiếp theo hướng đó:
+
+`apps/mobile/tests/duong-vao-ban-do-nhom.test.mjs` chạy trên **stub**, không phải
+máy chủ thật — `installTabStubs` / `taoFixtures` từ `tools/tab-snapshots.mjs`, và
+`/heatmap` ở đó trả `fixtures.nhietDo` (`tab-snapshots.mjs:863`). Ca test đó
+**chưa bao giờ chạm** vào `is_member`, vào `memories`, hay vào dữ liệu seed. Cái
+`>=1 khu` của nó do fixture quyết định.
+
+Nên hai chuyện này rời nhau:
+
+| | Chạm cổng quyền thật? | Chạm dữ liệu seed thật? |
+|---|---|---|
+| Ba con 403 (F43/F44/F45) | **Có** — `is_member` trên máy chủ sống | Có |
+| Ca test #407 | Không — stub | Không — fixture |
+
+Điều đó cũng có nghĩa: bản sửa #407 của qa3 đứng vững độc lập với phát hiện này,
+và heatmap rỗng trên dữ liệu seed là một lỗ hổng **riêng**, chưa ca test nào gác.
 
 `GET /map` cũng vậy: `visited: 0`. `trending: 2` và `recommended: 8` có số vì
 chúng đọc catalogue tĩnh `app/places/catalog.py`, không đọc lịch sử nhóm.
@@ -175,6 +194,8 @@ khác nhau, và `OutingStopCheckin` trong `models.py:1250` giải thích tại s
   lạ (`0b0b…`, không có dòng trong `people`) và một thành viên ACTIVE. Thành viên
   đã rời nhóm (`state != active`) chưa đo lượt này.
 - Không chứng minh nhóm nào khác ngoài `Team Đà Lạt` của bộ seed.
+- Không đo lại ca test #407. Tôi chỉ đọc nguồn nó đủ để biết nó chạy trên stub —
+  đủ để bác bỏ giả thuyết "cùng gốc", không đủ để nói gì về độ ổn định của nó.
 - `--ghi` **sửa dữ liệu**. Chỉ chạy trên stack dùng một lần, đừng bắn vào 8099.
 
 ## Chạy lại
