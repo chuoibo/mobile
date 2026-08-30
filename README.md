@@ -44,16 +44,30 @@ với app, không phải một hệ thứ hai.
 
 ## Vòng lặp sản phẩm
 
+<div align="center">
+<img src="docs/assets/so-do-1-vong-lap.svg" alt="Vòng lặp sản phẩm: trước buổi đi là khám phá, nhóm chat, bình chọn, đi chơi; sau bữa ăn là chụp bill, chia tiền, VietQR, kỷ niệm" width="100%">
+
+<sub>Và vòng khép lại: xong một chuyến, AI biết thêm nhóm này thích gì và ai đã trả cho ai, nên lần gợi ý sau khá hơn lần trước.</sub>
+</div>
+
+<details>
+<summary><b>Nguồn Mermaid của sơ đồ này</b></summary>
+
 ```mermaid
-flowchart LR
-    A["🔍 Khám phá<br/>AI gợi ý chỗ"] --> B["💬 Nhóm chat<br/>AI lên kế hoạch"]
-    B --> C["🗳️ Bình chọn<br/>chốt kèo"]
-    C --> D["📍 Đi chơi<br/>check-in"]
-    D --> E["🧾 Chụp bill<br/>AI đọc từng món"]
-    E --> F["➗ Chia tiền<br/>gán món cho người"]
-    F --> G["🏦 VietQR<br/>thu tiền về"]
-    G --> H["📸 Kỷ niệm<br/>tường nhóm"]
-    H -.->|"AI học sở thích của nhóm"| A
+flowchart TB
+    subgraph TRUOC["Trước buổi đi"]
+        direction LR
+        A["Khám phá<br/>AI gợi ý chỗ"] --> B["Nhóm chat<br/>AI lên kế hoạch"]
+        B --> C["Bình chọn<br/>chốt kèo"]
+        C --> D["Đi chơi<br/>check-in"]
+    end
+    subgraph SAU["Sau bữa ăn"]
+        direction LR
+        E["Chụp bill<br/>AI đọc từng món"] --> F["Chia tiền<br/>gán món cho người"]
+        F --> G["VietQR<br/>thu tiền về"]
+        G --> H["Kỷ niệm<br/>tường nhóm"]
+    end
+    TRUOC --> SAU
 
     classDef brand fill:#fff0ea,stroke:#c93900,stroke-width:2px,color:#1f2230
     classDef ai fill:#f5f1ff,stroke:#7d49ef,stroke-width:2px,color:#1f2230
@@ -61,7 +75,18 @@ flowchart LR
     class A,C,D,H brand
     class B,E ai
     class F,G money
+    style TRUOC fill:#ffffff,stroke:#e7dace,color:#4e5563
+    style SAU fill:#ffffff,stroke:#e7dace,color:#4e5563
 ```
+
+Ảnh trên render sẵn từ chính nguồn này, không nhờ trình render của GitHub.
+Muốn dựng lại: mermaid `11.4.1`, `htmlLabels:false` (bắt buộc — nhãn dạng
+`<foreignObject>` **không** hiện khi SVG được nạp qua `<img>`, mà GitHub nạp ảnh
+bằng `<img>`), `securityLevel:'strict'`, `useMaxWidth:false`, rồi lấy `viewBox`
+từ `getBBox()` chứ đừng tin `viewBox` mermaid tự ghi — nó hụt và cắt mất nhãn
+actor dưới đáy sơ đồ tuần tự.
+
+</details>
 
 Đây là câu mà một sản phẩm hàng xóm không sao chép được nếu chỉ làm một chặng:
 **cùng một AI đã gợi ý quán là AI đọc hoá đơn của quán đó, và nó biết ai đã ngồi ở đó.**
@@ -90,6 +115,13 @@ Splitwise chia tiền nhưng không biết nhóm bạn là ai. Nhóm chat rủ �
 
 Đây là đường đi đã chạy thật, đầu tới cuối:
 
+<div align="center">
+<img src="docs/assets/so-do-2-lat-cat-doc.svg" alt="Sơ đồ tuần tự của lát cắt dọc: người tổ chức gọi POST /expenses, domain chia tiền, sổ cái ghi event, khách mở link và báo đã chuyển" width="100%">
+</div>
+
+<details>
+<summary><b>Nguồn Mermaid của sơ đồ này</b></summary>
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -112,6 +144,15 @@ sequenceDiagram
     T->>API: confirm-receipt
     Note over API,S: completed do domain transition sinh ra.<br/>Không có nút "đánh dấu xong".
 ```
+
+Ảnh trên render sẵn từ chính nguồn này, không nhờ trình render của GitHub.
+Muốn dựng lại: mermaid `11.4.1`, `htmlLabels:false` (bắt buộc — nhãn dạng
+`<foreignObject>` **không** hiện khi SVG được nạp qua `<img>`, mà GitHub nạp ảnh
+bằng `<img>`), `securityLevel:'strict'`, `useMaxWidth:false`, rồi lấy `viewBox`
+từ `getBBox()` chứ đừng tin `viewBox` mermaid tự ghi — nó hụt và cắt mất nhãn
+actor dưới đáy sơ đồ tuần tự.
+
+</details>
 
 Vài điều cố ý, đừng đọc nhầm thành thiếu sót:
 
@@ -168,6 +209,13 @@ Cache không bao giờ là nguồn sự thật.
 
 ## Kiến trúc
 
+<div align="center">
+<img src="docs/assets/so-do-3-kien-truc.svg" alt="Sơ đồ tầng: apps/mobile và app/web gọi app/api; app/api gọi domain, db, payments; db nói chuyện với PostgreSQL" width="100%">
+</div>
+
+<details>
+<summary><b>Nguồn Mermaid của sơ đồ này</b></summary>
+
 ```mermaid
 flowchart TB
     subgraph BM["Bề mặt"]
@@ -200,7 +248,19 @@ flowchart TB
     class M,W brand
     class P ai
     class A,DOM,DB,PAY,PG money
+    style BM fill:#ffffff,stroke:#e7dace,color:#4e5563
+    style SH fill:#ffffff,stroke:#e7dace,color:#4e5563
+    style BE fill:#ffffff,stroke:#e7dace,color:#4e5563
 ```
+
+Ảnh trên render sẵn từ chính nguồn này, không nhờ trình render của GitHub.
+Muốn dựng lại: mermaid `11.4.1`, `htmlLabels:false` (bắt buộc — nhãn dạng
+`<foreignObject>` **không** hiện khi SVG được nạp qua `<img>`, mà GitHub nạp ảnh
+bằng `<img>`), `securityLevel:'strict'`, `useMaxWidth:false`, rồi lấy `viewBox`
+từ `getBBox()` chứ đừng tin `viewBox` mermaid tự ghi — nó hụt và cắt mất nhãn
+actor dưới đáy sơ đồ tuần tự.
+
+</details>
 
 | Tầng | Việc của nó | Ràng buộc cứng |
 |---|---|---|
@@ -219,7 +279,7 @@ cưỡng chế nó. Lý do là luật tiền số 3 ở trên.
 <summary><b>Đo lại các con số trong README này</b></summary>
 
 ```bash
-git rev-parse --short HEAD                                    # 44c1912 khi đo
+git rev-parse --short HEAD                                    # f3d4ede khi đo
 python3 -m pytest services/api/tests tests -q --collect-only   # 3143 ca
 python3 -c "import sys; sys.path.insert(0,'services/api')
 from app.api.main import app; from fastapi.routing import APIRoute
@@ -236,7 +296,7 @@ python3 -c "import json,glob; print(sum(len(json.load(open(f))) for f in glob.gl
 sự được đăng ký, vì đó là thứ trả lời được câu "server này phục vụ cái gì".
 
 Repo này có nhiều lane cùng đẩy vào `main`, nên các con số trên **trôi theo ngày**.
-Chúng được đo tại `44c1912`; lệch vài đơn vị so với hôm nay là bình thường, lệch
+Chúng được đo tại `f3d4ede`; lệch vài đơn vị so với hôm nay là bình thường, lệch
 hàng chục thì đoạn văn quanh nó đã cũ.
 
 </details>

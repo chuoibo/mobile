@@ -40,7 +40,7 @@ DC = $(COMPOSE) -p $(PROJECT)
 WAIT_TIMEOUT ?= 300
 
 .DEFAULT_GOAL := help
-.PHONY: help gate gate-merge test-db e2e up down clean logs ps migrate db-check seed demo demo-reset demo-check demo-data-check demo-watch demo-watch-status demo-watch-install smoke
+.PHONY: help gate gate-merge test-db e2e up down clean logs ps migrate db-check seed demo demo-reset demo-check demo-data-check demo-key-check demo-watch demo-watch-status demo-watch-install smoke
 
 # `demo` phải gọi đúng bộ container mà `up` vừa dựng. Trên nhánh này biến đó là
 # $(COMPOSE); PR #60 (đang mở, cùng lane) đổi nó thành $(DC) = compose kèm
@@ -255,6 +255,24 @@ demo-check: ## Hỏi máy demo có phục vụ ĐÚNG bộ route của main khô
 # hành vi của chính make, không phải của target này (`demo-check` cũng vậy).
 demo-data-check: ## Hỏi bộ dữ liệu trên máy demo có dùng để demo được không — DSN= để đổi đích
 	@python3 scripts/check_demo_data.py $(if $(DSN),--dsn $(DSN))
+
+# `demo-data-check` hỏi về DỮ LIỆU trên máy demo. Mục dưới hỏi về KHOÁ của nó, và đó
+# là câu đã trượt ngày 30/08: leader xoay GEMINI_API_KEY lúc 22:19:45, container
+# 8099 đã chạy từ ba tiếng trước và container chỉ đọc biến môi trường MỘT LẦN
+# lúc khởi động. Nên nó tiếp tục trình một khoá không còn tồn tại.
+#
+# Nhìn từ ngoài máy vẫn khoẻ: /healthz 200, /openapi.json đủ 76 route, và
+# check_ai_key.sh im lặng vì nó hỏi "có khoá không" chứ không hỏi "có ĐÚNG khoá
+# không". Thứ duy nhất chết là đường hero — POST /receipts/scan trả 502
+# receipt_reader_unavailable, 3/3 lần.
+#
+# Rẻ đủ để chạy mọi lượt: phép so khoá không tốn gì, phép thử khoá sống là một
+# prompt năm token chứ không phải một tấm ảnh. Đó là chỗ nó bù cho `hero-walk`,
+# vốn đắt nên chỉ chạy theo yêu cầu và để lại một phán quyết có hạn dùng.
+#
+# Mã thoát: đọc chữ khi gọi qua `make` (xem ghi chú ở `demo-data-check`).
+demo-key-check: ## Máy demo có đang giữ ĐÚNG khoá AI, và khoá đó còn sống không — URL= để đổi đích
+	@python3 scripts/check_demo_ai_key.py $(if $(URL),--base-url $(URL))
 
 # `demo-check` ở trên là chỗ gọi TAY: nó chỉ chạy khi đã có người nghi ngờ, và
 # lúc đó thì đã không cần nó nữa. Máy demo lệch 16 commit vì suốt thời gian đó
