@@ -32,6 +32,13 @@ markers came out as the second half of those fixes, which is what strictness
 was for: a repair that left one in place would turn XPASS into a red gate that
 names itself.
 
+A fourth was recorded here without a marker, because it was not failing:
+`create_outing_invite` let `source="group"` assert membership that nothing
+verified, and no screen redeemed a named invite yet, so the case asserted the
+hole in order to name it. `rd-be-26` closed that one too, and the case now
+asserts the refusal -- an audit case that documents a hole has the same second
+half as a strict marker, it just fails louder if you forget.
+
 Holes 1 and 2 were not closed by adding a second check. `confirm_expense`
 already called the guard; it just handed it `participants` alone while
 `paid_by_id` and `recorded_by_id` came from the same body. So `mutants.sh`
@@ -665,20 +672,28 @@ def test_live_bill_suggestion_of_a_non_member_is_refused(postgres_session):
 
 
 @pytest.mark.postgres
-def test_live_outing_invite_takes_a_person_id_the_group_does_not_contain(
+def test_live_outing_invite_refuses_a_person_id_the_group_does_not_contain(
     postgres_session,
 ):
-    """`source` claims provenance and nothing verifies the claim.
+    """`source="group"` claims provenance, and now something verifies it.
 
-    `source="group"` asserts the invitee is in the group. The service reads the
-    field, writes `invited_person_id`, and never asks. Nothing reads a named
-    invite into a grant *yet*, so this is a sleeping hole rather than a live
-    one -- recorded so it is not discovered again the day a screen starts
-    reading `outing_invites`.
+    This case recorded the fourth hole while it was still open: `source`
+    asserts the invitee is in the group, and `create_outing_invite` read the
+    field, wrote `invited_person_id`, and never asked. It was a *sleeping*
+    hole -- no screen redeems a named invite into a grant yet -- which is the
+    class of bug that stays harmless until the day a feature switches on. It
+    was written down so that day would not start from scratch.
 
-    The neighbouring case, a UUID naming nobody, is held by
-    `fk_outing_invites_person` -- but as an IntegrityError, so it surfaces as a
-    500 rather than a refusal the caller can act on.
+    `rd-be-26` closed it with the same guard the other three use, narrowed to
+    the claim actually being made: only `source="group"` asserts membership,
+    so only it is roster-checked. A `friend` invite still names somebody
+    outside the group, because that is what inviting a friend means -- see
+    `services/api/tests/postgres/test_outing_invite_source_must_match_roster.py`
+    for the control that keeps the gate from swallowing the feature.
+
+    The neighbouring case, a UUID naming nobody, reached
+    `fk_outing_invites_person` and surfaced as a 500; it now answers with
+    `_require_registered_person`, the same code `invite_context_member` gives.
     """
     session = postgres_session
     service = ApiService(SqlAlchemyApiRepository(session))
@@ -700,11 +715,12 @@ def test_live_outing_invite_takes_a_person_id_the_group_does_not_contain(
         ),
         _actor(nam.id, group),
     )
-    invite = service.create_outing_invite(
-        outing.id,
-        OutingInviteCreateRequest(source="group", person_id=outsider.id),
-        _actor(nam.id, group),
-    )
-    session.flush()
+    with pytest.raises(ApiProblem) as refused:
+        service.create_outing_invite(
+            outing.id,
+            OutingInviteCreateRequest(source="group", person_id=outsider.id),
+            _actor(nam.id, group),
+        )
 
-    assert invite.invited_person_id == outsider.id
+    assert refused.value.status_code == 422
+    assert refused.value.code == "participant_not_in_context"

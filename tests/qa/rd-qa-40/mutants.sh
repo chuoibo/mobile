@@ -17,12 +17,22 @@
 #                 detail", so these rows are what make the red ones mean
 #                 something.
 #
-# All three holes this file opened are now closed, so none of them is carried
+# All four holes this file opened are now closed, so none of them is carried
 # as `xfail(strict=True)` any more and each has real rows below:
 #
 #   hole 3, suggested_participant_ids -> gated by #260 in `create_bill`
 #   hole 1, paid_by_id                -> gated by rd-be-26 in `confirm_expense`
 #   hole 2, recorded_by_id            -> gated by rd-be-26 in `confirm_expense`
+#   hole 4, outing invite person_id   -> gated by rd-be-26 in
+#                                        `create_outing_invite`, for
+#                                        `source="group"` only
+#
+# Hole 4 is the one that needs a gate in BOTH directions. The other three have
+# no legitimate caller naming an outsider, so "refuse harder" is always safer
+# there. This one does: a `friend` invite exists precisely to name somebody the
+# group does not contain, so a guard that over-refuses passes every red row
+# below while deleting a feature. That is what the widened-condition row is
+# for.
 #
 # Holes 1 and 2 were fixed at a single call site by widening the argument, not
 # by adding a second check. That makes "delete the call" too coarse to mean
@@ -39,6 +49,13 @@ SERVICE=services/api/app/api/service.py
 REPOSITORY=services/api/app/api/repository.py
 ALLOCATOR=services/api/app/domain/allocator.py
 SUITE=tests/qa/rd-qa-40
+# The fourth hole's gate lives in the backend lane's own live tier, and it has
+# to be mutated by the SAME table as the other three: one shape, one place that
+# says whether each cell is real. It runs from `services/api` rather than the
+# repo root because that is where the `pythonpath` in `pyproject.toml` comes
+# from -- handing pytest both paths under one rootdir loses it and every case
+# dies on `No module named 'app'`, which scores as a caught mutation.
+LANE_SUITE=tests/postgres/test_outing_invite_source_must_match_roster.py
 
 for target in "$SERVICE" "$REPOSITORY" "$ALLOCATOR"; do
   if ! git diff --quiet -- "$target"; then
@@ -61,13 +78,21 @@ trap restore EXIT
 FAILURES=0
 
 run_suite() {
-  local out rc
+  local out rc lane_out lane_rc
   out=$(env "${PG_ENV[@]}" python3 -m pytest "$SUITE" -q -p no:warnings 2>&1)
   rc=$?
-  # Only the final summary line. Grepping the whole body reads a docstring that
-  # happens to contain the word "passed" as if it were a result.
-  printf '    rc=%d  %s\n' "$rc" "$(printf '%s' "$out" | tail -n 1)"
-  return $rc
+  lane_out=$(cd services/api && env "${PG_ENV[@]}" \
+    python3 -m pytest "$LANE_SUITE" -q -p no:warnings 2>&1)
+  lane_rc=$?
+  # Only the final summary line of each. Grepping the whole body reads a
+  # docstring that happens to contain the word "passed" as if it were a result.
+  printf '    rc=%d  %s   | lane rc=%d  %s\n' \
+    "$rc" "$(printf '%s' "$out" | tail -n 1)" \
+    "$lane_rc" "$(printf '%s' "$lane_out" | tail -n 1)"
+  # A row is red if EITHER tier refuses. Returning only the first would let a
+  # mutation that only the lane tier can see report green.
+  if [[ $rc -ne 0 || $lane_rc -ne 0 ]]; then return 1; fi
+  return 0
 }
 
 mutant() { # <kind> <name> <file> <python-patcher> <expect:red|green>
@@ -162,11 +187,19 @@ assert s.count(old) == 1, "predicate not found"
 s = s.replace(old, """                \"is_own_account\": True,""", 1)
 ' red
 
+# The anchor carries the `try:` after it because `create_outing_invite` now
+# calls the same helper with the same argument, one indent level deeper -- and
+# a shorter-indented anchor is a SUBSTRING of a deeper-indented line, so the
+# bare call matched twice the moment hole 4 was gated. `s.count(old) == 1`
+# turned that into a loud PATCH FAILED instead of a `replace(..., 1)` landing
+# on the wrong method and reporting a colour belonging to another guarantee.
 mutant GATED "invite_context_member: registration check removed" "$SERVICE" '
 old = """        self._require_registered_person(request.person_id)
+        try:
 """
 assert s.count(old) == 1, "call site not unique"
-s = s.replace(old, "", 1)
+s = s.replace(old, """        try:
+""", 1)
 ' red
 
 mutant GATED "send_friend_request: addressee existence check removed" "$SERVICE" '
@@ -175,6 +208,35 @@ old = """        if self.repository.get_person(addressee_id) is None:
 """
 assert s.count(old) == 1, "existence check not found"
 s = s.replace(old, "", 1)
+' red
+
+mutant GATED "create_outing_invite: source=group roster check removed (rd-be-26 hole 4)" "$SERVICE" '
+old = """            if request.source == \"group\":
+                self._require_participants_are_members(
+                    outing.context_id, [request.person_id]
+                )
+"""
+assert s.count(old) == 1, "outing-invite roster check is not unique"
+s = s.replace(old, "", 1)
+' red
+
+mutant GATED "create_outing_invite: registered-person check removed" "$SERVICE" '
+old = """            self._require_registered_person(request.person_id)
+"""
+assert s.count(old) == 1, "outing-invite registration check is not unique"
+s = s.replace(old, "", 1)
+' red
+
+# The row that keeps this gate HONEST in the other direction. Every row above
+# asks "does it refuse?". A guard that refused EVERYTHING would pass all of
+# them while deleting friend invites -- the feature whose entire purpose is
+# naming somebody outside the group. Widening the condition to cover `friend`
+# must therefore be RED, and it is red in the lane tier only, which is why
+# `run_suite` reads both return codes.
+mutant GATED "create_outing_invite: roster check widened to friend invites too" "$SERVICE" '
+old = """            if request.source == \"group\":"""
+assert s.count(old) == 1, "source condition is not unique"
+s = s.replace(old, """            if request.source in (\"group\", \"friend\"):""", 1)
 ' red
 
 # --- ELSEWHERE cells: blank in service.py, defended one layer down -----------
@@ -258,6 +320,16 @@ mutant UNCHANGED "participant guard: refusal wording changed, code kept" "$SERVI
 old = """                \"Not members of this group: \""""
 assert s.count(old) == 1, "message not found"
 s = s.replace(old, """                \"Những người này không ở trong nhóm: \"""", 1)
+' green
+
+# Inside this branch `source` is `group` or `friend` -- `link` returned above --
+# so testing for "not friend" selects exactly the same invites as testing for
+# "is group". A red here would mean the cases are pinned to the spelling of the
+# condition rather than to which invites get roster-checked.
+mutant UNCHANGED "create_outing_invite: source condition spelled as not-friend" "$SERVICE" '
+old = """            if request.source == \"group\":"""
+assert s.count(old) == 1, "source condition is not unique"
+s = s.replace(old, """            if request.source != \"friend\":""", 1)
 ' green
 
 # The roster is read with a different but equivalent expression. Same set, same
