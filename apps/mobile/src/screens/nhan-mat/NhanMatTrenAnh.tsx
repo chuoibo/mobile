@@ -20,11 +20,29 @@
  * measure on first layout, and a rotate or a wider window would put every
  * box on the wrong face.
  *
+ * WHY THE FRAME TAKES THE PHOTOGRAPH'S OWN ASPECT RATIO. The server gives each
+ * box as a fraction OF THE IMAGE. Percentages here are of the FRAME. Those are
+ * the same rectangle only while the frame has the image's shape, so the frame
+ * is given that shape from `onLoad` and the image is drawn `contain` inside it.
+ *
+ * This started as `resizeMode="cover"` on a flex-filling frame, which is the
+ * ordinary way to fill a card and is wrong here: cover CROPS, so the visible
+ * picture is no longer the picture the fractions were measured against, and
+ * every box slides off its face by however much was cut. It is invisible in
+ * code review and invisible to the detector -- an overlay with confident
+ * rectangles on it looks equally correct whatever is underneath. It was caught
+ * by looking at a screenshot in which the boxes plainly missed the shapes.
+ *
+ * Until the first `onLoad` there is no known ratio, so the frame holds 3:4 --
+ * a shape, not a guess at this photograph. Nothing is drawn against it: the
+ * boxes wait for `tiLe`, because an overlay positioned against a placeholder
+ * ratio is exactly the wrong-face bug in a smaller window.
+ *
  * Pure: props in, callbacks out. Finding faces and claiming a box are the
  * parent's network. `Anh` is not used: that frame fetches with credentials,
  * and a presentational screen that starts a request is no longer presentational.
  */
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Image, Pressable, Text, View } from "react-native";
 import { radius, space, type, usePalette } from "../../theme";
 import { Button, Card, Screen } from "../../ui/Kit";
@@ -51,6 +69,34 @@ export function NhanMatTrenAnh({
   onQuayLai: () => void;
 }) {
   const c = usePalette();
+  // Null until the photograph reports its own dimensions. The overlay waits on
+  // it rather than guessing, because a box drawn against the wrong ratio is a
+  // box on somebody else's face.
+  const [tiLe, setTiLe] = useState<number | null>(null);
+
+  // `Image.getSize` rather than the `onLoad` event. The event's payload is not
+  // the same shape on react-native-web as on native -- reading
+  // `nativeEvent.source` there leaves the ratio null forever, and a null ratio
+  // draws no boxes at all, which is a blank overlay that looks like "no faces
+  // found". `getSize` is one call with one contract on both platforms.
+  useEffect(() => {
+    let song = true;
+    setTiLe(null);
+    Image.getSize(
+      anhUri,
+      (rong, cao) => {
+        if (song && rong > 0 && cao > 0) setTiLe(rong / cao);
+      },
+      () => {
+        /* Unreadable photograph. The frame keeps its placeholder shape and no
+           box is drawn, which is the honest outcome: without the image there
+           is nothing for a rectangle to be a fraction of. */
+      },
+    );
+    return () => {
+      song = false;
+    };
+  }, [anhUri]);
 
   return (
     <Screen
@@ -80,8 +126,19 @@ export function NhanMatTrenAnh({
     >
       <View
         style={{
-          flex: 1,
-          minHeight: 44,
+          width: "100%",
+          // Bounded, because `width: 100%` plus an aspect ratio is a frame that
+          // grows without limit: on a desktop-width window the picture became
+          // tall enough to slide under the footer, and the detector caught the
+          // consequence rather than the cause -- "Quay lại" measured 3.3:1
+          // against the photograph instead of against the page. A phone never
+          // reaches this cap; it exists so the web build cannot outgrow itself.
+          maxWidth: 420,
+          // The photograph's own shape once it is known. 3:4 only until then,
+          // and no box is drawn against that placeholder.
+          aspectRatio: tiLe ?? 3 / 4,
+          flexShrink: 1,
+          alignSelf: "center",
           borderRadius: radius.base,
           overflow: "hidden",
           backgroundColor: c.card,
@@ -92,10 +149,12 @@ export function NhanMatTrenAnh({
         <Image
           source={{ uri: anhUri }}
           accessibilityLabel="Ảnh nhóm"
-          resizeMode="cover"
+          // `contain`, never `cover`. See the header: cover crops, and a
+          // cropped picture is not the picture the box fractions describe.
+          resizeMode="contain"
           style={{ width: "100%", height: "100%" }}
         />
-        {o.map((box, i) => {
+        {(tiLe === null ? [] : o).map((box, i) => {
           const chon = oCuaToi === box.boxKey;
           const so = i + 1;
           return (

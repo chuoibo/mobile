@@ -83,6 +83,27 @@ test("các bên hoà được gọi tên theo thứ tự lá phiếu, không the
   assert.deepEqual(bang.tenCacBenHoa, ["Lẩu", "Nướng"]);
 });
 
+test("hoà đọc từ is_tie, không đếm lại độ dài danh sách dẫn đầu", () => {
+  // Today the server computes `is_tie = len(leading_option_ids) > 1`
+  // (`domain/vote.py`), so on any real payload the two agree and a mutant that
+  // recomputes it here passes every other test in this file. That is exactly
+  // why this case is written by hand: the rule `ket-qua.ts` states is "read the
+  // field", and a client holding a second definition of a tie is a second
+  // definition that can drift the day the server's changes. The wire below
+  // could not come off today's server, and that is the point.
+  const bang = bangKetQuaTuWire(
+    cuoc({ phieu: [2, 2, 0], leading: [LAU, NUONG], laHoa: false, chot: null }),
+  );
+  assert.equal(bang.laHoa, false);
+  assert.deepEqual(bang.tenCacBenHoa, []);
+
+  const nguoc = bangKetQuaTuWire(
+    cuoc({ phieu: [3, 1, 0], leading: [LAU], laHoa: true, chot: null }),
+  );
+  assert.equal(nguoc.laHoa, true);
+  assert.deepEqual(nguoc.tenCacBenHoa, ["Lẩu"]);
+});
+
 test("có người thắng: lấy đúng decided_option_id", () => {
   const bang = bangKetQuaTuWire(
     cuoc({ phieu: [3, 1, 0], leading: [LAU], laHoa: false, chot: LAU }),
