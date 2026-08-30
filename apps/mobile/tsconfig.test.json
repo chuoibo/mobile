@@ -94,6 +94,10 @@
     "src/screens/chat/nhom.ts",
     "src/screens/chat/nhap-tu-chat.ts",
     "src/screens/chat/TheNhapChiTuChat.tsx",
+    // F31/F33/F34/F36. Compile both the four-route client and the markup the
+    // group-understanding test reads through react-native-web.
+    "src/screens/ai-hieu-nhom/ai-hieu-nhom.ts",
+    "src/screens/ai-hieu-nhom/AiHieuNhom.tsx",
     "src/screens/chat/TinNhan.tsx",
     "src/screens/chat/BongBong.tsx",
     "src/screens/chat/TheKeHoach.tsx",

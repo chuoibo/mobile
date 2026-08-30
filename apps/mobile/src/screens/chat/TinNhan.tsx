@@ -29,6 +29,11 @@ import { radius, space, type, usePalette } from "../../theme";
 import { napNhapKhoanChiTuChat } from "../../api";
 import { Card } from "../../ui/Kit";
 import { themChiTiet } from "../../ui/loi-may-chu";
+import { AiHieuNhom } from "../ai-hieu-nhom/AiHieuNhom";
+import {
+  napAiHieuNhom,
+  type AiHieuNhomState,
+} from "../ai-hieu-nhom/ai-hieu-nhom";
 import { goiAiTurn, type AiTurnState } from "./ai";
 import { TheNhapChiTuChat } from "./TheNhapChiTuChat";
 import {
@@ -67,7 +72,7 @@ import {
   type TinNhanState,
 } from "./tin-nhan";
 
-type ChipId = "chat" | "plan" | "thanh-vien" | "file";
+type ChipId = "chat" | "plan" | "thanh-vien" | "file" | "ai-hieu";
 
 type TinMan = { kind: "dang-tai" } | TinNhanState;
 
@@ -76,6 +81,7 @@ const CHIPS: { id: ChipId; label: string }[] = [
   { id: "plan", label: "Plan" },
   { id: "thanh-vien", label: "Thành viên" },
   { id: "file", label: "File" },
+  { id: "ai-hieu", label: "AI hiểu nhóm" },
 ];
 
 export function TinNhan({ nguoi, nhomPhien }: {
@@ -100,6 +106,7 @@ export function TinNhan({ nguoi, nhomPhien }: {
   const [dangNapCu, setDangNapCu] = useState(false);
   const [thongBao, setThongBao] = useState<string | null>(null);
   const [aiYen, setAiYen] = useState<AiYen | null>(null);
+  const [aiHieu, setAiHieu] = useState<AiHieuNhomState>({ kind: "dang-tai" });
   const [keHoachDangXem, setKeHoachDangXem] = useState<KeHoach | null>(null);
   const [dangMoBinhChon, setDangMoBinhChon] = useState(false);
   const [dangHoiAi, setDangHoiAi] = useState(false);
@@ -151,6 +158,37 @@ export function TinNhan({ nguoi, nhomPhien }: {
       huy = true;
     };
   }, [nguoi, nhom]);
+
+  useEffect(() => {
+    if (chip !== "ai-hieu") return;
+    if (!nguoi || nhom.kind === "chua-chon") {
+      setAiHieu({ kind: "chua-biet-la-ai" });
+      return;
+    }
+    if (nhom.kind === "dang-tai") {
+      setAiHieu({ kind: "dang-tai" });
+      return;
+    }
+    if (nhom.kind === "hong") {
+      if (nhom.status === 401 || nhom.status === 403) {
+        setAiHieu({ kind: "bi-tu-choi", url: nhom.url });
+      } else if (nhom.status === 0) {
+        setAiHieu({ kind: "khong-noi-duoc", url: nhom.url, detail: nhom.detail });
+      } else {
+        setAiHieu({ kind: "may-chu-loi", url: nhom.url, detail: nhom.detail });
+      }
+      return;
+    }
+
+    let huy = false;
+    setAiHieu({ kind: "dang-tai" });
+    napAiHieuNhom(nhom.contextId, { actorId: nguoi.personId }).then((state) => {
+      if (!huy) setAiHieu(state);
+    });
+    return () => {
+      huy = true;
+    };
+  }, [chip, nguoi, nhom]);
 
   useEffect(() => {
     if (!cuoiTin) return;
@@ -396,6 +434,9 @@ export function TinNhan({ nguoi, nhomPhien }: {
         ) : null}
         {chip === "thanh-vien" ? <TabThanhVien nhom={nhom} /> : null}
         {chip === "file" ? <TabFile /> : null}
+        {chip === "ai-hieu" ? (
+          <AiHieuNhom state={aiHieu} onDong={() => setChip("chat")} />
+        ) : null}
       </View>
 
       {thongBao ? <BangThongBao text={thongBao} onClose={() => setThongBao(null)} /> : null}
