@@ -99,6 +99,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import puppeteer from "file:///home/lakiet/.claude/node_modules/puppeteer-core/lib/puppeteer/puppeteer-core.js";
 
+import { laLoiThat, phanLoai } from "./che-chu.mjs";
 import { CHROME, closeServer, createStaticServer, listen } from "./screen-snapshots.mjs";
 import { API_BASE, NGUOI, moiMan, installTabStubs, taoFixtures } from "./tab-snapshots.mjs";
 
@@ -257,6 +258,47 @@ function quet(url) {
  * "the screen actually drew" are different claims and the second one is the
  * one a reader of the report will assume.
  */
+/**
+ * Split a screen's findings into real defects and measuring artifacts.
+ *
+ * Only `text-occlusion` is adjudicated -- it is the one rule here that decides
+ * on raw box overlap, so it is the one rule that can be wrong about a page it
+ * measured correctly. Every other finding passes through untouched: a filter
+ * that grew to cover more rules would eventually be the thing deciding what
+ * counts as a defect, which is the detector's job.
+ *
+ * A screen with no occlusion findings never opens a page, so the common case
+ * costs nothing.
+ */
+async function loc(browser, url, needle, findings) {
+  const che = findings.filter((f) => f.antipattern === "text-occlusion");
+  if (!che.length) return { that: findings, aoAnh: [] };
+
+  const page = await browser.newPage();
+  try {
+    page.setDefaultTimeout(30000);
+    await page.goto(url, { waitUntil: "networkidle0" });
+    await page
+      .waitForFunction((n) => (document.body?.innerText ?? "").includes(n), { timeout: 20000 }, needle)
+      .catch(() => {});
+
+    const that = [];
+    const aoAnh = [];
+    for (const f of findings) {
+      if (f.antipattern !== "text-occlusion") {
+        that.push(f);
+        continue;
+      }
+      const kq = await phanLoai(page, f);
+      if (laLoiThat(kq)) that.push(f);
+      else aoAnh.push({ f, kq });
+    }
+    return { that, aoAnh };
+  } finally {
+    await page.close();
+  }
+}
+
 async function kiemManHinh(browser, url, needle) {
   const page = await browser.newPage();
   const loi = [];
@@ -362,14 +404,29 @@ async function main() {
       }
 
       const { findings, status } = await quet(url);
-      bad += findings.length;
-      bangKe.push({ step, findings, status, chars: man.chars, els: man.els });
+
+      // `text-occlusion` compares raw bounding boxes, so every row that has
+      // scrolled past its container's clip edge reports as "covered" by
+      // whatever is pinned at those coordinates. Four of the five findings on
+      // this app's screens were that, and acting on them would have moved
+      // layouts nobody could see a problem with. Each one is re-measured in a
+      // real render -- scrolled to, then hit-tested -- and only the ones still
+      // buried count. The rest are printed, never dropped in silence.
+      const { that, aoAnh } = await loc(browser, url, needle, findings);
+      bad += that.length;
+      bangKe.push({ step, findings: that, aoAnh, status, chars: man.chars, els: man.els });
       console.log(
-        `  ${step.padEnd(10)} findings=${String(findings.length).padStart(2)} exit=${status}` +
+        `  ${step.padEnd(10)} findings=${String(that.length).padStart(2)} exit=${status}` +
           `  (da render: els=${man.els} chars=${man.chars}, needle OK)`,
       );
-      for (const f of findings) {
+      for (const f of that) {
         console.log(`      [${f.severity}] ${f.antipattern}: ${(f.snippet ?? "").slice(0, 150)}`);
+      }
+      for (const { f, kq } of aoAnh) {
+        console.log(
+          `      [bo qua: ${kq.verdict}] ${f.antipattern}: ${(f.snippet ?? "").slice(0, 110)}`,
+        );
+        console.log(`          ${kq.ly}`);
       }
     }
 
