@@ -41,15 +41,28 @@ const HIT = 44;
  *
  *   money 94  - "1.125.000" measures ~78pt at 16pt, plus 12 of padding
  *   qty    44 - two digits, and the minimum comfortable tap target
- *   delete 28 - visually small, but `hitSlop` restores the full 44 to the touch
+ *   delete 44 - was 28 with `hitSlop` promising the other 16, which is a
+ *               promise react-native-web does not keep; see below
  *   dot     0 - gone; an edited field now says so with its own border, which
  *               is more precise than a dot that only said "something in this
  *               row changed"
+ *
+ * The delete column costs the name 16pt of the slack it was given, and that is
+ * the trade this file now makes on purpose. `hitSlop` is a React Native prop
+ * that react-native-web drops: measured on the web export at 390x844, hit-test
+ * points 1, 2, 4, 6, 8, 10 and 12px outside the button's left edge ALL missed
+ * it, so the real touch area was the 28x44 box and nothing more. Same class of
+ * silent drop as `accessibilityState` reaching the DOM without `aria-checked`.
+ *
+ * 28x44 clears WCAG 2.2 AA 2.5.8 (24x24) and misses both Apple HIG 44 and
+ * Android 48dp -- on the one control here that destroys a row. A real 44 box
+ * costs the name field 154pt -> 138pt, which is still 28pt more than the 110
+ * that truncated six of eight dishes, and it is the same size on both
+ * platforms rather than 44 on one and 28 on the other.
  */
 const W_QTY = 44;
 const W_MONEY = 94;
-const W_DELETE = 28;
-const DELETE_SLOP = { top: 8, bottom: 8, left: 8, right: 8 };
+const W_DELETE = HIT;
 
 export function KetQuaNhanDien(props: {
   reading: BillReading;
@@ -288,9 +301,9 @@ export function KetQuaNhanDien(props: {
                     onPress={() => dropLine(line.id)}
                     accessibilityRole="button"
                     accessibilityLabel={`Xoá món ${dish}`}
-                    // Visually 28pt so the name column can have the space,
-                    // but `hitSlop` keeps the touch target at 44.
-                    hitSlop={DELETE_SLOP}
+                    // A real 44x44 box, not 28 plus a `hitSlop` the web build
+                    // never applies. See the column table at the top of this
+                    // file for what the name column paid for it.
                     style={({ pressed }) => ({
                       width: W_DELETE,
                       height: HIT,
