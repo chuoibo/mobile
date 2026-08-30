@@ -40,7 +40,7 @@ DC = $(COMPOSE) -p $(PROJECT)
 WAIT_TIMEOUT ?= 300
 
 .DEFAULT_GOAL := help
-.PHONY: help gate gate-merge test-db e2e up down clean logs ps migrate db-check seed demo demo-check demo-data-check demo-persona-check demo-watch demo-watch-status demo-watch-install smoke
+.PHONY: help gate gate-merge test-db e2e up down clean logs ps migrate db-check seed demo demo-reset demo-check demo-data-check demo-persona-check demo-watch demo-watch-status demo-watch-install smoke
 
 # `demo` phải gọi đúng bộ container mà `up` vừa dựng. Trên nhánh này biến đó là
 # $(COMPOSE); PR #60 (đang mở, cùng lane) đổi nó thành $(DC) = compose kèm
@@ -210,6 +210,21 @@ demo: ## Dựng hệ rồi nạp dữ liệu demo "Team Đà Lạt" — 7 ngư�
 	@# dữ liệu lẫn lộn — nhưng nó CÓ hiện trên màn danh sách nhóm.
 	@# --no-deps: xem ghi chú ở `seed`, cùng một cái bẫy.
 	$(DEMO_COMPOSE) run --rm --no-deps demo
+
+# Vì sao cần một lệnh riêng: `seed_demo_data.py` sinh key idempotency từ một
+# namespace cố định và một slug cố định, không có gì thay đổi theo lượt chạy.
+# Còn khoản chi thì backdate từ `now`. Nên lần seed THỨ HAI trên cùng một
+# database gửi CÙNG key với THÂN KHÁC, và máy chủ từ chối đúng như nó phải làm:
+# POST /expenses -> 422 idempotency_key_reuse. Tức là bộ fixture chỉ dựng được
+# MỘT LẦN cho mỗi database, và sau đó dữ liệu demo đóng băng ở hình dạng nó
+# chạm tới — đúng hay sai cũng vậy. Ngày 30/08 nó đóng băng ở 8 đợt thu / 0
+# buổi đi, và bốn tính năng đã xong hiện RỖNG trên chính máy leader sẽ bấm.
+#
+# Đường thoát cũ là `make clean`, nhưng clean lấy CẢ volume ảnh và seed không
+# dựng lại ảnh được. Target này đi đường rẻ hơn: giải phóng cái TÊN mà fixture
+# tra cứu, không xoá dòng nào. Sổ cái giữ nguyên mọi bản ghi.
+demo-reset: ## Giải phóng tên nhóm demo để `make demo` dựng lại được — APPLY=1 để ghi thật
+	@python3 scripts/reset_demo_group.py $(if $(DSN),--dsn $(DSN)) $(if $(APPLY),--yes)
 
 # `smoke` hỏi "cổng này có phục vụ đủ route CỦA CÂY NÀY không" — đúng câu ở cuối
 # `make up`, vì `up` vừa dựng ảnh từ chính cây đó. Với MÁY DEMO thì câu đó không

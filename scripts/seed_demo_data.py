@@ -251,12 +251,17 @@ def check_complete(connection: psycopg.Connection, context_id: uuid.UUID) -> Non
         "bảng `outings`), nên đây KHÔNG phải bộ dữ liệu demo dùng được.\n"
         "Không xoá nhóm đó bằng SQL được: `confirmed_allocations` là bảng "
         "append-only, trigger chặn cả DELETE — sổ cái đang làm đúng việc của "
-        "nó. Hai đường đi được:\n"
-        "  1. Dựng bộ container riêng, database riêng, không đụng ai:\n"
+        "nó. Ba đường đi được, rẻ nhất trước:\n"
+        "  1. Giải phóng cái TÊN thay vì xoá dữ liệu — không mất dòng nào:\n"
+        "     python3 scripts/reset_demo_group.py --yes   (chạy khô nếu bỏ --yes)\n"
+        "     rồi `make demo`. Nó đổi tên nhóm cũ và xoá đúng các key\n"
+        "     idempotency của chính fixture này, thứ đang làm lần seed thứ hai\n"
+        "     trả 422 idempotency_key_reuse. Ảnh và dữ liệu lane khác còn nguyên.\n"
+        "  2. Dựng bộ container riêng, database riêng, không đụng ai:\n"
         "     COMPOSE_PROJECT_NAME=demo MOBILE_API_PORT=8199 "
         "MOBILE_POSTGRES_PORT=5439 make demo\n"
-        "  2. Hoặc `make clean` rồi `make demo` — nhưng clean XOÁ database "
-        "dùng chung, hỏi cả đội trước."
+        "  3. Hoặc `make clean` rồi `make demo` — nhưng clean XOÁ database "
+        "dùng chung VÀ volume ảnh (seed không dựng lại ảnh được), hỏi cả đội trước."
     )
 
 
@@ -330,8 +335,16 @@ def outings(now: datetime) -> list[dict]:
             "nights": 2,
             "budget_per_person_vnd": 900_000,
             "stops": [
-                {"at": "07:30", "label": "Xe khách Sài Gòn – Đà Lạt", "place_name": None},
-                {"at": "14:00", "label": "Nhận phòng", "place_name": "Homestay Cỏ Hồng"},
+                {
+                    "at": "07:30",
+                    "label": "Xe khách Sài Gòn – Đà Lạt",
+                    "place_name": None,
+                },
+                {
+                    "at": "14:00",
+                    "label": "Nhận phòng",
+                    "place_name": "Homestay Cỏ Hồng",
+                },
                 {"at": "19:00", "label": "Ăn tối", "place_name": "Tiệm Nướng Xóm Lèo"},
             ],
             "expenses": [
