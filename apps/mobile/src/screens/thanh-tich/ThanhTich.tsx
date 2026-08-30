@@ -249,7 +249,13 @@ function TheNguoi({ nguoi, so }: { nguoi: DemoPerson | null; so: Finance }) {
             backgroundColor: c.aiSoft,
           }}
         >
-          <Text style={{ ...type.label, fontWeight: "700", color: c.aiInk }}>
+          {/* `aiInk` is the ink for the SOLID `ai` chip, not for `aiSoft`. On
+              the soft surface it was #ffffff on #f5f1ff, 1.1:1, and the level
+              simply could not be read; dark mode was 1.1:1 too, so it was not a
+              one-palette slip. `ai` on `aiSoft` is 4.64:1, and it matches the
+              face chip directly to the left, which already pairs `accent` with
+              `accentSoft` at 4.65:1. */}
+          <Text style={{ ...type.label, fontWeight: "700", color: c.ai }}>
             Level {tien.cap}
           </Text>
         </View>
