@@ -25,10 +25,27 @@ underneath it. So the legacy debt is written down in LEGACY_UNFORMATTED and
 frozen. It cannot grow, and STALE-entry detection means it can only shrink:
 clean a file up and this gate tells you to strike it off the list.
 
-The allowlist is version-stable. ruff 0.9.2 (the pin in
-services/api/requirements-dev.txt, which CI installs) and ruff 0.15.15 name the
-identical dirty set across all 25 files and produce byte-identical output, so
-the list does not depend on which of the two a developer happens to have.
+Which ruff renders the verdict:
+
+The pinned one, resolved through `scripts/ruff_pinned.sh` -- never whatever is
+first on PATH. This file used to call bare `ruff`, and the allowlist above
+carried a note saying that was safe because ruff 0.9.2 (the pin in
+services/api/requirements-dev.txt, which CI installs) and ruff 0.15.15 named
+the identical dirty set. Re-measured 2026-08-30 at 431dd7c over all 37 files
+under tests/qa/, and over all 323 tracked Python files: still identical, still
+zero divergence. So the note was true.
+
+It was also a fact about today's tree offered as if it were a guarantee, which
+is the same reasoning `scripts/ruff_pinned.sh` was written to remove from the
+lint stage: "a verdict from the wrong tool is not the verdict". Every file the
+QA lane adds under tests/qa/ is a fresh chance for the two to disagree, and the
+gate would report the local binary's answer as CI's. The allowlist is frozen
+against version drift now by construction rather than by re-measurement.
+
+Cost of doing it this way, stated plainly: on a machine with no pinned ruff and
+no network, `scripts/ruff_pinned.sh` exits 2 and this gate goes red where it
+used to go green on the wrong binary. That is the intended direction. The
+message says how to fix it.
 
 Note that tests/qa/ sits outside services/api/pyproject.toml, so ruff applies
 its default configuration here -- line-length 88, not the project's. That is
@@ -37,13 +54,14 @@ why most of the diff this gate demands is line wrapping.
 
 from __future__ import annotations
 
-import shutil
+import functools
 import subprocess
 import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 QA_ROOT = REPO_ROOT / "tests" / "qa"
+RUFF_PINNED = REPO_ROOT / "scripts" / "ruff_pinned.sh"
 
 # Unformatted on main before this gate existed, and left alone on purpose.
 # These belong to other QA turns; reformatting them here would bury the real
@@ -75,8 +93,33 @@ def qa_python_files() -> list[Path]:
     return sorted(QA_ROOT.rglob("*.py"))
 
 
+@functools.cache
+def pinned_ruff() -> str:
+    """Absolute path to the ruff version requirements-dev.txt pins.
+
+    Cached because the resolver is a subprocess and this gate asks 37 times.
+    Never falls back to PATH: `ruff_pinned.sh` exits 2 rather than hand back a
+    different version, and swallowing that here would put the hole straight
+    back. Raises rather than returns a sentinel, so a caller cannot mistake
+    "could not get the tool" for "the tool found nothing".
+    """
+    result = subprocess.run(
+        [str(RUFF_PINNED)], cwd=REPO_ROOT, capture_output=True, text=True
+    )
+    path = result.stdout.strip()
+    if result.returncode != 0 or not path:
+        raise AssertionError(
+            "could not resolve the pinned ruff -- refusing to render this "
+            "gate's verdict with a different version.\n"
+            f"scripts/ruff_pinned.sh exited {result.returncode}\n"
+            f"stderr: {result.stderr.strip()}\n"
+            "Fix it with: pip install -r services/api/requirements-dev.txt"
+        )
+    return path
+
+
 def ruff_rejects_format(path: Path) -> bool:
-    """True when `ruff format` would rewrite *path*.
+    """True when the pinned `ruff format` would rewrite *path*.
 
     Exit code, not stdout parsing: ruff's wording has changed between releases
     and a gate that silently stops matching its own grep is a gate that stops
@@ -85,7 +128,7 @@ def ruff_rejects_format(path: Path) -> bool:
     quiet pass.
     """
     result = subprocess.run(
-        ["ruff", "format", "--check", "--no-cache", "--", str(path)],
+        [pinned_ruff(), "format", "--check", "--no-cache", "--", str(path)],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
@@ -103,12 +146,11 @@ class QaScriptsAreRuffFormatted(unittest.TestCase):
         # A missing tool is a failure, never a skip. The whole reason those
         # three files reached main is a check that reported success without
         # having looked at anything; reproducing that here would be perverse.
-        if shutil.which("ruff") is None:
-            self.fail(
-                "ruff is not installed -- refusing to report a check that did "
-                "not run. Install it with: "
-                "pip install -r services/api/requirements-dev.txt"
-            )
+        #
+        # Asking the resolver rather than `shutil.which("ruff")`, because the
+        # question is not "is there a ruff" but "is there THE ruff". A machine
+        # with the wrong version answered yes to the old question.
+        pinned_ruff()
 
     def test_the_gate_actually_inspects_files(self) -> None:
         """A pass must mean files were read, not that the glob found nothing.
@@ -140,8 +182,10 @@ class QaScriptsAreRuffFormatted(unittest.TestCase):
             [],
             "ruff format rejects these files under tests/qa/:\n  "
             + "\n  ".join(offenders)
-            + "\n\nRun: ruff format "
-            + " ".join(offenders),
+            + "\n\nFix them with the SAME binary that judged them -- formatting "
+            "with a different\nruff can leave this gate red on a file its "
+            "author was told is clean:\n"
+            "    $(scripts/ruff_pinned.sh) format " + " ".join(offenders),
         )
 
     def test_no_stale_allowlist_entry(self) -> None:
