@@ -151,6 +151,124 @@ button{background:#1a4fd6;color:#fff;border:none;border-radius:8px;padding:12px 
 </body></html>`;
 
 /**
+ * The heavy canary's bottom defect, identified by its STYLE rather than its words.
+ *
+ * The first version of this check looked for the paragraph's text inside the
+ * finding and failed on a page the scanner had read perfectly well, because
+ * `imp detect` does not quote the page -- it reports the property. A
+ * `low-contrast` finding reads `1.2:1 (need 4.5:1) — text #eeeeee on #ffffff`
+ * and carries `line: 0` and no selector, so there is no positional field to
+ * anchor on and no page text to match.
+ *
+ * The colour is the anchor instead, and it works because the filler cannot
+ * produce it: every other element on that page is #1a1a1a at 16px or 20px, and
+ * the filler scanned on its own returns exactly zero findings (measured, not
+ * assumed -- `canaryNang(300, false)` is scanned every run for precisely this).
+ * So a `low-contrast` naming #eeeeee can only have come from the last element
+ * on a 1200-element page.
+ */
+const MAU_LOI_DAY = "#eeeeee";
+
+/**
+ * The same defect as `CANARY_XAU`, buried under a page as big as a real screen.
+ *
+ * `CANARY_XAU` is three elements. The screens below are 300 to 600, and that
+ * gap is the whole reason this exists: a scanner that is awake on a postcard
+ * and dies, truncates, or times out on a full page returns `[]` and exit 0 for
+ * every screen, and the small canary signs off on all of it. That is the shape
+ * of failure this project has already paid for twice -- a canary that proves
+ * something true about a page nobody is measuring.
+ *
+ * So the filler is deliberately *clean*: high contrast, ordinary type, short
+ * lines. It must contribute no findings of its own, or the check below cannot
+ * tell "the scanner read to the bottom" from "the scanner found the usual mess
+ * near the top". The one defect sits after all of it, and the gate does not
+ * merely count findings -- it requires the finding carrying `DAY_TRANG`. A
+ * scanner that stops early comes back with a number greater than zero and
+ * still fails, which is the only version of this check worth having.
+ *
+ * `coLoi: false` builds the same page without the defect. That half is not
+ * decoration either: it is what proves the filler contributes nothing, which
+ * is the only reason a #eeeeee finding can be attributed to the last element.
+ * Together the pair separates the three states a single scan cannot -- read
+ * the whole page, read part of it, or fell over and said nothing.
+ */
+function canaryNang(soKhoi, coLoi = true) {
+  const khoi = Array.from(
+    { length: soKhoi },
+    (_, i) =>
+      `<section><h2>Muc ${i + 1}</h2>` +
+      `<p>Doan van ban binh thuong, tuong phan cao, dong ngan va de doc.</p></section>`,
+  ).join("");
+  return `<!DOCTYPE html><html lang="vi"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>canary nang</title><style>
+body{background:#fff;color:#1a1a1a;font-family:system-ui,sans-serif;font-size:16px;
+  line-height:1.6;margin:0;padding:24px;max-width:640px}
+h2{font-size:20px;line-height:1.3;margin:0 0 8px}
+p{margin:0 0 16px}
+.faint{color:${MAU_LOI_DAY};background:#fff;font-size:11px}
+</style></head><body>
+${khoi}
+${coLoi ? `<p class="faint">Chu hong nam o day trang canary nang</p>` : ""}
+</body></html>`;
+}
+
+/**
+ * States that exist only after a press, on screens a cold URL already reaches.
+ *
+ * Khám phá cuts its grid at four and puts the rest behind "Xem tất cả". Both
+ * halves are real screens, and the loop above only ever measures the first one:
+ * a cold URL always lands collapsed. Left there, this file would report "Khám
+ * phá: 0 findings" about a screen with two thirds of its catalogue undrawn --
+ * the shape of claim `MAN_KHAC`'s own header warns about, filed under a name
+ * that reads like full coverage.
+ *
+ * `imp detect` brings its own browser and has no hook to press anything, so the
+ * page presses its own button: a poller injected after the API stub finds the
+ * control by its text and clicks it, exactly as `quet-man-sau-tap.mjs` drives
+ * the bill flow. By the time the detector has finished loading, the app is in
+ * the expanded state on its own.
+ *
+ * `bam` is a PREFIX. The label carries a count ("Xem tất cả (6)") that moves
+ * with the fixture, and an equality match would break the day a row is added
+ * and report it as a missing button rather than a changed number.
+ *
+ * The needle is the fifth place in sort order, which the collapsed grid cannot
+ * be showing. A needle naming any of the first four would read true before the
+ * click landed and wave through a press that missed entirely.
+ */
+const MAN_TUONG_TAC = [
+  {
+    step: "kham-pha-mo-rong",
+    frag: `tab=kham-pha&nguoi=${NGUOI}`,
+    bam: "Xem tất cả",
+    needle: "Cà Phê Vợt Hẻm 330",
+  },
+];
+
+/** Serialised into the page, so it can reference nothing outside itself. */
+function tuDongBam(tienTo) {
+  const t0 = Date.now();
+  (function poll() {
+    const el = [...document.querySelectorAll("button, [role='button']")].find((n) =>
+      n.textContent.replace(/\s+/g, " ").trim().startsWith(tienTo),
+    );
+    if (el) {
+      el.scrollIntoView({ block: "center", inline: "nearest" });
+      if (document.scrollingElement) document.scrollingElement.scrollLeft = 0;
+      el.click();
+      return;
+    }
+    // Give up quietly. The needle check downstream is what turns a missed press
+    // into a failure, and it reports the screen state rather than the poller's
+    // opinion about why.
+    if (Date.now() - t0 > 20000) return;
+    setTimeout(poll, 60);
+  })();
+}
+
+/**
  * `index.html`, with the stubs installed ahead of the bundle.
  *
  * The script is injected at the top of `<head>` rather than appended to
@@ -159,10 +277,13 @@ button{background:#1a4fd6;color:#fff;border:none;border-radius:8px;padding:12px 
  * the screen would render its error panel and the needle check below would
  * fail. Order is the whole trick, so it is stated here rather than assumed.
  */
-function trangCoStub(indexHtml, fixtures) {
+function trangCoStub(indexHtml, fixtures, bam = null) {
   const tiem =
     `<script>(${installTabStubs.toString()})(` +
-    `${JSON.stringify(API_BASE)},${JSON.stringify(fixtures)});</script>`;
+    `${JSON.stringify(API_BASE)},${JSON.stringify(fixtures)});</script>` +
+    // After the stub, so the list it feeds exists to be pressed; the poller
+    // waits for the control rather than assuming it is there yet.
+    (bam ? `<script>(${tuDongBam.toString()})(${JSON.stringify(bam)});</script>` : "");
   const i = indexHtml.indexOf("<head>");
   if (i === -1) throw new Error("index.html khong co <head> de chen stub");
   return indexHtml.slice(0, i + "<head>".length) + tiem + indexHtml.slice(i + "<head>".length);
@@ -299,6 +420,18 @@ async function loc(browser, url, needle, findings) {
   }
 }
 
+/** Element count for one page, so the heavy canary's weight is measured rather
+ *  than asserted from the number of blocks it was built with. */
+async function demEls(browser, url) {
+  const page = await browser.newPage();
+  try {
+    await page.goto(url, { waitUntil: "networkidle0" });
+    return await page.evaluate(() => document.querySelectorAll("*").length);
+  } finally {
+    await page.close();
+  }
+}
+
 async function kiemManHinh(browser, url, needle) {
   const page = await browser.newPage();
   const loi = [];
@@ -351,9 +484,17 @@ async function main() {
 
     const tenXau = ghi("__canary-xau.html", CANARY_XAU);
     const tenSach = ghi("__canary-sach.html", CANARY_SACH);
+    // 300 sections is roughly 1200 elements, comfortably past the biggest
+    // screen below. The margin is checked rather than assumed -- see the
+    // assertion after the screen loop.
+    const tenNang = ghi("__canary-nang.html", canaryNang(300));
+    const tenNangSach = ghi("__canary-nang-sach.html", canaryNang(300, false));
     const trang = fs.readFileSync(indexPath, "utf8") === indexHtml ? trangCoStub(indexHtml, fixtures) : null;
     if (trang === null) throw new Error("index.html doi giua chung");
     for (const { step } of moiMan()) ghi(`__quet-${step}.html`, trang);
+    for (const { step, bam } of MAN_TUONG_TAC) {
+      ghi(`__quet-${step}.html`, trangCoStub(indexHtml, fixtures, bam));
+    }
 
     // The canaries decide whether any number below is allowed to mean anything.
     console.log(`== doi chung may quet (viewport ${VIEWPORT}) ==`);
@@ -378,6 +519,42 @@ async function main() {
       );
     }
 
+    // The heavy canary. Counting findings is not the test -- reaching the
+    // bottom is. See `canaryNang`.
+    console.log(`  nang ${await kiemHttp(`${goc}/${tenNang}`)} bytes HTML`);
+    console.log(`  nang-sach ${await kiemHttp(`${goc}/${tenNangSach}`)} bytes HTML`);
+
+    // Clean half first: it is what licenses the attribution in the dirty half.
+    const nangSach = await quet(`${goc}/${tenNangSach}`);
+    console.log(
+      `  canary nang sach  findings=${nangSach.findings.length} exit=${nangSach.status}  (can = 0)`,
+    );
+    if (nangSach.findings.length !== 0) {
+      throw new Error(
+        `CANARY NANG SACH RA ${nangSach.findings.length} FINDING: phan lot cua trang nang ` +
+          "dang tu sinh loi, nen mot finding tren ban day khong con quy duoc cho phan tu cuoi trang. " +
+          "Sua phan lot cho sach roi hay tin ket qua nao ben duoi.",
+      );
+    }
+
+    const nang = await quet(`${goc}/${tenNang}`);
+    const chamDay = nang.findings.some(
+      (f) => f.antipattern === "low-contrast" && (f.snippet ?? "").includes(MAU_LOI_DAY),
+    );
+    console.log(
+      `  canary nang       findings=${nang.findings.length} exit=${nang.status}` +
+        `  cham day trang=${chamDay ? "co" : "KHONG"}  (can: cham day)`,
+    );
+    if (!chamDay) {
+      throw new Error(
+        "MAY QUET KHONG DOC TOI DAY TRANG: loi duy nhat cua canary nang la mot phan tu " +
+          `${MAU_LOI_DAY} o cuoi trang 1200 phan tu, va khong finding low-contrast nao nhac toi mau do. ` +
+          "Phan lot vua quet ra 0 finding nen no khong the che mat, nghia la may quet " +
+          "chay duoc tren trang nho nhung khong tron ven tren trang co that. " +
+          "Moi so 0 duoi day se la so 0 cua mot luot quet bi cat ngan.",
+      );
+    }
+
     browser = await puppeteer.launch({
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH ?? CHROME,
       headless: true,
@@ -389,9 +566,11 @@ async function main() {
     // below printed nine, because a screen was added to the list and the
     // sentence describing the list was not -- the same class of drift this
     // whole file exists to catch, sitting in its own output.
-    console.log(`\n== ${moiMan().length} man, tren trang that ==`);
+    console.log(
+      `\n== ${moiMan().length} man tu URL + ${MAN_TUONG_TAC.length} man sau khi bam, tren trang that ==`,
+    );
     const bangKe = [];
-    for (const { step, frag, needle } of moiMan()) {
+    for (const { step, frag, needle } of [...moiMan(), ...MAN_TUONG_TAC]) {
       const url = `${goc}/__quet-${step}.html#${frag}`;
 
       const man = await kiemManHinh(browser, url, needle);
@@ -428,6 +607,24 @@ async function main() {
         );
         console.log(`          ${kq.ly}`);
       }
+    }
+
+    // The heavy canary only vouches for the screens it actually outweighs. If
+    // a screen grows past it, the guarantee lapses silently -- the run still
+    // prints a clean table, and the one number proving the scanner reads whole
+    // pages was measured on a page smaller than the page being judged. Say so
+    // instead of inheriting a conclusion this canary did not earn.
+    const nangNhat = bangKe.reduce((m, r) => (r.els > m.els ? r : m), { step: "-", els: 0 });
+    const elsNang = await demEls(browser, `${goc}/${tenNang}`);
+    console.log(
+      `\ncanary nang ${elsNang} els vs man nang nhat ${nangNhat.step} ${nangNhat.els} els`,
+    );
+    if (elsNang < nangNhat.els) {
+      throw new Error(
+        `CANARY NHE HON MAN NANG NHAT: canary ${elsNang} els < ${nangNhat.step} ${nangNhat.els} els. ` +
+          "Bang tren dang thua huong mot ket luan do tren trang nho hon chinh no. " +
+          "Tang so khoi trong canaryNang() cho vuot qua.",
+      );
     }
 
     const outDir = path.join(MOBILE_ROOT, ".tab-scan");

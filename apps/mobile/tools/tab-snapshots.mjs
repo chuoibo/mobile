@@ -355,13 +355,36 @@ export function taoFixtures() {
       { id: "quan-an-local", label: "Quán ăn" },
       { id: "cafe", label: "Cafe" },
     ],
+    // Six, not two, and the extra four are not filler.
+    //
+    // Khám phá cuts its grid at `SO_THE_MAC_DINH` (4) and only draws "Xem tất
+    // cả" when there is more than that, so a two-row fixture renders a
+    // one-line grid with no link -- the lightest shape the screen has. Every
+    // number the scanner then reports about that tab is a number about a
+    // screen the demo never shows. Six gives the real 2x2, a live expand
+    // control, and a second grid state behind it.
+    //
+    // The rows are copied from `services/api/app/places/catalog.py` rather
+    // than invented, including the flags: `hot` and `new` are real values on
+    // real catalogue rows, so the ribbons drawn here are ribbons production
+    // draws. `p-5` is the shut door and `p-6` is the row with no model answer,
+    // which are the two states that must NOT produce a badge. A fixture where
+    // every place is open and every place scored 95 cannot tell a screen that
+    // suppresses those correctly from one that has never met them.
+    //
+    // `photo_url` is deliberately absent from all six. `GET /places` has no
+    // such field today -- only `photo_count` -- so a fixture that carried one
+    // would scan an image path production cannot reach and would report the
+    // stand-in frames as solved.
     places: [
       place(),
       place({
         id: "p-2",
         name: "Lẩu Gà Lá É Tao Ngộ",
+        kinds: ["Lẩu", "Đặc sản", "Local"],
         rating: 4.5,
-        distance_km: 2.4,
+        rating_count: 204,
+        distance_km: 2.8,
         traits: ["Đông vui", "Giá mềm"],
         match: {
           score: 88,
@@ -370,6 +393,79 @@ export function taoFixtures() {
           reason: "Hợp vì nhóm đông và ăn khuya.",
           factors: [],
         },
+      }),
+      place({
+        id: "p-3",
+        name: "Chill Đêm Đà Lạt",
+        category: "di-choi-dem",
+        kinds: ["Bar", "Rooftop"],
+        rating: 4.5,
+        rating_count: 112,
+        distance_km: 1.8,
+        flag: "hot",
+        lat: 11.9435,
+        lng: 108.4372,
+        match: {
+          score: 74,
+          source: "ai",
+          verdict: "tam",
+          reason: "Hợp giờ nhưng hơi quá ngân sách.",
+          factors: [],
+        },
+      }),
+      place({
+        id: "p-4",
+        name: "Khu vui chơi DREAMpark",
+        category: "vui-choi",
+        kinds: ["Giải trí", "Nhiều hoạt động"],
+        rating: 4.6,
+        rating_count: 118,
+        distance_km: 2.3,
+        flag: "new",
+        lat: 11.9601,
+        lng: 108.4498,
+        match: {
+          score: 69,
+          source: "ai",
+          verdict: "tam",
+          reason: "Vui cho nhóm đông, xa hơn một chút.",
+          factors: [],
+        },
+      }),
+      // Shut. `RuyDongCua` takes the one ribbon slot from `flag`, so this row
+      // is also the only place that pairing gets exercised.
+      place({
+        id: "p-5",
+        name: "Nướng Ngói Trời Thông",
+        kinds: ["BBQ", "Ngoài trời"],
+        rating: 4.3,
+        rating_count: 76,
+        distance_km: 3.4,
+        open_now: false,
+        flag: "hot",
+        lat: 11.9285,
+        lng: 108.4451,
+        match: {
+          score: 55,
+          source: "ai",
+          verdict: "khong-hop",
+          reason: "Tối nay đóng cửa.",
+          factors: [],
+        },
+      }),
+      // No model answer at all. `matchLabel` must draw nothing here; a
+      // percentage on this card would be the exact lie rd-be-05 forbids.
+      place({
+        id: "p-6",
+        name: "Cà Phê Vợt Hẻm 330",
+        category: "cafe",
+        kinds: ["Cafe", "Cổ", "Local"],
+        rating: 4.5,
+        rating_count: 142,
+        distance_km: 6.1,
+        lat: 10.7935,
+        lng: 106.6801,
+        match: null,
       }),
     ],
     // Kết bạn, three lists that must differ from each other. All three are
