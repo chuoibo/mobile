@@ -138,6 +138,30 @@
         "controlled-artifact"
       ],
       "reason": "README illustration of the four bill-splitting steps, downscaled to 1000px from the approved feature sheet. Same naming note as man-thanh-toan.jpg.\n\nAll of docs/assets/ is derived from the design mockups under product/, which are not themselves committed. These are concept renders: the names (Minh Anh, Quang Huy, Thu Ha), the ratings and the account number visible in them are demonstration data invented for the mockup, recorded as such in PRODUCT.md under \"Evidence on Hand\". No photograph of a real receipt, no real bank account and no real participant appears in any of them, and none may be added later under these paths.\n\nPinned by exact digest rather than exempted by directory, for the reason spelled out on the apps/mobile entries: a path-based exemption would turn docs/assets/ into a hole the guard cannot see into, and re-cropping or re-exporting any of these images must come back through review with a fresh digest."
+    },
+    {
+      "path": "docs/assets/so-do-1-vong-lap.svg",
+      "sha256": "c88c3d3e83bc77c8da561a53cbb42805bbe18d0aa37d12bc4c3d325625aad909",
+      "rules": [
+        "controlled-artifact"
+      ],
+      "reason": "Sơ đồ vòng lặp sản phẩm trong README, render sẵn từ khối Mermaid nằm ngay dưới nó.\n\nRender sẵn thay vì để GitHub tự render, vì GitHub đã trả \"Unable to render rich display\" cho khối Mermaid này trong khi cùng nguồn đó render sạch trên mọi bản mermaid 9.4.3, 10.2.4, 10.6.1, 10.9.1 và 11.4.1 chạy tại máy — tức lỗi nằm ở trình render phía GitHub, không ở cú pháp. Ảnh thì không phụ thuộc vào nó.\n\nSinh bằng mermaid 11.4.1 với htmlLabels:false, vì nhãn dạng <foreignObject> không hiện khi SVG được nạp qua <img>. viewBox lấy từ getBBox() chứ không lấy viewBox mermaid tự ghi (nó hụt và cắt mất nhãn actor dưới đáy). Các số thực được làm tròn hai chữ số thập phân, và các <symbol> không có <use> nào trỏ tới bị bỏ. Cả hai đều để luật long-number của guard KHÔNG phải bị allowlist ở đây: mermaid ghi toạ độ với hàng chục chữ số thập phân, và path icon viết ở dạng rút gọn liên tiếp nhau, nên cả hai đọc như một dãy số dài. Tiêu một luật của guard cho hình vẽ là mất nhiều hơn được.\n\nNguồn Mermaid nằm trong chính README, trong khối <details> ngay dưới ảnh, nên sửa sơ đồ vẫn có đường đi rõ ràng. Pin theo digest: dựng lại ảnh là phải quay lại review."
+    },
+    {
+      "path": "docs/assets/so-do-2-lat-cat-doc.svg",
+      "sha256": "7a4ea081f90b2431283bcecbf3b95253d4cd3f478f2ca8ac4cfb484b20807d28",
+      "rules": [
+        "controlled-artifact"
+      ],
+      "reason": "Sơ đồ tuần tự của lát cắt dọc trong README, render sẵn từ khối Mermaid nằm ngay dưới nó.\n\nRender sẵn thay vì để GitHub tự render, vì GitHub đã trả \"Unable to render rich display\" cho khối Mermaid này trong khi cùng nguồn đó render sạch trên mọi bản mermaid 9.4.3, 10.2.4, 10.6.1, 10.9.1 và 11.4.1 chạy tại máy — tức lỗi nằm ở trình render phía GitHub, không ở cú pháp. Ảnh thì không phụ thuộc vào nó.\n\nSinh bằng mermaid 11.4.1 với htmlLabels:false, vì nhãn dạng <foreignObject> không hiện khi SVG được nạp qua <img>. viewBox lấy từ getBBox() chứ không lấy viewBox mermaid tự ghi (nó hụt và cắt mất nhãn actor dưới đáy). Các số thực được làm tròn hai chữ số thập phân, và các <symbol> không có <use> nào trỏ tới bị bỏ. Cả hai đều để luật long-number của guard KHÔNG phải bị allowlist ở đây: mermaid ghi toạ độ với hàng chục chữ số thập phân, và path icon viết ở dạng rút gọn liên tiếp nhau, nên cả hai đọc như một dãy số dài. Tiêu một luật của guard cho hình vẽ là mất nhiều hơn được.\n\nNguồn Mermaid nằm trong chính README, trong khối <details> ngay dưới ảnh, nên sửa sơ đồ vẫn có đường đi rõ ràng. Pin theo digest: dựng lại ảnh là phải quay lại review."
+    },
+    {
+      "path": "docs/assets/so-do-3-kien-truc.svg",
+      "sha256": "d98ad228c6ae5c7564bc72a56df716474c98ff221a44c84929778c2e5f94ffd7",
+      "rules": [
+        "controlled-artifact"
+      ],
+      "reason": "Sơ đồ tầng kiến trúc trong README, render sẵn từ khối Mermaid nằm ngay dưới nó.\n\nRender sẵn thay vì để GitHub tự render, vì GitHub đã trả \"Unable to render rich display\" cho khối Mermaid này trong khi cùng nguồn đó render sạch trên mọi bản mermaid 9.4.3, 10.2.4, 10.6.1, 10.9.1 và 11.4.1 chạy tại máy — tức lỗi nằm ở trình render phía GitHub, không ở cú pháp. Ảnh thì không phụ thuộc vào nó.\n\nSinh bằng mermaid 11.4.1 với htmlLabels:false, vì nhãn dạng <foreignObject> không hiện khi SVG được nạp qua <img>. viewBox lấy từ getBBox() chứ không lấy viewBox mermaid tự ghi (nó hụt và cắt mất nhãn actor dưới đáy). Các số thực được làm tròn hai chữ số thập phân, và các <symbol> không có <use> nào trỏ tới bị bỏ. Cả hai đều để luật long-number của guard KHÔNG phải bị allowlist ở đây: mermaid ghi toạ độ với hàng chục chữ số thập phân, và path icon viết ở dạng rút gọn liên tiếp nhau, nên cả hai đọc như một dãy số dài. Tiêu một luật của guard cho hình vẽ là mất nhiều hơn được.\n\nNguồn Mermaid nằm trong chính README, trong khối <details> ngay dưới ảnh, nên sửa sơ đồ vẫn có đường đi rõ ràng. Pin theo digest: dựng lại ảnh là phải quay lại review."
     }
   ]
 }
