@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0,0,1200,356" width="1200" height="356" role="img" aria-label="Bảng ba tông màu của Rủ Đi kèm tỉ lệ tương phản">
+  <style>
+    .t  { font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+    .h  { font-size: 21px; font-weight: 700; fill: #1f2230; }
+    .s  { font-size: 14.5px; fill: #4e5563; }
+    .aa { font-size: 34px; font-weight: 700; }
+    .nm { font-size: 15px; font-weight: 600; }
+    .k  { font-size: 14px; fill: #1f2230; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .m  { font-size: 13.5px; fill: #676e7b; }
+  </style>
+
+  <rect width="1200" height="356" rx="24" fill="#feeee0"/>
+  <text class="t h" x="40" y="46">Ba tông mang nghĩa</text>
+  <text class="t s" x="40" y="72">Nhìn màu là biết đang ở phần nào. Một màn hình chỉ có MỘT tông dẫn — hai tông dẫn cùng lúc là lỗi, không phải lựa chọn.</text>
+
+  <!-- Cam -->
+  <g>
+    <rect x="40" y="96" width="356" height="224" rx="20" fill="#ffffff" stroke="#e7dace"/>
+    <path d="M40 116a20 20 0 0 1 20-20h316a20 20 0 0 1 20 20v64H40z" fill="#c93900"/>
+    <text class="t aa" x="66" y="152" fill="#ffffff">Aa</text>
+    <text class="t nm" x="130" y="148" fill="#ffffff">accent · Cam</text>
+    <text class="t k" x="66" y="216">sáng #c93900 · 5.16:1</text>
+    <text class="t k" x="66" y="242">tối&#160;&#160; #fb693e · 5.77:1</text>
+    <text class="t m" x="66" y="278">Thương hiệu và hành động chính</text>
+    <text class="t m" x="66" y="299">trong app.</text>
+  </g>
+
+  <!-- Teal -->
+  <g>
+    <rect x="422" y="96" width="356" height="224" rx="20" fill="#ffffff" stroke="#e7dace"/>
+    <path d="M422 116a20 20 0 0 1 20-20h316a20 20 0 0 1 20 20v64H422z" fill="#00756b"/>
+    <text class="t aa" x="448" y="152" fill="#ffffff">Aa</text>
+    <text class="t nm" x="512" y="148" fill="#ffffff">split · Teal</text>
+    <text class="t k" x="448" y="216">sáng #00756b · 5.59:1</text>
+    <text class="t k" x="448" y="242">tối&#160;&#160; #02a498 · 5.42:1</text>
+    <text class="t m" x="448" y="278">Chia bill, tiền, quyết toán.</text>
+    <text class="t m" x="448" y="299">Tông dẫn của trang khách.</text>
+  </g>
+
+  <!-- Tím -->
+  <g>
+    <rect x="804" y="96" width="356" height="224" rx="20" fill="#ffffff" stroke="#e7dace"/>
+    <path d="M804 116a20 20 0 0 1 20-20h316a20 20 0 0 1 20 20v64H804z" fill="#7d49ef"/>
+    <text class="t aa" x="830" y="152" fill="#ffffff">Aa</text>
+    <text class="t nm" x="894" y="148" fill="#ffffff">ai · Tím</text>
+    <text class="t k" x="830" y="216">sáng #7d49ef · 5.16:1</text>
+    <text class="t k" x="830" y="242">tối&#160;&#160; #9667ff · 4.55:1</text>
+    <text class="t m" x="830" y="278">Thứ do máy sinh ra, người</text>
+    <text class="t m" x="830" y="299">còn sửa được trước khi chốt.</text>
+  </g>
+</svg>
