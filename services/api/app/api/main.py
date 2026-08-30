@@ -26,6 +26,7 @@ from app.api.idempotency import (
     SqlAlchemyIdempotencyStore,
 )
 from app.api.routes import (
+    albums,
     bank_recipients,
     batches,
     bills,
@@ -43,6 +44,8 @@ from app.api.routes import (
     people,
     photos,
     places,
+    posts,
+    preferences,
     recap,
     receipts,
     screenshots,
@@ -54,6 +57,7 @@ from app.api.schemas import ErrorResponse
 from app.api.search_rate_limit import (
     build_chat_expense_limiter,
     build_companion_turn_limiter,
+    build_contextual_suggestion_limiter,
     build_receipt_scan_limiter,
     build_screenshot_scan_limiter,
     build_search_limiter,
@@ -113,6 +117,14 @@ def create_app(
     # See `CachedReasonWriter`: caching successes only made a row the model
     # refused cost a model call on every request.
     application.state.reason_writer = CachedReasonWriter()
+    # F33 is the eighth door. It reads the group's live conversation, so it
+    # cannot borrow the cache that caps the seventh -- two people typing
+    # different things must not be served one another's answer -- which leaves
+    # one model call per GET, on a screen that opens often. Hence its own
+    # window, distinct from both the proactive card's and the cache above.
+    application.state.contextual_suggestion_limiter = (
+        build_contextual_suggestion_limiter()
+    )
 
     application.mount(
         "/static",
@@ -126,6 +138,7 @@ def create_app(
     application.include_router(contexts.router)
     application.include_router(memories.router)
     application.include_router(photos.router)
+    application.include_router(posts.router)
     application.include_router(outings.router)
     application.include_router(messages.router)
     application.include_router(batches.router)
@@ -141,6 +154,8 @@ def create_app(
     application.include_router(screenshots.router)
     application.include_router(suggestions.router)
     application.include_router(social_map.router)
+    application.include_router(albums.router)
+    application.include_router(preferences.router)
 
     # Middleware, not a decorator on each route: a write route added later is
     # covered the moment it is registered, with no list for anyone to forget.

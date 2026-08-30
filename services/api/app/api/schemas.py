@@ -592,8 +592,7 @@ class GroupBudgetResponse(ApiModel):
             if self.avg_per_person_vnd is None:
                 raise ValueError("comparison requires a historical average")
             expected = (
-                self.comparison.candidate_per_person_vnd
-                - self.avg_per_person_vnd
+                self.comparison.candidate_per_person_vnd - self.avg_per_person_vnd
             )
             if self.comparison.delta_vnd != expected:
                 raise ValueError("comparison delta must be candidate minus average")
@@ -807,6 +806,70 @@ class MemoryCommentResponse(ApiModel):
 class MemoryCommentListResponse(ApiModel):
     memory_id: UUID
     comments: list[MemoryCommentResponse]
+
+
+class PostCreateRequest(ApiModel):
+    """F39/F42. What a person said, and who they addressed it to.
+
+    There is no `author_id` here and there is no recipient list. Both absences
+    are the feature:
+
+    * The author is the actor the gateway proved. A body field naming the
+      writer is a field for writing in somebody else's name, and no downstream
+      check recovers from one.
+    * `audience` is one of four words, not a list of people. A route that took
+      a list of identities from the body would be granting read access to
+      people nobody verified the caller may name -- and it would freeze that
+      list at write time, so removing a friend afterwards would take nothing
+      back.
+
+    `context_id` is meaningful only for `group`; the pairing is checked in
+    `app.domain.post_audience.check_writable` and again by a CHECK constraint
+    on the table.
+    """
+
+    body: Annotated[StrictStr, Field(min_length=1, max_length=5000)]
+    audience: Literal["only_me", "friends", "group", "public"]
+    #: Which group, when and only when `audience` is `group`. Naming a group
+    #: here is a claim; membership of it is checked server-side against the
+    #: roster, never against the caller's `X-Actor-Contexts` header.
+    context_id: UUID | None = None
+    image_url: RelativePhotoUrl | None = None
+
+
+class PostResponse(ApiModel):
+    """One post, as it goes back to a reader who is allowed to have it.
+
+    Every route that emits this model has already run
+    `app.domain.post_audience.can_read` for the actor making the request. The
+    model itself carries no `visible_to` field and computes nothing: a reader
+    holding this object is proof enough that they were allowed to.
+    """
+
+    id: UUID
+    author_id: UUID
+    audience: Literal["only_me", "friends", "group", "public"]
+    context_id: UUID | None
+    body: str
+    image_url: str | None
+    created_at: datetime
+
+
+class PostListResponse(ApiModel):
+    posts: list[PostResponse]
+
+
+class PersonPostListResponse(ApiModel):
+    """One person's wall, already narrowed to what this reader may see.
+
+    `person_id` is echoed so a client can tell whose wall it drew. There is no
+    total alongside it on purpose -- a count computed over all of somebody's
+    posts and returned next to a filtered list is the leak this feature is
+    about, stated as a number instead of as a row.
+    """
+
+    person_id: UUID
+    posts: list[PostResponse]
 
 
 class MessageCreateRequest(ApiModel):
@@ -1325,3 +1388,186 @@ class MeetingPointResponse(ApiModel):
     origins: list[AreaSummary]
     candidates: list[MeetingCandidate]
     two_origin_inversion: bool
+
+
+# -- F31 / F33 / F36: what the companion knows about a group -----------------
+
+
+class PreferenceTaste(ApiModel):
+    """One taste, with the count that produced its score.
+
+    `score` is a ratio, and a ratio printed by itself cannot be checked by the
+    person reading it. `checkin_count` is the numerator, shipped alongside, so
+    the arithmetic is auditable from the response -- the same rule
+    `SuggestionBasis` follows for money.
+
+    `score` is a float on purpose and is **not** money. Law 1 governs đồng, and
+    every money field in this file is a strict integer named `_vnd`; an
+    affinity has no unit and rounding one to two decimals loses nothing anybody
+    can be owed.
+    """
+
+    label: StrictStr
+    checkin_count: int
+    #: 0.0 – 1.0. The taste's share of the busiest taste *in its own section*,
+    #: so the top row of each section is 1.0.
+    score: float
+
+
+class PreferenceSection(ApiModel):
+    """One heading of the profile.
+
+    `taste_count` is how many distinct tastes were found; `tastes` is capped.
+    Both travel because a truncated list with no count reads as a complete one.
+    """
+
+    section: Literal["food", "activity"]
+    taste_count: int
+    tastes: list[PreferenceTaste]
+
+
+class PreferenceProfileResponse(ApiModel):
+    """F31. What this group keeps choosing, recomputed from its own rows.
+
+    There is no `group_preferences` table. Every figure here is derived on the
+    request that asks, from check-ins and from ledger-summed trip totals --
+    invariant 3, because a stored profile is a cache and a stale affinity has
+    no receipt attached for anybody to notice it by.
+
+    `has_profile` is the honest half. A group that has checked in nowhere has
+    no tastes to report, and inventing one from photographs would be the
+    product asserting a preference nobody expressed.
+    """
+
+    context_id: UUID
+    has_profile: bool
+    #: `ok` | `no_behaviour`
+    reason: str
+    sections: list[PreferenceSection]
+    #: Check-ins that carried a catalogue category. Rows whose place has left
+    #: the catalogue are counted nowhere rather than under a stale id.
+    checkin_count: int
+    outing_count: int
+    split_total_vnd: MoneyVnd
+    avg_per_person_vnd: MoneyVnd | None
+
+
+class ConversationBasis(ApiModel):
+    """Why the companion spoke, in counts only.
+
+    Deliberately carries no message text and no author. The group's own words
+    are what the model reads -- that is the feature -- but they are not echoed
+    back onto a card, and nothing here is written to a log.
+
+    `member_count` counts ACTIVE members. The mockup's line says "4 người đang
+    online"; this product has no presence signal at all, so the field is named
+    for what it actually counts rather than for what the mockup wished it said.
+    """
+
+    message_count: int
+    speaker_count: int
+    member_count: int
+
+
+class ContextualSuggestionResponse(ApiModel):
+    """F33. The card that answers what the group is saying right now.
+
+    Same shape as `GroupSuggestionResponse` and a different question: F32 reads
+    the group's history, F33 reads its last few turns. `suggested: false` with
+    a reason stays the honest answer -- a silent group has nothing to react to,
+    and a model outage is not something to paper over with a written-in card.
+    """
+
+    context_id: UUID
+    suggested: bool
+    #: `ok` | `no_conversation` | `unavailable` | `ungrounded`
+    reason: str
+    title: str | None
+    when_text: str | None
+    stops: list[SuggestionStop]
+    basis: ConversationBasis
+    #: A claim about who wrote the sentences on this card.
+    source: Literal["ai", "none"]
+
+
+class AlbumPhoto(ApiModel):
+    """One photograph in an album, pointing at the wall's own URL.
+
+    `image_url` is the `/contexts/{id}/photos/{id}` path the memory wall
+    serves, verbatim. The album copies no bytes and mints no second media
+    route, so reading a photograph out of an album still goes through the one
+    gate that guards it.
+    """
+
+    memory_id: UUID
+    image_url: RelativePhotoUrl
+    caption: str | None
+    created_at: datetime
+    reaction_count: int
+    comment_count: int
+
+
+class AlbumPlace(ApiModel):
+    place_id: StrictStr
+    place_name: str | None
+
+
+class AlbumSummary(ApiModel):
+    """One row of the album shelf.
+
+    `photo_count` is the same figure the recap screen prints for this trip,
+    because both come from the same window over the same rows.
+    """
+
+    outing_id: UUID
+    title: StrictStr
+    period_label: StrictStr
+    starts_on: date
+    ends_on: date
+    in_progress: bool
+    photo_count: int
+    checkin_count: int
+    place_count: int
+    split_total_vnd: MoneyVnd
+    expense_count: int
+    headcount: int
+    #: The album's newest photograph, or null for a trip with none. A cover is
+    #: a photograph the group already published to its own wall, never a
+    #: thumbnail generated somewhere else.
+    cover: AlbumPhoto | None
+
+
+class AlbumListResponse(ApiModel):
+    context_id: UUID
+    albums: list[AlbumSummary]
+
+
+class AlbumResponse(ApiModel):
+    """F36. One trip, read as an album.
+
+    Nothing here is generated. `title` is the outing's own title and
+    `period_label` is its year, computed by the server and kept in separate
+    fields so a client never has to guess which half a machine wrote -- the
+    spec's AI-composed album name is not implemented, and this response does
+    not pretend otherwise.
+
+    `highlights` is a subset of `photos`, ordered by the hearts the group
+    itself left. It is their judgement counted, not a model's guess at it.
+    """
+
+    context_id: UUID
+    outing_id: UUID
+    title: StrictStr
+    period_label: StrictStr
+    starts_on: date
+    ends_on: date
+    in_progress: bool
+    photos: list[AlbumPhoto]
+    photo_count: int
+    places: list[AlbumPlace]
+    place_count: int
+    checkin_count: int
+    highlights: list[AlbumPhoto]
+    split_total_vnd: MoneyVnd
+    expense_count: int
+    headcount: int

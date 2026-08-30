@@ -294,6 +294,32 @@ _TABLE: dict[str, dict] = {
         "roles": {"group_admin", "member"},
         "requires": ("is_group_member",),
     },
+    # F31. The implicit profile is the most concentrated thing the product
+    # knows about a group: what they eat, what they do, and what they spend,
+    # in one screen. It is derived from exactly the rows `view_group_memories`
+    # guards, so it reuses that predicate rather than minting a softer one --
+    # a profile is not "less private than the check-ins it was computed from"
+    # merely because it arrives as scores instead of rows.
+    "view_group_preference_profile": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    # F33. Reading this card means the server read the group's last few
+    # messages. The gate is therefore the message gate, not a weaker one:
+    # anyone who may not read the conversation may not read a card built out
+    # of it either.
+    "view_contextual_suggestion": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    # F36. An album is a way of reading photographs that already exist, so its
+    # gate is deliberately the identical predicate the photo route uses. A
+    # looser one here would make the album a way around that route -- which is
+    # the whole failure mode a "collection" feature invites.
+    "view_trip_album": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
     # F43, F44, F45. All three read or answer about where the group goes, and
     # all three reuse `is_group_member` rather than minting a predicate: the
     # fact needed is identical to the one `view_group_memories` proves, because
@@ -332,6 +358,23 @@ _TABLE: dict[str, dict] = {
         "requires": ("is_group_member",),
     },
     "view_group_memories": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    # F39. Writing a post at all. Deliberately has no `is_group_member`: three
+    # of the four F42 audiences address people rather than a group, and
+    # requiring group membership to write an `only_me` note would make the
+    # narrowest level the one hardest to reach.
+    "create_post": {"roles": {"group_admin", "member"}, "requires": ()},
+    # F42, and the only audience that needs a second permission. `create_post`
+    # says the actor may write; this says they may point that writing at *this*
+    # group. Two actions rather than one action with a conditional predicate,
+    # because a predicate that is only sometimes required is a predicate
+    # somebody eventually forgets to prove -- and here the thing forgotten
+    # would be the roster check that keeps a stranger from posting into a
+    # group's feed. Reuses `is_group_member`, the same fact
+    # `post_group_memory` proves, rather than minting a name for it.
+    "address_post_to_group": {
         "roles": {"group_admin", "member"},
         "requires": ("is_group_member",),
     },
