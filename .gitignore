@@ -303,3 +303,8 @@ apps/mobile/.fe10-after/
 # rd-fe-12: bản web export dựng để quét detector và chụp màn "Lên plan". Là
 # bằng chứng của một lần chạy, dựng lại được bằng một lệnh `expo export`.
 apps/mobile/.fe12-web/
+
+# QA image-gate output: real screenshots of the four hero screens, regenerated
+# per run. Never committed -- they are build output, and a bill photo must not
+# enter git even as pixels.
+.anh-bon-man/
