@@ -26,6 +26,17 @@ import { moNhomChoMan, type NhomPhien, type NhomState } from "../chat/nhom";
 // What is deliberately NOT imported is that file's money formatter, which the
 // two screens keep separately on purpose (see its header).
 import { layKyUc } from "../ky-niem/ky-uc";
+// F14. The two invite routes are called through `quan-tri.ts` rather than
+// re-declared here, for the reason its own header gives: a second copy of a
+// route call is a copy that drifts the day the route changes. What this screen
+// adds is the door -- the invite starting from the trip you are looking at
+// instead of from a dropdown on the group admin screen.
+import {
+  taoLoiMoiBuoiDi,
+  thuHoiLoiMoi,
+  type LoiMoiBuoiDi,
+} from "../quan-tri/quan-tri";
+import { danhSachThanhVien } from "../vao-cua/cong-api";
 import { space, type, usePalette } from "../../theme";
 import { Button, Card, Screen } from "../../ui/Kit";
 import { CoLoi, DangTai, TrongRong } from "../../ui/TrangThai";
@@ -45,6 +56,8 @@ import {
   type NguonDaTieu,
 } from "./ngan-sach";
 import { DongThoiGian } from "./DongThoiGian";
+import { MoiVaoChuyen, type SoThanhVien } from "./MoiVaoChuyen";
+import { gopLoiMoi } from "./moi-vao-chuyen";
 import { TaoBuoiDi } from "./TaoBuoiDi";
 
 type NhomMan = { kind: "dang-tai" } | { kind: "chua-chon" } | NhomState;
@@ -53,7 +66,13 @@ type DsMan =
   | { kind: "xong"; outings: BuoiDi[] }
   | { kind: "loi"; loi: string };
 
-type CuaSo = { pha: "ds" } | { pha: "tao" } | { pha: "tg"; buoi: BuoiDi };
+type CuaSo =
+  | { pha: "ds" }
+  | { pha: "tao" }
+  | { pha: "tg"; buoi: BuoiDi }
+  /** F14. The invite screen for one trip. Carries the trip rather than an id
+   *  so the screen can print its name and dates without a second read. */
+  | { pha: "moi"; buoi: BuoiDi };
 /** F34. How the recap read went. A failed read is its own case rather than an
  *  empty map, because an empty map means "no trip has finished" and that is a
  *  sentence this screen prints. */
@@ -81,6 +100,15 @@ export function LenPlan({ nguoi, nhomPhien }: {
   // not carry a spend figure, and folding one in would make every read look
   // like it had money in it when only the recap does.
   const [daTieu, setDaTieu] = useState<SoDaTieu>({ kind: "xong", theo: new Map() });
+  // F14. The roster the invite screen offers, and the invites made in THIS
+  // session. `daMoi` is not the trip's invite list and can never be: there is
+  // no GET for one, so the server answers with an invite exactly once, at
+  // creation. Keyed by nothing and cleared when the invite screen closes,
+  // because carrying one trip's invites into another trip's screen would
+  // offer "Thu hồi" on a row belonging to a different chuyến.
+  const [roster, setRoster] = useState<SoThanhVien>({ kind: "dang-tai" });
+  const [daMoi, setDaMoi] = useState<LoiMoiBuoiDi[]>([]);
+  const [tinNhan, setTinNhan] = useState<string | null>(null);
   const soLanThu = useRef<Record<string, Attempt>>({});
 
   const taiNhom = useCallback(() => {
@@ -173,6 +201,121 @@ export function LenPlan({ nguoi, nhomPhien }: {
       huy = true;
     };
   }, [buoiDangMo, contextId, nguoi]);
+
+  // F14. Read the roster when the invite screen opens, and drop it plus the
+  // session's invites when it closes. The clearing half is the part that
+  // matters: `daMoi` holds rows belonging to ONE trip, and carrying them into
+  // the next trip's invite screen would offer "Thu hồi" on somebody else's
+  // chuyến and print a link that has nothing to do with what is on screen.
+  const buoiDangMoi = cuaSo.pha === "moi" ? cuaSo.buoi.id : null;
+  const taiRoster = useCallback(() => {
+    if (!buoiDangMoi || !contextId || !nguoi) {
+      setRoster({ kind: "dang-tai" });
+      setDaMoi([]);
+      return;
+    }
+    let huy = false;
+    setRoster({ kind: "dang-tai" });
+    danhSachThanhVien(contextId, nguoi.personId)
+      .then((ds) => {
+        if (!huy) setRoster({ kind: "xong", ds });
+      })
+      .catch((err) => {
+        if (huy) return;
+        setRoster({
+          kind: "loi",
+          loi: err instanceof ApiError ? err.message : thongDiepNguoiDoc(0, null),
+        });
+      });
+    return () => {
+      huy = true;
+    };
+  }, [buoiDangMoi, contextId, nguoi]);
+
+  useEffect(() => taiRoster(), [taiRoster]);
+
+  async function moiThanhVien(personId: string) {
+    if (!nguoi || !contextId || cuaSo.pha !== "moi") return;
+    await guiLoiMoi(
+      cuaSo.buoi.id,
+      { source: "group", person_id: personId },
+      `moi-chuyen:${cuaSo.buoi.id}:group:${personId}`,
+      "Đã mời người này vào chuyến.",
+    );
+  }
+
+  async function taoLink() {
+    if (!nguoi || !contextId || cuaSo.pha !== "moi") return;
+    // The attempt key counts the links already made, so pressing "Tạo link
+    // mời" twice makes two links rather than replaying the first one. A fixed
+    // key here would make the second press look like it worked and hand back
+    // the first token -- the opposite of what somebody rủ hai người wants.
+    await guiLoiMoi(
+      cuaSo.buoi.id,
+      { source: "link" },
+      `moi-chuyen:${cuaSo.buoi.id}:link:${daMoi.length}`,
+      "Đã tạo link mời. Gửi đường dẫn dưới đây cho người bạn muốn rủ.",
+    );
+  }
+
+  async function guiLoiMoi(
+    outingId: string,
+    than: Parameters<typeof taoLoiMoiBuoiDi>[1],
+    khoa: string,
+    xong: string,
+  ) {
+    if (!nguoi || !contextId) return;
+    setBusy(true);
+    setLoiGhi(null);
+    setTinNhan(null);
+    try {
+      const moi = await taoLoiMoiBuoiDi(
+        outingId,
+        than,
+        nguoi.personId,
+        attemptFor(soLanThu.current, khoa),
+        contextId,
+      );
+      setDaMoi((truoc) => gopLoiMoi(truoc, moi));
+      setTinNhan(xong);
+    } catch (err) {
+      setLoiGhi(
+        err instanceof ApiError
+          ? err.message
+          : "Chưa tạo được lời mời. Thử lại sau một chút.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function thuHoi(moi: LoiMoiBuoiDi) {
+    if (!nguoi || !contextId) return;
+    setBusy(true);
+    setLoiGhi(null);
+    setTinNhan(null);
+    try {
+      const sau = await thuHoiLoiMoi(
+        moi.outing_id,
+        moi.id,
+        nguoi.personId,
+        attemptFor(soLanThu.current, `thu-hoi:${moi.id}`),
+        contextId,
+      );
+      // Merged, not replaced: the revoke reply carries no token, and the link
+      // has to keep rendering struck through rather than vanishing.
+      setDaMoi((truoc) => gopLoiMoi(truoc, sau));
+      setTinNhan("Đã thu hồi lời mời. Đường dẫn đó không dùng được nữa.");
+    } catch (err) {
+      setLoiGhi(
+        err instanceof ApiError
+          ? err.message
+          : "Chưa thu hồi được lời mời. Thử lại sau một chút.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function tao(body: BodyTaoBuoiDi) {
     if (!nguoi || nhom.kind !== "xong") return;
@@ -278,10 +421,46 @@ export function LenPlan({ nguoi, nhomPhien }: {
         // No group handle or no identity means no context to post into, so the
         // button is absent rather than present and failing.
         onCheckIn={nguoi && nhom.kind === "xong" ? checkIn : undefined}
+        // F14. Same rule as `onCheckIn` above: no group handle and no identity
+        // means nothing to post an invite into, so the button is absent rather
+        // than present and failing.
+        onMoi={
+          nguoi && nhom.kind === "xong"
+            ? () => {
+                setLoiGhi(null);
+                setTinNhan(null);
+                setCuaSo({ pha: "moi", buoi: cuaSo.buoi });
+              }
+            : undefined
+        }
         onLuu={luu}
         onQuayLai={() => {
           setLoiGhi(null);
           setCuaSo({ pha: "ds" });
+        }}
+      />
+    );
+  }
+
+  if (cuaSo.pha === "moi") {
+    return (
+      <MoiVaoChuyen
+        buoi={cuaSo.buoi}
+        roster={roster}
+        toiId={nguoi?.personId ?? null}
+        daMoi={daMoi}
+        busy={busy}
+        loi={loiGhi}
+        tinNhan={tinNhan}
+        bayGio={Date.now()}
+        onMoiThanhVien={(personId) => void moiThanhVien(personId)}
+        onTaoLink={() => void taoLink()}
+        onThuHoi={(moi) => void thuHoi(moi)}
+        onTaiLaiRoster={taiRoster}
+        onQuayLai={() => {
+          setLoiGhi(null);
+          setTinNhan(null);
+          setCuaSo({ pha: "tg", buoi: cuaSo.buoi });
         }}
       />
     );

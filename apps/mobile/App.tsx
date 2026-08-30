@@ -53,6 +53,14 @@ import { BinhChon } from "./src/screens/binh-chon/BinhChon";
 import { bangKetQuaTuWire } from "./src/screens/binh-chon/ket-qua";
 import { MonCuaToi } from "./src/screens/bill/MonCuaToi";
 import { NhanMatTrenAnh } from "./src/screens/nhan-mat/NhanMatTrenAnh";
+import { MoiVaoChuyen } from "./src/screens/len-plan/MoiVaoChuyen";
+import type { LoiMoiBuoiDi } from "./src/screens/quan-tri/quan-tri";
+// Aliased, not imported bare: `App.tsx` already holds a `ThanhVien` from
+// `chat/nhom`, and the two are different shapes -- that one is a chat
+// participant, this one is the membership row `GET /contexts/{id}/members`
+// answers. Importing both under one name compiled as `Duplicate identifier`
+// and then mis-typed three unrelated lines further down the file.
+import type { ThanhVien as HangThanhVien } from "./src/screens/vao-cua/cong-api";
 import type { BillWire, SoDu } from "./src/bill";
 import { CoLoi, DangTai, TrongRong } from "./src/ui/TrangThai";
 import { moTaLoi } from "./src/ui/loi-tren-man";
@@ -1487,6 +1495,73 @@ function XemNhanMat() {
   );
 }
 
+/* ---- F14, from a URL, web only --------------------------------------------
+ *
+ * Same contract as the scan targets above: one exact parameter value, the real
+ * component with the real copy, no writes, and no route from here into the
+ * product. This screen needs a group, a trip in it, and a roster read before
+ * it can exist inside the app, so a headless browser could otherwise never
+ * open it -- and "the app was scanned" would be silent about the one screen
+ * F14 adds.
+ *
+ * The fixture carries all four row states on purpose: one member who may be
+ * invited, one already invited in this session, one whose invite was revoked
+ * (which is a one-way door -- see `moi-vao-chuyen.ts`), and one who has not
+ * accepted the group yet. A door that only rendered the happy row would leave
+ * the three sentences this screen exists to say unmeasured.
+ */
+const NGUOI_QUET = "e1e1e1e1-aaaa-4aaa-8aaa-e1e1e1e1e1e1";
+const CHUYEN_QUET = "e2e2e2e2-bbbb-4bbb-8bbb-e2e2e2e2e2e2";
+
+const THANH_VIEN_QUET: HangThanhVien[] = [
+  { id: "m1", context_id: "c1", person_id: NGUOI_QUET, display_name: "Minh", state: "active", role: "admin", invited_by_id: null, joined_at: "2026-08-01T00:00:00Z", left_at: null, created_at: "2026-08-01T00:00:00Z" },
+  { id: "m2", context_id: "c1", person_id: "e3e3e3e3-cccc-4ccc-8ccc-e3e3e3e3e3e3", display_name: "Quyên", state: "active", role: "member", invited_by_id: null, joined_at: "2026-08-01T00:00:00Z", left_at: null, created_at: "2026-08-01T00:00:00Z" },
+  { id: "m3", context_id: "c1", person_id: "e4e4e4e4-dddd-4ddd-8ddd-e4e4e4e4e4e4", display_name: "Hà", state: "active", role: "member", invited_by_id: null, joined_at: "2026-08-01T00:00:00Z", left_at: null, created_at: "2026-08-01T00:00:00Z" },
+  { id: "m4", context_id: "c1", person_id: "e5e5e5e5-eeee-4eee-8eee-e5e5e5e5e5e5", display_name: "Tú", state: "active", role: "member", invited_by_id: null, joined_at: "2026-08-01T00:00:00Z", left_at: null, created_at: "2026-08-01T00:00:00Z" },
+  { id: "m5", context_id: "c1", person_id: "e6e6e6e6-ffff-4fff-8fff-e6e6e6e6e6e6", display_name: "Sơn", state: "invited", role: "member", invited_by_id: NGUOI_QUET, joined_at: null, left_at: null, created_at: "2026-08-01T00:00:00Z" },
+];
+
+const MOI_QUET: LoiMoiBuoiDi[] = [
+  { id: "i1", outing_id: CHUYEN_QUET, source: "link", invited_person_id: null, invited_by_id: NGUOI_QUET, created_at: "2026-08-31T00:00:00Z", expires_at: "2026-09-07T00:00:00Z", revoked_at: null, invite_token: "quet-khong-phai-token-that", invite_path: "/outing-invites/quet-khong-phai-token-that" },
+  { id: "i2", outing_id: CHUYEN_QUET, source: "group", invited_person_id: "e3e3e3e3-cccc-4ccc-8ccc-e3e3e3e3e3e3", invited_by_id: NGUOI_QUET, created_at: "2026-08-31T00:00:00Z", expires_at: "2026-09-07T00:00:00Z", revoked_at: null, invite_token: null, invite_path: null },
+  { id: "i3", outing_id: CHUYEN_QUET, source: "group", invited_person_id: "e4e4e4e4-dddd-4ddd-8ddd-e4e4e4e4e4e4", invited_by_id: NGUOI_QUET, created_at: "2026-08-31T00:00:00Z", expires_at: "2026-09-07T00:00:00Z", revoked_at: "2026-08-31T00:10:00Z", invite_token: null, invite_path: null },
+];
+
+function XemMoiVaoChuyen() {
+  const c = usePalette();
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
+      <StatusBar style="dark" />
+      <MoiVaoChuyen
+        buoi={{
+          id: CHUYEN_QUET,
+          context_id: "c1",
+          created_by_id: NGUOI_QUET,
+          title: "Đà Lạt cuối tuần",
+          starts_on: "2026-10-17",
+          ends_on: "2026-10-19",
+          headcount: 8,
+          budget_per_person_vnd: 2500000,
+          created_at: "2026-08-31T00:00:00Z",
+          stops: [],
+        }}
+        roster={{ kind: "xong", ds: THANH_VIEN_QUET }}
+        toiId={NGUOI_QUET}
+        daMoi={MOI_QUET}
+        // Frozen, so two screenshots of this door are the same screenshot.
+        // `Date.now()` here would make "còn hiệu lực" flip to "đã hết hạn" on
+        // whatever day somebody next runs the scan.
+        bayGio={Date.parse("2026-08-31T00:30:00Z")}
+        onMoiThanhVien={() => {}}
+        onTaoLink={() => {}}
+        onThuHoi={() => {}}
+        onTaiLaiRoster={() => {}}
+        onQuayLai={() => {}}
+      />
+    </SafeAreaView>
+  );
+}
+
 export default function App() {
   if (manDo()) return <XemKetQuaThanhToan />;
   if (manThamSo() === "trang-thai") return <XemTrangThai />;
@@ -1495,6 +1570,7 @@ export default function App() {
   if (manThamSo()?.startsWith("binh-chon")) return <XemBinhChon />;
   if (manThamSo() === "mon-cua-toi") return <XemMonCuaToi />;
   if (manThamSo() === "nhan-mat") return <XemNhanMat />;
+  if (manThamSo() === "moi-vao-chuyen") return <XemMoiVaoChuyen />;
   if (manThamSo()?.startsWith("doc-bill")) return <XemDocBill />;
   if (manThamSo()?.startsWith("tai-khoan-nhan")) return <XemTaiKhoanNhan />;
   return (
