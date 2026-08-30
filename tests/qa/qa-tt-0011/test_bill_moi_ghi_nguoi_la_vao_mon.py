@@ -36,8 +36,6 @@ from __future__ import annotations
 
 import uuid
 
-import pytest
-
 from tests.api.helpers import ADVANCER_ID, SENDER_ID, actor_headers
 from tests.api.test_bills import bill_payload
 
