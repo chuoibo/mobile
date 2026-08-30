@@ -1010,7 +1010,7 @@ export async function docTaiKhoanNhan(
     confirmed_at: string;
   };
   try {
-    result = await call(`/bank-recipients/${recipientId}`, {
+    result = await callAsActor(`/bank-recipients/${recipientId}`, {
       method: "GET",
       actorId,
     });
@@ -2383,7 +2383,7 @@ export async function docChiaBill(
   contextId: string,
   attempt: Attempt,
 ): Promise<ChiaBill> {
-  const result = await call<ChiaBillWire>(`/bills/${billId}/split`, {
+  const result = await callAsActor<ChiaBillWire>(`/bills/${billId}/split`, {
     method: "POST",
     // Empty on purpose -- see above. `for_ledger` defaults false server-side.
     body: {},

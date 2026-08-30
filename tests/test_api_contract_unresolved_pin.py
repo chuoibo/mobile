@@ -20,6 +20,10 @@ does not exist, written seven ways:
     call<void>(path) with the path handed to a helper parameter   exit 0
     call<void>("/" + parts.join("-"))                             exit 0
 
+(The wrapper was named `call` when that was measured; it is `callAsActor` now.
+The snippets below were renamed with the client, this record was not -- a
+measurement that gets edited to match today's spelling stops being evidence.)
+
 The two that passed did so with `duong_dan_tim_thay` frozen at 36 while
 `lan_goi_doc_duoc` climbed 45 -> 46 -- the tell firing, printed, and read by
 nobody. Handing a path to a helper is the most ordinary refactor there is in a
@@ -94,7 +98,7 @@ class TheReaderAdmitsWhatItCannotRead(unittest.TestCase):
             blind_kinds(
                 """
                 async function go(path: string) {
-                  return call<void>(path, { method: "GET" });
+                  return callAsActor<void>(path, { method: "GET" });
                 }
                 export async function e() { return go("/khong-ton-tai"); }
                 """
@@ -108,7 +112,7 @@ class TheReaderAdmitsWhatItCannotRead(unittest.TestCase):
                 """
                 const parts = ["khong-ton-tai", "canary"];
                 export async function g() {
-                  return call<void>("/" + parts.join("-"), { method: "GET" });
+                  return callAsActor<void>("/" + parts.join("-"), { method: "GET" });
                 }
                 """
             ),
@@ -122,7 +126,7 @@ class TheReaderAdmitsWhatItCannotRead(unittest.TestCase):
             blind_kinds(
                 """
                 export async function h() {
-                  return call<void>("/healthz", { method: "GET" });
+                  return callAsActor<void>("/healthz", { method: "GET" });
                 }
                 """
             ),
@@ -137,7 +141,7 @@ class TheReaderAdmitsWhatItCannotRead(unittest.TestCase):
                 for f in scan(
                     """
                     export async function a() {
-                      return call<void>("/khong-ton-tai", { method: "GET" });
+                      return callAsActor<void>("/khong-ton-tai", { method: "GET" });
                     }
                     """
                 ).findings
@@ -148,7 +152,7 @@ class TheReaderAdmitsWhatItCannotRead(unittest.TestCase):
 class PinsAccountForBlindSpotsRatherThanHidingThem(unittest.TestCase):
     SOURCE = """
         async function go(path: string) {
-          return call<void>(path, { method: "GET" });
+          return callAsActor<void>(path, { method: "GET" });
         }
         export async function e() { return go("/khong-ton-tai"); }
         """
@@ -166,7 +170,7 @@ class PinsAccountForBlindSpotsRatherThanHidingThem(unittest.TestCase):
             """
             export async function e2() { return go("/khong-ton-tai-nua"); }
             async function go2(path: string) {
-              return call<void>(path, { method: "GET" });
+              return callAsActor<void>(path, { method: "GET" });
             }
             """
         )
