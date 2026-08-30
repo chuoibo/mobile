@@ -169,10 +169,13 @@ test("tên màn trong bảng đúng bằng component shell render", () => {
 
 /* ------------------------------------------------------------ menu [+] --- */
 
-test("nút [+] mở đúng bốn mục, mỗi mục một nhãn riêng", () => {
-  // Four is rd-do-fe-02's number and stays hand-written: it is a decision
-  // about the sheet, not a running total of what happens to be wired.
-  assert.equal(CREATE_ACTIONS.length, 4);
+test("nút [+] mở đúng năm mục, mỗi mục một nhãn riêng", () => {
+  // Hand-written on purpose: it is a decision about the sheet, not a running
+  // total of what happens to be wired. Four was rd-do-fe-02's number; F36/F37
+  // made it five when "Album chuyến đi" went in, because the album is the one
+  // screen in the shell that is neither a tab nor reachable from one -- and a
+  // number that moves silently is a number that stops guarding anything.
+  assert.equal(CREATE_ACTIONS.length, 5);
   for (const a of CREATE_ACTIONS) {
     assert.ok(a.label.trim(), `${a.id} không có nhãn`);
   }

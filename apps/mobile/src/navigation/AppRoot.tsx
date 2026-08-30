@@ -74,6 +74,8 @@ export function AppRoot({ renderKhoanChi }: {
       moWidgetNgay={diemDen.vao === "widget"}
       moQuanTriNgay={diemDen.vao === "quan-tri"}
       moThanhTichNgay={diemDen.vao === "thanh-tich"}
+      moAlbumNgay={diemDen.vao === "album"}
+      albumChuyen={diemDen.albumChuyen}
       nhomId={diemDen.nhomId}
       banQuetDuoc={diemDen.ban}
       diaDiemDau={diemDen.diaDiem}
