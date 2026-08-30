@@ -27,9 +27,13 @@ ca này sinh ra để bắt (dời ngưỡng quá hạn) trở thành vô hình.
 from __future__ import annotations
 
 import argparse
+import atexit
+import functools
 import importlib.util
 import json
+import shutil
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -55,7 +59,38 @@ def _rev(repo: Path, ref: str) -> str | None:
 # fixture này để `"0" * 40`, và một sha không phân giải được thì mọi phép kiểm
 # ràng buộc vào sha đều không có gì để bám — fixture tự bảo lãnh cho điểm mù mà
 # ca test sinh ra để bắt. Cùng một cái bẫy đã ghi ở FAKE_GATE bên dưới.
-MAIN_SHA = _rev(REPO_ROOT, "origin/main") or "0" * 40
+#
+# Nhưng sha đó KHÔNG được lấy từ `origin/main` của cây đang chạy test, và đây là
+# chỗ bản đầu sai. `origin/main` là một ref ĐỘNG dùng chung: mọi worktree trên
+# máy này chia nhau một thư mục .git, nên bất kỳ lane nào chạy `git fetch origin`
+# — hay một lượt merge của Lead — đều dời nó GIỮA LÚC bộ test đang chạy. Hằng số
+# này được chốt lúc import, còn `status` phân giải ref lúc ca test chạy: hai thời
+# điểm cách nhau hàng phút trong một bộ test bốn phút rưỡi.
+#
+# Khi hai bên lệch nhau và phần đổi có đụng `services/api/app/api`, `status` trả
+# mã 2 — và trả ĐÚNG: một bản ghi đo main ở commit trước đó thật sự không trả
+# lời được câu hỏi hôm nay. Ca test đỏ không phải vì sản phẩm sai; nó đỏ vì ca
+# test tự buộc mình vào một cái mốc người khác dời được. Đo lúc 02:5x trên cây
+# này: origin/main nhích 33d16d8 -> 70b5b18 trong một lượt làm việc, và
+# `route_surface_moved` giữa hai commit như vậy trả "28 file đã đổi".
+#
+# Nên cái neo là một repo riêng, có `origin/main` thật và ĐỨNG YÊN suốt lượt
+# chạy. Các ca hỏi thẳng về chuyện sha lệch vẫn tự dựng repo của chúng
+# (`_repo_ba_moc`) và tự truyền `--repo`; cái neo này chỉ đỡ cho phần còn lại.
+@functools.lru_cache(maxsize=1)
+def _neo() -> tuple[Path, str]:
+    """Repo neo: `origin/main` có thật, phân giải được, và không ai dời được."""
+    root = Path(tempfile.mkdtemp(prefix="demo-watch-neo-"))
+    atexit.register(shutil.rmtree, root, ignore_errors=True)
+    (root / "services/api/app/api").mkdir(parents=True)
+    (root / "services/api/app/api/main.py").write_text("# neo\n", encoding="utf-8")
+    _git(root, "init", "--quiet", "-b", "main", ".")
+    _git(root, "add", "-A")
+    _git(root, "commit", "--quiet", "-m", "neo")
+    sha = _git(root, "rev-parse", "HEAD")
+    # `status` hỏi `origin/main`, nên ref đó phải tồn tại trong repo neo.
+    _git(root, "update-ref", "refs/remotes/origin/main", sha)
+    return root, sha
 
 
 def _load():
@@ -97,7 +132,9 @@ def _write_status(tmp_path: Path, **fields) -> Path:
         "exit": 0,
         "url": "http://127.0.0.1:8099",
         "ref": "origin/main",
-        "ref_sha": MAIN_SHA,
+        # Gọi lúc chạy chứ không chốt lúc import: `_neo` được nhớ nên vẫn là
+        # cùng một repo cho cả lượt, mà `_git` thì đã có mặt khi tới đây.
+        "ref_sha": _neo()[1],
         "ref_routes": 65,
         "served": 65,
         "missing": [],
@@ -111,7 +148,15 @@ def _write_status(tmp_path: Path, **fields) -> Path:
 
 
 def _status(tmp_path: Path, extra: list[str] | None = None) -> int:
-    return watch.main(["status", "--state-dir", str(tmp_path), *(extra or [])])
+    """`status` chạy trên repo neo, trừ khi ca test tự đưa repo của nó.
+
+    Không để mặc định rơi vào cây thật: `status` phân giải `origin/main` trong
+    repo nó được trỏ tới, và cây thật là nơi ref đó nhích dưới chân bộ test.
+    """
+    extra = list(extra or [])
+    if "--repo" not in extra:
+        extra = ["--repo", str(_neo()[0]), *extra]
+    return watch.main(["status", "--state-dir", str(tmp_path), *extra])
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -395,21 +440,19 @@ def test_ref_khac_ten_nhung_cung_commit_van_la_phan_quyet_ve_main(tmp_path):
     `origin/main`, nhưng một lượt chạy tay bằng `--ref <sha>` vẫn trả lời đúng
     câu hỏi nếu sha đó CHÍNH LÀ main lúc này. So tên mà không xét sha thì ca đó
     đỏ oan, và một cổng đỏ oan cũng bị tắt như một cổng câm.
+
+    Sha lấy từ repo neo chứ không từ cây thật, vì "main lúc này" của cây thật
+    đổi giữa lúc bộ test chạy — xem ghi chú ở `_neo`. Ca này hỏi về việc so TÊN
+    với so SHA, không hỏi gì về lịch sử của repo này, nên buộc nó vào lịch sử
+    đó chỉ thêm một đường đỏ oan chứ không thêm phép kiểm nào.
     """
-    sha = subprocess.run(
-        ["git", "rev-parse", "origin/main^{commit}"],
-        cwd=str(REPO_ROOT),
-        capture_output=True,
-        text=True,
-    )
-    if sha.returncode != 0:
-        pytest.skip("cây này không phân giải được origin/main")
+    sha = _neo()[1]
     _write_status(
         tmp_path,
         ts=time.time() - 60,
         state=watch.STATE_MATCH,
-        ref=sha.stdout.strip(),
-        ref_sha=sha.stdout.strip(),
+        ref=sha,
+        ref_sha=sha,
     )
     assert _status(tmp_path) == watch.EXIT_OK
 
