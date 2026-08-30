@@ -218,6 +218,57 @@ jobs:
         name: Every header the client sends survives the CORS preflight
         run: python3 scripts/check_cors_contract.py
 
+  screens:
+    name: every screen is rendered by something
+    # The third link in the chain the `api` job holds the first two of.
+    # `client-routes` asks whether a path the app calls exists; `server-routes`
+    # asks whether a declared route has a screen calling it. Neither asks
+    # whether that screen is itself rendered by anything, so a screen can call
+    # its routes correctly, typecheck, pass both, and be openable by nobody.
+    #
+    # It is a job of its own rather than a fifth step of `api` because it needs
+    # neither the API source nor a single pip install: the checker is stdlib
+    # Python reading apps/mobile only. Hanging it off `api` would put it behind
+    # a dependency install and a full pytest run, so a red suite would stop it
+    # answering a question that has nothing to do with the suite.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: present
+        # Same rule as `contract` above, with the sharper version of the
+        # reason. `apps/mobile` absent is an absence and skipping is honest.
+        # Present with no `src/screens` is a defect: with no screen file to
+        # read, every screen is vacuously reachable, the run prints 0/0 and
+        # exits 0 -- the green-because-nothing-ran shape, inside the very job
+        # that exists to catch code nobody can reach.
+        run: |
+          if [ ! -d apps/mobile ]; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::apps/mobile is not on this branch, skipping"
+          elif [ -d apps/mobile/src/screens ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::apps/mobile exists but src/screens is missing -- 0/0 screens is not a pass"
+            exit 1
+          fi
+      - if: steps.present.outputs.found == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - if: steps.present.outputs.found == 'true'
+        name: The checker can be red
+        # Before the real run, not after, and here that ordering has already
+        # paid for itself. The first draft let an entry file's plain imports
+        # carry the chain, which marked every screen App.tsx merely imports as
+        # reachable: deleting the real `<ChiaSe />` render left the check
+        # GREEN. Three canaries hold that line -- a dead screen that must be
+        # red, an imported-but-never-rendered screen that must be red, and a
+        # live tree that must stay green.
+        run: python3 scripts/check_screens_reachable.py --selftest
+      - if: steps.present.outputs.found == 'true'
+        name: Every screen against the render graph from the entry point
+        run: python3 scripts/check_screens_reachable.py
+
   docker:
     name: api image builds and serves
     runs-on: ubuntu-latest

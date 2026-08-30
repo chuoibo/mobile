@@ -47,6 +47,8 @@ import { after, before, describe, test } from "node:test";
 
 import { findChrome, launch, serve } from "./chrome-cdp.mjs";
 
+import { lyDoBanDungCu } from "./tuoi-ban-dung.mjs";
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const EXPORT_DIR = process.env.MOBILE_WEB_EXPORT ?? join(HERE, "..", ".expo-build-check");
 const REQUIRED = process.env.MOBILE_REQUIRE_WEB_A11Y === "1";
@@ -169,7 +171,13 @@ function readFocus() {
 
 /* -------------------------------------------------------------------- gate --- */
 
-if (reasons.length && !REQUIRED) {
+// bug-010019. This gate measures a prebuilt export and opens no source file,
+// so an export older than the tree makes it name a control as missing from a
+// screen that renders it correctly. Refuse to report rather than report wrong.
+const banCu = lyDoBanDungCu(EXPORT_DIR, join(HERE, ".."));
+if (banCu) reasons.push(banCu);
+
+if (reasons.length && !REQUIRED && !banCu) {
   // A skip that says what it skipped and how to un-skip it. The failure this
   // guards against is a suite that reports "3 passed" for three checks that
   // never touched a browser.

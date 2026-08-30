@@ -30,6 +30,12 @@ simply stop at the limit and let the rest fall off the end. Choose the stops
 that carry the plan, cover the whole span the group asked about, and say in the
 title or in a note that the card is a condensed version.
 
+Card-specific payload requirements:
+A text card MUST include payload.text.
+An itinerary card MUST include payload.title, even when it is an empty string.
+A places card MUST include payload.intro, even when it is an empty string.
+Do not add title or intro to a text card.
+
 You may choose a place only by copying a place_id from the supplied catalogue.
 Never invent a place_id. Never describe a place with your own name, address,
 price, rating, opening hours, or other facts; the server will attach those facts
@@ -56,17 +62,32 @@ _STOP_SCHEMA = types.Schema(
 _PAYLOAD_SCHEMA = types.Schema(
     type=types.Type.OBJECT,
     properties={
-        "text": _STRING,
-        "intro": _STRING,
-        "title": _STRING,
+        "text": types.Schema(
+            type=types.Type.STRING,
+            description="Required content for a text card.",
+        ),
+        "intro": types.Schema(
+            type=types.Type.STRING,
+            description="Required introduction for a places card.",
+        ),
+        "title": types.Schema(
+            type=types.Type.STRING,
+            description="Required title for an itinerary card.",
+        ),
         # max_items mirrors the domain limits so the model condenses rather than
         # overruns. It is a request and not a guarantee -- ground_card still
         # counts anything it has to cut.
         "place_ids": types.Schema(
-            type=types.Type.ARRAY, items=_STRING, max_items=MAX_PLACES
+            type=types.Type.ARRAY,
+            description="Required catalogue place IDs for a places card.",
+            items=_STRING,
+            max_items=MAX_PLACES,
         ),
         "stops": types.Schema(
-            type=types.Type.ARRAY, items=_STOP_SCHEMA, max_items=MAX_STOPS
+            type=types.Type.ARRAY,
+            description="Required ordered stops for an itinerary card.",
+            items=_STOP_SCHEMA,
+            max_items=MAX_STOPS,
         ),
     },
 )

@@ -83,6 +83,16 @@ Usage:
 
 Exit codes: 0 client and server agree, 1 they disagree,
 2 the check could not run -- and could not run is never a pass.
+
+`2` covers unresolvable URLs too. "The app calls a route that does not exist" is
+a defect in the PRODUCT; "I could not follow this URL" is a defect in the GATE,
+and until 2026-08-31 both exited 1. Its twin `check_actor_headers.py` had the
+same collapse, and at #379 that made QA read a FAIL for a client that was in
+fact sending the header correctly.
+
+A blind spot is still RED -- 2 is not 0 and `gate.sh` still blocks. It is only
+named correctly. Making it green would be the real bug: a URL this reader cannot
+follow may be hiding a route that genuinely does not exist.
 """
 
 from __future__ import annotations
@@ -107,6 +117,16 @@ API_ROOT = REPO_ROOT / "services" / "api"
 # almost daily, and a pin that moves with every unrelated line above it goes red
 # for the wrong reason, which is how a gate stops being run at all.
 UNRESOLVED_PIN = REPO_ROOT / ".api-contract-unresolved.json"
+
+# Three answers, not two. `CANNOT_READ` is the gate admitting a blind spot and
+# must never collapse into `VIOLATION`, which is a confirmed product defect.
+EXIT_OK = 0
+EXIT_VIOLATION = 1
+EXIT_CANNOT_READ = 2
+
+# The one finding kind that says nothing about the client, only about this
+# reader. Everything else in `Finding.kind` is a real contract mismatch.
+BLIND_KIND = "duong_dan_khong_phan_giai_duoc"
 
 # The placeholder a `${...}` or a `{param}` collapses to. A control character
 # so it cannot occur in real source and be mistaken for one.
@@ -783,6 +803,20 @@ def stale_pins(unresolved: list[Unresolved], pins: dict[str, int]) -> list[str]:
     return sorted(where for where, n in pins.items() if seen[where] < n)
 
 
+def verdict(findings: list[Finding]) -> int:
+    """Which of the three answers this run is.
+
+    A confirmed mismatch outranks a blind spot: it is the one somebody can act
+    on, and letting `BLIND_KIND` overwrite it would report a route that really
+    does not exist as "could not read".
+    """
+    if any(f.kind != BLIND_KIND for f in findings):
+        return EXIT_VIOLATION
+    if findings:
+        return EXIT_CANNOT_READ
+    return EXIT_OK
+
+
 def check() -> tuple[list[Finding], dict]:
     if not CLIENT_ROOT.is_dir():
         raise RuntimeError(
@@ -963,7 +997,7 @@ def main() -> int:
             print(json.dumps({"error": str(problem)}, ensure_ascii=False))
         else:
             print(f"KHÔNG CHẠY ĐƯỢC: {problem}", file=sys.stderr)
-        return 2
+        return EXIT_CANNOT_READ
 
     if args.json:
         print(
@@ -976,7 +1010,7 @@ def main() -> int:
                 indent=2,
             )
         )
-        return 1 if findings else 0
+        return verdict(findings)
 
     print(
         f"Máy chủ có {summary['routes_may_chu']} route. "
@@ -996,14 +1030,18 @@ def main() -> int:
 
     if not findings:
         print("Client và máy chủ khớp hợp đồng.")
-        return 0
+        return EXIT_OK
 
     print()
     for finding in findings:
         print(f"{finding.file}:{finding.line}  [{finding.kind}]")
         print(f"    {finding.message}")
     print()
-    if any(f.kind == "duong_dan_khong_phan_giai_duoc" for f in findings):
+
+    blind = [f for f in findings if f.kind == BLIND_KIND]
+    mismatched = [f for f in findings if f.kind != BLIND_KIND]
+
+    if blind:
         print("Viết đường dẫn ra thành literal mà cổng đọc được, hoặc ghim vào")
         print(f"{UNRESOLVED_PIN.name} -- ghim là nói ra chỗ mù, không phải xoá nó:")
         print(
@@ -1011,8 +1049,17 @@ def main() -> int:
             '"count": 1, "reason": "..."}]}'
         )
         print()
-    print(f"{len(findings)} chỗ lệch hợp đồng.")
-    return 1
+
+    # Two counts, never one total. A single number here is what let a blind
+    # spot be reported as "the client is wrong" -- see the module docstring.
+    if mismatched:
+        print(f"{len(mismatched)} chỗ lệch hợp đồng.")
+    if blind:
+        print(
+            f"{len(blind)} chỗ cổng KHÔNG ĐỌC ĐƯỢC -- chưa kết luận gì về "
+            "client ở những chỗ này."
+        )
+    return verdict(findings)
 
 
 if __name__ == "__main__":

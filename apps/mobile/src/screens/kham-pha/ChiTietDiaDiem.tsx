@@ -11,10 +11,16 @@
  * So the layout puts weight there: the reason card is full width, carries the
  * `ai` tone, and is the only element on the screen allowed to use it.
  */
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Linking, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { radius, space, type, usePalette } from "../../theme";
 import { Button, Card } from "../../ui/Kit";
+import {
+  fetchPlaceDetail,
+  loiChiTiet,
+  type ChiTietState,
+  type Review,
+} from "./chi-tiet-dia-diem";
 import { AnhDiaDiem, Ruy } from "./AnhDiaDiem";
 import { HuyHieuMatch, TheLyDoAi } from "./NhanAi";
 import { DaiBanDo } from "./DaiBanDo";
@@ -29,7 +35,7 @@ import {
   type Place,
 } from "./places";
 
-export function ChiTietDiaDiem({ place, nguoi, nhom, onQuayLai }: {
+export function ChiTietDiaDiem({ place, nguoi, nhom, onQuayLai, docChiTiet = fetchPlaceDetail }: {
   place: Place;
   /** Who the app is acting as. F46's write is authorised by this. */
   nguoi?: NguoiDung | null;
@@ -37,9 +43,31 @@ export function ChiTietDiaDiem({ place, nguoi, nhom, onQuayLai }: {
    *  one -- see `VoTab`, which holds the handle. */
   nhom?: NhomWire | null;
   onQuayLai: () => void;
+  /** Seam for the tests. Same shape as `fetchPlaceDetail`, which never throws. */
+  docChiTiet?: typeof fetchPlaceDetail;
 }) {
   const c = usePalette();
   const [daLuu, setDaLuu] = useState(false);
+  // Everything above the fold is drawn from the `place` this screen was handed,
+  // immediately. This second read only ever ADDS the two fields the list does
+  // not carry, so a server that cannot answer it costs a description and some
+  // reviews and costs nothing else -- the screen is never blank and never waits.
+  const [chiTiet, setChiTiet] = useState<ChiTietState>({ kind: "dang-tai" });
+
+  useEffect(() => {
+    let huy = false;
+    setChiTiet({ kind: "dang-tai" });
+    void docChiTiet(place.id).then((s) => {
+      // A response for the place that was open two taps ago is not this place.
+      if (!huy) setChiTiet(s);
+    });
+    return () => {
+      huy = true;
+    };
+  }, [place.id, docChiTiet]);
+
+  const chiTietPlace = chiTiet.kind === "co-du-lieu" ? chiTiet.place : null;
+  const ghiChu = loiChiTiet(chiTiet);
 
   return (
     <View style={{ flex: 1, backgroundColor: c.ground }}>
@@ -147,6 +175,39 @@ export function ChiTietDiaDiem({ place, nguoi, nhom, onQuayLai }: {
           {/* The point of the screen. */}
           <TheLyDoAi match={place.match} />
 
+          {/* `GET /places/{id}` from here down. Both blocks are absent rather
+              than empty when the server has nothing for them: a heading over
+              nothing reads as a load that failed. */}
+          {chiTietPlace?.description ? (
+            <Card>
+              <Text style={{ ...type.title, color: c.ink }}>Giới thiệu</Text>
+              <Text style={{ ...type.body, color: c.inkSoft, marginTop: space.xs }}>
+                {chiTietPlace.description}
+              </Text>
+            </Card>
+          ) : null}
+
+          {chiTietPlace && chiTietPlace.reviews.length > 0 ? (
+            <Card>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" }}>
+                <Text style={{ ...type.title, color: c.ink }}>Người đi trước nói gì</Text>
+                <Text style={{ ...type.micro, color: c.inkFaint }}>
+                  {chiTietPlace.reviews.length} đánh giá
+                </Text>
+              </View>
+              {chiTietPlace.reviews.map((review, i) => (
+                <TheDanhGia key={`${review.author}-${i}`} review={review} />
+              ))}
+            </Card>
+          ) : null}
+
+          {ghiChu ? (
+            // Not an alert. Every one of these states still leaves a usable
+            // screen, and a red banner over a working place card teaches people
+            // to ignore banners.
+            <Text style={{ ...type.micro, color: c.inkFaint }}>{ghiChu}</Text>
+          ) : null}
+
           {/* F46. Below the reason card rather than in the bottom bar: the bar
               holds the two actions the mockup draws, and a check-in is not a
               third peer of "Chỉ đường" -- it is a record the group keeps, and
@@ -197,6 +258,29 @@ export function ChiTietDiaDiem({ place, nguoi, nhom, onQuayLai }: {
           Đánh dấu này chỉ nằm trong phiên đang mở, chưa có chỗ lưu trên máy chủ.
         </Text>
       ) : null}
+    </View>
+  );
+}
+
+/** One review. The star row is drawn from the number rather than repeated as
+ *  text beside it, because two spellings of the same rating on one line is one
+ *  more place for them to disagree. */
+function TheDanhGia({ review }: { review: Review }) {
+  const c = usePalette();
+  const day = Math.round(review.rating);
+  return (
+    <View style={{ gap: 2, marginTop: space.sm, borderTopWidth: 1, borderTopColor: c.line, paddingTop: space.sm }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
+        <Text style={{ ...type.label, color: c.ink }}>{review.author}</Text>
+        <Text
+          style={{ ...type.label, color: c.accent }}
+          accessibilityLabel={`${review.rating.toFixed(1)} trên 5 sao`}
+        >
+          {"★".repeat(day)}
+          <Text style={{ color: c.inkFaint }}>{"★".repeat(5 - day)}</Text>
+        </Text>
+      </View>
+      <Text style={{ ...type.body, color: c.inkSoft }}>{review.body}</Text>
     </View>
   );
 }

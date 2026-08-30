@@ -10,8 +10,13 @@
  * Nothing here decides what a screen looks like. It decides what exists.
  */
 
-/** The four things the centre [+] can start. */
-export type CreateActionId = "tao-chuyen" | "tao-khoan-chi" | "dang-ky-niem" | "tao-nhom";
+/** The things the centre [+] can start. */
+export type CreateActionId =
+  | "tao-chuyen"
+  | "tao-khoan-chi"
+  | "dang-ky-niem"
+  | "xem-album"
+  | "tao-nhom";
 
 /** Where a tab sends you. `shell` is a screen that is honestly still a shell. */
 export type Destination =
@@ -76,7 +81,7 @@ export const TABS: Tab[] = [
  * shell to open it is a compile error rather than a menu row that quietly
  * does nothing.
  */
-export type CreateFlowId = "khoan-chi" | "nhom" | "ky-niem";
+export type CreateFlowId = "khoan-chi" | "nhom" | "ky-niem" | "album";
 
 /**
  * How the shell reaches a create action -- as data the shell reads, not as a
@@ -110,8 +115,8 @@ export type CreateAction = {
 /**
  * What [+] opens.
  *
- * All four reach real behaviour today, and the menu says so out loud rather
- * than letting four identical rows imply four working features. Spec section
+ * All five reach real behaviour today, and the menu says so out loud rather
+ * than letting five identical rows imply five working features. Spec section
  * 14.3's rule about not designing ahead of the actions cuts both ways: the
  * action that does not exist yet must not pretend to. That the list happens to
  * be all-true today is why `built` stays rather than being deleted as
@@ -154,6 +159,20 @@ export const CREATE_ACTIONS: CreateAction[] = [
     hint: "Xem lại chuyến đã đi, chỗ đã tới, tiền đã chia",
     built: true,
     route: { kind: "flow", flow: "ky-niem" },
+  },
+  {
+    id: "xem-album",
+    label: "Album chuyến đi",
+    hint: "Từng chuyến một: ảnh, chỗ đã tới, tiền, và thước phim AI",
+    // F36/F37. A read, not a create, and it sits in this sheet for the same
+    // reason "Kỷ niệm nhóm" above it does: the sheet is the only surface in the
+    // shell that is not one of the four tabs, and a screen with no button
+    // pointing at it is a screen nobody -- person or detector -- can reach.
+    // Three routes stand behind it (`/albums`, `/albums/{id}`,
+    // `/albums/{id}/reel`) and `screens/album/AlbumChuyenDi.tsx` calls all
+    // three, so `built` is a claim the wiring below can be checked against.
+    built: true,
+    route: { kind: "flow", flow: "album" },
   },
   {
     id: "tao-nhom",

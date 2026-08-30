@@ -84,6 +84,13 @@ COVERED_BY: dict[str, tuple[str, ...]] = {
     # preflight at all. They share a job because they need the identical
     # setup, and stay two stages for the reason given just above.
     "contract": ("contract", "cors"),
+    # The third link in the chain `client-routes` and `server-routes` are the
+    # first two of, and a job of its own rather than a fifth stage on `api`
+    # because it needs neither the API source nor a pip install -- the checker
+    # is stdlib Python reading apps/mobile only. Behind `api` it would sit
+    # after a dependency install and a full pytest run, so a red suite would
+    # stop it answering a question the suite has nothing to do with.
+    "screens": ("screens",),
     # `pinned-import` has no job of its own because the `docker` job already
     # proves what it proves: it builds the image and starts the container, so
     # an app that cannot be imported under the pinned fastapi fails there too.
