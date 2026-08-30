@@ -45,10 +45,16 @@ daemon is down -- the failure it exists to prevent.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _workflow_steps import run_steps  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RUNNER = REPO_ROOT / "scripts" / "postgres_tier.sh"
@@ -307,15 +313,71 @@ class WorkflowAndRunnerCannotDrift(unittest.TestCase):
     `tests/test_gate_covers_every_inline_step.py` pins the step's bytes and
     asks for a re-review when they change, which catches drift in one
     direction; delegating removes the direction entirely.
+
+    ## Why this reads step bodies and not the file
+
+    The first version of this class asked `assertIn("scripts/postgres_tier.sh",
+    workflow_text)`. Re-running the mutation table after a rebase found what
+    that misses: write the drift back in as
+
+        # was: scripts/postgres_tier.sh -q
+        run: cd services/api && python3 -m pytest tests/postgres -q
+
+    and the assertion is satisfied by the COMMENT while the step runs the
+    narrow tier again -- 13 passed, exit 0, the hole fully reopened. A
+    substring over a whole file cannot tell a command from a mention of one.
+    So the parser that `test_gate_covers_every_inline_step.py` already uses
+    supplies the actual `run:` bodies, and both halves are asserted: some step
+    invokes the runner, and no step spells the tier out for itself.
     """
 
+    def _postgres_workflow_steps(self) -> list:
+        steps = [s for s in run_steps() if s.workflow == WORKFLOW.name]
+        # run_steps() raises rather than returning empty, but it cannot know
+        # this particular workflow was expected -- a rename would leave the
+        # list legitimately empty and every assertion below vacuously true.
+        self.assertNotEqual(
+            steps,
+            [],
+            f"không đọc được bước `run:` nào từ {WORKFLOW.name} — "
+            "phép kiểm dưới đây sẽ đúng một cách rỗng tuếch",
+        )
+        return steps
+
     def test_the_workflow_runs_the_same_runner(self) -> None:
-        workflow = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn(
-            "scripts/postgres_tier.sh",
-            workflow,
-            "postgres-repository.yml phải gọi scripts/postgres_tier.sh, "
-            "nếu không CI và cổng máy này định nghĩa 'tầng live' theo hai cách",
+        steps = self._postgres_workflow_steps()
+        calling = [s for s in steps if "scripts/postgres_tier.sh" in s.body]
+        self.assertNotEqual(
+            calling,
+            [],
+            "không bước `run:` nào của postgres-repository.yml gọi "
+            "scripts/postgres_tier.sh, nếu không CI và cổng máy này định nghĩa "
+            "'tầng live' theo hai cách"
+            "\n--- các bước đọc được ---\n"
+            + "\n".join(f"{s.label}: {s.body}" for s in steps),
+        )
+
+    def test_no_step_spells_the_live_tier_out_for_itself(self) -> None:
+        """The other half: delegating is only one edit away from being undone.
+
+        `pytest tests/postgres` written inline is the exact shape that let CI
+        stay narrow while the local runner grew a second tree. Naming it here
+        means the next person to type it is told why not, instead of finding
+        out when sixteen cases stop running somewhere nobody looks.
+        """
+        inline = re.compile(r"pytest\s+(?:[^\s]+\s+)*tests/postgres\b")
+        offenders = [
+            (s.label, line)
+            for s in self._postgres_workflow_steps()
+            for line in s.body.splitlines()
+            if inline.search(line)
+        ]
+        self.assertEqual(
+            offenders,
+            [],
+            "một bước tự viết `pytest tests/postgres` — đó là hai định nghĩa của "
+            "'tầng live' trở lại, và cây tests/qa không nằm trong định nghĩa thứ hai"
+            f"\n{offenders}",
         )
 
 
