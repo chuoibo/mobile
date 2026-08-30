@@ -15,9 +15,18 @@ import { VoTab } from "./VoTab";
 import { DEFAULT_TAB } from "./tabs";
 import { diemDenHienTai } from "./lien-ket";
 import type { NguoiDung } from "./nhom-demo";
+import type { NhomPhien } from "../screens/chat/nhom";
 
 export function AppRoot({ renderKhoanChi }: {
-  renderKhoanChi: (onExit: () => void, nguoi: NguoiDung | null) => React.ReactNode;
+  /** The third argument is the group this session opened, and it is not
+   *  optional: a bill written into a different group from the one the chat
+   *  above it belongs to is the same defect as bug-223337 wearing a different
+   *  screen. `VoTab` holds the handle and hands it to all three surfaces. */
+  renderKhoanChi: (
+    onExit: () => void,
+    nguoi: NguoiDung | null,
+    nhomPhien: NhomPhien | null,
+  ) => React.ReactNode;
 }) {
   // Read once, at mount. Re-reading on every render would let a fragment
   // change yank somebody out of the screen they navigated to by hand.

@@ -93,7 +93,13 @@ import {
   type GroupMember,
 } from "./src/participants";
 import { DEMO_PEOPLE, type DemoPerson } from "./src/navigation/nhom-demo";
-import { cauBuocNhom, khoiDongNhom, type NhomMan, type ThanhVien } from "./src/screens/chat/nhom";
+import {
+  cauBuocNhom,
+  moNhomChoMan,
+  type NhomMan,
+  type NhomPhien,
+  type ThanhVien,
+} from "./src/screens/chat/nhom";
 import { space, type, usePalette } from "./src/theme";
 import { Button, Screen } from "./src/ui/Kit";
 import {
@@ -209,7 +215,15 @@ function nguoiCoTheChia(members: ThanhVien[]): GroupMember[] {
     }));
 }
 
-function LuongKhoanChi({ onExit, nguoi }: { onExit: () => void; nguoi: DemoPerson | null }) {
+function LuongKhoanChi({ onExit, nguoi, nhomPhien }: {
+  onExit: () => void;
+  nguoi: DemoPerson | null;
+  /** The group this session opened, from `VoTab`. The bill has to land in the
+   *  same group the conversation about it happened in; see `TinNhan`'s copy of
+   *  this prop and `nhom.ts` on why one screen resolving the group its own way
+   *  is bug-223337. */
+  nhomPhien: NhomPhien | null;
+}) {
   const c = usePalette();
   const scheme = useColorScheme();
   // The bill comes first. This is the hero path: photograph the paper, let the
@@ -484,13 +498,13 @@ function LuongKhoanChi({ onExit, nguoi }: { onExit: () => void; nguoi: DemoPerso
     }
     let huy = false;
     setNhom({ kind: "dang-tai" });
-    khoiDongNhom(nguoi.id).then((s) => {
+    moNhomChoMan(nguoi, nhomPhien).then((s) => {
       if (!huy) setNhom(s);
     });
     return () => {
       huy = true;
     };
-  }, [nguoi]);
+  }, [nguoi, nhomPhien]);
 
   useEffect(() => {
     if (step !== "goi-y" || reading === null || nhom.kind !== "xong") return;
@@ -580,7 +594,7 @@ function LuongKhoanChi({ onExit, nguoi }: { onExit: () => void; nguoi: DemoPerso
               onThuLai={() => {
                 if (!nguoi) return;
                 setNhom({ kind: "dang-tai" });
-                khoiDongNhom(nguoi.id).then(setNhom);
+                moNhomChoMan(nguoi, nhomPhien).then(setNhom);
               }}
             />
           )}
@@ -1320,5 +1334,11 @@ export default function App() {
   if (manThamSo() === "goi-y-chia") return <XemGoiYChia />;
   if (manThamSo()?.startsWith("doc-bill")) return <XemDocBill />;
   if (manThamSo()?.startsWith("tai-khoan-nhan")) return <XemTaiKhoanNhan />;
-  return <AppRoot renderKhoanChi={(onExit, nguoi) => <LuongKhoanChi onExit={onExit} nguoi={nguoi} />} />;
+  return (
+    <AppRoot
+      renderKhoanChi={(onExit, nguoi, nhomPhien) => (
+        <LuongKhoanChi onExit={onExit} nguoi={nguoi} nhomPhien={nhomPhien} />
+      )}
+    />
+  );
 }

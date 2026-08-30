@@ -19,7 +19,7 @@ import {
   type Attempt,
 } from "../../api";
 import type { DemoPerson } from "../../navigation/nhom-demo";
-import { khoiDongNhom, type NhomState } from "../chat/nhom";
+import { moNhomChoMan, type NhomPhien, type NhomState } from "../chat/nhom";
 // The recap read, imported rather than re-implemented. `ky-uc.ts` sets the
 // precedent by importing `khoaGhi` out of the chat lane for the same reason: a
 // second copy of a route call is a copy that drifts the day the route changes.
@@ -59,7 +59,13 @@ type CuaSo = { pha: "ds" } | { pha: "tao" } | { pha: "tg"; buoi: BuoiDi };
  *  sentence this screen prints. */
 type SoDaTieu = { kind: "xong"; theo: ReadonlyMap<string, number> } | { kind: "loi" };
 
-export function LenPlan({ nguoi }: { nguoi: DemoPerson | null }) {
+export function LenPlan({ nguoi, nhomPhien }: {
+  nguoi: DemoPerson | null;
+  /** The group this session opened, from `VoTab`. Same prop, same reason and
+   *  same required-not-optional argument as `TinNhan` -- an outing planned in
+   *  one group and a conversation held in another is not a plan. */
+  nhomPhien: NhomPhien | null;
+}) {
   const [nhom, setNhom] = useState<NhomMan>(nguoi ? { kind: "dang-tai" } : { kind: "chua-chon" });
   const [ds, setDs] = useState<DsMan>({ kind: "dang-tai" });
   const [cuaSo, setCuaSo] = useState<CuaSo>({ pha: "ds" });
@@ -84,13 +90,13 @@ export function LenPlan({ nguoi }: { nguoi: DemoPerson | null }) {
     }
     let huy = false;
     setNhom({ kind: "dang-tai" });
-    khoiDongNhom(nguoi.id).then((s) => {
+    moNhomChoMan(nguoi, nhomPhien).then((s) => {
       if (!huy) setNhom(s);
     });
     return () => {
       huy = true;
     };
-  }, [nguoi]);
+  }, [nguoi, nhomPhien]);
 
   useEffect(() => taiNhom(), [taiNhom]);
 
