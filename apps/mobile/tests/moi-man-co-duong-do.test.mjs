@@ -127,6 +127,19 @@ const SO_DO = {
   // the derivation returns "tai-khoan/TaiKhoanNhan" and a shortened key here
   // reads as a missing screen. This gate caught exactly that on its first run.
   "tai-khoan/TaiKhoanNhan": { quet: "tai-khoan-nhan" },
+  // F17 and F22, added with the screens that pay off six routes nobody could
+  // reach. `quet` and not `do`: each has a `?man=` address that mounts the real
+  // component over a frozen fixture, and no probe row, so a detector and a
+  // screenshot pass can load them cold but nothing walks them against a server.
+  //
+  // The vote has two addresses behind one key. `?man=binh-chon` is the open
+  // ballot; `?man=binh-chon-hoa` is the closed TIE, which is the state the
+  // surface exists for and the one no amount of pressing can reach from the
+  // other. A single address here would have left the screen's whole reason for
+  // being unmeasured while this row read green.
+  "binh-chon/BinhChon": { quet: "binh-chon" },
+  "bill/MonCuaToi": { quet: "mon-cua-toi" },
+  "nhan-mat/NhanMatTrenAnh": { quet: "nhan-mat" },
 };
 
 test("mọi màn App.tsx mount đều có câu trả lời cho 'cái gì đo màn này'", () => {

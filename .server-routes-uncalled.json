@@ -32,18 +32,32 @@
     "             URL do may chu tra ve nen client khong bao gio viet no thanh",
     "             literal. Dung doc so 0 cua cong thanh 'route chet'.",
     "",
-    "Con so hom nay, sau khi F38 duoc tra: 16 tinh-nang, 5 ha-tang, 1 cong-mu."
+    "Con so hom nay, sau khi F17/F22 (main) va nam route le (nhanh nay) duoc tra:",
+    "10 tinh-nang, 2 ha-tang, 1 cong-mu, 1 chua phan loai (/albums/{outing_id}/reel,",
+    "F37, cua lane khac).",
+    "",
+    "Luot truoc do 6 dong roi khoi danh sach: bon route binh chon, /bills/{id}/my-items",
+    "va /photos/{id}/face-boxes. Luot nay them 3: /places/{place_id},",
+    "/bills/{bill_id}/split va /bank-recipients/{recipient_id} -- ca ba deu tung mang",
+    "'loai: ha-tang', tuc la tung duoc doc thanh 'khong man nao NEN goi'. Ly do do sai",
+    "va day la cho ghi lai vi sao, khong phai xoa im lang:",
+    "  /places/{place_id}          mang description + reviews, hai truong GET /places",
+    "                              KHONG mang. Danh sach khong 'da du truong'.",
+    "  /bills/{bill_id}/split      la cua thu hai vao CUNG allocator, dung -- nhung do",
+    "                              chinh la gia tri cua no: no doc share may chu LUU,",
+    "                              nen no la cho duy nhat bat duoc client va may chu",
+    "                              lech nhau. Khong co phep chia thu hai.",
+    "  /bank-recipients/{id}       duong doc; duong GHI bi thay bang per-person, duong",
+    "                              DOC thi khong, va thieu no thi nguoi da luu tai khoan",
+    "                              khong phan biet duoc voi nguoi chua luu.",
+    "Tat ca deu duoc tra bang mot man that co nguoi bam, khong phai bang mot dong",
+    "ngoai le."
   ],
   "uncalled": [
     {
       "route": "/bank-recipients",
       "loai": "ha-tang",
       "reason": "Client cố ý dùng PUT /people/{id}/bank-recipient thay cho POST /bank-recipients — api.ts:867 ghi rõ lựa chọn đó và api.ts:895 là chỗ gọi. Route collection này không có người gọi theo thiết kế, không phải do quên."
-    },
-    {
-      "route": "/bills/{bill_id}/my-items",
-      "loai": "tinh-nang",
-      "reason": "F22, merge #303 hôm nay. Người tự nhận ô vuông rồi chọn món mình ăn. Chưa màn nào gọi; frontend đang làm cùng lô với F17."
     },
     {
       "route": "/contexts/{context_id}",
@@ -90,11 +104,6 @@
       "reason": "DA CO NGUOI GOI THAT, va cong nay khong the thay -- day la o duy nhat trong file thuoc loai do. URL do MAY CHU tra ve trong image_url (schemas.py:1496 cho album, va WidgetPhotoResponse.image_url cho F38), roi client dua thang chuoi ay cho <Anh uri=...>, nen khong bao gio co literal de quet. Truoc day dong nay con dung theo mot nghia khac: duong DUY NHAT toi no la /contexts/{id}/albums, ma route do cung chua ai goi. Nghia do het han hom nay -- man widget (F38) doc anh moi nhat cua nhom qua chinh duong nay, nen byte cua route nay dang chay tren mot man that. Giu dong nay lai la de KHONG ai doc so 0 cua cong thanh 'route nay chet'."
     },
     {
-      "route": "/contexts/{context_id}/photos/{photo_id}/face-boxes",
-      "loai": "tinh-nang",
-      "reason": "F22, merge #303. Trả ô vuông VÔ DANH — không danh tính, không vector lưu lại. Route không có thân request. Chưa màn nào gọi."
-    },
-    {
       "route": "/contexts/{context_id}/preference-profile",
       "loai": "tinh-nang",
       "reason": "Ho so khau vi nhom. La tinh nang chu khong phai ong nuoc noi bo: no co quyen rieng 'view_group_preference_profile' (domain/permissions.py:323) va service tu che khong duoc suy ra so thich khong ai noi ra (service.py:1797). Mot thu co quyen xem rieng la mot thu duoc lam ra de cho nguoi xem. Chua co literal nao trong client."
@@ -105,11 +114,6 @@
       "reason": "Gợi ý của AI. Client không có literal nào bắt đầu bằng /suggest; đường AI đang dùng là /contexts/{}/ai-turn (ai.ts:105)."
     },
     {
-      "route": "/contexts/{context_id}/votes",
-      "loai": "tinh-nang",
-      "reason": "F17 Bình chọn, merge #133 hôm nay 2026-08-30. Domain và tầng postgres đã xong (490 ca, ràng buộc một-người-một-phiếu có ca gác ở DB), nhưng chưa màn nào gọi. Frontend đang làm màn (frontend-193436). Gỡ dòng này khi màn xem cuộc bình chọn gọi nó."
-    },
-    {
       "route": "/outings/{outing_id}/invites",
       "loai": "tinh-nang",
       "reason": "Tao loi moi vao buoi di. Nua kia da co man: #moi= mo man nhan loi moi va no duoc quet moi luot (hang nhan-loi-moi trong tab-snapshots). Thieu dung cai nut sinh ra loi moi ay."
@@ -118,21 +122,6 @@
       "route": "/outings/{outing_id}/invites/{invite_id}/revoke",
       "loai": "tinh-nang",
       "reason": "Thu hoi loi moi da phat. Cung lo voi POST /outings/{id}/invites."
-    },
-    {
-      "route": "/votes/{vote_id}",
-      "loai": "tinh-nang",
-      "reason": "F17 Bình chọn, merge #133. Cùng lô với /contexts/{context_id}/votes — xem dòng đó."
-    },
-    {
-      "route": "/votes/{vote_id}/ballots",
-      "loai": "tinh-nang",
-      "reason": "F17 Bình chọn, merge #133. Đường bỏ phiếu và đổi phiếu. Người bỏ phiếu LÀ actor, không có trường voter_id trong body — màn chỉ cần gọi, không cần gửi danh tính."
-    },
-    {
-      "route": "/votes/{vote_id}/close",
-      "loai": "tinh-nang",
-      "reason": "F17 Bình chọn, merge #133. Đóng cuộc bình chọn. Hoà thì domain HIỆN hoà chứ không tự chọn một bên, nên màn phải hiển thị được trạng thái hoà."
     }
   ]
 }

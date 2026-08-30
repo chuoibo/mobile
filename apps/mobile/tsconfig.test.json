@@ -89,6 +89,15 @@
     // F17's vote counting. Compiled so `binh-chon.test.mjs` can run the fold
     // under bare node, with no renderer and no server.
     "src/screens/chat/binh-chon.ts",
+    // F17 again, the other transport. The line above folds ballots out of chat
+    // messages; this one copies a tally the server already computed. Compiled
+    // for the same reason and one sharper one: every rule in it is a REFUSAL of
+    // a fallback -- no winner unless `decided_option_id` names one, no tie
+    // inferred from a list length, no division when nobody has voted. A source
+    // read cannot tell a refusal that holds from one that was written down, and
+    // the failure it guards is the app casting the deciding vote. See
+    // `tests/ket-qua-binh-chon.test.mjs`.
+    "src/screens/binh-chon/ket-qua.ts",
     "src/screens/chat/ai.ts",
     "src/screens/chat/nhom.ts",
     "src/screens/chat/nhap-tu-chat.ts",
