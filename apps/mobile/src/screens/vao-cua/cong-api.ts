@@ -2,7 +2,7 @@
  *
  * Groups and memberships are a different corner of the API from the expense
  * path `api.ts` grew around, so they live here rather than swelling that file.
- * What is *not* duplicated is the plumbing: `translated` and the idempotency
+ * What is *not* duplicated is the plumbing: `translatedAsActor` and the idempotency
  * key come from `api.ts`, because a second `fetch` wrapper would be a second
  * status-to-sentence table, and the one that already exists was tuned against
  * a real server.
@@ -12,7 +12,7 @@
  * functions writing `PUT /people/{id}` would be two places to get the retry
  * key wrong, and the expense flow would keep the good one.
  */
-import { type Attempt, translated } from "../../api";
+import { type Attempt, translatedAnonymous, translatedAsActor } from "../../api";
 import { chuanHoaSo } from "./danh-tinh";
 
 export type ThanhVien = {
@@ -101,7 +101,10 @@ export async function layIdTuSo(raw: string): Promise<string> {
     // ends up in a console or in a bug report.
     throw new Error("Số điện thoại không hợp lệ, không thể tạo danh tính.");
   }
-  const wire = await translated<{ person_id: string }>(
+  // Anonymous on purpose, and it is the one route where that is unarguable:
+  // this call is how the phone finds out which person id it has. There is
+  // nobody to act as yet, because asking is what produces them.
+  const wire = await translatedAnonymous<{ person_id: string }>(
     DANH_TINH_REFUSALS,
     "/identity/person-id",
     { method: "POST", body: { phone: so } },
@@ -130,7 +133,7 @@ export async function taoNhom(
   actorId: string,
   attempt: Attempt,
 ): Promise<Nhom> {
-  return translated<Nhom>(TAO_NHOM_REFUSALS, "/contexts", {
+  return translatedAsActor<Nhom>(TAO_NHOM_REFUSALS, "/contexts", {
     method: "POST",
     body: { display_name: tenNhom },
     actorId,
@@ -161,7 +164,7 @@ export async function moiVaoNhom(
   actorId: string,
   attempt: Attempt,
 ): Promise<ThanhVien> {
-  return translated<ThanhVien>(MOI_REFUSALS, `/contexts/${contextId}/members`, {
+  return translatedAsActor<ThanhVien>(MOI_REFUSALS, `/contexts/${contextId}/members`, {
     method: "POST",
     body: { person_id: personId },
     actorId,
@@ -192,7 +195,7 @@ export async function nhanLoiMoi(
   actorId: string,
   attempt: Attempt,
 ): Promise<ThanhVien> {
-  return translated<ThanhVien>(
+  return translatedAsActor<ThanhVien>(
     NHAN_REFUSALS,
     `/memberships/${membershipId}/accept`,
     { method: "POST", actorId, attempt },
@@ -215,7 +218,7 @@ export async function danhSachThanhVien(
   contextId: string,
   actorId: string,
 ): Promise<ThanhVien[]> {
-  const wire = await translated<{ context_id: string; members: ThanhVien[] }>(
+  const wire = await translatedAsActor<{ context_id: string; members: ThanhVien[] }>(
     DANH_SACH_REFUSALS,
     `/contexts/${contextId}/members`,
     { method: "GET", actorId, contexts: contextId },

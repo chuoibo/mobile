@@ -265,12 +265,29 @@ function actorHeaders(
   return headers;
 }
 
-type CallOptions = {
+/** The parts of a request that do not depend on who is making it. */
+type RequestShape = {
   method?: string;
   body?: unknown;
-  actorId?: string;
   /** Required for writes. A write without one is unprotected against retries. */
   attempt?: Attempt;
+};
+
+/**
+ * A request made as somebody, which is nearly all of them.
+ *
+ * `actorId` is required, and that is the whole point of this type existing.
+ * It used to be `actorId?: string` on a single shared options bag, so a call
+ * that forgot to say who was making it compiled cleanly, sent no
+ * `X-Actor-ID`, and came back 401 at runtime -- where the screen reported it
+ * as a server fault. Three people walked into that in one day (#365, #379,
+ * and one before them), which is the tell that the shape was wrong rather
+ * than that three people were careless. `scripts/check_actor_headers.py`
+ * caught each of them, but only in CI, and a compiler that already knows the
+ * answer should not be leaving the job to a later gate.
+ */
+type ActorCallOptions = RequestShape & {
+  actorId: string;
   /**
    * What this actor claims to be, when the default four roles are not enough.
    *
@@ -299,14 +316,51 @@ type CallOptions = {
   contexts?: string;
 };
 
-/** One request, with the two headers this API insists on. */
-async function call<T>(
+/**
+ * A request deliberately made as nobody.
+ *
+ * `actorId`, `roles` and `contexts` are typed `never` rather than left out,
+ * so naming one is an error at the call site that names it instead of a field
+ * quietly ignored on the way past. That matches what the code already did:
+ * roles and a group claim were only ever read when an actor was set, so an
+ * anonymous call carrying them was stating something that never travelled.
+ *
+ * Reaching for this type should feel like a decision, because it is one. Every
+ * use of it in this file carries a comment saying which route is anonymous and
+ * why.
+ */
+type AnonymousCallOptions = RequestShape & {
+  actorId?: never;
+  roles?: never;
+  contexts?: never;
+};
+
+/**
+ * One request as somebody. Sends `X-Actor-ID`, and cannot be asked not to.
+ */
+async function callAsActor<T>(path: string, options: ActorCallOptions): Promise<T> {
+  const { actorId, roles, contexts } = options;
+  return send<T>(path, actorHeaders(actorId, roles, contexts), options);
+}
+
+/**
+ * One request as nobody, said out loud.
+ *
+ * Written out at each call site rather than reached by leaving a field off, so
+ * that an anonymous request is something somebody chose and can be asked about
+ * in review.
+ */
+async function callAnonymous<T>(path: string, options: AnonymousCallOptions): Promise<T> {
+  return send<T>(path, { "Content-Type": "application/json" }, options);
+}
+
+/** The shared body of both: identical wire behaviour, different headers. */
+async function send<T>(
   path: string,
-  { method = "POST", body, actorId, attempt, roles, contexts }: CallOptions,
+  actorHeadersOrNone: Record<string, string>,
+  { method = "POST", body, attempt }: RequestShape,
 ): Promise<T> {
-  const headers: Record<string, string> = actorId
-    ? actorHeaders(actorId, roles, contexts)
-    : { "Content-Type": "application/json" };
+  const headers: Record<string, string> = { ...actorHeadersOrNone };
   // The header the server's middleware keys off. Without it the middleware
   // passes the request straight through -- which is what this app did on every
   // route, so the protection was installed and switched off. Measured against a
@@ -425,7 +479,7 @@ export async function registerPerson(
   actorId: string,
   attempt: Attempt,
 ): Promise<void> {
-  await translated<{ id: string; display_name: string }>(
+  await translatedAsActor<{ id: string; display_name: string }>(
     nameRefusals(person),
     `/people/${person.id}`,
     { method: "PUT", body: { display_name: person.name }, actorId, attempt },
@@ -586,10 +640,11 @@ export async function previewSplit(
     occurredAt: attempt.at,
   });
   // No `contexts`, and no `actorId` to hang one on: `POST /expenses` is the
-  // one write this client sends anonymously, on purpose (see `call`, on the
-  // shared idempotency scope). The group travels in the body, which is where
-  // the allocator reads it. `confirm` is where the server starts checking it.
-  const result = await translated<ExpenseResponse>(ALLOCATOR_REFUSALS, "/expenses", {
+  // one write this client sends anonymously, on purpose (see `callAnonymous`,
+  // on the shared idempotency scope). The group travels in the body, which is
+  // where the allocator reads it. `confirm` is where the server starts
+  // checking it.
+  const result = await translatedAnonymous<ExpenseResponse>(ALLOCATOR_REFUSALS, "/expenses", {
     body,
     attempt,
   });
@@ -617,7 +672,7 @@ export async function proposeSplit(
     occurredAt: attempt.at,
   });
   // Anonymous like `previewSplit`, and for the reason spelled out there.
-  const result = await translated<ExpenseResponse>(ALLOCATOR_REFUSALS, "/expenses", {
+  const result = await translatedAnonymous<ExpenseResponse>(ALLOCATOR_REFUSALS, "/expenses", {
     body,
     attempt,
   });
@@ -647,7 +702,7 @@ export async function confirmExpense(
   proposal: PendingProposal,
   attempt: Attempt,
 ): Promise<{ expenseVersionId: string; acknowledged: boolean }> {
-  const result = await translated<{
+  const result = await translatedAsActor<{
     expense_version_id: string;
     payer_acknowledgement: "pending" | "acknowledged";
   }>(CONFIRM_REFUSALS, `/expenses/${proposal.expenseId}/confirm`, {
@@ -810,7 +865,7 @@ export type OpenedBatch = {
  * What the server's refusals to store a destination mean.
  *
  * The three `INVALID_*` codes come from `app/domain/bank_account.py` and arrive
- * upper-cased; `translated` lower-cases before looking them up. The screen
+ * upper-cased; `viDich` lower-cases before looking them up. The screen
  * checks the same three rules locally, so reaching one of these means the two
  * copies have drifted -- and the sentence says which box to look at rather than
  * "Bank destination is malformed", which is the server's own English and names
@@ -885,7 +940,7 @@ export async function saveBankRecipient(
   actorId: string,
   attempt: Attempt,
 ): Promise<SavedBankRecipient> {
-  const result = await translated<{
+  const result = await translatedAsActor<{
     recipient_id: string;
     bank_bin: string;
     bank_name: string;
@@ -925,7 +980,7 @@ export async function openBatch(
   const nameOf = (id: string) =>
     proposal.participants.find((person: Participant) => person.id === id)?.name ?? id;
 
-  const result = await translated<{
+  const result = await translatedAsActor<{
     batch_id: string;
     obligations: {
       obligation_id: string;
@@ -1009,13 +1064,35 @@ export async function publishBatch(
  * table above, and `thongDiepNguoiDoc` -- a second copy of those would be a
  * second place for machine text to reach somebody's screen.
  */
-export async function translated<T>(
+export async function translatedAsActor<T>(
   table: Record<string, string>,
   path: string,
-  options: CallOptions,
+  options: ActorCallOptions,
+): Promise<T> {
+  return viDich(table, () => callAsActor<T>(path, options));
+}
+
+/**
+ * `translatedAsActor` for the handful of routes that are anonymous on purpose.
+ *
+ * Split for the same reason `callAnonymous` is split from `callAsActor`: this
+ * wrapper is the door most screens go through, so leaving it able to accept a
+ * missing actor would have left the hole open in the place it is most used.
+ */
+export async function translatedAnonymous<T>(
+  table: Record<string, string>,
+  path: string,
+  options: AnonymousCallOptions,
+): Promise<T> {
+  return viDich(table, () => callAnonymous<T>(path, options));
+}
+
+async function viDich<T>(
+  table: Record<string, string>,
+  run: () => Promise<T>,
 ): Promise<T> {
   try {
-    return await call<T>(path, options);
+    return await run();
   } catch (problem) {
     if (problem instanceof ApiError) {
       const said = table[problem.code.toLowerCase()];
@@ -1038,7 +1115,7 @@ async function sendPublish(
   attempt: Attempt,
   roster: Participant[],
 ): Promise<Envelope[]> {
-  const result = await translated<{
+  const result = await translatedAsActor<{
     guest_links: {
       sender_id: string;
       path: string;
@@ -1104,7 +1181,7 @@ export async function loadBoard(
   actorId: string,
   roster: Participant[] = [],
 ): Promise<{ obligations: Obligation[]; disputedCount: number }> {
-  const result = await call<{
+  const result = await callAsActor<{
     disputed_count: number;
     obligations: {
       obligation_id: string;
@@ -1156,7 +1233,7 @@ export async function confirmReceipt(
   actorId: string,
   attempt: Attempt,
 ): Promise<{ status: Obligation["status"] }> {
-  const result = await call<{
+  const result = await callAsActor<{
     obligation_status: Obligation["status"];
   }>(`/obligations/${obligationId}/confirm-receipt`, {
     body: { amount_vnd: amountVnd, idempotency_key: attempt.key },
@@ -1395,7 +1472,7 @@ export async function napNhapKhoanChiTuChat(
   messageId: string,
   actorId: string,
 ): Promise<ChatExpenseDraftWire> {
-  return translated<ChatExpenseDraftWire>(
+  return translatedAsActor<ChatExpenseDraftWire>(
     CHAT_EXPENSE_REFUSALS,
     `/contexts/${contextId}/messages/${messageId}/expense-draft`,
     { method: "POST", actorId, contexts: contextId },
@@ -1771,7 +1848,7 @@ export async function themKyNiemAnh(
   actorId: string,
   attempt: Attempt,
 ): Promise<KyNiemWire> {
-  return translated<KyNiemWire>(ANH_REFUSALS, `/contexts/${contextId}/memories`, {
+  return translatedAsActor<KyNiemWire>(ANH_REFUSALS, `/contexts/${contextId}/memories`, {
     method: "POST",
     body: { image_url: imageUrl, caption: caption?.trim() ? caption.trim() : null },
     actorId,
@@ -1787,7 +1864,7 @@ export async function docKyNiem(
   actorId: string,
   limit = 24,
 ): Promise<KyNiemWire[]> {
-  const result = await translated<{ memories: KyNiemWire[] }>(
+  const result = await translatedAsActor<{ memories: KyNiemWire[] }>(
     ANH_REFUSALS,
     `/contexts/${contextId}/memories?limit=${limit}&kind=photo`,
     { method: "GET", actorId, roles: "member", contexts: contextId },
@@ -1853,7 +1930,7 @@ export async function docWidget(
   contextId: string,
   actorId: string,
 ): Promise<WidgetWire> {
-  return translated<WidgetWire>(ANH_REFUSALS, `/contexts/${contextId}/widget`, {
+  return translatedAsActor<WidgetWire>(ANH_REFUSALS, `/contexts/${contextId}/widget`, {
     method: "GET",
     actorId,
     roles: "member",
@@ -1920,7 +1997,7 @@ export async function thaTim(
   memoryId: string,
   actorId: string,
 ): Promise<void> {
-  await translated<void>(
+  await translatedAsActor<void>(
     XA_HOI_REFUSALS,
     `/contexts/${contextId}/memories/${memoryId}/reactions`,
     { method: "POST", actorId, roles: "member", contexts: contextId },
@@ -1934,7 +2011,7 @@ export async function boTim(
   memoryId: string,
   actorId: string,
 ): Promise<void> {
-  await translated<void>(
+  await translatedAsActor<void>(
     XA_HOI_REFUSALS,
     `/contexts/${contextId}/memories/${memoryId}/reactions`,
     { method: "DELETE", actorId, roles: "member", contexts: contextId },
@@ -1947,7 +2024,7 @@ export async function docBinhLuan(
   memoryId: string,
   actorId: string,
 ): Promise<BinhLuanWire[]> {
-  const result = await translated<{ comments: BinhLuanWire[] }>(
+  const result = await translatedAsActor<{ comments: BinhLuanWire[] }>(
     XA_HOI_REFUSALS,
     `/contexts/${contextId}/memories/${memoryId}/comments`,
     { method: "GET", actorId, roles: "member", contexts: contextId },
@@ -1971,7 +2048,7 @@ export async function guiBinhLuan(
   actorId: string,
   attempt: Attempt,
 ): Promise<BinhLuanWire> {
-  return translated<BinhLuanWire>(
+  return translatedAsActor<BinhLuanWire>(
     XA_HOI_REFUSALS,
     `/contexts/${contextId}/memories/${memoryId}/comments`,
     {
@@ -2002,7 +2079,7 @@ export async function taoBuoiDi(
   actorId: string,
   attempt: Attempt,
 ): Promise<BuoiDi> {
-  return call<BuoiDi>(`/contexts/${contextId}/outings`, {
+  return callAsActor<BuoiDi>(`/contexts/${contextId}/outings`, {
     method: "POST",
     body,
     actorId,
@@ -2032,7 +2109,7 @@ export async function nhanLoiMoiBuoiDi(
   actorId: string,
   attempt: Attempt,
 ): Promise<OutingInviteAcceptWire> {
-  return call<OutingInviteAcceptWire>(`/outing-invites/${token}/accept`, {
+  return callAsActor<OutingInviteAcceptWire>(`/outing-invites/${token}/accept`, {
     method: "POST",
     actorId,
     attempt,
@@ -2044,7 +2121,7 @@ export async function docDanhSachBuoiDi(
   contextId: string,
   actorId: string,
 ): Promise<{ context_id: string; outings: BuoiDi[] }> {
-  return call<{ context_id: string; outings: BuoiDi[] }>(
+  return callAsActor<{ context_id: string; outings: BuoiDi[] }>(
     `/contexts/${contextId}/outings`,
     { method: "GET", actorId, contexts: contextId },
   );
@@ -2062,7 +2139,7 @@ export async function luuDongThoiGian(
   attempt: Attempt,
   contextId: string,
 ): Promise<BuoiDi> {
-  return call<BuoiDi>(`/outings/${outingId}/timeline`, {
+  return callAsActor<BuoiDi>(`/outings/${outingId}/timeline`, {
     method: "PUT",
     body: {
       stops: sapXepChang(stops).map((stop) => ({
@@ -2095,7 +2172,7 @@ export async function checkInChang(
   attempt: Attempt,
   contextId: string,
 ): Promise<CheckIn> {
-  return call<CheckIn>(`/outing-stops/${stopId}/checkins`, {
+  return callAsActor<CheckIn>(`/outing-stops/${stopId}/checkins`, {
     method: "POST",
     actorId,
     attempt,
@@ -2109,7 +2186,7 @@ export async function docCheckIn(
   actorId: string,
   contextId: string,
 ): Promise<{ outing_id: string; checkins: CheckIn[] }> {
-  return call<{ outing_id: string; checkins: CheckIn[] }>(
+  return callAsActor<{ outing_id: string; checkins: CheckIn[] }>(
     `/outings/${outingId}/checkins`,
     { method: "GET", actorId, contexts: contextId },
   );
@@ -2137,7 +2214,7 @@ export async function taoBill(
   actorId: string,
   attempt: Attempt,
 ): Promise<BillWire> {
-  return call<BillWire>("/bills", {
+  return callAsActor<BillWire>("/bills", {
     body: billCreateBody(reading, contextId, assignment),
     actorId,
     attempt,
@@ -2151,7 +2228,7 @@ export async function docBill(
   actorId: string,
   contextId: string,
 ): Promise<BillWire> {
-  return call<BillWire>(`/bills/${billId}`, {
+  return callAsActor<BillWire>(`/bills/${billId}`, {
     method: "GET",
     actorId,
     contexts: contextId,
@@ -2175,7 +2252,7 @@ export async function luuGanMon(
   contextId: string,
   attempt: Attempt,
 ): Promise<BillWire> {
-  return call<BillWire>(`/bills/${billId}/assignments`, {
+  return callAsActor<BillWire>(`/bills/${billId}/assignments`, {
     method: "PUT",
     body: assignmentsBody(reading, assignment),
     actorId,
@@ -2197,7 +2274,7 @@ export async function docSoDu(
   contextId: string,
   actorId: string,
 ): Promise<SoDu> {
-  const wire = await call<SoDuWire>(`/contexts/${contextId}/balances`, {
+  const wire = await callAsActor<SoDuWire>(`/contexts/${contextId}/balances`, {
     method: "GET",
     actorId,
     contexts: contextId,
@@ -2288,7 +2365,7 @@ export async function dangBai(
   actorId: string,
   attempt: Attempt,
 ): Promise<PostWire> {
-  return translated<PostWire>(BAI_REFUSALS, "/posts", {
+  return translatedAsActor<PostWire>(BAI_REFUSALS, "/posts", {
     method: "POST",
     body: thanDangBaiApi(input),
     actorId,
@@ -2298,7 +2375,7 @@ export async function dangBai(
 
 /** Everything this actor may read, newest first. The reader is the actor. */
 export async function docBangTin(actorId: string, limit = 50): Promise<PostWire[]> {
-  const result = await translated<{ posts: PostWire[] }>(
+  const result = await translatedAsActor<{ posts: PostWire[] }>(
     BAI_REFUSALS,
     `/posts?limit=${limit}`,
     { method: "GET", actorId },
@@ -2308,7 +2385,7 @@ export async function docBangTin(actorId: string, limit = 50): Promise<PostWire[
 
 /** One post, or 404 -- including when it exists and is not for you. */
 export async function docBai(postId: string, actorId: string): Promise<PostWire> {
-  return translated<PostWire>(BAI_REFUSALS, `/posts/${postId}`, {
+  return translatedAsActor<PostWire>(BAI_REFUSALS, `/posts/${postId}`, {
     method: "GET",
     actorId,
   });
@@ -2320,7 +2397,7 @@ export async function docTuongNguoi(
   actorId: string,
   limit = 50,
 ): Promise<PostWire[]> {
-  const result = await translated<{ person_id: string; posts: PostWire[] }>(
+  const result = await translatedAsActor<{ person_id: string; posts: PostWire[] }>(
     BAI_REFUSALS,
     `/people/${personId}/posts?limit=${limit}`,
     { method: "GET", actorId },
@@ -2417,7 +2494,7 @@ export async function docDanhSachBinhChon(
   contextId: string,
   actorId: string,
 ): Promise<CuocBinhChonWire[]> {
-  const result = await translated<{ context_id: string; votes: CuocBinhChonWire[] }>(
+  const result = await translatedAsActor<{ context_id: string; votes: CuocBinhChonWire[] }>(
     BINH_CHON_REFUSALS,
     `/contexts/${contextId}/votes`,
     { method: "GET", actorId, roles: "member", contexts: contextId },
@@ -2431,7 +2508,7 @@ export async function docBinhChon(
   actorId: string,
   contextId: string,
 ): Promise<CuocBinhChonWire> {
-  return translated<CuocBinhChonWire>(BINH_CHON_REFUSALS, `/votes/${voteId}`, {
+  return translatedAsActor<CuocBinhChonWire>(BINH_CHON_REFUSALS, `/votes/${voteId}`, {
     method: "GET",
     actorId,
     roles: "member",
@@ -2455,7 +2532,7 @@ export async function boPhieu(
   actorId: string,
   contextId: string,
 ): Promise<PhieuDaBoWire> {
-  return translated<PhieuDaBoWire>(BINH_CHON_REFUSALS, `/votes/${voteId}/ballots`, {
+  return translatedAsActor<PhieuDaBoWire>(BINH_CHON_REFUSALS, `/votes/${voteId}/ballots`, {
     method: "POST",
     body: { option_id: optionId },
     actorId,
@@ -2477,7 +2554,7 @@ export async function dongBinhChon(
   actorId: string,
   contextId: string,
 ): Promise<CuocBinhChonWire> {
-  return translated<CuocBinhChonWire>(BINH_CHON_REFUSALS, `/votes/${voteId}/close`, {
+  return translatedAsActor<CuocBinhChonWire>(BINH_CHON_REFUSALS, `/votes/${voteId}/close`, {
     method: "POST",
     actorId,
     roles: "member",
@@ -2505,7 +2582,7 @@ export async function nhanMonCuaToi(
   actorId: string,
   contextId: string,
 ): Promise<BillWire> {
-  return call<BillWire>(`/bills/${billId}/my-items`, {
+  return callAsActor<BillWire>(`/bills/${billId}/my-items`, {
     method: "POST",
     body: { item_keys: [...itemKeys] },
     actorId,
@@ -2559,7 +2636,7 @@ export async function timKhuonMat(
   photoId: string,
   actorId: string,
 ): Promise<KhuonMatWire> {
-  return translated<KhuonMatWire>(
+  return translatedAsActor<KhuonMatWire>(
     KHUON_MAT_REFUSALS,
     `/contexts/${contextId}/photos/${photoId}/face-boxes`,
     { method: "POST", actorId, roles: "member", contexts: contextId },
