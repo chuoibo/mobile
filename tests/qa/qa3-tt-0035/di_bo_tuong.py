@@ -114,6 +114,21 @@ def o_muc(page, nhan: str):
     return page.locator(f'[role=radio][aria-label^="{nhan}."]')
 
 
+def chup(page, ten: str) -> None:
+    """Screenshot with the wall actually in frame.
+
+    `full_page=True` does nothing useful here: react-native-web puts the tab
+    body in an inner scrolling container, so the document never grows and the
+    "full page" is one viewport of the profile header. The first run of this
+    script produced three 390x844 images of the avatar card and the finance
+    summary, while every text assertion about the wall passed -- a green run
+    whose evidence pictures showed none of the thing under test.
+    """
+    page.get_by_text("Tường của bạn").scroll_into_view_if_needed()
+    page.wait_for_timeout(500)
+    page.screenshot(path=str(ANH / ten))
+
+
 def mo(page, rong: int = 390):
     """Cold load. `about:blank` first because changing only the fragment does
     not remount the app, so a second `goto` would measure the first screen."""
@@ -161,7 +176,10 @@ def nua_a(page) -> list[dict]:
         "Người trong nhóm chưa kết bạn thì không đọc được.",
         "Bạn bè ngoài nhóm không đọc được.",
     ):
-        check(page.get_by_text(cau, exact=False).count() >= 1, f"câu phủ định: '{cau[:45]}...'")
+        check(
+            page.get_by_text(cau, exact=False).count() >= 1,
+            f"câu phủ định: '{cau[:45]}...'",
+        )
 
     # Chốt nhóm: chọn 'Một nhóm' mà chưa chọn nhóm thì Đăng không bấm được.
     o_soan = page.locator('input[aria-label="Viết một câu"]')
@@ -173,14 +191,17 @@ def nua_a(page) -> list[dict]:
     o_muc(page, "Một nhóm").click()
     page.wait_for_timeout(400)
     khoa = dang.get_attribute("aria-disabled")
-    check(khoa == "true", f"chọn 'Một nhóm' mà chưa chọn nhóm thì Đăng khoá (aria-disabled={khoa})")
+    check(
+        khoa == "true",
+        f"chọn 'Một nhóm' mà chưa chọn nhóm thì Đăng khoá (aria-disabled={khoa})",
+    )
     truoc = len(gui)
     dang.click(force=True)
     page.wait_for_timeout(700)
     check(len(gui) == truoc, "bấm Đăng lúc đang khoá KHÔNG gửi request nào")
 
     ANH.mkdir(parents=True, exist_ok=True)
-    page.screenshot(path=str(ANH / "01-o-soan-bon-muc-390.png"))
+    chup(page, "01-o-soan-bon-muc-390.png")
 
     # `gui()` không đóng ô soạn sau khi đăng, nó chỉ xoá thân bài và đưa mức
     # người đọc về mặc định. Nên vòng lặp này KHÔNG bấm lại "Viết lên tường";
@@ -212,7 +233,10 @@ def nua_a(page) -> list[dict]:
         # biến mất: câu đó chỉ đúng cho bài đầu tiên.
         page.wait_for_selector(f"text={than}", timeout=15_000)
         page.wait_for_timeout(600)
-        check(len(gui) == truoc + 1, f"[{audience}] bấm Đăng gửi đúng 1 request lên máy chủ")
+        check(
+            len(gui) == truoc + 1,
+            f"[{audience}] bấm Đăng gửi đúng 1 request lên máy chủ",
+        )
         check(
             radio.nth(0).get_attribute("aria-checked") == "true",
             f"[{audience}] sau khi đăng, mức người đọc quay về 'Chỉ mình tôi'",
@@ -231,7 +255,9 @@ def nua_a(page) -> list[dict]:
             f"[{audience}] context_id {'có' if co_ctx else 'vắng'} — đúng luật omit",
         )
         if audience == "group":
-            check(wire.get("context_id") == GROUP, f"[{audience}] context_id là nhóm thật")
+            check(
+                wire.get("context_id") == GROUP, f"[{audience}] context_id là nhóm thật"
+            )
 
     # Nạp lại trang trước khi đọc nhãn, vì hai lý do.
     #
@@ -250,7 +276,10 @@ def nua_a(page) -> list[dict]:
     )
     print("\n-- nhãn trên thẻ bài, sau khi nạp lại từ máy chủ --")
     for audience, nhan, than_text, _ in BAI:
-        check(than_text in man, f"[{audience}] thân bài '{than_text}' còn trên tường sau khi nạp lại")
+        check(
+            than_text in man,
+            f"[{audience}] thân bài '{than_text}' còn trên tường sau khi nạp lại",
+        )
         # Nhãn phải nằm trên ĐÚNG thẻ mang thân bài đó, không phải ở đâu đó
         # trên trang: một thẻ gắn nhầm nhãn là đúng cái lỗi cần bắt.
         #
@@ -259,7 +288,10 @@ def nua_a(page) -> list[dict]:
         # và ô đó không bao giờ chứa nhãn. Thẻ là node cha của nó.
         the = page.get_by_text(than_text, exact=True).locator("xpath=..")
         chu_tren_the = the.inner_text()
-        check(nhan in chu_tren_the, f"[{audience}] thẻ mang '{than_text}' gắn nhãn '{nhan}'")
+        check(
+            nhan in chu_tren_the,
+            f"[{audience}] thẻ mang '{than_text}' gắn nhãn '{nhan}'",
+        )
         # Và chỉ nhãn đó. Một thẻ mang hai nhãn, hay mang nhãn của mức khác,
         # nói sai với người viết về việc họ vừa hứa gì với ai.
         nhan_khac = [n for _, n, _, _ in BAI if n != nhan and n in chu_tren_the]
@@ -268,10 +300,10 @@ def nua_a(page) -> list[dict]:
             f"[{audience}] thẻ KHÔNG mang nhãn của mức khác (thấy: {nhan_khac})",
         )
 
-    page.screenshot(path=str(ANH / "02-tuong-bon-bai-390.png"), full_page=True)
+    chup(page, "02-tuong-bon-bai-390.png")
     mo(page, 320)
     page.wait_for_timeout(1500)
-    page.screenshot(path=str(ANH / "03-tuong-bon-bai-320.png"), full_page=True)
+    chup(page, "03-tuong-bon-bai-320.png")
     check(
         page.get_by_text("Bài chỉ mình tôi đọc").count() >= 1,
         "ở 320px bài vẫn hiện (không bị cắt mất)",
@@ -285,19 +317,25 @@ def nua_b() -> None:
     status, tuong = http(f"/people/{MINH}/posts", MINH)
     assert status == 200, (status, tuong)
     bai_theo_muc = {b["audience"]: b for b in tuong["posts"]}
-    check(len(bai_theo_muc) == 4, f"tường của Minh có 4 mức, đếm được {len(bai_theo_muc)}")
+    check(
+        len(bai_theo_muc) == 4, f"tường của Minh có 4 mức, đếm được {len(bai_theo_muc)}"
+    )
 
     print(f"\n{'bài':<22}" + "".join(f"{ten.split(' ')[0]:<10}" for ten, _ in READERS))
     for audience, _, _, duoc_doc in BAI:
         bai = bai_theo_muc.get(audience)
         if bai is None:
-            check(False, f"[{audience}] không tìm thấy bài trên tường của chính tác giả")
+            check(
+                False, f"[{audience}] không tìm thấy bài trên tường của chính tác giả"
+            )
             continue
         hang = f"{audience:<22}"
         for ten, reader in READERS:
             # Hai đường đọc, phải nhất quán: tường của người, và một bài lẻ.
             _, tuong_r = http(f"/people/{MINH}/posts", reader)
-            tren_tuong = any(p["id"] == bai["id"] for p in (tuong_r or {}).get("posts", []))
+            tren_tuong = any(
+                p["id"] == bai["id"] for p in (tuong_r or {}).get("posts", [])
+            )
             status_bai, _ = http(f"/posts/{bai['id']}", reader)
             thay = tren_tuong
             mong_doi = reader in duoc_doc
@@ -338,8 +376,8 @@ def main() -> int:
     nua_b()
 
     print(f"\n== {len(loi)} phép kiểm đỏ ==")
-    for l in loi:
-        print("   FAIL", l)
+    for hong in loi:
+        print("   FAIL", hong)
     print(f"\nảnh: {ANH}")
     return 1 if loi else 0
 

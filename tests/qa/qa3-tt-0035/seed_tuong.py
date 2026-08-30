@@ -94,13 +94,17 @@ def call(
         payload = error.read().decode()
         status = error.code
     if status not in expect:
-        raise SystemExit(f"{method} {path} as {NAME_OF.get(actor, actor)} -> {status} {payload[:300]}")
+        raise SystemExit(
+            f"{method} {path} as {NAME_OF.get(actor, actor)} -> {status} {payload[:300]}"
+        )
     return json.loads(payload) if payload else {}
 
 
 def main() -> int:
     for person_id, name in PEOPLE:
-        call("PUT", f"/people/{person_id}", actor=person_id, body={"display_name": name})
+        call(
+            "PUT", f"/people/{person_id}", actor=person_id, body={"display_name": name}
+        )
     print(f"nguoi: {len(PEOPLE)}")
 
     # Minh's group. Hai joins; Trang and Ngoc are deliberately left out.
