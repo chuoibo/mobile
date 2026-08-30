@@ -26,7 +26,7 @@ import {
   layTuong,
   type Audience,
   type Bai,
-} from "./tuong";
+} from "./bai-dang";
 
 export type TrangTuong =
   | { pha: "dang-tai" }

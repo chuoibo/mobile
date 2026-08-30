@@ -71,6 +71,10 @@
       "reason": "F36 album chuyến đi. Cùng lý do."
     },
     {
+      "route": "/contexts/{context_id}/albums/{outing_id}/reel",
+      "reason": "F37 thước phim kỷ niệm, ship máy chủ trước màn theo thứ tự đã chốt (máy chủ trước, client sau). Route đã có ca live Postgres và cửa sổ nhịp riêng; còn thiếu đúng một màn gọi, và apps/mobile không thuộc lane backend nên việc đó đã báo Lead xếp cho frontend. Nợ này phải được trả bằng cách xoá dòng, không phải bằng cách để nguyên."
+    },
+    {
       "route": "/contexts/{context_id}/budget",
       "loai": "tinh-nang",
       "reason": "F34 ngan sach. Doc lai openapi: route so mot ung vien voi LICH SU NHOM lay tu so cai ('Compare an optional candidate with ledger-backed group history'). Client khong lam duoc viec do: ngan-sach.ts:79 chi nhan dau nguoi voi budget_per_person_vnd co san trong buoi di. Nen day khong phai route thua ma la mot su that chua man nao hien."

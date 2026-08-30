@@ -11,9 +11,9 @@
 // Text is read out of the DOM, never out of the bundle: an expo web bundle
 // stores Vietnamese as escapes, so grepping it for "Lẩu" always returns 0.
 import { chromium } from "playwright";
+import { timTrinhDuyet } from "../tim-trinh-duyet.mjs";
 
-const CHROME =
-  "/home/lakiet/.cache/ms-playwright/chromium-1194/chrome-linux/chrome";
+const CHROME = timTrinhDuyet();
 const base = process.argv[2];
 const label = process.argv[3] ?? "?";
 const outDir = process.argv[4] ?? "/tmp/qa36";

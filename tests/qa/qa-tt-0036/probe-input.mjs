@@ -1,5 +1,6 @@
 import { chromium } from "playwright";
-const CHROME="/home/lakiet/.cache/ms-playwright/chromium-1194/chrome-linux/chrome";
+import { timTrinhDuyet } from "../tim-trinh-duyet.mjs";
+const CHROME=timTrinhDuyet();
 const b=await chromium.launch({executablePath:CHROME});
 const p=await b.newPage({viewport:{width:390,height:844}});
 await p.goto(process.argv[2]+"/?man=nhan-dien",{waitUntil:"networkidle"});

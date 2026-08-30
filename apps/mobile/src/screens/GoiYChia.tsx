@@ -246,7 +246,47 @@ export function GoiYChia(props: {
               Cả nhóm đã có mặt trong bữa này.
             </Text>
           ) : (
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.xs }}>
+            /* One scrolling row, the same shape as the avatar strip above.
+               This was a `flexWrap` grid, and the wrap is what starved the
+               table: seven members at three to a row is 144pt, and with the
+               strip of who-is-on above it the screen spent 222pt -- 29% of the
+               canvas -- on two rosters, over a matrix holding 326pt of content
+               in 151pt that could not show one dish.
+
+               Measured at 390x844 on the walk, both states:
+
+                 A, nobody on the bill   picker 169 -> 69pt, and the matrix
+                                         stops scrolling at all: 234pt of
+                                         content in a 264pt window, all three
+                                         dishes whole.
+                 B, three added          picker 119 ->  69pt, first dish row
+                                         clears the fold instead of sitting
+                                         27pt under it.
+
+               Wrapping did show all seven names at once, which is worth
+               something while picking is the job. It is not worth the dish
+               list, which is the evidence the reader is being asked to check
+               the split against, and a row that scrolls sideways next to an
+               avatar strip that already does is a form this screen owns.
+
+               A, before this, is also where the last row landed ACROSS the clip
+               edge rather than under it, and a row sliced two pixels deep is
+               not a row: `anh-bon-man-hero.mjs` sampled the antialiased
+               remnant and read 1.62:1 on "Cơm rang" against a declared
+               rgb(31,34,48). Fitting the content ends that by construction --
+               nothing is clipped, so nothing can be half-clipped.
+
+               `flexGrow: 0` for the same reason the avatar strip documents it:
+               a horizontal ScrollView dropped into a column carries `flex: 1`
+               in its own base style and would stretch down the page. Adding one
+               person still leaves the list open -- that behaviour is load
+               bearing and untouched here. */
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={{ flexGrow: 0, flexShrink: 0 }}
+              contentContainerStyle={{ gap: space.xs, paddingRight: space.sm }}
+            >
               {conLai.map((member) => (
                 <Pressable
                   key={member.id}
@@ -292,7 +332,7 @@ export function GoiYChia(props: {
                   <Text style={{ ...type.body, color: c.ink }}>{member.name}</Text>
                 </Pressable>
               ))}
-            </View>
+            </ScrollView>
           )}
         </View>
       ) : null}
@@ -340,17 +380,36 @@ export function GoiYChia(props: {
           </Card>
         ) : (
           <>
-            <Text style={{ ...type.label, color: c.inkSoft }}>Chọn người đã ăn món này</Text>
-            {/* Said before the ticking starts, not after it. This sentence is
-                the one that stops the disclosure pill below from being read as
-                "the machine worked out who ate what": it did not, and cannot,
-                because it only ever saw the paper. Left inside the scroll view
-                on purpose -- it is an explanation, while the pill below is the
-                disclosure that has to be on screen at all times. */}
-            <Text style={{ ...type.label, color: c.inkSoft }}>
-              AI đọc được các món trên bill. Ai đã ăn món nào thì AI không thấy,
-              nên mặc định là cả nhóm ăn chung và bạn sửa lại cho đúng.
-            </Text>
+            {/* Both lines describe the ticking, so they are shown once there is
+                somebody to tick -- and not before.
+
+                This is a layout fix with a content reason, measured rather than
+                guessed. At 390x844 the walk lands here with nobody on the bill:
+                the "who ate this" picker above is open at 169pt, and this
+                scroller -- the only `flex: 1` block on the screen -- absorbs the
+                whole shortfall at 164pt while holding 326pt. The two lines plus
+                their gaps are 92pt of that, stacked above the card, so the table
+                header cleared the fold at y=567 and the first dish row landed at
+                y=569. Nothing showed but the word "Giá", and the screen that is
+                supposed to prove the AI read the bill rendered as an empty card.
+
+                Hiding them in the empty state is not a way to buy pixels: with
+                no participants the matrix renders no checkbox columns, so
+                "Chọn người đã ăn món này" instructs an action the table cannot
+                receive, and there is no default assignment yet for the second
+                line to be about. Both become true on the first person added,
+                which is also when the picker above collapses and gives the room
+                back. The always-on disclosure is `ReadingNotice`, pinned below
+                and untouched by this. */}
+            {people.length > 0 ? (
+              <>
+                <Text style={{ ...type.label, color: c.inkSoft }}>Chọn người đã ăn món này</Text>
+                <Text style={{ ...type.label, color: c.inkSoft }}>
+                  AI đọc được các món trên bill. Ai đã ăn món nào thì AI không thấy,
+                  nên mặc định là cả nhóm ăn chung và bạn sửa lại cho đúng.
+                </Text>
+              </>
+            ) : null}
             <Card style={{ paddingHorizontal: space.xs }}>
               <View onLayout={(event) => setTableWidth(event.nativeEvent.layout.width)}>
                 {collapsed ? (

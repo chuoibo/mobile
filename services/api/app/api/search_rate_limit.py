@@ -1,13 +1,8 @@
 """How much of the project's model quota one identity may spend per minute.
 
-Four routes spend that quota and all are metered here: `POST /places/search`,
-`POST /receipts/scan`, `POST /screenshots/scan`, and the F24 chat-expense draft
-route. The receipt scan arrived
-second and unmetered, which is the
-worst of them to leave open -- it ships a photograph to a vision model, so
-a loop against it drains the shared key faster than a loop against search.
-The file is still named for search because that is the route it was written
-for; the ceilings and the refusal wording are per caller, set at construction.
+Every actor-keyed model door owns a window here.  The file is still named for
+search because that was the first route it protected; the ceilings and refusal
+wording are per caller and per feature, set at construction.
 
 `POST /places/search` calls Gemini on every request, and until rd-be-13 it did
 so for anyone who could reach the port. Requiring an actor closes the anonymous
@@ -50,6 +45,8 @@ __all__ = [
     "FACE_DETECTION_WINDOW_SECONDS",
     "RECEIPT_SCAN_LIMIT_PER_WINDOW",
     "RECEIPT_SCAN_WINDOW_SECONDS",
+    "REEL_LIMIT_PER_WINDOW",
+    "REEL_WINDOW_SECONDS",
     "SEARCH_LIMIT_PER_WINDOW",
     "SEARCH_WINDOW_SECONDS",
     "SCREENSHOT_SCAN_LIMIT_PER_WINDOW",
@@ -62,6 +59,7 @@ __all__ = [
     "build_contextual_suggestion_limiter",
     "build_face_detection_limiter",
     "build_receipt_scan_limiter",
+    "build_reel_limiter",
     "build_search_limiter",
     "build_screenshot_scan_limiter",
     "build_suggestion_limiter",
@@ -130,6 +128,12 @@ SUGGESTION_LIMIT_PER_WINDOW = RECEIPT_SCAN_LIMIT_PER_WINDOW
 # allowance and leave the group told it has no suggestion.
 CONTEXTUAL_SUGGESTION_WINDOW_SECONDS = RECEIPT_SCAN_WINDOW_SECONDS
 CONTEXTUAL_SUGGESTION_LIMIT_PER_WINDOW = RECEIPT_SCAN_LIMIT_PER_WINDOW
+
+# F37 is another GET that reaches the model once per request.  Its input is
+# one group's private trip rows, so no cache coarser than the trip is correct;
+# it gets the same human-burst allowance and its own counter.
+REEL_WINDOW_SECONDS = RECEIPT_SCAN_WINDOW_SECONDS
+REEL_LIMIT_PER_WINDOW = RECEIPT_SCAN_LIMIT_PER_WINDOW
 
 # F22 face detection. The ninth model door, and the first one that spends no
 # paid quota at all: the cascade runs in this process, so a loop against it
@@ -357,6 +361,21 @@ def build_contextual_suggestion_limiter() -> FixedWindowLimiter:
             "Quá nhiều lượt xin gợi ý theo cuộc trò chuyện; tối đa "
             f"{CONTEXTUAL_SUGGESTION_LIMIT_PER_WINDOW} lượt mỗi "
             f"{CONTEXTUAL_SUGGESTION_WINDOW_SECONDS} giây. Thử lại sau ít phút."
+        ),
+    )
+
+
+def build_reel_limiter() -> FixedWindowLimiter:
+    """The per-actor F37 ceiling, separate from every earlier model door."""
+
+    return FixedWindowLimiter(
+        limit=REEL_LIMIT_PER_WINDOW,
+        window_seconds=REEL_WINDOW_SECONDS,
+        code="reel_rate_limited",
+        message=(
+            "Quá nhiều lượt dựng thước phim kỷ niệm; tối đa "
+            f"{REEL_LIMIT_PER_WINDOW} lượt mỗi "
+            f"{REEL_WINDOW_SECONDS} giây. Thử lại sau ít phút."
         ),
     )
 
