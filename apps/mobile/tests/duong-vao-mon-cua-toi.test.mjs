@@ -222,5 +222,50 @@ if (reasons.length && !REQUIRED && !banCu) {
       );
       console.log(`  [bỏ tích→lưu→mở lại] ${PHAN_MOT_MON}, còn đúng ô "${MON_GIU}"`);
     });
+
+    /* Cái nhận phải chạm được vào ma trận của màn gợi ý, không chỉ vào server.
+     *
+     * Ca này tồn tại vì hai ca trên KHÔNG bắt được nó. Đo bằng đột biến: cho
+     * `apDungMonCuaToi` trả nguyên ma trận cũ -- đúng cái lỗi hàm đó sinh ra để
+     * chặn -- và cả hai ca trên vẫn 2 pass / 0 fail. Chúng chỉ nhìn màn
+     * `MonCuaToi`, mà màn ấy seed từ `bill`, còn `bill` thì đã được cập nhật
+     * đúng. Ma trận là chỗ duy nhất chênh lệch lộ ra.
+     *
+     * Vì sao chênh lệch đó là lỗi tiền chứ không phải lỗi hiển thị: `onSeeResults`
+     * ghi ma trận CỤC BỘ đè lên cả tờ bill bằng `PUT /bills/{id}/assignments`.
+     * Cái nhận không vào được ma trận là cái nhận bị cú bấm kế tiếp xoá -- sau
+     * khi màn đã nói với người ta là đã lưu. */
+    test("cái vừa nhận đi vào ma trận goi-y, nên Xem kết quả không xoá mất nó", async () => {
+      const kichBan = [
+        ...MO_MON_CUA_TOI,
+        ...BO_TICH.map((nhan) => ({ bam: nhan })),
+        { cho: PHAN_MOT_MON },
+        { bamChu: "Lưu món của tôi" },
+        { cho: "Gợi ý chia theo người" },
+      ];
+      await diBo("__mon-cua-toi-ma-tran.html", kichBan, "lưu rồi về ma trận");
+
+      const oCuaToi = await page.evaluate((toi) =>
+        [...document.querySelectorAll('[role="checkbox"]')]
+          .map((n) => ({
+            nhan: n.getAttribute("aria-label"),
+            tich: n.getAttribute("aria-checked") === "true",
+          }))
+          .filter((o) => (o.nhan ?? "").startsWith(toi + ", ")),
+        TOI,
+      );
+
+      // Ba món, ba ô của tôi. Không có chốt này thì "không ô nào còn tích" đọc
+      // y hệt "không tìm thấy ô nào".
+      assert.equal(oCuaToi.length, 3, `phải thấy 3 ô của ${TOI} trên ma trận, thấy ${oCuaToi.length}`);
+      const conTich = oCuaToi.filter((o) => o.tich).map((o) => o.nhan);
+      assert.deepEqual(
+        conTich,
+        [`${TOI}, ${MON_GIU}`],
+        `ma trận phải còn đúng ô "${TOI}, ${MON_GIU}" — hai món đã nhả ra vẫn đang tích: ` +
+          JSON.stringify(oCuaToi),
+      );
+      console.log(`  [ma trận sau khi lưu] ${TOI} còn đúng 1 ô: ${conTich[0]}`);
+    });
   });
 }
