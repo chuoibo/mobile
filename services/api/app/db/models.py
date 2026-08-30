@@ -1266,13 +1266,17 @@ class OutingStopCheckin(Base):
 
     ## Why the row dies with its stop
 
-    `stop_id` cascades because `replace_outing_stops` deletes and re-inserts
-    every stop on each timeline save. A check-in therefore does not survive an
-    edit of the plan it refers to. That is the honest behaviour for a deleted
-    stop and the WRONG behaviour for a renamed one, and the difference is not
-    visible from here -- the repository cannot tell a rewrite from a removal.
-    Fixing it means making the timeline save preserve unchanged stops, which
-    is a change to code this file does not own. Recorded rather than hidden.
+    `stop_id` cascades, so a check-in lives exactly as long as the stop it
+    names. That is right for a stop the group removed from the plan and there
+    is nothing to show for it afterwards.
+
+    It was briefly also true of stops nobody touched: `replace_outing_stops`
+    used to delete and re-insert the entire timeline on every save, so adding
+    one stop at the end erased everybody's arrivals (bug-223357). It now keeps
+    the row of any stop whose time, label and place are unchanged. What still
+    does not survive is *retyping* a stop: the request body carries no stop
+    ids, so a reworded stop is indistinguishable from a removal plus an
+    addition. Closing that gap means the client echoing the id it is editing.
     """
 
     __tablename__ = "outing_stop_checkins"

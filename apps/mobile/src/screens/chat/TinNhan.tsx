@@ -29,6 +29,11 @@ import { radius, space, type, usePalette } from "../../theme";
 import { napNhapKhoanChiTuChat } from "../../api";
 import { Card } from "../../ui/Kit";
 import { themChiTiet } from "../../ui/loi-may-chu";
+import { AiHieuNhom } from "../ai-hieu-nhom/AiHieuNhom";
+import {
+  napAiHieuNhom,
+  type AiHieuNhomState,
+} from "../ai-hieu-nhom/ai-hieu-nhom";
 import { goiAiTurn, type AiTurnState } from "./ai";
 import { TheNhapChiTuChat } from "./TheNhapChiTuChat";
 import {
@@ -100,6 +105,11 @@ export function TinNhan({ nguoi, nhomPhien }: {
   const [dangNapCu, setDangNapCu] = useState(false);
   const [thongBao, setThongBao] = useState<string | null>(null);
   const [aiYen, setAiYen] = useState<AiYen | null>(null);
+  const [aiHieu, setAiHieu] = useState<AiHieuNhomState>({ kind: "dang-tai" });
+  // Not a fifth chip. `AiHieuNhom` brings its own "Đóng" button and drops you
+  // back on the chat, which is dismiss semantics; you leave a tab by picking
+  // another tab. Kept as its own flag so the tablist stays four tabs.
+  const [moAiHieu, setMoAiHieu] = useState(false);
   const [keHoachDangXem, setKeHoachDangXem] = useState<KeHoach | null>(null);
   const [dangMoBinhChon, setDangMoBinhChon] = useState(false);
   const [dangHoiAi, setDangHoiAi] = useState(false);
@@ -151,6 +161,37 @@ export function TinNhan({ nguoi, nhomPhien }: {
       huy = true;
     };
   }, [nguoi, nhom]);
+
+  useEffect(() => {
+    if (!moAiHieu) return;
+    if (!nguoi || nhom.kind === "chua-chon") {
+      setAiHieu({ kind: "chua-biet-la-ai" });
+      return;
+    }
+    if (nhom.kind === "dang-tai") {
+      setAiHieu({ kind: "dang-tai" });
+      return;
+    }
+    if (nhom.kind === "hong") {
+      if (nhom.status === 401 || nhom.status === 403) {
+        setAiHieu({ kind: "bi-tu-choi", url: nhom.url });
+      } else if (nhom.status === 0) {
+        setAiHieu({ kind: "khong-noi-duoc", url: nhom.url, detail: nhom.detail });
+      } else {
+        setAiHieu({ kind: "may-chu-loi", url: nhom.url, detail: nhom.detail });
+      }
+      return;
+    }
+
+    let huy = false;
+    setAiHieu({ kind: "dang-tai" });
+    napAiHieuNhom(nhom.contextId, { actorId: nguoi.personId }).then((state) => {
+      if (!huy) setAiHieu(state);
+    });
+    return () => {
+      huy = true;
+    };
+  }, [moAiHieu, nguoi, nhom]);
 
   useEffect(() => {
     if (!cuoiTin) return;
@@ -353,9 +394,15 @@ export function TinNhan({ nguoi, nhomPhien }: {
   return (
     <View style={{ flex: 1, backgroundColor: c.ground }}>
       <DauMan nhom={nhom} />
-      <HangChip chip={chip} onDoi={setChip} />
+      <HangChip chip={chip} onDoi={setChip} onMoAiHieu={() => setMoAiHieu(true)} />
 
       <View style={{ flex: 1 }}>
+        {/* One place decides panel-or-tabs, so a later fifth tab cannot forget
+            to hide itself behind the overlay. */}
+        {moAiHieu ? (
+          <AiHieuNhom state={aiHieu} onDong={() => setMoAiHieu(false)} />
+        ) : (
+          <>
         {chip === "chat" ? (
           <DongTin
             nhom={nhom}
@@ -396,11 +443,13 @@ export function TinNhan({ nguoi, nhomPhien }: {
         ) : null}
         {chip === "thanh-vien" ? <TabThanhVien nhom={nhom} /> : null}
         {chip === "file" ? <TabFile /> : null}
+          </>
+        )}
       </View>
 
       {thongBao ? <BangThongBao text={thongBao} onClose={() => setThongBao(null)} /> : null}
 
-      {chip === "chat" ? (
+      {chip === "chat" && !moAiHieu ? (
         <ONhap
           value={nhap}
           onChangeText={setNhap}
@@ -468,18 +517,18 @@ function DauMan({ nhom }: { nhom: NhomMan }) {
   );
 }
 
-function HangChip({ chip, onDoi }: { chip: ChipId; onDoi: (id: ChipId) => void }) {
+function HangChip({ chip, onDoi, onMoAiHieu }: {
+  chip: ChipId;
+  onDoi: (id: ChipId) => void;
+  onMoAiHieu: () => void;
+}) {
   const c = usePalette();
   return (
-    <View
-      accessibilityRole="tablist"
-      style={{
-        flexDirection: "row",
-        gap: space.xs,
-        paddingHorizontal: space.md,
-        paddingBottom: space.sm,
-      }}
-    >
+    <View style={{ paddingHorizontal: space.md, paddingBottom: space.sm, gap: space.xs }}>
+      <View
+        accessibilityRole="tablist"
+        style={{ flexDirection: "row", gap: space.xs }}
+      >
       {CHIPS.map((m) => {
         const chon = m.id === chip;
         return (
@@ -508,6 +557,30 @@ function HangChip({ chip, onDoi }: { chip: ChipId; onDoi: (id: ChipId) => void }
           </Pressable>
         );
       })}
+      </View>
+
+      {/* Outside the tablist on purpose. `aria-required-children` makes a
+          non-tab child of a tablist an axe violation at critical, and a screen
+          reader would announce a fifth thing to switch between when this one
+          opens a panel you close again. Its own row, so the long label is not
+          squeezed against four chips at 320px. */}
+      <Pressable
+        onPress={onMoAiHieu}
+        accessibilityRole="button"
+        accessibilityLabel="AI hiểu nhóm"
+        style={({ pressed }) => ({
+          minHeight: 44,
+          borderRadius: radius.pill,
+          borderWidth: 1,
+          borderColor: c.lineStrong,
+          alignItems: "center",
+          justifyContent: "center",
+          paddingHorizontal: space.sm,
+          opacity: pressed ? 0.85 : 1,
+        })}
+      >
+        <Text style={{ ...type.label, color: c.ink }}>AI hiểu nhóm</Text>
+      </Pressable>
     </View>
   );
 }

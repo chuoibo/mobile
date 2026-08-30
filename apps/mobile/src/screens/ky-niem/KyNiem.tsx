@@ -46,6 +46,7 @@ import {
   type KyNiemWire,
 } from "../../api";
 import { TimVaBinhLuan } from "./TimVaBinhLuan";
+import { AnhToanMan } from "./AnhToanMan";
 import {
   KyUcError,
   khoangNgay,
@@ -70,6 +71,7 @@ export function KyNiem({
   doc = layKyUc,
   timNhom = timNhomDemo,
   docAnh = docKyNiem,
+  onMoWidget,
 }: {
   nguoi: NguoiDung | null;
   /** Which group's wall, when the link named one. Null means "go and find it". */
@@ -80,6 +82,10 @@ export function KyNiem({
   doc?: typeof layKyUc;
   timNhom?: typeof timNhomDemo;
   docAnh?: typeof docKyNiem;
+  /** Open F38's widget screen. Absent when there is nowhere to go -- the wall
+   *  is rendered standalone by the URL view too, and a button that leads
+   *  nowhere is worse than no button. */
+  onMoWidget?: () => void;
 }) {
   const c = usePalette();
   const [trang, setTrang] = useState<Trang>({ pha: "dang-tai" });
@@ -186,6 +192,7 @@ export function KyNiem({
             contextId={nhomDangXem}
             personId={nguoi.personId}
             onThemXong={taiAnh}
+            onMoWidget={onMoWidget}
           />
         ) : null}
 
@@ -514,12 +521,14 @@ function TuongAnh({
   contextId,
   personId,
   onThemXong,
+  onMoWidget,
 }: {
   anh: KyNiemWire[];
   loi: string | null;
   contextId: string;
   personId: string;
   onThemXong: () => void;
+  onMoWidget?: () => void;
 }) {
   const c = usePalette();
   // Keyed per photo url, so a retry after a failed "hang it on the wall" sends
@@ -531,6 +540,15 @@ function TuongAnh({
   // two-column grid reflow each other every time either list loads, and the
   // photograph a person was reading walks off under their thumb.
   const [moRongId, setMoRongId] = useState<string | null>(null);
+  // Which photograph is open full-screen, at most one. Held here rather than in
+  // the modal so that the wall stays the single source of "what is open" -- a
+  // modal holding its own copy is a second answer that goes stale the moment the
+  // wall reloads under it.
+  const [xemId, setXemId] = useState<string | null>(null);
+  // Re-read from `anh` on every render rather than stashing the row: after a
+  // refresh the open photograph must be THIS list's version of it, or a caption
+  // edited by somebody else stays wrong for as long as the viewer is open.
+  const dangXem = anh.find((m) => m.id === xemId) ?? null;
 
   const themAnh = useCallback(
     async (photo: { uri: string }) => {
@@ -591,10 +609,39 @@ function TuongAnh({
               moRong={moRongId === m.id}
               onDoiMoRong={() => setMoRongId((cu) => (cu === m.id ? null : m.id))}
               onDoiTuong={onThemXong}
+              onMoAnh={() => setXemId(m.id)}
             />
           ))}
         </View>
       ) : null}
+
+      {/* F38's screen, which until now no control in the app pointed at. Here
+          rather than in the [+] menu: that menu is for making things, and the
+          widget makes nothing -- it is another way of looking at the wall this
+          card already holds. */}
+      {onMoWidget ? (
+        <Pressable
+          onPress={onMoWidget}
+          accessibilityRole="button"
+          accessibilityLabel="Xem widget ảnh mới nhất của nhóm"
+          style={({ pressed }) => ({
+            marginTop: space.xs,
+            paddingVertical: space.sm,
+            opacity: pressed ? 0.7 : 1,
+          })}
+        >
+          <Text style={{ ...type.label, color: c.accent }}>
+            Xem widget ảnh mới nhất của nhóm ›
+          </Text>
+        </Pressable>
+      ) : null}
+
+      <AnhToanMan
+        kyNiem={dangXem}
+        personId={personId}
+        contextId={contextId}
+        onDong={() => setXemId(null)}
+      />
     </Card>
   );
 }
@@ -612,6 +659,7 @@ function Polaroid({
   moRong,
   onDoiMoRong,
   onDoiTuong,
+  onMoAnh,
 }: {
   kyNiem: KyNiemWire;
   personId: string;
@@ -619,6 +667,8 @@ function Polaroid({
   moRong: boolean;
   onDoiMoRong: () => void;
   onDoiTuong: () => void | Promise<void>;
+  /** Open this photograph full-screen. The tile is a crop; this is the frame. */
+  onMoAnh: () => void;
 }) {
   const c = usePalette();
   const chuThich = kyNiem.caption?.trim() ?? "";
@@ -643,21 +693,35 @@ function Polaroid({
         borderColor: c.line,
       }}
     >
-      <Anh
-        uri={kyNiem.image_url}
-        alt={chuThich ? `Ảnh kỷ niệm: ${chuThich}` : "Ảnh kỷ niệm của nhóm"}
-        nguoiXem={personId}
-        nhom={contextId}
-        // Square, because the wall reads as a wall only if the rows line up, and
-        // a mixed-orientation set of real photographs does not.
-        style={{ aspectRatio: 1, width: "100%" }}
-        cho={
-          // Not a grey rectangle. This is what a frame shows while its photo is
-          // still arriving or after it refused to load, and the group's own
-          // sunset says "a picture belongs here" rather than "something broke".
-          <Gradient colors={HERO_SUNSET} style={{ flex: 1 }} />
+      {/* The tile is a crop and says so by being pressable: the square shape the
+          wall needs is exactly what cuts the ends off a group shot, so the way
+          out of it is the picture itself rather than a separate control. The
+          role and label are on the Pressable, and the frame inside stops
+          announcing itself so a screen reader hears one thing, not two. */}
+      <Pressable
+        onPress={onMoAnh}
+        accessibilityRole="button"
+        accessibilityLabel={
+          chuThich ? `Xem ảnh lớn: ${chuThich}` : "Xem ảnh lớn của nhóm"
         }
-      />
+        style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1 })}
+      >
+        <Anh
+          uri={kyNiem.image_url}
+          alt=""
+          nguoiXem={personId}
+          nhom={contextId}
+          // Square, because the wall reads as a wall only if the rows line up, and
+          // a mixed-orientation set of real photographs does not.
+          style={{ aspectRatio: 1, width: "100%" }}
+          cho={
+            // Not a grey rectangle. This is what a frame shows while its photo is
+            // still arriving or after it refused to load, and the group's own
+            // sunset says "a picture belongs here" rather than "something broke".
+            <Gradient colors={HERO_SUNSET} style={{ flex: 1 }} />
+          }
+        />
+      </Pressable>
       {chuThich ? (
         <Text
           numberOfLines={2}

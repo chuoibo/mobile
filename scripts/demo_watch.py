@@ -126,6 +126,16 @@ SCHEMA = 1
 CRON_SCHEDULE = "*/10 * * * *"
 DEFAULT_MAX_AGE = 1800
 
+# Phần cây có thể thêm hoặc bớt một route đã khai. Một phán quyết đo main ở
+# commit cũ VẪN trả lời đúng câu hỏi hôm nay khi không có gì dưới đây nhúc nhích
+# giữa hai commit — và phần lớn merge (tài liệu, apps/mobile, scripts) không
+# đụng tới nó. Nhờ vậy phép kiểm sha không biến thành một cổng đỏ sau mọi merge.
+#
+# Mọi router đều phải được `app/api/main.py` include mới thành route, và file đó
+# nằm trong thư mục này — nên không có đường thêm route mà không chạm vào đây.
+# Nới rộng hằng số này là nghiêng về phía đỏ (an toàn); thu hẹp nó thì không.
+ROUTE_SURFACE = "services/api/app/api"
+
 # A tagged block so --apply is idempotent and --remove is exact. Editing a
 # user's crontab by regex over bare lines is how unrelated entries disappear.
 CRON_BEGIN = "# >>> mobile-demo-watch >>>"
@@ -356,6 +366,30 @@ def resolve_ref(ref: str, repo: Path) -> str | None:
     return done.stdout.strip() if done.returncode == 0 else None
 
 
+def route_surface_moved(old: object, new: str | None, repo: Path) -> str | None:
+    """None khi phán quyết đo `old` vẫn trả lời được câu hỏi về `new`.
+
+    Trả về lý do (đọc được) trong mọi trường hợp còn lại. Fail closed: thứ gì
+    cây này không phân giải được là một lý do, không phải một đường tha bổng —
+    "tôi thiếu commit đó" mà đọc thành "máy demo đúng" thì đúng bằng không kiểm.
+    """
+    if not isinstance(old, str) or not old:
+        return "bản ghi không có ref_sha để bám vào"
+    if not new:
+        return "cây này không phân giải được ref đích — chạy `git fetch origin`"
+    for sha in (old, new):
+        found = git("rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}", cwd=repo)
+        if found.returncode != 0:
+            return f"cây này không có commit {sha[:12]} — chạy `git fetch origin`"
+    done = git("diff", "--name-only", f"{old}..{new}", "--", ROUTE_SURFACE, cwd=repo)
+    if done.returncode != 0:
+        return f"không so được hai commit: {done.stderr.strip()[-200:]}"
+    changed = [line for line in done.stdout.splitlines() if line.strip()]
+    if changed:
+        return f"{len(changed)} file dưới {ROUTE_SURFACE} đã đổi giữa hai commit"
+    return None
+
+
 def ago(seconds: float) -> str:
     """A duration a human can act on.
 
@@ -444,15 +478,20 @@ def cmd_status(args: argparse.Namespace) -> int:
     # 8099 was missing four of main's routes at that moment. The record was
     # fresh, so the staleness threshold above could not see it: a watcher that
     # is alive, on schedule, and pointed at the wrong ref reports green forever.
+    # Nói ra khi phán quyết được nhận ở một commit CŨ hơn main. Một dòng xanh
+    # không nói gì thêm đọc như "vừa đo xong main", và đó không phải điều đã xảy
+    # ra — người đọc cần thấy ranh giới của cái mình vừa được bảo là đạt.
+    stale_note = ""
     if not args.any_ref:
         recorded = data.get("ref")
+        repo = Path(args.repo).resolve()
+        want = resolve_ref(args.expect_ref, repo)
+        got = data.get("ref_sha")
         if recorded != args.expect_ref:
             # The same commit reached by another name still answers the right
             # question -- a manual `--ref <sha>` run against exactly the commit
             # main is at is a verdict about main. Failing that would be a red
             # nobody can act on, and a gate that cries wolf gets switched off.
-            want = resolve_ref(args.expect_ref, Path(args.repo).resolve())
-            got = data.get("ref_sha")
             if not (want and isinstance(got, str) and got == want):
                 return cannot(
                     f"phán quyết gần nhất là về '{recorded}', không phải '{args.expect_ref}'.\n"
@@ -462,12 +501,38 @@ def cmd_status(args: argparse.Namespace) -> int:
                     f"   Chĩa lại lượt canh:  scripts/demo_watch.py install --apply --ref {args.expect_ref}\n"
                     "   Cố ý đo nhánh khác:  thêm --any-ref"
                 )
+        elif got != want:
+            # Tên ref đúng, bản ghi tươi -- và vẫn có thể là phán quyết về một
+            # main đã bị bỏ lại. Cho tới bug-231718 nhánh này không tồn tại: khi
+            # tên khớp, `ref_sha` được IN ra giữa dòng xanh mà không so với gì.
+            # Nên một bản ghi đo main TRƯỚC khi route reel merge (#352) in đúng
+            # câu "KHỚP 0 giây trước -- 76 route, origin/main (66a6990...)" và
+            # thoát 0, trong khi main đã khai 77 và 8099 thiếu đúng route đó.
+            # Ngưỡng quá hạn không thấy được: bản ghi ấy tươi rói.
+            #
+            # Không so sha thẳng tay: main nhích vài phút một lần, và đỏ sau mọi
+            # merge tài liệu là cách nhanh nhất để cổng này bị tắt. Câu hỏi đúng
+            # hẹp hơn -- giữa hai commit đó, bề mặt route có đổi không.
+            moved = route_surface_moved(got, want, repo)
+            if moved:
+                return cannot(
+                    f"phán quyết gần nhất đo '{args.expect_ref}' tại {str(got)[:12]}, "
+                    f"còn '{args.expect_ref}' giờ ở {str(want)[:12] if want else '(không rõ)'} "
+                    f"— {moved}.\n"
+                    "   Bản ghi TƯƠI và đúng tên ref vẫn không trả lời được câu hỏi hôm nay:\n"
+                    "   đây đúng hình dạng đã để 8099 phục vụ 76 route trong khi main khai 77.\n"
+                    "   Đo lại:  make demo-watch"
+                )
+            stale_note = (
+                f" Đo tại {str(got)[:12]}, không phải {str(want)[:12]} — nhận vì "
+                f"{ROUTE_SURFACE} không đổi giữa hai commit."
+            )
 
     state = data.get("state")
     if state == STATE_MATCH:
         print(
             f"demo_watch: KHỚP {ago(age)} trước — {data.get('served')} route, "
-            f"{data.get('ref')} ({str(data.get('ref_sha'))[:12]})."
+            f"{data.get('ref')} ({str(data.get('ref_sha'))[:12]}).{stale_note}"
         )
         return EXIT_OK
     if state == STATE_DIFFERS:

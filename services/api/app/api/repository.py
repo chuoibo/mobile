@@ -2065,12 +2065,57 @@ class SqlAlchemyApiRepository:
 
         existing_stops = list(
             self.session.scalars(
-                select(OutingStop).where(OutingStop.outing_id == outing_id)
+                select(OutingStop)
+                .where(OutingStop.outing_id == outing_id)
+                .order_by(OutingStop.position)
             )
         )
+        # A stop that says the same thing as before is the same stop, and keeps
+        # its row -- so the check-ins hanging off that row survive an edit that
+        # never touched it. Deleting and re-inserting the whole plan on every
+        # save cascaded everybody's "đã tới" away for adding one stop at the
+        # end. The request carries no stop ids, so identity has to be read off
+        # what the stop says; a retyped stop reads as a different stop.
+        unclaimed: dict[tuple[int, str, str | None], list[OutingStop]] = {}
         for stop in existing_stops:
-            self.session.delete(stop)
-        # Reused positions remain unique only after the previous plan is gone.
+            key = (stop.minute_of_day, stop.label, stop.place_name)
+            unclaimed.setdefault(key, []).append(stop)
+
+        kept: list[tuple[int, OutingStop]] = []
+        added: list[tuple[int, dict]] = []
+        for position, stop in enumerate(stops):
+            key = (stop["minute_of_day"], stop["label"], stop["place_name"])
+            same = unclaimed.get(key)
+            if same:
+                kept.append((position, same.pop(0)))
+            else:
+                added.append((position, stop))
+
+        # `uq_outing_stops_position` is not deferrable and the ORM emits one
+        # UPDATE per row, so a stop cannot move straight into a position that
+        # another surviving stop is still sitting on. Park every survivor above
+        # both the old plan and the new one, then bring them down. Read while
+        # the old rows are still alive -- after the delete below they are not
+        # a safe thing to ask about.
+        parking = (
+            max(
+                max((stop.position for stop in existing_stops), default=-1),
+                len(stops) - 1,
+            )
+            + 1
+        )
+
+        claimed = {row.id for _position, row in kept}
+        for stop in existing_stops:
+            if stop.id not in claimed:
+                self.session.delete(stop)
+        self.session.flush()
+
+        for offset, (_position, row) in enumerate(kept):
+            row.position = parking + offset
+        self.session.flush()
+        for position, row in kept:
+            row.position = position
         self.session.flush()
 
         self.session.add_all(
@@ -2082,7 +2127,7 @@ class SqlAlchemyApiRepository:
                     label=stop["label"],
                     place_name=stop["place_name"],
                 )
-                for position, stop in enumerate(stops)
+                for position, stop in added
             ]
         )
         self.session.flush()
