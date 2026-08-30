@@ -1723,7 +1723,7 @@ class ApiService:
         _require_permission(
             "confirm_expense_proposal",
             actor,
-            {"is_group_member": record.context_id in actor.context_ids},
+            {"is_group_member": self.repository.is_member(record.context_id, actor.id)},
         )
         return record
 
@@ -1731,7 +1731,11 @@ class ApiService:
         _require_permission(
             "confirm_expense_proposal",
             actor,
-            {"is_group_member": request.context_id in actor.context_ids},
+            {
+                "is_group_member": self.repository.is_member(
+                    request.context_id, actor.id
+                )
+            },
         )
         try:
             record = self.repository.create_bill(
@@ -1980,7 +1984,11 @@ class ApiService:
         _require_permission(
             "confirm_expense_proposal",
             actor,
-            {"is_group_member": identity.context_id in actor.context_ids},
+            {
+                "is_group_member": self.repository.is_member(
+                    identity.context_id, actor.id
+                )
+            },
         )
         self._require_participants_are_members(
             identity.context_id, request.proposal.participants
@@ -2037,7 +2045,11 @@ class ApiService:
         _require_permission(
             "create_batch",
             actor,
-            {"is_group_member": request.context_id in actor.context_ids},
+            {
+                "is_group_member": self.repository.is_member(
+                    request.context_id, actor.id
+                )
+            },
         )
         # The creator becomes the owner before the freeze action is evaluated;
         # the role is resource-derived, not accepted from the request body.
@@ -2346,7 +2358,7 @@ class ApiService:
         _require_permission(
             "view_collection_board",
             actor,
-            {"is_group_member": board.context_id in actor.context_ids},
+            {"is_group_member": self.repository.is_member(board.context_id, actor.id)},
         )
 
         rows = board.obligations
