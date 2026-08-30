@@ -50,12 +50,31 @@ import { TABS } from "./tabs";
  * printing a clean row for every screen it did visit. Reachable and measured
  * are two claims; this one carries both or neither.
  *
+ * `quan-tri` is the group administration screen (roles, leaving, outing
+ * invites). It sits behind a button on the group screen, which itself sits
+ * behind the [+] menu -- two taps deep, so nothing that loads a URL cold could
+ * reach it. Added with the screen rather than after it, for the reason spelled
+ * out one paragraph up.
+ *
+ * `thanh-tich` is 07.03 of the mockup set, behind a button on the Cá nhân tab.
+ * Same shape as `ban-be`, and named here in the same commit that adds the
+ * screen -- the paragraph above is about the one time that was done afterwards
+ * and what it cost.
+ *
  * `album` is F36/F37, and it is here for one reason the others do not have:
  * the screen it opens is three deep (shelf -> one album -> the AI reel), and
  * only the shelf is reachable without walking. An address that lands on the
  * shelf is still the whole difference between "one tool can start the walk"
  * and "nothing can open this at all". */
-export type ManVaoCua = "dang-ky" | "nhom" | "ky-niem" | "ban-be" | "widget" | "album";
+export type ManVaoCua =
+  | "dang-ky"
+  | "nhom"
+  | "ky-niem"
+  | "ban-be"
+  | "widget"
+  | "quan-tri"
+  | "thanh-tich"
+  | "album";
 
 const MAN_VAO_CUA: ManVaoCua[] = [
   "dang-ky",
@@ -63,6 +82,8 @@ const MAN_VAO_CUA: ManVaoCua[] = [
   "ky-niem",
   "ban-be",
   "widget",
+  "quan-tri",
+  "thanh-tich",
   "album",
 ];
 
@@ -249,6 +270,13 @@ export function docDiemDen(hash: string, search = ""): DiemDen {
       // outside it: the widget reads one group's newest photograph, and the
       // opening screen has no group.
       vao === "widget" ||
+      // Group administration is inside the shell too, and it opens the group
+      // itself -- stopping at the sunset would mean the link silently does
+      // nothing, which is the failure this whole field was added to stop.
+      vao === "quan-tri" ||
+      // Thành tích reads one person's ledger, so it has nothing to show outside
+      // the shell either. Same clause, same reason as the five above.
+      vao === "thanh-tich" ||
       // F36/F37. Inside the shell like the rest, and with nothing to show
       // outside it: an album belongs to one group, and the opening screen has
       // no group.

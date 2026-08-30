@@ -70,6 +70,10 @@ const O_NHAP_LABELS = [
   "Chèn biểu tượng cảm xúc",
   "Ghi âm",
   "Gửi tin nhắn",
+  // Cách duy nhất để hỏi thẳng AI. Nửa máy chủ (#378) chỉ bỏ qua nhịp khi
+  // client gửi `requested: true`, và không màn nào gửi cờ đó nếu không có
+  // nút này -- nên nút nằm ngoài mép kính đúng bằng nút không tồn tại.
+  "Hỏi Rủ Đi AI",
 ];
 
 const CHIP_LABELS = ["Chat", "Plan", "Thành viên", "File"];

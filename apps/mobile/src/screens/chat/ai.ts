@@ -36,9 +36,24 @@
  * 404 still means this build of the API predates rd-be-04, and the app can be
  * pointed at an older server than the one on main today.
  *
- * Activation is "a new text just landed in the group", not "@AI". The
- * in-flight flag lives with the caller so two sends cannot stack two turns;
- * this file will not invent a second call to cover a missed first.
+ * Activation has TWO shapes, and the difference decides how silence is drawn.
+ *
+ * The original shape is "a new text just landed in the group": the client
+ * offers a turn and the companion volunteers or does not. Nobody is waiting on
+ * an answer, so `cooldown` and `already_spoke_last` draw nothing.
+ *
+ * The second shape is a person pressing "Hỏi Rủ Đi AI". That turn carries
+ * `{"requested": true}`, which the server (PR 378) reads as permission to skip
+ * the cadence rules -- not the per-window ceiling, which is the bill. And here
+ * the same `spoke: false` means something else entirely: a question was asked
+ * and dropped on the floor. So `hoiThang` turns every silence into a
+ * `khong-tra-loi-duoc` with a sentence. The user pressed a button; a screen
+ * that does not move afterwards is indistinguishable from a dead app, and that
+ * is the exact defect this flag exists to fix.
+ *
+ * The flag is sent ONLY on the asked turn. Setting it on every turn would buy
+ * nothing (the ceiling is unchanged) and cost the cadence: the companion would
+ * answer every single line of a fast exchange.
  *
  * Nothing here ever renders a sentence this client wrote as though the model
  * wrote it. The only text that reaches a bubble comes from `message.card`.
@@ -62,6 +77,11 @@ export const LY_DO_IM_LANG = [
   "rate_limited",
   "cooldown",
 ] as const;
+
+/** The subset of those that are pure cadence: rules written for a companion
+ *  that VOLUNTEERS. `requested: true` lifts exactly these on the server, so
+ *  seeing one come back on an asked turn means the API predates PR 378. */
+export const LY_DO_NHIP = ["already_spoke_last", "rate_limited", "cooldown"] as const;
 
 export type AiTurnState =
   /** The companion read the thread and chose not to speak. Draw nothing. */
@@ -97,6 +117,27 @@ export function cauAiChuaNoiDuoc(url: string): string {
 export function cauKhongTraLoiDuoc(reason: string): string {
   if (reason === "ungrounded") {
     return "AI có trả lời nhưng nhắc tới một địa điểm không có trong danh mục của máy chủ, nên cả thẻ đã bị bỏ. Không có gợi ý nào được đăng.";
+  }
+  // The per-window ceiling, refusing under its own name because the turn was
+  // asked for. It is the bill working, not a fault, and saying it the way a
+  // missing API key is said would teach people to skip the sentence that
+  // matters. Names the way out: keep talking, then ask again.
+  if (reason === "asked_too_often") {
+    return "Rủ Đi AI vừa trả lời mấy lượt liền trong nhóm này nên đang tạm nghỉ. Nhóm nhắn thêm vài tin rồi hỏi lại nhé.";
+  }
+  // Asked before anyone said anything. There is nothing to answer, and that is
+  // the one silence a person can fix in one move.
+  if (reason === "no_conversation") {
+    return "Nhóm chưa có tin nhắn nào để Rủ Đi AI đọc. Gửi một tin trước rồi hỏi lại nhé.";
+  }
+  // Only reachable when a person asked and the server answered with a cadence
+  // reason anyway, which means this build of the API predates PR 378 and ignored
+  // the flag. Not a fault of the group and not an outage; say which.
+  if ((LY_DO_NHIP as readonly string[]).includes(reason)) {
+    return "Máy chủ này chưa nhận câu hỏi thẳng, nó vẫn đang giữ nhịp tự lên tiếng. Chờ một lát rồi hỏi lại nhé.";
+  }
+  if (reason === "no_content") {
+    return "Máy chủ nhận câu hỏi nhưng trả về một lượt rỗng. Chưa có câu trả lời nào để hiện.";
   }
   return "AI chưa trả lời được lúc này. Máy chủ nhận yêu cầu nhưng phần trả lời không dùng được. Thử gửi thêm một tin nữa.";
 }
@@ -138,8 +179,24 @@ async function docLoi(res: {
   return `HTTP ${res.status}`;
 }
 
+/**
+ * Silence, resolved against who was waiting for it.
+ *
+ * One function so the 204 path and the `spoke: false` path cannot drift into
+ * answering the same question two ways.
+ */
+function yenHoacNoiRa(reason: string, hoiThang: boolean): AiTurnState {
+  if (hoiThang) return { kind: "khong-tra-loi-duoc", reason, cau: cauKhongTraLoiDuoc(reason) };
+  return { kind: "im-lang", reason };
+}
+
 /** Classify one 200 body. Exported so the test can drive it without a fetch. */
-export function docThanAiTurn(raw: unknown, url: string): AiTurnState {
+export function docThanAiTurn(
+  raw: unknown,
+  url: string,
+  opts: { hoiThang?: boolean } = {},
+): AiTurnState {
+  const hoiThang = opts.hoiThang === true;
   const body = raw !== null && typeof raw === "object" && !Array.isArray(raw)
     ? (raw as Record<string, unknown>)
     : null;
@@ -164,7 +221,9 @@ export function docThanAiTurn(raw: unknown, url: string): AiTurnState {
 
   if (body.spoke === false) {
     if ((LY_DO_IM_LANG as readonly string[]).includes(reason)) {
-      return { kind: "im-lang", reason };
+      // Only silent when nobody asked. A person who pressed the button gets a
+      // sentence for the same body, because to them this IS the answer.
+      return yenHoacNoiRa(reason, hoiThang);
     }
     // `unavailable`, `ungrounded`, and any reason a later server adds. An
     // unknown reason is treated as a failure to answer rather than as
@@ -193,15 +252,25 @@ export async function goiAiTurn(opts: {
   actorId: string;
   idempotencyKey?: string;
   base?: string;
+  /** A person asked for this turn. Buys no permission and no extra data: same
+   *  address, same headers, same membership check. It lifts the cadence only,
+   *  and it changes how silence is drawn on this side. */
+  hoiThang?: boolean;
 }): Promise<AiTurnState> {
   const base = opts.base ?? AI_BASE_URL;
   const url = aiTurnUrl(base, opts.contextId);
+  const hoiThang = opts.hoiThang === true;
 
   let res: Response;
   try {
     res = await fetch(url, {
       method: "POST",
       headers: headers(opts.actorId, opts.contextId, opts.idempotencyKey),
+      // Nothing at all on an offered turn. The route's body is optional and the
+      // shipped client has always posted zero bytes under a JSON content type;
+      // sending `{"requested": false}` here would be the same request with a
+      // new way to fail on any server that has not taken PR 378 yet.
+      ...(hoiThang ? { body: JSON.stringify({ requested: true }) } : {}),
     });
   } catch (e) {
     return { kind: "hong", url, status: 0, detail: chiTietLoi(e) };
@@ -212,7 +281,7 @@ export async function goiAiTurn(opts: {
   }
   // 204 is read as silence without touching the body: some stacks reject
   // `json()` on an empty response, and that rejection is not a server fault.
-  if (res.status === 204) return { kind: "im-lang", reason: "no_content" };
+  if (res.status === 204) return yenHoacNoiRa("no_content", hoiThang);
   if (!res.ok) {
     return { kind: "hong", url, status: res.status, detail: await docLoi(res) };
   }
@@ -220,10 +289,10 @@ export async function goiAiTurn(opts: {
   let raw: unknown = null;
   try {
     const text = await res.text();
-    if (!text.trim()) return { kind: "im-lang", reason: "no_content" };
+    if (!text.trim()) return yenHoacNoiRa("no_content", hoiThang);
     raw = JSON.parse(text) as unknown;
   } catch (e) {
     return { kind: "hong", url, status: res.status, detail: chiTietLoi(e) };
   }
-  return docThanAiTurn(raw, url);
+  return docThanAiTurn(raw, url, { hoiThang });
 }

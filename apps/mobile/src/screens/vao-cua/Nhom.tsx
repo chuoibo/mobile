@@ -57,7 +57,7 @@ type Trang =
   | { pha: "co-nhom"; nhom: NhomWire; ds: ThanhVien[] }
   | { pha: "hong"; loi: string; nhom: NhomWire | null };
 
-export function Nhom({ nguoi, nhomDangCo, onNhom, banQuetDuoc, onDong }: {
+export function Nhom({ nguoi, nhomDangCo, onNhom, banQuetDuoc, onQuanTri, onDong }: {
   /** Who the app is acting as. Null means nobody pressed a name on the way
    *  in, and this screen cannot send anything without one -- every call it
    *  makes is authorised by `X-Actor-ID`. */
@@ -69,6 +69,12 @@ export function Nhom({ nguoi, nhomDangCo, onNhom, banQuetDuoc, onDong }: {
   onNhom?: (nhom: NhomWire) => void;
   /** F05. A friend scanned in on the way here. */
   banQuetDuoc?: TheBan | null;
+  /** Opens the group administration screen -- roles, leaving, outing invites.
+   *
+   *  Optional so this screen keeps rendering for any caller that does not have
+   *  one (the tests mount it bare). When it is absent the button is absent too,
+   *  rather than present and doing nothing. */
+  onQuanTri?: () => void;
   onDong: () => void;
 }) {
   const c = usePalette();
@@ -220,7 +226,7 @@ export function Nhom({ nguoi, nhomDangCo, onNhom, banQuetDuoc, onDong }: {
 
   if (!nguoi) {
     return (
-      <KhungNhom onDong={onDong}>
+      <KhungNhom onDong={onDong} onQuanTri={onQuanTri}>
         <Card>
           <Text style={{ ...type.body, color: c.ink }}>
             Chưa biết bạn là ai nên chưa mở được nhóm. Quay ra màn mở đầu và
@@ -232,7 +238,7 @@ export function Nhom({ nguoi, nhomDangCo, onNhom, banQuetDuoc, onDong }: {
   }
 
   return (
-    <KhungNhom onDong={onDong}>
+    <KhungNhom onDong={onDong} onQuanTri={onQuanTri}>
       {trang.pha === "hong" ? (
         <View
           role="alert"
@@ -510,9 +516,19 @@ function ThemBangMa({ ma, onMa, tenGoTay, onTenGoTay, dangLam, onThem }: {
 /** Chrome shared by every state, so the way out never depends on the request
  *  having succeeded. A screen whose close button only renders on the happy
  *  path is a screen somebody gets stuck in. */
-function KhungNhom({ children, onDong }: {
+function KhungNhom({ children, onDong, onQuanTri }: {
   children: React.ReactNode;
   onDong: () => void;
+  /** The door into roles, leaving and outing invites.
+   *
+   *  In the chrome rather than inside the group card, because the card only
+   *  renders once a group has been opened IN THIS SESSION -- and the app has no
+   *  storage, so on a cold start that is never. Put there, the button was
+   *  unreachable on exactly the screen somebody opens to administer a group
+   *  they are already in. Measured: a browser opened at `#vao=nhom` never saw
+   *  it. Here it is present in every state, and the screen behind it finds the
+   *  group itself when this session has not opened one. */
+  onQuanTri?: () => void;
 }) {
   const c = usePalette();
   return (
@@ -533,6 +549,7 @@ function KhungNhom({ children, onDong }: {
       <ScrollView contentContainerStyle={{ gap: space.lg, paddingBottom: space.lg }}>
         {children}
       </ScrollView>
+      {onQuanTri ? <Button label="Quản trị nhóm" tone="ghost" onPress={onQuanTri} /> : null}
       <Button label="Đóng" onPress={onDong} tone="quiet" />
     </View>
   );
