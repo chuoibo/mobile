@@ -137,7 +137,13 @@ export function QuanTriNhom({ nguoi, contextId: nhomSan, onDong }: {
     }
     let huy = false;
     setNhom({ kind: "dang-tai" });
-    khoiDongNhom(nguoi.id).then((s) => {
+    // Takes the person, not their slug. bug-223337 (#363) changed this
+    // signature while this screen was on a branch: `khoiDongNhom(nguoi.id)`
+    // resolved the slug through `personById`, so only the seven seeded names
+    // could open a group and anybody who registered themselves got a refusal
+    // minted on the device. Git merged both sides cleanly -- the two edits
+    // never touched the same line -- and only the typecheck caught it.
+    khoiDongNhom(nguoi).then((s) => {
       if (!huy) setNhom(s);
     });
     return () => {
