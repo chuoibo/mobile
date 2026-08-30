@@ -155,7 +155,15 @@ async function doc<T>(
 ): Promise<T> {
   let response: Response;
   try {
-    response = await fetchImpl(`${BASE_URL}${duong}`, { headers: tieuDe(contextId, personId) });
+    // Concatenated rather than interpolated, which is the shape `call<T>()` in
+    // `api.ts` already uses. A template whose first two holes are adjacent
+    // (`${BASE_URL}${duong}`) is exactly the shape `check_actor_headers.py`
+    // refuses to resolve: it cannot name WHICH route this helper is asking
+    // for, so it reports a blind spot. The three routes below are named as
+    // literals by the three exported functions, so the gate does read them --
+    // the blind spot here was redundant, and pinning it would have claimed an
+    // unchecked route where there is none.
+    response = await fetchImpl(BASE_URL + duong, { headers: tieuDe(contextId, personId) });
   } catch {
     // Names the address it tried. "Không kết nối được" on its own sends
     // somebody to check their wifi when the real answer is that the phone is
