@@ -65,6 +65,17 @@ def get_chat_expense_limiter(request: Request) -> FixedWindowLimiter:
     return request.app.state.chat_expense_limiter
 
 
+def get_companion_turn_limiter(request: Request) -> FixedWindowLimiter:
+    """Resolve the one companion-turn limiter owned by this application.
+
+    Read off the application rather than constructed here: a limiter built per
+    request counts to one and forgets, which is a limiter-shaped object that
+    limits nothing.
+    """
+
+    return request.app.state.companion_turn_limiter
+
+
 @router.post(
     "/contexts/{context_id}/messages",
     response_model=MessageResponse,
@@ -164,14 +175,30 @@ def create_chat_expense_draft(
 @router.post(
     "/contexts/{context_id}/ai-turn",
     response_model=CompanionTurnResponse,
-    responses=ERRORS,
+    responses=ERRORS | {429: {"model": ErrorResponse}},
 )
 def take_companion_turn(
     context_id: UUID,
     actor: Annotated[Actor, Depends(get_actor)],
     companion: Annotated[Companion, Depends(get_companion)],
     repository: Annotated[ApiRepository, Depends(get_repository)],
+    limiter: Annotated[FixedWindowLimiter, Depends(get_companion_turn_limiter)],
 ) -> CompanionTurnResponse:
+    """One companion turn, capped per caller before the model is reached.
+
+    `plan_turn` already refuses to speak while the companion spoke last, and
+    that is a conversation cadence rather than a ceiling: the caller lifts it
+    by posting one more message, so an unmetered loop costs two cheap requests
+    per model call instead of one. The window is what makes the cost bounded.
+
+    Charged before the cadence is consulted, so a poll that would have been
+    answered `already_spoke_last` still spends a slot. That is deliberate: the
+    order that spares those calls is the order that lets a loop drive the
+    expensive path for free, because which one a request becomes is decided by
+    the caller. Thirty a minute is far above anyone typing and far below a loop.
+    """
+
+    limiter.check(actor.id)
     return ApiService(repository).take_companion_turn(context_id, actor, companion)
 
 
