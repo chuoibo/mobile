@@ -46,6 +46,8 @@ __all__ = [
     "COMPANION_TURN_WINDOW_SECONDS",
     "CONTEXTUAL_SUGGESTION_LIMIT_PER_WINDOW",
     "CONTEXTUAL_SUGGESTION_WINDOW_SECONDS",
+    "FACE_DETECTION_LIMIT_PER_WINDOW",
+    "FACE_DETECTION_WINDOW_SECONDS",
     "RECEIPT_SCAN_LIMIT_PER_WINDOW",
     "RECEIPT_SCAN_WINDOW_SECONDS",
     "SEARCH_LIMIT_PER_WINDOW",
@@ -58,6 +60,7 @@ __all__ = [
     "build_chat_expense_limiter",
     "build_companion_turn_limiter",
     "build_contextual_suggestion_limiter",
+    "build_face_detection_limiter",
     "build_receipt_scan_limiter",
     "build_search_limiter",
     "build_screenshot_scan_limiter",
@@ -127,6 +130,25 @@ SUGGESTION_LIMIT_PER_WINDOW = RECEIPT_SCAN_LIMIT_PER_WINDOW
 # allowance and leave the group told it has no suggestion.
 CONTEXTUAL_SUGGESTION_WINDOW_SECONDS = RECEIPT_SCAN_WINDOW_SECONDS
 CONTEXTUAL_SUGGESTION_LIMIT_PER_WINDOW = RECEIPT_SCAN_LIMIT_PER_WINDOW
+
+# F22 face detection. The ninth model door, and the first one that spends no
+# paid quota at all: the cascade runs in this process, so a loop against it
+# costs CPU and resident memory rather than somebody else's API key.
+#
+# That difference argues for a ceiling, not against one. Every other window
+# here protects a budget that a second replica would also protect; this one
+# protects the event loop of the box it runs on. `detectMultiScale` over a
+# multi-megapixel photograph is tens to hundreds of milliseconds of CPU held by
+# a threadpool worker, and the request that starts it has already passed
+# membership -- so the cheapest denial of service against this product is a
+# member looping this route until the API stops answering anything, including
+# the routes that move money.
+#
+# Same number as its neighbours, chosen the same way: far above what a person
+# re-tapping "find faces" on a photo that came out badly reaches in a minute,
+# far below loop scale.
+FACE_DETECTION_WINDOW_SECONDS = RECEIPT_SCAN_WINDOW_SECONDS
+FACE_DETECTION_LIMIT_PER_WINDOW = RECEIPT_SCAN_LIMIT_PER_WINDOW
 
 # Below this many tracked identities the map is not worth walking. Above it,
 # the sweep threshold doubles from whatever survived, so the O(n) walk happens
@@ -335,6 +357,29 @@ def build_contextual_suggestion_limiter() -> FixedWindowLimiter:
             "Quá nhiều lượt xin gợi ý theo cuộc trò chuyện; tối đa "
             f"{CONTEXTUAL_SUGGESTION_LIMIT_PER_WINDOW} lượt mỗi "
             f"{CONTEXTUAL_SUGGESTION_WINDOW_SECONDS} giây. Thử lại sau ít phút."
+        ),
+    )
+
+
+def build_face_detection_limiter() -> FixedWindowLimiter:
+    """The per-actor F22 ceiling, its own window like every door before it.
+
+    Sharing the receipt-scan window would have been defensible-sounding -- both
+    are "a photo goes to a model" -- and wrong for the reason the whole file
+    keeps repeating: the two are triggered by different taps. Re-shooting a
+    blurred bill would then consume the allowance for finding the faces in the
+    photo of the table, and the person who had the most trouble scanning is the
+    one told they may not tag themselves.
+    """
+
+    return FixedWindowLimiter(
+        limit=FACE_DETECTION_LIMIT_PER_WINDOW,
+        window_seconds=FACE_DETECTION_WINDOW_SECONDS,
+        code="face_detection_rate_limited",
+        message=(
+            "Quá nhiều lượt tìm khuôn mặt trong ảnh; tối đa "
+            f"{FACE_DETECTION_LIMIT_PER_WINDOW} lượt mỗi "
+            f"{FACE_DETECTION_WINDOW_SECONDS} giây. Thử lại sau ít phút."
         ),
     )
 
