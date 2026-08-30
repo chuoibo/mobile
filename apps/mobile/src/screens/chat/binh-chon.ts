@@ -79,6 +79,12 @@ export type KetQuaBinhChon = {
   pollId: string;
   cauHoi: string;
   messageId: string;
+  /** Who opened it. Null when the companion did, and that is the case in
+   *  which nobody can close it -- see `dongTuCard`. */
+  taoBoi: string | null;
+  /** Closed by its opener. A closed poll counts no ballot cast after the
+   *  close card, so this is not a label over a tally that still moves. */
+  daDong: boolean;
   ketQua: KetQuaLuaChon[];
   tongPhieu: number;
   /** Distinct people who cast a ballot. Never larger than `tongPhieu`, and
@@ -94,6 +100,7 @@ export type KetQuaBinhChon = {
 
 const KIND_POLL = "poll";
 const KIND_VOTE = "poll_vote";
+const KIND_CLOSE = "poll_close";
 
 function banGhi(value: unknown): Record<string, unknown> | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
@@ -188,6 +195,26 @@ export function cardBoPhieu(pollId: string, optionId: string): Record<string, un
 }
 
 /**
+ * Build the card body that closes a poll.
+ *
+ * Carries no result. A closed poll's winner is the fold's answer, computed
+ * from the ballots that arrived before this card; writing the winner into the
+ * card would put a second copy of the count on the wire, and the first phone
+ * to disagree with it would be right.
+ */
+export function cardDongBinhChon(pollId: string): Record<string, unknown> {
+  return { kind: KIND_CLOSE, payload: { poll_id: pollId } };
+}
+
+function dongTuCard(card: unknown): string | null {
+  const root = banGhi(card);
+  if (!root || root.kind !== KIND_CLOSE) return null;
+  const payload = banGhi(root.payload);
+  if (!payload) return null;
+  return chuoi(payload.poll_id);
+}
+
+/**
  * Integer percentages that sum to exactly 100, by largest remainder.
  *
  * Not a flourish. Rounding each share on its own puts "71% / 29% / 0%"
@@ -234,37 +261,66 @@ export function phanTramTronVen(counts: number[]): number[] {
  */
 export function tongHopBinhChon(messages: MessageWire[], toiLaAi: string | null): KetQuaBinhChon[] {
   const polls = new Map<string, BinhChon>();
-  // poll_id -> (person_id -> option_id). Last write wins.
-  const phieu = new Map<string, Map<string, string>>();
+  // Ballots keep their position in the thread, because a close draws a line
+  // across that thread and everything past the line stops counting. Collapsing
+  // to person -> option here, as this used to, would throw away the one field
+  // that says which side of the line a ballot fell on.
+  const phieu: { pollId: string; nguoi: string; optionId: string; viTri: number }[] = [];
+  // Every close card seen, with who wrote it and where it sat. Kept as a list
+  // rather than resolved here, because whether its author was allowed to close
+  // is a question about a poll this pass may not have reached yet -- and a rule
+  // that only holds when the thread arrives in order is not a rule.
+  const dong: { pollId: string; nguoi: string; viTri: number }[] = [];
 
-  for (const m of messages) {
-    if (m.kind !== "ai_card" || m.card === null) continue;
+  messages.forEach((m, viTri) => {
+    if (m.kind !== "ai_card" || m.card === null) return;
 
     const poll = binhChonTuCard(m.card, m.id, m.author_id);
     if (poll) {
       // First card for an id owns it: options cannot be swapped under votes
       // that were already cast against them.
       if (!polls.has(poll.pollId)) polls.set(poll.pollId, poll);
-      continue;
+      return;
+    }
+
+    const dongPollId = dongTuCard(m.card);
+    if (dongPollId) {
+      // No author, no close. The companion opens polls; it does not end them,
+      // and there would be no person to hold "only the opener" against.
+      if (m.author_id) dong.push({ pollId: dongPollId, nguoi: m.author_id, viTri });
+      return;
     }
 
     const bau = phieuTuCard(m.card);
-    if (!bau) continue;
+    if (!bau) return;
     // The companion has no ballot. Without an author there is no person to
     // hold the "one each" rule against, so this is dropped rather than
     // counted under some placeholder.
-    if (!m.author_id) continue;
-    let hop = phieu.get(bau.pollId);
-    if (!hop) {
-      hop = new Map<string, string>();
-      phieu.set(bau.pollId, hop);
-    }
-    hop.set(m.author_id, bau.optionId);
-  }
+    if (!m.author_id) return;
+    phieu.push({ pollId: bau.pollId, nguoi: m.author_id, optionId: bau.optionId, viTri });
+  });
 
   const ra: KetQuaBinhChon[] = [];
   for (const poll of polls.values()) {
-    const hop = phieu.get(poll.pollId) ?? new Map<string, string>();
+    // Only the person who opened it. `author_id` is written by the server off
+    // the trusted actor header, so this is the same field "một người một
+    // phiếu" is already enforced against -- a client cannot claim to be the
+    // opener. A poll the companion opened has no opener to match, so it stays
+    // open forever rather than falling to whoever presses first.
+    const dongTai = dong
+      .filter((d) => d.pollId === poll.pollId && poll.taoBoi !== null && d.nguoi === poll.taoBoi)
+      .reduce<number | null>((som, d) => (som === null || d.viTri < som ? d.viTri : som), null);
+    const daDong = dongTai !== null;
+
+    const hop = new Map<string, string>();
+    for (const p of phieu) {
+      if (p.pollId !== poll.pollId) continue;
+      // Past the close line. Not merely uncounted -- skipped before the map is
+      // written, so a late ballot cannot overwrite the one this person cast
+      // while the poll was open.
+      if (dongTai !== null && p.viTri > dongTai) continue;
+      hop.set(p.nguoi, p.optionId);
+    }
     const hopLe = new Set(poll.luaChon.map((l) => l.optionId));
 
     const dem = new Map<string, number>(poll.luaChon.map((l) => [l.optionId, 0]));
@@ -288,6 +344,8 @@ export function tongHopBinhChon(messages: MessageWire[], toiLaAi: string | null)
       pollId: poll.pollId,
       cauHoi: poll.cauHoi,
       messageId: poll.messageId,
+      taoBoi: poll.taoBoi,
+      daDong,
       ketQua: poll.luaChon.map((l, i) => ({
         optionId: l.optionId,
         nhan: l.nhan,
@@ -356,11 +414,20 @@ export function binhChonGanNhat(
  * reader might not reach.
  */
 export function cauKetQua(kq: KetQuaBinhChon): string {
-  if (kq.tongPhieu === 0) return "Chưa có phiếu nào";
-  if (kq.dangHoa) {
-    const ten = kq.ketQua.filter((r) => r.dangDan).map((r) => r.nhan);
-    return `Đang hoà giữa ${ten.join(" và ")}`;
+  const ten = kq.ketQua.filter((r) => r.dangDan).map((r) => r.nhan);
+
+  // Closed changes the tense, not the arithmetic. "đang dẫn" on a poll nobody
+  // can vote in any more reads as a race still running, which is the one thing
+  // closing it was for.
+  if (kq.daDong) {
+    if (kq.tongPhieu === 0) return "Đã đóng. Chưa có phiếu nào";
+    if (kq.dangHoa) return `Đã đóng. Hoà giữa ${ten.join(" và ")}`;
+    const thang = kq.ketQua.find((r) => r.dangDan)!;
+    return `Đã đóng. ${thang.nhan} được chọn với ${thang.phieu} phiếu`;
   }
+
+  if (kq.tongPhieu === 0) return "Chưa có phiếu nào";
+  if (kq.dangHoa) return `Đang hoà giữa ${ten.join(" và ")}`;
   const dan = kq.ketQua.find((r) => r.dangDan)!;
   return `${dan.nhan} đang dẫn với ${dan.phieu} phiếu`;
 }
