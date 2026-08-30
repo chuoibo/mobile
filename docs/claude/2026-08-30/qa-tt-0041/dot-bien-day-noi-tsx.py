@@ -9,6 +9,7 @@ cay CHUA dot bien. Ba hang M4/M5/M6 cua lan mot vi the khong noi gi.
 Lan nay chay nguyen `npm test`, tuc co ca buoc `build:check` (expo export --clear),
 nen bundle duoc dung lai tu chinh nguon da dot bien.
 """
+
 import subprocess
 import sys
 from pathlib import Path
@@ -19,25 +20,33 @@ TINNHAN = TREE / "src/screens/chat/TinNhan.tsx"
 
 MUTANTS = [
     (
-        "M4", "DO", VOTAB,
+        "M4",
+        "DO",
+        VOTAB,
         '{tab === "tin-nhan" ? <TinNhan nguoi={nguoi} nhomPhien={nhom} /> : null}',
         '{tab === "tin-nhan" ? <TinNhan nguoi={nguoi} nhomPhien={null} /> : null}',
         "day noi: VoTab khong dua nhom cua phien xuong tab Tin nhan",
     ),
     (
-        "M5", "DO", VOTAB,
+        "M5",
+        "DO",
+        VOTAB,
         "return <>{renderKhoanChi(() => setLuongKhoanChi(false), nguoi, nhom)}</>;",
         "return <>{renderKhoanChi(() => setLuongKhoanChi(false), nguoi, null)}</>;",
         "day noi: khoan chi ghi vao nhom demo thay vi nhom dang xem",
     ),
     (
-        "M6", "DO", TINNHAN,
-        "  }, [nguoi, nhomPhien]);\n\n  useEffect(() => {\n    if (!nguoi || nhom.kind !== \"xong\") return;",
-        "  }, [nguoi]);\n\n  useEffect(() => {\n    if (!nguoi || nhom.kind !== \"xong\") return;",
+        "M6",
+        "DO",
+        TINNHAN,
+        '  }, [nguoi, nhomPhien]);\n\n  useEffect(() => {\n    if (!nguoi || nhom.kind !== "xong") return;',
+        '  }, [nguoi]);\n\n  useEffect(() => {\n    if (!nguoi || nhom.kind !== "xong") return;',
         "effect khong theo doi nhomPhien: doi nhom giua chung thi man khong mo lai",
     ),
     (
-        "C2", "XANH", VOTAB,
+        "C2",
+        "XANH",
+        VOTAB,
         '{tab === "len-plan" ? <LenPlan nguoi={nguoi} nhomPhien={nhom} /> : null}',
         '{tab === "len-plan" ? <LenPlan nguoi={nguoi} nhomPhien={nhom ?? null} /> : null}',
         "DOI CHUNG GIU TINH CHAT: `nhom ?? null` tren mot gia tri da la `NhomWire|null`",
@@ -46,8 +55,13 @@ MUTANTS = [
 
 
 def chay():
-    p = subprocess.run(["bash", "-lc", "npm test"], cwd=TREE,
-                       capture_output=True, text=True, timeout=2400)
+    p = subprocess.run(
+        ["bash", "-lc", "npm test"],
+        cwd=TREE,
+        capture_output=True,
+        text=True,
+        timeout=2400,
+    )
     out = p.stdout + p.stderr
     passed = failed = skipped = None
     for line in out.splitlines():
@@ -84,10 +98,15 @@ def main():
         ten = ""
         for line in out.splitlines():
             if line.startswith("not ok "):
-                ten = line[len("not ok "):].strip()
+                ten = line[len("not ok ") :].strip()
                 break
-        print(f"{mid}: can {need}, do duoc {thuc}  pass={p} fail={f} skipped={s}  {ten[:70]}", flush=True)
-        bang.append((mid, need, thuc, f"pass={p} fail={f} skipped={s} | {ten[:80]}", why))
+        print(
+            f"{mid}: can {need}, do duoc {thuc}  pass={p} fail={f} skipped={s}  {ten[:70]}",
+            flush=True,
+        )
+        bang.append(
+            (mid, need, thuc, f"pass={p} fail={f} skipped={s} | {ten[:80]}", why)
+        )
 
     print("\n| id | can | do duoc | ket qua | chi tiet | dot bien |")
     print("|---|---|---|---|---|---|")
