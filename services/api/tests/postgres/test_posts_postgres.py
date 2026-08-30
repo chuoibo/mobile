@@ -407,6 +407,53 @@ def test_reading_someone_elses_only_me_post_by_id_is_404(
     anyio.run(scenario)
 
 
+def test_reading_by_id_refuses_every_audience_the_reader_is_outside_of(
+    postgres_session: Session, cast, monkeypatch: pytest.MonkeyPatch
+):
+    """The by-id read for all four audiences, against real rows.
+
+    `list_posts_visible_to` is guarded twice -- by the SQL predicate and then
+    by `can_read`. This route is guarded once, so it is where a widening of
+    `can_read` alone becomes a leak. A mutation that made the `friends` branch
+    return True left every other test in this file green.
+    """
+    app = _http(postgres_session, monkeypatch)
+    posts = cast["posts"]
+    outside = {
+        "groupmate": ("only_me", "friends"),
+        "friend": ("only_me", "group"),
+        "stranger": ("only_me", "friends", "group"),
+    }
+    allowed = {
+        "groupmate": ("group", "public"),
+        "friend": ("friends", "public"),
+        "stranger": ("public",),
+    }
+
+    async def scenario():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
+            for who, audiences in outside.items():
+                for audience in audiences:
+                    response = await client.get(
+                        f"/posts/{posts[audience].id}",
+                        headers=_headers(cast[who].id),
+                    )
+                    assert response.status_code == 404, (who, audience, response.text)
+                    assert response.json()["code"] == "post_not_found"
+            for who, audiences in allowed.items():
+                for audience in audiences:
+                    response = await client.get(
+                        f"/posts/{posts[audience].id}",
+                        headers=_headers(cast[who].id),
+                    )
+                    assert response.status_code == 200, (who, audience, response.text)
+
+    anyio.run(scenario)
+
+
 def test_the_written_post_is_attributed_to_the_caller(
     postgres_session: Session, cast, monkeypatch: pytest.MonkeyPatch
 ):

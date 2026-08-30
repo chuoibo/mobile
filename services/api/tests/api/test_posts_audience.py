@@ -173,6 +173,58 @@ def test_only_me_is_not_readable_by_id_by_anyone_else(client, repository):
     assert mine.status_code == 200, mine.text
 
 
+def test_reading_by_id_refuses_every_audience_the_reader_is_outside_of(
+    client, repository
+):
+    """`GET /posts/{id}` for each audience, by each reader who may not have it.
+
+    This route is the one read with no SQL narrowing in front of it: the feed
+    is filtered twice (once by the query, once by `can_read`), but a lookup by
+    id fetches whatever the id names and `can_read` is the *only* thing
+    standing between that row and the response.
+
+    Added because a mutation said so. Widening the `friends` branch of
+    `app.domain.post_audience.can_read` to `return True` left this whole file
+    green -- the feed tests could not see it, because the repository had
+    already excluded those rows on its own. The leak it would cause is real
+    and it is exactly here.
+    """
+    befriend(repository, ADVANCER_ID, FRIEND_ID)
+    posts = {
+        "only_me": write_post(client, "only_me"),
+        "friends": write_post(client, "friends"),
+        "group": write_post(client, "group", context_id=CONTEXT_ID),
+        "public": write_post(client, "public"),
+    }
+    # Reader -> the audiences that reader is NOT entitled to read.
+    outside = {
+        SENDER_ID: ("only_me", "friends"),
+        FRIEND_ID: ("only_me", "group"),
+        OTHER_ID: ("only_me", "friends", "group"),
+    }
+    for reader, audiences in outside.items():
+        for audience in audiences:
+            response = client.get(
+                f"/posts/{posts[audience]['id']}", headers=actor_headers(reader)
+            )
+            assert response.status_code == 404, (reader, audience, response.text)
+            assert response.json()["code"] == "post_not_found"
+
+    # And the ones they may read still come back, so the assertions above are
+    # not passing because the route is simply broken for everybody.
+    allowed = {
+        SENDER_ID: ("group", "public"),
+        FRIEND_ID: ("friends", "public"),
+        OTHER_ID: ("public",),
+    }
+    for reader, audiences in allowed.items():
+        for audience in audiences:
+            response = client.get(
+                f"/posts/{posts[audience]['id']}", headers=actor_headers(reader)
+            )
+            assert response.status_code == 200, (reader, audience, response.text)
+
+
 def test_friends_reaches_friends_only(client, repository):
     befriend(repository, ADVANCER_ID, FRIEND_ID)
     created = write_post(client, "friends")
