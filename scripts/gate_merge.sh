@@ -53,10 +53,43 @@
 #   scripts/gate_merge.sh some/branch      # a branch by name
 #   scripts/gate_merge.sh --base other 210 # against something other than main
 #   scripts/gate_merge.sh 210 -- api ruff  # only these gate stages
+#   scripts/gate_merge.sh 210 -- --strict  # a skipped stage is a failure
+#
+# Everything after `--` goes to scripts/gate.sh untouched, so `--strict` is
+# reachable without this file knowing what it means.
 #
 # `--base` exists because stacked pull requests do not merge into main -- they
 # merge into the branch below them -- and because a gate that cannot be aimed
 # at a synthetic base cannot be proven to catch anything.
+#
+# ## Three answers, not two
+#
+# Exit codes: 0 the merged tree is green and every stage ran, 1 a stage failed
+# or the merge conflicts, 2 bad arguments, 3 nothing to merge, 4 nothing failed
+# but stages did not run.
+#
+# 4 is the one this file was missing. `gate.sh` ends a run with skips by saying
+# "BỎ QUA KHÔNG PHẢI ĐẠT. Trước khi merge chạy lại với --strict" -- and this is
+# the before-a-merge run, so it is the one that sentence is addressed to. It
+# read that line, printed nothing about it, and closed with an unconditional
+# "ĐẠT ... cho cây xanh" and exit 0. Measured 2026-08-30 at ef2f5e8 with the
+# postgres image name unresolvable:
+#
+#   scripts/gate_merge.sh --no-fetch -- guard postgres e2e
+#     ĐẠT 1   HỎNG 0   BỎ QUA 2
+#     BỎ QUA KHÔNG PHẢI ĐẠT. Trước khi merge chạy lại với --strict.
+#     ĐẠT  gộp ... vào origin/main cho cây xanh.          exit 0
+#
+# `e2e` is the only stage where client and server are both real and `postgres`
+# is the only proof of any SQL in this repository. Neither ran, and the last
+# line a person reads said the merge was fine. That is the same shape `do_ruff`
+# already named one file over: "a warning on line three of a thirteen-stage
+# run, under a summary that ends ĐẠT, is a warning nobody reads."
+#
+# So a skip now gets its own verdict and its own exit code, distinct from a
+# failure, because "your branch is broken" and "this run did not answer" send
+# the reader to different places. `--strict` is still how you demand the full
+# answer; 4 is how you find out you did not get one.
 #
 # ## What this does NOT prove
 #
@@ -83,7 +116,10 @@ while [ $# -gt 0 ]; do
       ;;
     --no-fetch) NO_FETCH=1 ;;
     --) shift; GATE_ARGS=("$@"); break ;;
-    -h|--help) sed -n '2,70p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    # Stops at the header rather than at a line number chosen once: the old
+    # `2,70p` was written when the header ended at 66 and had been spilling
+    # `set -uo pipefail` into --help ever since.
+    -h|--help) sed -n '2,/^[^#]/p' "$0" | sed -n 's/^# \{0,1\}//p'; exit 0 ;;
     -*) echo "Tham số lạ: $1 (xem scripts/gate_merge.sh --help)" >&2; exit 2 ;;
     *)
       [ -n "$TARGET" ] && { echo "Chỉ nhận một nhánh/PR, đã có '$TARGET'" >&2; exit 2; }
@@ -155,10 +191,15 @@ fi
 # Outside the repository on purpose: the repo guard scans the tree it is
 # standing in, and a second checkout nested inside would be scanned as content.
 WT="$(mktemp -d -t gate-merge-XXXXXX)"
+# Outside the merged worktree on purpose, twice over: the worktree is removed
+# before the verdict is written, and an untracked file inside the tree being
+# scanned is a file the `guard` stage has to have an opinion about.
+SUMMARY="$(mktemp -t gate-merge-summary-XXXXXX)"
 cleanup() {
   cd "$REPO_ROOT" || return
   git worktree remove --force "$WT" >/dev/null 2>&1
   rm -rf "$WT"
+  rm -f "$SUMMARY"
   git worktree prune >/dev/null 2>&1
 }
 trap cleanup EXIT INT TERM
@@ -204,19 +245,49 @@ fi
 say "=== chạy cổng trên cây đã gộp ==="
 echo "(scripts/gate.sh của chính cây đã gộp — bản vá cổng nằm trong nhánh cũng được tính)"
 
-( cd "$WT" && ./scripts/gate.sh "${GATE_ARGS[@]+"${GATE_ARGS[@]}"}" )
+( cd "$WT" && GATE_SUMMARY_FILE="$SUMMARY" ./scripts/gate.sh "${GATE_ARGS[@]+"${GATE_ARGS[@]}"}" )
 GATE_RC=$?
+
+# How many stages did not run. Empty means the question could not be asked --
+# an older scripts/gate.sh in the merged tree that does not write the file, or
+# a write that failed. That is not the same as zero and must never round down
+# to it, so it gets its own branch below rather than a default of 0.
+SKIPPED_N="$(sed -n 's/^skipped=//p' "$SUMMARY" 2>/dev/null | tail -1)"
+printf '%s' "$SKIPPED_N" | grep -qE '^[0-9]+$' || SKIPPED_N=""
 
 say "=== kết luận ==="
 printf 'đo tại   %s  (kết quả gộp, không tồn tại trên remote)\n' "${MERGE_SHA:0:12}"
 printf 'gồm      %s = %s\n' "$HEAD_DESC" "${HEAD_SHA:0:12}"
 printf '         %s = %s\n' "$BASE_REF" "${BASE_SHA:0:12}"
-if [ "$GATE_RC" -eq 0 ]; then
-  printf '\033[32mĐẠT\033[0m  gộp %s vào %s cho cây xanh.\n' "$HEAD_DESC" "$BASE_REF"
-  echo "Có giá trị cho đúng $BASE_REF ở trên. Base nhích một commit là phải chạy lại."
-else
+
+if [ "$GATE_RC" -ne 0 ]; then
   printf '\033[31mHỎNG\033[0m  gộp %s vào %s cho cây ĐỎ (gate.sh thoát %s).\n' \
     "$HEAD_DESC" "$BASE_REF" "$GATE_RC"
   echo "Nhánh có thể vẫn xanh khi đứng một mình — chênh lệch đó chính là lý do file này tồn tại."
+  exit "$GATE_RC"
 fi
-exit "$GATE_RC"
+
+if [ -z "$SKIPPED_N" ]; then
+  # Fail closed. The alternative -- assume nothing was skipped -- is the bug
+  # this branch exists to refuse, rebuilt one level up.
+  printf '\033[33mCHƯA KẾT LUẬN ĐƯỢC\033[0m  không đọc được cổng đã bỏ qua chặng nào.\n'
+  echo "scripts/gate.sh trong cây đã gộp không ghi GATE_SUMMARY_FILE — bản cũ, hoặc ghi hỏng."
+  echo "Không chặng nào HỎNG, nhưng đây KHÔNG PHẢI ĐẠT: không biết cái gì đã chạy."
+  exit 4
+fi
+
+if [ "$SKIPPED_N" -gt 0 ]; then
+  printf '\033[33mCHƯA KẾT LUẬN ĐƯỢC\033[0m  không chặng nào HỎNG, nhưng %s chặng KHÔNG CHẠY.\n' \
+    "$SKIPPED_N"
+  sed -n 's/^skipped-stage=/  /p' "$SUMMARY"
+  echo
+  printf 'Gộp %s vào %s chưa được kiểm bởi những chặng trên.\n' "$HEAD_DESC" "$BASE_REF"
+  echo "Sửa cái còn thiếu rồi chạy lại, hoặc merge với hiểu biết rõ ràng là chúng chưa nói gì."
+  echo "Muốn cổng tự đỏ ở đây: thêm '-- --strict'."
+  exit 4
+fi
+
+printf '\033[32mĐẠT\033[0m  gộp %s vào %s cho cây xanh (%s chặng chạy, 0 bỏ qua).\n' \
+  "$HEAD_DESC" "$BASE_REF" "$(sed -n 's/^passed=//p' "$SUMMARY" | tail -1)"
+echo "Có giá trị cho đúng $BASE_REF ở trên. Base nhích một commit là phải chạy lại."
+exit 0

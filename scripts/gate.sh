@@ -634,6 +634,39 @@ if [ ${#SKIPPED[@]} -gt 0 ]; then
   echo "BỎ QUA KHÔNG PHẢI ĐẠT. Trước khi merge chạy lại với --strict."
 fi
 
+# The same counts, for a program rather than a person.
+#
+# `scripts/gate_merge.sh` has to tell "every stage ran and passed" apart from
+# "the stages that mattered most never ran", and until now the only channel it
+# had was the block above -- coloured, localised, written for a reader. It did
+# not parse it, so it could not tell, so it printed an unconditional green over
+# the top of the "BỎ QUA KHÔNG PHẢI ĐẠT" line three lines above its own verdict.
+# Measured 2026-08-30 at ef2f5e8: `gate_merge.sh -- guard postgres e2e` with the
+# postgres image unresolvable ran one stage, skipped `e2e` and `postgres`, and
+# ended "ĐẠT gộp ... cho cây xanh", exit 0.
+#
+# Making the caller grep this banner would have made a merge decision depend on
+# the wording of a heading. So the counts get a second, stable channel, and the
+# reader is required to treat an absent or unparseable file as "cannot tell"
+# rather than as "nothing was skipped" -- a caller that reads silence as good
+# news rebuilds the exact bug this closes.
+#
+# Written before the exits below so every path reports: the failure path, the
+# all-passed path, and the "nothing ran at all" path, which is the one whose
+# count of zero is most easily misread as calm.
+if [ -n "${GATE_SUMMARY_FILE:-}" ]; then
+  {
+    printf 'passed=%d\n' "${#PASSED[@]}"
+    printf 'failed=%d\n' "${#FAILED[@]}"
+    printf 'skipped=%d\n' "${#SKIPPED[@]}"
+    for s in ${PASSED[@]+"${PASSED[@]}"}; do printf 'passed-stage=%s\n' "$s"; done
+    for s in ${FAILED[@]+"${FAILED[@]}"}; do printf 'failed-stage=%s\n' "$s"; done
+    # The reason travels with the name. A caller that can only print "2 chặng
+    # bỏ qua" sends the reader back here to find out which and why.
+    for w in ${SKIP_WHY[@]+"${SKIP_WHY[@]}"}; do printf 'skipped-stage=%s\n' "$w"; done
+  } > "$GATE_SUMMARY_FILE"
+fi
+
 # Guard the guard. If every stage was filtered away, the run proved nothing,
 # and exiting 0 here would be this file committing the sin it was written for.
 if [ ${#PASSED[@]} -eq 0 ] && [ ${#FAILED[@]} -eq 0 ]; then
