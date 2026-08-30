@@ -66,19 +66,55 @@ function buocCuaProbe() {
 }
 
 /**
- * The answer for each mounted screen. `do` names the probe step that opens it;
- * `chuaDo` states, in words, why nothing does.
+ * Scan-page parameters `App.tsx` really routes, read out of its own source.
  *
- * Every entry today is `chuaDo`. That is the finding, not an oversight: nine
- * screens, nine reasons, zero measured. Reducing this list means giving a
- * screen a real way in -- a `vao=` destination in `lien-ket.ts` plus a row in
- * the probe -- not deleting the line.
+ * Same principle as `buocCuaProbe` above: a screen claiming an address it does
+ * not have is the same lie as claiming coverage from no address at all, and it
+ * is the easier of the two to write by accident -- rename the parameter in
+ * `App.tsx` and every claim here keeps reading true.
+ *
+ * Two spellings, because `App.tsx` uses two. `manThamSo() === "x"` is an exact
+ * destination; `manThamSo()?.startsWith("x")` covers a family (`doc-bill` and
+ * `doc-bill-chuan-bi` are one screen at two moments).
+ */
+function thamSoQuetCuaApp() {
+  const src = readFileSync(APP, "utf8");
+  return {
+    dung: new Set([...src.matchAll(/manThamSo\(\)\s*===\s*"([^"]+)"/g)].map((m) => m[1])),
+    dau: [...src.matchAll(/manThamSo\(\)\?\.startsWith\("([^"]+)"\)/g)].map((m) => m[1]),
+  };
+}
+
+/**
+ * The answer for each mounted screen. Three kinds of answer, and the
+ * difference between them is what somebody reading a green row is entitled to
+ * believe:
+ *
+ *   `do`    -- the URL probe walks it, so a screenshot and a needle exist.
+ *   `quet`  -- `App.tsx` routes a `?man=` scan page that mounts the real
+ *              component with a frozen fixture. Reachable by a detector, a
+ *              screenshot pass and an accessibility sweep, all of which load a
+ *              URL cold. NOT walked by the probe, so no needle guards it.
+ *   `chuaDo`-- nothing can open it. State the reason in words.
+ *
+ * `quet` is a weaker claim than `do` on purpose and must not be read as one.
+ * It says an address exists and the real component renders at it; it does not
+ * say anybody ran anything, and it cannot say the screen behaves the same on
+ * the live flow, because a fixture is not a server. What it does buy is the
+ * thing the ten `chuaDo` rows below cost: the screen stops being invisible to
+ * every tool this repo owns.
+ *
+ * Reducing this list means giving a screen a real way in -- a `vao=`
+ * destination plus a probe row, or a `?man=` scan page -- not deleting a line.
  */
 const SO_DO = {
-  ChupBill: { chuaDo: "màn hero của demo; chỉ tới được sau khi chọn nhóm rồi bấm chụp, không có vao=" },
-  KetQuaNhanDien: { chuaDo: "màn hero của demo; chỉ tới được sau khi ảnh bill đã quét xong" },
-  GoiYChia: { chuaDo: "màn hero của demo; chỉ tới được sau khi gán món cho người" },
-  KetQuaThanhToan: { chuaDo: "màn hero của demo; VietQR nằm ở đây, chỉ tới được sau khi chia xong" },
+  // rd-fe. The bill-reading wait, at both of its stages.
+  ChupBill: { quet: "doc-bill" },
+  // The two middle screens of the demo path. Until frontend-tt-0016 these were
+  // the last two on it that no machine could open at all.
+  KetQuaNhanDien: { quet: "nhan-dien" },
+  GoiYChia: { quet: "goi-y-chia" },
+  KetQuaThanhToan: { quet: "ket-qua-thanh-toan" },
   NhapKhoanChi: { chuaDo: "chỉ tới được từ trong nhóm, không có vao=" },
   DotThu: { chuaDo: "chỉ tới được sau khi đã có nghĩa vụ để gom" },
   // Added by #312 (F26) and caught by this gate the first time the branch was
@@ -90,7 +126,7 @@ const SO_DO = {
   // Keyed by the module path App.tsx imports, not the bare component name --
   // the derivation returns "tai-khoan/TaiKhoanNhan" and a shortened key here
   // reads as a missing screen. This gate caught exactly that on its first run.
-  "tai-khoan/TaiKhoanNhan": { chuaDo: "chỉ tới được từ Cá nhân, không có vao=" },
+  "tai-khoan/TaiKhoanNhan": { quet: "tai-khoan-nhan" },
 };
 
 test("mọi màn App.tsx mount đều có câu trả lời cho 'cái gì đo màn này'", () => {
@@ -132,9 +168,30 @@ test("màn khai là đã đo phải trỏ vào một step probe có thật", () 
   assert.deepEqual(ma, [], `khai đã đo bằng một step không tồn tại:\n  ${ma.join("\n  ")}`);
 });
 
+test("màn khai có trang quét phải trỏ vào một ?man= App.tsx thật sự định tuyến", () => {
+  const { dung, dau } = thamSoQuetCuaApp();
+
+  // The derivation is itself an assertion, for the same reason as above: a
+  // regex that matched nothing would wave every `quet` row through.
+  assert.ok(
+    dung.size > 0,
+    `không đọc được tham số quét nào từ ${APP} -- regex hỏng, mọi hàng quet sẽ tự xanh`,
+  );
+
+  const ma = [];
+  for (const [man, o] of Object.entries(SO_DO)) {
+    if (!o.quet) continue;
+    const co = dung.has(o.quet) || dau.some((p) => o.quet.startsWith(p));
+    if (!co) ma.push(`${man}: ?man=${o.quet} không được App.tsx định tuyến`);
+  }
+  assert.deepEqual(ma, [], `khai có trang quét bằng một địa chỉ không tồn tại:\n  ${ma.join("\n  ")}`);
+});
+
 test("mỗi màn chưa đo được phải kèm lý do bằng chữ, không để trống", () => {
   const rong = Object.entries(SO_DO)
-    .filter(([, o]) => !o.do && (typeof o.chuaDo !== "string" || o.chuaDo.trim().length < 10))
+    .filter(
+      ([, o]) => !o.do && !o.quet && (typeof o.chuaDo !== "string" || o.chuaDo.trim().length < 10),
+    )
     .map(([man]) => man);
   assert.deepEqual(
     rong,
@@ -145,7 +202,15 @@ test("mỗi màn chưa đo được phải kèm lý do bằng chữ, không đ�
   // Printed rather than asserted against a fixed number on purpose. A ratchet
   // here would go red the day somebody adds a screen honestly, and the point
   // is to keep the count visible, not to freeze it. Nine of nine unmeasured is
-  // the number this file was written to stop being invisible.
-  const chuaDo = Object.values(SO_DO).filter((o) => !o.do).length;
-  console.log(`# màn App.tsx mount: ${Object.keys(SO_DO).length}, chưa máy nào đo được: ${chuaDo}`);
+  // the number this file was written to stop being invisible; the split below
+  // is what stops "reachable by a scan page" being read as "walked by the
+  // probe", which is a strictly weaker claim.
+  const tong = Object.keys(SO_DO).length;
+  const quaProbe = Object.values(SO_DO).filter((o) => o.do).length;
+  const quaTrangQuet = Object.values(SO_DO).filter((o) => !o.do && o.quet).length;
+  const chuaDo = Object.values(SO_DO).filter((o) => !o.do && !o.quet).length;
+  console.log(
+    `# màn App.tsx mount: ${tong}, probe đi qua: ${quaProbe}, ` +
+      `có địa chỉ quét: ${quaTrangQuet}, chưa máy nào đo được: ${chuaDo}`,
+  );
 });

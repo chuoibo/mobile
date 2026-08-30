@@ -160,6 +160,15 @@
     "src/screens/len-plan/TaoBuoiDi.tsx",
     "src/screens/len-plan/DongThoiGian.tsx",
     "src/screens/len-plan/NhanLoiMoi.tsx",
-    "src/screens/quet-anh.ts"
+    "src/screens/quet-anh.ts",
+    // The frozen bill behind the `?man=` scan pages. Compiled because the
+    // claim it carries is arithmetic, not markup: the eight lines and the
+    // who-ate-what matrix must fold to the same four allocations the
+    // settlement fixture settles. A source read cannot check that, and if it
+    // ever stops being true the scan pages still render -- `GoiYChia` just
+    // prints "..." in every cell, and a detector would measure a screen caught
+    // mid-flight while the report calls it the settled one. See
+    // `tests/fixture-hai-man-giua.test.mjs`.
+    "src/fixtures/thanh-toan-demo.ts"
   ]
 }
