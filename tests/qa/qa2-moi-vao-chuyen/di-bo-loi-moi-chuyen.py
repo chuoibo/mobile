@@ -128,39 +128,73 @@ def main() -> int:
     ban = nguoi_moi(so_dt(), "Ban da vao nhom")
     cho = nguoi_moi(so_dt(), "Nguoi con cho duyet")
 
-    r = goi("POST", "/contexts", {"display_name": "Nhom di bo F14"}, actor=chu,
-            khoa=str(uuid.uuid4()))
+    r = goi(
+        "POST",
+        "/contexts",
+        {"display_name": "Nhom di bo F14"},
+        actor=chu,
+        khoa=str(uuid.uuid4()),
+    )
     assert r.status == 201, f"tao nhom: {r.status} {r.body}"
     ctx = r.body["id"]
 
     # `ban` accepts and becomes ACTIVE; `cho` is left at `invited` on purpose.
-    r = goi("POST", f"/contexts/{ctx}/members", {"person_id": ban}, actor=chu,
-            contexts=ctx, khoa=str(uuid.uuid4()))
+    r = goi(
+        "POST",
+        f"/contexts/{ctx}/members",
+        {"person_id": ban},
+        actor=chu,
+        contexts=ctx,
+        khoa=str(uuid.uuid4()),
+    )
     assert r.status == 201, f"moi ban vao nhom: {r.status} {r.body}"
     mid = r.body["id"]
-    r = goi("POST", f"/memberships/{mid}/accept", actor=ban, contexts=ctx,
-            khoa=str(uuid.uuid4()))
+    r = goi(
+        "POST",
+        f"/memberships/{mid}/accept",
+        actor=ban,
+        contexts=ctx,
+        khoa=str(uuid.uuid4()),
+    )
     assert r.status == 200, f"ban nhan loi moi nhom: {r.status} {r.body}"
 
-    r = goi("POST", f"/contexts/{ctx}/members", {"person_id": cho}, actor=chu,
-            contexts=ctx, khoa=str(uuid.uuid4()))
+    r = goi(
+        "POST",
+        f"/contexts/{ctx}/members",
+        {"person_id": cho},
+        actor=chu,
+        contexts=ctx,
+        khoa=str(uuid.uuid4()),
+    )
     assert r.status == 201, f"moi nguoi cho vao nhom: {r.status} {r.body}"
     assert r.body["state"] == "invited", r.body["state"]
 
-    r = goi("POST", f"/contexts/{ctx}/outings", {
-        "title": "Da Lat cuoi tuan",
-        "starts_on": "2026-10-17",
-        "ends_on": "2026-10-19",
-        "headcount": 8,
-        "budget_per_person_vnd": 2500000,
-    }, actor=chu, contexts=ctx, khoa=str(uuid.uuid4()))
+    r = goi(
+        "POST",
+        f"/contexts/{ctx}/outings",
+        {
+            "title": "Da Lat cuoi tuan",
+            "starts_on": "2026-10-17",
+            "ends_on": "2026-10-19",
+            "headcount": 8,
+            "budget_per_person_vnd": 2500000,
+        },
+        actor=chu,
+        contexts=ctx,
+        khoa=str(uuid.uuid4()),
+    )
     assert r.status == 201, f"tao chuyen: {r.status} {r.body}"
     chuyen = r.body["id"]
 
     # ---- PHAI_XANH: the positive control, first and unconditional ----------
-    r = goi("POST", f"/outings/{chuyen}/invites",
-            {"source": "group", "person_id": ban},
-            actor=chu, contexts=ctx, khoa=str(uuid.uuid4()))
+    r = goi(
+        "POST",
+        f"/outings/{chuyen}/invites",
+        {"source": "group", "person_id": ban},
+        actor=chu,
+        contexts=ctx,
+        khoa=str(uuid.uuid4()),
+    )
     kiem(
         "PHAI_XANH moi mot thanh vien ACTIVE thi tao duoc loi moi",
         r.status == 201 and r.body.get("invited_person_id") == ban,
@@ -179,9 +213,14 @@ def main() -> int:
     )
 
     # ---- claim 1: an `invited` membership is not invitable ----------------
-    r = goi("POST", f"/outings/{chuyen}/invites",
-            {"source": "group", "person_id": cho},
-            actor=chu, contexts=ctx, khoa=str(uuid.uuid4()))
+    r = goi(
+        "POST",
+        f"/outings/{chuyen}/invites",
+        {"source": "group", "person_id": cho},
+        actor=chu,
+        contexts=ctx,
+        khoa=str(uuid.uuid4()),
+    )
     kiem(
         "moi nguoi chua nhan loi vao nhom -> 422 participant_not_in_context",
         r.status == 422 and "participant_not_in_context" in r.ma(),
@@ -189,17 +228,27 @@ def main() -> int:
     )
 
     # ---- claim 2: revoke does not free the person -------------------------
-    r = goi("POST", f"/outings/{chuyen}/invites/{moi_id}/revoke",
-            actor=chu, contexts=ctx, khoa=str(uuid.uuid4()))
+    r = goi(
+        "POST",
+        f"/outings/{chuyen}/invites/{moi_id}/revoke",
+        actor=chu,
+        contexts=ctx,
+        khoa=str(uuid.uuid4()),
+    )
     kiem(
         "thu hoi loi moi tra 200 va dong dau revoked_at",
         r.status == 200 and bool(r.body.get("revoked_at")),
         f"HTTP {r.status}, revoked_at={r.body.get('revoked_at') if isinstance(r.body, dict) else r.body!r}",
     )
 
-    r = goi("POST", f"/outings/{chuyen}/invites",
-            {"source": "group", "person_id": ban},
-            actor=chu, contexts=ctx, khoa=str(uuid.uuid4()))
+    r = goi(
+        "POST",
+        f"/outings/{chuyen}/invites",
+        {"source": "group", "person_id": ban},
+        actor=chu,
+        contexts=ctx,
+        khoa=str(uuid.uuid4()),
+    )
     kiem(
         "moi LAI dung nguoi do sau khi thu hoi -> 409 invite_already_exists "
         "(CUA MOT CHIEU)",
@@ -208,8 +257,14 @@ def main() -> int:
     )
 
     # ---- a link invite hands its token back exactly once -------------------
-    r = goi("POST", f"/outings/{chuyen}/invites", {"source": "link"},
-            actor=chu, contexts=ctx, khoa=str(uuid.uuid4()))
+    r = goi(
+        "POST",
+        f"/outings/{chuyen}/invites",
+        {"source": "link"},
+        actor=chu,
+        contexts=ctx,
+        khoa=str(uuid.uuid4()),
+    )
     kiem(
         "loi moi bang link co token va khong goi ten ai",
         r.status == 201

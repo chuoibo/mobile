@@ -10,6 +10,10 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+
+import { MoiVaoChuyen } from "../dist-test/screens/len-plan/MoiVaoChuyen.js";
 
 const {
   danhSachMoiDuoc,
@@ -175,6 +179,86 @@ test("tên lời mời đọc từ sổ thành viên, không in ra uuid", () => 
     tenLoiMoi(loiMoi({ source: "link", invited_person_id: null }), roster),
     "Lời mời bằng link",
   );
+});
+
+/* ---------------------------------------------------------------- màn vẽ ra
+ *
+ * Rendered through react-native-web, the same substitution Expo's web build
+ * performs, so what is asserted is the markup a browser really gets.
+ *
+ * The reason to render at all rather than read the source: `moi-man-co-duong-
+ * do.test.mjs` proves `?man=moi-vao-chuyen` is an address `App.tsx` routes. It
+ * does NOT prove anything renders at that address, and a screen that throws on
+ * mount would keep that gate green -- the address is still spelled in the
+ * file. These three cases are the part a source read cannot reach.
+ */
+function ve(props) {
+  return renderToStaticMarkup(
+    React.createElement(MoiVaoChuyen, {
+      buoi: {
+        id: "o1",
+        context_id: "c1",
+        created_by_id: TOI,
+        title: "Đà Lạt cuối tuần",
+        starts_on: "2026-10-17",
+        ends_on: "2026-10-19",
+        headcount: 8,
+        budget_per_person_vnd: 2500000,
+        created_at: "2026-08-31T00:00:00Z",
+        stops: [],
+      },
+      roster: { kind: "xong", ds: [thanhVien(TOI), thanhVien(QUYEN)] },
+      toiId: TOI,
+      daMoi: [],
+      bayGio: BAY_GIO,
+      onMoiThanhVien: () => {},
+      onTaoLink: () => {},
+      onThuHoi: () => {},
+      onTaiLaiRoster: () => {},
+      onQuayLai: () => {},
+      ...props,
+    }),
+  );
+}
+
+test("màn mở được và in tên chuyến cùng nút mời", () => {
+  const html = ve();
+  assert.match(html, /Đà Lạt cuối tuần/);
+  assert.match(html, /Người trong nhóm/);
+  // Hàng của người mời được phải có nút; hàng của chính mình thì không.
+  assert.match(html, /Mời vào chuyến/);
+  assert.match(html, /Đây là bạn/);
+  assert.match(html, /Tạo link mời/);
+});
+
+/* The sentence this screen exists to say. It has to be ON the markup, under
+ * the button, not merely written in a source file somebody trusts. */
+test("câu 'thu hồi là cửa một chiều' thật sự nằm trên màn", () => {
+  const link = loiMoi({
+    id: "i-link",
+    source: "link",
+    invited_person_id: null,
+    invite_token: "tok",
+    invite_path: "/outing-invites/tok",
+  });
+  const html = ve({ daMoi: [link] });
+  assert.match(html, /Thu hồi/);
+  assert.match(html, /không mời lại người đó vào chuyến này được nữa/);
+  // Và câu nói rõ danh sách chỉ là của lượt này, không phải của chuyến.
+  assert.match(html, /trống ở đây không có nghĩa là chuyến chưa mời ai/);
+});
+
+/* A UUID is not a name, and this screen holds four of them: the trip, the
+ * group, the inviter, and the invited person. None may reach a person's
+ * screen. This is the assertion that would have caught printing an id as a
+ * fallback label, which is the easy mistake when a roster lookup misses. */
+test("không một uuid nào rơi ra màn", () => {
+  const la = "9f9f9f9f-abcd-4abc-8abc-9f9f9f9f9f9f";
+  const html = ve({
+    daMoi: [loiMoi({ id: "i9", invited_person_id: la })],
+  });
+  assert.ok(!html.includes(la), "id của người không có trong sổ đã lọt ra màn");
+  assert.match(html, /Lời mời cho một người/);
 });
 
 test("tóm tắt đếm đúng cái còn hiệu lực", () => {
