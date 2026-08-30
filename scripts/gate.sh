@@ -63,6 +63,13 @@ set -uo pipefail
 cd "$(dirname "$0")/.." || exit 2
 REPO_ROOT="$PWD"
 
+# MOBILE_GATE_IMAGE / MOBILE_GATE_CONTAINER: names no other worktree on this
+# daemon can also address. Sourced here rather than inside `do_docker` so the
+# id is one value for the whole run, and exported from there so
+# `check_pinned_import.sh` builds the same tag instead of a second one.
+# shellcheck source=scripts/gate_docker_names.sh
+. "$REPO_ROOT/scripts/gate_docker_names.sh"
+
 # Every stage, in run order: cheapest and most likely to fail first, so a
 # broken tree is reported in seconds rather than after a docker build.
 STAGES=(guard guard-range ruff contract client-routes cors api migration pinned-import shared mobile docker postgres e2e)
@@ -152,6 +159,19 @@ noran_why() {
 # Stage output is teed to a file so a failure can be re-printed at the end: on
 # an eight-stage run the thing that broke has otherwise scrolled off.
 have() { command -v "$1" >/dev/null 2>&1; }
+
+# A per-run tag is a new image every run, and this gate runs dozens of times a
+# day on a shared machine -- the fixed name it replaced at least got reused.
+# So the run that generated the name takes it back off, once, after its last
+# stage. Untagging leaves the layers, so the next run's build is still a cache
+# hit; what goes away is the dangling entry in `docker images`.
+gate_docker_cleanup() {
+  [ "${MOBILE_GATE_NAMES_INHERITED:-0}" = "1" ] && return 0
+  have docker || return 0
+  docker rm -f "$MOBILE_GATE_CONTAINER" >/dev/null 2>&1 || true
+  docker image rm -f "$MOBILE_GATE_IMAGE" >/dev/null 2>&1 || true
+}
+trap gate_docker_cleanup EXIT
 
 # --- stage bodies ---------------------------------------------------------
 
@@ -389,35 +409,35 @@ do_docker() {
   echo "--- base image pinned by digest"
   scripts/check_dockerfile_pinning.sh services/api/Dockerfile || return 1
   echo "--- build"
-  ( cd services/api && docker build -t mobile-api:gate . ) || return 1
+  ( cd services/api && docker build -t "$MOBILE_GATE_IMAGE" . ) || return 1
   echo "--- runs as a non-root user"
   local uid
-  uid="$(docker run --rm --entrypoint id mobile-api:gate -u)"
+  uid="$(docker run --rm --entrypoint id "$MOBILE_GATE_IMAGE" -u)"
   echo "container uid = $uid"
   [ "$uid" = "0" ] && { echo "ảnh chạy bằng root" >&2; return 1; }
   echo "--- no test tooling in the runtime image"
-  if docker run --rm --entrypoint sh mobile-api:gate -c "ls /venv/bin" | grep -qE '^(pytest|ruff)$'; then
+  if docker run --rm --entrypoint sh "$MOBILE_GATE_IMAGE" -c "ls /venv/bin" | grep -qE '^(pytest|ruff)$'; then
     echo "pytest hoặc ruff lọt vào ảnh chạy thật" >&2; return 1
   fi
   echo "--- the container actually serves /healthz"
   # No published host port, for the reason the workflow gives: curling the
   # host passes whenever *anything* answers on that port. Polling the
   # container's own HEALTHCHECK cannot be satisfied by a stranger.
-  docker rm -f mobile-api-gate >/dev/null 2>&1 || true
-  docker run -d --name mobile-api-gate mobile-api:gate >/dev/null || return 1
+  docker rm -f "$MOBILE_GATE_CONTAINER" >/dev/null 2>&1 || true
+  docker run -d --name "$MOBILE_GATE_CONTAINER" "$MOBILE_GATE_IMAGE" >/dev/null || return 1
   local i status
   for i in $(seq 1 60); do
-    status="$(docker inspect --format '{{.State.Health.Status}}' mobile-api-gate 2>/dev/null)"
+    status="$(docker inspect --format '{{.State.Health.Status}}' "$MOBILE_GATE_CONTAINER" 2>/dev/null)"
     case "$status" in
-      healthy) echo "container healthy sau ${i}s"; docker rm -f mobile-api-gate >/dev/null; return 0 ;;
-      unhealthy) echo "container unhealthy" >&2; docker logs mobile-api-gate; docker rm -f mobile-api-gate >/dev/null; return 1 ;;
+      healthy) echo "container healthy sau ${i}s"; docker rm -f "$MOBILE_GATE_CONTAINER" >/dev/null; return 0 ;;
+      unhealthy) echo "container unhealthy" >&2; docker logs "$MOBILE_GATE_CONTAINER"; docker rm -f "$MOBILE_GATE_CONTAINER" >/dev/null; return 1 ;;
     esac
-    if [ "$(docker inspect --format '{{.State.Running}}' mobile-api-gate 2>/dev/null)" != "true" ]; then
-      echo "container thoát trước khi healthy" >&2; docker logs mobile-api-gate; docker rm -f mobile-api-gate >/dev/null; return 1
+    if [ "$(docker inspect --format '{{.State.Running}}' "$MOBILE_GATE_CONTAINER" 2>/dev/null)" != "true" ]; then
+      echo "container thoát trước khi healthy" >&2; docker logs "$MOBILE_GATE_CONTAINER"; docker rm -f "$MOBILE_GATE_CONTAINER" >/dev/null; return 1
     fi
     sleep 1
   done
-  echo "container không bao giờ healthy" >&2; docker logs mobile-api-gate; docker rm -f mobile-api-gate >/dev/null; return 1
+  echo "container không bao giờ healthy" >&2; docker logs "$MOBILE_GATE_CONTAINER"; docker rm -f "$MOBILE_GATE_CONTAINER" >/dev/null; return 1
 }
 
 do_postgres() {

@@ -32,7 +32,27 @@ set -uo pipefail
 cd "$(dirname "$0")/.." || exit 2
 REPO_ROOT="$PWD"
 
-IMAGE="${MOBILE_PINNED_IMAGE:-mobile-api:gate}"
+# A fixed tag here was the same bug the docker stage had: five worktrees share
+# one daemon, so `mobile-api:gate` named whichever tree built last. Under
+# `scripts/gate.sh` the run id arrives in the environment and this build lands
+# on the tag the docker stage already filled; run on its own, this script
+# generates its own id and owns the cleanup. See scripts/gate_docker_names.sh.
+# shellcheck source=scripts/gate_docker_names.sh
+. "$REPO_ROOT/scripts/gate_docker_names.sh"
+IMAGE="${MOBILE_PINNED_IMAGE:-$MOBILE_GATE_IMAGE}"
+
+CANARY_DIR=""
+cleanup() {
+  [ -n "$CANARY_DIR" ] && rm -rf "$CANARY_DIR"
+  # Only the generator untags. Called from the gate the id is inherited, and
+  # the gate removes it once after its last stage -- untagging here would make
+  # the docker stage that runs three stages later build against nothing.
+  # An explicitly supplied MOBILE_PINNED_IMAGE belongs to the caller.
+  if [ "${MOBILE_GATE_NAMES_INHERITED:-0}" != "1" ] && [ -z "${MOBILE_PINNED_IMAGE:-}" ]; then
+    docker image rm -f "$IMAGE" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
 
 command -v docker >/dev/null 2>&1 || { echo "không có docker" >&2; exit 2; }
 docker info >/dev/null 2>&1 || { echo "docker daemon không chạy" >&2; exit 2; }
@@ -62,7 +82,6 @@ echo "fastapi trong ảnh = ${ACTUAL:-?} (pin: $PINNED)"
 # check has stopped being able to see the bug it exists for, and that is
 # reported as red -- a gate that has gone blind says so rather than passing.
 CANARY_DIR="$(mktemp -d)"
-trap 'rm -rf "$CANARY_DIR"' EXIT
 # The image runs as uid 10001 and `mktemp -d` is mode 700 owned by the calling
 # user, so without this the canary dies of ModuleNotFoundError before fastapi
 # is ever consulted -- a non-zero exit that would have been misread as "the
