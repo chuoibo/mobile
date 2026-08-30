@@ -40,7 +40,7 @@ DC = $(COMPOSE) -p $(PROJECT)
 WAIT_TIMEOUT ?= 300
 
 .DEFAULT_GOAL := help
-.PHONY: help gate gate-merge test-db e2e up down clean logs ps migrate db-check seed demo demo-check demo-watch demo-watch-status demo-watch-install smoke
+.PHONY: help gate gate-merge test-db e2e up down clean logs ps migrate db-check seed demo demo-check demo-data-check demo-watch demo-watch-status demo-watch-install smoke
 
 # `demo` phải gọi đúng bộ container mà `up` vừa dựng. Trên nhánh này biến đó là
 # $(COMPOSE); PR #60 (đang mở, cùng lane) đổi nó thành $(DC) = compose kèm
@@ -223,6 +223,23 @@ demo: ## Dựng hệ rồi nạp dữ liệu demo "Team Đà Lạt" — 7 ngư�
 demo-check: ## Hỏi máy demo có phục vụ ĐÚNG bộ route của main không — URL=, REF= để đổi đích
 	@python3 scripts/check_demo_matches_main.py \
 	  $(if $(URL),--url $(URL)) $(if $(REF),--ref $(REF)) $(if $(NOFETCH),--no-fetch)
+
+# `demo-check` ở trên so ĐƯỜNG DẪN và tự nói ra rằng nó "không nói gì về
+# database". Câu đó đúng, và ngày 30/08 nó tốn sáu tiếng: máy demo ĐẠT 76/76
+# route trong khi bảng `outings` rỗng, nên F13/F14/F15/F16 — bốn tính năng đã
+# xong, test xanh — đều hiện RỖNG trên chính cái máy leader sẽ bấm. Không cổng
+# nào đỏ, vì không cổng nào nhìn vào dữ liệu.
+#
+# Hai mục này là hai nửa của một câu hỏi và cần chạy cùng nhau: route đúng mà
+# dữ liệu rỗng vẫn là một cái demo hỏng.
+# Mã thoát: gọi QUA `make` thì đọc chữ, đừng đọc số. GNU make thoát 2 với mọi
+# recipe hỏng, nên nó ép cả "lệch" (1) lẫn "không đối chiếu được" (2) của script
+# thành một con số — đúng cái phân biệt ba trạng thái tồn tại để giữ. Chỗ nào
+# cần mã thoát thật thì gọi thẳng `python3 scripts/check_demo_data.py`, đó cũng
+# là cách dòng cron của `demo_watch.py` gọi. Không sửa được trong make: đây là
+# hành vi của chính make, không phải của target này (`demo-check` cũng vậy).
+demo-data-check: ## Hỏi bộ dữ liệu trên máy demo có dùng để demo được không — DSN= để đổi đích
+	@python3 scripts/check_demo_data.py $(if $(DSN),--dsn $(DSN))
 
 # `demo-check` ở trên là chỗ gọi TAY: nó chỉ chạy khi đã có người nghi ngờ, và
 # lúc đó thì đã không cần nó nữa. Máy demo lệch 16 commit vì suốt thời gian đó
