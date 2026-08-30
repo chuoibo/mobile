@@ -102,6 +102,19 @@
     // invisible at +07 and at UTC, and only shows up when the test runs itself
     // in a negative offset. That is a property of this module, not of a screen.
     "src/screens/ky-niem/ky-uc.ts",
+    // F38's moment line and refusal words. Compiled rather than read as source
+    // because the rules under test are boundary rules -- 59 seconds versus 61,
+    // six days versus seven -- and a source read cannot stand on either side of
+    // a boundary. The timezone case is the same shape as `ky-uc.ts` one line
+    // above: invisible at +07 and at UTC, visible only in a negative offset.
+    "src/screens/widget/widget.ts",
+    // The screen itself, for the two states a screenshot run never reaches.
+    // `quet-tab-url.mjs` drives the LOADED widget against a stub that always
+    // has a photograph, so "the group has none yet" and "the server refused"
+    // are rendered by nothing -- and the empty one is the state most likely to
+    // be wrong, because it is a 200 the client could mistake for a failure.
+    // Rendering it here reads the markup react-native-web really emits.
+    "src/screens/widget/Widget.tsx",
     // F01's number rules. The derivation itself moved to the server in
     // bug-140342 -- an unkeyed digest over 5x10^8 numbers is reversible -- so
     // what is compiled here is what the device still decides on its own: which
