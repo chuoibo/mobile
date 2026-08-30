@@ -3593,7 +3593,14 @@ class ApiService:
             allocation_result = allocate(_allocator_input(proposal))
         except AllocationError as exc:
             raise ApiProblem(422, exc.code, "Expense cannot be allocated") from exc
-        identity = self.repository.create_expense(proposal.context_id)
+        try:
+            identity = self.repository.create_expense(proposal.context_id)
+        except RepositoryConflict as exc:
+            if exc.code == "EXPENSE_CONTEXT_NOT_FOUND":
+                raise ApiProblem(
+                    404, "context_not_found", "Context does not exist"
+                ) from exc
+            raise
         return ExpenseProposalResponse(
             expense_id=identity.id,
             proposal=proposal,

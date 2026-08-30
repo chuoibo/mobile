@@ -58,7 +58,6 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-
 revision: str = "b3c7e0d24f19"
 down_revision: str | Sequence[str] | None = "d1e2f3a4b5c6"
 branch_labels: str | Sequence[str] | None = None
@@ -77,6 +76,12 @@ def _constraint_name(table: str) -> str:
 
 
 def upgrade() -> None:
+    # `--sql` (offline) mode has no database to ask, so `bind.execute` returns
+    # nothing to read a count from. The orphan check below is therefore skipped
+    # and both statements are emitted: a rendered script is read by a person
+    # before it runs, and VALIDATE failing loudly in front of them is the right
+    # outcome -- far better than a script that silently leaves the key unchecked.
+    offline = op.get_context().as_sql
     bind = op.get_bind()
 
     for table in MONEY_TABLES:
@@ -87,6 +92,10 @@ def upgrade() -> None:
                 f'FOREIGN KEY (context_id) REFERENCES "contexts" (id) NOT VALID'
             )
         )
+
+        if offline:
+            op.execute(sa.text(f'ALTER TABLE "{table}" VALIDATE CONSTRAINT "{name}"'))
+            continue
 
         # Đếm trước khi VALIDATE để phân biệt được hai kết cục. Chạy thẳng
         # VALIDATE rồi bắt lỗi cũng ra đúng kết quả, nhưng lúc đó không còn

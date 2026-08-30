@@ -3006,7 +3006,22 @@ class SqlAlchemyApiRepository:
     def create_expense(self, context_id: uuid.UUID) -> ExpenseIdentity:
         expense = Expense(context_id=context_id)
         self.session.add(expense)
-        self.session.flush()
+        try:
+            self.session.flush()
+        except IntegrityError as exc:
+            # `expenses.context_id` has referenced `contexts` since
+            # b3c7e0d24f19. `context_id` arrives straight from the request
+            # body, so naming a group nobody created is an ordinary thing for
+            # a caller to do -- and left alone the key answers it by throwing
+            # a `ForeignKeyViolation` out of this flush, which reaches the
+            # client as 500. Same house rule as the bill writes above: no
+            # integrity violation escapes as a raw database error.
+            constraint = getattr(
+                getattr(exc.orig, "diag", None), "constraint_name", None
+            )
+            if constraint == "fk_expenses_context_id":
+                raise RepositoryConflict("EXPENSE_CONTEXT_NOT_FOUND") from exc
+            raise
         return ExpenseIdentity(id=expense.id, context_id=expense.context_id)
 
     def get_expense(self, expense_id: uuid.UUID) -> ExpenseIdentity | None:

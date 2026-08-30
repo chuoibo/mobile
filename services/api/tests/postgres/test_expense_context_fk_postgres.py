@@ -45,7 +45,10 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.api.errors import ApiProblem, RepositoryConflict
 from app.api.repository import SqlAlchemyApiRepository
+from app.api.schemas import ExpenseInput
+from app.api.service import ApiService
 from app.db.models import Bill, CollectionBatch, Context, Expense, Person
 
 NOW = datetime(2030, 8, 30, 9, 0, tzinfo=UTC)
@@ -88,9 +91,10 @@ def _context_foreign_key(session: Session, table: str) -> dict[str, object] | No
     pinned to this test's own schema.
     """
 
-    row = session.execute(
-        text(
-            """
+    row = (
+        session.execute(
+            text(
+                """
             SELECT c.conname,
                    c.convalidated,
                    confrel.relname AS referenced_table,
@@ -104,9 +108,12 @@ def _context_foreign_key(session: Session, table: str) -> dict[str, object] | No
                AND c.contype = 'f'
                AND att.attname = 'context_id'
             """
-        ),
-        {"table": table},
-    ).mappings().one_or_none()
+            ),
+            {"table": table},
+        )
+        .mappings()
+        .one_or_none()
+    )
     return dict(row) if row else None
 
 
@@ -134,19 +141,42 @@ def test_money_table_context_id_points_at_contexts(
 def test_ledger_refuses_an_expense_for_a_group_that_does_not_exist(
     postgres_session: Session,
 ) -> None:
-    """The exact row the demo database is full of, through the real write path.
+    """The exact row the demo database is full of, refused by the schema.
 
-    `SqlAlchemyApiRepository.create_expense` takes `context_id` straight from
-    the request body and writes it. This asserts against that method rather
-    than against a hand-built model so the guarantee covers the code the API
-    actually runs.
+    Written against the table rather than through
+    `SqlAlchemyApiRepository.create_expense`, on purpose. That method now
+    catches the violation and re-raises it as a `RepositoryConflict` so the
+    API can answer 404 instead of 500 -- which means asserting through it
+    would prove the *translation* works and say nothing about whether the
+    constraint is still there. Someone could delete the foreign key and that
+    test would keep passing right up until it stopped raising anything at all.
+
+    So this one talks to PostgreSQL directly, and
+    `test_naming_a_group_that_does_not_exist_is_refused_in_words` covers the
+    translation separately.
+    """
+
+    postgres_session.add(Expense(id=uuid.uuid4(), context_id=DEMO_ORPHAN_CONTEXT_ID))
+    with pytest.raises(IntegrityError):
+        postgres_session.flush()
+
+
+def test_the_repository_turns_that_refusal_into_a_conflict_not_a_crash(
+    postgres_session: Session,
+) -> None:
+    """`create_expense` takes `context_id` straight from the request body.
+
+    Naming a group that does not exist is an ordinary thing for a caller to
+    do, so it must not arrive as a raw database error. Same house rule the
+    bill writes already follow.
     """
 
     repository = SqlAlchemyApiRepository(postgres_session)
 
-    with pytest.raises(IntegrityError):
+    with pytest.raises(RepositoryConflict) as caught:
         repository.create_expense(DEMO_ORPHAN_CONTEXT_ID)
-        postgres_session.flush()
+
+    assert caught.value.code == "EXPENSE_CONTEXT_NOT_FOUND"
 
 
 def test_ledger_refuses_a_bill_for_a_group_that_does_not_exist(
@@ -203,6 +233,43 @@ def test_deleting_a_group_that_still_holds_money_is_refused(
             text("DELETE FROM contexts WHERE id = :id"), {"id": context.id}
         )
         postgres_session.flush()
+
+
+def test_naming_a_group_that_does_not_exist_is_refused_in_words(
+    postgres_session: Session,
+) -> None:
+    """A foreign key answers correctly, but it answers in the wrong voice.
+
+    `propose_expense` takes `context_id` straight from the request body and
+    writes it. Before the key, a group nobody created was accepted in silence.
+    With the key and nothing else, the same request becomes a
+    `ForeignKeyViolation` escaping the service as a 500 -- the client is told
+    the server broke, when what happened is that they named something that is
+    not there.
+
+    So the service asks first. The database keeps the constraint, because the
+    check and the write are not one transaction and a group can be deleted
+    between them; this only decides which of the two speaks to the caller.
+    """
+
+    service = ApiService(SqlAlchemyApiRepository(postgres_session))
+    payer = _person(postgres_session, "Trang")
+
+    with pytest.raises(ApiProblem) as caught:
+        service.propose_expense(
+            ExpenseInput(
+                context_id=DEMO_ORPHAN_CONTEXT_ID,
+                recorded_by_id=payer.id,
+                paid_by_id=payer.id,
+                verification_scope="totals_only",
+                occurred_at=NOW,
+                participants=[payer.id],
+                total_amount_vnd=90_000,
+            )
+        )
+
+    assert caught.value.status_code == 404
+    assert caught.value.code == "context_not_found"
 
 
 def test_an_expense_for_a_real_group_is_still_written(
