@@ -21,6 +21,7 @@ from app.api.errors import ApiProblem
 from app.api.repository import ApiRepository
 from app.api.schemas import (
     ChatExpenseDraftResponse,
+    CompanionTurnRequest,
     CompanionTurnResponse,
     ErrorResponse,
     MemberRoleRequest,
@@ -183,6 +184,7 @@ def take_companion_turn(
     companion: Annotated[Companion, Depends(get_companion)],
     repository: Annotated[ApiRepository, Depends(get_repository)],
     limiter: Annotated[FixedWindowLimiter, Depends(get_companion_turn_limiter)],
+    request: CompanionTurnRequest | None = None,
 ) -> CompanionTurnResponse:
     """One companion turn, capped per caller before the model is reached.
 
@@ -196,10 +198,23 @@ def take_companion_turn(
     order that spares those calls is the order that lets a loop drive the
     expensive path for free, because which one a request becomes is decided by
     the caller. Thirty a minute is far above anyone typing and far below a loop.
+
+    That ordering is also why `requested` is safe to accept from the client. It
+    lifts the cadence, never the window: a caller that sets it on every request
+    buys the same thirty turns a minute as one that never sets it.
+
+    The body is optional because the shipped client sends none -- it posts this
+    route with a JSON content type over zero bytes, so a required model would
+    turn every AI turn in the product into a 422.
     """
 
     limiter.check(actor.id)
-    return ApiService(repository).take_companion_turn(context_id, actor, companion)
+    return ApiService(repository).take_companion_turn(
+        context_id,
+        actor,
+        companion,
+        requested=request.requested if request is not None else False,
+    )
 
 
 @router.put(
