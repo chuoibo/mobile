@@ -24,6 +24,17 @@ from pydantic import (
 MoneyVnd = Annotated[int, Field(strict=True)]
 PositiveMoneyVnd = Annotated[int, Field(strict=True, gt=0)]
 NonNegativeMoneyVnd = Annotated[int, Field(strict=True, ge=0)]
+RelativePhotoUrl = Annotated[
+    StrictStr,
+    Field(
+        pattern=(
+            r"\A/contexts/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-"
+            r"[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/photos/"
+            r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+            r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\z"
+        )
+    ),
+]
 
 
 class ApiModel(BaseModel):
@@ -264,7 +275,7 @@ class FinanceMovementView(ApiModel):
 
     obligation_id: UUID
     direction: Literal["in", "out"]
-    amount_vnd: int
+    amount_vnd: MoneyVnd
     counterparty_id: UUID
     counterparty_name: StrictStr | None
     context_id: UUID
@@ -282,9 +293,9 @@ class PersonFinanceResponse(ApiModel):
 
     person_id: UUID
     display_name: StrictStr | None
-    spend_vnd: int
-    settled_vnd: int
-    outstanding_vnd: int
+    spend_vnd: MoneyVnd
+    settled_vnd: MoneyVnd
+    outstanding_vnd: MoneyVnd
     expense_count: int
     group_count: int
     movements: list[FinanceMovementView]
@@ -352,10 +363,33 @@ class OutingTimelineRequest(ApiModel):
 
 
 class OutingStopResponse(ApiModel):
+    id: UUID
     position: int
     at: str
     label: str
     place_name: str | None
+
+
+class StopCheckinResponse(ApiModel):
+    """One arrival, named by person and moment.
+
+    There is no latitude, longitude or accuracy on this model on purpose, and
+    no request body to match it: F46 is somebody pressing "đã tới", not the
+    phone reporting where it is. A coordinate attached to a person and a time
+    is a movement record, and the group timeline is read by everyone in the
+    group -- see `OutingStopCheckin` for why the column does not exist at all.
+    """
+
+    id: UUID
+    stop_id: UUID
+    person_id: UUID
+    display_name: str | None
+    created_at: datetime
+
+
+class OutingCheckinListResponse(ApiModel):
+    outing_id: UUID
+    checkins: list[StopCheckinResponse]
 
 
 class OutingResponse(ApiModel):
@@ -366,7 +400,7 @@ class OutingResponse(ApiModel):
     starts_on: date
     ends_on: date
     headcount: int
-    budget_per_person_vnd: int
+    budget_per_person_vnd: MoneyVnd
     created_at: datetime
     stops: list[OutingStopResponse]
 
@@ -473,6 +507,8 @@ class OutingInviteResponse(ApiModel):
     invited_person_id: UUID | None
     invited_by_id: UUID
     created_at: datetime
+    expires_at: datetime
+    revoked_at: datetime | None
     invite_token: str | None
     invite_path: str | None
 
@@ -496,9 +532,23 @@ class MemberRoleRequest(ApiModel):
 
 
 class MembershipResponse(ApiModel):
+    """One person's standing in one group, including who they are.
+
+    `display_name` is required rather than optional because the database makes
+    it so: `memberships.person_id` is a foreign key into `people`, whose
+    `display_name` is `NOT NULL`. An optional field would have invited every
+    client to invent its own placeholder, and a placeholder shared by two
+    unnamed people reads as one person on the screen whose job is telling them
+    apart.
+
+    Nothing may be derived from it. It repeats inside a group, it changes, and
+    identity stays the id.
+    """
+
     id: UUID
     context_id: UUID
     person_id: UUID
+    display_name: StrictStr
     state: Literal["invited", "active", "left"]
     role: Literal["member", "admin"]
     invited_by_id: UUID | None
@@ -534,24 +584,248 @@ class ContextBalancesResponse(ApiModel):
     transfer_count: Annotated[int, Field(strict=True, ge=0)]
 
 
+class RecapOutingResponse(ApiModel):
+    """One trip on the recap -- finished, or still under way.
+
+    `split_total_vnd` is recomputed from the ledger per request. It counts the
+    expenses that happened on this trip's days, which is a rule the screen
+    states out loud -- there is no `expenses.outing_id` to be exact with.
+
+    For a trip still under way that same rule reads as "so far": the trip's
+    days run past today, and only the expenses already confirmed are in the
+    ledger to be counted. The figure is a running one, and it is recomputed
+    rather than accumulated, so it can go *down* when somebody corrects a bill.
+    """
+
+    outing_id: UUID
+    title: str
+    starts_on: date
+    ends_on: date
+    headcount: int
+    stops: list[OutingStopResponse]
+    split_total_vnd: MoneyVnd
+    expense_count: int
+    memory_count: int
+
+
+class GroupRecapResponse(ApiModel):
+    """Two lists, deliberately not one.
+
+    `outings` is the memory wall: trips that have ended, newest first. It is
+    unchanged, because a client is already reading it.
+
+    `in_progress` is the trip the group is on right now -- started on or before
+    today, ending today or later. It is separate rather than flagged inside
+    `outings` so that adding it could not quietly turn an unfinished trip into
+    a memory.
+
+    `split_total_vnd` totals `outings` alone. A memory wall's total that drifted
+    upward through the day, as the group kept eating, would stop matching the
+    per-trip figures printed under it.
+    """
+
+    context_id: UUID
+    outings: list[RecapOutingResponse]
+    in_progress: list[RecapOutingResponse]
+    split_total_vnd: MoneyVnd
+
+
+class BudgetOutingView(ApiModel):
+    outing_id: UUID
+    title: StrictStr
+    headcount: Annotated[int, Field(strict=True, ge=0)]
+    budget_per_person_vnd: NonNegativeMoneyVnd
+    spent_per_person_vnd: NonNegativeMoneyVnd
+    remaining_per_person_vnd: MoneyVnd
+    over_budget: StrictBool
+
+    @model_validator(mode="after")
+    def _remaining_matches_spend(self) -> BudgetOutingView:
+        expected = self.budget_per_person_vnd - self.spent_per_person_vnd
+        if self.remaining_per_person_vnd != expected:
+            raise ValueError("remaining must be budget minus spent")
+        if self.over_budget != (self.remaining_per_person_vnd < 0):
+            raise ValueError("over_budget must match the remaining sign")
+        return self
+
+
+class BudgetComparison(ApiModel):
+    candidate_per_person_vnd: NonNegativeMoneyVnd
+    delta_vnd: MoneyVnd
+    verdict: Literal["re-hon", "nhu-thuong", "cao-hon"]
+
+
+class GroupBudgetResponse(ApiModel):
+    context_id: UUID
+    outing_count: Annotated[int, Field(strict=True, ge=0)]
+    active_member_count: Annotated[int, Field(strict=True, ge=0)]
+    avg_per_person_vnd: MoneyVnd | None
+    in_progress: list[BudgetOutingView]
+    comparison: BudgetComparison | None
+
+    @model_validator(mode="after")
+    def _comparison_has_a_real_baseline(self) -> GroupBudgetResponse:
+        if self.comparison is not None:
+            if self.avg_per_person_vnd is None:
+                raise ValueError("comparison requires a historical average")
+            expected = (
+                self.comparison.candidate_per_person_vnd
+                - self.avg_per_person_vnd
+            )
+            if self.comparison.delta_vnd != expected:
+                raise ValueError("comparison delta must be candidate minus average")
+        return self
+
+
+class SuggestionPlace(ApiModel):
+    """The catalogue row behind one stop, and nothing the model wrote.
+
+    No `lat`/`lng`. The suggestion is about where a group might go next, not
+    about where anybody is, and a coordinate pair on this response would be
+    the first place F47 looked like it had been built.
+    """
+
+    id: str
+    name: str
+    category: str
+    address: str
+    price_min_vnd: MoneyVnd
+    price_max_vnd: MoneyVnd
+    rating: float
+    distance_km: float
+    open_hours: str
+
+
+class SuggestionStop(ApiModel):
+    """One stop. `reason` and `verdict` are one claim or neither.
+
+    The app prints `reason` under the words AI MATCH and prints the badge from
+    `verdict`, so half a pair renders as an endorsement nobody gave. They are
+    tied in `app/domain/suggestion.py`, at the single point every stop passes
+    through, rather than at each place that builds one of these.
+    """
+
+    time_text: str
+    note: str
+    reason: str | None
+    verdict: Literal["hop", "tam", "khong-hop"] | None
+    place: SuggestionPlace
+
+
+class SuggestionBasis(ApiModel):
+    """Why this suggestion, computed by the server from the group's own rows.
+
+    Recomputed per request from the ledger and the memory wall -- invariant 3
+    applied to a screen whose whole argument is "you have done this before".
+    Deliberately not asked of the model: a basis the model wrote would be a
+    number with nothing behind it, printed directly under one that has.
+    """
+
+    outing_count: int
+    split_total_vnd: MoneyVnd
+    avg_per_person_vnd: MoneyVnd | None
+    top_categories: list[str]
+    recent_titles: list[str]
+
+
+class GroupSuggestionResponse(ApiModel):
+    """F32. `suggested` is the honest half of the contract.
+
+    `false` with a reason is a real answer -- a group with no finished trips
+    has nothing to suggest from, and a model outage is not something to paper
+    over with a hand-written card. There is deliberately no fallback: a
+    plausible card served while the feature is broken is a broken feature
+    nobody can see is broken.
+    """
+
+    context_id: UUID
+    suggested: bool
+    #: `ok` | `no_history` | `unavailable` | `ungrounded`
+    reason: str
+    title: str | None
+    when_text: str | None
+    stops: list[SuggestionStop]
+    basis: SuggestionBasis
+    #: A claim about who wrote the sentences on these cards.
+    source: Literal["ai", "none"]
+
+
+class UploadedImageResponse(ApiModel):
+    id: UUID
+    context_id: UUID | None
+    url: str
+    content_type: str
+    byte_size: int
+    width: int
+    height: int
+    created_at: datetime
+
+
 class MemoryCreateRequest(ApiModel):
-    image_url: Annotated[StrictStr, Field(min_length=1)]
+    image_url: RelativePhotoUrl
     caption: str | None = None
+
+
+class CheckinCreateRequest(ApiModel):
+    """F46. The group arrived somewhere, and only the group says where.
+
+    One field names the place and nothing describes it. The name and the
+    coordinates are looked up server-side from `app/places/catalog.py`, so a
+    caller cannot assert that the group was at "Nhà tôi, 0.0, 0.0" or move a
+    real venue by a kilometre -- the same rule `POST /expenses` follows about
+    who is allowed to state a fact. An unknown `place_id` is a 422 rather than
+    a row: a check-in at a place this product has never heard of is a mark on
+    a timeline that no screen can open.
+
+    There is no latitude or longitude on this request on purpose. Reading the
+    phone's GPS is F47 and is not built; taking coordinates from the body
+    would let this route *look* like it had been.
+    """
+
+    place_id: Annotated[StrictStr, Field(min_length=1, max_length=200)]
+    caption: Annotated[str, Field(max_length=2000)] | None = None
 
 
 class MemoryQuery(ApiModel):
     limit: int = Field(default=50, ge=1, le=100)
     before: str | None = None
+    #: Narrows the wall to one kind, or to one place's check-ins. Both are
+    #: filters on top of the membership gate, never instead of it.
+    kind: Literal["photo", "checkin"] | None = None
+    place_id: str | None = None
 
 
 class MemoryResponse(ApiModel):
+    """One row of the wall.
+
+    `image_url` and the four place fields are mutually exclusive by database
+    constraint, and `kind` says which pair of shoes this row is wearing so a
+    reader never has to infer it from which field happens to be null.
+    """
+
     id: UUID
     context_id: UUID
     author_id: UUID
-    image_url: str
+    kind: Literal["photo", "checkin"]
+    image_url: str | None
     caption: str | None
+    place_id: str | None
+    place_name: str | None
+    #: Group-private, at the same rank as a phone number. It leaves the server
+    #: only on this response, which every route behind it gates on membership.
+    lat: float | None
+    lng: float | None
     created_at: datetime
     cursor: str
+    #: F40/F41. The mockup draws "❤️ 18 · 💬 6" under every row, so the feed
+    #: carries both totals. Recomputed per read from the reaction and comment
+    #: rows -- never a stored counter, which would be a cache standing in for
+    #: the sum it is meant to summarise.
+    reaction_count: int = 0
+    comment_count: int = 0
+    #: Whether the actor making *this* request left a heart. It is a fact about
+    #: the reader, so it is answered per request and never cached in a row.
+    viewer_has_reacted: bool = False
 
 
 class MemoryListResponse(ApiModel):
@@ -561,10 +835,61 @@ class MemoryListResponse(ApiModel):
     has_more: bool
 
 
+class MemoryReactionResponse(ApiModel):
+    """F40. One heart, named by who left it.
+
+    `person_id` is echoed from the actor and never read off the request body.
+    A body field naming the reactor would let anyone with a session put a
+    heart under somebody else's name -- the shape that opened six holes on the
+    money routes, avoided here by not offering the field at all.
+    """
+
+    id: UUID
+    memory_id: UUID
+    person_id: UUID
+    created_at: datetime
+    #: The total after this write, so a client need not re-read the feed to
+    #: redraw one number.
+    reaction_count: int
+
+
+class MemoryCommentCreateRequest(ApiModel):
+    """F41. What one member wants to say under one photograph.
+
+    One field. There is deliberately no `author_id` here: the writer is the
+    caller, proved by the gateway, not a name the body gets to assert.
+    """
+
+    body: Annotated[StrictStr, Field(min_length=1, max_length=2000)]
+
+
+class MemoryCommentResponse(ApiModel):
+    """One comment as it goes back to a member of the group that owns it.
+
+    `body` is group-private. It leaves the server only on this model and on
+    the list below, both of which sit behind `view_group_memories`. The guest
+    page builds its view model from a whitelist (`app/web/guest_view.py`) that
+    has no slot for any of these fields, so this text cannot reach a link
+    holder standing outside the group.
+    """
+
+    id: UUID
+    memory_id: UUID
+    author_id: UUID
+    display_name: str | None
+    body: str
+    created_at: datetime
+
+
+class MemoryCommentListResponse(ApiModel):
+    memory_id: UUID
+    comments: list[MemoryCommentResponse]
+
+
 class MessageCreateRequest(ApiModel):
     kind: Literal["text", "image", "ai_card"]
     body: Annotated[StrictStr, Field(max_length=4000)] | None = None
-    image_url: Annotated[StrictStr, Field(max_length=2000)] | None = None
+    image_url: RelativePhotoUrl | None = None
     card: dict | None = None
 
 
@@ -584,6 +909,35 @@ class MessageResponse(ApiModel):
     card: dict | None
     created_at: datetime
     cursor: str
+
+
+class ChatExpenseDraft(ApiModel):
+    """A model-read draft whose identities come only from stored group facts."""
+
+    title: StrictStr
+    amount_vnd: PositiveMoneyVnd
+    paid_by_id: UUID
+    shared_by: list[UUID]
+    needs_review: StrictBool
+
+
+class ChatExpenseDraftResponse(ApiModel):
+    context_id: UUID
+    message_id: UUID
+    detected: StrictBool
+    draft: ChatExpenseDraft | None
+    reason: StrictStr | None
+
+    @model_validator(mode="after")
+    def _detection_matches_payload(self) -> ChatExpenseDraftResponse:
+        if self.detected != (self.draft is not None):
+            raise ValueError("detected must match whether draft is present")
+        if self.detected:
+            if self.reason is not None:
+                raise ValueError("a detected expense must not carry a refusal reason")
+        elif self.reason is None or not self.reason.strip():
+            raise ValueError("an undetected message must explain why")
+        return self
 
 
 class CompanionTurnResponse(ApiModel):
@@ -691,6 +1045,16 @@ class ReceiptScanResponse(ApiModel):
     total_difference_vnd: MoneyVnd | None = None
     needs_review: StrictBool
     warnings: list[StrictStr] = Field(default_factory=list)
+
+
+class ScreenshotScanResponse(ApiModel):
+    """One model-read transaction draft with no identity channel."""
+
+    source: Literal["grab", "shopeefood", "banking", "receipt"]
+    merchant: StrictStr
+    total_vnd: PositiveMoneyVnd
+    occurred_on: date | None
+    needs_review: StrictBool
 
 
 class ReceiptConfirmationRequest(ApiModel):
@@ -807,3 +1171,234 @@ class BatchObligationsResponse(ApiModel):
 class ErrorResponse(ApiModel):
     code: StrictStr
     detail: StrictStr
+
+
+# --- friend graph (F03, F04) ------------------------------------------------
+
+
+class FriendRequestCreate(ApiModel):
+    """Who to ask. The requester is the actor header, never the body.
+
+    Taking `requester_id` from the body would let anybody send requests in
+    somebody else's name, and the recipient would see a request from a person
+    who never sent it.
+    """
+
+    addressee_id: UUID
+
+
+class FriendRequestDecision(ApiModel):
+    """The addressee's answer. Accepting is one of three, not the default."""
+
+    decision: Literal["accept", "decline", "block"]
+
+
+class FriendRequestResponse(ApiModel):
+    """One edge, as its two parties may see it.
+
+    `other_display_name` is the name of whoever the reader is not, resolved by
+    the repository. No telephone number appears in this model, and none can:
+    the server never stored one -- see `app/api/person_identity.py`.
+    """
+
+    id: UUID
+    requester_id: UUID
+    addressee_id: UUID
+    other_person_id: UUID
+    other_display_name: str
+    state: Literal["pending", "accepted", "declined", "blocked"]
+    created_at: datetime
+    decided_at: datetime | None = None
+
+
+class FriendRequestListResponse(ApiModel):
+    requests: list[FriendRequestResponse]
+
+
+class FriendSummary(ApiModel):
+    person_id: UUID
+    display_name: str
+    friends_since: datetime
+
+
+class FriendListResponse(ApiModel):
+    friends: list[FriendSummary]
+
+
+class PersonMatchResponse(ApiModel):
+    """The answer to "who holds this number".
+
+    An id and a name. Deliberately not a telephone number, not an email, not a
+    group list, not a friend count -- the caller supplied the only identifier
+    in this exchange, and gets back the least the product needs to render
+    "Send a friend request to Binh?".
+    """
+
+    person_id: UUID
+    display_name: str
+
+
+# ---------------------------------------------------------------------------
+# F43 / F44 / F45 -- where the group goes
+#
+# Every model below is an *aggregate*. None of them carries a person id or a
+# timestamp, and that is a property of the shapes rather than of the code that
+# fills them: there is no field here in which an author could be returned.
+# `app/places/social_map.py` explains why the audience never widens.
+# ---------------------------------------------------------------------------
+
+
+class MapPlace(ApiModel):
+    """A pin. A place and where it is, with no visit attached."""
+
+    place_id: StrictStr
+    place_name: StrictStr
+    lat: float
+    lng: float
+    rating: float
+    rating_count: int
+
+
+class VisitedPlace(ApiModel):
+    """A pin the group has actually been to, and how often.
+
+    `visit_count` and nothing else. Not "last visited", which is a timestamp in
+    a friendlier coat, and not "visited by", which is the field this product
+    refuses to compute.
+    """
+
+    place_id: StrictStr
+    place_name: StrictStr
+    lat: float
+    lng: float
+    visit_count: int
+
+
+class UnavailableLayer(ApiModel):
+    """A layer the map does not have, named rather than silently empty.
+
+    An empty `saved` array renders as "you have saved nothing", which is a
+    claim about the group. "This is not built" is a claim about the product,
+    and only the second one is true.
+    """
+
+    layer: StrictStr
+    reason: StrictStr
+
+
+class SocialMapResponse(ApiModel):
+    """F43. Four layers were specified; three are served and one is declared.
+
+    `scanned` and `truncated` disclose how much history the counts were built
+    from. A map summarising the first 500 check-ins of 900 and presenting
+    itself as the group's habits is wrong in a way no reader could detect, so
+    the bound ships with the answer.
+    """
+
+    context_id: UUID
+    visited: list[VisitedPlace]
+    trending: list[MapPlace]
+    recommended: list[MapPlace]
+    unavailable: list[UnavailableLayer]
+    scanned_checkins: int
+    truncated: bool
+
+
+class HeatmapArea(ApiModel):
+    id: StrictStr
+    label: StrictStr
+    lat: float
+    lng: float
+    visit_count: int
+    share_percent: int
+
+
+class GroupHeatmapResponse(ApiModel):
+    """F44. Districts and counts -- the resolution is the privacy design.
+
+    `unknown_area_count` is the number of check-ins that fell outside every
+    district this product knows. Disclosed because a heatmap built from a
+    fraction of the history, presented as the whole of it, is a confident
+    wrong answer.
+    """
+
+    context_id: UUID
+    areas: list[HeatmapArea]
+    resolved_checkins: int
+    unknown_area_count: int
+    scanned_checkins: int
+    truncated: bool
+
+
+class MeetingPointRequest(ApiModel):
+    """F45 input: areas, never people.
+
+    There is no member field, and its absence is the feature. The mapping from
+    a person to an area stays on the phone that knows it; this server receives
+    an unlabelled multiset and therefore cannot disclose what it never held.
+    See `app/places/meeting.py`.
+    """
+
+    from_areas: list[StrictStr]
+
+
+class AreaSummary(ApiModel):
+    """A district and the centroid every distance to it was measured from."""
+
+    id: StrictStr
+    label: StrictStr
+    lat: float
+    lng: float
+
+
+class MeetingLeg(AreaSummary):
+    """One journey, attributed to an area and to no one."""
+
+    km: float
+
+
+class MeetingFairness(ApiModel):
+    """The arithmetic behind the ranking, so "cân bằng" is checkable.
+
+    `worst_km` is the primary sort key: the longest journey anybody makes.
+    Ranking on `total_km` instead would send the group to whichever district
+    most of them already live in and hand the whole cost to the person
+    furthest out, which is the opposite of meeting in the middle.
+    """
+
+    worst_km: float
+    total_km: float
+    spread_km: float
+
+
+class MeetingCandidate(ApiModel):
+    place_id: StrictStr
+    place_name: StrictStr
+    category: StrictStr
+    address: StrictStr
+    lat: float
+    lng: float
+    fairness: MeetingFairness
+    travel: list[MeetingLeg]
+
+
+class MeetingPointResponse(ApiModel):
+    """F45 output: a meeting point, and the sums that justify it.
+
+    `origins` echoes the areas the caller sent, resolved to their labels and
+    centroids. Echoing is safe and necessary: the caller supplied them, and
+    every kilometre in `travel` is measured from those centroids, so without
+    them the fairness numbers could not be checked.
+
+    `two_origin_inversion` is set when exactly two areas were supplied. With
+    two origins the meeting point is invertible -- one origin plus the answer
+    yields the other. That discloses nothing *here*, because both came from
+    this caller a moment ago, but a screen that gathers areas from two members
+    and shows the result to both has told each of them where the other is.
+    The flag exists so that screen can say so before it does that.
+    """
+
+    context_id: UUID
+    origins: list[AreaSummary]
+    candidates: list[MeetingCandidate]
+    two_origin_inversion: bool

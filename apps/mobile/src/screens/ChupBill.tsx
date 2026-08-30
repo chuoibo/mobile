@@ -91,26 +91,49 @@ export function ChupBill(props: {
           gap: space.md,
         }}
       >
-        {/* The second line is the mockup's, verbatim, and half of it is not
-            true of this build: nothing auto-captures. A person presses the
-            shutter. The reading afterwards is real -- `POST /receipts/scan`
-            against Gemini -- so "nhận diện" holds and "tự động chụp" does not.
-            Kept verbatim because the copy is a specified deliverable and
-            rewriting a spec line is not this lane's call, but flagged here and
-            to the lead rather than left to be discovered in a demo. Auto-capture
-            is a real feature (frame-stability detection); if it is not going to
-            be built, this line should become "AI sẽ nhận diện từng món ngay sau
-            khi chụp". */}
+        {/* The second line no longer promises auto-capture, because this build
+            does not have it: a person presses the shutter. The previous pass
+            kept the mockup's wording verbatim on the grounds that rewriting a
+            spec line is not this lane's call, and flagged it. Resolving it now,
+            because the spec contradicts itself rather than being overridden:
+            the same mockup sheet's own feature card says "Chụp bill hoặc chọn
+            ảnh · Rủ Đi AI tự động căn chỉnh, loại bỏ nhiễu và trích xuất thông
+            tin", i.e. the person takes the photo and what is automatic is the
+            reading. That half matches the build. The phone-screen line was the
+            half that did not, and shipping it means a demo where someone holds
+            the camera steady waiting for a shutter that never fires.
+            The reading itself is real (`POST /receipts/scan` against Gemini),
+            so "nhận diện" is kept and only "tự động chụp" goes. If frame
+            stability detection is built later, this line comes back. */}
         {/* Hidden during the read. It is an instruction for framing a shot, and
             leaving it up while the photo is already being read told a person to
             line up a bill that had been taken several seconds ago. */}
         {busy ? null : (
-          <View style={{ alignItems: "center", gap: 4, paddingHorizontal: space.md }}>
-            <Text style={{ ...type.body, color: WHITE, fontWeight: "600", textAlign: "center" }}>
+          // No `paddingHorizontal` of its own: the parent already insets this
+          // column by `space.lg`, and the extra `space.md` on each side was
+          // costing 32px that the instruction needs. Measured at 28px: the
+          // sentence is 305.2px wide, so with the double inset it wrapped to two
+          // lines at 360px viewport and fitted only from 390px up. Without it,
+          // one line from 360px up.
+          // Still two lines at 320px, breaking as "Đưa bill vào khung" / "hình".
+          // Left as is rather than hidden: it does not overflow at that width
+          // (measured), and the alternative is a hand-placed break that would be
+          // wrong at every other size. Worth revisiting only if a 320px device
+          // is actually a target.
+          <View style={{ alignItems: "center", gap: 4 }}>
+            {/* `type.h1`, not `type.body`. This is the screen's own voice -- the
+                one sentence telling a person what to do -- and at the card step
+                it rendered SMALLER than the nav chrome above it (20px title vs
+                16px body), so the frame outranked the instruction. `DangDocBill`
+                already gives this same slot `h1` once the read starts, on the
+                stated grounds that whatever covers this screen is its title; the
+                resting state now agrees with the busy state instead of
+                contradicting it. */}
+            <Text style={{ ...type.h1, color: WHITE, textAlign: "center" }}>
               Đưa bill vào khung hình
             </Text>
             <Text style={{ ...type.label, color: WHITE_SOFT, textAlign: "center" }}>
-              AI sẽ tự động chụp và nhận diện
+              AI sẽ nhận diện từng món ngay sau khi chụp
             </Text>
           </View>
         )}
@@ -239,13 +262,17 @@ export function ChupBill(props: {
           does no work. It really does none -- what separates this line from
           the instruction above it is weight and a dimmer white, not one point
           of size -- so dropping it leaves 13 / 16 / 20.
-          What that did and did not buy, because the difference matters: the
-          rendered scan reports `flat-type-hierarchy` before and after, one
-          finding either way. The scale underneath it went from five sizes to
-          three. The finding survives because this screen's largest text is
-          20px, and it is not fixable from here without contradicting the
-          mockup, which gives the screen a compact nav title and puts the
-          hierarchy in the viewfinder and the shutter rather than in type. */}
+          That left `flat-type-hierarchy` standing at 20/13 = 1.5:1, and the
+          note here used to say it was unfixable without contradicting the
+          mockup. That was the wrong end of the scale to look at. The nav title
+          is NOT movable -- `KetQuaNhanDien`, `GoiYChia` and `KetQuaThanhToan`
+          all title their nav bar at `type.title`, so shrinking this one alone
+          would buy the rule at the cost of the convention. What was movable was
+          the top: this screen simply had no screen-level heading, so its
+          largest text was chrome. Promoting the instruction to `h1` gives the
+          scale a real top step at 28px (28/13 = 2.2:1) instead of flattening
+          the bottom, which is also what the rule's own advice asks for --
+          "fewer sizes with more contrast", not "more sizes". */}
       <Text
         style={{
           ...type.label,
@@ -329,7 +356,13 @@ function DangDocBill({ giaiDoan }: { giaiDoan: GiaiDoanDocBill | null }) {
       }}
     >
       <ActivityIndicator size="large" color={WHITE} />
-      <Text style={{ ...type.title, color: WHITE, textAlign: "center" }}>{tieuDe}</Text>
+      {/* `type.h1`, not `type.title`. This overlay covers the whole screen, so
+          this line is the screen title while it shows, and DESIGN.md gives the
+          `h1` step to "tiêu đề màn" -- `title` is the card step. Rendering it at
+          the card step left the screen running 13/16/20, a 1.5:1 spread that
+          reads as one size in three weights. Same mistake `theme.ts` documents
+          having found elsewhere; this screen was still making it. */}
+      <Text style={{ ...type.h1, color: WHITE, textAlign: "center" }}>{tieuDe}</Text>
       <Text style={{ ...type.label, color: WHITE_SOFT, textAlign: "center" }}>{than}</Text>
       <Text style={{ ...type.label, color: WHITE_SOFT, textAlign: "center" }}>
         Đã chờ {giay} giây

@@ -48,6 +48,23 @@ FROM ${PYTHON_IMAGE} AS runtime
 RUN useradd --create-home --uid 10001 app
 WORKDIR /srv
 
+# The mount point for uploaded photos, created here so that it is owned by the
+# runtime user. This is not decoration: Docker copies ownership from the image
+# when it first populates an empty named volume, and when the path is ABSENT
+# from the image it creates the mount point as root:root 0755 instead. Measured
+# on this image, uid 10001 writing into a fresh volume at a path the image does
+# not contain:
+#
+#   drwxr-xr-x 2 0 0 /var/lib/rudi/media
+#   touch: cannot touch '/var/lib/rudi/media/x': Permission denied
+#
+# So a compose file that mounts a volume here without this line does not lose
+# photos on rebuild -- it refuses to store them at all, which is worse, because
+# the failure arrives on the first upload rather than on the first rebuild.
+# `/var/lib` and not `/srv`: /srv holds the application code, and a writable
+# directory inside the code tree is how an upload path turns into a code path.
+RUN mkdir -p /var/lib/rudi/media && chown app:app /var/lib/rudi/media
+
 # /venv stays root-owned on purpose: the app may read its dependencies, not
 # rewrite them.
 COPY --from=build /venv /venv

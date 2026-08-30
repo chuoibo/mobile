@@ -29,9 +29,31 @@
  * looking at a phone.
  */
 
+import { chiTietLoi } from "../../ui/loi-tren-man";
+
 declare const process: { env: Record<string, string | undefined> };
 
 export const TIN_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8099";
+
+/**
+ * What to call somebody whose name this client does not have.
+ *
+ * The client resolves names out of `DEMO_PEOPLE`, and nothing else can: today
+ * `MembershipResponse` and `MessageResponse` both carry `person_id` /
+ * `author_id` and no name, and there is no `GET /people/{id}` to ask. So for
+ * anybody who joined through "Tạo nhóm" or a friend QR card -- which is every
+ * real person -- the name is genuinely unknown here.
+ *
+ * The previous answer was `id.slice(0, 8)`, which printed `2bb00000` in the
+ * place a human name goes. That is worse than saying nothing: it looks like an
+ * identifier the reader ought to recognise, it leaks a database key onto the
+ * screen, and it is the same class of mistake as showing a server error code
+ * to somebody trying to split a bill.
+ *
+ * One shared constant rather than a literal at each site, so the member list
+ * and the chat bubble cannot drift into two different words for one state.
+ */
+export const TEN_CHUA_BIET = "Thành viên";
 
 export type MessageKind = "text" | "image" | "ai_card";
 
@@ -253,7 +275,7 @@ export async function napTinNhan(opts: NapOpts): Promise<TinNhanState> {
   try {
     res = await fetch(url, { headers: headers(opts.actorId, opts.contextId) });
   } catch (e) {
-    return { kind: "khong-noi-duoc", url, detail: (e as Error).message };
+    return { kind: "khong-noi-duoc", url, detail: chiTietLoi(e) };
   }
 
   if (res.status === 403) {
@@ -283,7 +305,7 @@ export async function napTinNhan(opts: NapOpts): Promise<TinNhanState> {
     if (merged.length === 0) return { kind: "rong", contextId: opts.contextId };
     return { kind: "co-tin", messages: merged, hasMore, contextId: opts.contextId };
   } catch (e) {
-    return { kind: "du-lieu-sai", url, detail: (e as Error).message };
+    return { kind: "du-lieu-sai", url, detail: chiTietLoi(e) };
   }
 }
 
@@ -324,7 +346,7 @@ export async function guiTinNhan(opts: {
       body: JSON.stringify({ kind: "text", body: opts.body, image_url: null, card: null }),
     });
   } catch (e) {
-    return { kind: "khong-noi-duoc", url, detail: (e as Error).message };
+    return { kind: "khong-noi-duoc", url, detail: chiTietLoi(e) };
   }
   if (!res.ok) {
     return { kind: "may-chu-loi", url, status: res.status, detail: await docLoi(res) };
@@ -332,6 +354,51 @@ export async function guiTinNhan(opts: {
   try {
     return { kind: "xong", message: parseMessage(await res.json(), "message") };
   } catch (e) {
-    return { kind: "du-lieu-sai", url, detail: (e as Error).message };
+    return { kind: "du-lieu-sai", url, detail: chiTietLoi(e) };
+  }
+}
+
+/**
+ * Post one `ai_card`. This is how F17 opens a poll and how it casts a ballot,
+ * because there is no `/polls` route to post either one to.
+ *
+ * `body` and `image_url` are sent as null: the server 422s
+ * `message_payload_invalid` when an `ai_card` carries either, the mirror of
+ * the rule `guiTinNhan` obeys above.
+ *
+ * Naming it "ai_card" while a person is the author reads wrong, and it is
+ * worth being precise about why it is not: `ai_card` is the wire's name for
+ * "this message is a structured card rather than prose". Authorship is a
+ * separate field, and the server fills it in from the actor header --
+ * `author_id=actor.id`, never from anything sent here. A ballot posted this
+ * way is attributed to the person who pressed the button and to nobody else,
+ * which is the property the vote count is built on.
+ */
+export async function guiTheAi(opts: {
+  contextId: string;
+  actorId: string;
+  card: Record<string, unknown>;
+  idempotencyKey: string;
+  base?: string;
+}): Promise<GuiTinState> {
+  const base = opts.base ?? TIN_BASE_URL;
+  const url = `${base.replace(/\/$/, "")}/contexts/${opts.contextId}/messages`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: headers(opts.actorId, opts.contextId, opts.idempotencyKey),
+      body: JSON.stringify({ kind: "ai_card", body: null, image_url: null, card: opts.card }),
+    });
+  } catch (e) {
+    return { kind: "khong-noi-duoc", url, detail: chiTietLoi(e) };
+  }
+  if (!res.ok) {
+    return { kind: "may-chu-loi", url, status: res.status, detail: await docLoi(res) };
+  }
+  try {
+    return { kind: "xong", message: parseMessage(await res.json(), "message") };
+  } catch (e) {
+    return { kind: "du-lieu-sai", url, detail: chiTietLoi(e) };
   }
 }

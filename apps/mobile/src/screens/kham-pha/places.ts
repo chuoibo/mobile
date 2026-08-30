@@ -36,6 +36,8 @@
  * a model verdict of `hop`. Everything else says less. The test file pins each
  * case, because this is the exact spot where a demo starts lying politely.
  */
+import { chiTietLoi } from "../../ui/loi-tren-man";
+import { nguonAnhAnToan } from "../../ui/nguon-anh";
 
 /** Where the API lives. Same read as `api.ts`, and it has to stay this exact
  *  shape: Expo's inline-env-vars plugin pattern-matches the syntax tree and a
@@ -119,6 +121,8 @@ export type Place = {
   openHours: string;
   travelMinutes: number;
   photoCount: number;
+  /** Server-sent photograph. Null today: the field is not sent yet. */
+  photoUrl: string | null;
   traits: string[];
   groupFit: GroupFit | null;
   /** "new" | "hot" ribbon in the mockup's top-left. Null is the normal case. */
@@ -182,6 +186,26 @@ function str(v: unknown, field: string): string {
 function strList(v: unknown, field: string): string[] {
   if (!Array.isArray(v)) throw new Error(`${field} phải là mảng`);
   return v.map((x, i) => str(x, `${field}[${i}]`));
+}
+
+/**
+ * Read a server-sent image URL. Tolerant on purpose: missing, null, a
+ * non-string, or an empty string become `null` rather than a throw, because
+ * today's server does not send this field and every card must still render.
+ *
+ * Only addresses on this app's own API are accepted, and the rule lives in
+ * `nguonAnhAnToan` rather than here. This value goes straight into an
+ * `<Image>`, which *dials* it -- so an arbitrary host would learn the reader's
+ * IP and the moment they opened the screen. See `src/ui/nguon-anh.ts` for the
+ * full account of why the origin, and not just the scheme, is the thing being
+ * checked.
+ *
+ * This used to accept any `http(s)://` address and reject relative paths --
+ * backwards on both sides, since `/contexts/{id}/photos/{id}` is the shape the
+ * photo route actually returns.
+ */
+function parsePhotoUrl(v: unknown): string | null {
+  return nguonAnhAnToan(v, PLACES_BASE_URL);
 }
 
 function parseMatch(raw: unknown, field: string): Match | null {
@@ -253,6 +277,7 @@ export function parsePlace(raw: unknown, field: string): Place {
     openHours: str(p.open_hours, `${field}.open_hours`),
     travelMinutes: int(p.travel_minutes, `${field}.travel_minutes`),
     photoCount: int(p.photo_count ?? 0, `${field}.photo_count`),
+    photoUrl: parsePhotoUrl(p.photo_url),
     traits: strList(p.traits ?? [], `${field}.traits`),
     groupFit: fit
       ? {
@@ -306,7 +331,7 @@ export async function fetchPlaces(
   try {
     res = await doFetch(url, { headers: { Accept: "application/json" } });
   } catch (e) {
-    return { kind: "khong-noi-duoc", url, detail: (e as Error).message };
+    return { kind: "khong-noi-duoc", url, detail: chiTietLoi(e) };
   }
 
   // 404 still gets its own state now that the route exists: the server is up
@@ -327,7 +352,7 @@ export async function fetchPlaces(
     const parsed = parseCatalogue(await res.json());
     return { kind: "co-du-lieu", places: parsed.places, categories: parsed.categories };
   } catch (e) {
-    return { kind: "du-lieu-sai", url, detail: (e as Error).message };
+    return { kind: "du-lieu-sai", url, detail: chiTietLoi(e) };
   }
 }
 
@@ -396,26 +421,13 @@ export function matchLabel(match: Match | null): { text: string; real: boolean }
   return { text: `AI MATCH ${pct}%`, real: true };
 }
 
-/**
- * Filter the already-loaded list by what someone typed.
- *
- * Local, not a round trip. The category is a server-side filter because the
- * server scored against it; free text is not, because matching "quán chill
- * view đẹp ở Đà Lạt budget ~250k" is a language problem and that is screen 2
- * of the mockup, which is not built. Pretending a substring match is that
- * would be the more expensive lie.
- *
- * Diacritics are left alone deliberately: Vietnamese readers type them, and
- * stripping them would make "cà phê" match "ca phe" while also making "má"
- * match "ma". `toLowerCase()` is the whole normalisation.
- */
-export function locNoiBo(places: Place[], q: string): Place[] {
-  const needle = q.trim().toLowerCase();
-  if (!needle) return places;
-  return places.filter((p) =>
-    [p.name, ...p.kinds, ...p.traits, p.address].some((s) => s.toLowerCase().includes(needle)),
-  );
-}
+/* `locNoiBo` lived here: a local substring filter over the loaded list, which
+ * the note above it called what it was, a stand-in for the language problem
+ * "quán chill view đẹp ở Đà Lạt budget ~250k" actually poses. rd-fe-15 wired
+ * the box to `POST /places/search`, so the stand-in was removed rather than
+ * left exported beside the real thing. An unreachable helper with passing
+ * tests is worse than no helper: the tests keep reporting coverage for
+ * behaviour no one on a phone can get to. See `tim-kiem.ts`. */
 
 /** Open before closed, then best-scoring first, unscored last, ties broken by
  *  rating so the order does not shuffle between two identical renders.

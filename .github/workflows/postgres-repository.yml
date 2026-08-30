@@ -1,6 +1,14 @@
 name: PostgreSQL Repository
 
+# The 293 cases here are the only proof this repository has of any SQL, index,
+# view or trigger -- the fake repository in `tests/api/` cannot see one of them.
+# Running them only after a merge means a broken persistence layer is found on
+# main, by whoever pulls next. `pull_request` was dropped in 1e7e65b to cut
+# Actions minutes; that trade put the most expensive-to-diagnose tier of the
+# suite behind the merge instead of in front of it.
+
 on:
+  pull_request:
   push:
     branches: [main]
   workflow_dispatch:
@@ -47,6 +55,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
+      # Delegates so CI and `scripts/gate.sh postgres` cannot define "the live
+      # tier" two different ways. They already had: this step said
+      # `pytest tests/postgres` and the sixteen live cases three lanes put
+      # under `tests/qa/` were in neither, skipping on every run and exiting 0.
+      # MOBILE_TEST_DATABASE_URL is set above, so the runner uses the service
+      # container and provisions nothing -- no Docker-in-Docker here.
       - name: Migrate an isolated schema and exercise the real repository
-        working-directory: services/api
-        run: python -m pytest tests/postgres -q
+        run: scripts/postgres_tier.sh -q

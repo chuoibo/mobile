@@ -26,18 +26,25 @@
  * runs silently -- they would still exit 0, still produce a report, and the
  * report would describe the opening screen while claiming to describe a tab.
  */
+import { docMaBan, type TheBan } from "../screens/vao-cua/ma-ban";
 import { DEMO_PEOPLE, type DemoPerson } from "./nhom-demo";
 import { TABS } from "./tabs";
 
 /** The entry-door screens, which are not tabs and so cannot be named by `tab`.
  *
- * `dang-ky` is F01's form; `nhom` is the F03/F04 group screen, which lives
- * behind the [+] menu inside the shell. Both are unreachable to anything that
- * loads a URL cold -- the same hole this file was written to close for the
- * four tabs, reappearing the moment a screen was put behind a button. */
-export type ManVaoCua = "dang-ky" | "nhom";
+ * `dang-ky` is F01's form; `nhom` is the F03/F04 group screen and `ky-niem` is
+ * the F30/F35 memory wall, both of which live behind the [+] menu inside the
+ * shell. All three are unreachable to anything that loads a URL cold -- the
+ * same hole this file was written to close for the four tabs, reappearing the
+ * moment a screen was put behind a button.
+ *
+ * `ban-be` is the F03/F04 friend screen, which sits behind a button on the Cá
+ * nhân tab. It is here for the same reason and one more: the gate that
+ * measures it drives a real DOM, and a screen a URL cannot name is a screen no
+ * detector, screenshot pass or accessibility sweep can reach at all. */
+export type ManVaoCua = "dang-ky" | "nhom" | "ky-niem" | "ban-be";
 
-const MAN_VAO_CUA: ManVaoCua[] = ["dang-ky", "nhom"];
+const MAN_VAO_CUA: ManVaoCua[] = ["dang-ky", "nhom", "ky-niem", "ban-be"];
 
 export type DiemDen = {
   /** Which tab to open on, or null to use the default. */
@@ -49,6 +56,47 @@ export type DiemDen = {
    *  two keys with one name is how a detector run ends up describing the wrong
    *  screen while exiting 0. */
   vao: ManVaoCua | null;
+  /** A specific group to open, from `nhom=<uuid>`.
+   *
+   * Only a well-formed UUID is accepted, and a malformed one becomes null
+   * rather than being passed through: this value goes straight into a request
+   * path, and a screen that asks the server about `../../etc` is a screen
+   * writing somebody else's URL. Null means "find the demo group", which is
+   * what every link that does not care should get. */
+  nhomId: string | null;
+  /** F05. A friend read off a scanned code, or null.
+   *
+   *  This is the second entry point `VoTab`'s header predicted -- "a link into
+   *  a group" -- arriving for real. A person points their phone's own camera
+   *  at somebody's square, the phone opens this app at this fragment, and the
+   *  group screen comes up with that friend already identified. There is no
+   *  in-app scanner and this is why one is not needed on the web build.
+   *
+   *  It grants nothing. The card it opens is a name and a button that sends
+   *  the same `PUT /people/{id}` + `POST /contexts/{id}/members` pair the
+   *  typed form sends, authorised by the same `X-Actor-ID` as everything else.
+   *  A fragment cannot make somebody a member; only the group's admin can. */
+  ban: TheBan | null;
+  /** F46. A place id to open the detail card on, or null for the list.
+   *
+   *  The check-in card lives on a place's detail, which until now was reachable
+   *  only by pressing a tile. That made it a screen no URL could name -- not
+   *  reachable by a link somebody shares, and not reachable by a detector run
+   *  either, which is the same hole `vao` was added to close for the entry
+   *  door. An unknown id falls back to the list rather than an empty card. */
+  diaDiem: string | null;
+  /** rd-fe-33. Open the group map (F43/F44) straight away, from `#ban-do=1`.
+   *
+   *  Same hole as `dia-diem`, reappearing on the same tab: the map sits behind
+   *  a button on Khám phá, so nothing that loads a URL cold could reach it --
+   *  not a shared link, and not the anti-pattern detector either. Measured
+   *  rather than assumed: `imp detect` on the two `.tsx` files scores them
+   *  identically to a file built to be terrible, because a source scan cannot
+   *  compute contrast or geometry. A rendered scan can, and a rendered scan
+   *  needs an address. */
+  banDo: boolean;
+  /** rd-fe-33. Open Điểm hẹn (F45) directly, from `#ban-do=hen`. */
+  diemHen: boolean;
   /** Whether the fragment asked to skip the opening screen at all. */
   boQuaMoDau: boolean;
 };
@@ -57,8 +105,15 @@ export const KHONG_CO_DIEM_DEN: DiemDen = {
   tab: null,
   nguoi: null,
   vao: null,
+  nhomId: null,
+  ban: null,
+  diaDiem: null,
+  banDo: false,
+  diemHen: false,
   boQuaMoDau: false,
 };
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Parse a location fragment into a destination.
@@ -83,21 +138,63 @@ export function docDiemDen(hash: string, search = ""): DiemDen {
   const nguoi = slug ? (DEMO_PEOPLE.find((p) => p.id === slug) ?? null) : null;
 
   const vaoAsked = params.get("vao");
-  const vao = MAN_VAO_CUA.find((m) => m === vaoAsked) ?? null;
+  // A scanned friend code implies the group screen without having to say so.
+  // The square is produced by `linkMaBan`, which writes `ban=` and nothing
+  // else; requiring `vao=nhom` beside it would mean a code that scans into the
+  // Khám phá tab with the friend silently dropped.
+  const ban = raw ? docMaBan("#" + raw) : null;
+  const vao = MAN_VAO_CUA.find((m) => m === vaoAsked) ?? (ban ? "nhom" : null);
+
+  const nhomAsked = params.get("nhom");
+  const nhomId = nhomAsked && UUID_RE.test(nhomAsked) ? nhomAsked : null;
+
+  // Trimmed, and empty means absent. `#dia-diem=` with nothing after it is what
+  // a half-built link looks like, and it must open the list rather than a card
+  // for a place with no id.
+  const diaDiemAsked = (params.get("dia-diem") ?? "").trim();
+  const diaDiem = diaDiemAsked === "" ? null : diaDiemAsked;
+
+  // Presence is the signal, but an explicit "0" turns it off. A link written
+  // by hand as `ban-do=0` means "not the map", and reading that as "yes"
+  // because the key was there would be the sort of thing nobody notices until
+  // a detector report describes the wrong screen while exiting 0.
+  const banDoAsked = params.get("ban-do");
+  const banDo = banDoAsked !== null && banDoAsked !== "0" && banDoAsked !== "false";
+  // `ban-do=hen` goes one screen further, to Điểm hẹn. It is the heavier of the
+  // two and the one carrying the inversion warning, so leaving it unnamed would
+  // mean every rendered check measured the lighter screen and let the whole
+  // feature inherit that result.
+  const diemHen = banDoAsked === "hen";
 
   return {
-    tab,
+    tab: tab ?? (diaDiem || banDo ? "kham-pha" : null),
     nguoi,
     vao,
+    nhomId,
+    ban,
+    diaDiem,
+    banDo,
+    diemHen,
     // A recognised tab is enough to enter: opening the app on a named screen
     // with nobody signed in is a real state, and the screens render it.
     //
     // `vao=dang-ky` is deliberately NOT enough. That screen sits before the
     // shell and registers somebody; skipping the opening screen to reach it
     // would mean a link could put a person straight into a form that writes to
-    // `people`. `vao=nhom` does enter, because the group screen lives inside
-    // the shell and has nothing to show outside it.
-    boQuaMoDau: tab !== null || nguoi !== null || vao === "nhom",
+    // `people`. `vao=nhom` and `vao=ky-niem` do enter, because both live inside
+    // the shell and have nothing to show outside it.
+    //
+    // `dia-diem` enters for the same reason `vao=nhom` does: the card it names
+    // is inside the shell, so stopping at the opening screen would mean the
+    // link silently does nothing. `ban-be` is the same shape again.
+    boQuaMoDau:
+      tab !== null ||
+      nguoi !== null ||
+      vao === "nhom" ||
+      vao === "ky-niem" ||
+      vao === "ban-be" ||
+      diaDiem !== null ||
+      banDo,
   };
 }
 

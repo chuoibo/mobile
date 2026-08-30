@@ -39,9 +39,14 @@ from app.db.models import (
     ExpenseSurcharge,
     ExpenseVersion,
     GuestLink,
+    Membership,
+    MembershipRole,
+    MembershipState,
     PaymentReport,
+    Person,
     ReceiptConfirmation,
 )
+from app.db.models import Context as GroupContext
 
 pytestmark = pytest.mark.postgres
 
@@ -113,6 +118,42 @@ def _proposal(
             }
         ],
     )
+
+
+def _seed_active_membership(
+    session: Session, context_id: uuid.UUID, person_id: uuid.UUID
+) -> None:
+    """Make the group real, for the one case whose subject is the permission.
+
+    `_persist_lifecycle` deliberately writes no `people` rows -- the guest
+    envelope tests below assert that a person nobody named still shows as a raw
+    id, and giving everyone a name would delete that case. So the rows a
+    membership needs are added here, per test, rather than in the shared
+    builder.
+
+    They are needed at all because `memberships` has real foreign keys into
+    `contexts` and `people`, while `expenses.context_id` has none. That gap is
+    why a whole lifecycle could be persisted against a group that was never
+    created, and why the board's old `context_id in actor.context_ids` check
+    could pass on top of it.
+    """
+
+    session.add(Person(id=person_id, display_name="Chủ nhóm"))
+    session.flush()
+    session.add(
+        GroupContext(id=context_id, display_name="Nhóm đi ăn", created_by_id=person_id)
+    )
+    session.flush()
+    session.add(
+        Membership(
+            context_id=context_id,
+            person_id=person_id,
+            state=MembershipState.ACTIVE,
+            role=MembershipRole.MEMBER,
+            joined_at=NOW,
+        )
+    )
+    session.flush()
 
 
 def _persist_lifecycle(
@@ -382,6 +423,77 @@ def test_repository_lifecycle_reaches_confirmed_receipt(postgres_session: Sessio
         "receipt_confirmed",
         "receipt_confirmed",
     )
+
+
+def test_guest_is_not_told_the_money_arrived_before_it_did(
+    postgres_session: Session,
+):
+    """`receiver_confirmed` must be able to say NO, not only YES.
+
+    The lifecycle test above asserts the True direction, and the fake
+    repository re-derives this field for itself, so both stay green even if
+    the production query stops deriving anything at all. Hardcoding
+    ``"receiver_confirmed": True`` in `get_guest_envelope` passed the whole
+    suite -- domain, fake-repo API layer and this live layer included.
+
+    It is not a cosmetic flag. `guest.html` keys the arrival banner, the
+    button style and the button label off it, so a value stuck at True tells
+    somebody their money landed when nothing has been confirmed. Spec section
+    8.6: only a `ReceiptConfirmation` closes an obligation, and a sender's own
+    `PaymentReport` never does -- which is why this case files the report and
+    still expects False.
+    """
+
+    state = _persist_lifecycle(postgres_session, confirm_receipts=False)
+    repository = SqlAlchemyApiRepository(postgres_session)
+
+    # The sender has SAID they transferred; nobody has confirmed receiving it.
+    assert state.payment_report_id is not None
+
+    envelope = repository.get_guest_envelope(
+        state.token_digest, NOW + timedelta(minutes=10)
+    )
+    assert envelope is not None
+    block = envelope.envelope["obligations"][0]
+    assert block["already_reported"] is True
+    assert block["receiver_confirmed"] is False
+
+    # Partial arrival is still not arrival: 15k of a 40k obligation.
+    receipt_target = repository.get_receipt_target(state.obligation_id)
+    assert receipt_target is not None
+    repository.save_receipt_confirmation(
+        target=receipt_target,
+        confirmed_by_id=state.recipient_id,
+        amount_vnd=15_000,
+        payment_report_id=state.payment_report_id,
+        idempotency_key=uuid.uuid4(),
+        now=NOW + timedelta(minutes=11),
+    )
+    postgres_session.flush()
+
+    partial = repository.get_guest_envelope(
+        state.token_digest, NOW + timedelta(minutes=12)
+    )
+    assert partial is not None
+    assert partial.envelope["obligations"][0]["receiver_confirmed"] is False
+
+    # And once the rest lands it must flip, so the assertions above are
+    # pinning the derivation rather than a field that is always False.
+    repository.save_receipt_confirmation(
+        target=receipt_target,
+        confirmed_by_id=state.recipient_id,
+        amount_vnd=25_000,
+        payment_report_id=None,
+        idempotency_key=uuid.uuid4(),
+        now=NOW + timedelta(minutes=13),
+    )
+    postgres_session.flush()
+
+    settled = repository.get_guest_envelope(
+        state.token_digest, NOW + timedelta(minutes=14)
+    )
+    assert settled is not None
+    assert settled.envelope["obligations"][0]["receiver_confirmed"] is True
 
 
 def test_load_confirmed_receipts_groups_events_and_scopes_them_to_context(
@@ -798,6 +910,7 @@ def test_the_guest_pressing_the_button_changes_the_advancers_next_refresh(
     state = _persist_lifecycle(
         postgres_session, confirm_receipts=False, file_payment_report=False
     )
+    _seed_active_membership(postgres_session, state.context_id, state.owner_id)
     repository = SqlAlchemyApiRepository(postgres_session)
 
     async def run_sync_inline(function, *args, **kwargs):

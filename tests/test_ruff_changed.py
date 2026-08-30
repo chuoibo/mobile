@@ -221,10 +221,17 @@ class FailsLoudlyNotSilently(RuffGateHarness):
         self.assertIn("cannot resolve base ref", result.stderr)
 
     def test_missing_ruff_is_an_error_not_a_pass(self) -> None:
-        """A runner without ruff must go red, not green.
+        """A runner that cannot produce the pinned ruff must go red, not green.
 
         This is the shape of every gate in this repo that reported success for
         a check that never ran.
+
+        The property is unchanged; the mechanism underneath it moved. The gate
+        no longer takes PATH's ruff, so "ruff is absent from PATH" is no longer
+        by itself a failure -- `scripts/ruff_pinned.sh` would build the pinned
+        one. What this fixture actually strips is *everything*, python3 and pip
+        included, so the pin cannot be provisioned either, and the answer has to
+        be a refusal rather than a fallback to whatever else is around.
         """
         base = self.base_commit_with_dirty_file()
         self.write("touched.py", LINT_ERROR)
@@ -239,7 +246,14 @@ class FailsLoudlyNotSilently(RuffGateHarness):
         self.assertIsNone(shutil.which("ruff", path=str(bare)))
         result = self.run_gate(base, path=str(bare))
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
-        self.assertIn("ruff is not installed", result.stderr)
+        self.assertIn("bản ruff đã ghim", result.stderr)
+        # The reason has to be the true one. An earlier draft read the pin with
+        # `grep ... || true`, so a PATH without grep produced "không có dòng
+        # ruff==" -- a complaint about requirements-dev.txt, which is fine, and
+        # would have sent somebody editing it.
+        self.assertNotIn("không có dòng ruff==", result.stderr)
+        # And it must not have quietly linted with something else.
+        self.assertNotIn("All checks passed", result.stdout)
 
     def test_unresolvable_head_is_an_error_not_a_pass(self) -> None:
         """A bad head ref must not read as "nothing changed".

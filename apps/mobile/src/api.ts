@@ -30,7 +30,23 @@ import type { Proposal } from "./screens/DeXuat";
 import type { Obligation } from "./screens/DotThu";
 import type { Envelope } from "./screens/ChiaSe";
 import type { Draft, Participant } from "./screens/NhapKhoanChi";
-import type { ReceiptScanWire } from "./receipt";
+import type { BillReading, ReceiptScanWire } from "./receipt";
+import type { Assignment } from "./assignment";
+import {
+  assignmentsBody,
+  billCreateBody,
+  soDuFromWire,
+  type BillWire,
+  type SoDu,
+  type SoDuWire,
+} from "./bill";
+import {
+  sapXepChang,
+  type BodyTaoBuoiDi,
+  type BuoiDi,
+  type ChangGui,
+  type CheckIn,
+} from "./screens/len-plan/buoi-di";
 import { makeIdFactory } from "./participants";
 import { maskAccount } from "./ui/vietqr";
 
@@ -55,15 +71,27 @@ declare const process: { env: Record<string, string | undefined> };
 
 export const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8099";
 
-/**
- * The group this app acts inside.
+/* There is deliberately no `CONTEXT_ID` constant in this file any more.
  *
- * `contexts` exists as a table now, but nothing in this flow creates one yet,
- * so a fixed synthetic id stands in. Fixed rather than generated per launch:
- * an expense and the batch that collects it have to agree on the group, and a
- * value that changes on reload splits one group into two without saying so.
+ * It used to hold `1aa00000-aaaa-…`, minted when nothing created a group, and
+ * it never had a row in `contexts`. Two comments in this repository said so
+ * outright while every expense in the app was still filed under it. That was
+ * survivable only while the server took the caller's word for the group:
+ * `propose` allocates and writes nothing, so it answered 200 and the split
+ * screen looked right.
+ *
+ * `_require_participants_are_members` (service.py) closed that. A context with
+ * no row has no members, so every participant is a stranger and `confirm`
+ * answers `422 participant_not_in_context` -- for everyone, on the one path
+ * this product exists to demonstrate. The same id also went out as
+ * `X-Actor-Contexts`, which `confirm_expense` and `create_batch` check against
+ * the expense's own context, so a body fixed without the header would only
+ * have traded the 422 for a 403.
+ *
+ * So the group is now a parameter, the way `taoBuoiDi` and `docSoDu` already
+ * took it: callers pass the id `khoiDongNhom` returned, and a group that does
+ * not exist cannot be spelled by accident.
  */
-export const CONTEXT_ID = "1aa00000-aaaa-4aaa-8aaa-0000a0000001";
 
 export class ApiError extends Error {
   constructor(
@@ -216,9 +244,9 @@ export function thongDiepNguoiDoc(status: number, detail: unknown): string {
 function actorHeaders(
   actorId: string,
   roles = "member,advancer,recipient,batch_owner",
-  contexts = CONTEXT_ID,
+  contexts?: string,
 ): Record<string, string> {
-  return {
+  const headers: Record<string, string> = {
     "Content-Type": "application/json",
     // A trusted gateway is supposed to write these; there is no gateway yet,
     // so the app writes them. That is exactly why this must not be reachable
@@ -226,8 +254,15 @@ function actorHeaders(
     // anybody. Said here rather than left to be discovered.
     "X-Actor-ID": actorId,
     "X-Actor-Roles": roles,
-    "X-Actor-Contexts": contexts,
   };
+  // Omitted rather than defaulted. The default used to be the synthetic
+  // `CONTEXT_ID`, which meant every person-scoped call claimed membership of a
+  // group that did not exist, and -- worse -- a group-scoped call that forgot
+  // to name its group inherited that claim instead of failing. `deps.py` reads
+  // a missing header as "no contexts", which is the truthful answer for a
+  // route about a person.
+  if (contexts !== undefined) headers["X-Actor-Contexts"] = contexts;
+  return headers;
 }
 
 type CallOptions = {
@@ -252,7 +287,15 @@ type CallOptions = {
    * have to be reproduced when real sessions arrive.
    */
   roles?: string;
-  /** Which groups this actor claims to be in. Defaults to the demo group. */
+  /** Which groups this actor claims to be in.
+   *
+   *  No default. It used to default to the synthetic `CONTEXT_ID`, so a call
+   *  that forgot to name its group silently claimed membership of one that did
+   *  not exist. Omitted means the header is not sent, which `deps.py` reads as
+   *  "no contexts" -- the truthful answer for a route about a person.
+   *
+   *  Only carried when `actorId` is set: the headers are built together, and
+   *  a group claim with nobody making it is not a claim. */
   contexts?: string;
 };
 
@@ -316,6 +359,13 @@ async function call<T>(
       IDEMPOTENCY_REFUSALS[code.toLowerCase()] ?? thongDiepNguoiDoc(response.status, detail),
     );
   }
+  // 204 means the server did the thing and has nothing to say about it, so
+  // there is no body to parse. `response.json()` on an empty body throws a raw
+  // SyntaxError, which is not an `ApiError` and so escapes every refusal table
+  // in this file -- a caller would show the browser's own English parser text
+  // for a call that actually SUCCEEDED. `DELETE .../reactions` is the first
+  // route here to answer 204; before it, this line was unreachable-but-wrong.
+  if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
 
@@ -457,6 +507,7 @@ const ALLOCATOR_REFUSALS: Record<string, string> = {
 };
 
 function expenseBody(input: {
+  contextId: string;
   occasion: string;
   actorId: string;
   payerId: string;
@@ -466,7 +517,7 @@ function expenseBody(input: {
   occurredAt: number;
 }): ExpenseInput {
   return {
-    context_id: CONTEXT_ID,
+    context_id: input.contextId,
     description: input.occasion,
     recorded_by_id: input.actorId,
     paid_by_id: input.payerId,
@@ -491,6 +542,13 @@ type ExpenseResponse = {
 export type PendingProposal = Proposal & {
   expenseId: string;
   serverProposal: ExpenseInput;
+  /** The group this bill was proposed under.
+   *
+   *  Carried on the proposal rather than asked for again at `confirm` and
+   *  `openBatch`. Those two are the calls the server checks the group on, and
+   *  a second parameter is a second chance to name a different one -- which is
+   *  how an expense allocated inside one group gets written into another. */
+  contextId: string;
 };
 
 export type SplitPreview = {
@@ -508,6 +566,7 @@ export type SplitPreview = {
  */
 export async function previewSplit(
   input: {
+    contextId: string;
     participantIds: string[];
     totalVnd: number;
     items: ExpenseItemWire[];
@@ -517,6 +576,7 @@ export async function previewSplit(
   attempt: Attempt,
 ): Promise<SplitPreview> {
   const body = expenseBody({
+    contextId: input.contextId,
     occasion: input.occasion,
     actorId: input.payerId,
     payerId: input.payerId,
@@ -525,6 +585,10 @@ export async function previewSplit(
     items: input.items,
     occurredAt: attempt.at,
   });
+  // No `contexts`, and no `actorId` to hang one on: `POST /expenses` is the
+  // one write this client sends anonymously, on purpose (see `call`, on the
+  // shared idempotency scope). The group travels in the body, which is where
+  // the allocator reads it. `confirm` is where the server starts checking it.
   const result = await translated<ExpenseResponse>(ALLOCATOR_REFUSALS, "/expenses", {
     body,
     attempt,
@@ -537,11 +601,13 @@ export async function previewSplit(
 }
 
 export async function proposeSplit(
+  contextId: string,
   draft: Draft,
   attempt: Attempt,
   items: ExpenseItemWire[] = [],
 ): Promise<PendingProposal> {
   const body = expenseBody({
+    contextId,
     occasion: draft.occasion,
     actorId: draft.advancerId,
     payerId: draft.advancerId,
@@ -550,6 +616,7 @@ export async function proposeSplit(
     items,
     occurredAt: attempt.at,
   });
+  // Anonymous like `previewSplit`, and for the reason spelled out there.
   const result = await translated<ExpenseResponse>(ALLOCATOR_REFUSALS, "/expenses", {
     body,
     attempt,
@@ -564,6 +631,7 @@ export async function proposeSplit(
     occasion: draft.occasion,
     expenseId: result.expense_id,
     serverProposal: result.proposal,
+    contextId,
   };
 }
 
@@ -590,6 +658,7 @@ export async function confirmExpense(
     },
     actorId: proposal.advancerId,
     attempt,
+    contexts: proposal.contextId,
   });
   return {
     expenseVersionId: result.expense_version_id,
@@ -866,7 +935,7 @@ export async function openBatch(
     }[];
   }>(OPEN_BATCH_REFUSALS, "/batches", {
     body: {
-      context_id: CONTEXT_ID,
+      context_id: proposal.contextId,
       expense_version_ids: [expenseVersionId],
       // Counted from the attempt, so a retry asks for the same due date rather
       // than one seven days from whenever the connection came back.
@@ -874,6 +943,7 @@ export async function openBatch(
     },
     actorId: proposal.advancerId,
     attempt,
+    contexts: proposal.contextId,
   });
 
   return {
@@ -1017,7 +1087,19 @@ async function sendPublish(
 }
 
 /** The collection board, including anything a guest has objected to. */
+/**
+ * Read the collection board.
+ *
+ * `contextId` leads, the way `docSoDu` and `taoBill` take it, because the
+ * server's check on this route is fail-closed against `X-Actor-Contexts`:
+ * `view_collection_board` compares the batch's own group against the header
+ * and refuses when it is not there. It used to be satisfied by the synthetic
+ * default in `actorHeaders`, which matched only because the batch had been
+ * opened under the same synthetic id. With the group real on both sides, the
+ * header has to name it.
+ */
 export async function loadBoard(
+  contextId: string,
   batchId: string,
   actorId: string,
   roster: Participant[] = [],
@@ -1032,7 +1114,7 @@ export async function loadBoard(
       obligation_status: Obligation["status"];
       disputed: boolean;
     }[];
-  }>(`/batches/${batchId}/obligations`, { method: "GET", actorId });
+  }>(`/batches/${batchId}/obligations`, { method: "GET", actorId, contexts: contextId });
 
   return {
     disputedCount: result.disputed_count,
@@ -1183,3 +1265,701 @@ const SCAN_REFUSALS: Record<string, string> = {
     "Bộ đọc bill đang không trả lời. Thử lại sau một chút, hoặc nhập tay các món ở bước sau.",
   permission_denied: "Tài khoản này chưa được phép đọc bill trong nhóm.",
 };
+
+/* --------------------------------------------- photographs people keep */
+
+/**
+ * One image on its way back from the server, after it has been sanitised.
+ *
+ * `byteSize`, `width` and `height` describe **the stored image, not the file
+ * that was chosen**. The server decodes every upload, drops the metadata and
+ * re-encodes, so these three routinely disagree with what the picker reported --
+ * measured on the demo stack, an 861-byte primer came back 305 bytes. Comparing
+ * them against a client-side size and complaining about the difference would be
+ * reporting the feature working as a fault.
+ *
+ * `url` is a path on this API, never an absolute address, and that is what makes
+ * it safe to hand to `image_url` on a memory or a message. See `nguon-anh.ts`.
+ */
+export type AnhDaTai = {
+  id: string;
+  url: string;
+  contentType: string;
+  byteSize: number;
+  width: number;
+  height: number;
+};
+
+/**
+ * What a refusal to accept a photograph means to the person who chose it.
+ *
+ * Every sentence names the next move and none of them prints a status code. A
+ * person who reads "413" has learned that something is wrong, which the screen
+ * already told them, and nothing about what to do instead.
+ *
+ * `image_dimensions_too_large` is a separate refusal from `image_too_large` on
+ * the server and gets separate words here, because the two have different
+ * answers: a heavy file can be re-saved smaller, a 20000-px panorama cannot be
+ * fixed by compressing it. Collapsing them into "ảnh quá lớn" would send half
+ * the people who hit it to do something that cannot work.
+ */
+const ANH_REFUSALS: Record<string, string> = {
+  image_too_large:
+    "Tấm ảnh này nặng quá 10 MB nên máy chủ không nhận. Chọn một tấm nhẹ hơn giúp mình.",
+  image_dimensions_too_large:
+    "Tấm ảnh này có kích thước quá lớn nên máy chủ không nhận. Chọn một tấm khác giúp mình.",
+  not_an_image:
+    "File bạn chọn không phải là ảnh nên máy chủ không đọc được. Chọn một tấm ảnh JPG hoặc PNG.",
+  permission_denied:
+    "Bạn cần là thành viên của nhóm này mới đăng ảnh lên tường được. Nhờ người tạo nhóm mời bạn vào rồi thử lại.",
+  photo_not_found: "Không tìm thấy tấm ảnh này trên máy chủ.",
+  avatar_not_found: "Người này chưa có ảnh đại diện nào.",
+};
+
+/**
+ * Send one image, as multipart, and hand back where it now lives.
+ *
+ * Shared by the group wall and the avatar because the two differ only in their
+ * path and in which header the server checks; everything that is easy to get
+ * wrong is identical, and all four of those things have been got wrong here
+ * before:
+ *
+ *  - **No `Content-Type` header.** `actorHeaders` sets `application/json`, and
+ *    a multipart body under that header arrives as an unparseable blob. The
+ *    boundary has to be chosen by whatever assembles the `FormData`, so the
+ *    header must be *absent*, not merely different.
+ *  - **The field is called `file`.** Not `image`, which is what
+ *    `POST /receipts/scan` calls its own. A mismatch is a 422 that says nothing
+ *    about field names.
+ *  - **`X-Actor-Roles` is required.** Without `member` in it the server answers
+ *    403 `role_not_permitted`, which reads exactly like "you are not in this
+ *    group" and sends somebody to fix their membership instead of the header.
+ *  - **Two ways to put a file in a `FormData`.** React Native accepts
+ *    `{uri, name, type}` and streams the file. On the web the manipulator hands
+ *    back a `blob:` url, and that object appends as the literal string
+ *    "[object Object]".
+ *
+ * Deliberately does not go through `call`: that function sets a JSON
+ * `Content-Type` and `JSON.stringify`s its body, both of which are wrong here.
+ * It does not reuse `scanReceipt`'s copy of the same logic either. That one
+ * sits on the bill path, which has been repaired twice in two days, and folding
+ * a second caller into it now would put this feature's bugs and the hero flow's
+ * bugs in one place. The duplication is named rather than hidden, and the day
+ * the bill path is next opened is the day to merge them.
+ *
+ * No `Idempotency-Key`. The middleware fingerprints method + path + body, and a
+ * body here is several megabytes of JPEG; the protection that matters for this
+ * feature is the one on the write that *references* the photo, which is where
+ * the key is sent. Uploading the same picture twice costs a stored blob nobody
+ * points at, not a duplicated row on anybody's wall.
+ */
+async function guiAnhLen(
+  path: string,
+  photo: { uri: string },
+  headers: Record<string, string>,
+): Promise<AnhDaTai> {
+  const form = new FormData();
+  if (photo.uri.startsWith("blob:") || photo.uri.startsWith("data:")) {
+    const blob = await fetch(photo.uri).then((r) => r.blob());
+    form.append("file", blob, "anh.jpg");
+  } else {
+    // React Native's own FormData understands this shape and nothing else.
+    form.append("file", { uri: photo.uri, name: "anh.jpg", type: "image/jpeg" } as never);
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(BASE_URL + path, { method: "POST", headers, body: form });
+  } catch {
+    throw new ApiError(
+      0,
+      "unreachable",
+      `Không nối được ${BASE_URL}. Máy chủ có đang chạy không?`,
+    );
+  }
+
+  if (!response.ok) {
+    let code = `http_${response.status}`;
+    let detail: unknown = null;
+    try {
+      const problem = await response.json();
+      if (problem?.code) code = problem.code;
+      if (problem?.detail) detail = problem.detail;
+    } catch {
+      /* not JSON; there is nothing to read, so the status chooses the words */
+    }
+    throw new ApiError(
+      response.status,
+      code,
+      ANH_REFUSALS[code.toLowerCase()] ?? thongDiepNguoiDoc(response.status, detail),
+    );
+  }
+
+  const wire = (await response.json()) as {
+    id: string;
+    url: string;
+    content_type: string;
+    byte_size: number;
+    width: number;
+    height: number;
+  };
+  return {
+    id: wire.id,
+    url: wire.url,
+    contentType: wire.content_type,
+    byteSize: wire.byte_size,
+    width: wire.width,
+    height: wire.height,
+  };
+}
+
+/** Put a photograph into one group's private storage. Members only, server-side. */
+export async function taiAnhNhom(
+  contextId: string,
+  photo: { uri: string },
+  actorId: string,
+): Promise<AnhDaTai> {
+  const { "Content-Type": _dropped, ...headers } = actorHeaders(actorId, "member", contextId);
+  return guiAnhLen(`/contexts/${contextId}/photos`, photo, headers);
+}
+
+/**
+ * Set this person's avatar. Only ever your own -- the server checks `is_self`.
+ *
+ * The address it answers with is `/people/{id}/avatar`, which is stable: it does
+ * not change when a new picture is uploaded, and it is the same address every
+ * other screen already builds from a person id. So nothing has to be stored,
+ * threaded through a roster, or added to a profile response for a new avatar to
+ * appear -- the frames pointing at it simply start resolving.
+ *
+ * `contexts` is deliberately left at the default. This route is about a person,
+ * not a group, and the server's permission check for it never reads the header.
+ */
+export async function taiAnhDaiDien(
+  personId: string,
+  photo: { uri: string },
+  actorId: string,
+): Promise<AnhDaTai> {
+  const { "Content-Type": _dropped, ...headers } = actorHeaders(actorId, "member");
+  return guiAnhLen(`/people/${personId}/avatar`, photo, headers);
+}
+
+/** Where a person's avatar lives, whether or not one has been uploaded.
+ *
+ * Always the same string for the same person. A 404 is the ordinary answer for
+ * "no picture yet", and `Anh` already draws the caller's stand-in for a frame
+ * whose load failed, so no screen needs to ask first.
+ */
+export function duongDanAnhDaiDien(personId: string): string {
+  return `/people/${personId}/avatar`;
+}
+
+/**
+ * Fetch a photograph the server permission-checks, and hand back an address a
+ * frame can actually display.
+ *
+ * ## Why a frame cannot simply be pointed at the address
+ *
+ * Every image route this product has is permission-checked, and the check reads
+ * a header:
+ *
+ *     GET /people/{id}/avatar          without X-Actor-ID -> 401
+ *     GET /contexts/{cid}/photos/{pid} without X-Actor-ID -> 401
+ *
+ * An `<img>` cannot send a header, and react-native-web's `<Image>` becomes an
+ * `<img>`. So `<Image source={{uri: "/people/x/avatar"}}>` is not "the read path
+ * wired up" -- it is a request that is *guaranteed* to be refused. Worse, the
+ * refusal is silent: `Anh` reacts to a failed load by drawing its stand-in, and
+ * the stand-in for an avatar is the person's initials, which is exactly what a
+ * person with no photograph yet also sees. Upload returns 201, the picture
+ * never appears, and every surface agrees that nothing is wrong. That is what
+ * shipped in rd-fe-25 and what #222 was sent back for.
+ *
+ * React Native's own `Image` does accept `source={{uri, headers}}`, so a native
+ * build could pass the header through. react-native-web ignores it. Fetching
+ * the bytes here instead is one path that works on both, and it keeps the rule
+ * in one place rather than leaving web quietly broken.
+ *
+ * ## What comes back
+ *
+ * A `blob:` URL where the platform has one, a `data:` URL where it does not.
+ * Both are local, so the frame that displays it makes no second request and
+ * carries no header of its own. Hand the result to `boNguonCucBo` when the
+ * frame is done with it; a `blob:` URL pins its bytes in memory until revoked.
+ *
+ * `contexts` matters for the group wall and not for an avatar: the photo route
+ * checks membership of the context in the address, and the avatar route checks
+ * whether the two people share one. Passing it wrong is a 403, not a leak --
+ * the server decides either way.
+ */
+export async function taiAnhCoQuyen(
+  url: string,
+  actorId: string,
+  contexts?: string,
+): Promise<string> {
+  // Same reason as `guiAnhLen`: `actorHeaders` sets `application/json`, which is
+  // a lie about a request that wants image bytes back.
+  const { "Content-Type": _dropped, ...headers } = actorHeaders(actorId, "member", contexts);
+
+  let response: Response;
+  try {
+    response = await fetch(url, { headers });
+  } catch {
+    throw new ApiError(
+      0,
+      "unreachable",
+      `Không nối được ${BASE_URL}. Máy chủ có đang chạy không?`,
+    );
+  }
+
+  if (!response.ok) {
+    let code = `http_${response.status}`;
+    let detail: unknown = null;
+    try {
+      const problem = await response.json();
+      if (problem?.code) code = problem.code;
+      if (problem?.detail) detail = problem.detail;
+    } catch {
+      /* not JSON; the status chooses the words */
+    }
+    throw new ApiError(
+      response.status,
+      code,
+      ANH_REFUSALS[code.toLowerCase()] ?? thongDiepNguoiDoc(response.status, detail),
+    );
+  }
+
+  return nguonCucBo(await response.blob());
+}
+
+/** Turn fetched bytes into something `<Image>` accepts, on either platform.
+ *
+ *  `URL.createObjectURL` is the cheap answer and exists on web. React Native
+ *  has `Blob` but not reliably that method, so the fallback reads the bytes
+ *  into a `data:` URL, which every `Image` implementation understands. Base64
+ *  costs a third more memory, which is the right trade for a picture the server
+ *  has already re-encoded and capped. */
+function nguonCucBo(blob: Blob): Promise<string> {
+  const url = (globalThis as { URL?: { createObjectURL?: (b: Blob) => string } }).URL;
+  if (typeof url?.createObjectURL === "function") {
+    return Promise.resolve(url.createObjectURL(blob));
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () =>
+      reject(new ApiError(0, "image_unreadable", "Không đọc được tấm ảnh vừa tải về."));
+    reader.onload = () => resolve(String(reader.result));
+    reader.readAsDataURL(blob);
+  });
+}
+
+/** Release what `taiAnhCoQuyen` handed out. A no-op for `data:`, which owns no
+ *  resource; a `blob:` URL holds its bytes alive until this is called. */
+export function boNguonCucBo(uri: string): void {
+  if (!uri.startsWith("blob:")) return;
+  const url = (globalThis as { URL?: { revokeObjectURL?: (u: string) => void } }).URL;
+  url?.revokeObjectURL?.(uri);
+}
+
+/* --------------------------------------------------- the memory wall (rd-be-07) */
+
+/** One keepsake on the wall, as the server describes it.
+ *
+ * The last three fields are optional, and their optionality is load-bearing
+ * rather than defensive typing. They arrive from a server that has the hearts
+ * and comments tables; a server that does not have them omits all three. So
+ * their presence IS the capability check, and the wall reads it that way: no
+ * fields, no heart button drawn at all.
+ *
+ * The alternative -- draw the button always and let it 404 -- is the shape this
+ * screen's own docblock argues against. A heart that fails on press says "your
+ * tap did not register", which is a lie about a feature that was never built.
+ *
+ * `viewer_has_reacted` is computed for the actor making the request. There is
+ * no `viewer_id` query parameter to pass and none should be invented: one would
+ * let a caller ask whether somebody ELSE had reacted.
+ */
+export type KyNiemWire = {
+  id: string;
+  author_id: string;
+  kind: "photo" | "checkin";
+  image_url: string | null;
+  caption: string | null;
+  place_name: string | null;
+  created_at: string;
+  reaction_count?: number;
+  comment_count?: number;
+  viewer_has_reacted?: boolean;
+};
+
+/** True when the server that answered this feed can hold hearts and comments.
+ *
+ * Keyed on `reaction_count` rather than on truthiness of the whole row: a photo
+ * with zero hearts sends `0`, which is falsy, and a check written as
+ * `if (m.reaction_count)` would hide the buttons on exactly the photographs
+ * that have not been reacted to yet -- that is, on all of them, on day one. */
+export function coTuongTac(kyNiem: KyNiemWire): boolean {
+  return typeof kyNiem.reaction_count === "number";
+}
+
+/**
+ * Hang a photograph on the group's wall.
+ *
+ * `imageUrl` must be the `url` a previous `taiAnhNhom` handed back, and the
+ * group in it must be the group being written to. The server enforces both --
+ * the schema pins the shape and the service re-parses it rather than trusting
+ * the schema -- so an address pointing anywhere else is a 422 rather than a row.
+ * That is the first of the two layers; `nguonAnhAnToan` in `ui/nguon-anh.ts` is
+ * the second, and it runs on the way back out because a row written before the
+ * server's check existed is still in the database.
+ *
+ * The attempt is keyed on the photo by the caller, so a second press while the
+ * first is still in flight replays the first answer instead of hanging the same
+ * picture on the wall twice.
+ */
+export async function themKyNiemAnh(
+  contextId: string,
+  imageUrl: string,
+  caption: string | null,
+  actorId: string,
+  attempt: Attempt,
+): Promise<KyNiemWire> {
+  return translated<KyNiemWire>(ANH_REFUSALS, `/contexts/${contextId}/memories`, {
+    method: "POST",
+    body: { image_url: imageUrl, caption: caption?.trim() ? caption.trim() : null },
+    actorId,
+    attempt,
+    roles: "member",
+    contexts: contextId,
+  });
+}
+
+/** Read the wall. Group-private: a non-member gets 403 whatever the header says. */
+export async function docKyNiem(
+  contextId: string,
+  actorId: string,
+  limit = 24,
+): Promise<KyNiemWire[]> {
+  const result = await translated<{ memories: KyNiemWire[] }>(
+    ANH_REFUSALS,
+    `/contexts/${contextId}/memories?limit=${limit}&kind=photo`,
+    { method: "GET", actorId, roles: "member", contexts: contextId },
+  );
+  return result.memories ?? [];
+}
+
+/* ------------------------------- hearts and comments on the wall (rd-fe-33) */
+
+/**
+ * One comment under one photograph, as the server describes it.
+ *
+ * `display_name` arrives already resolved. The wall does not hold a roster and
+ * must not go and build one: a second lookup keyed on `author_id` is a second
+ * answer to "who wrote this", and the two disagree the moment somebody renames
+ * themselves between the two calls.
+ */
+export type BinhLuanWire = {
+  id: string;
+  memory_id: string;
+  author_id: string;
+  display_name: string;
+  body: string;
+  created_at: string;
+};
+
+/** Longest body the server will take. Mirrored here so the composer can refuse
+ *  before the round trip; the server is still the one that decides. */
+export const BINH_LUAN_TOI_DA = 2000;
+
+/**
+ * What the wall says when a heart or a comment is refused.
+ *
+ * `is_group_member` is the one worth reading twice. A 403 here does NOT mean
+ * "something went wrong" -- it means the person has been removed from the group
+ * since the wall was drawn, and the sentence has to say that rather than offer
+ * a retry that cannot work.
+ *
+ * `already_reacted` and `reaction_not_found` are both states the button should
+ * never reach, because it knows `viewer_has_reacted` before it presses. They
+ * are here because "should never" means "will, when two devices press at once",
+ * and the honest answer then is that the wall is out of date, not that the
+ * person did something wrong.
+ */
+const XA_HOI_REFUSALS: Record<string, string> = {
+  is_group_member:
+    "Bạn không còn trong nhóm này nên không thả tim hay bình luận được nữa.",
+  memory_not_found: "Ảnh này vừa được gỡ khỏi tường nhóm nên không còn để thả tim.",
+  already_reacted: "Bạn đã thả tim cho ảnh này rồi. Kéo xuống để xem lại tường nhóm.",
+  reaction_not_found: "Tim của bạn ở ảnh này đã được gỡ trước đó rồi.",
+};
+
+/**
+ * Drop a heart on one photograph. The person doing it is the actor header, so
+ * there is no body: there is no field in which to claim to be somebody else.
+ *
+ * Pressing twice is a 409, not a silent toggle. The button decides between this
+ * and `boTim` from `viewer_has_reacted`, which the feed sends for the caller --
+ * so reaching 409 means the wall on screen is older than the database, and the
+ * sentence above says exactly that.
+ */
+export async function thaTim(
+  contextId: string,
+  memoryId: string,
+  actorId: string,
+): Promise<void> {
+  await translated<void>(
+    XA_HOI_REFUSALS,
+    `/contexts/${contextId}/memories/${memoryId}/reactions`,
+    { method: "POST", actorId, roles: "member", contexts: contextId },
+  );
+}
+
+/** Take back your own heart. There is no route for taking back anybody else's,
+ *  which is why this too carries no body. Answers 204. */
+export async function boTim(
+  contextId: string,
+  memoryId: string,
+  actorId: string,
+): Promise<void> {
+  await translated<void>(
+    XA_HOI_REFUSALS,
+    `/contexts/${contextId}/memories/${memoryId}/reactions`,
+    { method: "DELETE", actorId, roles: "member", contexts: contextId },
+  );
+}
+
+/** Read one photograph's comments. Group-private, like everything on this wall. */
+export async function docBinhLuan(
+  contextId: string,
+  memoryId: string,
+  actorId: string,
+): Promise<BinhLuanWire[]> {
+  const result = await translated<{ comments: BinhLuanWire[] }>(
+    XA_HOI_REFUSALS,
+    `/contexts/${contextId}/memories/${memoryId}/comments`,
+    { method: "GET", actorId, roles: "member", contexts: contextId },
+  );
+  return result.comments ?? [];
+}
+
+/**
+ * Say something under a photograph.
+ *
+ * The body is the only field: authorship comes from the header, so this cannot
+ * post in somebody else's name even by accident. Keyed on the memory and the
+ * text so that a second press while the first is still in flight replays the
+ * first answer instead of leaving the same sentence on the wall twice -- the
+ * same trick `themKyNiemAnh` uses, for the same reason.
+ */
+export async function guiBinhLuan(
+  contextId: string,
+  memoryId: string,
+  body: string,
+  actorId: string,
+  attempt: Attempt,
+): Promise<BinhLuanWire> {
+  return translated<BinhLuanWire>(
+    XA_HOI_REFUSALS,
+    `/contexts/${contextId}/memories/${memoryId}/comments`,
+    {
+      method: "POST",
+      body: { body },
+      actorId,
+      attempt,
+      roles: "member",
+      contexts: contextId,
+    },
+  );
+}
+
+/* ------------------------------------------------------- outings (F13/F15) */
+
+export type { BodyTaoBuoiDi, BuoiDi, ChangGui, CheckIn };
+
+/**
+ * Create an outing in a real group.
+ *
+ * The group is a parameter, not a constant: callers pass the id
+ * `khoiDongNhom` actually returned. This file used to hold a synthetic
+ * `CONTEXT_ID` with no row in `contexts`, and posting under it was a 403.
+ */
+export async function taoBuoiDi(
+  contextId: string,
+  body: BodyTaoBuoiDi,
+  actorId: string,
+  attempt: Attempt,
+): Promise<BuoiDi> {
+  return call<BuoiDi>(`/contexts/${contextId}/outings`, {
+    method: "POST",
+    body,
+    actorId,
+    attempt,
+    contexts: contextId,
+  });
+}
+
+/** List the group's outings. Membership is a query, not the actor header. */
+export async function docDanhSachBuoiDi(
+  contextId: string,
+  actorId: string,
+): Promise<{ context_id: string; outings: BuoiDi[] }> {
+  return call<{ context_id: string; outings: BuoiDi[] }>(
+    `/contexts/${contextId}/outings`,
+    { method: "GET", actorId, contexts: contextId },
+  );
+}
+
+/**
+ * Replace the timeline. Sorted here, not by the server: the server stores
+ * the array it was given, in that order, so position only matches clock
+ * time if we sort first.
+ */
+export async function luuDongThoiGian(
+  outingId: string,
+  stops: ChangGui[],
+  actorId: string,
+  attempt: Attempt,
+  contextId: string,
+): Promise<BuoiDi> {
+  return call<BuoiDi>(`/outings/${outingId}/timeline`, {
+    method: "PUT",
+    body: {
+      stops: sapXepChang(stops).map((stop) => ({
+        at: stop.at,
+        label: stop.label,
+        place_name: stop.place_name,
+      })),
+    },
+    actorId,
+    attempt,
+    contexts: contextId,
+  });
+}
+
+/**
+ * F46. Say the actor reached this stop.
+ *
+ * Deliberately sends NO body. The server already knows who is asking and what
+ * time it is, and those are the only two facts a check-in records. A body
+ * would be somewhere for a coordinate to arrive, and a coordinate attached to
+ * a person is a movement record the whole group can read -- reading the
+ * phone's GPS is F47 and is not built.
+ *
+ * A second press comes back 409 `already_checked_in`; the unique index in the
+ * database is what refuses it, not a check on this side.
+ */
+export async function checkInChang(
+  stopId: string,
+  actorId: string,
+  attempt: Attempt,
+  contextId: string,
+): Promise<CheckIn> {
+  return call<CheckIn>(`/outing-stops/${stopId}/checkins`, {
+    method: "POST",
+    actorId,
+    attempt,
+    contexts: contextId,
+  });
+}
+
+/** Who has arrived where, for one outing. Members only, enforced server-side. */
+export async function docCheckIn(
+  outingId: string,
+  actorId: string,
+  contextId: string,
+): Promise<{ outing_id: string; checkins: CheckIn[] }> {
+  return call<{ outing_id: string; checkins: CheckIn[] }>(
+    `/outings/${outingId}/checkins`,
+    { method: "GET", actorId, contexts: contextId },
+  );
+}
+
+/* --------------------------------------------------- a bill that persists */
+
+/**
+ * Store the reading as a bill, and get back the server's view of it.
+ *
+ * The write that was missing. Everything downstream of the matrix -- reopening
+ * a bill, seeing which lines are still the machine's guess, asking the group
+ * for balances -- needs the bill to have an id, and until this call existed it
+ * never got one: the matrix lived in React state and died with the screen.
+ *
+ * `attempt` matters more here than on a read. Two presses of "Tiếp tục" on a
+ * slow connection are one person asking once, and without the header each
+ * press leaves its own bill row -- two bills for one dinner, each holding half
+ * the group's ticks.
+ */
+export async function taoBill(
+  reading: BillReading,
+  contextId: string,
+  assignment: Assignment,
+  actorId: string,
+  attempt: Attempt,
+): Promise<BillWire> {
+  return call<BillWire>("/bills", {
+    body: billCreateBody(reading, contextId, assignment),
+    actorId,
+    attempt,
+    contexts: contextId,
+  });
+}
+
+/** Reopen a stored bill. Members of its group only, enforced server-side. */
+export async function docBill(
+  billId: string,
+  actorId: string,
+  contextId: string,
+): Promise<BillWire> {
+  return call<BillWire>(`/bills/${billId}`, {
+    method: "GET",
+    actorId,
+    contexts: contextId,
+  });
+}
+
+/**
+ * Turn this group's ticks into decisions.
+ *
+ * The response is the bill re-read, not an acknowledgement, and the caller is
+ * meant to replace its state with it. That is what moves `assignment_state`
+ * off `ai_suggested` and empties `suggested_item_keys`: the screen stops
+ * describing the matrix as a guess because the server has stopped calling it
+ * one, rather than because the app decided locally that it had saved.
+ */
+export async function luuGanMon(
+  billId: string,
+  reading: BillReading,
+  assignment: Assignment,
+  actorId: string,
+  contextId: string,
+  attempt: Attempt,
+): Promise<BillWire> {
+  return call<BillWire>(`/bills/${billId}/assignments`, {
+    method: "PUT",
+    body: assignmentsBody(reading, assignment),
+    actorId,
+    attempt,
+    contexts: contextId,
+  });
+}
+
+/**
+ * Who owes whom across this group, net of everything in the ledger.
+ *
+ * Not this bill's split. This is the group's whole position, which is the
+ * question a person actually has after a dinner -- one bill's numbers are
+ * already on the screen they just left. `transfers` are proposals needing
+ * consent, never obligations; `proven_minimal` says whether the server proved
+ * the list is the shortest, and is passed through rather than assumed.
+ */
+export async function docSoDu(
+  contextId: string,
+  actorId: string,
+): Promise<SoDu> {
+  const wire = await call<SoDuWire>(`/contexts/${contextId}/balances`, {
+    method: "GET",
+    actorId,
+    contexts: contextId,
+  });
+  return soDuFromWire(wire);
+}

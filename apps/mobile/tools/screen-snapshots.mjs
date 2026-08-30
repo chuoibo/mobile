@@ -23,9 +23,62 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MOBILE_ROOT = path.resolve(HERE, "..");
 
 /** Same sentinel `build:check` inlines. The fetch stub keys off this prefix. */
-const API_BASE = "http://api.build-check.invalid";
+export const API_BASE = "http://api.build-check.invalid";
 
-const STEPS = ["chup-bill", "ket-qua", "goi-y", "nhap", "de-xuat", "dot-thu", "chia-se"];
+export const STEPS = [
+  // The screen the app opens on, and for most of its life the only screen in
+  // this walk that was pressed through rather than looked at: `drive` clicked
+  // "Bỏ qua" as its first act and the first file written was the viewfinder.
+  // Nothing said so. The tab gate in `tests/quet-du-tab.test.mjs` cannot say
+  // so either -- it checks `tabs.ts`, and `MoDau` is not a tab, so it fell
+  // through the one gate built to catch exactly this. A missing screen and a
+  // clean screen produce the same green, and this was the missing one on the
+  // screen every demo starts on.
+  "mo-dau",
+  "chup-bill",
+  "ket-qua",
+  "goi-y",
+  "nhap",
+  "de-xuat",
+  "dot-thu",
+  "ket-qua-thanh-toan",
+  "chia-se",
+];
+
+/**
+ * A VietQR payload the client can actually parse.
+ *
+ * `PublishedObligation` on the server carries `vietqr_payload`; this fake
+ * omitted it, so `readVietQr` threw and the settlement screen rendered its
+ * refusal panel ("Chưa hiện được mã"). The snapshot of the one screen the whole
+ * flow exists to reach was a picture of a failure state, and a detector run
+ * over it was scanning the wrong screen.
+ *
+ * Built by the repo's own `app.payments.vietqr.build_payload` so the EMVCo tags
+ * and the CRC are real rather than hand-typed. Bank bin 970415, note
+ * "RUDI DEMO", and a four-digit account that is deliberately too short to be
+ * anybody's: no real account number goes into Git, and the repo guard's
+ * long-number rule is right to refuse one that looks real.
+ */
+export const VIETQR_FIXTURE =
+  "00020101021138480010A00000072701180006970415010412340208QRIBFTTA53037045802VN62130809RUDI DEMO6304CFD6";
+
+/**
+ * The cast, and it must be the real group.
+ *
+ * These names are rows of `DEMO_PEOPLE` in `src/navigation/nhom-demo.ts`. They
+ * are not decoration and they are not free: since #113 the matrix has no text
+ * box, so a person only reaches the bill by pressing that person's own button.
+ * An invented name has no button, and the walk stops on it.
+ *
+ * Kept as literals rather than imported because this tool runs against the
+ * `expo export` bundle, not against `dist-test`, and a stale or missing
+ * compile would silently change the cast. A name that drifts out of
+ * `nhom-demo.ts` fails loudly in `clickAria` instead.
+ */
+export const TREN_BILL = ["Minh", "Trang", "Hải"];
+/** Three more, taking the row past the four columns it can draw inline. */
+const THEM_CHO_DONG = ["Ngọc", "Đức", "Linh"];
 
 /**
  * States of one screen that the linear walk does not reach.
@@ -43,7 +96,32 @@ const STEPS = ["chup-bill", "ket-qua", "goi-y", "nhap", "de-xuat", "dot-thu", "c
  * instead -- see `pickerShot` -- which is evidence of what renders but is not
  * a detector scan, and must not be described as one.
  */
-const EXTRA = ["goi-y-dong"];
+export const EXTRA = ["goi-y-dong"];
+
+/**
+ * Waypoints the walk stops on without capturing, each with the reason.
+ *
+ * `mo-dau` is why this exists. It was a waypoint like these two -- `drive`
+ * paused on it, pressed a button, and moved on -- and because nothing
+ * required a waypoint to be either captured or explained, the screen the
+ * whole demo opens on went unscanned for its entire life and no output
+ * anywhere said a screen was missing.
+ *
+ * So a reason in a comment is no longer enough. `tests/di-qua-hay-chup.test.mjs`
+ * reads the `step = "..."` assignments out of `drive` and requires every one of
+ * them to appear in `STEPS`, in `EXTRA`, or here. Adding a stop to the walk now
+ * forces the choice to be written down, and the cost of skipping a screen is
+ * that somebody has to type why.
+ *
+ * A named exclusion is evidence of intent, not of coverage: these two screens
+ * are unmeasured, and this list is the record of that, not a dismissal of it.
+ */
+export const PASS_THROUGH = {
+  "vao-app": "Vỏ tab đáp xuống Khám phá — chụp ở tools/tab-snapshots.mjs (step kham-pha).",
+  "menu-tao":
+    "Sheet [+] là Modal animationType=\"slide\"; gỡ script làm nó đứng ở khung đầu và " +
+    "vẽ ra tấm trong suốt, nên bản chụp HTML sẽ sạch vì rỗng chứ không vì đẹp.",
+};
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -168,13 +246,33 @@ export function createStaticServer(root) {
  * does not open a file chooser. Puppeteer's `waitForFileChooser` listens for
  * the native activation, so a dispatched click is rewritten to `HTMLInputElement.click()`.
  */
-export function installBeforeApp(apiBase, scanBody) {
+export function installBeforeApp(apiBase, scanBody, vietqrPayload) {
   const originalFetch = window.fetch.bind(window);
 
+  /* The seeded seven, in `nhom-demo.ts`'s order, `personId` then name.
+   *
+   * Restated rather than imported because this function is serialised into the
+   * page before the bundle exists -- there is nothing to import from yet.
+   * `tests/quet-man-sau-tap.test.mjs` holds the two copies together. */
+  const NHOM_DEMO_IDS = [
+    "46b55e67-932b-5415-a5ee-08fb2641a4ff",
+    "49871dab-3bf9-5140-acf3-6c9736b31e8f",
+    "be2389f9-62cb-5b28-8e5f-874768e9fb75",
+    "e3a44e25-4547-508a-8f4d-9b2495c3325f",
+    "4421b3f8-26a6-5827-a7e7-548c5a4a10f9",
+    "cdadf49b-b6a8-5631-8b9d-aee6a7d532de",
+    "93c153f7-042a-556d-b227-7b1e54f2d50b",
+  ];
+  const NHOM_DEMO_TEN = ["Minh", "Trang", "Hải", "Ngọc", "Đức", "Linh", "Quân"];
+
   const db = {
+    contextId: "c7d2a3f1-9b4e-4a1c-8d6f-2e5b7c9a1d4f",
     expenseId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
     versionId: "vvvvvvvv-vvvv-4vvv-8vvv-vvvvvvvvvvvv",
     batchId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    billId: "d1111111-dddd-4ddd-8ddd-dddddddddddd",
+    /** The stored bill, once `POST /bills` has been called. */
+    bill: null,
     allocations: {},
     obligations: [],
     lastPath: "",
@@ -238,6 +336,79 @@ export function installBeforeApp(apiBase, scanBody) {
       return json({ id: person[1], display_name: parsed?.display_name ?? "" });
     }
 
+    /* The group, which this walk did not used to need.
+     *
+     * The expense flow used to address a hard-coded `CONTEXT_ID` that had never
+     * had a row in `contexts`, so it asked the server nothing before writing.
+     * That is bug-053800: a group with no row has no members, and `confirm`
+     * answered `422 participant_not_in_context` for everybody. The flow now
+     * opens the group through `khoiDongNhom` first, exactly as chat and Lên
+     * plan already did, so these four routes are on the walk.
+     *
+     * The roster returned is the seeded seven, because the split screen's list
+     * of people IS the membership now -- it is no longer a constant in App.tsx.
+     * A stub that returned two members would silently scan a different screen
+     * from the one the demo shows, and the number would look just as real.
+     */
+    if (method === "POST" && path === "/contexts") {
+      return json({
+        id: db.contextId,
+        display_name: parsed?.display_name ?? "Team Đà Lạt",
+        created_by_id: NHOM_DEMO_IDS[0],
+        created_at: "2026-08-29T04:00:00Z",
+      }, 201);
+    }
+
+    const moi = /^\/contexts\/([^/]+)\/members$/.exec(path);
+    if (method === "POST" && moi) {
+      return json({
+        id: "b8e4f6a1-3c7d-4b2e-9a5f-6d1c8b3e7f2a",
+        context_id: moi[1],
+        person_id: parsed?.person_id ?? NHOM_DEMO_IDS[1],
+        display_name: "",
+        state: "invited",
+        role: "member",
+        invited_by_id: NHOM_DEMO_IDS[0],
+        joined_at: null,
+        left_at: null,
+        created_at: "2026-08-29T04:00:00Z",
+      }, 201);
+    }
+
+    const chapNhan = /^\/memberships\/([^/]+)\/accept$/.exec(path);
+    if (method === "POST" && chapNhan) {
+      return json({
+        id: chapNhan[1],
+        context_id: db.contextId,
+        person_id: NHOM_DEMO_IDS[1],
+        display_name: NHOM_DEMO_TEN[1],
+        state: "active",
+        role: "member",
+        invited_by_id: NHOM_DEMO_IDS[0],
+        joined_at: "2026-08-29T04:00:00Z",
+        left_at: null,
+        created_at: "2026-08-29T04:00:00Z",
+      });
+    }
+
+    if (method === "GET" && moi) {
+      return json({
+        context_id: moi[1],
+        members: NHOM_DEMO_IDS.map((id, i) => ({
+          id: `b8e4f6a1-3c7d-4b2e-9a5f-6d1c8b3e7f2${i}`,
+          context_id: moi[1],
+          person_id: id,
+          display_name: NHOM_DEMO_TEN[i],
+          state: "active",
+          role: i === 0 ? "admin" : "member",
+          invited_by_id: NHOM_DEMO_IDS[0],
+          joined_at: "2026-08-29T04:00:00Z",
+          left_at: null,
+          created_at: "2026-08-29T04:00:00Z",
+        })),
+      });
+    }
+
     if (method === "POST" && path === "/expenses") {
       const ids = parsed.participants;
       const total = parsed.total_amount_vnd;
@@ -278,7 +449,14 @@ export function installBeforeApp(apiBase, scanBody) {
         guest_links: db.obligations.map((row) => ({
           sender_id: row.sender_id,
           path: `/g/${row.obligation_id}`,
-          obligations: [{ obligation_id: row.obligation_id, amount_vnd: row.amount_vnd }],
+          expires_at: "2026-12-31T23:59:59+07:00",
+          obligations: [
+            {
+              obligation_id: row.obligation_id,
+              amount_vnd: row.amount_vnd,
+              vietqr_payload: vietqrPayload,
+            },
+          ],
         })),
       });
     }
@@ -296,6 +474,122 @@ export function installBeforeApp(apiBase, scanBody) {
 
     if (method === "POST" && /^\/obligations\/[^/]+\/confirm-receipt$/.test(path)) {
       return json({ obligation_status: "confirmed" });
+    }
+
+    /* ------------------------------------------------------------ /bills --
+     *
+     * Added because the walk started 404ing here the moment the app learned to
+     * store a bill, and a 404 on this route does not degrade quietly: `api.ts`
+     * turns it into an ApiError, the shell paints "Máy chủ trả về 404", and
+     * `waitForScreen` treats that banner as a hard stop. So the scan was not
+     * measuring a worse version of the screen -- it was refusing to reach it.
+     *
+     * These three mirror `routes/bills.py` and `BillResponse` in schemas.py,
+     * not what the client happens to want back. A stub that invents a friendlier
+     * shape than the server sends is how a screen passes here and breaks live.
+     */
+    if (method === "POST" && path === "/bills") {
+      db.bill = {
+        id: db.billId,
+        context_id: parsed.context_id,
+        printed_total_vnd: parsed.printed_total_vnd,
+        items_total_vnd: parsed.items_total_vnd,
+        needs_review: parsed.needs_review,
+        created_by_id: parsed.items[0]?.suggested_participant_ids?.[0] ?? null,
+        created_at: "2026-08-30T00:00:00Z",
+        // A freshly stored bill is entirely the reader's guess, and the server
+        // says so on both fields. Returning `confirmed` here would let the
+        // screen claim the group had decided something nobody had touched.
+        assignment_state: "ai_suggested",
+        suggested_item_keys: parsed.items.map((item) => item.item_key),
+        items: parsed.items.map((item, position) => ({
+          item_key: item.item_key,
+          name: item.name,
+          quantity: item.quantity,
+          unit_price_vnd: item.unit_price_vnd,
+          line_total_vnd: item.line_total_vnd,
+          position,
+          shares: item.suggested_participant_ids.map((id) => ({
+            participant_id: id,
+            source: "ai_suggested",
+            decided_by_id: null,
+            decided_at: null,
+          })),
+        })),
+        surcharges: [],
+        discounts: [],
+      };
+      return json(db.bill, 201);
+    }
+
+    const billGet = /^\/bills\/([^/]+)$/.exec(path);
+    if (method === "GET" && billGet) {
+      return db.bill === null
+        ? json({ code: "bill_not_found", detail: "no bill" }, 404)
+        : json(db.bill);
+    }
+
+    const billAssign = /^\/bills\/([^/]+)\/assignments$/.exec(path);
+    if (method === "PUT" && billAssign) {
+      if (db.bill === null) {
+        return json({ code: "bill_not_found", detail: "no bill" }, 404);
+      }
+      const gan = new Map(
+        (parsed?.assignments ?? []).map((a) => [a.item_key, a.participant_ids]),
+      );
+      db.bill = {
+        ...db.bill,
+        assignment_state: "confirmed",
+        // Emptied, because every line just got decided. This is the field the
+        // screen branches on, so getting it wrong here would hide the very
+        // state change the walk exists to render.
+        suggested_item_keys: [],
+        items: db.bill.items.map((item) => ({
+          ...item,
+          shares: (gan.get(item.item_key) ?? []).map((id) => ({
+            participant_id: id,
+            source: "confirmed",
+            decided_by_id: id,
+            decided_at: "2026-08-30T00:00:00Z",
+          })),
+        })),
+      };
+      return json(db.bill);
+    }
+
+    /* Net position for the group, in the shape `ContextBalancesResponse` uses.
+     *
+     * `sender_id` / `recipient_id`, which is worth stating because the obvious
+     * guess is `from_id` / `to_id` and a stub carrying the guess would agree
+     * with a client carrying the same guess -- two wrongs rendering a green
+     * scan over a screen that shows blank names against the real server. */
+    const balances = /^\/contexts\/([^/]+)\/balances$/.exec(path);
+    if (method === "GET" && balances) {
+      const nguoi = db.bill === null
+        ? []
+        : [
+            ...new Set(
+              db.bill.items.flatMap((item) =>
+                item.shares.map((share) => share.participant_id),
+              ),
+            ),
+          ];
+      // Two people is the smallest group that can owe anything, so below that
+      // the honest answer is a settled group rather than an invented debt.
+      if (nguoi.length < 2) {
+        return json({ balances: [], transfers: [], proven_minimal: true, transfer_count: 0 });
+      }
+      return json({
+        balances: [
+          { person_id: nguoi[0], net_vnd: -120000 },
+          { person_id: nguoi[1], net_vnd: 120000 },
+        ],
+        transfers: [
+          { sender_id: nguoi[0], recipient_id: nguoi[1], amount_vnd: 120000 },
+        ],
+        proven_minimal: true,
+        transfer_count: 1,
+      });
     }
 
     return json({ code: "unstubbed", detail: `no stub for ${method} ${path}` }, 404);
@@ -326,11 +620,11 @@ export function installBeforeApp(apiBase, scanBody) {
   };
 }
 
-async function visibleText(page) {
+export async function visibleText(page) {
   return page.evaluate(() => document.body?.innerText ?? "");
 }
 
-async function apiLog(page) {
+export async function apiLog(page) {
   try {
     return await page.evaluate(() => window.__snapshotApiLog ?? []);
   } catch {
@@ -427,23 +721,29 @@ async function typePlaceholder(page, placeholder, value) {
 }
 
 /**
- * Add one person on the matrix screen.
+ * Put one member of the group onto the bill.
  *
- * Not `addPerson`: there the name field is always mounted, here it appears
- * only after the "+" avatar is pressed and unmounts again on submit, so
- * waiting for an empty input would wait for a node that has gone. The "+"
- * carries `aria-label="Thêm"` while the confirm button's text is exactly
- * "Thêm" and it has no aria-label, which is what keeps the two apart.
+ * Was `addPersonOnMatrix`, which pressed a "+" avatar and typed the name into
+ * a box. #113 removed both halves: typing "Hải" minted a fresh UUID instead of
+ * finding Hải (bug-125301), so the screen now opens the group list by default
+ * and every member is a button of its own. While the bill is empty there is no
+ * "+" on the screen at all, which is why the old driver hung its full 15s on
+ * `[aria-label="Thêm"]` and left five of the seven walked screens unwritten.
+ *
+ * The names must therefore come from `nhom-demo.ts`; an invented one has no
+ * button to press.
  */
-export async function addPersonOnMatrix(page, name) {
-  await clickAria(page, "Thêm");
-  const sel = 'input[placeholder="Hà"]';
-  await page.waitForSelector(sel, { visible: true, timeout: 15000 });
-  await page.click(sel);
-  await page.type(sel, name, { delay: 15 });
-  await clickButton(page, "Thêm");
+export async function pickMemberOnMatrix(page, name) {
+  await clickAria(page, `Thêm ${name} vào nhóm`);
+  // Not `innerText.includes(name)`. The name is already on screen in the invite
+  // list before the tap, so that needle reads true before the click even lands
+  // and would wave through a press that missed. Being added moves the member
+  // out of the invite list and into the avatar row, so the honest signal is the
+  // invite button going away and the avatar arriving.
   await page.waitForFunction(
-    (n) => (document.body?.innerText ?? "").includes(n),
+    (n) =>
+      document.querySelector(`[aria-label="Thêm ${n} vào nhóm"]`) === null &&
+      document.querySelector(`[aria-label="${n}"]`) !== null,
     { timeout: 10000 },
     name,
   );
@@ -460,7 +760,7 @@ export async function waitForPreview(page) {
   );
 }
 
-async function snapshot(page, outDir, step) {
+export async function snapshot(page, outDir, step) {
   const { html, cssText } = await page.evaluate(() => {
     // `react-native-web` builds its stylesheet through the CSSOM
     // (`sheet.insertRule`), and rules inserted that way are NOT reflected in
@@ -554,8 +854,30 @@ async function drive(page, outDir, jpegPath) {
   // Driving it rather than deep-linking is deliberate: this is the only place
   // that checks the shell actually hands over to these screens, which is
   // exactly what the rebase could have silently broken.
+  // Captured before anything is pressed, because pressing is what destroys it.
+  // The needle is the tagline rather than the wordmark: "Rủ Đi" is also the
+  // header of the shell this screen hands over to, so it would still be found
+  // one screen too late.
+  step = "mo-dau";
+  await waitForScreen(page, step, "AI đi chơi, chia bill thông minh");
+  await snapshot(page, outDir, step);
+
   step = "vao-app";
-  await clickAria(page, "Bỏ qua, vào app mà chưa chọn người");
+  // Đăng nhập chứ không bỏ qua: luồng chia tiền mở nhóm dưới danh nghĩa người
+  // đang đăng nhập kể từ bug-053800, nên "Bỏ qua" dừng ở màn "Chưa biết bạn là
+  // ai" và ảnh chụp sau đó sẽ là màn khác mang tên màn này.
+  await page.evaluate(() => {
+    const el = [...document.querySelectorAll("button, [role='button']")].find(
+      (n) => (n.textContent || "").replace(/\s+/g, " ").trim() === "Đăng ký với Apple",
+    );
+    if (!el) throw new Error('khong thay nut "Đăng ký với Apple"');
+    el.click();
+  });
+  await page.waitForFunction(
+    () => document.body.innerText.includes("Vào app với tư cách ai?"),
+    { timeout: 15000 },
+  );
+  await clickAria(page, "Vào app với tư cách Minh");
   await waitForScreen(page, step, "Khám phá");
 
   step = "menu-tao";
@@ -584,16 +906,14 @@ async function drive(page, outDir, jpegPath) {
   // one box off before the snapshot is deliberate: a grid where every cell is
   // on cannot show that an off cell is legible, and the off state is the one
   // carrying a 3:1 border instead of a fill.
-  await addPersonOnMatrix(page, "Nam");
-  await addPersonOnMatrix(page, "Hà");
-  await addPersonOnMatrix(page, "Quyên");
-  await clickAria(page, "Nam, Lẩu thái");
+  for (const name of TREN_BILL) await pickMemberOnMatrix(page, name);
+  await clickAria(page, `${TREN_BILL[0]}, Lẩu thái`);
   await waitForPreview(page);
   await snapshot(page, outDir, step);
 
   // The crowded layout, and then the picker it opens. Three more names take
   // the group past what the inline columns can hold.
-  for (const name of ["Bình", "Chi", "Dũng"]) await addPersonOnMatrix(page, name);
+  for (const name of THEM_CHO_DONG) await pickMemberOnMatrix(page, name);
   await page.waitForFunction(() => (document.body?.innerText ?? "").includes("/6"));
   await waitForPreview(page);
   await snapshot(page, outDir, "goi-y-dong");
@@ -621,12 +941,19 @@ async function drive(page, outDir, jpegPath) {
   console.log(`goi-y-chon (live png)  ${pickerShot}`);
   await clickButton(page, "Xong");
 
-  // Back to four, so the rest of the walk sees the roster it expects.
-  for (const name of ["Bình", "Chi", "Dũng"]) {
+  // Back to three, so the rest of the walk sees the roster it expects.
+  for (const name of THEM_CHO_DONG) {
     await clickAria(page, name);
     await clickButton(page, `Xoá ${name} khỏi nhóm`);
+    // The mirror of the needle in `pickMemberOnMatrix`, and wrong for the same
+    // reason if written as text: coming off the bill puts the member straight
+    // back into the invite list, which is open, so their name never leaves
+    // `innerText` and this waited the full 10s on a removal that had already
+    // happened. The avatar is the thing that goes.
     await page.waitForFunction(
-      (n) => !(document.body?.innerText ?? "").includes(n),
+      (n) =>
+        document.querySelector(`[aria-label="${n}"]`) === null &&
+        document.querySelector(`[aria-label="Thêm ${n} vào nhóm"]`) !== null,
       { timeout: 10000 },
       name,
     );
@@ -638,16 +965,18 @@ async function drive(page, outDir, jpegPath) {
   await snapshot(page, outDir, step);
 
   await typePlaceholder(page, "bữa lẩu tối thứ bảy", "bữa lẩu tối thứ bảy");
-  await page.waitForFunction(() => {
+  await page.waitForFunction(
+    (who) => [...document.querySelectorAll('[role="radio"]')]
+      .some((r) => r.textContent.trim() === who),
+    {},
+    TREN_BILL[0],
+  );
+  await page.evaluate((who) => {
     const radios = [...document.querySelectorAll('[role="radio"]')];
-    return radios.some((r) => r.textContent.trim() === "Nam");
-  });
-  await page.evaluate(() => {
-    const radios = [...document.querySelectorAll('[role="radio"]')];
-    const nam = radios.find((r) => r.textContent.trim() === "Nam");
-    if (!nam) throw new Error('no radio for "Nam"');
-    nam.click();
-  });
+    const nguoi = radios.find((r) => r.textContent.trim() === who);
+    if (!nguoi) throw new Error(`no radio for "${who}"`);
+    nguoi.click();
+  }, TREN_BILL[0]);
   await page.waitForFunction(() => {
     const btn = [...document.querySelectorAll("button")].find(
       (b) => b.textContent.trim() === "Chia tiền",
@@ -665,11 +994,19 @@ async function drive(page, outDir, jpegPath) {
   await waitForScreen(page, step, "Đợt thu");
   await snapshot(page, outDir, step);
 
+  step = "ket-qua-thanh-toan";
   await clickButton(page, "Phát đợt thu");
-  await waitForScreen(page, step, "Chia sẻ cho từng người");
+  // Publishing is the moment the codes come into existence, so `App` leaves the
+  // batch and lands on the settlement screen. This used to wait for "Chia sẻ
+  // cho từng người", a button on `DotThu` that publishing navigates away from,
+  // so the walk sat here until it timed out. The screen it actually lands on is
+  // the one carrying the VietQR, which is the whole point of the flow, and it
+  // had never been snapshotted at all.
+  await waitForScreen(page, step, "Quét để thanh toán");
+  await snapshot(page, outDir, step);
 
   step = "chia-se";
-  await clickButton(page, "Chia sẻ cho từng người");
+  await clickButton(page, "Chia sẻ kết quả");
   await waitForScreen(page, step, "Mỗi người một link riêng");
   await snapshot(page, outDir, step);
 }
@@ -724,7 +1061,12 @@ async function main() {
     const pageErrors = [];
     page.on("pageerror", (err) => pageErrors.push(String(err)));
 
-    await page.evaluateOnNewDocument(installBeforeApp, API_BASE, SCAN_FIXTURE);
+    await page.evaluateOnNewDocument(
+      installBeforeApp,
+      API_BASE,
+      SCAN_FIXTURE,
+      VIETQR_FIXTURE,
+    );
     await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
 
     try {

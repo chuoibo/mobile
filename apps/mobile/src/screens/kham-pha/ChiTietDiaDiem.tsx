@@ -18,6 +18,9 @@ import { Button, Card } from "../../ui/Kit";
 import { AnhDiaDiem, Ruy } from "./AnhDiaDiem";
 import { HuyHieuMatch, TheLyDoAi } from "./NhanAi";
 import { DaiBanDo } from "./DaiBanDo";
+import { CheckIn } from "./CheckIn";
+import type { NguoiDung } from "../../navigation/nhom-demo";
+import type { Nhom as NhomWire } from "../vao-cua/cong-api";
 import {
   formatDistance,
   formatKinds,
@@ -26,7 +29,15 @@ import {
   type Place,
 } from "./places";
 
-export function ChiTietDiaDiem({ place, onQuayLai }: { place: Place; onQuayLai: () => void }) {
+export function ChiTietDiaDiem({ place, nguoi, nhom, onQuayLai }: {
+  place: Place;
+  /** Who the app is acting as. F46's write is authorised by this. */
+  nguoi?: NguoiDung | null;
+  /** The group a check-in would belong to. Null until this session has opened
+   *  one -- see `VoTab`, which holds the handle. */
+  nhom?: NhomWire | null;
+  onQuayLai: () => void;
+}) {
   const c = usePalette();
   const [daLuu, setDaLuu] = useState(false);
 
@@ -123,6 +134,12 @@ export function ChiTietDiaDiem({ place, onQuayLai }: { place: Place; onQuayLai: 
           {/* The point of the screen. */}
           <TheLyDoAi match={place.match} />
 
+          {/* F46. Below the reason card rather than in the bottom bar: the bar
+              holds the two actions the mockup draws, and a check-in is not a
+              third peer of "Chỉ đường" -- it is a record the group keeps, and
+              it comes with the list of times they have kept it before. */}
+          <CheckIn place={place} nguoi={nguoi ?? null} nhom={nhom ?? null} />
+
           <DaiBanDo places={[place]} />
         </View>
       </ScrollView>
@@ -164,7 +181,7 @@ export function ChiTietDiaDiem({ place, onQuayLai }: { place: Place; onQuayLai: 
           accessibilityRole="alert"
           style={{ ...type.micro, color: c.inkFaint, paddingHorizontal: space.md, paddingBottom: space.sm }}
         >
-          Đánh dấu này chỉ nằm trong phiên đang mở — chưa có chỗ lưu trên máy chủ.
+          Đánh dấu này chỉ nằm trong phiên đang mở, chưa có chỗ lưu trên máy chủ.
         </Text>
       ) : null}
     </View>

@@ -360,3 +360,190 @@ def test_an_itinerary_keeps_its_stops_in_the_order_the_model_planned_them():
     assert [stop["place"]["id"] for stop in stops] == ["p-tiem-nuong", "p-cafe-suong"]
     assert [stop["time_text"] for stop in stops] == ["19:00", "21:00"]
     assert stops[0]["place"]["name"] == "Tiệm Nướng Xóm Lào"
+
+
+def test_an_itinerary_carries_no_field_the_contract_did_not_name():
+    """The whitelist is per card kind, and `itinerary` is a card kind.
+
+    A places card has been guarded against a smuggled `amount_vnd` since it was
+    written. The itinerary branch builds its own payload dict and was never
+    held to the same rule, so the one card kind that plans a whole evening was
+    also the one kind where an invented total could reach the client. Same
+    model, same boundary.
+    """
+    raw = {
+        "kind": "itinerary",
+        "payload": {
+            "title": "Tối nay",
+            "stops": [
+                {"place_id": "p-tiem-nuong", "time_text": "19:00", "note": "Ăn"},
+            ],
+            "expense": {"total_vnd": 900_000, "payer_id": "someone"},
+            "amount_vnd": 900_000,
+            "budget_per_person_vnd": 300_000,
+        },
+    }
+
+    card = ground_card(raw, _catalogue())
+
+    assert set(card["payload"]) == {"title", "stops"}
+    for banned in ("expense", "amount_vnd", "budget_per_person_vnd"):
+        assert banned not in card["payload"]
+    assert "900000" not in str(card).replace("_", "")
+
+
+def test_an_itinerary_stop_is_described_by_the_catalogue_not_by_the_model():
+    """A real ID beside invented facts is the harder half of grounding.
+
+    The ID check passes here -- the place genuinely exists -- so nothing
+    refuses the card. If a stop copied the model's own `place` object, a real
+    restaurant would appear on screen with an address nobody can drive to and a
+    price nobody agreed to. The existing itinerary tests check which places are
+    named and in what order; neither notices the facts being swapped.
+    """
+    raw = {
+        "kind": "itinerary",
+        "payload": {
+            "title": "Tối nay",
+            "stops": [
+                {
+                    "place_id": "p-tiem-nuong",
+                    "time_text": "19:00",
+                    "note": "Ăn",
+                    "place": {
+                        "id": "p-tiem-nuong",
+                        "name": "Quán Không Có Thật",
+                        "address": "1 Đường Bịa, Sao Hoả",
+                        "price_min_vnd": 5_000,
+                        "price_max_vnd": 9_000,
+                    },
+                },
+            ],
+        },
+    }
+
+    card = ground_card(raw, _catalogue())
+
+    stop = card["payload"]["stops"][0]
+    assert set(stop) == {"time_text", "note", "place"}
+    assert stop["place"] == {
+        "id": "p-tiem-nuong",
+        "name": "Tiệm Nướng Xóm Lào",
+        "address": "27/1 Yersin, TP. Đà Lạt",
+        "price_min_vnd": 200_000,
+        "price_max_vnd": 250_000,
+    }
+    assert "Quán Không Có Thật" not in str(card)
+    assert "Sao Hoả" not in str(card)
+
+
+def _two_day_stops(count: int) -> list[dict]:
+    """A plan long enough that a display limit has to decide something."""
+    places = ["p-tiem-nuong", "p-cafe-suong"]
+    return [
+        {
+            "place_id": places[index % 2],
+            "time_text": f"Ngày {index // 4 + 1} · {8 + index}:00",
+            "note": f"Chặng {index + 1}",
+        }
+        for index in range(count)
+    ]
+
+
+def test_an_itinerary_longer_than_the_display_limit_never_drops_a_stop_in_silence():
+    """"Ghi rõ từng khung giờ của cả hai ngày" is the ordinary request here.
+
+    Two days is routinely more than six stops, and the payload named only
+    `title` and `stops`, so `stops[:MAX_STOPS]` dropped the tail with nothing on
+    the card admitting it. The group read one day and believed that was the
+    whole plan. A card may show fewer stops than the model planned, but it may
+    never let a stop vanish without accounting for it.
+    """
+    raw = {
+        "kind": "itinerary",
+        "payload": {"title": "Hai ngày ở Đà Lạt", "stops": _two_day_stops(8)},
+    }
+
+    card = ground_card(raw, _catalogue())
+
+    payload = card["payload"]
+    shown = payload["stops"]
+    omitted = payload.get("omitted_stop_count", 0)
+    assert omitted == 8 - len(shown), "a cut stop must be counted on the card"
+    assert [stop["note"] for stop in shown] == [
+        f"Chặng {index + 1}" for index in range(len(shown))
+    ]
+
+
+def test_an_itinerary_short_enough_to_show_whole_carries_no_cut_flag():
+    """The control half: without it, "flags when it cuts" and "flags always"
+    are the same green.
+    """
+    raw = {
+        "kind": "itinerary",
+        "payload": {"title": "Tối nay", "stops": _two_day_stops(3)},
+    }
+
+    card = ground_card(raw, _catalogue())
+
+    payload = card["payload"]
+    assert len(payload["stops"]) == 3
+    assert set(payload) == {"title", "stops"}
+
+
+def _wide_catalogue(count: int) -> list[dict]:
+    return [
+        {
+            "id": f"p-quan-{index}",
+            "name": f"Quán Số {index}",
+            "address": f"{index} Trần Phú, TP. Đà Lạt",
+            "price_min_vnd": 40_000,
+            "price_max_vnd": 90_000,
+        }
+        for index in range(count)
+    ]
+
+
+def test_a_places_card_longer_than_the_display_limit_also_counts_what_it_cut():
+    """The same defect with a different noun, fixed in the same breath.
+
+    `unique_ids[:MAX_PLACES]` drops the tail exactly the way the stops slice
+    did. Left alone this is simply the next bug report.
+    """
+    catalogue = _wide_catalogue(8)
+    raw = {
+        "kind": "places",
+        "payload": {
+            "intro": "Tám chỗ đáng thử",
+            "place_ids": [place["id"] for place in catalogue],
+        },
+    }
+
+    card = ground_card(raw, catalogue)
+
+    payload = card["payload"]
+    shown = payload["places"]
+    assert payload.get("omitted_place_count", 0) == 8 - len(shown)
+
+
+def test_a_repeated_place_id_is_not_reported_as_something_the_card_cut():
+    """Dedup is normalisation, not omission.
+
+    Counting duplicates as cut places would put "còn 3 chỗ nữa" on a card that
+    is in fact showing everything the model chose -- a false alarm is the same
+    kind of lie as a silent cut, and it teaches the group to ignore the notice.
+    """
+    catalogue = _wide_catalogue(3)
+    raw = {
+        "kind": "places",
+        "payload": {
+            "intro": "Ba chỗ",
+            "place_ids": ["p-quan-0", "p-quan-0", "p-quan-1", "p-quan-2", "p-quan-1"],
+        },
+    }
+
+    card = ground_card(raw, catalogue)
+
+    payload = card["payload"]
+    assert len(payload["places"]) == 3
+    assert set(payload) == {"intro", "places"}

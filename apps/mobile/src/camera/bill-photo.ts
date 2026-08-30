@@ -83,8 +83,10 @@ export class BillPhotoError extends Error {
   constructor(
     readonly code: "qua-lon" | "khong-doc-duoc",
     message: string,
+    /** The platform failure underneath, when there was one. Never rendered. */
+    options?: { cause?: unknown },
   ) {
-    super(message);
+    super(message, options);
     this.name = "BillPhotoError";
   }
 }
@@ -166,7 +168,12 @@ export async function compressForReading(
   backend: PhotoBackend,
   captured: TempPhoto,
 ): Promise<BillPhoto> {
-  const photo = await backend.compress(captured, MAX_EDGE, QUALITY);
+  let photo: BillPhoto;
+  try {
+    photo = await backend.compress(captured, MAX_EDGE, QUALITY);
+  } catch (problem) {
+    throw loiKhongNenDuoc(problem);
+  }
 
   const refuse = async (error: BillPhotoError): Promise<never> => {
     // Same guard as the cleanup in `withBillPhoto`: failing to unlink must not
@@ -198,6 +205,47 @@ export async function compressForReading(
     );
   }
   return photo;
+}
+
+/** What a person is told when the platform could not compress the photo at all.
+ *
+ * bug-010822. Everything the backends throw here arrives in one of three
+ * shapes, and only one of them is safe to put on a screen:
+ *
+ *   - A `BillPhotoError` we raised ourselves further down. It already carries
+ *     the sentence we chose, so it is passed straight through. Flattening these
+ *     would turn "Ảnh bill quá lớn để gửi đi" into a decode failure and send
+ *     someone to fix the wrong thing.
+ *   - A value that is not an `Error`. On the web this means exactly one thing:
+ *     `expo-image-manipulator` rejects with the `HTMLCanvasElement` it was
+ *     going to draw into when the browser cannot decode the source
+ *     (`src/web/utils.web.ts`, `imageSource.onerror = () => reject(canvas)`).
+ *     A file that will not decode is not an image, and that is what we say.
+ *   - A real `Error` from the platform, whose message is English machine text
+ *     like "Failed to create canvas context". Honest, useless, and not ours to
+ *     show, so it becomes a sentence and keeps the original as `cause`.
+ *
+ * The middle case is the one rd-qa-37 hit, and it is worth being precise about
+ * why "not an `Error`" is allowed to mean "not an image" rather than being a
+ * guess. It is not an inference about JavaScript in general; it is the observed
+ * contract of the one backend that can produce it. The third case is the
+ * fallback for everything else, so being wrong about the middle one costs a
+ * slightly-too-specific sentence, never a leaked machine string.
+ */
+function loiKhongNenDuoc(problem: unknown): BillPhotoError {
+  if (problem instanceof BillPhotoError) return problem;
+  if (!(problem instanceof Error)) {
+    return new BillPhotoError(
+      "khong-doc-duoc",
+      "File bạn chọn không phải là ảnh nên máy không mở được. Chọn một tấm ảnh chụp bill rồi thử lại.",
+      { cause: problem },
+    );
+  }
+  return new BillPhotoError(
+    "khong-doc-duoc",
+    "Không mở được ảnh này. Chọn tấm khác hoặc chụp lại giúp mình.",
+    { cause: problem },
+  );
 }
 
 /** The longest-edge fit used by the real backend, kept here so it is testable.

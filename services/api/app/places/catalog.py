@@ -325,3 +325,19 @@ PLACES: list[dict[str, Any]] = [
         "lng": 106.6893,
     },
 ]
+
+
+def find_place(place_id: str) -> dict[str, Any] | None:
+    """The one row with this id, or None.
+
+    Exists so `POST /contexts/{id}/checkins` never takes a venue's name or its
+    coordinates from the request body. A client that could send those could
+    write "the group was at 0,0" into a group's permanent history, and no
+    later reader would have anything to check it against.
+
+    A linear scan over twelve rows. When this file becomes a table -- which
+    the module docstring says it will -- this function is the seam that gets a
+    WHERE clause, and its callers do not change.
+    """
+
+    return next((place for place in PLACES if place["id"] == place_id), None)

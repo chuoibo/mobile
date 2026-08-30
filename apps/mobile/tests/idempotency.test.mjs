@@ -41,9 +41,15 @@ const DRAFT = {
   totalVnd: 240_000,
 };
 
+/** Nhóm có thật, dạng `khoiDongNhom` trả về. Đứng đây vì `proposeSplit` nhận
+ *  nhóm làm tham số kể từ bug-053800: hằng số cũ chưa từng có row trong
+ *  `contexts`, nên `confirm` trả 422 cho mọi khoản chi. */
+const NHOM = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+
 const PROPOSAL = {
   expenseId: "e-1",
-  serverProposal: { context_id: "c-1", total_amount_vnd: 240_000 },
+  contextId: NHOM,
+  serverProposal: { context_id: NHOM, total_amount_vnd: 240_000 },
   allocations: { [NGUOI[0].id]: 120_000, [NGUOI[1].id]: 120_000 },
   roundingGainers: [],
   totalVnd: 240_000,
@@ -57,7 +63,7 @@ const WRITES = [
   {
     name: "POST /expenses",
     volatile: true,
-    run: (api, attempt) => api.proposeSplit(DRAFT, attempt),
+    run: (api, attempt) => api.proposeSplit(NHOM, DRAFT, attempt),
   },
   {
     name: "POST /expenses/{id}/confirm",
@@ -80,6 +86,35 @@ const WRITES = [
     volatile: false,
     run: (api, attempt) => api.confirmReceipt("ob-1", 100_000, ACTOR, attempt),
   },
+  {
+    name: "POST /contexts/{id}/outings",
+    volatile: false,
+    run: (api, attempt) =>
+      api.taoBuoiDi(
+        "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+        {
+          title: "Đà Lạt cuối tuần",
+          starts_on: "2026-09-07",
+          ends_on: "2026-09-08",
+          headcount: 7,
+          budget_per_person_vnd: 2_500_000,
+        },
+        ACTOR,
+        attempt,
+      ),
+  },
+  {
+    name: "PUT /outings/{id}/timeline",
+    volatile: false,
+    run: (api, attempt) =>
+      api.luuDongThoiGian(
+        "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff",
+        [{ at: "07:00", label: "Cafe", place_name: null }],
+        ACTOR,
+        attempt,
+        "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      ),
+  },
 ];
 
 function bodyFor(path) {
@@ -96,6 +131,20 @@ function bodyFor(path) {
     };
   }
   if (path.endsWith("/batches")) return { batch_id: "b-1", obligations: [] };
+  if (path.endsWith("/timeline") || path.endsWith("/outings")) {
+    return {
+      id: "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff",
+      context_id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      created_by_id: ACTOR,
+      title: "Đà Lạt cuối tuần",
+      starts_on: "2026-09-07",
+      ends_on: "2026-09-08",
+      headcount: 7,
+      budget_per_person_vnd: 2_500_000,
+      created_at: "2026-08-29T04:00:00Z",
+      stops: [],
+    };
+  }
   throw new Error(`bài test chưa có câu trả lời cho ${path}`);
 }
 
@@ -197,9 +246,9 @@ test("lần bấm khác là khoá khác, nếu không hai khoản chi khác nhau
   const tap = capture();
   mock.timers.enable({ apis: ["Date"], now: CLOCK });
   try {
-    await api.proposeSplit(DRAFT, api.newAttempt());
+    await api.proposeSplit(NHOM, DRAFT, api.newAttempt());
     mock.timers.tick(90_000);
-    await api.proposeSplit({ ...DRAFT, totalVnd: 310_000 }, api.newAttempt());
+    await api.proposeSplit(NHOM, { ...DRAFT, totalVnd: 310_000 }, api.newAttempt());
   } finally {
     mock.timers.reset();
     tap.restore();
@@ -237,7 +286,7 @@ test("máy chủ từ chối vì khoá thì người dùng không phải đọc 
     });
     try {
       await assert.rejects(
-        () => api.proposeSplit(DRAFT, { key: "K-1", at: CLOCK }),
+        () => api.proposeSplit(NHOM, DRAFT, { key: "K-1", at: CLOCK }),
         (problem) => {
           assert.equal(problem.code, code, "mã lỗi phải giữ nguyên cho báo lỗi");
           assert.doesNotMatch(

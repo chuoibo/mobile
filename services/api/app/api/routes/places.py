@@ -14,14 +14,29 @@ group, which the screen has to be able to say.
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, Query, Request
+from pydantic import BaseModel, Field, field_validator
 
-from app.places.catalog import CATEGORIES, GROUP, PLACES, GroupProfile
-from app.places.reasons import PlaceReason, ReasonRow, gemini_reasons
+from app.api.deps import Actor, get_actor
+from app.api.errors import ApiProblem
+from app.api.schemas import MoneyVnd
+from app.api.search_rate_limit import FixedWindowLimiter
+from app.domain.place_search import PlaceSearchError, ground_search
+from app.places.catalog import CATEGORIES, GROUP, PLACES, GroupProfile, find_place
+from app.places.details import detail_fields
+from app.places.reasons import (
+    PlaceReason,
+    ReasonRow,
+    gemini_reasons,
+    ungrounded_numbers,
+)
 from app.places.scoring import score_place
+from app.places.search import MAX_QUERY_CHARS, echoes_the_query, gemini_search
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["places"])
 
@@ -61,8 +76,8 @@ class Place(BaseModel):
     #: Integer đồng, both ends. Money law 1 does not stop at the ledger: a
     #: price band that leaves this service fractional means a float reached a
     #: money value somewhere upstream.
-    price_min_vnd: int
-    price_max_vnd: int
+    price_min_vnd: MoneyVnd
+    price_max_vnd: MoneyVnd
     address: str
     open_now: bool
     open_hours: str
@@ -74,6 +89,36 @@ class Place(BaseModel):
     lat: float
     lng: float
     match: Match
+
+
+class Review(BaseModel):
+    author: str
+    rating: float
+    body: str
+
+
+class PlaceDetail(Place):
+    """F10. One place, everything the detail screen draws.
+
+    Extends `Place` rather than restating it so the two screens cannot drift:
+    the grid card and the detail header read the same `match` block, computed by
+    the same `_card`. A separate model here would be a second place for a score
+    to be calculated, which is how one dinner ends up showing two numbers.
+
+    `description` and `reviews` are the only additions, and they are the only
+    two fields the list omits -- see `app/places/details.py` for why prose lives
+    in its own file.
+
+    Photos are represented by `photo_count`, inherited from `Place`, and there
+    is deliberately no `photos` array: this product has no image store for
+    venues, and a list of invented URLs would render as broken frames on the
+    screen most likely to be opened first. `photos_available` says so out loud
+    rather than leaving a client to infer it from an empty list.
+    """
+
+    description: str | None
+    reviews: list[Review]
+    photos_available: bool
 
 
 class Category(BaseModel):
@@ -90,7 +135,7 @@ class GroupSummary(BaseModel):
 
     size: int
     age_range: str
-    budget_per_person_vnd: int
+    budget_per_person_vnd: MoneyVnd
     likes: list[str]
     max_distance_km: float
     when: str
@@ -99,6 +144,55 @@ class GroupSummary(BaseModel):
 class PlacesResponse(BaseModel):
     places: list[Place]
     categories: list[Category]
+    group: GroupSummary
+
+
+class Understood(BaseModel):
+    """What the model took the sentence to mean, in closed vocabularies only.
+
+    Sent so the screen can show its reading back and be told it is wrong. Every
+    field is either a number the server has re-typed or a token drawn from the
+    catalogue: there is no free text here, so this cannot become a second place
+    for model prose to reach a card without a label.
+    """
+
+    budget_per_person_vnd: MoneyVnd | None
+    group_size: int | None
+    max_distance_km: float | None
+    categories: list[str]
+    traits: list[str]
+
+
+class PlaceSearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=MAX_QUERY_CHARS)
+
+    @field_validator("query")
+    @classmethod
+    def _reject_blank(cls, value: str) -> str:
+        """Refused here, so no prompt is ever built from an empty search.
+
+        A whitespace-only query passes `min_length` and would otherwise cost a
+        model call to be told nothing.
+        """
+
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("query must not be blank")
+        return trimmed
+
+
+class PlaceSearchResponse(BaseModel):
+    """`source` is a claim about the whole answer, not about one card.
+
+    `none` means no model answer survived, and the honest rendering is an empty
+    list with a message saying so. `match.source` on each card is the narrower
+    claim about who wrote that one sentence.
+    """
+
+    query: str
+    understood: Understood | None
+    places: list[Place]
+    source: Literal["ai", "none"]
     group: GroupSummary
 
 
@@ -138,6 +232,29 @@ def get_reason_writer():
     return cached_gemini_reasons
 
 
+def get_search_rate_limiter(request: Request) -> FixedWindowLimiter:
+    """Seam for tests, resolving the one object `create_app` built.
+
+    Read off the application rather than constructed here: a limiter built per
+    request counts to one and forgets, which is a limiter-shaped object that
+    limits nothing.
+    """
+
+    return request.app.state.search_limiter
+
+
+def get_place_searcher():
+    """Seam for tests, and deliberately not memoised like the reason writer.
+
+    A reason is a pure function of a fixed catalogue and a fixed group, so
+    caching it is free. A search is a function of what somebody typed, and a
+    cache keyed on that is a cache of other people's sentences sitting in
+    process memory for no gain.
+    """
+
+    return gemini_search
+
+
 # ---------------------------------------------------------------------------
 
 
@@ -158,6 +275,45 @@ def _fallback_reason(place: dict[str, Any], group: GroupProfile) -> str:
         f"Khoảng {band}/người, cách {place['distance_km']}km. "
         f"Điểm dưới đây do máy tính từ ngân sách, sở thích và khoảng cách của nhóm; "
         f"chưa có nhận xét của AI cho chỗ này."
+    )
+
+
+def _card(
+    place: dict[str, Any],
+    reason: str | None,
+    verdict: Literal["hop", "tam", "khong-hop"] | None,
+) -> Place:
+    """One card, scored once.
+
+    Shared by browse and search on purpose rather than for tidiness: two call
+    sites computing a score separately is how the same place ends up showing
+    two different numbers on two screens for one group.
+
+    `reason` and `verdict` are one claim, held here rather than at the call
+    sites. Search used to pass `verdict=None` beside a sentence a model really
+    wrote, and the pair `source: "ai"` + `verdict: null` renders as "AI MATCH
+    95%" -- a percentage credited to a model that never gave an opinion, which
+    is the exact lie the two fields exist to prevent. The app refuses a
+    response containing either half of the pair, so half a pair is not a
+    cosmetic defect: it costs the caller the whole screen.
+    """
+
+    # Either half missing drops both. A sentence with no conclusion behind it
+    # is served under the server's own template, which is the honest label.
+    if reason is None or verdict is None:
+        reason = None
+        verdict = None
+
+    score, factors = score_place(place, GROUP)
+    return Place(
+        **{key: value for key, value in place.items()},
+        match=Match(
+            score=score,
+            reason=reason if reason else _fallback_reason(place, GROUP),
+            source="ai" if reason else "none",
+            verdict=verdict,
+            factors=[MatchFactor(**factor) for factor in factors],
+        ),
     )
 
 
@@ -208,18 +364,12 @@ def list_places(
 
     out: list[Place] = []
     for place in selected:
-        score, factors = score_place(place, GROUP)
         reason = written.get(place["id"])
         out.append(
-            Place(
-                **{key: value for key, value in place.items()},
-                match=Match(
-                    score=score,
-                    reason=reason.reason if reason else _fallback_reason(place, GROUP),
-                    source="ai" if reason else "none",
-                    verdict=reason.verdict if reason else None,
-                    factors=[MatchFactor(**factor) for factor in factors],
-                ),
+            _card(
+                place,
+                reason.reason if reason else None,
+                reason.verdict if reason else None,
             )
         )
 
@@ -245,5 +395,153 @@ def list_places(
     return PlacesResponse(
         places=out,
         categories=[Category(**category_row) for category_row in CATEGORIES],
+        group=GroupSummary(**GROUP),
+    )
+
+
+@router.get(
+    "/places/{place_id}",
+    response_model=PlaceDetail,
+    responses={404: {"description": "Không có địa điểm nào với mã này."}},
+)
+def get_place(
+    place_id: str,
+    reason_writer: Annotated[Any, Depends(get_reason_writer)],
+) -> PlaceDetail:
+    """F10 -- one place, scored by the same arithmetic the grid used.
+
+    404 here and 200-with-an-empty-list on `GET /places` are not inconsistent.
+    A category nobody has used yet is a real query with an empty answer; a place
+    id that resolves to nothing is a request for a specific row that does not
+    exist, and answering it with a blank screen would leave a caller unable to
+    tell "no such place" from "this place has no details".
+
+    Declared above `POST /places/search` and does not shadow it. Starlette scans
+    routes in order, and a route whose path matches but whose method does not is
+    a *partial* match: it is remembered as a candidate 405 and the scan
+    continues, so the later full match still wins. `GET /places/search` has no
+    full match anywhere and lands here as `place_id="search"`, answering 404 --
+    the right answer for a path with no GET. The wiring test pins both.
+
+    No actor. The catalogue is the same twelve public rows for everybody, this
+    handler reads no group data and takes no identity, so there is nothing here
+    to authorise -- exactly the position `GET /places` is in. The metering
+    argument that put `get_actor` on `/places/search` does not apply either: a
+    reason is memoised per place per process, so a loop against this route costs
+    one model call in total, not one per request.
+    """
+
+    place = find_place(place_id)
+    if place is None:
+        raise ApiProblem(404, "place_not_found", "Không tìm thấy địa điểm này.")
+
+    # Same failure posture as the list: a model outage must not turn a
+    # read-only catalogue row into a 500.
+    try:
+        written = reason_writer([ReasonRow(place=place)])
+    except Exception:  # noqa: BLE001
+        written = {}
+    reason = written.get(place["id"])
+
+    card = _card(
+        place,
+        reason.reason if reason else None,
+        reason.verdict if reason else None,
+    )
+    return PlaceDetail(
+        **card.model_dump(),
+        **detail_fields(place["id"]),
+        photos_available=False,
+    )
+
+
+@router.post("/places/search", response_model=PlaceSearchResponse)
+def search_places(
+    request: PlaceSearchRequest,
+    actor: Annotated[Actor, Depends(get_actor)],
+    limiter: Annotated[FixedWindowLimiter, Depends(get_search_rate_limiter)],
+    place_searcher: Annotated[Any, Depends(get_place_searcher)],
+) -> PlaceSearchResponse:
+    """F12 -- "quán nướng ngoài trời cho 6 người dưới 300k" becomes real places.
+
+    The model reads the sentence and answers with identifiers. Everything a
+    caller ends up looking at is assembled here from the seed catalogue, so a
+    model that was confused, wrong, or doing what an injected instruction told
+    it can still only pick rows that exist -- and if it picks one that does not,
+    `ground_search` refuses the whole answer rather than serving the rest.
+
+    Every failure lands on the same honest empty answer: 200, no places,
+    `source: "none"`. There is deliberately no fallback to the keyword matching
+    `GET /places` does, because a plausible list served while the feature is
+    broken is a broken feature that nobody can see is broken.
+
+    Signed in, and metered (rd-be-13). Unlike every other route here, `actor`
+    authorises nothing: there is no aggregate to own and no row to hide, and
+    QA established structurally at rd-qa-18 that this handler has no path to
+    anybody else's data. What identity buys is a **meter**. The call costs
+    real Gemini quota, and open and uncounted it could be drained by a loop --
+    a failure that surfaces not as an alert but as search silently not working
+    for everyone at once. `get_actor` stops the anonymous caller; the window
+    stops the caller who merely invented a UUID, which in this slice is the
+    same person one header later.
+    """
+
+    limiter.check(actor.id)
+
+    query = request.query
+    unavailable = PlaceSearchResponse(
+        query=query,
+        understood=None,
+        places=[],
+        source="none",
+        group=GroupSummary(**GROUP),
+    )
+
+    try:
+        raw = place_searcher(query)
+    except Exception as error:  # noqa: BLE001 - a search box must not 500 on this
+        logger.warning("place search: searcher failed (%s)", type(error).__name__)
+        return unavailable
+    if raw is None:
+        return unavailable
+
+    try:
+        grounded = ground_search(raw, PLACES, CATEGORIES)
+    except PlaceSearchError as error:
+        # The code, never the answer. What provoked the refusal is model output
+        # shaped by caller text, and neither belongs in a log line.
+        logger.warning("place search: answer refused (%s)", error.code)
+        return unavailable
+
+    out: list[Place] = []
+    for item in grounded["results"]:
+        place = item["place"]
+        reason = item["reason"]
+        # Two reused gates, different blast radius, both per-row here because a
+        # bad *sentence* about a real place is not a bad answer -- unlike a
+        # place that does not exist, which `ground_search` already refused above.
+        if reason is not None and ungrounded_numbers(reason, place, GROUP):
+            logger.warning(
+                "place search: dropped ungrounded reason for %s", place["id"]
+            )
+            reason = None
+        if echoes_the_query(reason, query):
+            logger.warning("place search: dropped echoed reason for %s", place["id"])
+            reason = None
+        # The model's own conclusion, asked for in the prompt and checked
+        # against the closed set by `ground_search`. Passing `None` here is
+        # what shipped `source: "ai"` beside `verdict: null` and cost the app
+        # the whole response; `_card` now refuses to build that pair at all,
+        # so a gate above that drops the sentence drops the verdict with it.
+        out.append(_card(place, reason, item["verdict"]))
+
+    # Not re-sorted. `GET /places` orders by open-now and score because it is a
+    # catalogue; this is a search, and relevance to the sentence is the model's
+    # answer, which sorting here would quietly discard.
+    return PlaceSearchResponse(
+        query=query,
+        understood=Understood(**grounded["understood"]),
+        places=out,
+        source="ai",
         group=GroupSummary(**GROUP),
     )

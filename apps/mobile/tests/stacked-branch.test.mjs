@@ -28,6 +28,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   changedFiles,
+  diagnose,
   redundantFiles,
   revExists,
 } from "../tools/stacked-branch-check.mjs";
@@ -157,6 +158,92 @@ test("cổng bắt được nhánh con mang lại nguyên phần cha đã squash
   }
 });
 
+/**
+ * A branch whose own work has already landed on main by squash merge.
+ *
+ * main:   A ─────────── S(squash of feature)
+ *          \
+ * feature:  F1 ── F2
+ *
+ * The merge base stays at A, so both feature files sit in `main...feature`
+ * while hashing identical to main. That is *every* file in the diff, which is
+ * the part the stacked case never produces: a stacked child still carries its
+ * own commit, so it always keeps at least one file that genuinely differs.
+ */
+function buildFullyMerged() {
+  const dir = mkdtempSync(join(tmpdir(), "merged-branch-"));
+  run(dir, "init", "--quiet", "--initial-branch=main");
+  commit(dir, "base.ts", "export const base = 1;\n", "A");
+
+  run(dir, "switch", "--quiet", "-c", "feature");
+  commit(dir, "one.ts", "export const one = 1;\n", "F1");
+  commit(dir, "two.ts", "export const two = 2;\n", "F2");
+
+  run(dir, "switch", "--quiet", "main");
+  run(dir, "merge", "--squash", "feature");
+  run(dir, "commit", "-m", "S: squash cua feature");
+
+  run(dir, "switch", "--quiet", "feature");
+  return dir;
+}
+
+test("nhánh đã merge hết được gọi đúng tên, không bị bảo đi rebase", () => {
+  const dir = buildFullyMerged();
+  try {
+    const redundant = redundantFiles({ base: "main", ref: "HEAD", cwd: dir });
+    const changed = changedFiles({ base: "main", ref: "HEAD", cwd: dir });
+
+    // The shape this test exists for: nothing in the diff is new work.
+    assert.deepEqual(
+      redundant.sort(),
+      ["one.ts", "two.ts"],
+      "ca hai file phai bi bao la trung: chung da nam tren main sau squash",
+    );
+    assert.equal(
+      redundant.length,
+      changed.length,
+      "nhanh da merge het thi MOI file trong diff deu trung",
+    );
+
+    const verdict = diagnose({ redundant, changed });
+    assert.equal(
+      verdict.kind,
+      "merged",
+      "phai doc ra la 'da merge het', khong phai 'stacked sai'",
+    );
+    assert.ok(
+      !/rebase --onto/.test(verdict.message),
+      "khong duoc bao rebase --onto: khong co PR cha nao, va rebase mot nhanh " +
+        "da merge chi cho ra nhanh rong",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("nhánh stacked sai vẫn được bảo rebase --onto", () => {
+  const { dir } = buildSquashStack();
+  try {
+    const redundant = redundantFiles({ base: "main", ref: "HEAD", cwd: dir });
+    const changed = changedFiles({ base: "main", ref: "HEAD", cwd: dir });
+
+    // The other side of the fork: real work survives, so the advice stands.
+    assert.ok(
+      redundant.length > 0 && redundant.length < changed.length,
+      "stacked sai thi chi MOT PHAN file trung, phan con lai la viec that",
+    );
+
+    const verdict = diagnose({ redundant, changed });
+    assert.equal(verdict.kind, "stacked", "day moi la ca stacked sai");
+    assert.ok(
+      /rebase --onto/.test(verdict.message),
+      "ca nay van phai giu nguyen huong dan rebase --onto",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("nhánh này không mang lại file nào đã có nguyên vẹn trên origin/main", (t) => {
   if (!revExists("origin/main", REPO)) {
     t.skip("chua co origin/main trong clone nay — chay `git fetch origin main`");
@@ -167,8 +254,6 @@ test("nhánh này không mang lại file nào đã có nguyên vẹn trên origi
   assert.deepEqual(
     redundant,
     [],
-    `${redundant.length}/${changed.length} file hien trong diff ma noi dung y het ` +
-      "origin/main. Nhanh nay dang merge main vao thay vi rebase len main; " +
-      "chay `git rebase --onto origin/main <commit cuoi cua PR cha>`",
+    diagnose({ redundant, changed, base: "origin/main" }).message,
   );
 });

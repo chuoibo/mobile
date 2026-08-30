@@ -1,27 +1,29 @@
-/** What stands where a photograph would be.
+/** The place-card frame: a real photograph when the server sends one, and a
+ *  drawn mark until then.
  *
- * The mockup fills every card with a photo of the actual place. This app has
- * no photos and is not going to get any: the repo guard refuses binaries on
- * sight, and the standing rule for this project is that no real place imagery,
- * bill, or person goes into Git. Loading them from a URL at runtime is worse
- * again -- a grid of grey rectangles that pop in one by one is the first thing
- * anyone sees on the first tab.
+ * The mockup fills every card with a photo of the actual place. The frame
+ * that will hold that photo is real now -- size, radius, clip -- so the day a
+ * URL arrives the layout is filled in rather than redrawn. What is not here
+ * yet is the photograph itself: the server does not send `photo_url`, the
+ * repo guard refuses binaries, and no real place imagery goes into Git.
  *
- * So each category gets a drawn mark on a ramp between two palette tokens. Not
- * a "nice colour" picked by eye: every stop is `mixHex(tokenA, tokenB, t)`,
- * the same rule `Gradient.tsx` follows for the opening illustration, so these
- * move when the palette moves and can be checked by reading the call instead
- * of sampling a pixel.
+ * Until a URL arrives, each category gets a drawn mark on a ramp between two
+ * palette tokens. Not a "nice colour" picked by eye: every stop is
+ * `mixHex(tokenA, tokenB, t)`, the same rule `Gradient.tsx` follows for the
+ * opening illustration, so these move when the palette moves and can be
+ * checked by reading the call instead of sampling a pixel.
  *
- * They are also honestly not photographs. A blurred stock image would imply
- * the app knows what the place looks like. A drawn mark says "category", which
- * is the only thing it actually knows.
+ * The drawing stays the stand-in, and stays better than a stock photo,
+ * because a blurred stock image would imply the app knows what the place
+ * looks like. A drawn mark says "category", which is the only thing it
+ * actually knows until the server says otherwise.
  */
 import React from "react";
 import { Text, View } from "react-native";
 import tokens from "../../../../../packages/shared/tokens.json";
 import { radius, space, type, usePalette } from "../../theme";
 import { Gradient, Scrim, mixHex } from "../../navigation/Gradient";
+import { Anh } from "../../ui/Anh";
 
 const brand = tokens.brand;
 const ink = tokens.color.light.ink;
@@ -53,7 +55,7 @@ export function rampCho(category: string): { ramp: string[]; mark: Mark } {
 }
 
 /**
- * A place "photo": ramp, mark, and a bottom scrim.
+ * A place "photo": a real frame, a drawn stand-in, and a bottom scrim.
  *
  * The scrim is not mood. `tokens.json` states outright that the brand layer
  * may not carry small text -- white on `coral` measures 2.92:1 -- and every
@@ -61,24 +63,43 @@ export function rampCho(category: string): { ramp: string[]; mark: Mark } {
  * dark enough for white body text to clear AA, which is the same trade the
  * opening screen makes and documents.
  */
-export function AnhDiaDiem({ category, height, rounded = radius.small, children }: {
+export function AnhDiaDiem({ category, height, rounded = radius.small, children, uri, name }: {
   category: string;
   height: number;
   rounded?: number;
   /** Overlaid content -- badges, ribbons, the name block. */
   children?: React.ReactNode;
+  uri?: string | null;
+  name?: string;
 }) {
   const { ramp, mark } = rampCho(category);
   return (
-    <View style={{ height, borderRadius: rounded, overflow: "hidden", backgroundColor: ramp[0] }}>
-      <Gradient
-        colors={ramp}
-        style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
-      />
-      <DauHieu mark={mark} height={height} />
+    <Anh
+      uri={uri}
+      alt={name ? `Ảnh ${name}` : "Ảnh địa điểm"}
+      // A place is not owned by anybody, and `photo_url` is not behind a
+      // membership check, so these bytes are served without a header. The day
+      // place photographs move onto a checked route this becomes a viewer id.
+      nguoiXem={null}
+      cho={
+        <>
+          <Gradient
+            colors={ramp}
+            style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
+          />
+          <DauHieu mark={mark} height={height} />
+        </>
+      }
+      style={{ height, borderRadius: rounded }}
+    >
+      {/* The scrim sits above the photograph, not inside `cho`. The place
+          name sits on the bottom of this frame and the scrim is what keeps
+          that white type above the AA floor; if the scrim lived in `cho` it
+          would vanish the moment a real photo arrived and the text would
+          drop below the contrast threshold. */}
       <Scrim alphas={[0, 0.18, 0.72]} />
       {children}
-    </View>
+    </Anh>
   );
 }
 

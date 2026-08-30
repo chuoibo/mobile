@@ -66,16 +66,31 @@ function markup() {
   return renderToStaticMarkup(React.createElement(CaNhan, { nguoi: NGUOI }));
 }
 
-test("Cá nhân: vùng cuộn mang đúng một điểm dừng bàn phím", () => {
+test("Cá nhân: vùng cuộn mang điểm dừng bàn phím", () => {
+  // Đo trên chính vùng cuộn, không đo tổng số điểm dừng của cả màn.
+  //
+  // Bản đầu của ca này đếm `=== 1`, và con số đó đúng vì lúc viết, Cá nhân là
+  // tab duy nhất không có gì bấm được. rd-fe-25 thêm nút đổi ảnh đại diện, nên
+  // tiền đề đó hết đúng: màn giờ có hai điểm dừng, một trên vùng cuộn và một
+  // trên nút.
+  //
+  // Nới phép đếm là cách sai để sửa — `>= 1` sẽ xanh khi điểm dừng duy nhất là
+  // cái nút, tức đúng lúc vùng cuộn mất điểm dừng và không phím nào cuộn được
+  // màn nữa. Điều cần giữ chưa bao giờ là "màn có đúng một điểm dừng"; nó là
+  // "vùng cuộn có điểm dừng của nó". Nên ca này hỏi thẳng phần tử đó.
+  //
+  // Gỡ `tabIndex={0}` khỏi ScrollView của CaNhan.tsx thì ca này đỏ, và ca dưới
+  // cũng đỏ. Đó là phép thử đã chạy trước khi sửa dòng này.
   const tags = openingTags(markup());
-  const stops = tags.filter((t) => t.attrs.tabindex === "0");
+  const vungCuon = tags.slice(0, 2);
+  const stops = vungCuon.filter((t) => t.attrs.tabindex === "0");
 
   assert.equal(
     stops.length,
     1,
-    `Cá nhân phải có đúng một điểm dừng bàn phím trên vùng cuộn, đang có ${stops.length}. ` +
-      `Không có điểm dừng nào thì không phím nào cuộn được màn này ` +
-      `(axe: scrollable-region-focusable, serious, WCAG 2.1.1) — ` +
+    `Vùng cuộn của Cá nhân (phần tử 1 hoặc 2) phải mang đúng một điểm dừng bàn phím, ` +
+      `đang có ${stops.length}. Không có điểm dừng nào thì không phím nào cuộn được ` +
+      `màn này (axe: scrollable-region-focusable, serious, WCAG 2.1.1) — ` +
       `phần dưới màn không ai đọc tới được bằng bàn phím.`,
   );
 });

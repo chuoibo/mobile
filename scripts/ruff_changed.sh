@@ -20,6 +20,7 @@
 # Usage:
 #   scripts/ruff_changed.sh <base>           compare <base> against the working tree
 #   scripts/ruff_changed.sh <base> <head>    compare the merge base against <head>
+#   scripts/ruff_changed.sh --list <base>    print what it would check, check nothing
 #
 # Exit codes: 0 clean (or nothing to check), 1 ruff found problems,
 # 2 the script could not determine what to check -- which is a failure, never
@@ -27,8 +28,20 @@
 
 set -euo pipefail
 
+# `--list` exists so a caller can ask "would you check anything?" before running
+# the stage. scripts/gate.sh needs that to tell BỎ QUA from ĐẠT: exiting 0 on an
+# empty scope is right for this script and wrong for a gate summary that then
+# says every stage passed. It is answered here rather than recomputed by the
+# caller because a second copy of the enumeration below -- diff, plus untracked,
+# minus paths no longer on disk -- is a copy that drifts.
+list_only=0
+if [ "${1:-}" = "--list" ]; then
+  list_only=1
+  shift
+fi
+
 if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
-  echo "usage: $0 <base> [head]" >&2
+  echo "usage: $0 [--list] <base> [head]" >&2
   exit 2
 fi
 
@@ -38,11 +51,30 @@ head="${2:-}"
 # A gate that cannot find its tools must say so. Skipping here would report
 # green for a check that never ran, which is the failure mode this file exists
 # to remove -- not one to reproduce.
-if ! command -v ruff >/dev/null 2>&1; then
-  echo "::error::ruff is not installed -- refusing to report a check that did not run" >&2
-  echo "install it with: pip install -r services/api/requirements-dev.txt" >&2
-  exit 2
-fi
+#
+# And the tool has to be the RIGHT one. This used to take whatever `ruff` was
+# first on PATH, which on a developer machine is whatever their editor
+# installed. Measured 2026-08-30 over the 320 tracked Python files: the pinned
+# ruff 0.9.2 reports 31 findings, this machine's 0.15.15 reports 30, and the
+# one it cannot see is UP038 -- a rule later ruff REMOVED -- on
+# services/api/app/domain/place_search.py:105. So editing that file got ĐẠT
+# locally and would get HỎNG from CI. `scripts/ruff_pinned.sh` resolves the pin
+# and provisions it when absent; it exits 2 rather than hand back a different
+# version, because a verdict from the wrong tool is not the verdict.
+#
+# Resolved below rather than here, after the two early exits: `--list` answers
+# a question about files and a docs-only change has nothing to lint, and
+# neither should have to build a linter first.
+# Parameter expansion and two builtins, deliberately: `dirname` is an external
+# command, and tests/test_ruff_changed.py runs this with a PATH holding nothing
+# but bash and git to prove a toolless runner goes red. Calling `dirname` there
+# made this line silently produce the wrong directory instead of the honest
+# "cannot get the pinned ruff" -- a resolution bug hiding inside the very check
+# meant to catch missing tools. `cd` and `pwd` are builtins and need no PATH.
+_here="${BASH_SOURCE[0]%/*}"
+[ "$_here" = "${BASH_SOURCE[0]}" ] && _here="."
+RUFF_PINNED="$(cd "$_here" && pwd)/ruff_pinned.sh"
+unset _here
 
 if ! git rev-parse --verify --quiet "${base}^{commit}" >/dev/null; then
   echo "::error::cannot resolve base ref '${base}'" >&2
@@ -93,6 +125,13 @@ for path in "${candidates[@]}"; do
   files+=("$path")
 done
 
+if [ "$list_only" -eq 1 ]; then
+  # Empty output and exit 0 is the "nothing in scope" answer. The array guard is
+  # for `set -u`, under which expanding an empty array is itself an error.
+  [ "${#files[@]}" -eq 0 ] || printf '%s\n' "${files[@]}"
+  exit 0
+fi
+
 # The trap this early exit exists for: `ruff check` with no path arguments
 # checks the ENTIRE tree. Falling through to ruff with an empty array would
 # turn every docs-only or TypeScript-only change into a full-tree scan and fail
@@ -102,6 +141,17 @@ if [ "${#files[@]}" -eq 0 ]; then
   exit 0
 fi
 
+if ! RUFF="$("$RUFF_PINNED")"; then
+  echo "::error::không lấy được bản ruff đã ghim -- từ chối chấm bằng bản khác" >&2
+  exit 2
+fi
+
+# Named out loud on every run. The previous version printed the mismatch as a
+# CHÚ Ý inside gate.sh and passed anyway; saying which binary produced the
+# verdict is what makes the verdict checkable after the fact.
+_v="$("$RUFF" --version)"; _v="${_v#* }"
+echo "ruff ${_v%% *} (bản ghim) tại $RUFF"
+unset _v
 echo "ruff over ${#files[@]} changed Python file(s):"
 printf '  %s\n' "${files[@]}"
 
@@ -110,10 +160,10 @@ printf '  %s\n' "${files[@]}"
 status=0
 
 echo "--- ruff check ---"
-ruff check --no-cache "${files[@]}" || status=1
+"$RUFF" check --no-cache "${files[@]}" || status=1
 
 echo "--- ruff format --check ---"
-ruff format --check --no-cache "${files[@]}" || status=1
+"$RUFF" format --check --no-cache "${files[@]}" || status=1
 
 if [ "$status" -ne 0 ]; then
   echo "::error::ruff rejected files this change touches -- fix them, or narrow the change"

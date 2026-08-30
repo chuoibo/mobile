@@ -10,6 +10,7 @@
  * per signature; a body that drifted with tick-order would earn 422 instead
  * of a replay.
  */
+import { formatVnd } from "../../../packages/shared/money.mjs";
 import {
   blockingProblem as receiptBlocking,
   type BillLine,
@@ -18,7 +19,7 @@ import {
 
 export type Assignment = Record<string, string[]>;
 
-function whoOn(a: Assignment, lineId: string): string[] {
+export function whoOn(a: Assignment, lineId: string): string[] {
   return a[lineId] ?? [];
 }
 
@@ -150,23 +151,59 @@ export function signature(
   return `${people.join(",")}|${lines.join(";")}`;
 }
 
+/**
+ * How much of this bill nobody has claimed.
+ *
+ * The one number the screen owes a person before it lets them commit. In a
+ * per-item matrix a line is claimed or it is not -- there is no partially
+ * assigned line, because a dish ticked by three people is still fully covered
+ * and the allocator divides it. So the honest measure of "how far off am I" is
+ * the money sitting on lines with nobody on them.
+ *
+ * There is no matching "assigned too much". Over-assignment is not reachable
+ * in this model, and inventing a warning for it would describe a state the
+ * data cannot enter. Every amount here is a copy of `line.lineTotalVnd`
+ * summed, never a share of one: this file still does not divide money.
+ */
+export function chuaAiNhanVnd(reading: BillReading, a: Assignment): number {
+  return reading.lines
+    .filter((line) => whoOn(a, line.id).length === 0)
+    .reduce((sum, line) => sum + line.lineTotalVnd, 0);
+}
+
 export function blockingProblem(
   reading: BillReading,
   participantIds: string[],
   a: Assignment,
 ): string | null {
   if (participantIds.length === 0) {
-    return "Chưa có ai trong nhóm. Thêm người bằng nút + ở trên.";
+    // Names the control that is actually on screen. The "+" this used to point
+    // at stopped being rendered in #113, which opens the group list by default
+    // once nobody is on the bill -- exactly the state this message fires in.
+    // "Chưa có ai trong nhóm" was wrong twice over: the group is not empty, it
+    // is right above with every name tappable; it is the bill that has nobody.
+    return "Chưa chọn ai đã ăn bữa này. Chạm tên người trong danh sách nhóm ở trên.";
   }
   const fromReceipt = receiptBlocking(reading);
   if (fromReceipt !== null) return fromReceipt;
 
   const orphans = reading.lines.filter((line) => whoOn(a, line.id).length === 0);
-  if (orphans.length === 1) {
-    return `Món "${orphans[0].name}" chưa ai nhận. Tích ít nhất một người đã ăn món này.`;
-  }
-  if (orphans.length > 1) {
-    return `${orphans.length} món chưa ai nhận. Tích ít nhất một người cho từng món.`;
+  if (orphans.length > 0) {
+    // Say the money, not just the count. "2 món chưa ai nhận" is a fact about
+    // rows; what a person is deciding is how much of the bill has nobody
+    // behind it, and on a bill where the two unclaimed lines are a 8.000đ trà
+    // đá and a 450.000đ lẩu those are not the same situation. The sum is what
+    // makes the gap weighable against the total sitting right above it.
+    const con = chuaAiNhanVnd(reading, a);
+    const dau =
+      orphans.length === 1
+        ? `Món "${orphans[0].name}" chưa ai nhận`
+        : `${orphans.length} món chưa ai nhận`;
+    const duoi =
+      orphans.length === 1
+        ? "Tích ít nhất một người đã ăn món này."
+        : "Tích ít nhất một người cho từng món.";
+    return `${dau}, còn ${formatVnd(con)} chưa có người trả. ${duoi}`;
   }
 
   const zeros = reading.lines.filter((line) => line.lineTotalVnd === 0);

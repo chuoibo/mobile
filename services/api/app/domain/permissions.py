@@ -156,18 +156,93 @@ _TABLE: dict[str, dict] = {
         "roles": {"group_admin", "member"},
         "requires": ("is_self",),
     },
+    # A guessed person id never makes a face public. Reading an avatar requires
+    # an ACTIVE group shared with its subject; the self-case is trivially shared.
+    "set_own_avatar": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_self",),
+    },
+    "view_person_avatar": {
+        "roles": {"group_admin", "member"},
+        "requires": ("shares_a_group_with_subject",),
+    },
     "invite_person_stub_claim": {"roles": {"member"}, "requires": ()},
     "challenge_person_stub_claim": {"roles": {"member"}, "requires": ()},
     # Section 9.2: an admin does not adjudicate identity. Only the platform
     # does -- because in a group dispute the attacker is a group member.
     "adjudicate_person_stub_claim": {"roles": {"platform_moderator"}, "requires": ()},
+    # --- friend graph (F03, F04) ----------------------------------------
+    # Asking is not adding. `send_friend_request` creates a PENDING edge that
+    # grants nothing, which is why its only predicate is that the actor is not
+    # asking themselves; anyone with an account may ask anyone.
+    #
+    # `is_not_self` rather than a new predicate: the fact is identical to the
+    # one `approve_link_join_request` already proves, and the note there is the
+    # reason to reuse rather than mint. A second name for the same fact is a
+    # second place to get it wrong.
+    "send_friend_request": {"roles": {"member"}, "requires": ("is_not_self",)},
+    # The consent gate. `is_invitee` is reused deliberately and exactly:
+    # `accept_context_membership` already means "the person this was addressed
+    # to may consent to it", and a friend request is the same shape -- an offer
+    # aimed at one named person. Inventing `is_addressee` would have created
+    # two predicates that must agree forever, which is what #128 cost us.
+    #
+    # Blocking is answered by this action too, and blocking is the one answer
+    # either party may give. The extra latitude is proven in the service from
+    # the row, not widened here: a permission table that says "either party"
+    # would also let a requester accept.
+    "respond_to_friend_request": {"roles": {"member"}, "requires": ("is_invitee",)},
+    # Reading your own graph. `is_self` keeps one member from listing another
+    # member's friends -- the social graph is the person's, not the group's.
+    "view_own_friends": {"roles": {"member"}, "requires": ("is_self",)},
+    # Resolving a telephone number the caller already holds to a person id.
+    # No predicate beyond membership of the product, because the caller is
+    # asking about a number they typed. What keeps this from being a directory
+    # is that it answers with an id and a display name and never with a
+    # telephone number -- see `routes/friends.py`, which is where that is
+    # enforced and tested.
+    "find_person_by_phone": {"roles": {"member"}, "requires": ()},
     # --- group logistics ------------------------------------------------
     # These four actions require group membership, not outing ownership: the
     # trip belongs to the group, so any member may adjust its plan.
-    "create_outing": {"roles": {"group_admin", "member"}, "requires": ("is_group_member",)},
-    "view_outings": {"roles": {"group_admin", "member"}, "requires": ("is_group_member",)},
-    "edit_outing_timeline": {"roles": {"group_admin", "member"}, "requires": ("is_group_member",)},
-    "invite_to_outing": {"roles": {"group_admin", "member"}, "requires": ("is_group_member",)},
+    "create_outing": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    "view_outings": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    "edit_outing_timeline": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    "invite_to_outing": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    # F46. Arriving somewhere with the group is a group fact, so the gate is
+    # the same ACTIVE membership the rest of this block uses: `is_group_member`
+    # is satisfied only by an ACTIVE row, which is why an INVITED link holder
+    # can neither record an arrival nor read who else has arrived.
+    "check_in_to_stop": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    "view_stop_checkins": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    # Revocation is a group decision, so ACTIVE membership is the gate; an
+    # INVITED link holder fails is_group_member.
+    "revoke_outing_invite": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    # F17. Voting is a group activity, so the gate is the same ACTIVE
+    # membership the block above uses. Closing is narrower: only the member who
+    # opened the vote may end it, so nobody can cut short a poll they are
+    # losing.
     "create_vote": {
         "roles": {"group_admin", "member"},
         "requires": ("is_group_member",),
@@ -226,6 +301,49 @@ _TABLE: dict[str, dict] = {
         "requires": ("is_group_member",),
     },
     "invoke_group_companion": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    # F32. A proactive suggestion is built from this group's own history --
+    # where they went, what it cost, what kind of place they keep choosing --
+    # so reading one is reading the group's past. Same ACTIVE gate as the
+    # memory wall it is derived from: `is_group_member` is satisfied only by an
+    # ACTIVE row, so an INVITED link holder cannot pull a group's history out
+    # through a card that was never addressed to them.
+    "view_group_suggestion": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    # F43, F44, F45. All three read or answer about where the group goes, and
+    # all three reuse `is_group_member` rather than minting a predicate: the
+    # fact needed is identical to the one `view_group_memories` proves, because
+    # the map and the heatmap are aggregations of exactly those rows. #128 was
+    # the cost of two predicate names for one fact, and a "may_see_locations"
+    # here would be that mistake with a location attached.
+    #
+    # Three actions rather than one, though, because they have different
+    # subjects: two read the group's own history, and the third reads none of
+    # it. Keeping them separate is what lets the map be withdrawn later without
+    # also withdrawing a feature that never touched history.
+    "view_social_map": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    "view_group_heatmap": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    # Meet-in-the-middle reads no stored location at all -- the caller supplies
+    # unlabelled areas; see `app/places/meeting.py`. The gate is still ACTIVE
+    # membership, because the answer is scored against the group's profile and a
+    # former member should not keep a working group-planning endpoint.
+    "view_meeting_point": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    # F34 carries the group's historical and current ledger totals. A context
+    # id from a link is not authority to read them; only an ACTIVE row is.
+    "view_group_budget": {
         "roles": {"group_admin", "member"},
         "requires": ("is_group_member",),
     },
