@@ -482,6 +482,38 @@ CALLEE = re.compile(
     + r")\s*(?:<[^()]*>)?\s*\("
 )
 
+# The anchor, over exactly the names above that this repository owns and can
+# therefore rename -- `WRAPPERS`, not a second list. Two tuples both meaning
+# "the wrappers we spell ourselves" is how a rename updates one of them, and
+# this file has already run that experiment: `WRAPPERS` and a hand-written
+# `("call", "translated")` arrived here from two branches and disagreed, which
+# made the gate refuse to run at all until they were collapsed into one.
+#
+# Why the anchor exists at all. On 2026-08-31 PR #397 renamed both wrappers.
+# The reader did not then report fewer routes, which somebody would have read.
+# It stopped matching those call sites at all, and a call site that is never
+# seen produces no path, no unresolved entry and no finding -- and no finding
+# is printed as "Client và máy chủ khớp hợp đồng". Measured on main a6fdbe4:
+# 67 paths -> 11, 76 call sites -> 17, exit 0, while every existing defence
+# stayed green. `--selftest` stayed green because its canaries wrote the name
+# `call` themselves. `test_the_real_client_still_has_routes_to_check` stayed
+# green because 11 > 10: it is a floor, and unrelated growth had lifted the
+# client past the point where the floor could catch this.
+#
+# A count cannot tell a blinded reader from a client that got smaller. A name
+# can, so the reader is made to check the one assumption it cannot see failing.
+#
+# `function callAsActor` / `const callAsActor =`, and deliberately not
+# `import { callAsActor }`: every screen imports the wrappers, so an import
+# would keep the anchor holding on to a name that no longer exists anywhere --
+# the exact failure it guards.
+WRAPPER_DECLARATION = {
+    name: re.compile(
+        r"(?<![\w$.])(?:function|const|let|var)\s+" + re.escape(name) + r"(?![\w$])"
+    )
+    for name in WRAPPERS
+}
+
 IDENTIFIER = re.compile(r"(?<![\w$.])([A-Za-z_$][\w$]*)")
 
 # How many times an identifier may be replaced by its declaration while looking
@@ -720,6 +752,9 @@ class Scan(NamedTuple):
     paths: int
     sites: int
     unresolved: list[Unresolved]
+    # Which of `WRAPPERS` this file defines -- the anchor `check` holds the
+    # whole reader by. Empty for the 110-odd files that only call them.
+    declares: frozenset[str] = frozenset()
 
 
 def findings_for_source(src: str, rel: str, contract: Contract) -> Scan:
@@ -733,8 +768,13 @@ def findings_for_source(src: str, rel: str, contract: Contract) -> Scan:
     findings: list[Finding] = []
     masked = mask(src, tokenize(src))
     sites = call_sites(src, masked)
+    # Computed before the early return: a file that defines a wrapper and calls
+    # nothing is exactly the file the anchor needs to hear from.
+    declares = frozenset(
+        name for name, pattern in WRAPPER_DECLARATION.items() if pattern.search(masked)
+    )
     if not sites:
-        return Scan(findings, 0, 0, [])
+        return Scan(findings, 0, 0, [], declares)
 
     decls = declarations(src, masked)
     total_paths = 0
@@ -760,7 +800,49 @@ def findings_for_source(src: str, rel: str, contract: Contract) -> Scan:
                     )
                 )
 
-    return Scan(findings, total_paths, len(sites), unresolved)
+    return Scan(findings, total_paths, len(sites), unresolved, declares)
+
+
+def lost_wrappers(declared: set[str]) -> list[str]:
+    """What is wrong with this reader's assumptions -- never with the client.
+
+    `CANNOT_READ`, never `VIOLATION`. A blind spot is not evidence about the
+    client, and reporting it as one is the mistake #398 was opened to undo on
+    the sibling CORS gate.
+
+    Deliberately only asks whether the name still exists, and not the second
+    question it looks like it should ask -- "is the reader still matching call
+    sites for it". Measured while writing this: `CALLEE` matches the
+    *declaration* too, because `function callAsActor<T>(path: string, ...)` has
+    the same shape as a call, so a declared wrapper always scores at least one
+    site and the question can never answer no. Those phantom sites are what
+    the `api.ts :: path: string` entries in the pin file are. Making
+    declarations not count is a real fix and a separate one: it moves the
+    counts every other check here is calibrated against.
+    """
+    return [
+        f"`{name}` không còn được khai báo ở đâu trong "
+        f"{CLIENT_ROOT.relative_to(REPO_ROOT)} -- bộ đọc này nhận diện lời gọi "
+        f"BẰNG TÊN, nên mọi lời gọi qua nó giờ vô hình, không phải 'khớp hợp "
+        f"đồng'. Đổi tên thì sửa REQUEST_FUNCTIONS cho khớp tên api.ts đang "
+        f"dùng; bỏ hẳn wrapper thì gỡ tên khỏi đó."
+        for name in WRAPPERS
+        if name not in declared
+    ]
+
+
+def declared_wrappers() -> set[str]:
+    """The anchor measured against the real client, for tests and for `check`."""
+    declared: set[str] = set()
+    for path in client_files():
+        src = path.read_text(encoding="utf-8")
+        masked = mask(src, tokenize(src))
+        declared |= {
+            name
+            for name, pattern in WRAPPER_DECLARATION.items()
+            if pattern.search(masked)
+        }
+    return declared
 
 
 def load_pins() -> dict[str, int]:
@@ -867,6 +949,7 @@ def check() -> tuple[list[Finding], dict]:
     total_sites = 0
     files_with_calls = 0
     unresolved: list[Unresolved] = []
+    declared: set[str] = set()
 
     for path in client_files():
         rel = str(path.relative_to(REPO_ROOT))
@@ -875,8 +958,19 @@ def check() -> tuple[list[Finding], dict]:
         total_paths += scan.paths
         total_sites += scan.sites
         unresolved.extend(scan.unresolved)
+        declared |= scan.declares
         if scan.paths:
             files_with_calls += 1
+
+    # Before any count is believed. `total_paths == 0` below catches the reader
+    # being switched off; this catches it being *renamed out of the client*,
+    # which leaves a number that is merely smaller -- and a smaller number is
+    # indistinguishable from a client that makes fewer calls.
+    if lost := lost_wrappers(declared):
+        raise RuntimeError(
+            "bộ đọc mất dấu wrapper của client, nên con số bên dưới không nói "
+            "lên điều gì:\n  - " + "\n  - ".join(lost)
+        )
 
     pins = load_pins()
     findings.extend(unpinned_findings(unresolved, pins))
@@ -966,6 +1060,69 @@ export async function g() {{
 
 CANARY_GOOD = canary_through(CANARY_WRAPPER, "/healthz")
 
+# The wrapper anchor's own canaries. Written as source and read through
+# `findings_for_source`, not by handing `lost_wrappers` a dictionary: a canary
+# that skips the plumbing scores a copy of the logic rather than the gate, and
+# the plumbing -- `declares` reaching `check` -- is the half that would
+# actually rot.
+#
+# Generated from `WRAPPERS` for the same reason `canary_through` is: these were
+# written spelling `call` and `translated` literally, and a canary that writes
+# its own names agrees with the reader's list instead of checking it. Under the
+# renamed wrappers all four of them reported "lost" -- including the clean one,
+# whose whole job is to be silent -- so the pair that makes the anchor mean
+# anything had quietly collapsed into "everything is always lost".
+
+
+def canary_declaring(names: tuple[str, ...]) -> str:
+    """A client that declares exactly `names` and calls each one once.
+
+    The declaration is what the anchor counts, so the argument list is shaped
+    from `REQUEST_FUNCTIONS` and not guessed: a wrapper whose URL is its second
+    argument has to be declared with two.
+    """
+    lines = ['const KIND = "k";']
+    for name in names:
+        url_at, _ = REQUEST_FUNCTIONS.get(name, (0, 1))
+        params = ["kind: string"] * url_at + ["path: string", "init: RequestInit"]
+        args = ["KIND"] * url_at + ['"/healthz"', '{ method: "GET" }']
+        lines.append(
+            f"async function {name}<T>({', '.join(params)}) "
+            "{ return fetch(path, init); }"
+        )
+        lines.append(
+            f"export async function probe_{name}() "
+            f"{{ return {name}<void>({', '.join(args)}); }}"
+        )
+    return "\n".join(lines) + "\n"
+
+
+# Every wrapper where the reader expects it: the anchor must stay silent, or
+# "everything is lost" would pass for vigilance.
+CANARY_WRAPPERS_PRESENT = canary_declaring(WRAPPERS)
+
+# The same client after a rename like #397's. Nothing here is malformed and
+# nothing is missing -- the names simply moved, and the reader that keys on
+# them sees an empty file.
+CANARY_WRAPPERS_RENAMED = canary_declaring(tuple(f"{name}Renamed" for name in WRAPPERS))
+
+# Half a rename: one wrapper moved, the rest did not. The anchor has to name
+# the one that moved rather than shrug at the group -- a partial rename is the
+# shape where the counts drop least and so look most like a client that got
+# smaller.
+CANARY_WRAPPER_HALF_RENAMED = canary_declaring(
+    (f"{WRAPPERS[0]}Renamed",) + WRAPPERS[1:]
+)
+
+# Imports the wrappers and defines none, which is all 110-odd screens. The
+# anchor must not read a caller as an anchor, or it would hold on to a name
+# that no longer exists anywhere.
+CANARY_WRAPPER_ONLY_IMPORTED = (
+    f'import {{ {", ".join(WRAPPERS)} }} from "./api";\n'
+    f'export async function a() {{ return {WRAPPERS[0]}<void>("/healthz", '
+    '{ method: "GET" }); }\n'
+)
+
 
 def _canary_contract() -> Contract:
     """A server offering exactly `/healthz`. No OpenAPI render, no database."""
@@ -1037,11 +1194,40 @@ def selftest() -> int:
             f"(mong đợi {'có' if want else 'không có'})"
         )
 
+    # The anchor is a census rather than a finding kind, so it gets its own
+    # pair under the same rule: one canary proves one hole, and a clean canary
+    # is what stops "everything is lost" from passing for vigilance.
+    anchors = (
+        ("canary neo: đổi tên mọi wrapper", CANARY_WRAPPERS_RENAMED, True),
+        ("canary neo: đổi tên đúng một wrapper", CANARY_WRAPPER_HALF_RENAMED, True),
+        (
+            "canary neo: chỉ import, không định nghĩa",
+            CANARY_WRAPPER_ONLY_IMPORTED,
+            True,
+        ),
+        (
+            "canary neo/sạch: wrapper còn được định nghĩa",
+            CANARY_WRAPPERS_PRESENT,
+            False,
+        ),
+    )
+    for label, source, want in anchors:
+        scan = findings_for_source(source, "__canary__.ts", _canary_contract())
+        got = bool(lost_wrappers(set(scan.declares)))
+        if got != want:
+            ok = False
+        print(
+            f"  {'ĐẠT' if got == want else 'HỎNG':6} {label}: "
+            f"{'mất dấu' if got else 'còn dấu'} "
+            f"(mong đợi {'mất dấu' if want else 'còn dấu'})"
+        )
+
     print()
     if ok:
         print(
             "Tự kiểm ĐẠT — cổng đỏ được khi route không tồn tại, đỏ được khi "
-            "chính nó không đọc nổi đường dẫn, và xanh khi không có cả hai."
+            "chính nó không đọc nổi đường dẫn, đỏ được khi client đổi tên "
+            "wrapper ra khỏi tầm nhìn của nó, và xanh khi không có cả ba."
         )
         return 0
     print(
