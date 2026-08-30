@@ -54,8 +54,20 @@ import { TABS } from "./tabs";
  * invites). It sits behind a button on the group screen, which itself sits
  * behind the [+] menu -- two taps deep, so nothing that loads a URL cold could
  * reach it. Added with the screen rather than after it, for the reason spelled
- * out one paragraph up. */
-export type ManVaoCua = "dang-ky" | "nhom" | "ky-niem" | "ban-be" | "widget" | "quan-tri";
+ * out one paragraph up.
+ *
+ * `thanh-tich` is 07.03 of the mockup set, behind a button on the Cá nhân tab.
+ * Same shape as `ban-be`, and named here in the same commit that adds the
+ * screen -- the paragraph above is about the one time that was done afterwards
+ * and what it cost. */
+export type ManVaoCua =
+  | "dang-ky"
+  | "nhom"
+  | "ky-niem"
+  | "ban-be"
+  | "widget"
+  | "quan-tri"
+  | "thanh-tich";
 
 const MAN_VAO_CUA: ManVaoCua[] = [
   "dang-ky",
@@ -64,6 +76,7 @@ const MAN_VAO_CUA: ManVaoCua[] = [
   "ban-be",
   "widget",
   "quan-tri",
+  "thanh-tich",
 ];
 
 export type DiemDen = {
@@ -235,6 +248,9 @@ export function docDiemDen(hash: string, search = ""): DiemDen {
       // itself -- stopping at the sunset would mean the link silently does
       // nothing, which is the failure this whole field was added to stop.
       vao === "quan-tri" ||
+      // Thành tích reads one person's ledger, so it has nothing to show outside
+      // the shell either. Same clause, same reason as the five above.
+      vao === "thanh-tich" ||
       diaDiem !== null ||
       banDo ||
       moiBuoiDi !== null,
