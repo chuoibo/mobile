@@ -229,6 +229,23 @@ quét cả file untracked. Chuyển bản nháp ra ngoài rồi chạy lại: 4/
 Nếu tôi dừng ở lần đo đầu, tôi đã nộp một phiếu lỗi cho lane khác về rác của
 mình.
 
+Đáng nói riêng, vì nó chạm mọi lane: **bất kỳ ai để một `.py` nháp untracked
+trong worktree đều làm chặng `ruff` đỏ**, và dòng lỗi không nói file đó không
+thuộc thay đổi nào. Tôi đã sửa ba lỗi lint trong bản nháp của chính mình (nó vẫn
+untracked, chỉ là sạch), nên chặng này xanh trở lại:
+
+```
+$ bash scripts/gate.sh guard guard-range ruff      # trên nhánh qa-tt-0023
+ĐẠT 3   HỎNG 0   BỎ QUA 0
+  đạt:     guard guard-range ruff
+```
+
+Đây không phải lỗi của cổng — quét untracked là đúng, vì thứ chưa commit vẫn có
+thể đi theo `git add .`. Nhưng dòng `::error::ruff rejected files this change
+touches` **nói sai**: file đó không phải thứ thay đổi này chạm tới. Một dòng
+phân biệt "file trong diff" với "file untracked trong cây" sẽ tiết kiệm cho lane
+sau đúng hai lượt đo mà nó vừa tiêu của tôi.
+
 ## 7. Ô CHƯA QUÉT
 
 - **`check_pinned_import.sh` khi không có docker / daemon chết** (đường thoát 2).
