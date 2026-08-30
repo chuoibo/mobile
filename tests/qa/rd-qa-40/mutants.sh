@@ -17,11 +17,18 @@
 #                 detail", so these rows are what make the red ones mean
 #                 something.
 #
-# The three OPEN HOLES are not rows here. There is no check to delete, so a
-# mutation would be measuring nothing. They are carried as `xfail(strict=True)`
-# in the test file, and the flip was proved by hand instead: applying a
-# candidate guard turned all six markers XPASS while the rest of the repo-wide
-# gate stayed green at 1564 passed. That measurement is in the PR body.
+# All three holes this file opened are now closed, so none of them is carried
+# as `xfail(strict=True)` any more and each has real rows below:
+#
+#   hole 3, suggested_participant_ids -> gated by #260 in `create_bill`
+#   hole 1, paid_by_id                -> gated by rd-be-26 in `confirm_expense`
+#   hole 2, recorded_by_id            -> gated by rd-be-26 in `confirm_expense`
+#
+# Holes 1 and 2 were fixed at a single call site by widening the argument, not
+# by adding a second check. That makes "delete the call" too coarse to mean
+# much on its own -- it reds for the `participants` gate that was already there
+# -- so the two rows that drop ONE argument each are the ones carrying the
+# claim.
 #
 # Run from anywhere. Restores the tree after every mutant -- so the tree must be
 # committed first, or `git checkout --` throws real work away with the mutation.
@@ -91,21 +98,47 @@ PY
   fi
 }
 
-echo "# baseline -- unmutated tree, 10 passed + 6 xfailed"
+echo "# baseline -- unmutated tree, 18 passed"
 run_suite || FAILURES=$((FAILURES+1))
 echo
 
 # --- GATED cells ------------------------------------------------------------
 
-# `_require_participants_are_members(` appears twice in service.py. Anchoring on
-# the whole call, not the function name, so a `.replace(..., 1)` cannot land on
-# the wrong one and report green while the guard under test sits untouched.
-mutant GATED "confirm_expense: participants guard removed (#235)" "$SERVICE" '
+# `_require_participants_are_members(` is called from three places in
+# service.py now (#235 confirm_expense, #247 confirm_bill_assignments, #260
+# create_bill). Anchoring on the whole call, not the function name, so a
+# `.replace(..., 1)` cannot land on the wrong one and report green while the
+# guard under test sits untouched.
+mutant GATED "confirm_expense: whole guard removed (#235 + rd-be-26)" "$SERVICE" '
 old = """        self._require_participants_are_members(
-            identity.context_id, request.proposal.participants
+            identity.context_id,
+            [
+                *request.proposal.participants,
+                request.proposal.paid_by_id,
+                request.proposal.recorded_by_id,
+            ],
         )
 """
 assert s.count(old) == 1, "confirm_expense call site is not unique"
+s = s.replace(old, "", 1)
+' red
+
+# The two rows below are why the one above is not enough. Deleting the whole
+# call proves the suite reacts to SOME change at this site; it cannot tell
+# which of the three id sources is actually gated. Each row drops exactly one
+# argument and leaves the other two in place, so a green here names the id
+# nobody is checking.
+mutant GATED "confirm_expense: paid_by_id dropped from the guard (rd-be-26 hole 1)" "$SERVICE" '
+old = """                request.proposal.paid_by_id,
+"""
+assert s.count(old) == 1, "paid_by_id argument is not unique"
+s = s.replace(old, "", 1)
+' red
+
+mutant GATED "confirm_expense: recorded_by_id dropped from the guard (rd-be-26 hole 2)" "$SERVICE" '
+old = """                request.proposal.recorded_by_id,
+"""
+assert s.count(old) == 1, "recorded_by_id argument is not unique"
 s = s.replace(old, "", 1)
 ' red
 
@@ -200,16 +233,22 @@ s = s.replace(old, """    def set_membership_role(
 
 # Sorting the ids cannot change who is in the group. A red here would mean the
 # cases are pinned to the order the client happened to send.
-mutant UNCHANGED "confirm_expense: participants sorted before the check" "$SERVICE" '
-old = """        self._require_participants_are_members(
-            identity.context_id, request.proposal.participants
-        )
+mutant UNCHANGED "confirm_expense: guard argument sorted and reordered" "$SERVICE" '
+old = """            [
+                *request.proposal.participants,
+                request.proposal.paid_by_id,
+                request.proposal.recorded_by_id,
+            ],
 """
 assert s.count(old) == 1, "call site is not unique"
-s = s.replace(old, """        self._require_participants_are_members(
-            identity.context_id,
-            sorted(request.proposal.participants, key=lambda value: value.bytes),
-        )
+s = s.replace(old, """            sorted(
+                [
+                    request.proposal.recorded_by_id,
+                    request.proposal.paid_by_id,
+                    *request.proposal.participants,
+                ],
+                key=lambda value: value.bytes,
+            ),
 """, 1)
 ' green
 

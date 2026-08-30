@@ -2014,8 +2014,33 @@ class ApiService:
                 )
             },
         )
+        # `#235` gated `participants` here and stopped there, but two more of
+        # this body's ids name people, and one of them is the only id in the
+        # request that receives money. `paid_by_id` becomes the allocator's
+        # advancer, is stored on `ExpenseVersion`, and `create_batch` hands it
+        # to `obligations_from_allocations` as the RECIPIENT of every
+        # obligation the expense produces -- so an outsider named here does not
+        # mislabel a receipt, it redirects the whole collection round. The
+        # three money rules stay green throughout, because they are arithmetic
+        # and the arithmetic is right; only the people are wrong.
+        #
+        # `acknowledge_as_advancer` is not this check. It defaults to `False`,
+        # and the predicate it proves (`actor.id == paid_by_id`) is evaluated
+        # only when the flag is set -- opt-in by the caller who would be
+        # evading it.
+        #
+        # `recorded_by_id` moves no money; it is read back by `guest_envelope`
+        # as `recorded_by_display_name`. A guest link is a bearer capability
+        # held by whoever is being asked for money, often somebody outside the
+        # product entirely, so an unchecked id prints a chosen person's name to
+        # a reader who was never in the group.
         self._require_participants_are_members(
-            identity.context_id, request.proposal.participants
+            identity.context_id,
+            [
+                *request.proposal.participants,
+                request.proposal.paid_by_id,
+                request.proposal.recorded_by_id,
+            ],
         )
         acknowledgement = "pending"
         if request.acknowledge_as_advancer:
