@@ -3,11 +3,11 @@
 ```
 protocol_version : v1
 verdict          : (không phải review PR — đây là báo cáo đo)
-đo tại           : main f8a6833
-probe chạy tại   : main 2fcd723 + nhánh qa2/nam-hang-vo-do-duoc-ruot
-                   f8a6833 chỉ chạm scripts/check_actor_headers.py và hai file
-                   tests/ gác cổng; `git diff --stat 2fcd723 f8a6833 -- services/api
-                   apps/mobile` RỖNG, nên số đo dưới đây còn hiệu lực ở f8a6833
+đo tại           : main 10f886b (mục bổ sung qa2-060012) · main f8a6833 (các mục trên)
+probe chạy tại   : nhánh qa2/nam-hang-vo-do-duoc-ruot @ 870ef42, cha là main 10f886b
+                   F35+F38 đã chạy LẠI trên neo mới, kèm một lượt đột biến;
+                   `git diff --stat f8a6833 10f886b -- services/api apps/mobile
+                   scripts` RỖNG, nên các mục đo tại f8a6833 vẫn còn hiệu lực
 skill bắt buộc   : e2e-testing
 ```
 
@@ -161,6 +161,84 @@ mã có *cùng* biên độ dưới *cùng* một bộ giải mã, nên F05 tự
 F29 dùng thư viện. Bộ dò của `cv2` yếu hơn hẳn bộ dò trong app ngân hàng và camera
 điện thoại, và hàm làm xấu của tôi là một phỏng đoán thô về camera, không phải mô
 hình camera. Đây là dữ liệu so sánh, không phải dự đoán về phần cứng thật.
+
+## Bổ sung `qa2-060012` — đo lại F35 trên `main` `10f886b`, và phép đo có cắn được không
+
+Lead giao lại F35 vì bản báo cáo Lead đọc được trên `main` (`qa3-052940`, #426) còn
+xếp F35 là **"chờ seed"**. Bản đó đúng tại thời điểm nó viết: phép đo F35 nằm ở PR
+#427 của tôi, đẩy lúc 05:56, sau khi việc được viết ra. Lượt này tôi rebase nhánh
+lên `main` `10f886b` rồi **chạy lại từ đầu**, để bằng chứng neo vào `main` hôm nay
+chứ không neo vào `f8a6833`.
+
+**Vì sao con số vẫn là 40, không phải 41.** Lead viết "nếu F35 chuyển thành
+BẤM-ĐƯỢC thì con số lên 41". F35 chưa bao giờ nằm ngoài 40 — mục 3 ở trên và mục 4
+của `qa3-052940` đều xếp nó *trong* 40 với đường bấm có thật, phần chưa đo là
+**ruột**. Nên cái đóng lại lượt này là **ô mờ**, không phải một hàng mới:
+
+```
+trước: 40 BẤM-ĐƯỢC, trong đó ô mờ 3 hàng (F35 F38 F37 — chờ seed ảnh)
+sau  : 40 BẤM-ĐƯỢC, trong đó ô mờ 0 hàng chờ seed
+```
+
+Nói "41" sẽ làm bảng 47 cộng dư một hàng. Tôi ghi ra vì đây đúng loại lệch mà lần
+sau không ai truy ngược được.
+
+**Stack và neo.** `scripts/e2e_slice.sh --keep` dựng stack dùng-một-lần từ chính cây
+đã rebase (`870ef42`, cha là `main` `10f886b`): API `127.0.0.1:47859`, uvicorn pid
+`3602735`, `cwd=/home/lakiet/agent-harness/wt/qa2/services/api`, khởi động 06:02:44.
+Ba thứ đó tôi kiểm trước khi đo, vì máy này đang có 6 stack của các lượt khác cùng
+nghe trên loopback và một `curl 200` không nói được nó trả lời từ cây nào. Lát cắt
+dọc của chính script: **7 pass · 0 fail · 0 skipped**.
+
+`git diff --stat f8a6833 10f886b -- services/api apps/mobile scripts` **rỗng** —
+hai commit mới của `main` chỉ thêm tài liệu và probe. Nên số đo cũ chưa hết hạn; đo
+lại là để có bằng chứng chạy thật, không phải vì nghi sản phẩm đã đổi.
+
+**Một ghi chú về neo, vì `main` nhích ngay giữa lượt đo.** PR #427 được squash-merge
+lúc `06:04:18 +0700`, tức là *sau khi* tôi bắt đầu lượt này và *trong lúc* stack
+đang chạy. `main` giờ là `5d589e1`, và vì là squash nên `ed4824a` **không** phải tổ
+tiên của nó — `git merge-base --is-ancestor` trả sai, đúng cái bẫy làm phép kiểm
+"đã merge chưa" đọc ngược. Neo đúng của số đo dưới đây không phải SHA mà là **nội
+dung**: `git hash-object` của `di-bo-tuong-va-widget.py` và của `app/media/storage.py`
+tại `870ef42` (cây tôi đo) **trùng byte** với chính hai file đó tại `origin/main`
+`5d589e1`. Nên phép đo này neo vào `main` hôm nay, dù SHA khác nhau.
+
+**F35 + F38: 14/14 xanh, exit 0** (cùng các dòng đã dán ở mục trên, nhóm mới
+`a253dd98`, ảnh sinh trong bộ nhớ, `MOBILE_MEDIA_ROOT=/tmp/tmp.hEX0jlrCWT/media`).
+
+### Phép đo này có cắn được không — đột biến, và một cái bắt được nhờ nó
+
+Một dấu xanh từ một cổng không đỏ được thì vô giá trị, nên tôi đột biến đúng chỗ
+file này tồn tại để gác: `MediaStorage.read` trả `b""` thay vì đọc file — tức là
+`image_url` trỏ vào hư không, đúng cái người dùng nhìn thấy thành tường thumbnail
+vỡ. Không sửa probe, không sửa assert. Khởi động lại API trên cùng DB, cùng port,
+sau khi xoá `__pycache__` của `app/media/`.
+
+```
+nền (source gốc)   : 14/14 PASS, exit 0
+đột biến read()→b"": 12 PASS, 2 FAIL, exit 1
+  [FAIL] F35 MOI image_url cua tuong tai duoc va giai ma duoc -- [None, None, None]
+  [FAIL] F38 anh cua widget tai duoc va giai ma duoc -- status=200 size=None len=0
+canary (khôi phục) : 14/14 PASS, exit 0
+```
+
+Đỏ **đúng hai dòng** đọc byte, 12 dòng còn lại giữ nguyên xanh. Đó là hình dạng cần
+có: nếu đột biến làm đỏ cả bảng thì bảng không phân biệt được cái gì đang được gác.
+
+**Và đột biến bắt được một thứ tôi chưa biết:** ảnh chết trả về **HTTP `200` với 0
+byte**, không phải `404`. Một phép kiểm dạng `assert status == 200` — hình dạng mặc
+định mà hầu hết ai cũng viết đầu tiên — sẽ **xanh** trên một tường thumbnail vỡ
+hoàn toàn. Chỉ dòng *giải mã ra ảnh 320×240* mới đỏ. Ghi lại vì nó không riêng gì
+tường ảnh: mọi route phát byte trong repo này đều có cùng cái bẫy đó.
+
+Việc dọn: `git diff services/api/app/media/storage.py` rỗng sau khi khôi phục, và
+canary chạy trên bản đã khôi phục chứ không phải trên `.pyc` cũ.
+
+**Chưa làm lượt này, nói rõ:** F37 tôi **không** chạy lại (mục trên đo tại
+`2fcd723`; sản phẩm không đổi giữa đó và `10f886b` theo `git diff` ở trên, nhưng đó
+là suy luận, không phải một lượt chạy). Và câu qa3 nêu — F37 cần *một phép đo
+grounding chưa ai thiết kế* — không phải chuyện seed, nên nó **không** đóng lại
+cùng ô này.
 
 ## Rủi ro còn mở, theo 5 loại blocker của charter
 
