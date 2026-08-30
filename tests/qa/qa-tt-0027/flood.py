@@ -1,6 +1,9 @@
 """The threat in the docstring: `while true; do curl; done` with -P 20, anonymous."""
 
-import json, sys, time, urllib.request
+import json
+import sys
+import time
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 BASE, TOTAL, CONC = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])

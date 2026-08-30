@@ -1,6 +1,9 @@
 """Drive one experiment against an already-running probe server."""
 
-import json, sys, time, urllib.request
+import json
+import sys
+import time
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 BASE, MODE, N = sys.argv[1], sys.argv[2], int(sys.argv[3])
