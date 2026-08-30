@@ -50,6 +50,36 @@ def test_chat_expense_reuses_vietnamese_amount_normalization(
     assert result["amount_vnd"] == amount_vnd
 
 
+@pytest.mark.parametrize(
+    ("amount_text", "amount_vnd"),
+    [
+        ("480000 đồng", 480_000),
+        ("480.000 đồng", 480_000),
+        ("480000 dong", 480_000),
+        ("2 trăm nghìn", 200_000),
+    ],
+)
+def test_chat_expense_reads_the_unit_written_as_a_word(
+    amount_text: str, amount_vnd: int
+) -> None:
+    """The reading the model got right must not be refused by the boundary.
+
+    Measured on the real app (qa-tt-0034): the reader returned
+    ``{"is_expense": True, "title": "tiền lẩu", "amount_text": "480000 đồng"}``
+    for "Tối qua mình trả 480000 đồng tiền lẩu cho 4 đứa nhé", and this
+    function raised UNREADABLE -- which the screen shows as "check the message
+    and try again", blaming a person for a sentence the product understood.
+    """
+
+    module = _contract()
+
+    result = module.read_chat_expense(
+        {"is_expense": True, "title": "tiền lẩu", "amount_text": amount_text}
+    )
+
+    assert result["amount_vnd"] == amount_vnd
+
+
 def test_chat_expense_non_expense_has_no_draft_values() -> None:
     module = _contract()
 
@@ -87,9 +117,7 @@ def test_chat_expense_rejects_model_money_that_is_not_text(amount) -> None:
 # 13-digit literal also trips the repo guard's long-number rule, which cannot
 # tell a ceiling probe from a leaked account number -- and deriving it keeps the
 # case meaningful if `MAX_AMOUNT_VND` ever moves.
-@pytest.mark.parametrize(
-    "amount_text", ["0", str(MAX_AMOUNT_VND + 1), "-1", ""]
-)
+@pytest.mark.parametrize("amount_text", ["0", str(MAX_AMOUNT_VND + 1), "-1", ""])
 def test_chat_expense_rejects_non_positive_or_oversized_money(
     amount_text: str,
 ) -> None:
