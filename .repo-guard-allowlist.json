@@ -51,12 +51,12 @@
     },
     {
       "path": "apps/mobile/package-lock.json",
-      "sha256": "00a99c2c49b88699767eeda382f82b0ef7a36e25fe2ac500383336cc6298bae4",
+      "sha256": "4e6411ce5e9b06a8237f485eb7206f400b04ed7ca0323c5d5e6198b9f909a10c",
       "rules": [
         "aggregate-base64-fragments",
         "long-number"
       ],
-      "reason": "npm lock file. The base64 is npm's own integrity digests, and the long numbers are package version strings whose numeric parts run past the guard's threshold. Both are structural to the format; a lock file without them cannot verify what it installs.\n\nPinned by exact digest rather than exempted by filename. A name-based exemption is the attack this guard's own tests already reject: anyone could name a file package-lock.json and smuggle a payload through. The consequence is that any change to the lock file must update this digest in the same commit, and that friction is the point -- a lock file is exactly where a supply-chain change would arrive quietly."
+      "reason": "npm lock file. The base64 is npm's own integrity digests, and the long numbers are package version strings whose numeric parts run past the guard's threshold. Both are structural to the format; a lock file without them cannot verify what it installs.\n\nPinned by exact digest rather than exempted by filename. A name-based exemption is the attack this guard's own tests already reject: anyone could name a file package-lock.json and smuggle a payload through. The consequence is that any change to the lock file must update this digest in the same commit, and that friction is the point -- a lock file is exactly where a supply-chain change would arrive quietly.\n\nDigest last moved by the commit adding puppeteer-core 24.43.1 to devDependencies: one `npm install` of 55 packages, 697 lines added and zero deleted, so no existing entry was rewritten. What is being re-reviewed here is that dependency arriving, not a reformat. It arrives because thirteen tools under apps/mobile/tools/ imported puppeteer from an absolute path inside one developer's home directory, which CI could not resolve at all. Version 24 and not the current 25.x because 25 requires node >=22.12.0 while the mobile job runs node 20."
     },
     {
       "path": "docs/claude/2026-08-26/review-p0-w9a-repo-guard.md",

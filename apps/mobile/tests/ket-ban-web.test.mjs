@@ -409,6 +409,17 @@ if (reasons.length && !REQUIRED) {
       await bam(`Gửi lời mời cho ${BINH.display_name}`);
       await doiChu("Đã gửi lời mời", "băng đang chờ");
 
+      // Sending refetches all three lists, and the banner above lands before
+      // the Bạn bè section has finished re-rendering. Reading the page text in
+      // that window is what made this test fail on the "Bạn bè (0)" line once
+      // in ~40 suite runs -- the flake PR #312 measured and could not name.
+      // Wait for the section to render *a* count; which count it is stays the
+      // assertion's job below, so a list that wrongly self-increments still
+      // fails here rather than being waited into passing.
+      await page.waitFor(() => /Bạn bè \(\d+\)/.test(document.body.innerText || ""), {
+        label: "mục Bạn bè render xong",
+      });
+
       const m = await page.evaluate(docMoiChoCoThe);
       assert.ok(
         m.text.includes(`Đã gửi lời mời. Đang chờ ${BINH.display_name} đồng ý.`),

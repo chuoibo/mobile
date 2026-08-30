@@ -28,6 +28,7 @@ import { Anh, khungTron } from "../../ui/Anh";
 import { NutChonAnh } from "../../ui/NutChonAnh";
 import { duongDanAnhDaiDien, taiAnhDaiDien } from "../../api";
 import { MaCuaToi } from "./MaCuaToi";
+import { Tuong } from "./Tuong";
 import {
   FinanceError,
   layTaiChinh,
@@ -47,6 +48,7 @@ type Trang =
 export function CaNhan({
   nguoi,
   onKetBan,
+  nhom = [],
   doc = layTaiChinh,
 }: {
   nguoi: DemoPerson | null;
@@ -56,6 +58,8 @@ export function CaNhan({
    *  screen's own tests -- keep compiling; a missing handler hides the row
    *  rather than rendering a button that does nothing. */
   onKetBan?: () => void;
+  /** Groups this person can address a post to. Empty until the shell knows one. */
+  nhom?: { id: string; name: string }[];
   /** Injected so the screen can be exercised without a server. */
   doc?: typeof layTaiChinh;
 }) {
@@ -126,6 +130,7 @@ export function CaNhan({
         <HangSoLieu trang={trang} />
         <TaiChinh trang={trang} onThuLai={lamMoi} coNguoi={Boolean(nguoi)} />
         <GiaoDich trang={trang} />
+        {nguoi?.personId ? <Tuong nguoi={nguoi} nhom={nhom} /> : null}
         <NhomCuaBan trang={trang} />
         <CuaKetBan nguoi={nguoi} onKetBan={onKetBan} />
         <MaKetBan nguoi={nguoi} ten={tenHienThi(nguoi, trang)} />

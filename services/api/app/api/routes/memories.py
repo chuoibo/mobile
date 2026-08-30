@@ -30,6 +30,7 @@ from app.api.schemas import (
     MemoryQuery,
     MemoryReactionResponse,
     MemoryResponse,
+    WidgetResponse,
 )
 from app.api.service import ApiService
 
@@ -103,6 +104,33 @@ def list_context_memories(
 
     query = MemoryQuery(limit=limit, before=before, kind=kind, place_id=place_id)
     return ApiService(repository).list_context_memories(context_id, query, actor)
+
+
+@router.get(
+    "/contexts/{context_id}/widget",
+    response_model=WidgetResponse,
+    responses=ERRORS,
+)
+def read_context_widget(
+    context_id: UUID,
+    actor: Annotated[Actor, Depends(get_actor)],
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+) -> WidgetResponse:
+    """F38. The newest photograph of one group, for a home-screen widget.
+
+    Lives in this module rather than a `widget.py` of its own because it reads
+    the memory wall and nothing else. A separate router would be a second file
+    that has to remember which permission the wall is behind, and the day the
+    two disagree the widget is the copy nobody is looking at.
+
+    No request body and no query string. There is therefore no field in which a
+    caller could name a person, a group other than the one in the path, or a
+    row -- the actor is whoever the gateway proved, and the group is the path.
+    A widget refreshes unattended on a timer, so the request it sends should be
+    the smallest thing that can be spelled.
+    """
+
+    return ApiService(repository).read_context_widget(context_id, actor)
 
 
 # --------------------------------------------------------------------------

@@ -797,6 +797,49 @@ class MemoryListResponse(ApiModel):
     has_more: bool
 
 
+class WidgetPhotoResponse(ApiModel):
+    """F38. The one photograph a home-screen widget draws, and who left it.
+
+    Deliberately not a `MemoryResponse`. The wall's row carries a cursor, two
+    social counters, a `viewer_has_reacted` fact and four location columns; a
+    widget draws none of them, and a shape that carries them anyway is four
+    more group-private fields sitting on a surface that renders outside the
+    app, next to a lock screen. What a widget needs is a picture, a name and a
+    moment, so that is the whole of it.
+    """
+
+    memory_id: UUID
+    #: The relative `/contexts/{id}/photos/{id}` url the wall already stores.
+    #: The bytes it names were stripped of EXIF by `POST .../photos` on the way
+    #: in; nothing here re-reads or re-writes an image.
+    image_url: str
+    caption: str | None
+    author_id: UUID
+    #: Read from `people` by the service, never echoed from a request. A widget
+    #: says "Nam vừa đăng", and the name has to be the name the group knows.
+    author_name: str
+    created_at: datetime
+
+
+class WidgetResponse(ApiModel):
+    """F38. What one group's widget shows right now, or that it shows nothing.
+
+    `photo` is null when the group has no photograph yet. That is a 200 and not
+    a 404: a widget asking about a real group it belongs to has asked a valid
+    question, and the honest answer is "nothing to draw". Answering 404 would
+    also hand a caller a second status code to distinguish "empty" from
+    "forbidden", which is exactly the difference a stranger is fishing for.
+
+    `context_id` is echoed from the path and is the only other field. Nothing
+    about the group -- its name, its size, its roster, when it was created --
+    appears here in either state, so the empty body carries no fact the caller
+    did not already have in hand when it built the URL.
+    """
+
+    context_id: UUID
+    photo: WidgetPhotoResponse | None
+
+
 class MemoryReactionResponse(ApiModel):
     """F40. One heart, named by who left it.
 
