@@ -413,6 +413,22 @@ class TheGateItselfStops(unittest.TestCase):
         # quotes "khớp hợp đồng" while explaining what this is not.
         self.assertNotIn("Client và máy chủ khớp hợp đồng", noise.getvalue())
 
+    def test_a_blind_spot_alone_never_reads_as_the_client_being_wrong(self):
+        # Not this change's line -- `verdict` has mapped the three answers
+        # since #398 -- but found by mutating it on 2026-08-31: turning the
+        # blind branch into `EXIT_VIOLATION` left all 21 tests green. It is the
+        # same distinction the anchor above depends on, one layer up, so it is
+        # covered here rather than left as a known-uncovered branch.
+        blind = contract_gate.Finding(contract_gate.BLIND_KIND, "f.ts", 1, "")
+        real = contract_gate.Finding("route_khong_ton_tai", "f.ts", 1, "")
+        self.assertEqual(contract_gate.verdict([blind]), contract_gate.EXIT_CANNOT_READ)
+        self.assertEqual(contract_gate.verdict([real]), contract_gate.EXIT_VIOLATION)
+        # A real mismatch outranks a blind spot: it is the one somebody can act on.
+        self.assertEqual(
+            contract_gate.verdict([blind, real]), contract_gate.EXIT_VIOLATION
+        )
+        self.assertEqual(contract_gate.verdict([]), contract_gate.EXIT_OK)
+
 
 if __name__ == "__main__":
     unittest.main()
