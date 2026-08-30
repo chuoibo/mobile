@@ -466,9 +466,7 @@ def test_an_itinerary_title_with_the_wrong_type_is_still_malformed(invalid_title
         "kind": "itinerary",
         "payload": {
             "title": invalid_title,
-            "stops": [
-                {"place_id": "p-tiem-nuong", "time_text": "19:00", "note": "Ăn"}
-            ],
+            "stops": [{"place_id": "p-tiem-nuong", "time_text": "19:00", "note": "Ăn"}],
         },
     }
 
