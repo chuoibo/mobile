@@ -85,6 +85,18 @@ export type DiemDen = {
    *  either, which is the same hole `vao` was added to close for the entry
    *  door. An unknown id falls back to the list rather than an empty card. */
   diaDiem: string | null;
+  /** rd-fe-33. Open the group map (F43/F44) straight away, from `#ban-do=1`.
+   *
+   *  Same hole as `dia-diem`, reappearing on the same tab: the map sits behind
+   *  a button on Khám phá, so nothing that loads a URL cold could reach it --
+   *  not a shared link, and not the anti-pattern detector either. Measured
+   *  rather than assumed: `imp detect` on the two `.tsx` files scores them
+   *  identically to a file built to be terrible, because a source scan cannot
+   *  compute contrast or geometry. A rendered scan can, and a rendered scan
+   *  needs an address. */
+  banDo: boolean;
+  /** rd-fe-33. Open Điểm hẹn (F45) directly, from `#ban-do=hen`. */
+  diemHen: boolean;
   /** Whether the fragment asked to skip the opening screen at all. */
   boQuaMoDau: boolean;
 };
@@ -96,6 +108,8 @@ export const KHONG_CO_DIEM_DEN: DiemDen = {
   nhomId: null,
   ban: null,
   diaDiem: null,
+  banDo: false,
+  diemHen: false,
   boQuaMoDau: false,
 };
 
@@ -140,13 +154,27 @@ export function docDiemDen(hash: string, search = ""): DiemDen {
   const diaDiemAsked = (params.get("dia-diem") ?? "").trim();
   const diaDiem = diaDiemAsked === "" ? null : diaDiemAsked;
 
+  // Presence is the signal, but an explicit "0" turns it off. A link written
+  // by hand as `ban-do=0` means "not the map", and reading that as "yes"
+  // because the key was there would be the sort of thing nobody notices until
+  // a detector report describes the wrong screen while exiting 0.
+  const banDoAsked = params.get("ban-do");
+  const banDo = banDoAsked !== null && banDoAsked !== "0" && banDoAsked !== "false";
+  // `ban-do=hen` goes one screen further, to Điểm hẹn. It is the heavier of the
+  // two and the one carrying the inversion warning, so leaving it unnamed would
+  // mean every rendered check measured the lighter screen and let the whole
+  // feature inherit that result.
+  const diemHen = banDoAsked === "hen";
+
   return {
-    tab: tab ?? (diaDiem ? "kham-pha" : null),
+    tab: tab ?? (diaDiem || banDo ? "kham-pha" : null),
     nguoi,
     vao,
     nhomId,
     ban,
     diaDiem,
+    banDo,
+    diemHen,
     // A recognised tab is enough to enter: opening the app on a named screen
     // with nobody signed in is a real state, and the screens render it.
     //
@@ -165,7 +193,8 @@ export function docDiemDen(hash: string, search = ""): DiemDen {
       vao === "nhom" ||
       vao === "ky-niem" ||
       vao === "ban-be" ||
-      diaDiem !== null,
+      diaDiem !== null ||
+      banDo,
   };
 }
 

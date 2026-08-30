@@ -40,6 +40,8 @@ export function VoTab({
   nhomId,
   banQuetDuoc,
   diaDiemDau,
+  moBanDoNgay,
+  moDiemHenNgay,
   renderKhoanChi,
 }: {
   nguoi: DemoPerson | null;
@@ -68,6 +70,11 @@ export function VoTab({
   /** F46. A place id from the link, opened as a detail card so the check-in
    *  on it is reachable without a tap. Passed straight through to Khám phá. */
   diaDiemDau?: string | null;
+  /** rd-fe-33. Open the group map immediately, from `#ban-do=1`. Same shape
+   *  and same reason as `diaDiemDau`: it sits behind a button on Khám phá. */
+  moBanDoNgay?: boolean;
+  /** rd-fe-33. Open Điểm hẹn straight away, from `#ban-do=hen`. */
+  moDiemHenNgay?: boolean;
   /** The organiser flow, handed in with the way back out of it and with whoever
    *  is signed in. The person is not a decoration: the expense flow opens the
    *  group under their id (`khoiDongNhom`), and a bill has to be written into a
@@ -196,7 +203,13 @@ export function VoTab({
       <View ref={nenRef} style={{ flex: 1 }}>
         <View style={{ flex: 1 }}>
           {tab === "kham-pha" ? (
-            <KhamPha nguoi={nguoi} nhom={nhom} diaDiemDau={diaDiemDau ?? null} />
+            <KhamPha
+              nguoi={nguoi}
+              nhom={nhom}
+              diaDiemDau={diaDiemDau ?? null}
+              moBanDoNgay={moBanDoNgay ?? false}
+              moDiemHenNgay={moDiemHenNgay ?? false}
+            />
           ) : null}
           {tab === "len-plan" ? <LenPlan nguoi={nguoi} /> : null}
           {tab === "tin-nhan" ? <TinNhan nguoi={nguoi} /> : null}

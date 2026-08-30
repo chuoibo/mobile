@@ -158,3 +158,44 @@ test("không có dia-diem thì trường này là null", () => {
   assert.equal(docDiemDen("").diaDiem, null);
   assert.equal(docDiemDen("#tab=kham-pha").diaDiem, null);
 });
+
+/* ------------------------------------------------------- rd-fe-33: bản đồ --- */
+
+test("#ban-do=1 mở bản đồ nhóm, và tự chọn tab Khám phá", () => {
+  const d = docDiemDen("#ban-do=1");
+  assert.equal(d.banDo, true);
+  assert.equal(d.diemHen, false);
+  assert.equal(d.tab, "kham-pha");
+  // Vào thẳng: dừng ở màn mở đầu nghĩa là link im lặng không làm gì.
+  assert.equal(d.boQuaMoDau, true);
+});
+
+test("#ban-do=hen đi thêm một màn nữa, tới Điểm hẹn", () => {
+  const d = docDiemDen("#ban-do=hen");
+  assert.equal(d.banDo, true);
+  assert.equal(d.diemHen, true);
+  assert.equal(d.tab, "kham-pha");
+});
+
+test("ban-do=0 và ban-do=false là KHÔNG, không phải 'có vì khoá tồn tại'", () => {
+  // Đọc sự hiện diện của khoá thành 'có' là cách một báo cáo máy quét mô tả
+  // nhầm màn mà vẫn thoát mã 0.
+  for (const hash of ["#ban-do=0", "#ban-do=false"]) {
+    const d = docDiemDen(hash);
+    assert.equal(d.banDo, false, hash);
+    assert.equal(d.diemHen, false, hash);
+    assert.equal(d.tab, null, hash);
+  }
+});
+
+test("tab viết rõ thì thắng suy luận từ ban-do", () => {
+  const d = docDiemDen("#tab=ca-nhan&ban-do=1");
+  assert.equal(d.tab, "ca-nhan");
+  assert.equal(d.banDo, true);
+});
+
+test("không có ban-do thì hai cờ đều tắt", () => {
+  const d = docDiemDen("#tab=kham-pha");
+  assert.equal(d.banDo, false);
+  assert.equal(d.diemHen, false);
+});

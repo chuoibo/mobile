@@ -112,25 +112,39 @@ function HangChon({
       <Text style={{ ...type.body, color: chon ? c.ink : c.inkSoft, flex: 1 }} numberOfLines={1}>
         {row.khu.label}
       </Text>
-      <Pressable
-        onPress={onBot}
-        disabled={row.so === 0}
-        accessibilityRole="button"
-        accessibilityLabel={`Bớt một người xuất phát từ ${row.khu.label}`}
-        style={{
-          width: CHAM,
-          height: CHAM,
-          alignItems: "center",
-          justifyContent: "center",
-          borderRadius: radius.pill,
-          backgroundColor: row.so === 0 ? c.ground : c.card,
-          borderWidth: 1,
-          borderColor: c.line,
-          opacity: row.so === 0 ? 0.5 : 1,
-        }}
-      >
-        <Text style={{ ...type.title, color: c.ink }}>−</Text>
-      </Pressable>
+      {/* Drawn only when there is something to subtract.
+       *
+       * It used to render always and dim to `opacity: 0.5` when the count was
+       * zero, which the rendered detector scored at 1.2:1 five times over --
+       * once per district. Opacity multiplies the glyph *and* the surface under
+       * it, so "disabled" became "very nearly invisible", and no source scan
+       * could see that: `imp detect` on this file returns nothing at all.
+       *
+       * Bringing the contrast back up would have kept a control that does
+       * nothing. Zero people from a district is not a state that needs a
+       * "remove one" button, so the button is absent and the spacer keeps the
+       * row from moving when it appears. */}
+      {row.so > 0 ? (
+        <Pressable
+          onPress={onBot}
+          accessibilityRole="button"
+          accessibilityLabel={`Bớt một người xuất phát từ ${row.khu.label}`}
+          style={{
+            width: CHAM,
+            height: CHAM,
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: radius.pill,
+            backgroundColor: c.card,
+            borderWidth: 1,
+            borderColor: c.line,
+          }}
+        >
+          <Text style={{ ...type.title, color: c.ink }}>−</Text>
+        </Pressable>
+      ) : (
+        <View style={{ width: CHAM, height: CHAM }} />
+      )}
       {/* The count is text, not just a highlight: a row's meaning is "hai
           người ở đây", and that cannot be carried by a colour alone. */}
       <Text
@@ -152,10 +166,13 @@ function HangChon({
           backgroundColor: conChoThem ? c.accentSoft : c.ground,
           borderWidth: 1,
           borderColor: conChoThem ? c.accentSoft : c.line,
-          opacity: conChoThem ? 1 : 0.5,
         }}
       >
-        <Text style={{ ...type.title, color: c.ink }}>+</Text>
+        {/* Muted by ink, never by opacity -- same reason as the button above.
+            `inkSoft` on `ground` still clears AA, so "không thêm được nữa"
+            stays readable instead of fading toward the background. The line
+            under the list says why the cap was reached. */}
+        <Text style={{ ...type.title, color: conChoThem ? c.ink : c.inkSoft }}>+</Text>
       </Pressable>
     </View>
   );

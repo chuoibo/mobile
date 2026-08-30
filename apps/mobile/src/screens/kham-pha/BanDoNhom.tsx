@@ -247,6 +247,7 @@ export function BanDoNhom({
   nguoi,
   contextId,
   onQuayLai,
+  moDiemHenNgay,
   fetchImpl,
 }: {
   /** Who the app is acting as. All three routes are gated on membership, so
@@ -254,13 +255,16 @@ export function BanDoNhom({
   nguoi: NguoiDung;
   contextId?: string;
   onQuayLai: () => void;
+  /** rd-fe-33. Open Điểm hẹn immediately, from `#ban-do=hen`, so the heavier
+   *  of the two screens is reachable by a URL and therefore measurable. */
+  moDiemHenNgay?: boolean;
   /** Injected by the tests. Production passes nothing and gets `fetch`. */
   fetchImpl?: typeof fetch;
 }) {
   const c = usePalette();
   const [banDo, setBanDo] = useState<BanDoState>({ kind: "dang-tai" });
   const [nhietDo, setNhietDo] = useState<NhietDoState>({ kind: "dang-tai" });
-  const [moDiemHen, setMoDiemHen] = useState(false);
+  const [moDiemHen, setMoDiemHen] = useState(moDiemHenNgay ?? false);
 
   const tai = useCallback(() => {
     const opts = { personId: nguoi.personId, contextId, fetchImpl };
