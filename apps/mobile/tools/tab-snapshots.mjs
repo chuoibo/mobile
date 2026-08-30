@@ -82,7 +82,11 @@ export const SCREENS = [
    * rd-fe-33 one surface along. One, not six: only the first fixture row
    * carries a `photo_url`, so the grid shows a filled card next to waiting
    * ones and a stub that started answering everything fails here too. */
-  { step: "kham-pha", tab: "kham-pha", needle: "Tiệm Nướng Xóm Lào", anh: 1 },
+  /* `chuTrenAnh` -- see `soi-tuong-phan-anh.mjs`. The frame here is
+   * `AnhDiaDiem`, whose scrim exists for one stated purpose: to let white body
+   * text clear AA over the bottom of the photograph. That is a claim, so this
+   * row is held to it. */
+  { step: "kham-pha", tab: "kham-pha", needle: "Tiệm Nướng Xóm Lào", anh: 1, chuTrenAnh: true },
   { step: "len-plan", tab: "len-plan", needle: "Đà Lạt cuối tuần" },
   { step: "tin-nhan", tab: "tin-nhan", needle: "Tối nay ăn gì?" },
   { step: "ca-nhan", tab: "ca-nhan", needle: "Giao dịch gần đây" },
@@ -121,6 +125,12 @@ export const MAN_KHAC = [
   /* `anh: 1` -- exactly one decoded photograph, which is the wall's whole
    * subject and which its needle cannot speak for. See the check in
    * `quet-tab-url.mjs` for what the number is doing and why it is a count. */
+  /* No `chuTrenAnh`, on purpose. The wall frame is not `AnhDiaDiem`, carries no
+   * scrim, and nothing is ever printed across it -- so holding a hypothetical
+   * caption here to AA would fail the build over a shape the product does not
+   * ship. The probe still MEASURES this screen and prints the number; it just
+   * does not gate on it. Real text that lands on this photograph is still
+   * gated, by the same pass that measures every other text. */
   { step: "ky-niem", frag: `vao=ky-niem&nguoi=${NGUOI}`, needle: "Đã đi cùng nhau", anh: 1 },
   { step: "nhom", frag: `vao=nhom&nguoi=${NGUOI}`, needle: "Lập hội mới" },
   { step: "ban-be", frag: `vao=ban-be&nguoi=${NGUOI}`, needle: "Bạn bè (" },
@@ -129,7 +139,10 @@ export const MAN_KHAC = [
    * was drawing the category mark on top of a photograph the server had sent;
    * without a count here that stays invisible, because "Khoảng giá" prints from
    * the price card either way. */
-  { step: "dia-diem", frag: `dia-diem=p-1&nguoi=${NGUOI}`, needle: "Khoảng giá", anh: 1 },
+  /* The biggest photo frame in the app -- 248pt, full bleed -- and the same
+   * `AnhDiaDiem` scrim, so it carries the same claim as Khám phá and is the
+   * heaviest shape the probe covers. */
+  { step: "dia-diem", frag: `dia-diem=p-1&nguoi=${NGUOI}`, needle: "Khoảng giá", anh: 1, chuTrenAnh: true },
   // F01, and the one row here that must NOT name a person. `DangKy` renders
   // from `AppRoot`'s pre-shell branch, which only runs while `boQuaMoDau` is
   // false -- and `nguoi=` alone makes it true. So `vao=dang-ky&nguoi=minh`
@@ -294,6 +307,64 @@ export function installTabStubs(apiBase, fixtures) {
       }
       return sa.call(this, ten, giaTri);
     };
+
+    /* ---- The element that actually PAINTS, which is not that `<img>`.
+     *
+     * Serving `HTMLImageElement.src` was serving the load detector. Measured on
+     * this bundle: react-native-web's `<Image>` renders TWO nodes -- an `<img>`
+     * held at `opacity: 0`, whose only job is to decode and fire `onLoad`, and a
+     * wrapper `<div>` that shows the picture as an inline
+     * `style="background-image: url(...)"`. The patch above answered the first
+     * and never touched the second, so `img.naturalWidth` came back 480 while
+     * the div dialled `api.build-check.invalid` on the real network and got
+     * nothing:
+     *
+     *     requestfailed  http://api.build-check.invalid/anh-thu-dia-diem.png
+     *     resource entry decodedBodySize: 0
+     *
+     * The frames were drawing their category ramp, and every row that counted
+     * `naturalWidth > 0` read as a photograph. Setting `background-image: none`
+     * on the whole document changed ZERO pixels -- proof there was nothing there
+     * to remove -- while writing the decoded bytes into that same div changed
+     * them immediately. Both controls are in the PR.
+     *
+     * An observer rather than an accessor patch because `backgroundImage` is an
+     * OWN property of each `CSSStyleDeclaration` instance, not an inherited one:
+     * `getOwnPropertyDescriptor(CSSStyleDeclaration.prototype, "backgroundImage")`
+     * is `undefined` in this Chrome, so there is no prototype seat to sit in and
+     * a patch that looks correct silently never fires. That is how the first
+     * version of this note got written.
+     *
+     * Timing is not a race. Mutation callbacks run at the microtask checkpoint,
+     * which is before style resolution -- the point where a background image is
+     * actually requested -- so the address is rewritten before the load starts
+     * rather than after it fails. */
+    window.__anhDiaDiemDaVe = 0;
+    const veLai = (el) => {
+      if (!el || el.nodeType !== 1 || !el.getAttribute) return;
+      const s = el.getAttribute("style");
+      if (s && s.indexOf(dia) !== -1) {
+        window.__anhDiaDiemDaVe += 1;
+        el.setAttribute("style", s.split(dia).join(nguon));
+      }
+    };
+    new MutationObserver((ds) => {
+      for (const d of ds) {
+        if (d.type === "attributes") {
+          veLai(d.target);
+          continue;
+        }
+        for (const n of d.addedNodes) {
+          veLai(n);
+          if (n.nodeType === 1) for (const c of n.querySelectorAll("[style]")) veLai(c);
+        }
+      }
+    }).observe(document.documentElement, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ["style"],
+    });
   }
 
   const json = (body, status = 200) =>

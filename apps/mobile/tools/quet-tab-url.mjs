@@ -512,12 +512,67 @@ async function kiemManHinh(browser, url, needle) {
     const r = await page.evaluate(async () => {
       const imgs = [...document.querySelectorAll("img")];
       await Promise.all(imgs.map((i) => (i.complete ? null : i.decode().catch(() => {}))));
+
+      /* Frames a person can SEE a photograph in.
+       *
+       * This used to be `imgs.filter((i) => i.naturalWidth > 0).length`, and
+       * that number was a lie on every row it appeared in. react-native-web
+       * renders `<Image>` as TWO nodes: an `<img>` pinned at `opacity: 0` that
+       * exists only to decode and fire `onLoad`, and a wrapper `<div>` that
+       * paints the picture through an inline `background-image`. The stub in
+       * `tab-snapshots.mjs` answered the `<img>`, so `naturalWidth` came back
+       * 480 while the div dialled the API host on the real network and got
+       * `requestfailed` / `decodedBodySize: 0`. Every place card was drawing
+       * its category ramp under a column that read "1 anh giai ma duoc".
+       *
+       * So: an `<img>` counts only if it is actually visible, and the painter
+       * counts only if its URL really decodes. Same dedupe by rectangle as
+       * `soi-tuong-phan-anh.mjs`, because the `<img>` and its wrapper share a
+       * rectangle and one photograph must not count twice. */
+      const veDuoc = (u) =>
+        new Promise((ok) => {
+          const im = new Image();
+          im.onload = () => ok(im.naturalWidth > 0);
+          im.onerror = () => ok(false);
+          im.src = u;
+        });
+
+      const khung = [];
+      const them = (el) => {
+        const b = el.getBoundingClientRect();
+        if (b.width <= 0 || b.height <= 0) return;
+        if (
+          khung.some(
+            (o) =>
+              Math.abs(o.x - b.x) < 1 && Math.abs(o.y - b.y) < 1 &&
+              Math.abs(o.width - b.width) < 1 && Math.abs(o.height - b.height) < 1,
+          )
+        ) return;
+        khung.push({ x: b.x, y: b.y, width: b.width, height: b.height });
+      };
+
+      for (const i of imgs) {
+        if (i.naturalWidth <= 0) continue;
+        const st = getComputedStyle(i);
+        if (st.visibility === "hidden" || st.display === "none" || Number(st.opacity) === 0) continue;
+        them(i);
+      }
+      // Inline only: that is where react-native-web puts a dynamic image URL,
+      // and walking every element's computed style would cost a full style
+      // resolution on a page with thousands of nodes.
+      for (const e of document.querySelectorAll("[style*='background-image']")) {
+        const st = getComputedStyle(e);
+        if (st.visibility === "hidden" || st.display === "none" || Number(st.opacity) === 0) continue;
+        const m = /url\(["']?(.*?)["']?\)/.exec(st.backgroundImage || "");
+        if (!m) continue;
+        if (!(await veDuoc(m[1]))) continue;
+        them(e);
+      }
+
       return {
         text: (document.body.innerText || "").replace(/\s+/g, " ").trim(),
         els: document.querySelectorAll("*").length,
-        // Frames the browser got real pixels for. An `<img>` that 404'd has
-        // naturalWidth 0 and is not one of these.
-        anh: imgs.filter((i) => i.naturalWidth > 0).length,
+        anh: khung.length,
       };
     });
     return { co: r.text.includes(needle), chars: r.text.length, els: r.els, anh: r.anh, loi };
