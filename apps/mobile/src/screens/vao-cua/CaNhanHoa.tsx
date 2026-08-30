@@ -202,7 +202,7 @@ export function CaNhanHoa({ ten, onXong, onQuayLai, xinQuyen = KHONG_CO_DANH_BA 
                     justifyContent: "center",
                     gap: space.xs,
                     paddingVertical: space.sm,
-                    paddingHorizontal: space.xs,
+                    paddingHorizontal: space.sm,
                     borderWidth: on ? 2 : 1,
                     borderRadius: radius.base,
                     // Unselected tiles have no fill, so their edge is the whole
@@ -264,7 +264,7 @@ export function CaNhanHoa({ ten, onXong, onQuayLai, xinQuyen = KHONG_CO_DANH_BA 
                     justifyContent: "center",
                     gap: 2,
                     paddingVertical: space.sm,
-                    paddingHorizontal: space.xs,
+                    paddingHorizontal: space.sm,
                     borderWidth: on ? 2 : 1,
                     borderRadius: radius.base,
                     borderColor: on ? c.accent : c.lineStrong,
