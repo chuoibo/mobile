@@ -178,6 +178,24 @@ export const MAN_KHAC = [
    * `diem-hen-ket-qua` in `quet-tab-url.mjs`; a needle here naming a
    * candidate would be naming text this URL never reaches.
    */
+  /* F38. `anh: 1` is the column that matters most on this row, and it is not
+   * decoration: this screen IS one photograph, so a run where the frame draws
+   * its stand-in and the line under it still prints is a run where the whole
+   * feature failed and every other number stays green. The needle cannot speak
+   * for the picture -- "Minh · " renders identically over an empty frame.
+   *
+   * The needle is the author line rather than the heading. "Ảnh mới nhất" is
+   * chrome this screen paints in all four states including the refusal, so it
+   * would wave through exactly the failure the column exists to catch. The
+   * trailing separator is part of it: `dongTacGia` drops the middot when the
+   * timestamp is unreadable, so "Minh · " proves both halves of the line
+   * resolved, and it survives the relative time turning into a date.
+   *
+   * No `chuTrenAnh`: nothing is printed across this photograph on purpose. The
+   * caption sits under the frame on the card's own ground, and `Widget.tsx`
+   * says why -- a widget draws a picture nobody vetted at the size where a
+   * washed-out caption is unreadable rather than merely ugly. */
+  { step: "widget", frag: `vao=widget&nguoi=${NGUOI}`, needle: "Minh · ", anh: 1 },
   { step: "ban-do", frag: `ban-do=1&nguoi=${NGUOI}`, needle: "Nhóm hay tụ ở đâu" },
   { step: "diem-hen", frag: `ban-do=hen&nguoi=${NGUOI}`, needle: "Ai xuất phát từ đâu" },
   /* F14. `#moi=` is the cold URL; the membership sentence only exists after
@@ -370,7 +388,28 @@ export function installTabStubs(apiBase, fixtures) {
           if (n.nodeType === 1) for (const c of n.querySelectorAll("[style]")) veLai(c);
         }
       }
-    }).observe(document.documentElement, {
+      /* `document`, not `document.documentElement`.
+       *
+       * This function runs through `page.evaluateOnNewDocument`, which fires
+       * before any page script -- and at that moment `documentElement` is
+       * `null`. Measured on both Chromiums on this machine, the repo's pinned
+       * 1234 and the 1194 the detector uses:
+       *
+       *     documentElement          -> null
+       *     observe(documentElement) -> TypeError: parameter 1 is not of type 'Node'
+       *     observe(document)        -> ok
+       *
+       * That TypeError is thrown, not caught, and it lands ABOVE the
+       * `window.fetch` assignment below -- so the whole stub failed to install
+       * and every screen fell through to the real network. The tool then died
+       * on its first screen with `kham-pha: timed out waiting for "Tiệm Nướng
+       * Xóm Lào"` and `API calls: (none)`, which reads like the app being
+       * broken rather than the harness being broken.
+       *
+       * `document` is always a Node, and with `subtree: true` it covers exactly
+       * what `documentElement` would have: the root is a child of `document`,
+       * so nothing observed before is unobserved now. */
+    }).observe(document, {
       subtree: true,
       childList: true,
       attributes: true,
@@ -501,6 +540,39 @@ export function installTabStubs(apiBase, fixtures) {
     // makes the wall show photographs rather than its empty state, and the
     // empty state is what a 404 here would silently produce -- a scan of a
     // wall with nothing on it, filed under the same filename.
+    /* F38 (rd-fe-38). The widget reads the newest photograph of one group.
+     *
+     * The newest row is COMPUTED from the same `fixtures.kyNiem` the wall is
+     * served from, rather than a hand-picked index. Two reasons, and the
+     * second is the one that would go unnoticed: the real service answers
+     * `list_memories(limit=1, kind="photo")` and a stub that names a row by
+     * hand can disagree with the wall it sits next to -- the widget would show
+     * a photograph the wall does not lead with, and both surfaces would look
+     * correct on their own. Computing it means the fixture stays one fact.
+     *
+     * `author_name` is resolved here for the same reason the server resolves
+     * it there: this shape carries the name, not an id for the client to look
+     * up, so a stub sending only an id would let a screen that goes and builds
+     * a roster pass a scan it should fail. */
+    if (route.endsWith("/widget")) {
+      const moiNhat = fixtures.kyNiem.reduce(
+        (a, b) => (Date.parse(b.created_at) > Date.parse(a.created_at) ? b : a),
+        fixtures.kyNiem[0],
+      );
+      return json({
+        context_id: fixtures.contextId,
+        photo: moiNhat
+          ? {
+              memory_id: moiNhat.id,
+              image_url: moiNhat.image_url,
+              caption: moiNhat.caption,
+              author_id: moiNhat.author_id,
+              author_name: "Minh",
+              created_at: moiNhat.created_at,
+            }
+          : null,
+      });
+    }
     // rd-fe-33's four routes, matched BEFORE the feed below: `/memories/{id}/
     // reactions` also "includes /memories", so the feed's looser test would
     // swallow every one of them and answer a photo list to a heart press.
@@ -1051,6 +1123,21 @@ export function taoFixtures() {
     // Counts differ from each other and from the comment counts, so a component
     // that renders the wrong number of the four still renders A number: 2 and 1
     // are not interchangeable and neither is 1 and 0.
+    // rd-fe-38. The two `created_at` values were swapped so the array reads
+    // NEWEST FIRST, which is the order the real route returns
+    // (`list_memories` is `ORDER BY created_at DESC`). It used to read
+    // oldest-first, and while the wall could not tell -- it renders the array
+    // in the order it arrives either way -- F38's widget could. Its stub picks
+    // the newest row honestly rather than by index, and the newest row was the
+    // one whose bytes are DELIBERATELY absent (only `...0002` is in
+    // `anhTheoId`, so the second wall card draws its stand-in). So the widget
+    // asked for a photograph the fixture 404s and rendered an empty frame with
+    // its author line intact: the needle passed and `anh: 1` caught it.
+    //
+    // Fixing it here rather than in the widget's stub is the point. A fixture
+    // that disagreed with the server's ordering was going to mislead the next
+    // reader too; pinning the fixture to the contract means the row with a
+    // picture and a caption is also the row a "newest" query returns.
     kyNiem: [
       {
         id: "5dd00000-dddd-4ddd-8ddd-0000d0000001",
@@ -1063,7 +1150,7 @@ export function taoFixtures() {
         place_name: null,
         lat: null,
         lng: null,
-        created_at: "2026-09-07T07:12:00+07:00",
+        created_at: "2026-09-07T19:40:00+07:00",
         cursor: "c1",
         reaction_count: 2,
         comment_count: 1,
@@ -1080,7 +1167,7 @@ export function taoFixtures() {
         place_name: null,
         lat: null,
         lng: null,
-        created_at: "2026-09-07T19:40:00+07:00",
+        created_at: "2026-09-07T07:12:00+07:00",
         cursor: "c2",
         reaction_count: 1,
         comment_count: 0,
