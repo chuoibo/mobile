@@ -31,11 +31,13 @@ import { MaCuaToi } from "./MaCuaToi";
 import { Tuong } from "./Tuong";
 import {
   FinanceError,
+  ghiChuGioiHan,
   layTaiChinh,
   moTaGiaoDich,
   ngayNgan,
   tienCoDau,
   tienVnd,
+  tinhTrangNo,
   type Finance,
   type Movement,
 } from "./tai-chinh";
@@ -419,7 +421,26 @@ function CuaThanhTich({
   );
 }
 
-/** Tổng quan tài chính — the reason this screen is on the demo path. */
+/** Tổng quan tài chính — the reason this screen is on the demo path.
+ *
+ * Mockup 07.02 puts three figures in a row: *Đã trả*, *Còn nhận*, *Còn phải
+ * trả*. Only two of them existed here, and both were about money going out --
+ * so the person who put the bill on their own card, which on the demo path is
+ * the person running the demo, split a dinner, came back, and read `Còn nợ 0đ`
+ * with nothing anywhere saying the money was coming back to them. `Còn nhận`
+ * is the missing third, and it is read from the ledger like every other number
+ * on this screen; see `receivable_vnd` in `repository.py`.
+ *
+ * The mockup's three tiles are laid out here as one total and a pair beneath
+ * it, rather than three abreast. Three tiles across 390pt leaves about 90pt of
+ * text width each, and `2.100.000đ` does not fit in it -- the same measurement
+ * that put `minWidth: 0` on the transaction rows below. The information is the
+ * mockup's; the row count is what the device allows.
+ *
+ * `Đã thanh toán` is kept although the mockup has no tile for it, because it
+ * is the half of the total that `Còn phải trả` does not account for, and the
+ * two are printed directly under the number they add up to.
+ */
 function TaiChinh({
   trang,
   onThuLai,
@@ -470,28 +491,52 @@ function TaiChinh({
       {trang.pha === "xong" ? (
         <View style={{ gap: space.sm }}>
           <View style={{ gap: 2 }}>
-            <Text style={{ ...type.label, color: c.inkSoft }}>Tổng chi tiêu</Text>
+            <Text style={{ ...type.label, color: c.inkSoft }}>Đã trả</Text>
             <Text style={{ ...type.amount, color: c.ink }}>
               {tienVnd(trang.so.spend_vnd)}
+            </Text>
+            <Text style={{ ...type.micro, color: c.inkSoft }}>
+              Tổng bạn đã chi. Đã thanh toán xong {tienVnd(trang.so.settled_vnd)}.
             </Text>
           </View>
           <View style={{ flexDirection: "row", gap: space.sm }}>
             <ONho
-              label="Đã thanh toán"
-              value={tienVnd(trang.so.settled_vnd)}
+              label="Còn nhận"
+              value={tienVnd(trang.so.receivable_vnd)}
+              chu="Người khác nợ bạn"
               mau={c.split}
               nen={c.splitSoft}
             />
             <ONho
-              label="Còn nợ"
+              label="Còn phải trả"
               value={tienVnd(trang.so.outstanding_vnd)}
+              chu="Bạn còn nợ người khác"
               mau={c.accent}
               nen={c.accentSoft}
             />
           </View>
+          {/* The five states of mockup 07.02, said in words. Two coloured
+              numbers do not tell somebody in three seconds whether this is a
+              good month, and colour is forbidden from carrying it alone. */}
+          <Text style={{ ...type.body, color: c.ink }}>
+            {tinhTrangNo(trang.so).cau}
+          </Text>
           <Text style={{ ...type.micro, color: c.inkFaint }}>
-            Tính lại từ sổ mỗi lần mở màn này. Chia một khoản chi rồi quay lại, hai ô
-            trên đổi theo.
+            Tính lại từ sổ mỗi lần mở màn này. Chia một khoản chi rồi quay lại, ba số
+            trên đổi theo. Một khoản chỉ rời khỏi "còn nhận" khi bạn xác nhận đã nhận
+            được tiền. Người kia báo đã chuyển thì chưa tính.
+          </Text>
+          {/* Stated, not drawn. The mockup breaks the month down into Ăn uống,
+              Di chuyển, Cafe and Vui chơi, and no expense in this product
+              carries a category -- there is no column, no field on the create
+              request, and nothing that could fill those four bars except a
+              guess. Four plausible bars would read exactly as real as the
+              three figures above them, which is the substitution this screen
+              is built to refuse. Saying so is the honest version of drawing
+              it. */}
+          <Text style={{ ...type.micro, color: c.inkFaint }}>
+            Chưa tách được theo nhóm chi (ăn uống, đi lại, cafe…): khoản chi trong sản
+            phẩm này chưa mang danh mục nào.
           </Text>
         </View>
       ) : null}
@@ -502,11 +547,18 @@ function TaiChinh({
 function ONho({
   label,
   value,
+  chu,
   mau,
   nen,
 }: {
   label: string;
   value: string;
+  /** Which direction the money runs, spelled out. The mockup prints it under
+   *  each tile, and it is the part that survives a greyscale screenshot: the
+   *  two tiles are otherwise a green number and a coral number, and "còn
+   *  nhận" versus "còn phải trả" is exactly the distinction somebody skims
+   *  past. */
+  chu?: string;
   mau: string;
   nen: string;
 }) {
@@ -525,6 +577,7 @@ function ONho({
     >
       <Text style={{ ...type.label, color: c.inkSoft }}>{label}</Text>
       <Text style={{ ...type.amountSmall, color: mau }}>{value}</Text>
+      {chu ? <Text style={{ ...type.micro, color: c.inkSoft }}>{chu}</Text> : null}
     </View>
   );
 }
@@ -534,6 +587,7 @@ function GiaoDich({ trang }: { trang: Trang }) {
   const c = usePalette();
   if (trang.pha !== "xong") return null;
   const list = trang.so.movements;
+  const gioiHan = ghiChuGioiHan(list);
   return (
     <Card>
       <Text style={{ ...type.title, color: c.ink }}>Giao dịch gần đây</Text>
@@ -545,6 +599,11 @@ function GiaoDich({ trang }: { trang: Trang }) {
       ) : (
         list.map((m, i) => <DongGiaoDich key={m.obligation_id + i} m={m} />)
       )}
+      {/* Only on a full page. A list of six rows is the whole history and
+          saying otherwise would be its own small lie. */}
+      {gioiHan ? (
+        <Text style={{ ...type.micro, color: c.inkFaint }}>{gioiHan}</Text>
+      ) : null}
     </Card>
   );
 }

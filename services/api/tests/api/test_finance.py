@@ -30,6 +30,7 @@ def _summary(person_id=ADVANCER_ID, *, movements=()):
         spend_vnd=860_000,
         settled_vnd=610_000,
         outstanding_vnd=250_000,
+        receivable_vnd=530_000,
         expense_count=4,
         group_count=2,
         movements=movements,
@@ -62,6 +63,7 @@ def test_a_person_reads_their_own_finances(client, repository):
     assert body["spend_vnd"] == 860_000
     assert body["settled_vnd"] == 610_000
     assert body["outstanding_vnd"] == 250_000
+    assert body["receivable_vnd"] == 530_000
     assert body["expense_count"] == 4
     assert body["group_count"] == 2
     assert len(body["movements"]) == 1
@@ -86,6 +88,7 @@ def test_nobody_reads_somebody_elses_finances(client, repository):
     assert response.json()["code"] == "not_your_finances"
     # The refusal must not leak the figures it is refusing.
     assert "860000" not in response.text
+    assert "530000" not in response.text, "what they are owed is theirs too"
     assert "Trang" not in response.text
 
 
@@ -106,6 +109,7 @@ def test_a_person_who_has_split_nothing_reads_zero_rather_than_404(client):
     body = response.json()
     assert body["spend_vnd"] == 0
     assert body["outstanding_vnd"] == 0
+    assert body["receivable_vnd"] == 0
     assert body["movements"] == []
 
 
@@ -146,6 +150,7 @@ def test_the_route_never_recomputes_what_the_ledger_answered(client, repository)
         spend_vnd=100,
         settled_vnd=7,
         outstanding_vnd=11,
+        receivable_vnd=13,
         expense_count=1,
         group_count=1,
         movements=(),
@@ -160,3 +165,6 @@ def test_the_route_never_recomputes_what_the_ledger_answered(client, repository)
         7,
         11,
     )
+    # Outside that identity on purpose: 13 is neither 100 - 7 nor 100 - 11, and
+    # a route that "helpfully" reconciled the row would have to change it.
+    assert body["receivable_vnd"] == 13
