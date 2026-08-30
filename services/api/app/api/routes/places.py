@@ -21,10 +21,12 @@ from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field, field_validator
 
 from app.api.deps import Actor, get_actor
+from app.api.errors import ApiProblem
 from app.api.schemas import MoneyVnd
 from app.api.search_rate_limit import FixedWindowLimiter
 from app.domain.place_search import PlaceSearchError, ground_search
-from app.places.catalog import CATEGORIES, GROUP, PLACES, GroupProfile
+from app.places.catalog import CATEGORIES, GROUP, PLACES, GroupProfile, find_place
+from app.places.details import detail_fields
 from app.places.reasons import (
     PlaceReason,
     ReasonRow,
@@ -87,6 +89,36 @@ class Place(BaseModel):
     lat: float
     lng: float
     match: Match
+
+
+class Review(BaseModel):
+    author: str
+    rating: float
+    body: str
+
+
+class PlaceDetail(Place):
+    """F10. One place, everything the detail screen draws.
+
+    Extends `Place` rather than restating it so the two screens cannot drift:
+    the grid card and the detail header read the same `match` block, computed by
+    the same `_card`. A separate model here would be a second place for a score
+    to be calculated, which is how one dinner ends up showing two numbers.
+
+    `description` and `reviews` are the only additions, and they are the only
+    two fields the list omits -- see `app/places/details.py` for why prose lives
+    in its own file.
+
+    Photos are represented by `photo_count`, inherited from `Place`, and there
+    is deliberately no `photos` array: this product has no image store for
+    venues, and a list of invented URLs would render as broken frames on the
+    screen most likely to be opened first. `photos_available` says so out loud
+    rather than leaving a client to infer it from an empty list.
+    """
+
+    description: str | None
+    reviews: list[Review]
+    photos_available: bool
 
 
 class Category(BaseModel):
@@ -364,6 +396,62 @@ def list_places(
         places=out,
         categories=[Category(**category_row) for category_row in CATEGORIES],
         group=GroupSummary(**GROUP),
+    )
+
+
+@router.get(
+    "/places/{place_id}",
+    response_model=PlaceDetail,
+    responses={404: {"description": "Không có địa điểm nào với mã này."}},
+)
+def get_place(
+    place_id: str,
+    reason_writer: Annotated[Any, Depends(get_reason_writer)],
+) -> PlaceDetail:
+    """F10 -- one place, scored by the same arithmetic the grid used.
+
+    404 here and 200-with-an-empty-list on `GET /places` are not inconsistent.
+    A category nobody has used yet is a real query with an empty answer; a place
+    id that resolves to nothing is a request for a specific row that does not
+    exist, and answering it with a blank screen would leave a caller unable to
+    tell "no such place" from "this place has no details".
+
+    Declared above `POST /places/search` and does not shadow it. Starlette scans
+    routes in order, and a route whose path matches but whose method does not is
+    a *partial* match: it is remembered as a candidate 405 and the scan
+    continues, so the later full match still wins. `GET /places/search` has no
+    full match anywhere and lands here as `place_id="search"`, answering 404 --
+    the right answer for a path with no GET. The wiring test pins both.
+
+    No actor. The catalogue is the same twelve public rows for everybody, this
+    handler reads no group data and takes no identity, so there is nothing here
+    to authorise -- exactly the position `GET /places` is in. The metering
+    argument that put `get_actor` on `/places/search` does not apply either: a
+    reason is memoised per place per process, so a loop against this route costs
+    one model call in total, not one per request.
+    """
+
+    place = find_place(place_id)
+    if place is None:
+        raise ApiProblem(404, "place_not_found", "Không tìm thấy địa điểm này.")
+
+    # Same failure posture as the list: a model outage must not turn a
+    # read-only catalogue row into a 500.
+    try:
+        written = reason_writer([ReasonRow(place=place)])
+    except Exception:  # noqa: BLE001
+        written = {}
+    reason = written.get(place["id"])
+
+    card = _card(
+        place,
+        reason.reason if reason else None,
+        reason.verdict if reason else None,
+    )
+    return PlaceDetail(
+        **card.model_dump(),
+        **detail_fields(place["id"]),
+        photos_available=False,
     )
 
 

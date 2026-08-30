@@ -42,6 +42,7 @@ from app.api.routes import (
     places,
     recap,
     receipts,
+    social_map,
     suggestions,
 )
 from app.api.schemas import ErrorResponse
@@ -107,6 +108,7 @@ def create_app(
     application.include_router(recap.router)
     application.include_router(receipts.router)
     application.include_router(suggestions.router)
+    application.include_router(social_map.router)
 
     # Middleware, not a decorator on each route: a write route added later is
     # covered the moment it is registered, with no list for anyone to forget.

@@ -9,6 +9,7 @@ import uuid
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from app.api import companion_places
@@ -37,6 +38,7 @@ from app.api.repository import (
 )
 from app.api.schemas import (
     AllocationProposal,
+    AreaSummary,
     BankRecipientRequest,
     BankRecipientResponse,
     BatchCreateRequest,
@@ -70,8 +72,14 @@ from app.api.schemas import (
     FriendRequestListResponse,
     FriendRequestResponse,
     FriendSummary,
+    GroupHeatmapResponse,
     GroupRecapResponse,
     GroupSuggestionResponse,
+    HeatmapArea,
+    MapPlace,
+    MeetingCandidate,
+    MeetingPointRequest,
+    MeetingPointResponse,
     MemberRoleRequest,
     MembershipInviteRequest,
     MembershipListResponse,
@@ -103,10 +111,13 @@ from app.api.schemas import (
     ReceiptConfirmationRequest,
     ReceiptConfirmationResponse,
     SettlementTransferProposal,
+    SocialMapResponse,
     StopCheckinResponse,
     SuggestionBasis,
     SuggestionStop,
+    UnavailableLayer,
     UploadedImageResponse,
+    VisitedPlace,
 )
 from app.domain import permissions
 from app.domain.allocator import allocate
@@ -145,7 +156,15 @@ from app.media.images import ImageRejected, sanitize_image
 from app.media.storage import PhotoStorage, new_storage_key
 from app.payments.banks import describe_bank
 from app.payments.vietqr import VietQRError, build_payload
-from app.places.catalog import find_place
+from app.places import social_map
+from app.places.areas import area_summary, find_area
+from app.places.catalog import GROUP, PLACES, find_place
+from app.places.meeting import (
+    MAX_ORIGIN_AREAS,
+    MIN_ORIGIN_AREAS,
+    rank_meeting_points,
+)
+from app.places.scoring import score_place
 from app.web.guest_view import GuestViewError, build_guest_view
 from app.web.objection_view import (
     OBJECTION_REASONS,
@@ -162,6 +181,17 @@ CONTEXT_WINDOW = 40
 #: shape, and one more year of arrivals does not change it.
 SUGGESTION_HISTORY_LIMIT = 100
 OUTING_INVITE_TTL = timedelta(days=7)
+
+#: How many check-ins one page of the F43/F44 scan pulls. Matches the ceiling
+#: `GET /contexts/{id}/memories` already allows, so the aggregation places no
+#: heavier a query on the index than the wall it summarises.
+_CHECKIN_PAGE = 100
+#: And how many it will read in total before saying so. `truncated` reaches the
+#: wire when this bites -- a bounded scan that does not admit it is bounded is
+#: the "silent cap" failure: it reads as complete coverage and is not.
+_CHECKIN_SCAN_CAP = 500
+_MAP_RECOMMENDED = 8
+_MEET_CANDIDATES = 5
 
 
 def _now() -> datetime:
@@ -1507,6 +1537,177 @@ class ApiService:
             memories=memories,
             next_cursor=memories[-1].cursor if memories else None,
             has_more=page.has_more,
+        )
+
+    # -- F43 / F44 / F45: where the group goes ------------------------------
+    #
+    # All three sit here, beside `list_context_memories`, because that is the
+    # read they narrow. Two of them aggregate exactly those rows and answer with
+    # less; the third answers without reading them at all.
+
+    def _scan_checkins(
+        self, context_id: uuid.UUID
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """Every check-in in the group, up to a stated ceiling.
+
+        Pages the one repository method the memory wall already uses rather than
+        adding a `SELECT ... GROUP BY`. That is a deliberate trade: a grouped
+        query would be one round trip instead of several, and it would also be a
+        second, ungated path to the same rows. Reusing `list_memories` means the
+        aggregation cannot outlive or outrank the read it summarises.
+
+        The ceiling is disclosed, never silent. `truncated` travels all the way
+        to the wire because a heatmap built from 500 of 900 visits, presented as
+        the group's habits, is wrong in a way no reader could detect.
+        """
+
+        rows: list[dict[str, Any]] = []
+        before: tuple[datetime, uuid.UUID] | None = None
+        truncated = False
+        while True:
+            page = self.repository.list_memories(
+                context_id,
+                limit=_CHECKIN_PAGE,
+                before=before,
+                kind="checkin",
+                place_id=None,
+            )
+            for record in page.memories:
+                rows.append(
+                    {
+                        "place_id": record.place_id,
+                        "place_name": record.place_name,
+                        "lat": record.lat,
+                        "lng": record.lng,
+                    }
+                )
+            if not page.has_more or not page.memories:
+                break
+            if len(rows) >= _CHECKIN_SCAN_CAP:
+                truncated = True
+                break
+            last = page.memories[-1]
+            before = (last.created_at, last.id)
+        return rows, truncated
+
+    def get_social_map(self, context_id: uuid.UUID, actor: Actor) -> SocialMapResponse:
+        """F43. Visited, trending and recommended -- and `saved`, declared missing.
+
+        `recommended` excludes places the group has already been to. A map that
+        recommends the restaurant they ate at last week is not a recommendation,
+        it is the visited layer drawn twice.
+        """
+
+        _require_permission(
+            "view_social_map",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        rows, truncated = self._scan_checkins(context_id)
+        visited = social_map.visited_layer(rows)
+        seen = {entry["place_id"] for entry in visited}
+
+        scored = sorted(
+            (place for place in PLACES if place["id"] not in seen),
+            key=lambda place: (-score_place(place, GROUP)[0], place["id"]),
+        )
+        return SocialMapResponse(
+            context_id=context_id,
+            visited=[VisitedPlace(**entry) for entry in visited],
+            trending=[MapPlace(**entry) for entry in social_map.trending_layer(PLACES)],
+            recommended=[
+                MapPlace(
+                    place_id=place["id"],
+                    place_name=place["name"],
+                    lat=place["lat"],
+                    lng=place["lng"],
+                    rating=place["rating"],
+                    rating_count=place["rating_count"],
+                )
+                for place in scored[:_MAP_RECOMMENDED]
+            ],
+            unavailable=[
+                UnavailableLayer(
+                    layer="saved",
+                    reason=(
+                        "Chưa có chỗ lưu địa điểm yêu thích, nên lớp này chưa có gì "
+                        "để hiện."
+                    ),
+                )
+            ],
+            scanned_checkins=len(rows),
+            truncated=truncated,
+        )
+
+    def get_group_heatmap(
+        self, context_id: uuid.UUID, actor: Actor
+    ) -> GroupHeatmapResponse:
+        """F44. "Nhóm hay tụ ở đâu", answered in districts."""
+
+        _require_permission(
+            "view_group_heatmap",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        rows, truncated = self._scan_checkins(context_id)
+        areas = social_map.heatmap_rows(rows)
+        return GroupHeatmapResponse(
+            context_id=context_id,
+            areas=[HeatmapArea(**area) for area in areas],
+            resolved_checkins=sum(area["visit_count"] for area in areas),
+            unknown_area_count=social_map.unknown_area_count(rows),
+            scanned_checkins=len(rows),
+            truncated=truncated,
+        )
+
+    def get_meeting_point(
+        self,
+        context_id: uuid.UUID,
+        request: MeetingPointRequest,
+        actor: Actor,
+    ) -> MeetingPointResponse:
+        """F45. Areas in, a fair meeting point out, no member named anywhere.
+
+        Reads no check-in and no membership row beyond the gate itself: the
+        origins arrive in the request as unlabelled district ids. A caller
+        therefore cannot use this route to learn where anybody is, because the
+        server never had that fact -- see `app/places/meeting.py`.
+
+        An unknown area id is a 422 naming the id, not a silent drop. Dropping
+        it would compute a "fair" point for four friends from three of them and
+        present it as the answer for four.
+        """
+
+        _require_permission(
+            "view_meeting_point",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        if not (MIN_ORIGIN_AREAS <= len(request.from_areas) <= MAX_ORIGIN_AREAS):
+            raise ApiProblem(
+                422,
+                "invalid_origin_count",
+                f"Cần từ {MIN_ORIGIN_AREAS} đến {MAX_ORIGIN_AREAS} khu vực "
+                "xuất phát để tìm điểm hẹn.",
+            )
+
+        origins = []
+        for area_id in request.from_areas:
+            area = find_area(area_id)
+            if area is None:
+                raise ApiProblem(
+                    422,
+                    "unknown_area",
+                    f"Không có khu vực nào tên {area_id}.",
+                )
+            origins.append(area)
+
+        candidates = rank_meeting_points(origins, PLACES, limit=_MEET_CANDIDATES)
+        return MeetingPointResponse(
+            context_id=context_id,
+            origins=[AreaSummary(**area_summary(area)) for area in origins],
+            candidates=[MeetingCandidate(**row) for row in candidates],
+            two_origin_inversion=len(origins) == 2,
         )
 
     def post_context_message(
