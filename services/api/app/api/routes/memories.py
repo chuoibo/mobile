@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 
 from app.api.deps import Actor, get_actor, get_repository
 from app.api.repository import ApiRepository
@@ -150,10 +150,23 @@ def delete_memory_reaction(
     memory_id: UUID,
     actor: Annotated[Actor, Depends(get_actor)],
     repository: Annotated[ApiRepository, Depends(get_repository)],
-) -> None:
-    """Take back one's own heart. There is no path to anybody else's."""
+) -> Response:
+    """Take back one's own heart. There is no path to anybody else's.
+
+    Annotated ``-> Response`` and returning one explicitly, the same way
+    ``leave_context`` answers 204 in ``contexts.py``, rather than the ``-> None``
+    this route shipped with. Under a ``from __future__ import annotations``
+    module the bare ``None`` reaches FastAPI as a string, resolves to the
+    ``NoneType`` class, and is therefore truthy -- so ``APIRoute.__init__``
+    reads the handler as promising a body and asserts against the 204 while it
+    is registering the route. FastAPI 0.115.6, which is what
+    ``requirements-dev.txt`` pins and what the image installs, refuses to import
+    the app at all; 0.135.3 accepts it. A ``Response`` subclass takes the
+    documented branch instead, on both.
+    """
 
     ApiService(repository).unreact_to_memory(context_id, memory_id, actor)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(
