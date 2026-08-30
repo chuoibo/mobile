@@ -52,9 +52,11 @@ from app.api.routes import (
 from app.api.schemas import ErrorResponse
 from app.api.search_rate_limit import (
     build_chat_expense_limiter,
+    build_companion_turn_limiter,
     build_receipt_scan_limiter,
     build_screenshot_scan_limiter,
     build_search_limiter,
+    build_suggestion_limiter,
 )
 from app.db.session import get_session_factory
 
@@ -95,6 +97,13 @@ def create_app(
     # F26 uses vision too, but owns a fourth window so retries do not consume
     # the bill reader's allowance.
     application.state.screenshot_scan_limiter = build_screenshot_scan_limiter()
+    # The companion talks with the same key. `plan_turn` is a conversation
+    # cadence and not a ceiling -- the caller lifts it by saying one more
+    # thing -- so the turn needs a window like every other model route.
+    application.state.companion_turn_limiter = build_companion_turn_limiter()
+    # And the proactive card, which had nothing at all in front of it: no
+    # cache, no cadence, one model call per GET.
+    application.state.suggestion_limiter = build_suggestion_limiter()
 
     application.mount(
         "/static",
