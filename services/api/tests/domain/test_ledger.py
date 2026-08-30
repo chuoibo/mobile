@@ -493,6 +493,30 @@ class EveryMoneyParameterRefusesANonInteger(unittest.TestCase):
                     getattr(ledger_module, name)(**kwargs)
                 self.assertEqual(caught.exception.code, "AMOUNT_NOT_INTEGER")
 
+    def test_no_exclusion_outlives_the_parameter_it_excuses(self):
+        """`NOT_MONEY_SLOTS` is the one way to leave an integer unswept.
+
+        An allowlist that keeps entries for parameters that no longer exist
+        widens quietly: rename `exact_limit` and the stale entry stops matching
+        anything, so the rename looks free while the new name goes unswept.
+        Requiring every entry to still name a real parameter makes that a red
+        test instead of a silent hole.
+        """
+        import inspect
+
+        import app.domain.ledger as ledger_module
+
+        for export, parameter in sorted(NOT_MONEY_SLOTS):
+            with self.subTest(export=export, parameter=parameter):
+                self.assertIn(export, GOLDEN_CALLS)
+                declared = inspect.signature(getattr(ledger_module, export)).parameters
+                self.assertIn(
+                    parameter,
+                    declared,
+                    f"{export} has no parameter {parameter!r} -- "
+                    "a stale exclusion leaves its replacement unswept",
+                )
+
     def test_every_export_that_takes_money_has_a_golden_call(self):
         """A new money export must not be able to shrink the sweep silently."""
         import app.domain.ledger as ledger_module
