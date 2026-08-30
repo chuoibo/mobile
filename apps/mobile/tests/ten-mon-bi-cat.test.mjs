@@ -73,18 +73,44 @@ const CAO = 844;
 
 /** Ordinary Vietnamese menu lines that must be readable in full.
  *
- * The ceiling is deliberate: an app cannot promise every name fits, and
- * "Cá lóc nướng trui cuốn bánh tráng" at 244px never will inside a 390px phone
- * that also has to show quantity, money and a 44pt delete control. What it can
- * promise is the ordinary length, and these are the names that decide it --
- * the first two are exactly the pair #342 pushed off the screen. */
+ * Measured on this build at 390x844, in this font, sorted (all values ±1px):
+ *
+ *      104  Bò nhúng dấm            131  Canh chua cá bớp
+ *      110  Mì Quảng gà ta          131  Nước ép cam tươi
+ *      111  Chả giò hải sản         132  Gà nướng muối ớt
+ *      111  Bia Sài Gòn lon         134  Rau muống xào tỏi
+ *      113  Lẩu thái hải sản        138  Bánh xèo miền Tây
+ *      121  Gỏi cuốn tôm thịt       145  Bún bò Huế đặc biệt
+ *      124  Cá lóc nướng trui       151  Tôm sú nướng bơ tỏi
+ *                                   157  Cơm tấm sườn bì chả
+ *                                   166  Nem nướng Nha Trang
+ *
+ * The list below stops at 134 and that boundary is a fact about the layout, not
+ * a preference. The name column's text area is 138px, and it cannot be much
+ * more: at 390pt the row also owes 44 to quantity, 94 to money and 44 to a
+ * delete control that has to stay tappable, and the 16pt this file's own
+ * history is about were the last dead pixels available. So a four-word name
+ * like "Cơm tấm sườn bì chả" (157px) is still clipped after the fix, and no
+ * amount of column juggling reaches it -- that needs the name on its own line,
+ * which is a different and larger change than the one this gate was written
+ * against. Recorded here so the next person measures instead of rediscovering.
+ *
+ * "Bánh xèo miền Tây" at 138 against a 138px column is deliberately NOT in the
+ * list: an assertion balanced on 0px of margin fails on a font metric moving by
+ * one, and a gate that cries wolf gets disabled. Headroom over "Rau muống xào
+ * tỏi", the longest name here, is 4px. That is genuinely all this layout has.
+ *
+ * The pair at 121 and 124 is what #342 pushed off the screen and what this gate
+ * exists to keep on it. */
 const TEN_PHAI_VUA = [
   "Lẩu thái",
-  "Nước sâm",
-  "Cơm rang",
-  "Bún bò Huế",
+  "Bò nhúng dấm",
+  "Lẩu thái hải sản",
   "Gỏi cuốn tôm thịt",
   "Cá lóc nướng trui",
+  "Canh chua cá bớp",
+  "Gà nướng muối ớt",
+  "Rau muống xào tỏi",
 ];
 
 /** The canary. Not a name anybody would type -- a string long enough that any
