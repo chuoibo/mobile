@@ -3,17 +3,19 @@
  * Before #121 this printed a raw English server string where the member list
  * belongs, because POST /contexts answered 422 idempotency_key_reuse.
  */
-import pw from "/home/lakiet/.npm/_npx/361ceb562f3b3235/node_modules/playwright-core/index.js";
-const { chromium } = pw;
+import { chromium } from "playwright-core";
 import { readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const AXE = readFileSync("/home/lakiet/CMAROX/apps/web/node_modules/axe-core/axe.min.js", "utf8");
+import { timTrinhDuyet } from "../tim-trinh-duyet.mjs";
+
+const AXE = readFileSync(createRequire(import.meta.url).resolve("axe-core"), "utf8");
 const BASE = "http://127.0.0.1:8714";
-const OUT = "/home/lakiet/agent-harness/wt/qa/tests/qa/rd-qa-12";
+const OUT = dirname(fileURLToPath(import.meta.url));
 
-const browser = await chromium.launch({
-  executablePath: "/home/lakiet/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome",
-});
+const browser = await chromium.launch({ executablePath: timTrinhDuyet() });
 const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
 const page = await ctx.newPage();
 

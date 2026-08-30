@@ -48,8 +48,10 @@
  * ## Chạy
  *
  *     cd apps/mobile && npm ci        # cần node_modules cho puppeteer-core
- *     CHROME_BIN=/home/lakiet/.cache/ms-playwright/chromium-1194/chrome-linux/chrome \
- *       node tests/qa/qa-tt-0014/hinh-dang-khac-cua-loi-to-cha.mjs
+ *     node tests/qa/qa-tt-0014/hinh-dang-khac-cua-loi-to-cha.mjs
+ *
+ * Trinh duyet: tu tim trong ~/.cache/ms-playwright roi /usr/bin/google-chrome.
+ * Dat CHROME_BIN de chi dinh mot ban khac.
  *
  * Thoát 0 = cả bảng ra đúng màu mong đợi. Khác 0 = có hàng lệch, đọc dòng LECH.
  *
@@ -66,6 +68,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { timTrinhDuyet } from "../tim-trinh-duyet.mjs";
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "../../..");
 const MOBILE = path.join(REPO, "apps/mobile");
@@ -77,9 +81,7 @@ const GATES = [
   path.join(MOBILE, "tests/che-chu-lo-to-cha.test.mjs"),
 ];
 
-const CHROME =
-  process.env.CHROME_BIN ??
-  "/home/lakiet/.cache/ms-playwright/chromium-1194/chrome-linux/chrome";
+const CHROME = timTrinhDuyet();
 
 /** Dòng phán quyết sau bản vá #261 — neo của bốn hàng đầu. */
 const GOC = 'verdict: tyLe >= 0.6 ? (cha ? "to-cha" : "cuon-khuat") : "that",';

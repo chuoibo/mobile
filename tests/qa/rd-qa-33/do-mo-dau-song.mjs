@@ -29,7 +29,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import puppeteer from "file:///home/lakiet/.claude/node_modules/puppeteer-core/lib/puppeteer/puppeteer-core.js";
+import puppeteer from "puppeteer-core";
+
+import { timTrinhDuyet } from "../tim-trinh-duyet.mjs";
 
 function arg(name, fallback) {
   const i = process.argv.indexOf(name);
@@ -85,9 +87,7 @@ await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const port = server.address().port;
 
 const browser = await puppeteer.launch({
-  executablePath:
-    process.env.PUPPETEER_EXECUTABLE_PATH ||
-    "/home/lakiet/.cache/ms-playwright/chromium-1194/chrome-linux/chrome",
+  executablePath: timTrinhDuyet(),
   args: ["--no-sandbox", "--disable-dev-shm-usage"],
 });
 

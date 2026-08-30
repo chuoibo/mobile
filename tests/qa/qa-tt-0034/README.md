@@ -54,7 +54,8 @@ database   mobile_pr312 riêng, migrate bằng MOBILE_DATABASE_URL (không phả
            MOBILE_TEST_DATABASE_URL — alembic/env.py bỏ qua biến TEST im lặng)
            40 bảng, alembic head a7d3f2b81c56
 API        uvicorn 127.0.0.1:8312, GEMINI_API_KEY + MOBILE_PERSON_ID_KEY nạp từ
-           /home/lakiet/mobile/.env
+           `.env` ở gốc checkout `mobile/` (nằm NGOÀI worktree của lane, nên
+           không có trong repo và không lấy được từ đây)
 bundle     expo export --clear, EXPO_PUBLIC_API_URL=http://127.0.0.1:8312
            phục vụ tĩnh ở 127.0.0.1:8313
 dữ liệu    scripts/seed_demo_data.py (7 người, 3 chuyến, 5 khoản chi) + tin nhắn
