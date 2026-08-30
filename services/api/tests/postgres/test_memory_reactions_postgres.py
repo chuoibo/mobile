@@ -48,7 +48,6 @@ from app.api.deps import get_repository
 from app.api.main import create_app
 from app.api.repository import SqlAlchemyApiRepository
 from app.db.models import (
-    Context,
     MembershipState,
     Memory,
     MemoryComment,
@@ -696,19 +695,10 @@ def test_a_group_comment_never_reaches_the_guest_page(
     secret = "Bình luận riêng của nhóm — không được lên trang khách"
     state = _persist_lifecycle(postgres_session)
 
-    # `_persist_lifecycle` writes no `people` or `contexts` rows -- it does not
-    # need them, because `expenses.context_id` has no foreign key. `memories`
-    # does, so the group behind that lifecycle gets built here.
+    # The lifecycle seeds its context for the money-table foreign keys, but its
+    # participants stay unnamed so identity-fallback tests remain meaningful.
     author = Person(id=state.sender_id, display_name="Thành viên nhóm")
     postgres_session.add(author)
-    postgres_session.flush()
-    postgres_session.add(
-        Context(
-            id=state.context_id,
-            display_name="Nhóm đi ăn",
-            created_by_id=state.sender_id,
-        )
-    )
     postgres_session.flush()
     memory = Memory(
         id=uuid.uuid4(),

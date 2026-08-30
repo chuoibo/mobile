@@ -17,6 +17,8 @@ import pytest
 
 from app.api.repository import RepositoryConflict, SqlAlchemyApiRepository
 
+from .conftest import seed_context
+
 pytestmark = pytest.mark.postgres
 
 NOW = datetime(2030, 8, 29, 9, 0, tzinfo=UTC)
@@ -41,7 +43,7 @@ def test_a_repeated_item_key_is_refused_not_crashed(postgres_session):
 
     with pytest.raises(RepositoryConflict) as caught:
         repository.create_bill(
-            context_id=uuid.uuid4(),
+            context_id=seed_context(postgres_session),
             created_by_id=uuid.uuid4(),
             printed_total_vnd=60000,
             items_total_vnd=60000,
@@ -71,7 +73,7 @@ def test_a_repeated_surcharge_key_is_refused_not_crashed(postgres_session):
 
     with pytest.raises(RepositoryConflict) as caught:
         repository.create_bill(
-            context_id=uuid.uuid4(),
+            context_id=seed_context(postgres_session),
             created_by_id=uuid.uuid4(),
             printed_total_vnd=90000,
             items_total_vnd=60000,
@@ -104,7 +106,7 @@ def test_a_repeated_discount_key_is_refused_not_crashed(postgres_session):
 
     with pytest.raises(RepositoryConflict) as caught:
         repository.create_bill(
-            context_id=uuid.uuid4(),
+            context_id=seed_context(postgres_session),
             created_by_id=uuid.uuid4(),
             printed_total_vnd=40000,
             items_total_vnd=60000,
@@ -146,7 +148,7 @@ def test_no_integrity_violation_escapes_as_a_raw_database_error(postgres_session
 
     with pytest.raises(RepositoryConflict):
         repository.create_bill(
-            context_id=uuid.uuid4(),
+            context_id=seed_context(postgres_session),
             created_by_id=uuid.uuid4(),
             printed_total_vnd=50000,
             items_total_vnd=60000,

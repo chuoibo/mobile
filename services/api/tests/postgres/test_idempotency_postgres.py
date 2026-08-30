@@ -362,6 +362,7 @@ def live_client(postgres_engine: Engine, monkeypatch):
 
 def test_posting_the_same_expense_twice_with_one_key_writes_one_row(live_client):
     context_id = uuid.uuid4()
+    live_client.seed_group(context_id)
     payload = _expense_payload() | {"context_id": str(context_id)}
     headers = {IDEMPOTENCY_HEADER: str(uuid.uuid4())}
 
@@ -542,6 +543,7 @@ def test_two_presses_racing_on_real_postgres_both_receive_the_one_answer(
 
 def test_reusing_a_key_with_another_payload_writes_nothing(live_client):
     context_id = uuid.uuid4()
+    live_client.seed_group(context_id)
     headers = {IDEMPOTENCY_HEADER: str(uuid.uuid4())}
 
     first = live_client.post(

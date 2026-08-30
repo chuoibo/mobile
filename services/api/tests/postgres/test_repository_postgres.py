@@ -46,7 +46,8 @@ from app.db.models import (
     Person,
     ReceiptConfirmation,
 )
-from app.db.models import Context as GroupContext
+
+from .conftest import seed_context
 
 pytestmark = pytest.mark.postgres
 
@@ -123,26 +124,9 @@ def _proposal(
 def _seed_active_membership(
     session: Session, context_id: uuid.UUID, person_id: uuid.UUID
 ) -> None:
-    """Make the group real, for the one case whose subject is the permission.
-
-    `_persist_lifecycle` deliberately writes no `people` rows -- the guest
-    envelope tests below assert that a person nobody named still shows as a raw
-    id, and giving everyone a name would delete that case. So the rows a
-    membership needs are added here, per test, rather than in the shared
-    builder.
-
-    They are needed at all because `memberships` has real foreign keys into
-    `contexts` and `people`, while `expenses.context_id` has none. That gap is
-    why a whole lifecycle could be persisted against a group that was never
-    created, and why the board's old `context_id in actor.context_ids` check
-    could pass on top of it.
-    """
+    """Add the named member required by the permission-specific case."""
 
     session.add(Person(id=person_id, display_name="Chủ nhóm"))
-    session.flush()
-    session.add(
-        GroupContext(id=context_id, display_name="Nhóm đi ăn", created_by_id=person_id)
-    )
     session.flush()
     session.add(
         Membership(
@@ -168,6 +152,7 @@ def _persist_lifecycle(
     owner_id = uuid.uuid4()
     sender_id = uuid.uuid4()
     recipient_id = uuid.uuid4()
+    seed_context(session, context_id, display_name="Nhóm đi ăn")
     proposal = _proposal(
         context_id=context_id,
         owner_id=owner_id,
