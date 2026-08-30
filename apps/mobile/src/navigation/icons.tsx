@@ -264,6 +264,57 @@ export function IconKyNiem({ color, size = BOX }: IconProps) {
   );
 }
 
+/** A stack of pictures, for an album.
+ *
+ * Two offset rectangles rather than one, because the difference between this
+ * and `IconKyNiem` above has to survive being 24pt tall in a row of five: the
+ * wall is one picture, an album is a pile of them. */
+export function IconAlbum({ color, size = BOX }: IconProps) {
+  return (
+    <Box size={size}>
+      {/* The sheet behind, offset up and right. Drawn first so the front one
+          paints over it rather than the other way round. */}
+      <View
+        style={{
+          position: "absolute",
+          top: u(size, 3),
+          right: u(size, 2),
+          width: u(size, 15),
+          height: u(size, 13),
+          borderRadius: u(size, 3),
+          borderWidth: u(size, 2),
+          borderColor: color,
+          opacity: 0.55,
+        }}
+      />
+      <View
+        style={{
+          position: "absolute",
+          bottom: u(size, 3),
+          left: u(size, 2),
+          width: u(size, 15),
+          height: u(size, 13),
+          borderRadius: u(size, 3),
+          borderWidth: u(size, 2),
+          borderColor: color,
+          overflow: "hidden",
+          justifyContent: "flex-end",
+        }}
+      >
+        <View
+          style={{
+            width: "100%",
+            height: u(size, 4),
+            backgroundColor: color,
+            borderTopLeftRadius: u(size, 5),
+            borderTopRightRadius: u(size, 2.5),
+          }}
+        />
+      </View>
+    </Box>
+  );
+}
+
 /** Two people, for a group. */
 export function IconNhom({ color, size = BOX }: IconProps) {
   return (

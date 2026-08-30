@@ -21,6 +21,7 @@ import { KetBan } from "../screens/ca-nhan/KetBan";
 import { TinNhan } from "../screens/chat/TinNhan";
 import { KhamPha } from "../screens/kham-pha/KhamPha";
 import { KyNiem } from "../screens/ky-niem/KyNiem";
+import { AlbumChuyenDi } from "../screens/album/AlbumChuyenDi";
 import { LenPlan } from "../screens/len-plan/LenPlan";
 import { NhanLoiMoi } from "../screens/len-plan/NhanLoiMoi";
 import { Nhom } from "../screens/vao-cua/Nhom";
@@ -40,6 +41,8 @@ export function VoTab({
   moKyNiemNgay,
   moBanBeNgay,
   moWidgetNgay,
+  moAlbumNgay,
+  albumChuyen,
   nhomId,
   banQuetDuoc,
   diaDiemDau,
@@ -65,6 +68,14 @@ export function VoTab({
    *  reached by tapping through the app -- so without this address the screen
    *  would exist and nothing, person or detector, could open it. */
   moWidgetNgay?: boolean;
+  /** F36/F37. Open the trip album immediately, from `#vao=album`. It sits
+   *  behind the [+] menu like the wall does, and it is three screens deep, so
+   *  without an address the two inner ones could not be reached by any tool at
+   *  all -- only the shelf would ever be scanned. */
+  moAlbumNgay?: boolean;
+  /** F36. Which trip's album to open on, from `#chuyen=<uuid>`. Null opens the
+   *  shelf. Passed straight through; the screen owns what it means. */
+  albumChuyen?: string | null;
   /** Which group the wall should read, from `#nhom=<uuid>`. Null lets the
    *  screen find the demo group itself. */
   nhomId?: string | null;
@@ -112,6 +123,11 @@ export function VoTab({
   // F30. Full screen like the two flows above, and for the same reason: it is
   // a place you go and come back from, not a tab you switch between.
   const [luongKyNiem, setLuongKyNiem] = useState(moKyNiemNgay ?? false);
+  // F36/F37. Full screen for the same reason as the wall above it, and with one
+  // more: the album is itself three steps deep (shelf, album, reel) and holds
+  // its own back stack, so a tab bar underneath would offer a second way out
+  // that skips the two steps in between.
+  const [luongAlbum, setLuongAlbum] = useState(moAlbumNgay ?? false);
   // F03/F04. Full screen for the same reason as the two above: it is a task
   // with its own steps, and it is entered from a button on Cá nhân rather than
   // from the bar, so leaving the bar underneath would offer two ways out of
@@ -150,6 +166,7 @@ export function VoTab({
     "khoan-chi": () => setLuongKhoanChi(true),
     nhom: () => setLuongNhom(true),
     "ky-niem": () => setLuongKyNiem(true),
+    album: () => setLuongAlbum(true),
   };
 
   function chonTao(id: CreateActionId) {
@@ -232,6 +249,20 @@ export function VoTab({
           nguoi={nguoi}
           contextId={nhomId ?? null}
           onDong={() => setLuongKyNiem(false)}
+        />
+      </SafeAreaView>
+    );
+  }
+
+  if (luongAlbum) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
+        <StatusBar style={scheme === "dark" ? "light" : "dark"} />
+        <AlbumChuyenDi
+          nguoi={nguoi}
+          contextId={nhomId ?? null}
+          chuyenDau={albumChuyen ?? null}
+          onDong={() => setLuongAlbum(false)}
         />
       </SafeAreaView>
     );
