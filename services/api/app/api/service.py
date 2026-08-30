@@ -1284,6 +1284,25 @@ class ApiService:
             digest = token_digest(raw_token)
             invited_person_id = None
         else:
+            # `_require_permission` above proved the ACTOR belongs to this
+            # group. It says nothing about the person they just named, and
+            # `invited_person_id` is written straight from the body -- the
+            # fourth instance of the shape rd-qa-40 audited.
+            #
+            # Existence first, for both sources: a `person_id` naming nobody
+            # used to reach `fk_outing_invites_person` and surface as a 500.
+            # Same helper `invite_context_member` uses, so the two invite paths
+            # cannot answer the same question two ways.
+            self._require_registered_person(request.person_id)
+            # The roster check is exactly as narrow as the claim being made.
+            # `friend` deliberately names somebody outside the group -- that is
+            # what inviting a friend is -- so gating it would delete the
+            # feature. Only `group` asserts present-tense membership, and only
+            # that assertion has to be true.
+            if request.source == "group":
+                self._require_participants_are_members(
+                    outing.context_id, [request.person_id]
+                )
             # This friendly pre-check races with a concurrent insert; the
             # partial unique index is the real duplicate guarantee behind it.
             existing = self.repository.find_outing_invite_for_person(
