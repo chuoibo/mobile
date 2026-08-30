@@ -31,8 +31,6 @@ the response basis. The counts are what the screen gets to print.
 
 from __future__ import annotations
 
-from typing import Any
-
 #: Messages the digest reads. Anything else is not somebody talking.
 CONVERSATION_KIND = "text"
 
