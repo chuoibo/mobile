@@ -16,10 +16,21 @@ protocol_version: v1 · verdict: **PASS** · blocker còn mở: **không có**
 ## Đo tại cái gì, và cái đó có ở main không
 
 ```
-đo tại   19a32da  = PR head 5419a222 ⊕ main@7ea12ba   (cây gộp, do tôi tạo)
+đo tại   19a32da  = PR head 5419a22 ⊕ main@7ea12ba
          ca5e7e8  = main sau khi Lead squash-merge #295
 sha này  #295 ĐÃ ở main lúc 2026-08-30T06:11:55Z — TRONG lúc tôi đang đo
 ```
+
+Một đính chính về **nguồn gốc** của `19a32da`, vì trong báo cáo tiền tay tôi
+đã ghi nó là "cây gộp do tôi tạo" và điều đó **sai**. Tôi dựng worktree từ
+`origin/devops/gate-docker-ten-anh-theo-lane` rồi chạy `git merge origin/main`,
+và lệnh đó in ra `19a32da`. Nhưng `19a32da` là commit gộp **của chính devops**
+lúc 13:07:08 (*"Gộp main: #293 thêm trần nhịp cho hai cửa Gemini, không đụng
+scripts/"*) — nó đã chứa `7ea12ba`, nên lệnh merge của tôi là **no-op** và tôi
+chỉ đang đứng trên commit của họ. Ref remote đã nhích dưới chân tôi giữa lúc đo
+vì một lane khác `git fetch`. Kết quả đo không đổi — cha của `19a32da` đúng là
+`5419a22` và `7ea12ba`, và bốn file băm khớp `ca5e7e8` — nhưng câu "do tôi tạo"
+thì phải rút lại.
 
 Lead merge giữa lượt đo, nên đây là **hậu kiểm** chứ không phải phán quyết
 trước merge. Trước khi tin lại số cũ, tôi kiểm nội dung squash có đúng bằng cây
