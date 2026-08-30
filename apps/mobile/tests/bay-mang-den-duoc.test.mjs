@@ -32,14 +32,29 @@
  *     shell, and on a tab whose content overflows -- three different states,
  *     one number. A quantity that cannot vary cannot be evidence.
  *
- * Neither mistake is catchable by anything that was in the tree. `tabs.ts` is
- * checked by `navigation.test.mjs`, but that reads the table, not the render --
- * it stays green if `VoTab` stops mounting `ThanhTab` entirely.
- * `vo-tab-web.test.mjs` does render the bar, and asserts `aria-selected` and
- * the focus trap on it, but it never presses a tab and never opens the [+]
- * menu, so "four tabs are in the DOM" was as far as any gate went.
- * `moi-man-co-duong-do.test.mjs` records, in writing, which screens have a
- * measurement -- a disclosure, and its own header says it is never a clearance.
+ * ## What the tree already caught, measured rather than assumed
+ *
+ * Three mutations, each built and run through every gate that looks at this
+ * shell. The first draft of this header claimed `vo-tab-web.test.mjs` "never
+ * presses a tab and never opens the [+] menu"; it does both, and the table is
+ * what corrected it.
+ *
+ *   | đột biến trong VoTab.tsx      | navigation | vo-tab-web | moi-man | file này |
+ *   |-------------------------------|------------|------------|---------|----------|
+ *   | 1. gỡ hẳn `<ThanhTab/>`       | 21/21 XANH | 4 đỏ       | XANH    | 8 đỏ     |
+ *   | 2. `onSelect` thành no-op     | 21/21 XANH | 1 đỏ       | XANH    | 3 đỏ     |
+ *   | 3. tab Lên plan vẽ rỗng       | 2 đỏ       | 7/7 XANH   | XANH    | 1 đỏ     |
+ *
+ * Row 3 is why this file exists. `vo-tab-web.test.mjs` presses exactly one tab
+ * (Cá nhân) and reads `aria-selected` off it; it opens [+] and checks
+ * `aria-expanded` and the focus trap. So it is complete on the furniture and
+ * blind to whether any tab shows its screen -- a destination that renders
+ * nothing leaves it fully green. `navigation.test.mjs` caught row 3 by
+ * scanning `VoTab`'s source for render branches, and rows 1 and 2 not at all:
+ * a table cannot see a bar that stopped being mounted, or a press wired to
+ * nothing. `moi-man-co-duong-do.test.mjs` is green throughout by design -- it
+ * records which screens have a measurement, and its own header says a reason
+ * listed there is a disclosure and never a clearance.
  *
  * So this file asserts the acceptance criterion the ticket was written
  * against, in the browser, once per mảng: press to it, and press back.
