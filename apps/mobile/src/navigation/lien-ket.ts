@@ -59,7 +59,13 @@ import { TABS } from "./tabs";
  * `thanh-tich` is 07.03 of the mockup set, behind a button on the Cá nhân tab.
  * Same shape as `ban-be`, and named here in the same commit that adds the
  * screen -- the paragraph above is about the one time that was done afterwards
- * and what it cost. */
+ * and what it cost.
+ *
+ * `album` is F36/F37, and it is here for one reason the others do not have:
+ * the screen it opens is three deep (shelf -> one album -> the AI reel), and
+ * only the shelf is reachable without walking. An address that lands on the
+ * shelf is still the whole difference between "one tool can start the walk"
+ * and "nothing can open this at all". */
 export type ManVaoCua =
   | "dang-ky"
   | "nhom"
@@ -67,7 +73,8 @@ export type ManVaoCua =
   | "ban-be"
   | "widget"
   | "quan-tri"
-  | "thanh-tich";
+  | "thanh-tich"
+  | "album";
 
 const MAN_VAO_CUA: ManVaoCua[] = [
   "dang-ky",
@@ -77,6 +84,7 @@ const MAN_VAO_CUA: ManVaoCua[] = [
   "widget",
   "quan-tri",
   "thanh-tich",
+  "album",
 ];
 
 export type DiemDen = {
@@ -130,6 +138,19 @@ export type DiemDen = {
   banDo: boolean;
   /** rd-fe-33. Open Điểm hẹn (F45) directly, from `#ban-do=hen`. */
   diemHen: boolean;
+  /** F36. Which trip's album to open on, from `#chuyen=<uuid>`, or null for
+   *  the shelf.
+   *
+   *  The album screen is three deep and only its first level has an address
+   *  without this. Naming the trip is what lets anything that loads a URL cold
+   *  -- a shared link, the snapshot probe, an accessibility sweep -- reach the
+   *  photo grid and the AI reel underneath instead of stopping at the shelf and
+   *  reporting a clean number for two screens it never rendered.
+   *
+   *  UUID-checked for the same reason `nhomId` is: it goes straight into a
+   *  request path, and a screen that asks the server about `../../etc` is a
+   *  screen writing somebody else's URL. */
+  albumChuyen: string | null;
   /** F14. An outing-invite token from `#moi=<token>`, or null.
    *
    *  The token is a free server string, not a UUID. Empty becomes null.
@@ -149,6 +170,7 @@ export const KHONG_CO_DIEM_DEN: DiemDen = {
   diaDiem: null,
   banDo: false,
   diemHen: false,
+  albumChuyen: null,
   moiBuoiDi: null,
   boQuaMoDau: false,
 };
@@ -206,6 +228,9 @@ export function docDiemDen(hash: string, search = ""): DiemDen {
   // feature inherit that result.
   const diemHen = banDoAsked === "hen";
 
+  const chuyenAsked = params.get("chuyen");
+  const albumChuyen = chuyenAsked && UUID_RE.test(chuyenAsked) ? chuyenAsked : null;
+
   const moiAsked = (params.get("moi") ?? "").trim();
   const moiBuoiDi =
     moiAsked === "" || moiAsked.includes("/") || moiAsked.includes("..")
@@ -221,6 +246,7 @@ export function docDiemDen(hash: string, search = ""): DiemDen {
     diaDiem,
     banDo,
     diemHen,
+    albumChuyen,
     moiBuoiDi,
     // A recognised tab is enough to enter: opening the app on a named screen
     // with nobody signed in is a real state, and the screens render it.
@@ -251,6 +277,10 @@ export function docDiemDen(hash: string, search = ""): DiemDen {
       // Thành tích reads one person's ledger, so it has nothing to show outside
       // the shell either. Same clause, same reason as the five above.
       vao === "thanh-tich" ||
+      // F36/F37. Inside the shell like the rest, and with nothing to show
+      // outside it: an album belongs to one group, and the opening screen has
+      // no group.
+      vao === "album" ||
       diaDiem !== null ||
       banDo ||
       moiBuoiDi !== null,

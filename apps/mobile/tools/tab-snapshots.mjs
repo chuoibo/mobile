@@ -65,6 +65,14 @@ export const API_BASE = "http://api.build-check.invalid";
  *  in the fragment is the same act as tapping their button on `MoDau`. */
 export const NGUOI = "minh";
 
+/** The fixture trip the album rows deep-link into.
+ *
+ * Hoisted out of `taoFixtures` so the scan list and the stub name the same
+ * trip. A second literal here would be the same value written twice, and the
+ * day one of them moved the probe would open an album the stub 404s while
+ * still writing a file under the right name. */
+export const OUTING_ALBUM = "8ff7ad4c-9b0e-4d8f-8a7c-b2c0d4e8f6a1";
+
 /**
  * The screens, each with a string that only appears once the screen has its
  * data.
@@ -214,6 +222,39 @@ export const MAN_KHAC = [
     step: "thanh-tich",
     frag: `vao=thanh-tich&nguoi=${NGUOI}`,
     needle: "Đếm trong 7 ngày gần nhất",
+  },
+  /* F36/F37, all three states of one screen.
+   *
+   * Three rows rather than one, because the album is the only screen in this
+   * app that is three deep behind a single address. A row that stopped at the
+   * shelf would report a clean number for "album" while the two screens
+   * underneath -- the photo grid and the AI reel, which are the ones carrying
+   * pictures and a machine-written sentence -- had never been rendered by
+   * anything. `bam` walks down; each needle is text only that depth prints.
+   *
+   * The needles avoid every heading. `Bia` draws the title in all three states
+   * including the failed one, so "Album chuyến đi" would pass over a refusal
+   * panel. "Nhóm đã có" is the shelf's count card, which only paints after the
+   * list resolved; "Tên album là tên chuyến" only exists on one album; "AI viết
+   * câu này" only exists inside a reel that came back `reeled: true`.
+   *
+   * `anh: 1` on the two deep rows: exactly one decoded photograph. The stub
+   * holds bytes for `...0002` and not for `...0004`, so a grid drawing both
+   * frames and decoding one is the honest answer, and a zero would mean the
+   * permission-checked fetch in `Anh` never produced an address at all. */
+  { step: "album", frag: `vao=album&nguoi=${NGUOI}`, needle: "Nhóm đã có" },
+  {
+    step: "album-mot",
+    frag: `vao=album&chuyen=${OUTING_ALBUM}&nguoi=${NGUOI}`,
+    needle: "Tên album là tên chuyến",
+    anh: 1,
+  },
+  {
+    step: "album-phim",
+    frag: `vao=album&chuyen=${OUTING_ALBUM}&nguoi=${NGUOI}`,
+    needle: "AI viết câu này",
+    bam: "Dựng thước phim",
+    anh: 1,
   },
   { step: "ban-do", frag: `ban-do=1&nguoi=${NGUOI}`, needle: "Nhóm hay tụ ở đâu" },
   { step: "diem-hen", frag: `ban-do=hen&nguoi=${NGUOI}`, needle: "Ai xuất phát từ đâu" },
@@ -442,6 +483,20 @@ export function installTabStubs(apiBase, fixtures) {
       headers: { "Content-Type": "application/json" },
     });
 
+  /** A wall row, narrowed to the `AlbumPhoto` the album routes return.
+   *
+   * Narrowed rather than passed through whole: the album's shape is a strict
+   * subset of the wall's, and handing the screen the extra fields would let it
+   * read one this contract does not promise without anything going red. */
+  const anhAlbum = (m) => ({
+    memory_id: m.id,
+    image_url: m.image_url,
+    caption: m.caption,
+    created_at: m.created_at,
+    reaction_count: m.reaction_count,
+    comment_count: m.comment_count,
+  });
+
   /* ---- hearts and comments hold state, because the wall re-reads (rd-fe-33).
    *
    * A canned answer cannot test this feature. The heart sends POST or DELETE
@@ -568,6 +623,68 @@ export function installTabStubs(apiBase, fixtures) {
     }
     if (route.endsWith("/recap")) {
       return json(fixtures.recap);
+    }
+    /* F36/F37. Three routes, matched longest-first.
+     *
+     * Order is load-bearing: `/albums/{id}/reel` also ends with nothing the
+     * two shorter patterns would miss, but `/albums/{id}` is a prefix of it, so
+     * checking the shorter one first would answer every reel request with an
+     * album and the reel screen would render a shape it never asked for. That
+     * failure is silent -- the fields it reads are simply absent -- so it is
+     * ordered rather than commented on the far side of a bug.
+     */
+    const reel = route.match(/^\/contexts\/[^/]+\/albums\/([^/]+)\/reel$/);
+    if (reel) {
+      const anh = fixtures.kyNiem[0];
+      return json({
+        context_id: fixtures.contextId,
+        outing_id: reel[1],
+        reeled: true,
+        reason: "ok",
+        source: "ai",
+        title: "Hai ngày sương Đà Lạt",
+        picks: [
+          {
+            memory_id: anh.id,
+            image_url: anh.image_url,
+            caption: anh.caption,
+            place_name: "Cafe Túi Mơ To",
+            created_at: anh.created_at,
+            reaction_count: anh.reaction_count,
+            comment_count: anh.comment_count,
+            note: "Tấm này mở đầu chuyến: cả nhóm dậy sớm hơn thường lệ.",
+          },
+        ],
+      });
+    }
+    const mot = route.match(/^\/contexts\/[^/]+\/albums\/([^/]+)$/);
+    if (mot) {
+      const tom =
+        fixtures.albums.find((a) => a.outing_id === mot[1]) ?? fixtures.albums[0];
+      return json({
+        context_id: fixtures.contextId,
+        outing_id: tom.outing_id,
+        title: tom.title,
+        period_label: tom.period_label,
+        starts_on: tom.starts_on,
+        ends_on: tom.ends_on,
+        in_progress: tom.in_progress,
+        photos: fixtures.kyNiem.map(anhAlbum),
+        photo_count: fixtures.kyNiem.length,
+        places: [
+          { place_id: "p-1", place_name: "Cafe Túi Mơ To" },
+          { place_id: "p-2", place_name: "Lẩu Gà Lá É Tao Ngộ" },
+        ],
+        place_count: 2,
+        checkin_count: tom.checkin_count,
+        highlights: [anhAlbum(fixtures.kyNiem[0])],
+        split_total_vnd: tom.split_total_vnd,
+        expense_count: tom.expense_count,
+        headcount: tom.headcount,
+      });
+    }
+    if (route.endsWith("/albums")) {
+      return json({ context_id: fixtures.contextId, albums: fixtures.albums });
     }
     // rd-fe-25. The memory wall reads this, and posts to it. The GET is what
     // makes the wall show photographs rather than its empty state, and the
@@ -877,7 +994,7 @@ export function taoFixtures() {
   // Shared by the outings list and the recap: `LenPlan` keys spend by outing
   // id, so two different ids here would render "chưa tiêu gì" on a trip the
   // recap says has money in it, and nothing would fail.
-  const outingId = "8ff7ad4c-9b0e-4d8f-8a7c-b2c0d4e8f6a1";
+  const outingId = OUTING_ALBUM;
   const fixtures = {
     contextId,
     personId,
@@ -1131,6 +1248,51 @@ export function taoFixtures() {
         budget_per_person_vnd: 1_200_000,
         created_at: "2026-08-29T05:00:00Z",
         stops: [],
+      },
+    ],
+    /* F36/F37. The album shelf, one album, and the AI reel over it.
+     *
+     * Derived from the two `outings` above rather than invented beside them,
+     * so a trip renamed up there cannot leave the album shelf showing the old
+     * title -- the shape this whole file exists to avoid, where a scan reports
+     * on data no screen would ever really carry.
+     *
+     * The reel's picks reuse `kyNiem[0]`, whose bytes ARE in `anhTheoId`, so
+     * the reel step can carry `anh: 1` and mean it. The `note` is the one
+     * string on that screen a model would have written; here it is a fixture,
+     * and the screen labels it as AI-written either way -- which is what makes
+     * the label worth checking in a snapshot at all.
+     */
+    albums: [
+      {
+        outing_id: outingId,
+        title: "Đà Lạt cuối tuần",
+        period_label: "2026",
+        starts_on: "2026-09-07",
+        ends_on: "2026-09-08",
+        in_progress: false,
+        photo_count: 2,
+        checkin_count: 1,
+        place_count: 2,
+        split_total_vnd: 4_260_000,
+        expense_count: 3,
+        headcount: 7,
+        cover: null,
+      },
+      {
+        outing_id: "1ee0fc7b-2a3d-4c1e-8f2b-e7a5b9c3d1f6",
+        title: "Cắm trại Tà Năng",
+        period_label: "2026",
+        starts_on: "2026-10-03",
+        ends_on: "2026-10-04",
+        in_progress: false,
+        photo_count: 0,
+        checkin_count: 0,
+        place_count: 0,
+        split_total_vnd: 0,
+        expense_count: 0,
+        headcount: 5,
+        cover: null,
       },
     ],
     // rd-fe-25's wall. Two rows on purpose, and the second one has no

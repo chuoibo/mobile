@@ -119,6 +119,16 @@
     // invisible at +07 and at UTC, and only shows up when the test runs itself
     // in a negative offset. That is a property of this module, not of a screen.
     "src/screens/ky-niem/ky-uc.ts",
+    // F36/F37's album. Compiled rather than read as source because the rule
+    // under test is a negative one about markup -- a place the server could not
+    // name never reaches the reader as its `place_id` -- and `place_name ??
+    // place_id` reads as perfectly reasonable in the source. It is only once
+    // the card is rendered with a null that the UUID shows up where a place
+    // name belongs. `album-api.ts` comes along for `TEN_DIA_DIEM_CHUA_BIET`,
+    // so the test asserts the same constant the screen uses instead of
+    // retyping the sentence. See `tests/ten-dia-diem-album.test.mjs`.
+    "src/screens/album/album-api.ts",
+    "src/screens/album/AlbumChuyenDi.tsx",
     // F38's moment line and refusal words. Compiled rather than read as source
     // because the rules under test are boundary rules -- 59 seconds versus 61,
     // six days versus seven -- and a source read cannot stand on either side of
@@ -141,6 +151,19 @@
     // id. Compiled so a test can assert the client refuses a bad number
     // BEFORE it travels, which is a property of this file and not of the API.
     "src/screens/vao-cua/cong-api.ts",
+    // F01.03's answers. Compiled because the rules that matter are arithmetic
+    // and negative -- the budget bands are integer đồng that tile without a gap
+    // or an overlap, a skipped band stays `null` instead of being back-filled,
+    // and the default address-book seam resolves to "chưa có" rather than to a
+    // granted it cannot honour. None of those is visible in a screenshot.
+    "src/screens/vao-cua/so-thich.ts",
+    // The screen itself, for the same reason `ThanhTab.tsx` two blocks down is
+    // compiled: every control on it carries an ARIA role, and a role is only
+    // real once react-native-web has emitted it. The tastes are `checkbox` in a
+    // `group` and the budget bands are `radio` in a `radiogroup` -- picking the
+    // wrong one of those pairs compiles fine and tells a screen reader the
+    // opposite of what the screen does. See `tests/so-thich-web.test.mjs`.
+    "src/screens/vao-cua/CaNhanHoa.tsx",
     // F05's friend code. Same reason as the line above, and one more: the
     // property that matters most here is a *negative* one -- no telephone
     // number reaches the payload -- and a negative is only worth asserting

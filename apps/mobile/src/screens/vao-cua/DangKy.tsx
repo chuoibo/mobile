@@ -31,13 +31,22 @@ import { radius, space, type, usePalette } from "../../theme";
 import type { NguoiDung } from "../../navigation/nhom-demo";
 import { chuDau, chuanHoaSo, tenHopLe } from "./danh-tinh";
 import { layIdTuSo } from "./cong-api";
+import { CaNhanHoa } from "./CaNhanHoa";
+import { ghiNhoSoThich } from "./so-thich";
 
 const ON_SUNSET = tokens.color.light.accentInk;
 
 type Pha =
   | { buoc: "nhap" }
   | { buoc: "dang-gui" }
-  | { buoc: "hong"; loi: string };
+  | { buoc: "hong"; loi: string }
+  /** F01.03 runs after the account exists, holding the person it was made
+   *  for. The step is presented from here rather than from `AppRoot` so the
+   *  onboarding sequence stays in one file: `AppRoot` still sees exactly one
+   *  `onXong`, fired once, with a `NguoiDung` -- adding a third top-level
+   *  screen there would have changed the entry contract for a step that is
+   *  entirely inside signing up. */
+  | { buoc: "ca-nhan-hoa"; nguoi: NguoiDung };
 
 export function DangKy({ onXong, onQuayLai }: {
   onXong: (nguoi: NguoiDung) => void;
@@ -76,7 +85,11 @@ export function DangKy({ onXong, onQuayLai }: {
         id,
         attemptFor(soLanThu.current, `dang-ky:${id}:${name}`),
       );
-      onXong({ id, personId: id, name, initials: chuDau(name) });
+      // The account exists at this line, so the personalization step cannot
+      // strand anybody: whatever they do there, or fail to do, the row is
+      // already written and `onXong` below carries the same person it always
+      // did.
+      setPha({ buoc: "ca-nhan-hoa", nguoi: { id, personId: id, name, initials: chuDau(name) } });
     } catch (loi) {
       // `ApiError` messages are already Vietnamese and already vetted for what
       // they may contain. Anything else is a programming error, and its
@@ -91,6 +104,26 @@ export function DangKy({ onXong, onQuayLai }: {
             : "Chưa đăng ký được. Thử lại sau một chút.",
       });
     }
+  }
+
+  if (pha.buoc === "ca-nhan-hoa") {
+    const nguoi = pha.nguoi;
+    return (
+      <CaNhanHoa
+        ten={nguoi.name}
+        onXong={(chon) => {
+          // Held for the session and no longer. `so-thich.ts` says why there
+          // is nowhere to persist it and what to replace when there is.
+          ghiNhoSoThich(chon);
+          onXong(nguoi);
+        }}
+        // Back goes to the form, not out of sign-up: the account is already
+        // written, so leaving the flow here would make the next attempt look
+        // like a duplicate registration to somebody who only wanted to fix a
+        // typo they can no longer see.
+        onQuayLai={() => setPha({ buoc: "nhap" })}
+      />
+    );
   }
 
   return (

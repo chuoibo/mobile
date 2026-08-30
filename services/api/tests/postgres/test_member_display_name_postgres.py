@@ -216,3 +216,71 @@ def test_the_members_route_puts_the_name_on_the_wire(
     # No row may answer with the id it is meant to explain. That string on a
     # screen is the whole defect being fixed here.
     assert all(row["display_name"] != row["person_id"] for row in rows)
+
+
+# --- who may read the roster -------------------------------------------
+#
+# Adding names to this route also decided what leaks when its guard fails: the
+# answer went from a list of UUIDs to a list of the real people in a group.
+# Across the whole suite this route had only ever answered 200, so the
+# `is_group_member` check in `list_context_members` was load-bearing and
+# untested -- and so was the rule its comment states, that a former member is
+# refused. Both cases below trip the guard rather than describe it.
+
+
+def _read_members(app, context_id: uuid.UUID, reader: Person):
+    async def exchange():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
+            return await client.get(
+                f"/contexts/{context_id}/members", headers=_headers(reader.id)
+            )
+
+    return anyio.run(exchange)
+
+
+def test_a_stranger_cannot_read_a_groups_roster(
+    postgres_session: Session, monkeypatch: pytest.MonkeyPatch
+):
+    """Naming a context id is not membership in it."""
+    owner = _person(postgres_session, "Nam")
+    stranger = _person(postgres_session, "Người lạ")
+    context = _group(postgres_session, owner)
+    app = _http(postgres_session, monkeypatch)
+
+    listed = _read_members(app, context.id, stranger)
+
+    assert listed.status_code == 403, listed.text
+    assert "Nam" not in listed.text
+
+
+def test_someone_who_left_stops_reading_the_roster(
+    postgres_session: Session, monkeypatch: pytest.MonkeyPatch
+):
+    """The rule `list_context_members` documents, held by a test.
+
+    A guard that asks only whether a membership row exists passes the stranger
+    case above and still fails this one, which is why they are separate.
+    """
+    owner = _person(postgres_session, "Nam")
+    former = _person(postgres_session, "Hà")
+    context = _group(postgres_session, owner)
+    membership = Membership(
+        id=uuid.uuid4(),
+        context_id=context.id,
+        person_id=former.id,
+        state=MembershipState.LEFT,
+        role=MembershipRole.MEMBER,
+        joined_at=NOW,
+        left_at=NOW,
+    )
+    postgres_session.add(membership)
+    postgres_session.flush()
+    app = _http(postgres_session, monkeypatch)
+
+    listed = _read_members(app, context.id, former)
+
+    assert listed.status_code == 403, listed.text
+    assert "Nam" not in listed.text
