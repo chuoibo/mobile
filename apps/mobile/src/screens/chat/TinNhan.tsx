@@ -40,7 +40,7 @@ import {
   napAiHieuNhom,
   type AiHieuNhomState,
 } from "../ai-hieu-nhom/ai-hieu-nhom";
-import { goiAiTurn, type AiTurnState } from "./ai";
+import { CAU_NHOM_CHUA_MO_XONG, goiAiTurn, type AiTurnState } from "./ai";
 import { TheNhapChiTuChat } from "./TheNhapChiTuChat";
 import {
   banNhapDeGhi,
@@ -434,7 +434,17 @@ export function TinNhan({ nguoi, nhomPhien }: {
    * the three turns the window allows on one press.
    */
   async function hoiThangAi() {
-    if (!nguoi || nhom.kind !== "xong" || dangGoiAi.current) return;
+    // A turn is already in flight and the button already says "Đang hỏi…", so
+    // a second press has nothing to add.
+    if (dangGoiAi.current) return;
+    // Not ready yet. This used to return silently, and silently is measurably
+    // wrong: pressed while `nhom` was still loading, the screen sent no
+    // request and painted nothing at all, which reads as a dead button rather
+    // than as a group that has not opened yet.
+    if (!nguoi || nhom.kind !== "xong") {
+      setAiYen({ giong: "binh-tinh", cau: CAU_NHOM_CHUA_MO_XONG });
+      return;
+    }
     dangGoiAi.current = true;
     setDangHoiAi(true);
     setAiYen(null);
@@ -462,7 +472,17 @@ export function TinNhan({ nguoi, nhomPhien }: {
       setTin((truoc) => noiTinMoi(truoc, s.message, s.message.context_id));
       return;
     }
-    if (s.kind === "chua-noi-duoc" || s.kind === "khong-tra-loi-duoc") {
+    // Two calm outcomes, and they are NOT the same news. `chua-noi-duoc` is a
+    // route this API build does not have yet, so it wears the "còn nợ" chip.
+    // `khong-tra-loi-duoc` is the product working as designed: a cadence
+    // ceiling, a refused fabrication, or the model being down. Wearing "còn
+    // nợ" there would tell a person their group is waiting on unfinished work
+    // every time the companion hit its own ceiling.
+    if (s.kind === "chua-noi-duoc") {
+      setAiYen({ giong: "con-no", cau: s.cau });
+      return;
+    }
+    if (s.kind === "khong-tra-loi-duoc") {
       setAiYen({ giong: "binh-tinh", cau: s.cau });
       return;
     }
@@ -574,7 +594,7 @@ export function TinNhan({ nguoi, nhomPhien }: {
   );
 }
 
-type AiYen = { giong: "binh-tinh" | "loi"; cau: string };
+type AiYen = { giong: "con-no" | "binh-tinh" | "loi"; cau: string };
 
 function DauMan({ nhom }: { nhom: NhomMan }) {
   const c = usePalette();
@@ -736,60 +756,61 @@ function DongTin({
 }) {
   const c = usePalette();
 
+  /* Every not-ready branch below used to drop `aiYen` on the floor: the banner
+   * was drawn once, at the bottom of the loaded stream, so a sentence set
+   * while the group or the thread was still loading existed in state and
+   * nowhere on screen. That is the same defect as a button wired to nothing,
+   * one layer down, and it was measured: pressing "Hỏi Rủ Đi AI" during the
+   * loading window painted no words at all. */
+  const boc = (noiDung: React.ReactNode) => (
+    <View style={{ padding: space.md, gap: space.sm }}>
+      {noiDung}
+      {aiYen ? <BangAiYen yen={aiYen} /> : null}
+    </View>
+  );
+
   if (nhom.kind === "chua-chon") {
-    return (
-      <View style={{ padding: space.md }}>
-        <Card>
-          <Text style={{ ...type.body, color: c.ink }}>Chưa chọn người, nên không mở được nhóm chat.</Text>
-          <Text style={{ ...type.label, color: c.inkSoft }}>
-            Quay lại màn mở đầu và chọn một người trong nhóm. Không có người thì không có
-            thành viên để hỏi máy chủ.
-          </Text>
-        </Card>
-      </View>
+    return boc(
+      <Card>
+        <Text style={{ ...type.body, color: c.ink }}>Chưa chọn người, nên không mở được nhóm chat.</Text>
+        <Text style={{ ...type.label, color: c.inkSoft }}>
+          Quay lại màn mở đầu và chọn một người trong nhóm. Không có người thì không có thành viên
+          để hỏi máy chủ.
+        </Text>
+      </Card>,
     );
   }
 
   if (nhom.kind === "dang-tai") {
-    return (
-      <View style={{ padding: space.md }}>
-        <Card>
-          <Text style={{ ...type.body, color: c.inkSoft }}>Đang mở nhóm…</Text>
-        </Card>
-      </View>
+    return boc(
+      <Card>
+        <Text style={{ ...type.body, color: c.inkSoft }}>Đang mở nhóm…</Text>
+      </Card>,
     );
   }
 
   if (nhom.kind === "hong") {
-    return (
-      <View style={{ padding: space.md }}>
-        <TheHong
-          tieuDe={cauBuocNhom(nhom.buoc)}
-          than="Không phải mạng lúc nào cũng là nguyên nhân. Bước đứng và địa chỉ đã thử nằm dưới."
-          url={nhom.url}
-          status={nhom.status}
-          detail={nhom.detail}
-        />
-      </View>
+    return boc(
+      <TheHong
+        tieuDe={cauBuocNhom(nhom.buoc)}
+        than="Không phải mạng lúc nào cũng là nguyên nhân. Bước đứng và địa chỉ đã thử nằm dưới."
+        url={nhom.url}
+        status={nhom.status}
+        detail={nhom.detail}
+      />,
     );
   }
 
   if (tin.kind === "dang-tai") {
-    return (
-      <View style={{ padding: space.md }}>
-        <Card>
-          <Text style={{ ...type.body, color: c.inkSoft }}>Đang tải tin nhắn của nhóm…</Text>
-        </Card>
-      </View>
+    return boc(
+      <Card>
+        <Text style={{ ...type.body, color: c.inkSoft }}>Đang tải tin nhắn của nhóm…</Text>
+      </Card>,
     );
   }
 
   if (tin.kind !== "co-tin" && tin.kind !== "rong") {
-    return (
-      <View style={{ padding: space.md }}>
-        <TheHongTin state={tin} />
-      </View>
-    );
+    return boc(<TheHongTin state={tin} />);
   }
 
   // Ballots are cast as messages, but they are not conversation. Left in the
@@ -1246,6 +1267,11 @@ function BangAiYen({ yen }: { yen: AiYen }) {
   const loi = yen.giong === "loi";
   return (
     <View
+      // The whole reason this banner exists is that a screen which does not
+      // move after a press is indistinguishable from a dead app. For anyone
+      // reading by ear, appearing silently in the flow IS not moving, so the
+      // sentence announces itself the way `BangThongBao` does.
+      accessibilityRole="alert"
       style={{
         // Same ground either way. Only the edge changes: a missing route is
         // not a fault to paint red, it is work that has not landed.
@@ -1257,7 +1283,7 @@ function BangAiYen({ yen }: { yen: AiYen }) {
         gap: space.xs,
       }}
     >
-      {loi ? null : (
+      {yen.giong === "con-no" ? (
         <View
           style={{
             alignSelf: "flex-start",
@@ -1271,7 +1297,7 @@ function BangAiYen({ yen }: { yen: AiYen }) {
         >
           <Text style={{ ...type.micro, color: c.inkSoft }}>còn nợ</Text>
         </View>
-      )}
+      ) : null}
       <Text style={{ ...type.body, color: loi ? c.warn : c.inkSoft }}>{yen.cau}</Text>
     </View>
   );
