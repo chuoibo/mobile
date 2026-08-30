@@ -178,9 +178,7 @@ def test_the_index_itself_refuses_a_duplicate_row(postgres_session, monkeypatch)
     If this passes while `test_the_same_person_cannot_check_in_twice` fails,
     the service is catching something the database never raised.
     """
-    _app, _ctx, owner, _outsider, _outing, stops = _scene(
-        postgres_session, monkeypatch
-    )
+    _app, _ctx, owner, _outsider, _outing, stops = _scene(postgres_session, monkeypatch)
     stop_id = uuid.UUID(stops[0]["id"])
 
     postgres_session.add(OutingStopCheckin(stop_id=stop_id, person_id=owner.id))
@@ -190,9 +188,7 @@ def test_the_index_itself_refuses_a_duplicate_row(postgres_session, monkeypatch)
 
     with pytest.raises(IntegrityError):
         with postgres_session.begin_nested():
-            postgres_session.add(
-                OutingStopCheckin(stop_id=stop_id, person_id=owner.id)
-            )
+            postgres_session.add(OutingStopCheckin(stop_id=stop_id, person_id=owner.id))
             postgres_session.flush()
 
 
@@ -422,9 +418,7 @@ def test_a_body_offering_coordinates_changes_nothing(postgres_session, monkeypat
 
 
 def test_an_unknown_stop_is_404_and_echoes_nothing(postgres_session, monkeypatch):
-    app, _ctx, owner, _outsider, _outing, _stops = _scene(
-        postgres_session, monkeypatch
-    )
+    app, _ctx, owner, _outsider, _outing, _stops = _scene(postgres_session, monkeypatch)
 
     unknown = uuid.uuid4()
 
@@ -535,9 +529,7 @@ def test_editing_a_stop_drops_the_checkins_of_the_stop_it_replaced(
     assert [stop["id"] for stop in after[1:]] == [stop["id"] for stop in stops[1:]]
 
 
-def test_deleting_one_stop_takes_only_its_own_checkins(
-    postgres_session, monkeypatch
-):
+def test_deleting_one_stop_takes_only_its_own_checkins(postgres_session, monkeypatch):
     app, _ctx, owner, _outsider, _outing, stops = _scene(postgres_session, monkeypatch)
     assert _check_in(app, owner.id, stops[0]["id"]).status_code == 201
     assert _check_in(app, owner.id, stops[1]["id"]).status_code == 201

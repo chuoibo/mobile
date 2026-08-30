@@ -36,9 +36,7 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     op.create_table(
         "outing_stop_checkins",
-        sa.Column(
-            "id", sa.UUID(as_uuid=True), primary_key=True, nullable=False
-        ),
+        sa.Column("id", sa.UUID(as_uuid=True), primary_key=True, nullable=False),
         sa.Column("stop_id", sa.UUID(as_uuid=True), nullable=False),
         sa.Column("person_id", sa.UUID(as_uuid=True), nullable=False),
         sa.Column(
