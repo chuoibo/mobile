@@ -108,7 +108,10 @@ export const SCREENS = [
  * behind it does not.
  */
 export const MAN_KHAC = [
-  { step: "ky-niem", frag: `vao=ky-niem&nguoi=${NGUOI}`, needle: "Đã đi cùng nhau" },
+  /* `anh: 1` -- exactly one decoded photograph, which is the wall's whole
+   * subject and which its needle cannot speak for. See the check in
+   * `quet-tab-url.mjs` for what the number is doing and why it is a count. */
+  { step: "ky-niem", frag: `vao=ky-niem&nguoi=${NGUOI}`, needle: "Đã đi cùng nhau", anh: 1 },
   { step: "nhom", frag: `vao=nhom&nguoi=${NGUOI}`, needle: "Lập hội mới" },
   { step: "ban-be", frag: `vao=ban-be&nguoi=${NGUOI}`, needle: "Bạn bè (" },
   { step: "dia-diem", frag: `dia-diem=p-1&nguoi=${NGUOI}`, needle: "Khoảng giá" },
@@ -456,6 +459,33 @@ export function installTabStubs(apiBase, fixtures) {
       });
     }
 
+    /* ---- The wall's photograph bytes (rd-fe-33).
+     *
+     * Matched here rather than beside `/memories` because this address carries
+     * no `memories` segment and is not a JSON route at all: it answers image
+     * bytes, and `json()` would hand `<Image>` a body it cannot decode.
+     *
+     * An id this fixture does not carry gets 404 -- the same answer the server
+     * gives for a photograph that is not there, and the answer the second wall
+     * row depends on to keep drawing its stand-in. Serving every id would erase
+     * that half of the frame.
+     *
+     * See `anhTheoId` in `taoFixtures` for why this route has to exist at all. */
+    const anhWall = route.match(/^\/contexts\/[^/]+\/photos\/([^/]+)$/);
+    if (anhWall) {
+      const b64 = fixtures.anhTheoId?.[anhWall[1]];
+      if (!b64) {
+        return json({ code: "photo_not_found", detail: "không có ảnh này" }, 404);
+      }
+      const nhiPhan = atob(b64);
+      const bytes = new Uint8Array(nhiPhan.length);
+      for (let i = 0; i < nhiPhan.length; i++) bytes[i] = nhiPhan.charCodeAt(i);
+      return new Response(new Blob([bytes], { type: "image/png" }), {
+        status: 200,
+        headers: { "Content-Type": "image/png" },
+      });
+    }
+
     // Reached only by a route this file does not know about. Answering 404
     // rather than a plausible empty body keeps an unstubbed call loud.
     return json({ detail: `tab-snapshots: unstubbed ${method} ${route}` }, 404);
@@ -483,7 +513,7 @@ export function installTabStubs(apiBase, fixtures) {
  * chunks would be worse. A PNG is a signature plus length/type/data/CRC
  * chunks; `zlib.crc32` and `zlib.deflateSync` do the two hard parts.
  */
-function vietPngThu(file, w = 480, h = 360) {
+function pngThuBytes(w = 480, h = 360) {
   const raw = Buffer.alloc(h * (w * 3 + 1));
   let o = 0;
   for (let y = 0; y < h; y++) {
@@ -514,15 +544,18 @@ function vietPngThu(file, w = 480, h = 360) {
   ihdr.writeUInt32BE(h, 4);
   ihdr[8] = 8; // bit depth
   ihdr[9] = 2; // colour type: truecolour
-  fs.writeFileSync(
-    file,
-    Buffer.concat([
-      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-      chunk("IHDR", ihdr),
-      chunk("IDAT", zlib.deflateSync(raw)),
-      chunk("IEND", Buffer.alloc(0)),
-    ]),
-  );
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", zlib.deflateSync(raw)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+/** The same bytes, on disk. Place photographs are loaded by the browser itself
+ *  rather than through the fetch stub, so that one address needs a file. */
+function vietPngThu(file, w = 480, h = 360) {
+  fs.writeFileSync(file, pngThuBytes(w, h));
 }
 
 /**
@@ -852,6 +885,33 @@ export function taoFixtures() {
         viewer_has_reacted: true,
       },
     ],
+    /* The wall's photograph bytes, keyed by the photo id in `image_url`.
+     *
+     * rd-fe-33. Wall photographs are permission-checked: `Anh` is given
+     * `nguoiXem={personId}`, so it does NOT hand the address to an `<Image>` --
+     * it calls `taiAnhCoQuyen`, which `fetch`es the bytes with the actor header
+     * and paints a `blob:` URL. That fetch goes through this stub, and this
+     * stub had no photo route, so both rows fell through to the 404 at the
+     * bottom and `Anh` absorbed it into its stand-in.
+     *
+     * The effect was a wall of grey frames scanned under the wall's own name.
+     * Measured before this block existed: `#vao=ky-niem` rendered ZERO `<img>`
+     * elements and logged two `/photos/... -> 404`, while the detector reported
+     * `ky-niem findings=0 ... needle OK` -- the needle is recap text and paints
+     * whether or not a photograph ever arrived. A surface nobody had measured,
+     * under a row that read as measured.
+     *
+     * Only the FIRST row is served. The second keeps its 404 on purpose, so one
+     * frame holds a real photograph and the next holds the stand-in: a wall
+     * where every row is the same state cannot tell a working image path from a
+     * dead one. `main()` asserts exactly that split rather than "some image
+     * appeared", which is what makes serving everything fail too.
+     *
+     * Base64 because this object is JSON-serialised into the page ahead of the
+     * bundle; a Buffer would arrive as `{"type":"Buffer","data":[...]}`. */
+    anhTheoId: {
+      "5dd00000-dddd-4ddd-8ddd-0000d0000002": pngThuBytes(320, 240).toString("base64"),
+    },
     // Comments that already exist, keyed by the memory they hang under. Only
     // the first photograph has one, which is what makes its `comment_count: 1`
     // a claim the GET can be checked against rather than a number nobody reads.
@@ -1119,23 +1179,28 @@ async function main() {
       args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
     });
 
-    // rd-fe-25. The first wall row's bytes, so the memory grid holds a real
-    // photograph. The second row's address is deliberately NOT served, so the
-    // same grid also holds the stand-in -- both states in one snapshot.
-    const anhKyNiemUrl = API_BASE + fixtures.kyNiem[0].image_url;
-
     for (const { step, frag, needle } of moiMan()) {
       const page = await browser.newPage();
       page.setDefaultTimeout(30000);
       const pageErrors = [];
       page.on("pageerror", (err) => pageErrors.push(String(err)));
 
-      // The photograph is the one request that does NOT go through the fetch
-      // stub: an <Image> loads it itself. `api.build-check.invalid` resolves
-      // nowhere on purpose, so it is answered here instead.
+      /* The PLACE photograph is the one request that does not go through the
+       * fetch stub: it is unauthenticated, so `Anh` hands the address straight
+       * to an `<Image>` and the browser loads it itself.
+       * `api.build-check.invalid` resolves nowhere on purpose, so it is
+       * answered here instead.
+       *
+       * The wall photograph used to be answered here too and no longer is,
+       * because it never could be: `taiAnhCoQuyen` calls the patched
+       * `window.fetch`, which returns a synthetic Response without ever
+       * reaching the network layer this handler sits on. That branch had been
+       * dead for as long as wall photographs have been permission-checked, and
+       * it read as the thing keeping them alive. Wall bytes now come from the
+       * stub's own photo route, which is the only place that can serve them. */
       await page.setRequestInterception(true);
       page.on("request", (req) => {
-        if (req.url() === anhThuUrl || req.url() === anhKyNiemUrl) {
+        if (req.url() === anhThuUrl) {
           req.respond({ status: 200, contentType: "image/png", body: anhThuBytes });
           return;
         }
@@ -1194,25 +1259,42 @@ async function main() {
       // first row is asserted to have decoded AND the picker is asserted to be
       // on screen -- a wall nobody can add to is not the feature.
       if (step === "ky-niem") {
-        const daTai = await page.evaluate(async (src) => {
+        /* The address is NOT what to look for here, and looking for it is how
+         * this check spent its life passing nothing.
+         *
+         * Wall photographs are permission-checked, so `Anh` never points an
+         * `<Image>` at the API: `taiAnhCoQuyen` fetches the bytes with the
+         * actor header and the frame is handed a `blob:` URL. An `<img>` whose
+         * `src` equals `anhKyNiemUrl` therefore cannot exist on this screen --
+         * the old check asked for one, got `srcs: []`, and reported the failure
+         * as "tường ảnh không còn render", blaming the screen for a hole in the
+         * stub feeding it.
+         *
+         * So: count the frames that actually decoded, and require EXACTLY one.
+         * Both wall rows carry an `image_url`; only the first has bytes behind
+         * it. One decoded frame means the fetch-with-header path works AND the
+         * stand-in path still draws, which is the pair this snapshot exists to
+         * show. Zero means the photo route regressed; two means the stub grew
+         * an answer for everything and the stand-in half is gone. */
+        const daTai = await page.evaluate(async () => {
           const imgs = [...document.querySelectorAll("img")];
-          const anh = imgs.find((i) => i.src === src || i.currentSrc === src);
+          await Promise.all(imgs.map((i) => (i.complete ? null : i.decode().catch(() => {}))));
+          const giaiMa = imgs
+            .filter((i) => i.naturalWidth > 0)
+            .map((i) => ({ src: i.src.slice(0, 24), w: i.naturalWidth, h: i.naturalHeight }));
           const nut = [...document.querySelectorAll('[role="button"]')].map(
             (b) => b.getAttribute("aria-label") ?? b.textContent,
           );
-          if (!anh) return { found: false, srcs: imgs.map((i) => i.src).slice(0, 5), nut };
-          if (!anh.complete) await anh.decode().catch(() => {});
-          return { found: true, width: anh.naturalWidth, height: anh.naturalHeight, nut };
-        }, anhKyNiemUrl);
-        if (!daTai.found) {
+          return { tong: imgs.length, giaiMa, srcs: imgs.map((i) => i.src.slice(0, 40)), nut };
+        });
+        if (daTai.giaiMa.length !== 1) {
           throw new Error(
-            `ky-niem: khong tim thay <img> cho ${anhKyNiemUrl}. ` +
-              `Cong origin tu choi dia chi nay, hoac tuong anh khong con render. ` +
+            `ky-niem: can DUNG 1 anh giai ma duoc tren tuong, dang co ${daTai.giaiMa.length} ` +
+              `(tong <img> = ${daTai.tong}). 0 = route anh trong stub hong hoac ` +
+              `\`Anh\` khong con tai duoc; 2 = stub tra byte cho ca hai hang va ` +
+              `nua "cho san" cua khung anh da bien mat. ` +
               `src dang co: ${JSON.stringify(daTai.srcs)}`,
           );
-        }
-        if (!daTai.width) {
-          throw new Error(`ky-niem: <img> ${anhKyNiemUrl} khong giai ma duoc (naturalWidth=0)`);
         }
         const coNutThem = daTai.nut.some((n) => n && n.includes("ảnh"));
         if (!coNutThem) {
@@ -1221,7 +1303,15 @@ async function main() {
               `role=button dang co: ${JSON.stringify(daTai.nut)}`,
           );
         }
-        console.log(`  anh ky niem da tai that: ${daTai.width}x${daTai.height}, co nut chon anh`);
+        const khung = daTai.giaiMa[0];
+        // The stand-in is a drawn View, not an empty <img>, so the second wall
+        // row contributes no element to count here. "One decoded frame out of
+        // two rows" is the whole statement, and it is the assertion above that
+        // makes it -- this line only prints what that assertion accepted.
+        console.log(
+          `  anh ky niem da tai that: ${khung.w}x${khung.h} qua ${khung.src}..., ` +
+            `hang thu hai ve cho san (${daTai.tong} <img> cho 2 hang), co nut chon anh`,
+        );
       }
 
       await snapshot(page, outDir, step);
