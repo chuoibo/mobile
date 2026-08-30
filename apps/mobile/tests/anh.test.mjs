@@ -10,6 +10,9 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import zlib from "node:zlib";
+
+import { pngThuBytes } from "../tools/png-thu.mjs";
 
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -322,14 +325,73 @@ test("Anh đưa tải hỏng về chỗ chờ, không hiện mã lỗi", () => {
 
 test("bộ quét gắn photo_url cho đúng một row, nên ảnh chụp đỏ được", () => {
   const tool = readFileSync(join(MOBILE_ROOT, "tools/tab-snapshots.mjs"), "utf8");
-  // Sinh PNG thật lúc quét, không phải nhị phân commit vào cây.
-  assert.match(tool, /function vietPngThu\(/);
-  assert.match(tool, /IHDR/);
-  // Và phải thật sự gắn vào fixture, không chỉ sinh ra rồi bỏ đó.
+  // Phải thật sự gắn vào fixture, không chỉ sinh ra rồi bỏ đó.
   const gan = tool.match(/fixtures\.places\[\d+\]\.photo_url\s*=/g) ?? [];
   assert.equal(
     gan.length,
     1,
     "đúng một row mang ảnh: không row nào thì ảnh chụp mù, mọi row thì mất trạng thái chỗ chờ",
+  );
+});
+
+/**
+ * Đọc lại chính các byte mà bộ quét đưa vào trang.
+ *
+ * Ca này thay một phép `assert.match(tool, /function vietPngThu\(/)`. Phép cũ
+ * chứng minh trong file CÓ một cái tên; nó không phân biệt được một dải màu kết
+ * thúc SÁNG với một dải kết thúc TỐI, và đúng chỗ đó mới là chỗ có giá trị.
+ *
+ * Lý do: mọi thẻ địa điểm in tên quán bằng chữ TRẮNG lên đáy khung ảnh, và thứ
+ * duy nhất giữ chữ đó trên ngưỡng AA là lớp `Scrim`. Nếu ảnh thử là một tấm
+ * xám giữa tông thì hợp ảnh luôn tối, máy quét luôn xanh, và con số 0 của
+ * `kham-pha` không nói gì về lớp scrim. Đáy sáng là ca xấu nhất có thật (trời
+ * loá, tường trắng) — đo được thì con số 0 mới có nghĩa.
+ */
+test("ảnh thử của bộ quét sáng thật ở đáy, nên phép đo tương phản không rỗng", () => {
+  const w = 24;
+  const h = 24;
+  const doSang = (bytes) => {
+    // PNG này do chính repo sinh: truecolour 8-bit, filter 0 ở mọi dòng. Nên
+    // giải nén rồi đọc thẳng scanline là đủ, không cần thư viện.
+    let o = 8;
+    const idat = [];
+    while (o < bytes.length) {
+      const len = bytes.readUInt32BE(o);
+      const type = bytes.toString("ascii", o + 4, o + 8);
+      if (type === "IDAT") idat.push(bytes.subarray(o + 8, o + 8 + len));
+      o += 12 + len;
+    }
+    const raw = zlib.inflateSync(Buffer.concat(idat));
+    const hang = (y) => {
+      const base = y * (w * 3 + 1);
+      assert.equal(raw[base], 0, "filter phải là 0 (none) thì cách đọc này mới đúng");
+      let tong = 0;
+      for (let x = 0; x < w; x++) {
+        const i = base + 1 + x * 3;
+        // Luminance tương đối, hệ số sRGB. Không cần chính xác tuyệt đối —
+        // câu hỏi ở đây là "đáy có sáng hơn hẳn đỉnh không".
+        tong += 0.2126 * raw[i] + 0.7152 * raw[i + 1] + 0.0722 * raw[i + 2];
+      }
+      return tong / w;
+    };
+    return { dinh: hang(1), day: hang(h - 1) };
+  };
+
+  const thuong = doSang(pngThuBytes(w, h));
+  const sang = doSang(pngThuBytes(w, h, { dayChoi: true }));
+
+  assert.ok(
+    sang.day > 235,
+    `đáy của ảnh dayChoi phải gần trắng để lớp scrim bị đặt vào ca xấu nhất, đo được ${sang.day.toFixed(1)}`,
+  );
+  assert.ok(
+    sang.day > sang.dinh + 60,
+    `dayChoi phải sáng dần xuống đáy, đo được đỉnh ${sang.dinh.toFixed(1)} / đáy ${sang.day.toFixed(1)}`,
+  );
+  // Mặc định KHÔNG được sáng: ảnh tường kỷ niệm dùng cùng hàm này và nó là một
+  // bức ảnh khác, không phải ca thử tương phản của thẻ địa điểm.
+  assert.ok(
+    thuong.day < 200,
+    `mặc định phải giữ tông chiều, đo được ${thuong.day.toFixed(1)}`,
   );
 });
