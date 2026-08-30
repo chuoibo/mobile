@@ -40,6 +40,11 @@ PYTEST_TARGETS = [
     "tests/domain/test_chat_expense.py",
     "tests/api/test_chat_expense.py",
     "tests/api/test_chat_expense_gemini.py",
+    "tests/domain/test_screenshot.py",
+    "tests/api/test_screenshots_scan.py",
+    "tests/api/test_screenshot_gemini.py",
+    "tests/domain/test_budget.py",
+    "tests/api/test_budget.py",
     "tests/api/test_money_response_type_gate.py",
     "tests/api/test_money_wire_type_gate.py",
     "tests/test_import_boundary.py",
@@ -51,6 +56,13 @@ SCHEMAS = API / "app" / "api" / "schemas.py"
 ROUTES = API / "app" / "api" / "routes" / "messages.py"
 
 
+SCREENSHOT_SKILL = API / "app" / "api" / "screenshot_skill.py"
+SCREENSHOT_DOMAIN = API / "app" / "domain" / "screenshot.py"
+SCREENSHOT_ROUTES = API / "app" / "api" / "routes" / "screenshots.py"
+BUDGET_DOMAIN = API / "app" / "domain" / "budget.py"
+PERMISSIONS = API / "app" / "domain" / "permissions.py"
+
+
 @dataclass(frozen=True)
 class Mutation:
     name: str
@@ -59,6 +71,7 @@ class Mutation:
     new: str
     expect: str  # "RED" or "GREEN"
     why: str
+    feature: str = "F24"
 
 
 MUTATIONS = [
@@ -121,6 +134,98 @@ MUTATIONS = [
         new="            key=lambda person_id: str(person_id),",
         expect="GREEN",
         why="Hex renders bytes in order, so both keys yield the same sequence.",
+    ),
+    # ================================================================ F26 ===
+    Mutation(
+        feature="F26",
+        name="model is shown the raw upload instead of rebuilt pixels",
+        path=SCREENSHOT_SKILL,
+        old="    return read_screenshot(reader.read(sanitized.data, sanitized.content_type))",
+        new="    return read_screenshot(reader.read(image, mime_type))",
+        expect="RED",
+        why="A bill shot at the table reaches the model with its GPS intact.",
+    ),
+    Mutation(
+        feature="F26",
+        name="scan money field declared lax int",
+        path=SCHEMAS,
+        old="    total_vnd: PositiveMoneyVnd\n    occurred_on: date | None",
+        new="    total_vnd: int\n    occurred_on: date | None",
+        expect="RED",
+        why="A plain int launders a float total before any body assert runs.",
+    ),
+    Mutation(
+        feature="F26",
+        name="domain stringifies a float total instead of refusing it",
+        path=SCREENSHOT_DOMAIN,
+        old='    total_text = raw.get("total_text")\n    if not isinstance(total_text, str):',
+        new='    total_text = raw.get("total_text")\n    if isinstance(total_text, (int, float)):\n        total_text = str(total_text)\n    if not isinstance(total_text, str):',
+        expect="RED",
+        why="Money law 1 at the boundary the model actually writes through.",
+    ),
+    Mutation(
+        feature="F26",
+        name="GIU TINH CHAT: refusal wording reworded",
+        path=SCREENSHOT_ROUTES,
+        old='_UNSUPPORTED_IMAGE_DETAIL = "Định dạng ảnh chụp màn hình không được hỗ trợ."',
+        new='_UNSUPPORTED_IMAGE_DETAIL = "Ảnh chụp màn hình này chưa đúng định dạng."',
+        expect="GREEN",
+        why="The wire code and status are the contract; the prose is not.",
+    ),
+    Mutation(
+        feature="F26",
+        name="GIU TINH CHAT: __all__ entries reordered",
+        path=SCREENSHOT_SKILL,
+        old='__all__ = [\n    "ALLOWED_MIME_TYPES",\n    "MAX_IMAGE_BYTES",',
+        new='__all__ = [\n    "MAX_IMAGE_BYTES",\n    "ALLOWED_MIME_TYPES",',
+        expect="GREEN",
+        why="Export order is style; the exported names are what callers bind.",
+    ),
+    # ================================================================ F34 ===
+    Mutation(
+        feature="F34",
+        name="average per person divided with / instead of //",
+        path=BUDGET_DOMAIN,
+        old="        finished_total // finished_headcount if finished_headcount else None",
+        new="        finished_total / finished_headcount if finished_headcount else None",
+        expect="RED",
+        why="Money law 1: a float average is money that stopped being integer.",
+    ),
+    Mutation(
+        feature="F34",
+        name="spend per person divided with / instead of //",
+        path=BUDGET_DOMAIN,
+        old="        spent = split_total // headcount if headcount else 0",
+        new="        spent = split_total / headcount if headcount else 0",
+        expect="RED",
+        why="Same law on the figure a group reads while still on the trip.",
+    ),
+    Mutation(
+        feature="F34",
+        name="budget read drops its active-membership requirement",
+        path=PERMISSIONS,
+        old='    "view_group_budget": {\n        "roles": {"group_admin", "member"},\n        "requires": ("is_group_member",),\n    },',
+        new='    "view_group_budget": {\n        "roles": {"group_admin", "member"},\n        "requires": (),\n    },',
+        expect="RED",
+        why="A context id from a link must not read the group's ledger totals.",
+    ),
+    Mutation(
+        feature="F34",
+        name="GIU TINH CHAT: comparison branch inverted",
+        path=BUDGET_DOMAIN,
+        old='    elif delta < 0:\n        verdict = "re-hon"\n    else:\n        verdict = "cao-hon"',
+        new='    elif delta > 0:\n        verdict = "cao-hon"\n    else:\n        verdict = "re-hon"',
+        expect="GREEN",
+        why="Past the tolerance test delta is non-zero, so both spellings agree.",
+    ),
+    Mutation(
+        feature="F34",
+        name="GIU TINH CHAT: result dict keys reordered",
+        path=BUDGET_DOMAIN,
+        old='        "candidate_per_person_vnd": candidate,\n        "delta_vnd": delta,',
+        new='        "delta_vnd": delta,\n        "candidate_per_person_vnd": candidate,',
+        expect="GREEN",
+        why="A dict is keyed, not ordered; the schema reads it by name.",
     ),
 ]
 
@@ -199,15 +304,21 @@ def main() -> int:
         rows.append((mutation, observed, ok, summary))
 
     print()
-    print("=" * 78)
-    print(f"{'expect':7} {'got':6} {'ok':3} mutation")
-    print("-" * 78)
-    for mutation, observed, ok, summary in rows:
-        print(
-            f"{mutation.expect:7} {observed:6} {'..' if ok else 'XX':3} "
-            f"{mutation.name}\n{'':19}{summary}"
-        )
-    print("=" * 78)
+    for feature in ("F24", "F26", "F34"):
+        subset = [row for row in rows if row[0].feature == feature]
+        if not subset:
+            continue
+        print("=" * 78)
+        print(f"{feature}   {'expect':7} {'got':6} {'ok':3} mutation")
+        print("-" * 78)
+        for mutation, observed, ok, summary in subset:
+            print(
+                f"      {mutation.expect:7} {observed:6} "
+                f"{'..' if ok else 'XX':3} {mutation.name}\n{'':25}{summary}"
+            )
+        greens = sum(row[0].expect == "GREEN" for row in subset)
+        print(f"      -> {len(subset) - greens} RED / {greens} GIU TINH CHAT")
+        print()
 
     if failures:
         print(f"\n{failures} row(s) did not match. The gate does not measure what")
