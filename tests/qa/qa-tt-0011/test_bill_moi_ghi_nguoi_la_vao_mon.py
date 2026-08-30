@@ -1,4 +1,4 @@
-"""The third path that writes a name into a bill, and the only one still open.
+"""The third path that writes a name into a bill. Closed now; this holds it shut.
 
 `#235` closed this hole on `POST /expenses/{id}/confirm`. `#247` closed it on
 `PUT /bills/{id}/assignments` and said so in its own docstring: the guard "is
@@ -6,11 +6,11 @@ called in exactly one place", so it added the second. Counting the call sites
 against the paths that write a `participant_id` is what this directory does,
 and the count does not come out even:
 
-    app/api/service.py:1798   confirm_bill_assignments   guarded  (#247)
-    app/api/service.py:1985   confirm_expense            guarded  (#235)
-    app/api/service.py:1730   create_bill                NOT guarded
+    app/api/service.py   confirm_bill_assignments   guarded  (#247)
+    app/api/service.py   confirm_expense            guarded  (#235)
+    app/api/service.py   create_bill                NOT guarded  <- was
 
-`create_bill` proves the *actor* belongs to the context and then passes
+`create_bill` proved the *actor* belongs to the context and then passed
 `item.suggested_participant_ids` -- straight out of the request body, never
 checked against the roster -- down to the repository, which writes one
 `BillItemShare` row per id (`repository.py:2083`). A share is not a draft: it
@@ -25,11 +25,11 @@ Measured on main @ 431dd7c, before this file existed:
 Same stranger, same bill, same group, two answers. The refusal exists; it is
 simply not on this door.
 
-The two `xfail(strict=True)` cases below are stakes, not decoration, and they
-are marked rather than left red so `main` stays green while backend owns the
-fix (QA does not patch product code). `strict` matters: when the guard reaches
-`create_bill`, these turn XPASS, and a strict XPASS is a FAILURE -- so removing
-the marker is the second half of the fix and cannot be forgotten silently.
+The two cases that carried `xfail(strict=True)` are now plain assertions. That
+was the point of `strict`: when the guard reached `create_bill` they turned
+XPASS, a strict XPASS is a FAILURE, and so removing the marker became the
+second half of the fix rather than a note somebody forgets. They are kept
+because the measurement above is only worth having if something holds it.
 """
 
 from __future__ import annotations
@@ -95,13 +95,6 @@ def test_creating_a_bill_naming_only_members_is_still_accepted(client):
     assert str(SENDER_ID) in _shares_of(client, response.json()["id"])
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "OPEN: create_bill has no membership guard. Remove this marker as part "
-        "of the fix -- strict xfail turns the pass into a failure otherwise."
-    ),
-)
 def test_creating_a_bill_refuses_a_participant_the_group_does_not_contain(client):
     """Same rule as the other two write paths, on the door nobody gated."""
 
@@ -111,10 +104,6 @@ def test_creating_a_bill_refuses_a_participant_the_group_does_not_contain(client
     assert response.json()["code"] == "participant_not_in_context"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=("OPEN: the unchecked id is stored and readable. Remove with the fix."),
-)
 def test_a_refused_name_is_not_readable_as_somebodys_dish(client):
     """Refusing later at `split` would still leave this screen wrong.
 

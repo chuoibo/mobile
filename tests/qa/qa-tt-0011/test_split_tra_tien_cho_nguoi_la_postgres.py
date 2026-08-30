@@ -3,13 +3,13 @@
 The fake in `tests/api` cannot fail this. Its `list_members` returns two active
 rows for every context by construction, so `split_bill`'s fallback --
 
-    app/api/service.py:1840
+    app/api/service.py  (removed by the fix)
         if not participant_ids:
             participant_ids = {
                 share.participant_id for item in record.items for share in item.shares
             }
 
--- is unreachable there. Only a real `memberships` table can be empty, which is
+-- was unreachable there. Only a real `memberships` table can be empty, which is
 what makes this tier load-bearing rather than a copy of the fake one.
 
 `#247`'s own docstring named this branch and left it: the late refusal at
@@ -38,6 +38,22 @@ The sum is 135.000₫ in every one of those runs and every allocation is a whole
 đồng, so all three money rules hold while the money is assigned to somebody the
 group does not contain. Ownership is a separate invariant from arithmetic, and
 this is what it looks like when only the arithmetic is guarded.
+
+One correction to that measurement, recorded because it changes what this file
+proves. Re-run on `62ca4f2` the two empty-roster cases already passed, and not
+because anything here was fixed: `#253` landed between `431dd7c` and now, and
+it made `create_bill`'s own permission check ask `is_member` instead of reading
+`actor.context_ids`. In both empty-roster shapes the payer is not an ACTIVE
+member either, so they are refused at the first door and never reach `split`.
+
+That is worth being precise about. The refusal is real, but it belongs to the
+actor check, not to the roster logic -- and it means no route can now reach the
+fallback at all, since `_bill_for_actor` requires `is_member` and a context with
+such a member has a non-empty roster. The fallback was dead code with a live
+edge: one loosened permission away from paying strangers again. It is deleted
+rather than left, and the branch itself is pinned at the layer that owns it by
+`services/api/tests/api/test_split_does_not_invent_participants.py`, which can
+construct the empty roster directly instead of waiting for a route to allow it.
 """
 
 from __future__ import annotations
@@ -208,14 +224,6 @@ def test_a_stranger_is_refused_while_the_roster_is_not_empty(
     assert allocations == {}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "OPEN: with no membership rows the fallback in split_bill makes the "
-        "unchecked ids the roster, and the stranger is allocated money. "
-        "Remove this marker as part of the fix."
-    ),
-)
 def test_no_membership_rows_must_not_turn_a_stranger_into_a_participant(
     postgres_session: Session,
 ):
@@ -231,13 +239,6 @@ def test_no_membership_rows_must_not_turn_a_stranger_into_a_participant(
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "OPEN: a group where nobody has accepted yet has no ACTIVE row, so the "
-        "same fallback fires. Remove this marker as part of the fix."
-    ),
-)
 def test_a_group_of_pending_invitations_must_not_pay_a_stranger(
     postgres_session: Session,
 ):
