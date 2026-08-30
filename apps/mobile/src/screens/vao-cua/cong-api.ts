@@ -19,6 +19,14 @@ export type ThanhVien = {
   id: string;
   context_id: string;
   person_id: string;
+  /** The name the server holds for this person.
+   *
+   *  `MembershipResponse.display_name` is `NOT NULL` server-side, because
+   *  `people.display_name` is. Optional here anyway: this repo's own fixtures
+   *  predate the field, and a parser that threw on a member without a name
+   *  would turn "an old fake" into "the group could not be opened". Callers
+   *  fall back to a neutral label, never to the id. */
+  display_name?: string;
   state: "invited" | "active" | "left";
   role: "member" | "admin";
   invited_by_id: string | null;
