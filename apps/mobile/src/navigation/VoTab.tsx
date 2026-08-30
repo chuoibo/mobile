@@ -28,7 +28,7 @@ import { MenuTao } from "./MenuTao";
 import { ThanhTab } from "./ThanhTab";
 import { useInertBackground } from "./modal";
 import { CREATE_ACTIONS, DEFAULT_TAB, type CreateActionId, type CreateFlowId } from "./tabs";
-import type { DemoPerson } from "./nhom-demo";
+import { DEMO_GROUP_NAME, type DemoPerson } from "./nhom-demo";
 import type { Nhom as NhomWire } from "../screens/vao-cua/cong-api";
 import type { TheBan } from "../screens/vao-cua/ma-ban";
 
@@ -233,7 +233,17 @@ export function VoTab({
           {tab === "len-plan" ? <LenPlan nguoi={nguoi} /> : null}
           {tab === "tin-nhan" ? <TinNhan nguoi={nguoi} /> : null}
           {tab === "ca-nhan" ? (
-            <CaNhan nguoi={nguoi} onKetBan={() => setLuongBanBe(true)} />
+            <CaNhan
+              nguoi={nguoi}
+              onKetBan={() => setLuongBanBe(true)}
+              nhom={
+                nhom
+                  ? [{ id: nhom.id, name: nhom.display_name }]
+                  : nhomId
+                    ? [{ id: nhomId, name: DEMO_GROUP_NAME }]
+                    : []
+              }
+            />
           ) : null}
         </View>
 

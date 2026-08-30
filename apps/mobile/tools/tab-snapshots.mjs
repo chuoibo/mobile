@@ -444,6 +444,37 @@ export function installTabStubs(apiBase, fixtures) {
     if (route.startsWith("/people/") && route.endsWith("/finance")) {
       return json(fixtures.finance);
     }
+    // F39/F42. The personal wall. Matched before PUT /people/ and before the
+    // exact `/posts` list: `/people/{id}/posts` would otherwise fall through
+    // and the wall would render its empty invitation under a scan named as if
+    // it had posts.
+    if (route.startsWith("/people/") && route.endsWith("/posts")) {
+      return json({ person_id: fixtures.personId, posts: fixtures.baiDang ?? [] });
+    }
+    if (method === "POST" && route === "/posts") {
+      const than = JSON.parse(init?.body ?? "{}");
+      return json(
+        {
+          id: "7aa00000-aaaa-4aaa-8aaa-0000a0000001",
+          author_id: fixtures.personId,
+          audience: than.audience ?? "only_me",
+          context_id: than.context_id ?? null,
+          body: than.body ?? "",
+          image_url: than.image_url ?? null,
+          created_at: "2026-08-30T10:00:00Z",
+        },
+        201,
+      );
+    }
+    if (method === "GET" && route === "/posts") {
+      return json({ posts: fixtures.baiDang ?? [] });
+    }
+    if (method === "GET" && route.startsWith("/posts/")) {
+      const id = route.slice("/posts/".length);
+      const bai = (fixtures.baiDang ?? []).find((row) => row.id === id);
+      if (!bai) return json({ code: "post_not_found", detail: "không có bài này" }, 404);
+      return json(bai);
+    }
     if (method === "PUT" && route.startsWith("/people/")) {
       return json({ id: fixtures.personId, display_name: "Minh" });
     }
@@ -1118,6 +1149,20 @@ export function taoFixtures() {
         },
       ],
     },
+    // F39/F42. One post, and its body is the needle for `ca-nhan-tuong`:
+    // nothing else on Cá nhân prints "Sương đèo Pren", so a wall that failed
+    // to load cannot wave through on finance copy.
+    baiDang: [
+      {
+        id: "7aa00000-aaaa-4aaa-8aaa-0000a0000001",
+        author_id: personId,
+        audience: "friends",
+        context_id: null,
+        body: "Sương đèo Pren chưa tan",
+        image_url: null,
+        created_at: "2026-08-30T03:00:00Z",
+      },
+    ],
     finance: {
       person_id: personId,
       display_name: "Minh",

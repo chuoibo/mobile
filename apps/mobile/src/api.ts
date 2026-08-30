@@ -2138,3 +2138,126 @@ export async function docSoDu(
   });
   return soDuFromWire(wire);
 }
+
+/* --------------------------------------------------- posts (F39) and audiences (F42) */
+
+/**
+ * One of the four words a post can be addressed to.
+ *
+ * A vocabulary, not a ladder: `friends` and `group` reach two disjoint sets of
+ * people, and neither contains the other. Nothing in this file compares two
+ * of these by position.
+ */
+export type PostAudience = "only_me" | "friends" | "group" | "public";
+
+/** One post, as a reader who is allowed to have it receives it. */
+export type PostWire = {
+  id: string;
+  author_id: string;
+  audience: PostAudience;
+  context_id: string | null;
+  body: string;
+  image_url: string | null;
+  created_at: string;
+};
+
+/**
+ * What a refusal to write or read a post means to the person holding the phone.
+ *
+ * The server's own detail for these codes is English (`Post visibility must
+ * be one of the four known levels`). That sentence names the enum, not the
+ * next move, so it is replaced here rather than passed through.
+ */
+const BAI_REFUSALS: Record<string, string> = {
+  unknown_audience:
+    "Mức người đọc này app không gửi được. Chọn lại một trong bốn lựa chọn trên màn.",
+  group_audience_needs_context:
+    "Chọn nhóm đã, rồi mới đăng được bài cho nhóm đó.",
+  context_not_addressable:
+    "Chỉ bài cho một nhóm mới được gắn nhóm. Chọn lại mức người đọc.",
+  post_not_found:
+    "Bài này không còn hoặc không phải dành cho bạn.",
+  permission_denied:
+    "Tài khoản đang dùng chưa được phép đăng bài này.",
+};
+
+export type BodyDangBai = {
+  body: string;
+  audience: PostAudience;
+  contextId?: string | null;
+  imageUrl?: string | null;
+};
+
+/**
+ * Build the POST /posts body. `author_id` is absent on purpose: the writer is
+ * the actor header. `context_id` is present only for `group`.
+ */
+export function thanDangBaiApi(input: BodyDangBai): {
+  body: string;
+  audience: PostAudience;
+  context_id?: string;
+  image_url?: string;
+} {
+  const than: {
+    body: string;
+    audience: PostAudience;
+    context_id?: string;
+    image_url?: string;
+  } = { body: input.body, audience: input.audience };
+  if (input.audience === "group" && input.contextId) {
+    than.context_id = input.contextId;
+  }
+  if (input.imageUrl) than.image_url = input.imageUrl;
+  return than;
+}
+
+/**
+ * F39. Say something, as yourself, to one of F42's four audiences.
+ *
+ * A write, so it carries `Idempotency-Key`. There is no `author_id` in the
+ * body and no recipient list -- both absences are the feature, not omissions.
+ */
+export async function dangBai(
+  input: BodyDangBai,
+  actorId: string,
+  attempt: Attempt,
+): Promise<PostWire> {
+  return translated<PostWire>(BAI_REFUSALS, "/posts", {
+    method: "POST",
+    body: thanDangBaiApi(input),
+    actorId,
+    attempt,
+  });
+}
+
+/** Everything this actor may read, newest first. The reader is the actor. */
+export async function docBangTin(actorId: string, limit = 50): Promise<PostWire[]> {
+  const result = await translated<{ posts: PostWire[] }>(
+    BAI_REFUSALS,
+    `/posts?limit=${limit}`,
+    { method: "GET", actorId },
+  );
+  return result.posts ?? [];
+}
+
+/** One post, or 404 -- including when it exists and is not for you. */
+export async function docBai(postId: string, actorId: string): Promise<PostWire> {
+  return translated<PostWire>(BAI_REFUSALS, `/posts/${postId}`, {
+    method: "GET",
+    actorId,
+  });
+}
+
+/** One person's wall, already narrowed to what this caller may see. */
+export async function docTuongNguoi(
+  personId: string,
+  actorId: string,
+  limit = 50,
+): Promise<PostWire[]> {
+  const result = await translated<{ person_id: string; posts: PostWire[] }>(
+    BAI_REFUSALS,
+    `/people/${personId}/posts?limit=${limit}`,
+    { method: "GET", actorId },
+  );
+  return result.posts ?? [];
+}

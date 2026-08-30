@@ -303,6 +303,16 @@ const MAN_TUONG_TAC = [
     needle: "Lẩu Thái tối qua",
     anh: 0,
   },
+  /* F39/F42. The wall on Cá nhân: compose is behind "Viết lên tường", and
+   * the needle is a post body that only the loaded wall prints. `anh: 0`
+   * because a post is a sentence, not a photograph. */
+  {
+    step: "ca-nhan-tuong",
+    frag: `tab=ca-nhan&nguoi=${NGUOI}`,
+    bam: "Viết lên tường",
+    needle: "Sương đèo Pren chưa tan",
+    anh: 0,
+  },
 ];
 
 /** Serialised into the page, so it can reference nothing outside itself.
