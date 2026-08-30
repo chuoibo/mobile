@@ -7,6 +7,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 
 from fastapi import FastAPI, Request, Response
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -188,6 +190,41 @@ def create_app(
             return guests.guest_link_broken_page(request)
         body = ErrorResponse(code=exc.code, detail=exc.detail)
         return JSONResponse(status_code=exc.status_code, content=body.model_dump())
+
+    @application.exception_handler(RequestValidationError)
+    async def validation_handler(
+        request: Request, exc: RequestValidationError
+    ) -> Response:
+        """A 422 says which field was wrong. It does not repeat what was sent.
+
+        FastAPI's default handler puts the rejected value into `input`,
+        verbatim. That is fine for an integer out of range and is a data leak
+        for anything a person typed: a group chat message, a caption, a
+        comment under a photograph. A validation error is also the part of a
+        response most likely to be pasted into a bug report or a chat, which
+        is precisely how private text travels furthest.
+
+        Measured before the change, on `POST /contexts/{id}/memories/{id}/comments`
+        with a 5800-character body: the 422 carried all 5800 characters back.
+        The same shape existed on `messages.body` and on every other free-text
+        field in the product, so this is fixed here rather than per route --
+        one handler cannot be forgotten by the next field somebody adds.
+
+        `type`, `loc` and `msg` stay. They name the field and the rule it
+        broke, which is what a client needs, and none of them is a copy of the
+        request: every `ValueError` raised by this app's validators carries a
+        constant message.
+        """
+
+        redacted = [
+            {key: value for key, value in error.items() if key != "input"}
+            for error in exc.errors()
+        ]
+        # `jsonable_encoder` because `ctx` can hold a live exception object,
+        # which is what FastAPI's own handler passes through it too.
+        return JSONResponse(
+            status_code=422, content=jsonable_encoder({"detail": redacted})
+        )
 
     return application
 
