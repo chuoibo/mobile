@@ -99,6 +99,153 @@ class ResolverTest(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), f"ruff=={pinned_version()}")
 
 
+class ResolverIsNotARuffWrapperTest(unittest.TestCase):
+    """Called like a ruff wrapper, the resolver must refuse -- not exit 0.
+
+    Measured on main at 65691ae, before the change these tests arrived with:
+
+        $ bash scripts/ruff_pinned.sh check services/api/app/api/routes/places.py
+        /home/lakiet/miniconda3/bin/ruff
+        rc=0
+
+    It swallowed `check <file>` and printed the path. Nothing was linted, and
+    the output -- one line, exit 0, no findings -- is byte-for-byte what a clean
+    `ruff check` run looks like from a terminal. Two QA turns already recorded
+    hitting it (qa-tt-0023 §5, qa-tt-0024 §2), which is the tell that the shape
+    is easy to reach: the docstring above says "use the PINNED one:
+    scripts/ruff_pinned.sh", and the obvious reading of that sentence is to put
+    the script where `ruff` used to go.
+
+    That matters more than usual right now. Actions has been down since
+    2026-08-29 on billing, so `scripts/gate.sh` on this machine is the only lint
+    verdict anybody gets. A call shape that silently lints nothing while reading
+    as ĐẠT is the exact defect the rest of this file exists to remove, arriving
+    through the front door instead.
+
+    The refusal is asserted on three things, not just the exit code:
+
+      - rc != 0, so `set -e` callers stop;
+      - stdout EMPTY, because the real call site is `RUFF="$(ruff_pinned.sh)"`
+        and a printed path gets used no matter what the exit code said. This is
+        the assertion that would have caught the old behaviour even if somebody
+        had "fixed" it by adding an exit code and leaving the print;
+      - stderr naming the `$(...)` form, because a gate is allowed to fail and
+        is not allowed to leave the reader guessing what to type instead.
+
+    `test_no_argument_call_still_works` is the other half of the pair and is not
+    redundant with the tests above: the cheapest wrong fix here is a blanket
+    refusal that also breaks `ruff_changed.sh` line 144, which is the one caller
+    that has to keep working.
+    """
+
+    # Every shape of the mistake, written out rather than parametrised over one
+    # of them. `check <file>` is the one observed in the wild; the others are
+    # the same misunderstanding typed differently, and a fix that only special
+    # cases the literal string "check" would pass a single-case canary.
+    WRONG_CALLS = (
+        ("check", "services/api/app/api/routes/places.py"),
+        ("format", "--check", "tests/"),
+        ("check",),
+        ("--fix", "app/"),
+        ("--pin", "check", "app/"),
+    )
+
+    def test_no_argument_call_still_works(self) -> None:
+        """Canary 1: the correct call shape must survive the refusal.
+
+        `scripts/ruff_changed.sh` does `RUFF="$("$RUFF_PINNED")"` with no
+        arguments, and `tests/test_qa_scripts_are_ruff_formatted.py` does the
+        same from Python. A refusal that swept these up would trade a silent
+        no-op for a red gate on every machine.
+        """
+        result = run(str(RESOLVER))
+        self.assertEqual(
+            result.returncode,
+            0,
+            f"the no-argument call broke:\n{result.stdout}\n{result.stderr}",
+        )
+        path = result.stdout.strip()
+        self.assertTrue(path, "no-argument call printed nothing")
+        self.assertTrue(Path(path).is_file(), f"not a file: {path}")
+
+    def test_arguments_are_refused_with_a_nonzero_exit(self) -> None:
+        """Canary 2: anything that looks like `ruff <args>` must not exit 0."""
+        for call in self.WRONG_CALLS:
+            with self.subTest(call=" ".join(call)):
+                result = run(str(RESOLVER), *call)
+                self.assertNotEqual(
+                    result.returncode,
+                    0,
+                    "swallowed arguments and exited 0 -- reads as a clean lint "
+                    f"run that never happened\nstdout={result.stdout!r}",
+                )
+
+    def test_a_refused_call_prints_no_path_on_stdout(self) -> None:
+        """The exit code alone is not enough; `$(...)` reads stdout."""
+        for call in self.WRONG_CALLS:
+            with self.subTest(call=" ".join(call)):
+                result = run(str(RESOLVER), *call)
+                self.assertEqual(
+                    result.stdout.strip(),
+                    "",
+                    "printed a path for a call it refused -- "
+                    'RUFF="$(ruff_pinned.sh ...)" would still use it',
+                )
+
+    def test_the_refusal_names_the_correct_call_shape(self) -> None:
+        for call in self.WRONG_CALLS:
+            with self.subTest(call=" ".join(call)):
+                result = run(str(RESOLVER), *call)
+                self.assertIn(
+                    "$(scripts/ruff_pinned.sh)",
+                    result.stderr,
+                    "refused without saying what to type instead:\n" + result.stderr,
+                )
+
+    def test_refusing_costs_nothing(self) -> None:
+        """A wrong call must not reach the venv build.
+
+        Argument checking has to happen before the provisioning branch, or a
+        typo on a machine without the pin spends a minute building a ruff it is
+        about to refuse to hand over. Asserted through a HOME with no cache and
+        a PATH holding no ruff, so the resolver takes the build path unless the
+        arguments stop it first.
+
+        The PATH is bare but not empty. A first draft left `dirname` out and the
+        test went red on `dirname: command not found` at line 66 -- red, for a
+        reason that has nothing to do with arguments. That red would have turned
+        green on the fix anyway and read like proof. `dirname` is here so the
+        pre-fix failure is the real one: stderr announcing "chưa có trên máy"
+        and no usage line.
+        """
+        empty_home = Path(tempfile.mkdtemp(prefix="ruff-nohome-"))
+        self.addCleanup(shutil.rmtree, empty_home, ignore_errors=True)
+        bare = Path(tempfile.mkdtemp(prefix="ruff-nopath-"))
+        self.addCleanup(shutil.rmtree, bare, ignore_errors=True)
+        for tool in ("bash", "cat", "dirname"):
+            found = shutil.which(tool)
+            self.assertIsNotNone(found, f"{tool} missing -- the bare PATH is a lie")
+            (bare / tool).symlink_to(found)
+
+        result = run(
+            str(RESOLVER),
+            "check",
+            "app/",
+            env={
+                "PATH": str(bare),
+                "HOME": str(empty_home),
+                "XDG_CACHE_HOME": str(empty_home / "cache"),
+            },
+        )
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("$(scripts/ruff_pinned.sh)", result.stderr, result.stderr)
+        self.assertNotIn(
+            "chưa có trên máy",
+            result.stderr,
+            "started provisioning a ruff for a call it was going to refuse",
+        )
+
+
 class ResolverRefusalTest(unittest.TestCase):
     """The resolver must refuse rather than substitute.
 
