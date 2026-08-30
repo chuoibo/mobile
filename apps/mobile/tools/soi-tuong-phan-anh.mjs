@@ -73,8 +73,16 @@
  * bold, laid straight onto the blown-out bottom of the real fixture photograph,
  * above the app's real scrim, with no chip under it. It is a probe, not a
  * screen -- it is injected here and ships to nobody -- and it is what gives the
- * scrim something to be right or wrong about. With the scrim flattened this row
- * goes red; restored, it passes. Both directions are in the PR.
+ * scrim something to be right or wrong about.
+ *
+ * That last sentence used to end "with the scrim flattened this row goes red;
+ * restored, it passes", written by the same hand as the tool and never re-run.
+ * A docstring vouching for its own teeth is worth nothing here, so the claim is
+ * a command now: `tools/dot-bien-scrim.mjs` flattens `Scrim` to `[0,0,0]`,
+ * rebuilds the bundle, checks the mutant actually reached it, and requires this
+ * row red on both photo screens -- then requires the PRE-REVIEW instrument to
+ * stay GREEN through the same breakage, which is what says the probe added
+ * something rather than that the gate reddens at anything.
  *
  * ## What it does not prove
  *
