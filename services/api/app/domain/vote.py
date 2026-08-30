@@ -49,15 +49,11 @@ def tally(options: list[dict], ballots: list[dict]) -> dict:
     else:
         highest_count = max(counts.values())
         leading_option_ids = [
-            option_id
-            for option_id in option_ids
-            if counts[option_id] == highest_count
+            option_id for option_id in option_ids if counts[option_id] == highest_count
         ]
 
     is_tie = len(leading_option_ids) > 1
-    decided_option_id = (
-        leading_option_ids[0] if len(leading_option_ids) == 1 else None
-    )
+    decided_option_id = leading_option_ids[0] if len(leading_option_ids) == 1 else None
     return {
         "total_ballots": total_ballots,
         "counts": counts,

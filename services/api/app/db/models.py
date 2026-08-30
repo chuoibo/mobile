@@ -1506,9 +1506,7 @@ class VoteOption(Base):
 
     __tablename__ = "vote_options"
     __table_args__ = (
-        UniqueConstraint(
-            "vote_id", "position", name="uq_vote_options_position"
-        ),
+        UniqueConstraint("vote_id", "position", name="uq_vote_options_position"),
         CheckConstraint("position >= 0", name="position_not_negative"),
         CheckConstraint("label <> ''", name="label_not_blank"),
     )
@@ -1535,9 +1533,7 @@ class VoteBallot(Base):
 
     __tablename__ = "vote_ballots"
     __table_args__ = (
-        UniqueConstraint(
-            "vote_id", "voter_id", name="uq_vote_ballots_one_per_person"
-        ),
+        UniqueConstraint("vote_id", "voter_id", name="uq_vote_ballots_one_per_person"),
         Index("ix_vote_ballots_vote", "vote_id"),
     )
 

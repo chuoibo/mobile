@@ -567,8 +567,7 @@ def _wire_recap_outing(record: RecapOutingRecord) -> RecapOutingResponse:
 def _wire_vote(record: VoteRecord, actor_id: uuid.UUID) -> VoteResponse:
     result = tally(
         options=[
-            {"id": option.id, "position": option.position}
-            for option in record.options
+            {"id": option.id, "position": option.position} for option in record.options
         ],
         ballots=[
             {"voter_id": ballot.voter_id, "option_id": ballot.option_id}
@@ -576,11 +575,7 @@ def _wire_vote(record: VoteRecord, actor_id: uuid.UUID) -> VoteResponse:
         ],
     )
     my_option_id = next(
-        (
-            ballot.option_id
-            for ballot in record.ballots
-            if ballot.voter_id == actor_id
-        ),
+        (ballot.option_id for ballot in record.ballots if ballot.voter_id == actor_id),
         None,
     )
     return VoteResponse(
@@ -1184,9 +1179,7 @@ class ApiService:
                     "outing_id": record.outing.id,
                     "title": record.outing.title,
                     "headcount": record.outing.headcount,
-                    "budget_per_person_vnd": (
-                        record.outing.budget_per_person_vnd
-                    ),
+                    "budget_per_person_vnd": (record.outing.budget_per_person_vnd),
                     "split_total_vnd": record.split_total_vnd,
                     "in_progress": record.in_progress,
                 }
@@ -1367,20 +1360,14 @@ class ApiService:
             ],
         )
 
-    def get_vote_results(
-        self, vote_id: uuid.UUID, actor: Actor
-    ) -> VoteResponse:
+    def get_vote_results(self, vote_id: uuid.UUID, actor: Actor) -> VoteResponse:
         record = self.repository.get_vote(vote_id)
         if record is None:
             raise ApiProblem(404, "vote_not_found", "Vote does not exist")
         _require_permission(
             "view_votes",
             actor,
-            {
-                "is_group_member": self.repository.is_member(
-                    record.context_id, actor.id
-                )
-            },
+            {"is_group_member": self.repository.is_member(record.context_id, actor.id)},
         )
         return _wire_vote(record, actor.id)
 
@@ -1396,11 +1383,7 @@ class ApiService:
         _require_permission(
             "cast_vote_ballot",
             actor,
-            {
-                "is_group_member": self.repository.is_member(
-                    record.context_id, actor.id
-                )
-            },
+            {"is_group_member": self.repository.is_member(record.context_id, actor.id)},
         )
         if record.closed_at is not None:
             raise ApiProblem(409, "vote_closed", "Vote is closed")
@@ -1439,9 +1422,7 @@ class ApiService:
             replaced_previous_ballot=replaced_previous_ballot,
         )
 
-    def close_vote(
-        self, vote_id: uuid.UUID, actor: Actor
-    ) -> VoteResponse:
+    def close_vote(self, vote_id: uuid.UUID, actor: Actor) -> VoteResponse:
         record = self.repository.get_vote(vote_id)
         if record is None:
             raise ApiProblem(404, "vote_not_found", "Vote does not exist")

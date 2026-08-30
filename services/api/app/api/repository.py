@@ -68,10 +68,10 @@ from app.db.models import (
     Person,
     ReceiptConfirmation,
     UploadedImage,
+    VerificationScope,
     Vote,
     VoteBallot,
     VoteOption,
-    VerificationScope,
 )
 from app.domain.capability import capability_scope
 from app.domain.friendship import Decision, FriendshipError
@@ -1839,6 +1839,7 @@ class SqlAlchemyApiRepository:
             )
             for outing in outings
         )
+
     def create_vote(
         self,
         *,
