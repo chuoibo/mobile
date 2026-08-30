@@ -142,6 +142,8 @@ from app.api.schemas import (
     UnavailableLayer,
     UploadedImageResponse,
     VisitedPlace,
+    WidgetPhotoResponse,
+    WidgetResponse,
 )
 from app.domain import permissions, post_audience
 from app.domain.album import build_album
@@ -573,6 +575,14 @@ def _wire_friend_edge(record: FriendEdgeRecord) -> FriendRequestResponse:
         created_at=record.created_at,
         decided_at=record.decided_at,
     )
+
+
+#: What F38's widget prints when the author of a photograph has no row in
+#: `people`. Unreachable behind the foreign key; a neutral Vietnamese noun
+#: rather than a uuid, because the alternative pattern in this file
+#: (`_friend_record` falling back to `str(other)`) prints an identifier onto a
+#: screen a stranger can read over somebody's shoulder.
+_SOMEBODY = "Thành viên nhóm"
 
 
 def _wire_memory(record: MemoryRecord) -> MemoryResponse:
@@ -2203,6 +2213,74 @@ class ApiService:
             memories=memories,
             next_cursor=memories[-1].cursor if memories else None,
             has_more=page.has_more,
+        )
+
+    def read_context_widget(
+        self, context_id: uuid.UUID, actor: Actor
+    ) -> WidgetResponse:
+        """F38. The newest photograph on one group's wall, for a home widget.
+
+        ## Why this is a narrowing and not a second read
+
+        Everything below goes through `list_memories` -- the same repository
+        method `list_context_memories` pages -- behind the same
+        `view_group_memories` permission, proved by the same
+        `repository.is_member` question put to the database. A widget is the
+        memory wall with `limit=1`, so a `SELECT ... ORDER BY created_at DESC
+        LIMIT 1` written here would be a second, separately gated path to the
+        group's photographs. Two paths to one private table is how one of them
+        eventually stops being gated; `_scan_checkins` below refuses the same
+        shortcut for the same reason.
+
+        `is_member` asks the roster. It does not read `actor.context_ids`: the
+        gateway header is a claim by the caller about which groups they are in,
+        and #253 had to unpick five call sites that had believed it. A widget
+        polls unattended, from a lock screen, on a schedule nobody watches --
+        the last surface that should trust a self-asserted membership.
+
+        ## What a stranger gets
+
+        403 with the error body every refusal in this service uses, and no
+        branch above ever runs. In particular the refusal is identical whether
+        `context_id` names a real group, an empty one, or nothing at all, so
+        the route is not an oracle for which groups exist.
+        """
+
+        _require_permission(
+            "view_group_memories",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        # `kind="photo"` and not "newest row, whatever it is". A check-in is a
+        # keepsake with coordinates and no image, so the newest row of a group
+        # that just checked in somewhere carries nothing a widget can draw --
+        # and a widget that blanked every time somebody checked in would read
+        # as broken rather than as empty.
+        page = self.repository.list_memories(context_id, limit=1, kind="photo")
+        newest = page.memories[0] if page.memories else None
+        # `image_url is None` is unreachable through the SQL adapter: the
+        # `payload_matches_kind` constraint on `memories` refuses a photo row
+        # without one. It is written out anyway because the type says the
+        # column is nullable, and a widget that answered with `"image_url":
+        # null` would be a client crash rather than an empty state.
+        if newest is None or newest.image_url is None:
+            return WidgetResponse(context_id=context_id, photo=None)
+
+        author = self.repository.get_person(newest.author_id)
+        return WidgetResponse(
+            context_id=context_id,
+            photo=WidgetPhotoResponse(
+                memory_id=newest.id,
+                image_url=newest.image_url,
+                caption=newest.caption,
+                author_id=newest.author_id,
+                # `memories.author_id` is a NOT NULL foreign key into `people`,
+                # so the miss below cannot happen against the database. The
+                # placeholder exists so that if it ever does, the group loses a
+                # name and not the photograph.
+                author_name=author.display_name if author is not None else _SOMEBODY,
+                created_at=newest.created_at,
+            ),
         )
 
     # -- F43 / F44 / F45: where the group goes ------------------------------
