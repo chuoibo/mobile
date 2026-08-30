@@ -11,10 +11,12 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 from app.domain.allocator import allocate  # noqa: E402
 from app.domain.ledger import (  # noqa: E402
     LedgerError,
+    confirmed_total,
     group_balances,
     merge_obligations,
     obligation_status,
     obligations_from_allocations,
+    settlement_plan,
     settlement_suggestions,
 )
 
@@ -247,6 +249,95 @@ class Balances(unittest.TestCase):
         with self.assertRaises(LedgerError) as caught:
             settlement_suggestions({"a": -10, "b": 5})
         self.assertEqual(caught.exception.code, "BALANCES_DO_NOT_NET_TO_ZERO")
+
+
+# A float probe for every public function in this module that takes money in.
+# Keyed by export name so the completeness test below can compare against
+# `__all__` -- see EveryMoneyEntryPointRefusesAFloat for why that matters.
+FLOAT_PROBES = {
+    "obligations_from_allocations": lambda: obligations_from_allocations(
+        {"a": 0.5}, "nam", "v1"
+    ),
+    "merge_obligations": lambda: merge_obligations(
+        [
+            {
+                "sender_id": "a",
+                "recipient_id": "b",
+                "amount_vnd": 0.5,
+                "source_expense_version_id": "v1",
+            }
+        ]
+    ),
+    "confirmed_total": lambda: confirmed_total([{"amount_vnd": 0.5}]),
+    "obligation_status": lambda: obligation_status(3, [{"amount_vnd": 0.5}]),
+    "group_balances": lambda: group_balances(
+        [
+            {
+                "sender_id": "a",
+                "recipient_id": "b",
+                "amount_vnd": 0.5,
+                "source_expense_version_id": "v1",
+            }
+        ]
+    ),
+    "settlement_plan": lambda: settlement_plan({"a": -0.5, "b": 0.5}),
+    "settlement_suggestions": lambda: settlement_suggestions({"a": -0.5, "b": 0.5}),
+}
+
+
+class EveryMoneyEntryPointRefusesAFloat(unittest.TestCase):
+    """Money law 1: integer dong, no float, not even in intermediates.
+
+    `MoneyValidation.test_floats_and_bools_are_refused_everywhere` promised
+    "everywhere" in its name and proved it for exactly one of the seven money
+    entry points. `confirmed_total` was the one that slipped through: it
+    hand-rolled `amount <= 0` instead of calling `require_vnd`, so a tenth plus
+    a fifth summed to a hair over three tenths and `obligation_status` read an
+    exactly-paid obligation as `over_confirmed` -- the status that decides
+    whether someone still owes money.
+    """
+
+    def test_each_money_entry_point_refuses_a_float(self):
+        for name, probe in sorted(FLOAT_PROBES.items()):
+            with self.subTest(entry_point=name):
+                with self.assertRaises(LedgerError) as caught:
+                    probe()
+                self.assertEqual(caught.exception.code, "AMOUNT_NOT_INTEGER")
+
+    def test_the_probe_list_covers_every_export_that_takes_money(self):
+        """Without this, adding an export is enough to shrink the test above.
+
+        A hand-written list cannot notice what it is missing. Comparing against
+        `__all__` makes a new money function fail loudly here instead of
+        quietly reducing what "everywhere" means.
+        """
+        import app.domain.ledger as ledger_module
+
+        not_money_entry_points = {"LedgerError", "require_vnd"}
+        exported = set(ledger_module.__all__) - not_money_entry_points
+        self.assertEqual(
+            exported,
+            set(FLOAT_PROBES),
+            "a money export has no float probe -- add one to FLOAT_PROBES",
+        )
+
+
+class ConfirmedTotalIsIntegerDong(unittest.TestCase):
+    def test_a_float_confirmation_never_becomes_a_status(self):
+        """0.1 + 0.2 != 0.3, and the difference picks the wrong status."""
+        with self.assertRaises(LedgerError) as caught:
+            obligation_status(3, [{"amount_vnd": 0.1}, {"amount_vnd": 0.2}])
+        self.assertEqual(caught.exception.code, "AMOUNT_NOT_INTEGER")
+
+    def test_the_declared_return_type_holds(self):
+        self.assertIs(type(confirmed_total([{"amount_vnd": 3}, {"amount_vnd": 4}])), int)
+
+    def test_a_non_positive_confirmation_keeps_its_own_diagnostic(self):
+        """Type is checked first, but zero still reports as a confirmation
+        problem rather than a generic amount problem."""
+        with self.assertRaises(LedgerError) as caught:
+            confirmed_total([{"amount_vnd": 0}])
+        self.assertEqual(caught.exception.code, "NON_POSITIVE_CONFIRMATION")
 
 
 if __name__ == "__main__":
