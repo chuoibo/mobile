@@ -16,18 +16,31 @@ nobody authorised.
 
 These cases drive the real `create_app()` application over real PostgreSQL and
 the real `get_repository`, and inject the fault at a service seam so the write
-is performed by production code before the failure happens. Two failure shapes
-matter and travel different paths out of the route:
+is performed by production code before the failure happens. Three failure
+shapes travel three different paths out of the route:
 
 * `HTTPException` -- caught by FastAPI's handler and turned into a 4xx body.
 * `RuntimeError` -- unhandled, unwound through `ServerErrorMiddleware` as a 500.
 * `asyncio.CancelledError` -- a `BaseException` that is not an `Exception`, the
-  shape a client disconnect or a shutdown takes. `except Exception:` would let
-  this one commit.
+  shape a client disconnect or a shutting-down worker takes. Nothing converts it
+  into a response; it unwinds the entire stack.
+
+What this file does and does not gate, measured rather than assumed. Deleting
+the `except` branch outright, or narrowing it to `except Exception:`, leaves
+every case here green -- and that is correct, not a hole: `finally:
+session.close()` releases the connection, and releasing a connection with an
+open transaction rolls it back. Those two mutants are equivalent, not escaped.
+The mutant that changes behaviour is the one that *acts*: `session.rollback()`
+becoming `session.commit()` turns the failure branch into a writer, and all
+three cases below catch it.
 
 The happy path is asserted in the same file on purpose. Without it a mutant
 that rolls back unconditionally would look identical to a correct gate, and a
 mutation table where every row is red cannot say which rule it is holding.
+Committing is itself two layers -- `install_commit_before_response` commits
+before the body is sent, and the `else` branch here commits anything it left --
+so removing either one alone keeps the happy path green. Both have to go before
+it turns red.
 """
 
 from __future__ import annotations
@@ -35,7 +48,7 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
-from collections.abc import Callable, Generator
+from collections.abc import Generator
 
 import anyio
 import httpx
@@ -126,9 +139,7 @@ def _forget(engine: Engine, person_id: uuid.UUID) -> None:
     # Leaving that row behind would fail somebody else's count in a file that
     # never mentions people.
     with engine.begin() as connection:
-        connection.execute(
-            text("delete from people where id = :id"), {"id": person_id}
-        )
+        connection.execute(text("delete from people where id = :id"), {"id": person_id})
 
 
 @pytest.mark.parametrize(
@@ -175,11 +186,14 @@ def test_a_cancelled_request_leaves_no_row(
     """Cancellation is a `BaseException`, and it must roll back too.
 
     A disconnecting client or a shutting-down worker cancels the task mid-route.
-    Nothing converts that into an HTTP response -- it unwinds the whole stack --
-    so the only thing standing between it and a half-written ledger is the
-    `except` clause in `get_repository` being wide enough to catch it.
-    Narrowing that clause to `except Exception:` passes every other case in this
-    file and loses this one.
+    Nothing converts that into an HTTP response -- it unwinds the whole stack,
+    so there is no status code to assert and the exception is the outcome.
+
+    This case exists because the failure path that never produces a response is
+    the one nobody writes a test for, not because `except BaseException:` is
+    load-bearing on its own: narrowing it to `except Exception:` still rolls
+    back, via `finally: session.close()`. What this catches is the same thing
+    the other two catch -- a failure branch that commits instead.
     """
 
     person_id = uuid.uuid4()
