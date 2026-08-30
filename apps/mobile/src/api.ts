@@ -2259,6 +2259,27 @@ export type ChiaBill = {
   totalAmountVnd: number;
 };
 
+/** The wire shape of `POST /bills/{id}/split`, snake_case as the server sends it.
+ *
+ * Named rather than written inline at the call site, and it has to stay named.
+ * `scripts/check_actor_headers.py` finds a `call<T>(...)` by matching the type
+ * argument with `<[^<>()]*>`, which cannot span the nested `<>` of a
+ * `Record<string, number>`. Inline, the whole call went unseen, the gate read
+ * "no arguments" as "no actor passed", and it failed this function for an
+ * omission that is not there -- the headers below have always been sent.
+ */
+type ChiaBillWire = {
+  allocation: {
+    allocations: Record<string, number>;
+    exact_shares: Record<string, string>;
+    rounding_gainers: string[];
+    warnings: string[];
+  };
+  assignment_state: "confirmed" | "ai_suggested";
+  suggested_item_keys: string[];
+  total_amount_vnd: number;
+};
+
 /**
  * Ask the server to split a bill it already stored.
  *
@@ -2285,17 +2306,7 @@ export async function docChiaBill(
   contextId: string,
   attempt: Attempt,
 ): Promise<ChiaBill> {
-  const result = await call<{
-    allocation: {
-      allocations: Record<string, number>;
-      exact_shares: Record<string, string>;
-      rounding_gainers: string[];
-      warnings: string[];
-    };
-    assignment_state: "confirmed" | "ai_suggested";
-    suggested_item_keys: string[];
-    total_amount_vnd: number;
-  }>(`/bills/${billId}/split`, {
+  const result = await call<ChiaBillWire>(`/bills/${billId}/split`, {
     method: "POST",
     // Empty on purpose -- see above. `for_ledger` defaults false server-side.
     body: {},
