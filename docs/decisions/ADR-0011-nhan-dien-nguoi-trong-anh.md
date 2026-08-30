@@ -1,6 +1,6 @@
 # ADR-0011 — Nhận diện người trong ảnh (F21) và gắn người với món bằng hình (F22)
 
-- **Trạng thái:** 🟡 **BẢN THẢO v2** 2026-08-30 — sửa sau đợt tấn công của Codex; còn một câu hỏi treo cho leader
+- **Trạng thái:** 🟡 **BẢN THẢO v3** 2026-08-30 — sửa sau hai vòng tấn công của Codex; còn một câu hỏi treo cho leader
 - **Ngày:** 2026-08-30
 - **DRI:** Claude · **Reviewer:** Codex
 - **Nguồn:** spec F21, F22 · ADR-0009 (ranh giới AI↔tiền) · AGENTS.md (luật dữ liệu riêng tư) · CLAUDE.md (ba luật về tiền)
@@ -71,8 +71,32 @@ thứ không viết ra được"*. Sai. Khoá tổ hợp không ngăn được m
 `audit_events.event_data`, cache của model, và index ANN toàn bảng là ba đường
 tiếp theo cùng loại. PR phải nói rõ nó xử lý chúng thế nào.
 
+**Rời nhóm đóng grant, kể cả khi không ai bấm rút.** Grant treo dưới đúng *đời*
+membership sinh ra nó. Vòng `bật → rời (không rút) → vào lại` phải sinh grant
+mới; vector của đời trước chết theo đời trước. Không có cái này thì `consent_grant_id`
+chỉ đổi tên cho lỗ cũ chứ không bịt nó — vì "chưa ai bấm rút" không có nghĩa là
+"vẫn còn đồng ý".
+
 Hệ quả phải ghi vì sẽ bị coi là bug: cùng một người, cùng một ảnh, hai nhóm khác
 nhau có thể ra hai kết quả khác nhau. Đó là hành vi đúng.
+
+## Quyết định 2b — Ghi danh là **tự mình, từ ảnh chụp tại chỗ**, và ảnh bị xoá ngay
+
+Cấm avatar rồi thì phải nói nguồn ghi danh là gì, nếu không mỗi người tự chế một
+nguồn.
+
+- Ghi danh **self-only**: `actor.id == person_id`, không ai ghi danh hộ ai.
+- Nguồn là **một ảnh chụp trong luồng ghi danh**, gắn với đúng grant đang mở.
+- Tính xong vector thì **xoá ảnh ghi danh**. Nó không phải kỷ niệm, không phải
+  avatar, không có lý do gì để sống tiếp.
+- Một người, một nhóm, **một grant mở tại một thời điểm**.
+
+**Phần này có một lỗ không bịt được, ghi thẳng ra:** không có cách nào chứng minh
+khuôn mặt trong ảnh ghi danh đúng là mặt người đang bấm. Ai đó có thể ghi danh
+mặt bạn mình vào grant của chính mình. Cái chặn thiệt hại là Quyết định 6b —
+đề xuất chỉ hiện cho người *bị nhận diện*, mà ở đây người đó chính là kẻ ghi
+danh, nên thứ họ thu được đúng bằng thứ họ đã tự mang vào. Vẫn là rò rỉ dư, vẫn
+được ghi nhận là đã biết, không giả vờ là đã kín.
 
 ## Quyết định 3 — AI đề xuất, người xác nhận. Nhận diện KHÔNG BAO GIỜ tự ghi
 
@@ -86,8 +110,18 @@ Không có "tự động gán khi độ tin cậy trên 95%". Không ngưỡng n
 
 ## Quyết định 4 — Route không có trường danh tính nào trong body, và cả hai selector trên đường dẫn đều bị khoá
 
-`POST /contexts/{context_id}/bills/{bill_id}/face-suggestions` nhận **ảnh**, và
-không nhận gì khác. Không `person_ids`, không `candidates`, không `hints`.
+`POST /contexts/{context_id}/bills/{bill_id}/face-suggestions` **không có thân
+request nào cả** — không ảnh, không `person_ids`, không `candidates`, không
+`hints`.
+
+Bản v2 nói route "nhận ảnh" ở đây rồi lại nói ở Quyết định 7 rằng nó chỉ xử lý
+ảnh bất biến đã gắn phía server. Đó là hai hợp đồng khác nhau và Codex chỉ đúng.
+Chốt bản sau: route **đặt tên** cái bill, và server tự lấy tấm ảnh đã gắn sẵn với
+bill đó. Người gọi không đưa vào pixel nào.
+
+Điều này làm cả một lớp tấn công không viết ra được: không có chỗ để bắn một
+khuôn mặt tuỳ ý vào mà dò, nên route không thể bị dùng làm máy tra "người này có
+trong nhóm không". Cùng lý do `POST reactions` không có body.
 
 Tập ứng viên do server dựng lại, và bản v1 mô tả nó quá lỏng. Đúng phải là:
 
@@ -134,6 +168,25 @@ xác nhận.
 Một hệ thống nhận diện mà đối tượng của nó không nhìn thấy đầu ra là hệ thống
 giám sát. Khác biệt giữa hai thứ nằm ở đúng câu này.
 
+## Quyết định 6b — Đề xuất **chưa** xác nhận chỉ người bị nhận diện thấy. Chốt, không để ngỏ
+
+v2 để quyền của người tổ chức ở dạng "nếu", và để ngỏ thì mỗi người triển khai
+một kiểu. Chốt:
+
+- Đề xuất chưa xác nhận **chỉ hiện cho đúng người bị nhận diện**. Người tải ảnh
+  lên, chủ nhóm, và mọi thành viên khác thấy đúng một trạng thái: *"tự gán tay"*
+  — giống hệt lúc máy không nhận ra ai.
+- Người đó xác nhận thì phần gán trở thành **một phần gán bình thường**, cả nhóm
+  thấy, và **không phân biệt được với một phần gán do người ta tự bấm**.
+- Không ai xác nhận hộ ai.
+
+Cái này trả giá bằng sản phẩm và tôi ghi rõ để không ai tưởng là miễn phí: luồng
+"chủ nhóm ngồi gán cả bàn trong ba mươi giây" **không tồn tại**. Đổi lại, không
+ai nhận được một phỏng đoán của máy về khuôn mặt người khác, và **quyền thấy/gỡ
+ở Quyết định 6 áp cho mọi bản ghi gán người, bất kể nguồn** — nên nó không cần
+biết cái gán đó từng đến từ máy hay không, và mâu thuẫn Codex chỉ ra giữa QĐ5
+với QĐ6 biến mất.
+
 ## Quyết định 7 — Không khớp thì im lặng; và phần rò rỉ còn lại được ghi nhận, không giả vờ là không có
 
 Khuôn mặt không khớp ai đã bật đồng ý thì kết quả là **không biết**. Không dò
@@ -145,19 +198,21 @@ route trở thành một cỗ máy trả lời hai câu: *"người này có tro
 *"người này đã bật đồng ý chưa"*. Đồng nhất status/thân/thời gian chỉ giấu được
 người nghe lén, không giấu được chính người gọi hợp lệ.
 
-Bịt được đến đâu thì bịt:
+Bịt được đến đâu thì bịt, và Quyết định 4 với 6b đã bịt phần lớn:
 
-- Route **không nhận ảnh tuỳ ý**. Nó chỉ xử lý một ảnh **bất biến đã gắn sẵn
-  phía server** với đúng bill và đúng nhóm.
-- Mỗi ảnh chạy **một lần**, có quota theo `(actor, context, bill)`.
-- Đề xuất **chưa** xác nhận chỉ hiện cho **người bị nhận diện**; người tải ảnh
-  lên nhìn thấy đúng một trạng thái "đang chờ / tự gán tay" bất kể có khớp hay
-  không.
+- Route **không có thân request**, nên không có chỗ bắn một khuôn mặt tuỳ ý vào.
+- Mỗi ảnh chạy **một lần**, quota theo `(actor, context, bill)`.
+- Đề xuất chưa xác nhận **chỉ người bị nhận diện thấy**, nên người tải ảnh lên
+  không đọc được bit nào — với họ, "khớp" và "không khớp" trông hệt nhau.
 
-**Phần còn lại không bịt được:** nếu sản phẩm muốn người tổ chức nhìn thấy đề
-xuất để bấm, thì bit đó không thể loại bỏ. ADR ghi nhận đây là **rò rỉ dư được
-chấp nhận có ý thức**, chứ không phải chỗ chưa ai nghĩ tới. Ai đọc cũng phải
-thấy nó, để không đọc dòng xanh thành "đã kín".
+**Khuôn mặt không khớp thì không được lưu lại gì.** Không vector, không khung
+cắt, không đếm, không cờ "có mặt lạ" — kể cả tạm, kể cả trong thân phản hồi.
+Người trong ảnh mà không có grant thì **không có đường nào để rút**, nên thứ duy
+nhất an toàn là chưa từng ghi. Đây là chỗ Codex chỉ ra và v2 bỏ sót.
+
+**Phần còn lại không bịt được:** chính người bị nhận diện vẫn học được rằng mình
+xuất hiện trong một tấm ảnh của nhóm. Đó là thông tin về **chính họ**, nên nó
+chấp nhận được — nhưng ghi ra đây để không ai đọc dòng xanh thành "đã kín".
 
 ## Quyết định 8 — Vector đặc trưng và kết quả nhận diện là dữ liệu riêng tư hạng nặng
 
@@ -211,8 +266,16 @@ Không cái nào tuỳ chọn, không cái nào thay được bằng lời khai:
 4. **Ca rút đồng ý**, ở **tầng postgres thật**: bật → sinh đề xuất → xác nhận một
    cái → rút. Khẳng định vector và đề xuất chưa xác nhận đã biến mất, bản ghi
    quyết định của con người còn nguyên, và **số dư tính lại vẫn đúng**.
-5. **Ca vào lại nhóm**, tầng postgres: bật → rút → vào lại → bật lại. Vector của
-   kỳ trước **không được sống lại**. Đây là ca chứng minh Quyết định 2.
+5. **Ca vào lại nhóm**, tầng postgres, **hai biến thể**: `bật → rút → vào lại`
+   **và** `bật → rời mà KHÔNG rút → vào lại`. Vector của kỳ trước không được
+   sống lại ở cả hai. Biến thể thứ hai mới là ca thật — biến thể thứ nhất đi
+   vòng qua đúng chỗ khó.
+5b. **Ca mặt không khớp**: chạy trên ảnh có một khuôn mặt không thuộc ai có grant.
+   Khẳng định **không hàng nào** được ghi ở bảng vector, bảng đề xuất, hay
+   `audit_events` — đếm hàng trước và sau, không chỉ đọc phản hồi.
+5c. **Ca người khác không thấy**: đề xuất chưa xác nhận, đọc bằng chủ nhóm và
+   bằng người tải ảnh lên. Cả hai phải thấy đúng trạng thái "tự gán tay", không
+   phân biệt được với ca máy không nhận ra ai.
 6. **Ca hai nhóm**: cùng người, cùng ảnh, nhóm chưa bật đồng ý phải ra "không
    biết".
 7. **Ca `idempotency_keys`**: gửi kèm khoá idempotency, rút đồng ý, rồi phát lại
