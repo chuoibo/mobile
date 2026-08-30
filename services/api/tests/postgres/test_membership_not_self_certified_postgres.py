@@ -150,9 +150,9 @@ def test_a_member_who_left_is_refused_though_the_row_remains(
 
     assert refused.value.status_code == 403
     # The row survives the refusal: leaving is recorded, not deleted.
-    surviving = postgres_session.get(Membership, _open_membership_id(
-        postgres_session, group.id, former.id
-    ))
+    surviving = postgres_session.get(
+        Membership, _open_membership_id(postgres_session, group.id, former.id)
+    )
     assert surviving is not None
     assert surviving.state is MembershipState.LEFT
 
@@ -203,7 +203,9 @@ def test_an_active_member_is_still_allowed(postgres_session: Session):
 
     service = ApiService(SqlAlchemyApiRepository(postgres_session))
 
-    created = service.create_bill(_bill_request(group.id), _claiming(owner.id, group.id))
+    created = service.create_bill(
+        _bill_request(group.id), _claiming(owner.id, group.id)
+    )
 
     assert created.context_id == group.id
 

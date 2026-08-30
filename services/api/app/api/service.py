@@ -1723,11 +1723,7 @@ class ApiService:
         _require_permission(
             "confirm_expense_proposal",
             actor,
-            {
-                "is_group_member": self.repository.is_member(
-                    record.context_id, actor.id
-                )
-            },
+            {"is_group_member": self.repository.is_member(record.context_id, actor.id)},
         )
         return record
 
@@ -2362,11 +2358,7 @@ class ApiService:
         _require_permission(
             "view_collection_board",
             actor,
-            {
-                "is_group_member": self.repository.is_member(
-                    board.context_id, actor.id
-                )
-            },
+            {"is_group_member": self.repository.is_member(board.context_id, actor.id)},
         )
 
         rows = board.obligations
