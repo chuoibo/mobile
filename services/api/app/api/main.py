@@ -43,6 +43,7 @@ from app.api.routes import (
     people,
     photos,
     places,
+    posts,
     recap,
     receipts,
     screenshots,
@@ -117,6 +118,7 @@ def create_app(
     application.include_router(contexts.router)
     application.include_router(memories.router)
     application.include_router(photos.router)
+    application.include_router(posts.router)
     application.include_router(outings.router)
     application.include_router(messages.router)
     application.include_router(batches.router)

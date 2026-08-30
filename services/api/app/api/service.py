@@ -34,6 +34,7 @@ from app.api.repository import (
     OutingRecord,
     PersonFinanceSummary,
     PersonRecord,
+    PostRecord,
     RecapOutingRecord,
     StopCheckinRecord,
     UploadedImageRecord,
@@ -114,6 +115,10 @@ from app.api.schemas import (
     PaymentReportRequest,
     PaymentReportResponse,
     PersonMatchResponse,
+    PersonPostListResponse,
+    PostCreateRequest,
+    PostListResponse,
+    PostResponse,
     PublishedGuestLink,
     PublishedObligation,
     RecapOutingResponse,
@@ -128,7 +133,7 @@ from app.api.schemas import (
     UploadedImageResponse,
     VisitedPlace,
 )
-from app.domain import permissions
+from app.domain import permissions, post_audience
 from app.domain.allocator import allocate
 from app.domain.bank_account import BankAccountError, normalise_destination
 from app.domain.bill import BillError, allocator_input_from_bill
@@ -280,6 +285,58 @@ def _image_rejection_problem(exc: ImageRejected) -> ApiProblem:
         "not_an_image": 415,
     }[exc.code]
     return ApiProblem(status_code, exc.code, exc.detail)
+
+
+#: One sentence per refusal, in the language the person reading it speaks, and
+#: never the machine code itself. `photo_url_invalid` next to it is the model
+#: for the tone: say what is wrong with the request, not what the enum is
+#: called.
+_AUDIENCE_DETAIL = {
+    "UNKNOWN_AUDIENCE": "Post visibility must be one of the four known levels",
+    "GROUP_AUDIENCE_NEEDS_CONTEXT": "A post shared with a group must name the group",
+    "CONTEXT_NOT_ADDRESSABLE": "Only a group post may name a group",
+}
+
+
+def _photo_url_context_id(image_url: str) -> uuid.UUID:
+    """The group whose storage a photo url points into.
+
+    Parses rather than trusting the schema's pattern, for the reason spelled
+    out in `_require_photo_url_context` below: the day that pattern moves, a
+    bad body should still be a 422 and not a 500.
+    """
+
+    # ["", "contexts", <context id>, "photos", <photo id>]
+    parts = image_url.split("/")
+    try:
+        if (
+            len(parts) != 5
+            or parts[0]
+            or parts[1] != "contexts"
+            or parts[3] != "photos"
+        ):
+            raise ValueError(image_url)
+        context_id = uuid.UUID(parts[2])
+        uuid.UUID(parts[4])
+    except ValueError:
+        raise ApiProblem(
+            422,
+            "photo_url_invalid",
+            "Photo URL is not a path into this product's photo storage",
+        ) from None
+    return context_id
+
+
+def _wire_post(record: PostRecord) -> PostResponse:
+    return PostResponse(
+        id=record.id,
+        author_id=record.author_id,
+        audience=record.audience,
+        context_id=record.context_id,
+        body=record.body,
+        image_url=record.image_url,
+        created_at=record.created_at,
+    )
 
 
 def _require_photo_url_context(context_id: uuid.UUID, image_url: str | None) -> None:
@@ -1021,6 +1078,180 @@ class ApiService:
         )
         return _wire_memory(record)
 
+    # --- F39 posts, F42 audiences ------------------------------------------
+    #
+    # Every read below runs `post_is_readable` over each row it is about to
+    # return, even though the repository already refused to fetch anything the
+    # reader may not have. Two checks, on purpose, and they are not the same
+    # check twice: the repository's is a SQL predicate that keeps rows out of
+    # the result set, and this one is the domain rule that decides the
+    # question. If they ever disagree the narrower one wins, which is the only
+    # direction a disagreement is allowed to resolve.
+
+    def _is_friend(self, reader_id: uuid.UUID, other_id: uuid.UUID) -> bool:
+        """Friendship as `state = 'accepted'`, read now, never cached.
+
+        `get_friend_edge` also returns pending and blocked edges, so the state
+        has to be checked here: an unanswered request is a question, and
+        reading it as a yes would let anybody grant themselves a friend's view
+        by sending a request nobody has answered.
+        """
+        edge = self.repository.get_friend_edge(reader_id, other_id)
+        return edge is not None and edge.state == "accepted"
+
+    def _post_facts(self, record: PostRecord, reader_id: uuid.UUID) -> dict:
+        """Prove, for this reader and this post, the two facts F42 turns on.
+
+        Both are read from the server's own tables at the moment of the read.
+        Neither is taken from the actor's headers: `X-Actor-Contexts` is a
+        claim by the caller about their own membership, and this is the exact
+        place where believing it would hand a group's posts to somebody who
+        merely typed the group's id.
+        """
+        return {
+            "is_friend": self._is_friend(reader_id, record.author_id),
+            "is_group_member": record.context_id is not None
+            and self.repository.is_member(record.context_id, reader_id),
+        }
+
+    def _readable_posts(
+        self, records: tuple[PostRecord, ...], reader_id: uuid.UUID
+    ) -> list[PostResponse]:
+        friends: dict[uuid.UUID, bool] = {}
+        members: dict[uuid.UUID, bool] = {}
+        readable = []
+        for record in records:
+            if record.author_id not in friends:
+                friends[record.author_id] = self._is_friend(reader_id, record.author_id)
+            if record.context_id is not None and record.context_id not in members:
+                members[record.context_id] = self.repository.is_member(
+                    record.context_id, reader_id
+                )
+            if post_audience.can_read(
+                {
+                    "author_id": str(record.author_id),
+                    "audience": record.audience,
+                    "context_id": (
+                        None if record.context_id is None else str(record.context_id)
+                    ),
+                },
+                reader_id=str(reader_id),
+                is_friend=friends[record.author_id],
+                is_group_member=(
+                    record.context_id is not None and members[record.context_id]
+                ),
+            ):
+                readable.append(_wire_post(record))
+        return readable
+
+    def create_post(self, request: PostCreateRequest, actor: Actor) -> PostResponse:
+        """F39. Write one post, addressed to one of F42's four audiences."""
+
+        _require_permission("create_post", actor, {})
+        try:
+            post_audience.check_writable(request.audience, request.context_id)
+        except post_audience.AudienceError as exc:
+            raise ApiProblem(422, exc.code.lower(), _AUDIENCE_DETAIL[exc.code]) from exc
+
+        if request.audience == "group":
+            # The roster decides, not the header. `is_member` answers False for
+            # a group that does not exist and for one the actor is not in, so
+            # the refusal is the same 403 either way and reveals neither.
+            _require_permission(
+                "address_post_to_group",
+                actor,
+                {
+                    "is_group_member": self.repository.is_member(
+                        request.context_id, actor.id
+                    )
+                },
+            )
+
+        if request.image_url is not None:
+            # A photo lives in a group's storage and is read back through a
+            # membership-gated route. Attaching one from a group the author is
+            # not in would put another group's context and photo ids into a
+            # body that, at `public`, anybody can read.
+            photo_context_id = _photo_url_context_id(request.image_url)
+            _require_permission(
+                "address_post_to_group",
+                actor,
+                {
+                    "is_group_member": self.repository.is_member(
+                        photo_context_id, actor.id
+                    )
+                },
+            )
+
+        record = self.repository.create_post(
+            # The author is the proven actor. There is no request field that
+            # reaches this argument, by the design of `PostCreateRequest`.
+            author_id=actor.id,
+            audience=request.audience,
+            context_id=request.context_id,
+            body=request.body,
+            image_url=request.image_url,
+            now=_now(),
+        )
+        return _wire_post(record)
+
+    def read_post(self, post_id: uuid.UUID, actor: Actor) -> PostResponse:
+        """One post, or 404.
+
+        404 and never 403 for a post the actor may not read. A 403 would be an
+        oracle: it says "this id names a real post", and an attacker holding a
+        session and a list of candidate ids learns which of them exist inside
+        groups and private walls they have no part in. The two cases are made
+        indistinguishable rather than merely both refused.
+        """
+
+        record = self.repository.get_post(post_id)
+        if record is None:
+            raise ApiProblem(404, "post_not_found", "Post does not exist")
+        facts = self._post_facts(record, actor.id)
+        if not post_audience.can_read(
+            {
+                "author_id": str(record.author_id),
+                "audience": record.audience,
+                "context_id": (
+                    None if record.context_id is None else str(record.context_id)
+                ),
+            },
+            reader_id=str(actor.id),
+            **facts,
+        ):
+            raise ApiProblem(404, "post_not_found", "Post does not exist")
+        return _wire_post(record)
+
+    def list_posts(self, actor: Actor, *, limit: int = 50) -> PostListResponse:
+        return PostListResponse(
+            posts=self._readable_posts(
+                self.repository.list_posts_visible_to(actor.id, limit=limit),
+                actor.id,
+            )
+        )
+
+    def list_person_posts(
+        self, person_id: uuid.UUID, actor: Actor, *, limit: int = 50
+    ) -> PersonPostListResponse:
+        """Somebody's wall, narrowed to this reader.
+
+        Answers 200 with an empty list for a person the reader shares nothing
+        with, rather than 403 or 404. Distinguishing "no posts you may see"
+        from "no such person" would turn this route into a directory of who
+        has an account.
+        """
+
+        return PersonPostListResponse(
+            person_id=person_id,
+            posts=self._readable_posts(
+                self.repository.list_person_posts_visible_to(
+                    person_id, actor.id, limit=limit
+                ),
+                actor.id,
+            ),
+        )
+
     def create_outing(
         self,
         context_id: uuid.UUID,
@@ -1130,9 +1361,7 @@ class ApiService:
                     "outing_id": record.outing.id,
                     "title": record.outing.title,
                     "headcount": record.outing.headcount,
-                    "budget_per_person_vnd": (
-                        record.outing.budget_per_person_vnd
-                    ),
+                    "budget_per_person_vnd": (record.outing.budget_per_person_vnd),
                     "split_total_vnd": record.split_total_vnd,
                     "in_progress": record.in_progress,
                 }
