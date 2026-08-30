@@ -15,6 +15,9 @@ group, which the screen has to be able to say.
 from __future__ import annotations
 
 import logging
+import threading
+import time
+from collections.abc import Callable
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -200,36 +203,127 @@ class PlaceSearchResponse(BaseModel):
 # Reason writer: injected, memoised, and allowed to fail
 # ---------------------------------------------------------------------------
 
-_reason_cache: dict[str, PlaceReason] = {}
+# How long a row the model would not answer is left alone before asking again.
+# One minute, matching the windows in `app/api/search_rate_limit.py`, and the
+# same trade for the same reason: long enough that a permanently unanswerable
+# row costs a call a minute instead of a call a request, short enough that a
+# model outage clears within a minute of the model coming back.
+REASON_RETRY_COOLDOWN_SECONDS = 60
 
 
-def cached_gemini_reasons(rows: list[ReasonRow]) -> dict[str, PlaceReason]:
-    """Call Gemini once per place per process, not once per pull-to-refresh.
+class CachedReasonWriter:
+    """Call Gemini once per place, not once per *failed* place per request.
 
     The seed catalogue and the group profile are both fixed, so a reason is a
     pure function of data that does not change while the process lives. Caching
     it keeps a demo from spending a model call -- and two seconds of someone's
     attention -- every time a tab is opened.
 
-    A row that failed last time is retried: the cache stores successes only, so
-    a Gemini blip during startup does not leave the catalogue permanently
-    unlabelled.
+    A row that failed is still retried, because the alternative is worse: a
+    Gemini blip during startup must not leave the catalogue permanently
+    unlabelled. What changed is *how often*. Caching successes only made "asked
+    and got nothing" indistinguishable from "never asked", so a row the model
+    will not answer was re-asked on every single request, for the life of the
+    process. Three files had already written the old bound down as a safety
+    property -- "one call per place per process" -- and used it to argue this
+    route needed no ceiling. Measured on `d4bf672`: true when every row
+    answers, and false the moment one does not, at 25 model calls for 25
+    requests.
+
+    That is not an outage-only path. `parse_reasons` drops a reason whose
+    figures are not grounded in the place record, deliberately, and
+    `tests/places/test_reasons_batch_robustness.py` measured roughly one first
+    load in ten arriving with reasons missing. One ungrounded row in a
+    twelve-place catalogue re-armed the whole batch every time.
+
+    It matters here more than it would elsewhere because `GET /places` is the
+    only model-spending route in this service with no actor at all: the five
+    metered routes key their window on one and `POST /places/search` has
+    required one since rd-be-13. An unbounded retry behind an anonymous GET is
+    a `while true; do curl; done` pointed at the shared, paid key.
+
+    Refusal degrades rather than raising. A suppressed row loses its AI label
+    for a minute; the rows that did answer keep theirs, and the route keeps
+    serving scores -- which is what `list_places` already does when the writer
+    fails outright.
+
+    Instance state, not module state, and for the reason `build_search_limiter`
+    gives at length in the same codebase: a process-wide dict outlives the app
+    that owns it, so a suite sharing one has a colour that depends on execution
+    order. `create_app` builds one; production builds the app once, so
+    production still has exactly one.
     """
 
-    missing = [row for row in rows if row.place["id"] not in _reason_cache]
-    if missing:
-        _reason_cache.update(gemini_reasons(missing, GROUP))
-    return {
-        row.place["id"]: _reason_cache[row.place["id"]]
-        for row in rows
-        if row.place["id"] in _reason_cache
-    }
+    def __init__(
+        self,
+        *,
+        writer: Callable[[list[ReasonRow], GroupProfile], dict[str, PlaceReason]] = (
+            gemini_reasons
+        ),
+        group: GroupProfile = GROUP,
+        cooldown_seconds: int = REASON_RETRY_COOLDOWN_SECONDS,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._writer = writer
+        self._group = group
+        self._cooldown_seconds = cooldown_seconds
+        self._clock = clock
+        self._answered: dict[str, PlaceReason] = {}
+        # Place id -> when we last asked and were given nothing. Successes are
+        # never in here; an entry is the record that makes a refusal different
+        # from a question nobody has asked yet.
+        self._refused_at: dict[str, float] = {}
+        # Sync routes run in a threadpool, so two concurrent browsers are two
+        # real threads reading and writing these dicts.
+        self._lock = threading.Lock()
+
+    def __call__(self, rows: list[ReasonRow]) -> dict[str, PlaceReason]:
+        now = self._clock()
+        with self._lock:
+            missing = [
+                row
+                for row in rows
+                if row.place["id"] not in self._answered
+                and self._may_ask(row.place["id"], now)
+            ]
+
+        if missing:
+            # Outside the lock: this is the network call, and holding a lock
+            # across it would serialise every browse request behind one model
+            # round trip.
+            fresh = self._writer(missing, self._group)
+            with self._lock:
+                self._answered.update(fresh)
+                for row in missing:
+                    place_id = row.place["id"]
+                    if place_id in fresh:
+                        self._refused_at.pop(place_id, None)
+                    else:
+                        self._refused_at[place_id] = now
+
+        with self._lock:
+            return {
+                row.place["id"]: self._answered[row.place["id"]]
+                for row in rows
+                if row.place["id"] in self._answered
+            }
+
+    def _may_ask(self, place_id: str, now: float) -> bool:
+        """Caller holds the lock."""
+
+        refused_at = self._refused_at.get(place_id)
+        return refused_at is None or now - refused_at >= self._cooldown_seconds
 
 
-def get_reason_writer():
-    """Seam for tests. Overridden with a writer that never opens a socket."""
+def get_reason_writer(request: Request):
+    """Seam for tests, resolving the one object `create_app` built.
 
-    return cached_gemini_reasons
+    Read off the application for the same reason `get_search_rate_limiter` is:
+    a writer built per request remembers nothing, which is a cache-shaped
+    object that caches nothing and a cooldown that never cools.
+    """
+
+    return request.app.state.reason_writer
 
 
 def get_search_rate_limiter(request: Request) -> FixedWindowLimiter:

@@ -49,6 +49,7 @@ from app.api.routes import (
     social_map,
     suggestions,
 )
+from app.api.routes.places import CachedReasonWriter
 from app.api.schemas import ErrorResponse
 from app.api.search_rate_limit import (
     build_chat_expense_limiter,
@@ -104,6 +105,13 @@ def create_app(
     # And the proactive card, which had nothing at all in front of it: no
     # cache, no cadence, one model call per GET.
     application.state.suggestion_limiter = build_suggestion_limiter()
+    # `GET /places` is the seventh door onto the same key and the only one with
+    # no actor to key a window on. It is capped by a cache rather than a
+    # window, which is why it is built here and not above -- but for the same
+    # reason, and it belongs to the app for the same reason the limiters do.
+    # See `CachedReasonWriter`: caching successes only made a row the model
+    # refused cost a model call on every request.
+    application.state.reason_writer = CachedReasonWriter()
 
     application.mount(
         "/static",

@@ -324,10 +324,16 @@ def test_each_application_carries_its_own_window(client, searcher):
 def test_the_gate_is_on_the_paid_route_and_not_on_the_catalogue(client):
     """`GET /places` stays open, and that is a choice with a reason.
 
-    Its model calls are memoised per place per process (`cached_gemini_reasons`),
-    so a loop against it cannot spend more than the catalogue costs once.
+    Its model calls are memoised per place (`CachedReasonWriter`), so a loop
+    against it cannot spend more than the catalogue costs once per cooldown.
     `POST /places/search` has no such ceiling: every distinct sentence is a new
     call, which is exactly why the two routes are treated differently.
+
+    That memoisation is younger than this test. It used to read "per place per
+    process", which held only while the model answered every row; a row it
+    refused was re-asked on every request. This test stayed green throughout --
+    it asserts a status code, not a call count -- which is why the count is
+    asserted in `tests/api/test_places_reason_retry_storm.py` instead.
     """
 
     assert client.get("/places").status_code == 200
