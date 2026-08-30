@@ -1,6 +1,6 @@
 # ADR-0011 — Nhận diện người trong ảnh (F21) và gắn người với món bằng hình (F22)
 
-- **Trạng thái:** 🟡 **BẢN THẢO v3** 2026-08-30 — sửa sau hai vòng tấn công của Codex; còn một câu hỏi treo cho leader
+- **Trạng thái:** 🟡 **BẢN THẢO v4** 2026-08-30 — **đổi hướng thiết kế**: gom cụm rồi tự nhận, thay cho ghi danh
 - **Ngày:** 2026-08-30
 - **DRI:** Claude · **Reviewer:** Codex
 - **Nguồn:** spec F21, F22 · ADR-0009 (ranh giới AI↔tiền) · AGENTS.md (luật dữ liệu riêng tư) · CLAUDE.md (ba luật về tiền)
@@ -22,7 +22,35 @@ một danh sách danh tính người từ thân request đều ghi tiền hoặc
 những người chưa ai kiểm. F21 là phiên bản gắt nhất của đúng cánh cửa đó, vì ở
 đây danh tính không do ai gõ vào mà do **máy suy ra**.
 
-**Bản v2 này sửa năm chỗ Codex bắn thủng bản v1.** Bốn cái là lỗ thật trong hợp
+## v4 — vì sao đổi hướng, và nó bịt được cái gì
+
+Ba vòng tấn công dừng ở một lỗ không vá được bằng câu chữ: **A ghi danh mặt B
+dưới lần đồng ý của A.** Ràng buộc "tự mình cho mình" chứng minh được A đang ghi
+danh *cho A*; không câu lệnh nào chứng minh **khuôn mặt trong ảnh** là mặt A.
+
+Lỗ nằm ở **bước ghi danh**. Nên v4 bỏ hẳn bước đó.
+
+**Gom cụm, đừng nhận dạng.** Máy nhóm các khuôn mặt trong ảnh **nhóm đã có** thành
+những cụm **vô danh** — "khuôn mặt này xuất hiện ở bảy tấm" — chứ không hỏi họ là
+ai. Rồi mỗi thành viên **nhận cụm của chính mình, một lần**, và từ đó mọi ảnh cũ
+lẫn mới có họ đều tự gán.
+
+Đổi lại được ba thứ cùng lúc:
+
+- **Không còn đường tiêm mặt người ngoài.** Không có chỗ nào để tải một tấm ảnh
+  lên rồi khai là mình. Chỉ nhận được cụm **đã tồn tại sẵn** trong ảnh nhóm đã
+  chia sẻ. Lỗ của v3 biến mất vì cái cửa nó đi qua không còn tồn tại.
+- **Tiện hơn hẳn.** Một cái bấm duy nhất, áp ngược lại toàn bộ ảnh cũ — thay vì
+  mỗi tấm ảnh mỗi người bấm một lần.
+- **Tự sửa được trong nhóm nhỏ.** Một cụm chỉ một người nhận. A nhận nhầm cụm của
+  B thì B không nhận được nữa và **thấy ngay**.
+
+**Phần dư, nói thẳng:** A vẫn có thể nhận cụm của B **trước** B. Cái đó không biến
+mất. Nhưng nó khác hẳn về mức độ — nhìn thấy được, tranh chấp được, thu hồi được,
+và chỉ mở cho người **đã ở sẵn trong nhóm**; khác với lỗ cũ vốn âm thầm và mở cho
+cả người ngoài. Ghi nhận là rò rỉ dư được chấp nhận có ý thức.
+
+**Bản v2 sửa năm chỗ Codex bắn thủng bản v1.** Bốn cái là lỗ thật trong hợp
 đồng; cái thứ năm lôi ra một mâu thuẫn đã tồn tại sẵn trong repo, không do F21
 sinh ra — ghi ở cuối, dành cho leader.
 
@@ -80,7 +108,28 @@ chỉ đổi tên cho lỗ cũ chứ không bịt nó — vì "chưa ai bấm r�
 Hệ quả phải ghi vì sẽ bị coi là bug: cùng một người, cùng một ảnh, hai nhóm khác
 nhau có thể ra hai kết quả khác nhau. Đó là hành vi đúng.
 
-## Quyết định 2b — Ghi danh là **tự mình, từ ảnh chụp tại chỗ**, và ảnh bị xoá ngay
+## Quyết định 2b (v4) — **Không có bước ghi danh nào cả.** Cụm sinh ra từ ảnh nhóm đã có
+
+Thay cho toàn bộ Quyết định 2b của v3, đã bỏ.
+
+- Vector chỉ tính từ **ảnh nhóm đã chia sẻ trong đúng nhóm đó**. Không có đường
+  nào để tải một tấm ảnh lên riêng cho việc ghi danh.
+- Vector của một khuôn mặt **chưa ai nhận** là dữ liệu tạm: nó sống đủ lâu để
+  gom cụm rồi bị xoá, **trừ khi** có người nhận cụm đó. Người không bao giờ nhận
+  thì hệ thống không giữ gì lâu dài về họ.
+- Một người, một nhóm, **một cụm**. Nhận cụm là một hành động của actor cho chính
+  actor; không ai nhận hộ ai.
+- **Nhận cụm phải thấy được với cả nhóm**, và **thu hồi được**. Đây là thứ thay
+  cho mọi phép kiểm mật mã mà ta không có: trong một nhóm bạn bè, một lời khai
+  sai về mặt ai là chuyện nhìn thấy và cãi được.
+- Bỏ nhận cụm thì mọi phần gán suy ra từ nó **mất hiệu lực về sau**, và vector
+  của cụm bị xoá.
+
+Đây cũng là chỗ v3 sai mà không tự thấy: nó cố kiểm *ảnh ghi danh có đúng mặt
+người bấm không* — một câu hỏi không trả lời được — thay vì bỏ đi cái bước đẻ ra
+câu hỏi đó.
+
+## ~~Quyết định 2b (v3) — Ghi danh là tự mình, từ ảnh chụp tại chỗ~~ *(đã thay bằng v4 ở trên)*
 
 Cấm avatar rồi thì phải nói nguồn ghi danh là gì, nếu không mỗi người tự chế một
 nguồn.
@@ -242,6 +291,12 @@ quyền" và đẩy nó ra khỏi phạm vi. Sai. AGENTS.md viết thẳng:
 tiến trình của service, không gọi ra ngoài.** Bộ sinh vector đặt sau một seam để
 test thay được bằng bản giả tất định — seam đó **không phải** chỗ để lén cắm một
 client mạng vào.
+
+**File model nằm trong ảnh Docker, không nằm trong Git.** Đo được: `cv2.FaceRecognizerSF`
+và `cv2.FaceDetectorYN` có sẵn trong OpenCV đang dùng, cộng `onnxruntime`. Trọng số
+SFace là một file `.onnx` **38,7 MB** — tải lúc `docker build` (Dockerfile đã có
+mạng ở bước `pip install`), **ghim bằng `sha256`**, và không bao giờ commit. Repo
+guard fail-closed với nhị phân là đúng và không được nới ra vì việc này.
 
 Vì không còn hạn mức của nhà cung cấp, trần nhịp ở đây không phải để giữ tiền mà
 để giữ CPU: vẫn phải có, vẫn phải chứng minh **không dùng chung cửa sổ** với các
