@@ -298,6 +298,16 @@ export function VoTab({
           nguoi={nguoi}
           contextId={nhomId ?? null}
           onDong={() => setLuongKyNiem(false)}
+          // F38's screen shipped reachable by URL and by nothing else -- its
+          // own header says so. A surface only an address can open is a surface
+          // no person on the demo can be shown, so the wall, which is the one
+          // screen already about this group's photographs, gets the door. The
+          // wall closes rather than stacking: two full-screen flows on top of
+          // each other give one task two ways out.
+          onMoWidget={() => {
+            setLuongKyNiem(false);
+            setLuongWidget(true);
+          }}
         />
       </SafeAreaView>
     );

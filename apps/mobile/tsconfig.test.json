@@ -75,6 +75,14 @@
     // bug-185426 was present in both -- so both are rendered and read, rather
     // than one being trusted to stand for the other.
     "src/screens/kham-pha/KhamPha.tsx",
+    // `GET /places/{id}`, the detail screen's own read. Compiled because the
+    // rules worth pinning are all about a body this app does not control: a
+    // review outside 0-5 is refused rather than clamped, an absent
+    // `description` is null rather than "", and a 404 from a server that lacks
+    // the route is a different sentence from a 404 for a place that is gone.
+    // None of that is checkable by reading the screen. See
+    // `tests/nam-man-chi-tiet.test.mjs`.
+    "src/screens/kham-pha/chi-tiet-dia-diem.ts",
     "src/screens/chat/uuid5.ts",
     "src/screens/chat/tin-nhan.ts",
     "src/screens/chat/ke-hoach.ts",

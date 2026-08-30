@@ -26,10 +26,10 @@ import {
 import { moTaTrangThaiGan, type BillWire, type SoDu } from "../bill";
 import { itemsTotalVnd, type BillLine, type BillReading } from "../receipt";
 import { availableMembers, labelFor, type GroupMember, type Roster } from "../participants";
-import type { SplitPreview } from "../api";
+import { attemptFor, docChiaBill, type Attempt, type ChiaBill, type SplitPreview } from "../api";
 import { radius, space, type, usePalette } from "../theme";
 import { toggleState } from "../ui/a11y";
-import { Button, Card, ReadingNotice } from "../ui/Kit";
+import { Button, Card, ReadingNotice, Row } from "../ui/Kit";
 
 const HIT = 44;
 const AVATAR = 56;
@@ -434,6 +434,8 @@ export function GoiYChia(props: {
 
         <SoDuNhom soDu={props.soDu} roster={roster} />
 
+        <MayChuChiaThu bill={props.bill} roster={roster} />
+
       </ScrollView>
 
       {/* Pinned, like the total below it, and for a stronger reason. The
@@ -824,6 +826,124 @@ function SoDuNhom({
             : "Có thể còn cách chuyển gọn hơn."}
         </Text>
       </View>
+    </Card>
+  );
+}
+
+/**
+ * What the SERVER makes of the stored bill, asked for on purpose.
+ *
+ * Every dong above this card came from `previewSplit`, which posts the matrix
+ * this phone is holding to `POST /expenses`. That is the right call while
+ * somebody is still ticking boxes, and it has one blind spot: it can only ever
+ * report on the ticks in this component's state. If the write to `POST /bills`
+ * dropped a line, or somebody else re-ticked the same bill on their own phone,
+ * the number on this screen stays confidently wrong and nothing here can tell.
+ *
+ * `POST /bills/{id}/split` names the bill and nothing else. The server reads the
+ * shares IT stored against the roster IT holds, so this card is the only place
+ * in the app where the two can be caught disagreeing -- which is the whole
+ * reason it is worth a press.
+ *
+ * Nothing is computed here. Every figure drawn is one the allocator produced;
+ * this component formats and does not divide.
+ *
+ * Not automatic. It is a POST, it is idempotent only because of the key, and a
+ * card that fires on mount would send one on every re-render of a screen people
+ * scroll. A press is also what makes the answer attributable to a moment.
+ */
+function MayChuChiaThu({
+  bill,
+  roster,
+  doc = docChiaBill,
+}: {
+  bill: BillWire | null;
+  roster: Roster;
+  /** Seam for the tests. */
+  doc?: typeof docChiaBill;
+}): React.JSX.Element | null {
+  const c = usePalette();
+  const [ketQua, setKetQua] = useState<ChiaBill | null>(null);
+  const [loi, setLoi] = useState<string | null>(null);
+  const [dangHoi, setDangHoi] = useState(false);
+  // One key for one bill, held across renders. Two presses on a slow connection
+  // are one question asked once; without this the second is a second POST.
+  const soKhoa = React.useRef<Record<string, Attempt>>({});
+
+  // No bill id, nothing to ask about. The matrix upstairs still works -- it
+  // lives in this phone's state and does not need the write to have landed.
+  if (bill === null) return null;
+
+  const hoi = async () => {
+    setDangHoi(true);
+    setLoi(null);
+    try {
+      setKetQua(
+        await doc(
+          bill.id,
+          // The actor is whoever this client already told the server it was
+          // when it stored the bill. Not a new identity and not a field a
+          // caller could point elsewhere -- it is read back off the row.
+          bill.created_by_id,
+          bill.context_id,
+          attemptFor(soKhoa.current, `chia-bill:${bill.id}`),
+        ),
+      );
+    } catch (e) {
+      setKetQua(null);
+      setLoi(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDangHoi(false);
+    }
+  };
+
+  return (
+    <Card>
+      <Text style={{ ...type.title, color: c.ink }}>Máy chủ chia thử</Text>
+      <Text style={{ ...type.label, color: c.inkSoft }}>
+        Hỏi máy chủ xem hoá đơn đã lưu chia ra bao nhiêu mỗi người. Không ghi vào
+        sổ, không chốt gì, chỉ để đối chiếu với bảng ở trên.
+      </Text>
+
+      <Button
+        label={dangHoi ? "Đang hỏi…" : "Hỏi máy chủ"}
+        tone="quiet"
+        disabled={dangHoi}
+        onPress={() => void hoi()}
+      />
+
+      {loi ? (
+        <Text style={{ ...type.label, color: c.warn }} accessibilityRole="alert">
+          {loi}
+        </Text>
+      ) : null}
+
+      {ketQua ? (
+        <View style={{ gap: 2, marginTop: space.xs }}>
+          {Object.entries(ketQua.allocations)
+            // Sorted by id, not by amount: the order must not change between two
+            // presses that returned the same numbers.
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([personId, amountVnd]) => (
+              <Row
+                key={personId}
+                left={labelFor(roster, personId)}
+                right={`${formatVnd(amountVnd)}đ`}
+              />
+            ))}
+          <Row left="Tổng máy chủ cộng lại" right={`${formatVnd(ketQua.totalAmountVnd)}đ`} muted />
+          <Text style={{ ...type.micro, color: c.inkFaint }}>
+            {ketQua.assignmentState === "confirmed"
+              ? "Máy chủ chia theo những ô đã chốt."
+              : "Máy chủ chia theo phần máy đoán. Chưa ai xác nhận những ô này."}
+          </Text>
+          {ketQua.warnings.map((w) => (
+            <Text key={w} style={{ ...type.label, color: c.warn }}>
+              {w}
+            </Text>
+          ))}
+        </View>
+      ) : null}
     </Card>
   );
 }
