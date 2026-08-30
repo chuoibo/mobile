@@ -57,11 +57,69 @@
 #   scripts/ruff_pinned.sh          print the path to the pinned ruff
 #   scripts/ruff_pinned.sh --pin    print the pin line (ruff==X.Y.Z)
 #
+# This script is a RESOLVER, not a ruff wrapper. It prints a path; it never
+# lints. To lint, substitute the path in:
+#
+#   "$(scripts/ruff_pinned.sh)" check <file>
+#
 # Exit codes: 0 the printed path is a ruff whose version matches the pin,
 # 2 could not produce one -- never a fallback to a different version, because
-# that is the defect this file removes.
+# that is the defect this file removes -- and 64 (EX_USAGE) called as if it
+# were ruff. 64 is kept distinct from 2 for the reason pin_line() gives below:
+# a gate is allowed to fail and is not allowed to misname why. "you typed the
+# call wrong" and "this machine cannot produce the pinned ruff" send the reader
+# to two different places.
 
 set -euo pipefail
+
+# ## Why an argument is an error rather than something to pass through
+#
+# `scripts/ruff_pinned.sh check services/api/app/api/routes/places.py` used to
+# print the path and exit 0. The arguments went nowhere. Nothing was linted --
+# and from a terminal the result is indistinguishable from a clean run: one
+# line of output, no findings, rc=0. Two QA turns reached for it that way
+# (qa-tt-0023 §5, qa-tt-0024 §2), which is the tell that the shape is not
+# exotic. The header above says to lint with "the pinned ruff:
+# scripts/ruff_pinned.sh", and putting this script where `ruff` used to go is
+# the obvious reading of that sentence.
+#
+# While Actions is down on billing, gate.sh on this machine is the only lint
+# verdict anybody gets. A call shape that lints nothing while reading as ĐẠT is
+# the same defect the rest of this file removes, arriving through the front
+# door.
+#
+# Passing the arguments through to the resolved binary was the other option and
+# is worse: it makes this script a second, undocumented way to run ruff, and
+# then `ruff_changed.sh`'s scope rules -- which files, staged or tree, the
+# format half -- silently do not apply to whatever anybody types here.
+#
+# The check sits above the requirements read and the venv build so that a wrong
+# call costs nothing and, more importantly, cannot reach any branch that prints
+# a path.
+usage_error() {
+  {
+    echo "::error::scripts/ruff_pinned.sh KHÔNG phải wrapper của ruff --" \
+      "nó chỉ IN ĐƯỜNG DẪN, không lint gì. Lệnh bạn vừa gõ không kiểm gì cả."
+    echo
+    echo "Bạn gõ:   scripts/ruff_pinned.sh $*"
+    echo "Đúng là:  \$(scripts/ruff_pinned.sh) $*"
+    echo "  hoặc:   RUFF=\"\$(scripts/ruff_pinned.sh)\" && \"\$RUFF\" $*"
+    echo
+    echo "Chỉ hai cách gọi hợp lệ:"
+    echo "  scripts/ruff_pinned.sh          in đường dẫn tới ruff bản ghim"
+    echo "  scripts/ruff_pinned.sh --pin    in dòng pin (ruff==X.Y.Z)"
+  } >&2
+  exit 64
+}
+
+# Matched on the count as well as the value: `--pin` with anything after it is
+# the same misunderstanding, and bare `${1:-}` would also accept an empty
+# first argument as if it were no argument at all.
+case "$#:${1:-}" in
+  0:) ;;
+  1:--pin) ;;
+  *) usage_error "$@" ;;
+esac
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 REQUIREMENTS="$REPO_ROOT/services/api/requirements-dev.txt"
