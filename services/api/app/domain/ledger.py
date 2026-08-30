@@ -193,7 +193,14 @@ def obligation_status(
 
     `receiver_confirmed` is not bank evidence. It should not be able to close
     an argument either.
+
+    Both money arguments run through `require_vnd`. This one used to hand-roll
+    `<= 0`, which is how the fix one function up missed it: `0.5 <= 0` and
+    `True <= 0` are both False, so a float face value produced a status and
+    `True` became one dong, reading every real payment as `over_confirmed`.
+    Zero keeps its own diagnostic for the same reason `confirmed_total` does.
     """
+    require_vnd(declared_amount_vnd)
     if declared_amount_vnd <= 0:
         raise LedgerError("NON_POSITIVE_OBLIGATION")
     confirmed = confirmed_total(receipt_confirmations)
