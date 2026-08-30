@@ -137,11 +137,20 @@ def _stage_bodies() -> list[tuple[str, str]]:
 
 
 def _toplevel_code() -> list[str]:
-    """Non-comment lines that are outside every `do_<stage>()` body.
+    """Lines outside every `do_<stage>()` body that could actually run a checker.
 
     Shadowed duplicates are subtracted too, not just the effective ones: a line
     inside the first of two same-named bodies is dead, and calling it top level
     would hand back the exact blindness this file exists to remove.
+
+    `echo` and `printf` lines are subtracted as well, and that exclusion was not
+    obvious -- it was found by mutation. Moving `check_pin_drift.py` out of the
+    verdict block and into a stage body left the gate's own failure message,
+    which spells the path out so a reader can run it by hand, and the name in
+    that message kept every assertion here green. A checker printed in a string
+    is not a checker called. `_code_lines` above has the same blind spot for the
+    same reason; it is narrowed here because these two assertions are the ones
+    that treat top-level placement as proof of anything.
     """
     lines = GATE.read_text(encoding="utf-8").splitlines()
     inside = set()
@@ -150,7 +159,9 @@ def _toplevel_code() -> list[str]:
     return [
         line
         for number, line in enumerate(lines)
-        if number not in inside and not line.lstrip().startswith("#")
+        if number not in inside
+        and not line.lstrip().startswith("#")
+        and not re.match(r"\s*(echo|printf)\b", line)
     ]
 
 
