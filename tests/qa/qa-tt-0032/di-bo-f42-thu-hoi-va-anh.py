@@ -237,7 +237,11 @@ def expect_visible(who: str, name: str, visible: set[str]) -> None:
     got_feed = feed_ids(who) & ALL
     check(f"{name} · GET /posts (dem ban ghi)", sorted(got_feed), sorted(visible))
     got_wall = wall_ids(AN, who) & ALL
-    check(f"{name} · GET /people/An/posts (dem ban ghi)", sorted(got_wall), sorted(visible))
+    check(
+        f"{name} · GET /people/An/posts (dem ban ghi)",
+        sorted(got_wall),
+        sorted(visible),
+    )
     for label, pid in POSTS.items():
         status, _ = call("GET", f"/posts/{pid}", actor=who)
         want = 200 if pid in visible else 404
@@ -251,9 +255,7 @@ def expect_visible(who: str, name: str, visible: set[str]) -> None:
 
 print("\n== MUC 1+2: bon audience, hai nhom — truoc khi thu hoi gi ==")
 expect_visible(AN, "An (tac gia)", ALL)
-expect_visible(
-    BAN, "Ban (ban, khong o nhom nao)", {POSTS["friends"], POSTS["public"]}
-)
+expect_visible(BAN, "Ban (ban, khong o nhom nao)", {POSTS["friends"], POSTS["public"]})
 expect_visible(
     CUONG, "Cuong (G1, khong phai ban)", {POSTS["group_g1"], POSTS["public"]}
 )
@@ -264,9 +266,7 @@ print("\n== MUC 5: loi moi ket ban DANG CHO khong mo audience friends ==")
 expect_visible(PHUC, "Phuc (loi moi CHUA tra loi)", {POSTS["public"]})
 status, phuc_edges = call("GET", f"/people/{PHUC}/friend-requests", actor=PHUC)
 must("Phuc that su co mot loi moi dang cho", status == 200, f"status={status}")
-pending = [
-    e for e in phuc_edges.get("requests", []) if e.get("state") == "pending"
-]
+pending = [e for e in phuc_edges.get("requests", []) if e.get("state") == "pending"]
 must(
     "trang thai loi moi cua Phuc la pending (khong phai accepted)",
     len(pending) == 1,
@@ -328,9 +328,7 @@ must(
     POSTS["group_g1"] in feed_ids(CUONG),
     "",
 )
-status, left = call(
-    "DELETE", f"/contexts/{G1}/members/{CUONG}", actor=CUONG
-)
+status, left = call("DELETE", f"/contexts/{G1}/members/{CUONG}", actor=CUONG)
 must("Cuong tu roi G1", status in (200, 204), f"status={status} {left}")
 
 after_feed_c = feed_ids(CUONG) & ALL
@@ -375,7 +373,7 @@ must(
 # EM is in G2 only; CUONG has just left G1. AN uploads into G2 so a reader
 # outside it (CUONG, DUYEN) can be tested against the photo route.
 status, up = upload_photo(G2, AN, RAW)
-must(f"An tai anh len G2", status == 201, f"status={status} {up}")
+must("An tai anh len G2", status == 201, f"status={status} {up}")
 PHOTO_URL = up["url"]
 must(
     "url anh co dang /contexts/{id}/photos/{id}",
