@@ -23,10 +23,24 @@ a *new* bare-ruff verdict path fails here on the pull request that adds it.
 One thing, structurally rather than by grep. In every tracked `*.py` and `*.sh`
 file, ruff must not be executed under the bare name `ruff`:
 
-  - Python: the argv of a `subprocess` call, read from the AST. A literal
-    `"ruff"` in argv[0] is the defect. A resolved path -- `pinned_ruff()`,
-    `RUFF`, `str(some_path)` -- is not, because the AST cannot say it is, and a
-    gate that guesses is a gate that gets switched off.
+  - Python: the argv of a `subprocess` call, read from the AST. argv[0] is the
+    defect when it evaluates to *the ruff this machine happens to have*, in any
+    of the three ways a file can say that: the literal `"ruff"`; a
+    `shutil.which("ruff")` written inline; or a name bound earlier in the file
+    to either of those. A path resolved through the pin -- `pinned_ruff()`,
+    `str(some_path)` -- is not, because the AST cannot say it is, and a gate
+    that guesses is a gate that gets switched off.
+
+    The rule is about argv, not about `shutil.which` itself. Three files ask
+    `if shutil.which("ruff") is None` to decide whether their own fixture can
+    run; that value never reaches a subprocess and never decides anything about
+    repository files. Reporting them would be a false accusation, and a false
+    accusation is what gets a gate disabled.
+
+    `shutil.which("ruff", path=...)` is likewise outside the rule: it asks a
+    named directory, not the machine. `test_duong_phan_quyet_ruff_thu_hai.py`
+    uses it to prove a shim really landed at the front of a PATH it just built,
+    which is the opposite of trusting whatever was there.
   - Shell: `ruff` standing in a command position (start of a line, or after
     `|`, `&&`, `||`, `;`, `(`). `"$RUFF" check` and `command -v ruff` are
     argument and lookup, not execution, and do not match.
@@ -62,8 +76,22 @@ everything around it, and must stay clean.
   deciding that from YAML would mean tracking which steps share a shell, and a
   gate that models a runner will drift from it. `tests/test_gate_covers_every_workflow_job.py`
   holds the narrower line for workflows.
-- It cannot see ruff invoked through a name it computes at runtime
-  (`subprocess.run([tool_name, ...])`). Nothing in the tree does that today.
+- It cannot see ruff invoked through a name it computes at runtime from
+  something other than the two forms above -- read out of a config file, joined
+  from parts, returned by a helper in another module.
+
+  The first draft of this file said "nothing in the tree does that today" and
+  stopped there. That sentence was true when written and false eight hours
+  later: #252 landed `tests/qa/qa-tt-0010/test_duong_phan_quyet_ruff_thu_hai.py`,
+  which resolves `shutil.which("ruff")` into a local and hands that local to
+  `subprocess.run`. The gate stayed green through the merge -- git reports no
+  conflict between a new detector and a new file it cannot read.
+
+  Measured before the rule below was widened, on four spellings of one
+  violation: literal argv[0] -> 1 finding; `which` into a local -> 0; `which`
+  inline -> 0; module constant `RUFF = "ruff"` -> 0. One in four. The three
+  silent spellings are why the rule is written over what argv[0] *evaluates to*
+  rather than over what it looks like.
 - The guarantee `ruff_pinned.sh` gives is "a binary reporting the pinned
   version number", not "that binary". A shim that lies about `--version`
   passes, as tests/test_ruff_pinned.py already records.
@@ -126,19 +154,75 @@ def _argv(node: ast.Call) -> list[ast.expr]:
     return list(node.args)
 
 
-def _is_bare_ruff_verdict(argv: list[ast.expr]) -> bool:
-    """True when *argv* executes `ruff` by name to judge something.
+def _is_path_lookup(node: ast.expr) -> bool:
+    """True for `shutil.which("ruff")` -- the machine's ruff, not the pin.
 
-    argv[0] must be the literal string. Everything after it decides verdict
-    from probe: all-literal and drawn from PROBE_ONLY is a probe; anything
-    else -- including an argument this gate cannot read, such as a variable
-    holding a path -- is a verdict. Unreadable resolves to "report it", since
-    a gate that stays quiet when unsure is the failure mode being closed.
+    `path=` excludes the call: that form asks a directory the caller names,
+    which is how a test proves a shim it just built sits at the front of a PATH
+    it just built. The question this gate asks is "which binary answered", and
+    a caller who names the directory has already answered it.
+    """
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+    if name != "which":
+        return False
+    if any(kw.arg == "path" for kw in node.keywords):
+        return False
+    return bool(node.args) and (
+        isinstance(node.args[0], ast.Constant) and node.args[0].value == "ruff"
+    )
+
+
+def _path_bound_names(tree: ast.AST) -> set[str]:
+    """Names this file binds to the machine's ruff.
+
+    Collected file-wide rather than per-scope, deliberately. Resolving scopes
+    correctly would let a violation hide behind a shadowed name, and the cost
+    of the coarse version is a false report only if a file binds `ruff = "ruff"`
+    in one function and a pinned path to the same name in another -- at which
+    point the file has a worse problem than this gate.
+    """
+    bound: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        value = node.value
+        if value is None:
+            continue
+        if not (
+            (isinstance(value, ast.Constant) and value.value == "ruff")
+            or _is_path_lookup(value)
+        ):
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        for target in targets:
+            if isinstance(target, ast.Name):
+                bound.add(target.id)
+    return bound
+
+
+def _is_bare_ruff_verdict(argv: list[ast.expr], path_bound: set[str]) -> bool:
+    """True when *argv* executes the machine's ruff to judge something.
+
+    argv[0] must evaluate to PATH's ruff -- as a literal, as an inline
+    `shutil.which("ruff")`, or through a name this file bound to either.
+    Everything after it decides verdict from probe: all-literal and drawn from
+    PROBE_ONLY is a probe; anything else -- including an argument this gate
+    cannot read, such as a variable holding a path -- is a verdict. Unreadable
+    resolves to "report it", since a gate that stays quiet when unsure is the
+    failure mode being closed.
     """
     if not argv:
         return False
     head = argv[0]
-    if not (isinstance(head, ast.Constant) and head.value == "ruff"):
+    resolves_to_path_ruff = (
+        (isinstance(head, ast.Constant) and head.value == "ruff")
+        or _is_path_lookup(head)
+        or (isinstance(head, ast.Name) and head.id in path_bound)
+    )
+    if not resolves_to_path_ruff:
         return False
     rest = argv[1:]
     literal = [n.value for n in rest if isinstance(n, ast.Constant)]
@@ -154,6 +238,7 @@ def python_offenders(source: str, label: str) -> list[str]:
     """Every `subprocess.*` call in *source* that judges with a bare ruff."""
     offenders: list[str] = []
     tree = ast.parse(source, filename=label)
+    path_bound = _path_bound_names(tree)
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
@@ -164,7 +249,7 @@ def python_offenders(source: str, label: str) -> list[str]:
         name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
         if name not in SUBPROCESS_CALLS:
             continue
-        if _is_bare_ruff_verdict(_argv(node)):
+        if _is_bare_ruff_verdict(_argv(node), path_bound):
             offenders.append(f"{label}:{node.lineno}")
     return offenders
 
@@ -210,6 +295,27 @@ class RuffVerdictsUseThePin(unittest.TestCase):
             "the Python detector missed a bare-ruff subprocess call",
         )
 
+        # The same violation in the three spellings that do not put the word
+        # "ruff" in argv[0]. Every one of these returned 0 findings until this
+        # row existed, and the middle one is the shape #252 actually shipped --
+        # so this is a regression row against a live miss, not a hypothetical.
+        # Written as three separate spellings on purpose: one canary in the
+        # shape the author finds natural is how a detector passes its own
+        # self-test while blind to the other ways of writing the same thing.
+        spelled_differently = (
+            "import shutil, subprocess\n"
+            'found = shutil.which("ruff")\n'
+            'subprocess.run([found, "format", "--check", path])\n'
+            'subprocess.run([shutil.which("ruff"), "check", path])\n'
+            'RUFF = "ruff"\n'
+            'subprocess.run([RUFF, "format", path])\n'
+        )
+        self.assertEqual(
+            python_offenders(spelled_differently, "canary-spelling.py"),
+            ["canary-spelling.py:3", "canary-spelling.py:4", "canary-spelling.py:6"],
+            "a PATH-resolved ruff reached a subprocess argv unreported",
+        )
+
         # Keeps the property, changes everything else: the pin is resolved, so
         # every line here is correct and none may be reported.
         innocent_py = (
@@ -226,6 +332,29 @@ class RuffVerdictsUseThePin(unittest.TestCase):
             python_offenders(innocent_py, "canary-good.py"),
             [],
             "the Python detector accused a call that resolves the pin",
+        )
+
+        # Near-misses of the WIDENED rule specifically. Each holds the property
+        # -- no machine-resolved ruff renders a verdict -- while sitting as
+        # close to the new logic as code can. If the rule is ever loosened into
+        # "mentions shutil.which" or "argv[0] is a variable", these go red and
+        # say so, which is the row that separates a gate that measures the
+        # property from a gate that measures whether a file was touched.
+        near_miss_py = (
+            "import shutil, subprocess\n"
+            'found = shutil.which("ruff", path=bin_dir)\n'
+            'subprocess.run([found, "--version"])\n'
+            'if shutil.which("ruff") is None:\n'
+            '    self.fail("no ruff at all")\n'
+            "binary = pinned_ruff()\n"
+            'subprocess.run([binary, "format", "--check", path])\n'
+            'other = shutil.which("black")\n'
+            'subprocess.run([other, "--check", path])\n'
+        )
+        self.assertEqual(
+            python_offenders(near_miss_py, "canary-near.py"),
+            [],
+            "the widened rule accused code that never lets PATH decide",
         )
 
         # The probe carve-out has to stay narrow: one real argument alongside

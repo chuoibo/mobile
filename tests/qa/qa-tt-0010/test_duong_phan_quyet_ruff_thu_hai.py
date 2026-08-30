@@ -32,10 +32,21 @@ change between releases; the day it changes for a file under `tests/qa/`, the
 ratchet starts giving a local verdict from a binary CI never runs -- the defect
 #246 removed, one file over.
 
-So this case is filed `xfail(strict=True)` rather than red, following
+## Status: closed
+
+This case was filed `xfail(strict=True)` rather than red, following
 `tests/test_gate_ruff_skip_hides_pin_check.py`: a stake driven where the gap is,
 which turns into a failure the moment somebody closes it and forgets to remove
-the marker. Closing it is a `scripts/` change and `scripts/` is not QA's to edit.
+the marker. Closing it was a `scripts/` change and `scripts/` is not QA's to edit.
+
+DevOps closed it (#257): the ratchet now resolves its binary through
+`scripts/ruff_pinned.sh`. The marker came off in the same change, because the
+stake did its job -- on the merged tree the case reported XPASS(strict), which
+is a failure, so shipping the fix without removing the marker would have turned
+main red. That is the whole point of `strict`, and it worked as designed.
+
+The case stays, unmarked, as a live guard: it now fails if the ratchet ever goes
+back to trusting PATH.
 
 ## How it discriminates, and why not by reading the source
 
@@ -65,8 +76,6 @@ import tempfile
 import textwrap
 import unittest
 from pathlib import Path
-
-import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RATCHET = REPO_ROOT / "tests" / "test_qa_scripts_are_ruff_formatted.py"
@@ -125,17 +134,36 @@ class DuongPhanQuyetRuffThuHai(unittest.TestCase):
             )
             self.assertEqual(version.stdout.strip(), "ruff 9.9.9")
 
-    def test_file_moi_da_dinh_dang_duoc_ca_hai_ban_ruff_chap_nhan(self) -> None:
-        """The fixture is clean under both versions, so red below means the shim.
+    def test_file_moi_da_dinh_dang_duoc_ban_ghim_chap_nhan(self) -> None:
+        """The fixture is clean under the pin, so red below means the shim.
 
         Without this, a fixture that the pinned ruff happens to dislike would
         make the case below red while proving nothing about which binary answered.
+
+        Asks the pin, not PATH. When this was written the ratchet judged with
+        PATH's ruff, so controlling with PATH's ruff was controlling with the
+        binary under test; now that the ratchet resolves the pin, PATH's answer
+        is about a binary that no longer renders the verdict below -- a control
+        against the wrong subject, which controls for nothing.
+
+        Resolved directly rather than through the ratchet's own `pinned_ruff()`,
+        so a bug in the ratchet's resolver cannot make its control agree with it.
         """
+        resolved = subprocess.run(
+            [str(REPO_ROOT / "scripts" / "ruff_pinned.sh")],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        ruff = resolved.stdout.strip()
+        self.assertEqual(
+            (resolved.returncode, bool(ruff)),
+            (0, True),
+            f"không phân giải được ruff ghim: {resolved.stderr.strip()}",
+        )
         with tempfile.TemporaryDirectory() as tmp:
             probe = Path(tmp) / "sach.py"
             probe.write_text(DA_DINH_DANG, encoding="utf-8")
-            ruff = shutil.which("ruff")
-            self.assertIsNotNone(ruff, "không có ruff nào trên PATH để đối chứng")
             result = subprocess.run(
                 [ruff, "format", "--check", "--no-cache", "--", str(probe)],
                 capture_output=True,
@@ -148,16 +176,12 @@ class DuongPhanQuyetRuffThuHai(unittest.TestCase):
                 f"fixture không sạch với {ruff}: {result.stdout}{result.stderr}",
             )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "tests/test_qa_scripts_are_ruff_formatted.py chấm bằng ruff trên PATH, "
-            "không phải bản ghim ở services/api/requirements-dev.txt. #246 ghim "
-            "đường phán quyết còn lại (scripts/ruff_changed.sh). Hôm nay hai bản "
-            "gọi tên cùng 16 file dưới tests/qa/ nên chưa lệch; gỡ marker này khi "
-            "cổng ratchet cũng phân giải qua scripts/ruff_pinned.sh."
-        ),
-    )
+    # The xfail(strict=True) marker that stood here is gone -- this is a live
+    # guard now, following tests/test_gate_ruff_skip_hides_pin_check.py. The
+    # ratchet resolves through scripts/ruff_pinned.sh as of the change that
+    # removed this marker, so the case passes on its own merit; leaving the
+    # marker would have turned that into XPASS(strict) -> failure, which is
+    # exactly the tripwire it was placed to be.
     def test_cong_ratchet_khong_doi_phan_quyet_khi_path_co_ruff_la(self) -> None:
         ratchet = _load_ratchet()
         with tempfile.TemporaryDirectory() as tmp:
