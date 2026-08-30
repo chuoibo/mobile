@@ -14,10 +14,12 @@ nhóm. Nên cột không tồn tại, chứ không phải để trống.
 thật sự được cưỡng chế. Một câu `if chưa check-in` trong Python không chặn được
 hai điện thoại bấm cùng lúc; unique index thì có.
 
-`ondelete=CASCADE` vì `replace_outing_stops` xoá rồi chèn lại toàn bộ chặng mỗi
-lần lưu dòng thời gian. Hệ quả: sửa kế hoạch làm mất check-in của kế hoạch cũ.
-Đúng với một chặng bị xoá, SAI với một chặng chỉ đổi tên — và từ tầng này không
-phân biệt được hai việc đó. Ghi ra đây thay vì giấu.
+`ondelete=CASCADE` vì check-in chỉ có nghĩa khi chặng nó trỏ tới còn tồn tại.
+
+Lúc viết revision này, `replace_outing_stops` xoá rồi chèn lại TOÀN BỘ chặng mỗi
+lần lưu dòng thời gian, nên mọi lần sửa kế hoạch đều quét sạch check-in. Đó là
+bug-223357 và đã sửa ở tầng repository (giữ nguyên hàng của chặng không đổi);
+schema ở đây không đổi theo. Ghi lại để không ai đọc câu trên thành "vẫn thế".
 """
 
 from collections.abc import Sequence

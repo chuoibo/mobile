@@ -16,8 +16,12 @@ Bốn tính chất, và cả bốn đều vô hình với một fake repository:
    `test_no_response_field_carries_a_location` quét toàn bộ JSON trả về, kể cả
    khoá lồng, tìm mọi tên trường mang nghĩa toạ độ. Nó tồn tại để một lần thêm
    `lat` "cho tiện vẽ bản đồ" sau này phải đi qua một ca đỏ.
-4. **Xoá chặng thì check-in đi theo.** `ondelete=CASCADE` là hành vi đã chọn và
-   đã ghi trong model; ca ở đây ghim nó lại để nó không đổi trong im lặng.
+4. **Sửa lịch trình KHÔNG xoá check-in của chặng không đổi** (bug-223357), còn
+   xoá hẳn một chặng thì check-in của *riêng* nó đi theo qua `ondelete=CASCADE`.
+   Hai nửa này phải cùng đúng: trước bản vá, thêm một chặng vào cuối là quét
+   sạch "đã tới" của cả nhóm vì `replace_outing_stops` xoá rồi chèn lại toàn bộ
+   hàng. Bốn ca ở mục 4 ghim cả hai nửa, kể cả giới hạn còn lại (đổi chữ của
+   một chặng vẫn mất check-in của nó, vì request không mang id chặng).
 
 Dùng `flush`, không `commit`: `postgres_session` rollback mỗi ca và schema dùng
 chung với các ca đếm hàng trong thư mục này.
@@ -50,20 +54,25 @@ from .test_repository_postgres import NOW
 pytestmark = pytest.mark.postgres
 
 
-def _with_timeline(app, owner, outing_id) -> list[dict]:
-    """Give the outing the PM's own timeline and return its stops."""
+def _put_timeline(app, owner, outing_id, stops: list[dict]) -> list[dict]:
+    """Save `stops` as the outing's timeline and return the stops read back."""
 
     async def exchange():
         async with _client(app) as client:
             return await client.put(
                 f"/outings/{outing_id}/timeline",
                 headers=_headers(owner.id),
-                json={"stops": PM_TIMELINE},
+                json={"stops": stops},
             )
 
     response = anyio.run(exchange)
     assert response.status_code == 200, response.text
     return response.json()["stops"]
+
+
+def _with_timeline(app, owner, outing_id) -> list[dict]:
+    """Give the outing the PM's own timeline and return its stops."""
+    return _put_timeline(app, owner, outing_id, PM_TIMELINE)
 
 
 def _check_in(app, person_id, stop_id):
@@ -428,25 +437,102 @@ def test_an_unknown_stop_is_404_and_echoes_nothing(postgres_session, monkeypatch
     assert str(unknown) not in response.text
 
 
-def test_rewriting_the_timeline_drops_the_checkins_of_the_old_plan(
+def test_adding_a_stop_keeps_the_checkins_of_the_stops_that_did_not_change(
     postgres_session, monkeypatch
 ):
-    """Pinning the chosen behaviour so it cannot change in silence.
+    """bug-223357: appending one stop used to erase everybody's "đã tới".
 
-    `replace_outing_stops` deletes and re-inserts every stop, and the check-in
-    rows cascade with them. Right for a stop that was removed, wrong for one
-    that was merely renamed -- and the repository cannot tell those apart. The
-    model docstring says the same thing; this is the executable half.
+    Measured through the app: check in at the first stop, then type one more
+    stop and save. Before the fix every row in `outing_stops` was deleted and
+    re-inserted with a fresh id, so the check-in cascaded away while the five
+    stops it belonged to were still on the screen, unchanged.
     """
     app, _ctx, owner, _outsider, outing, stops = _scene(postgres_session, monkeypatch)
     assert _check_in(app, owner.id, stops[0]["id"]).status_code == 201
-    assert postgres_session.scalars(select(OutingStopCheckin)).all()
 
-    _with_timeline(app, owner, outing["id"])
+    after = _put_timeline(
+        app,
+        owner,
+        outing["id"],
+        [*PM_TIMELINE, {"at": "23:00", "label": "Về", "place_name": None}],
+    )
 
     postgres_session.expire_all()
-    assert postgres_session.scalars(select(OutingStopCheckin)).all() == []
+    assert [stop["id"] for stop in after[: len(PM_TIMELINE)]] == [
+        stop["id"] for stop in stops
+    ], "a stop the edit did not touch must keep its id"
+    listed = _read_checkins(app, owner.id, outing["id"]).json()["checkins"]
+    assert [check["stop_id"] for check in listed] == [stops[0]["id"]]
+
+
+def test_reordering_the_timeline_carries_each_checkin_with_its_stop(
+    postgres_session, monkeypatch
+):
+    """Moving a stop earlier is not deleting it.
+
+    This is the case that `uq_outing_stops_position` makes awkward: the stop
+    keeps its row and changes `position`, so two rows want the same position
+    part-way through the save. Reusing rows without staging the positions
+    makes this test fail on the unique index, not on the assertion.
+    """
+    app, _ctx, owner, _outsider, outing, stops = _scene(postgres_session, monkeypatch)
+    assert _check_in(app, owner.id, stops[4]["id"]).status_code == 201
+
+    reordered = [PM_TIMELINE[4], *PM_TIMELINE[:4], PM_TIMELINE[5]]
+    after = _put_timeline(app, owner, outing["id"], reordered)
+
+    postgres_session.expire_all()
+    assert after[0]["id"] == stops[4]["id"]
+    assert after[0]["position"] == 0
+    listed = _read_checkins(app, owner.id, outing["id"]).json()["checkins"]
+    assert [check["stop_id"] for check in listed] == [stops[4]["id"]]
+
+
+def test_a_stop_dropped_from_the_new_plan_takes_only_its_own_checkins(
+    postgres_session, monkeypatch
+):
+    """Pinning the half of the old behaviour that was right.
+
+    A stop that is no longer in the plan is gone, and `ondelete=CASCADE` takes
+    its check-ins with it -- there is no arrival to show at a stop nobody is
+    going to. What must not happen is the neighbours dying with it.
+    """
+    app, _ctx, owner, _outsider, outing, stops = _scene(postgres_session, monkeypatch)
+    assert _check_in(app, owner.id, stops[0]["id"]).status_code == 201
+    assert _check_in(app, owner.id, stops[1]["id"]).status_code == 201
+
+    _put_timeline(app, owner, outing["id"], PM_TIMELINE[1:])
+
+    postgres_session.expire_all()
+    survivors = postgres_session.scalars(select(OutingStopCheckin)).all()
+    assert len(survivors) == 1
+    listed = _read_checkins(app, owner.id, outing["id"]).json()["checkins"]
+    assert [check["stop_id"] for check in listed] == [stops[1]["id"]]
+
+
+def test_editing_a_stop_drops_the_checkins_of_the_stop_it_replaced(
+    postgres_session, monkeypatch
+):
+    """The limit of the fix, written down so it is not mistaken for a bug.
+
+    The client sends no stop ids, so a stop is recognised by what it says --
+    time, label, place. Retyping any of those reads as "that stop is gone, this
+    other one is new", and the arrivals recorded against the old wording go
+    with it. Preserving them across an edit needs the client to echo the stop
+    id it is editing, which is a change to a request body this file does not
+    own.
+    """
+    app, _ctx, owner, _outsider, outing, stops = _scene(postgres_session, monkeypatch)
+    assert _check_in(app, owner.id, stops[0]["id"]).status_code == 201
+
+    renamed = [{**PM_TIMELINE[0], "label": "Cà phê sáng"}, *PM_TIMELINE[1:]]
+    after = _put_timeline(app, owner, outing["id"], renamed)
+
+    postgres_session.expire_all()
+    assert after[0]["id"] != stops[0]["id"]
     assert _read_checkins(app, owner.id, outing["id"]).json()["checkins"] == []
+    # The stops nobody retyped are untouched, which is the whole point.
+    assert [stop["id"] for stop in after[1:]] == [stop["id"] for stop in stops[1:]]
 
 
 def test_deleting_one_stop_takes_only_its_own_checkins(
