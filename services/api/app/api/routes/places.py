@@ -341,9 +341,7 @@ class CachedReasonWriter:
                             self._refused_at.pop(place_id, None)
                         else:
                             self._refused_at[place_id] = now
-                    self._asking.difference_update(
-                        row.place["id"] for row in missing
-                    )
+                    self._asking.difference_update(row.place["id"] for row in missing)
 
         with self._lock:
             return {
