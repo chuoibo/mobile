@@ -1,0 +1,114 @@
+{
+  "_doc": [
+    "Route máy chủ khai mà KHÔNG màn nào trong apps/mobile/src nhắc tới.",
+    "Đo bằng scripts/check_server_routes_called.py trên main 8b6f847, 2026-08-30.",
+    "Lượt đo trước (main 03b69dc) có 22 dòng; #312 đã trả sáu dòng bằng cách viết",
+    "màn gọi chúng, nên chúng đã được gỡ khỏi đây.",
+    "",
+    "Đây là DANH SÁCH NỢ, không phải danh sách miễn. Mỗi dòng ở đây là một",
+    "tính năng đã merge, đã có test xanh, và người dùng chưa chạm tới được.",
+    "Route có người gọi ở NGOÀI apps/mobile (trang khách) nằm ở EXEMPT_ROUTES",
+    "trong chính script, không nằm ở đây — trộn hai thứ đó là mất đúng cái phân",
+    "biệt cần đọc sau này.",
+    "",
+    "Cổng ĐỎ với bất kỳ route nào không ai gọi mà KHÔNG có trong file này. Nên",
+    "danh sách chỉ đứng yên hoặc ngắn đi; nó không tự dài ra trong im lặng.",
+    "Trả nợ một dòng thì cổng in GHIM CŨ và bảo gỡ dòng đó.",
+    "'reason' là bắt buộc: thiếu nó thì cổng exit 2, vì một danh sách ngoại lệ",
+    "không lý do là thứ không ai phân biệt được với một cái nhún vai."
+  ],
+  "uncalled": [
+    {
+      "route": "/bank-recipients",
+      "reason": "Client cố ý dùng PUT /people/{id}/bank-recipient thay cho POST /bank-recipients — api.ts:867 ghi rõ lựa chọn đó và api.ts:895 là chỗ gọi. Route collection này không có người gọi theo thiết kế, không phải do quên."
+    },
+    {
+      "route": "/bank-recipients/{recipient_id}",
+      "reason": "Cùng lý do với /bank-recipients: bị thay bằng đường per-person."
+    },
+    {
+      "route": "/bills/{bill_id}/my-items",
+      "reason": "F22, merge #303 hôm nay. Người tự nhận ô vuông rồi chọn món mình ăn. Chưa màn nào gọi; frontend đang làm cùng lô với F17."
+    },
+    {
+      "route": "/bills/{bill_id}/split",
+      "reason": "Client gọi /bills (api.ts:1899), /bills/{} (1913) và /bills/{}/assignments (1937) — không gọi /split. Chặng chia tiền trên đường hero đi qua allocator ở chỗ khác, nên route này cần chủ sở hữu xác nhận là thừa hay là màn chưa làm."
+    },
+    {
+      "route": "/contexts/{context_id}",
+      "reason": "Client gọi GET /contexts (nhom.ts:305) để lấy danh sách nhóm, không đọc chi tiết một nhóm."
+    },
+    {
+      "route": "/contexts/{context_id}/albums",
+      "reason": "F36 album chuyến đi. Không có literal 'albums' nào trong apps/mobile/src."
+    },
+    {
+      "route": "/contexts/{context_id}/albums/{outing_id}",
+      "reason": "F36 album chuyến đi. Cùng lý do."
+    },
+    {
+      "route": "/contexts/{context_id}/budget",
+      "reason": "F34 ngân sách. Client tính tại chỗ: ngan-sach.ts:79 gọi tongDuKien(budget_per_person_vnd, headcount) từ trường đã có trong buổi đi, không đọc route này."
+    },
+    {
+      "route": "/contexts/{context_id}/contextual-suggestion",
+      "reason": "Gợi ý theo ngữ cảnh. Cùng lý do với /suggestion: chưa màn nào gọi, AI đi qua /ai-turn."
+    },
+    {
+      "route": "/contexts/{context_id}/members/{person_id}",
+      "reason": "Client gọi /contexts/{}/members (nhom.ts:320) để đọc danh sách; không có màn nào thao tác lên một thành viên cụ thể."
+    },
+    {
+      "route": "/contexts/{context_id}/members/{person_id}/role",
+      "reason": "Đổi vai trò thành viên. Cùng lý do: chưa có màn quản trị nhóm."
+    },
+    {
+      "route": "/contexts/{context_id}/photos/{photo_id}",
+      "reason": "CHỖ MÙ CÓ CẤU TRÚC, không giống các dòng khác. URL của route này do MÁY CHỦ trả về trong AlbumPhoto.image_url (services/api/app/api/schemas.py:1496), nên client không bao giờ tự dựng nó thành literal và cổng này về nguyên tắc không thấy được người gọi. Đưa vào đây vì đường DUY NHẤT tới nó là /contexts/{id}/albums, mà route đó cũng chưa màn nào gọi — nên hôm nay nó vẫn không tới được. Trả nợ /albums thì phải xem lại dòng này bằng tay."
+    },
+    {
+      "route": "/contexts/{context_id}/photos/{photo_id}/face-boxes",
+      "reason": "F22, merge #303. Trả ô vuông VÔ DANH — không danh tính, không vector lưu lại. Route không có thân request. Chưa màn nào gọi."
+    },
+    {
+      "route": "/contexts/{context_id}/preference-profile",
+      "reason": "Hồ sơ khẩu vị nhóm. Không có literal 'preference-profile' nào trong client."
+    },
+    {
+      "route": "/contexts/{context_id}/suggestion",
+      "reason": "Gợi ý của AI. Client không có literal nào bắt đầu bằng /suggest; đường AI đang dùng là /contexts/{}/ai-turn (ai.ts:105)."
+    },
+    {
+      "route": "/contexts/{context_id}/votes",
+      "reason": "F17 Bình chọn, merge #133 hôm nay 2026-08-30. Domain và tầng postgres đã xong (490 ca, ràng buộc một-người-một-phiếu có ca gác ở DB), nhưng chưa màn nào gọi. Frontend đang làm màn (frontend-193436). Gỡ dòng này khi màn xem cuộc bình chọn gọi nó."
+    },
+    {
+      "route": "/contexts/{context_id}/widget",
+      "reason": "F38 widget màn hình chính (#319, merge 2026-08-30). Route đọc ảnh mới nhất của nhóm; không có literal 'widget' nào trong apps/mobile/src. Đây là route DUY NHẤT cổng này bắt được ở lượt đầu tiên nó chạy trên một main mới hơn cây nó được viết — nghĩa là chiều ngược đang bắt đúng loại việc nó sinh ra để bắt."
+    },
+    {
+      "route": "/outings/{outing_id}/invites",
+      "reason": "Mời người vào buổi đi. Client chỉ gọi /outings/{}/checkins (api.ts:1872) và /outings/{}/timeline (1824). Sáu chỗ chứa chữ 'invites' trong client đều là văn xuôi tiếng Anh, không phải URL."
+    },
+    {
+      "route": "/outings/{outing_id}/invites/{invite_id}/revoke",
+      "reason": "Thu hồi lời mời. Cùng lý do. Route này cũng nằm trong năm route mà sự cố máy demo 2026-08-29 đã nêu tên."
+    },
+    {
+      "route": "/places/{place_id}",
+      "reason": "Client chỉ gọi GET /places (places.ts:313) và POST /places/search (tim-kiem.ts:186). Màn ChiTietDiaDiem dựng từ dữ liệu đã có trong danh sách, không đọc lại chi tiết."
+    },
+    {
+      "route": "/votes/{vote_id}",
+      "reason": "F17 Bình chọn, merge #133. Cùng lô với /contexts/{context_id}/votes — xem dòng đó."
+    },
+    {
+      "route": "/votes/{vote_id}/ballots",
+      "reason": "F17 Bình chọn, merge #133. Đường bỏ phiếu và đổi phiếu. Người bỏ phiếu LÀ actor, không có trường voter_id trong body — màn chỉ cần gọi, không cần gửi danh tính."
+    },
+    {
+      "route": "/votes/{vote_id}/close",
+      "reason": "F17 Bình chọn, merge #133. Đóng cuộc bình chọn. Hoà thì domain HIỆN hoà chứ không tự chọn một bên, nên màn phải hiển thị được trạng thái hoà."
+    }
+  ]
+}

@@ -132,6 +132,25 @@ jobs:
             python scripts/check_api_contract.py
           fi
 
+      - name: Every route the API declares is called by some screen
+        # The other direction of the step above, and the one nothing asked
+        # until 2026-08-30. A route no screen calls does not exist for a user:
+        # it ships, it is tested, it is merged, and it is unreachable. Measured
+        # on main at 8b6f847 -- 70 routes declared, 48 called, 5 belonging to
+        # the guest page, 17 with no caller at all.
+        #
+        # The self-test runs first because this question was attempted twice by
+        # hand the same day and got a different wrong answer each time:
+        # substring matching called four dead routes alive, whole-string
+        # matching called 32 live routes dead. Both are canaries in the script.
+        run: |
+          if [ ! -d apps/mobile/src ]; then
+            echo "::notice::apps/mobile is not on this branch, skipping"
+          else
+            python scripts/check_server_routes_called.py --selftest
+            python scripts/check_server_routes_called.py
+          fi
+
       - name: Migration renders to DDL
         # No database needed. This is the check that was missing when five
         # foreign-key names ran past PostgreSQL's 63-character limit and the

@@ -72,7 +72,13 @@ GATE = REPO_ROOT / "scripts" / "gate.sh"
 COVERED_BY: dict[str, tuple[str, ...]] = {
     "repo-guard": ("guard", "guard-range"),
     "lint": ("ruff",),
-    "api": ("api", "migration", "client-routes"),
+    # `server-routes` joins the same job for the same reason `client-routes` is
+    # there: it needs Python and the two source trees, nothing else. It is a
+    # fourth stage rather than a fold into `client-routes` because the two ask
+    # opposite questions -- one whether a path the app calls exists, one whether
+    # a route the API declares is called -- and the comment below on `contract`
+    # records what folding two questions into one stage cost the last time.
+    "api": ("api", "migration", "client-routes", "server-routes"),
     # Two stages, one job. `contract` asks whether a call sends X-Actor-ID;
     # `cors` asks whether the headers it does send survive a browser's
     # preflight at all. They share a job because they need the identical

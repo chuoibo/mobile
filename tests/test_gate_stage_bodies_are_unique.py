@@ -70,6 +70,7 @@ CHECKER = re.compile(r"scripts/(check_[A-Za-z0-9_]+\.(?:py|sh))")
 STAGE_CHECKERS: dict[str, str] = {
     "contract": "check_actor_headers.py",
     "client-routes": "check_api_contract.py",
+    "server-routes": "check_server_routes_called.py",
     "cors": "check_cors_contract.py",
     "docker": "check_dockerfile_pinning.sh",
     "pinned-import": "check_pinned_import.sh",
