@@ -242,10 +242,27 @@ class CachedReasonWriter:
     required one since rd-be-13. An unbounded retry behind an anonymous GET is
     a `while true; do curl; done` pointed at the shared, paid key.
 
+    The ceiling is per place per cooldown, including across threads. The lock
+    is dropped before the model call -- holding it across a network round trip
+    would serialise every browse behind one -- so the first version of this
+    fix bounded requests *in sequence* and nothing else: measured on 78b8148,
+    twenty callers in sequence bought one model call and twenty callers at the
+    same time bought twenty. Sync routes run in a threadpool, so concurrent is
+    what a browser fleet, or `-P 20` on the `while true; do curl; done` this
+    docstring uses as its threat, gets for free. `_asking` is what closes it.
+
     Refusal degrades rather than raising. A suppressed row loses its AI label
     for a minute; the rows that did answer keep theirs, and the route keeps
     serving scores -- which is what `list_places` already does when the writer
     fails outright.
+
+    A caller that arrives while another thread is mid-question degrades the
+    same way, and this is a real cost, not a free win: on a cold catalogue,
+    nineteen of twenty simultaneous first loads render without AI labels
+    rather than waiting on the one call in flight. That is the deliberate
+    trade -- the alternative is every browse request queued behind a two
+    second model round trip, which is the thing the lock is dropped to avoid.
+    The next request after it lands is served from `_answered`.
 
     Instance state, not module state, and for the reason `build_search_limiter`
     gives at length in the same codebase: a process-wide dict outlives the app
@@ -273,6 +290,14 @@ class CachedReasonWriter:
         # never in here; an entry is the record that makes a refusal different
         # from a question nobody has asked yet.
         self._refused_at: dict[str, float] = {}
+        # Place ids with a model call in flight right now. The lock is dropped
+        # before that call on purpose, so without this set two threads both
+        # find a row missing and both pay for it: the ceiling would be one
+        # call per place per *serial* request, and `curl -P 20` at the
+        # anonymous GET would buy twenty. Nothing above records an in-flight
+        # question, because a question nobody has finished asking is neither
+        # answered nor refused.
+        self._asking: set[str] = set()
         # Sync routes run in a threadpool, so two concurrent browsers are two
         # real threads reading and writing these dicts.
         self._lock = threading.Lock()
@@ -284,22 +309,41 @@ class CachedReasonWriter:
                 row
                 for row in rows
                 if row.place["id"] not in self._answered
+                and row.place["id"] not in self._asking
                 and self._may_ask(row.place["id"], now)
             ]
+            self._asking.update(row.place["id"] for row in missing)
 
         if missing:
             # Outside the lock: this is the network call, and holding a lock
             # across it would serialise every browse request behind one model
             # round trip.
-            fresh = self._writer(missing, self._group)
-            with self._lock:
-                self._answered.update(fresh)
-                for row in missing:
-                    place_id = row.place["id"]
-                    if place_id in fresh:
-                        self._refused_at.pop(place_id, None)
-                    else:
-                        self._refused_at[place_id] = now
+            fresh: dict[str, PlaceReason] = {}
+            try:
+                fresh = self._writer(missing, self._group)
+            finally:
+                # `finally`, not the success path. A writer that raises has
+                # still spent the call, so its rows go on the cooldown like
+                # any other row the model gave nothing for -- `fresh` is still
+                # empty, so the loop below records them all as refused. And
+                # they must be released from `_asking` either way, or a single
+                # raise makes them unaskable for the life of the process: a
+                # tombstone, which is the failure the cooldown exists to
+                # avoid. `gemini_reasons` documents that it never raises, but
+                # the writer is an injected seam and `list_places` wraps the
+                # call in `except Exception`, so a raising one degrades in
+                # silence.
+                with self._lock:
+                    self._answered.update(fresh)
+                    for row in missing:
+                        place_id = row.place["id"]
+                        if place_id in fresh:
+                            self._refused_at.pop(place_id, None)
+                        else:
+                            self._refused_at[place_id] = now
+                    self._asking.difference_update(
+                        row.place["id"] for row in missing
+                    )
 
         with self._lock:
             return {

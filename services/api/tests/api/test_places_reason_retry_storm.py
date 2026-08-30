@@ -52,6 +52,8 @@ the life of the process.
 
 from __future__ import annotations
 
+import threading
+
 import pytest
 
 from app.api.routes.places import (
@@ -266,3 +268,186 @@ def test_the_cooldown_is_a_real_number_of_seconds(cooldown):
     """Guards the constant against being set to zero, which disables the fix."""
 
     assert cooldown > 0
+
+
+# --------------------------------------------------------------------------
+# The cooldown bounds a *sequence* of requests. Every test above hits the
+# route in a `for` loop, which is why the bound below went unmeasured: the
+# lock is released before the model call -- deliberately, since holding it
+# across a network round trip would serialise every browse behind one model
+# request -- so nothing stopped two threads from deciding the same row was
+# missing and both paying for it.
+#
+# Measured on 78b8148, one un-answerable row, the writer refusing it every
+# time:
+#
+#     20 callers, sequential   ->   1 model call
+#     20 callers, concurrent   ->  20 model calls
+#
+# Sync routes run in a threadpool, so "concurrent" is what a browser fleet --
+# or `curl -P 20` against the anonymous GET this file exists to bound -- gets
+# for free.
+# --------------------------------------------------------------------------
+
+FLEET = 20
+
+
+class FleetClock:
+    """A clock that also holds every thread at the door.
+
+    `CachedReasonWriter.__call__` reads the clock once, first thing, before it
+    decides anything. Barriering here is what makes this test *measure* the
+    race rather than hope for it: every thread is inside `__call__` before any
+    of them computes what is missing. Without it the threads could serialise
+    by luck and the test would go green on the broken code.
+    """
+
+    def __init__(self, parties: int) -> None:
+        self.now = 1_000.0
+        self._door = threading.Barrier(parties, timeout=5)
+
+    def __call__(self) -> float:
+        self._door.wait()
+        return self.now
+
+
+class FleetWriter(CountingWriter):
+    """`CountingWriter`, holding each caller inside the model call.
+
+    A real Gemini round trip is about two seconds; every thread that is going
+    to ask has arrived long before it returns. Rather than sleep and hope,
+    each caller here waits until the whole fleet is accounted for -- either
+    inside this writer, or already returned because the writer declined to ask
+    a second time. That makes the overlap real without the test depending on a
+    sleep being long enough, and it terminates under both the broken and the
+    fixed code.
+    """
+
+    def __init__(self, answers, fleet: int) -> None:
+        super().__init__(answers)
+        self.fleet = fleet
+        self.returned = 0
+        self._state = threading.Condition()
+
+    def arrive_back(self) -> None:
+        with self._state:
+            self.returned += 1
+            self._state.notify_all()
+
+    def __call__(self, rows, group):
+        with self._state:
+            self._state.notify_all()
+            # `calls` is bumped by the super call below, so count this arrival
+            # explicitly: the fleet is accounted for when everyone is either
+            # here or home.
+            arrived = self.calls + 1
+            self._state.wait_for(
+                lambda: max(self.calls, arrived) + self.returned >= self.fleet,
+                timeout=5,
+            )
+        return super().__call__(rows, group)
+
+
+def test_a_fleet_of_concurrent_callers_buys_one_model_call_not_one_each():
+    """The blocker on #297: the cooldown bounded requests per minute, not calls.
+
+    Fails if the writer decides what is missing, drops the lock, and lets a
+    second thread reach the same conclusion. The docstring on
+    `CachedReasonWriter` claims one call per place per cooldown; this is the
+    only test in the file that can tell that claim apart from one call per
+    place per *serial* request.
+    """
+
+    clock = FleetClock(FLEET)
+    writer = FleetWriter(answers=ALL_BUT_ONE, fleet=FLEET)
+    cached = CachedReasonWriter(writer=writer, clock=clock)
+    rows = _rows()
+
+    errors: list[BaseException] = []
+
+    def ask() -> None:
+        try:
+            cached(rows)
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+        finally:
+            writer.arrive_back()
+
+    threads = [threading.Thread(target=ask) for _ in range(FLEET)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=15)
+
+    assert not [thread for thread in threads if thread.is_alive()], "deadlocked"
+    assert not errors, f"a caller raised: {errors[:3]}"
+    assert writer.calls == 1, (
+        f"{FLEET} concurrent callers spent {writer.calls} model calls on one "
+        "un-answerable row; the ceiling is requests-per-minute, not calls"
+    )
+
+
+class RaisingWriter:
+    """A writer that fails the way a network fails: by raising."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def __call__(self, rows, group):
+        del rows, group
+        self.calls += 1
+        raise RuntimeError("model unreachable")
+
+
+def test_a_writer_that_raises_is_cooled_down_like_one_that_answers_nothing():
+    """`list_places` catches this, which is exactly why it goes unnoticed.
+
+    The production writer documents "never raises" and returns `{}`, which the
+    cooldown already records. But the writer is an injected seam and the route
+    wraps it in `except Exception`, so a raising one degrades silently -- and
+    would re-open the hole this whole file is about, at one call per request,
+    while every assertion above stayed green. Asked-and-blew-up is a kind of
+    asked-and-got-nothing; the ceiling has to hold for both or the docstring
+    is again claiming more than the code does.
+    """
+
+    clock = FakeClock()
+    writer = RaisingWriter()
+    cached = CachedReasonWriter(writer=writer, clock=clock)
+    rows = _rows()
+
+    # Only the first request reaches the writer, so only the first sees the
+    # exception. The rest are suppressed by the cooldown and degrade the way a
+    # refusal does: no reasons, no raise, scores still served.
+    with pytest.raises(RuntimeError):
+        cached(rows)
+    for _ in range(REQUESTS - 1):
+        assert cached(rows) == {}
+
+    assert writer.calls == 1, (
+        f"{REQUESTS} requests against a raising writer spent {writer.calls} "
+        "model calls; a raise is not on the cooldown"
+    )
+
+
+def test_a_raising_writer_still_lets_go_of_its_rows():
+    """The other half: a cooldown, not a tombstone, when the writer blew up.
+
+    Fails if the in-flight set is cleared only on the success path -- those
+    rows would then be unaskable for the life of the process, which is worse
+    than the bug being fixed.
+    """
+
+    clock = FakeClock()
+    writer = RaisingWriter()
+    cached = CachedReasonWriter(writer=writer, clock=clock)
+    rows = _rows()
+
+    with pytest.raises(RuntimeError):
+        cached(rows)
+
+    clock.advance(REASON_RETRY_COOLDOWN_SECONDS + 1)
+    with pytest.raises(RuntimeError):
+        cached(rows)
+
+    assert writer.calls == 2, "the rows were never released after the raise"
