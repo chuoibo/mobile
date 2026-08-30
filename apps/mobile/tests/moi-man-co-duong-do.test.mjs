@@ -140,6 +140,12 @@ const SO_DO = {
   "binh-chon/BinhChon": { quet: "binh-chon" },
   "bill/MonCuaToi": { quet: "mon-cua-toi" },
   "nhan-mat/NhanMatTrenAnh": { quet: "nhan-mat" },
+  // F14. Inside the app this screen sits three taps deep -- a group, a trip in
+  // it, and a roster read -- so nothing that loads a URL cold could reach it.
+  // `quet` and not `do`: the address mounts the real component over a frozen
+  // fixture carrying all four row states, and no probe row walks it against a
+  // server.
+  "len-plan/MoiVaoChuyen": { quet: "moi-vao-chuyen" },
 };
 
 test("mọi màn App.tsx mount đều có câu trả lời cho 'cái gì đo màn này'", () => {
