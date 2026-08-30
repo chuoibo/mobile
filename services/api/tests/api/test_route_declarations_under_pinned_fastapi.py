@@ -33,6 +33,31 @@ This file removes the dependence on remembering to run that stage. It is not a
 substitute for it: `docker` proves the image boots, this proves one specific
 reason it would not.
 
+## Why there are two files on this invariant
+
+`test_bodyless_status_declarations.py` (#288) restates 0.115.6's resolution
+rule in nine lines and walks the built routes with it. That is the fast,
+in-process check with the precise diagnostics, and it should stay.
+
+What a restatement cannot do is stay right by construction. It is recomputed
+from the endpoint, so it cannot see a `response_model` passed explicitly in the
+decorator -- and a route written the way FastAPI's own documentation
+recommends,
+
+    @router.delete("/x", status_code=204, response_model=None)
+    def x() -> None: ...
+
+imports cleanly under a real 0.115.6 while that predicate reports it as the
+reason the container cannot boot. Measured, not argued: an app built exactly
+that way gave `IMPORT OK, routes = 74` on a real 0.115.6 interpreter.
+
+This file has no such gap, because it does not restate the rule at all. It puts
+the old resolver back and lets FastAPI decide -- including the
+`isinstance(response_model, DefaultPlaceholder)` branch that the explicit
+spelling takes. So the two are not redundant: one is fast and slightly
+over-strict, the other is slower and authoritative, and when they disagree this
+one is right.
+
 ## How it measures, and why not by reading the source
 
 The obvious cheap gate is a grep or an AST walk for `status_code=204` next to
