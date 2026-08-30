@@ -32,7 +32,7 @@
     "             URL do may chu tra ve nen client khong bao gio viet no thanh",
     "             literal. Dung doc so 0 cua cong thanh 'route chet'.",
     "",
-    "Con so hom nay, sau khi man Album chuyen di tra NOT 3 dong (hai route F36 va",
+    "Con so hom nay, sau khi man Album chuyen di tra them 3 dong (hai route F36 va",
     "thuoc phim F37 -- man Album goi ca ba, va co duong bam toi tu menu [+]):",
     "4 tinh-nang, 4 ha-tang, 1 cong-mu, 0 chua phan loai.",
     "Dong 'chua phan loai' duy nhat da bien mat vi no da duoc TRA, khong phai vi",

@@ -43,6 +43,7 @@ import {
   layDanhSachAlbum,
   layThuocPhim,
   lyDoPhim,
+  tenDiaDiem,
   type Album,
   type AnhAlbum,
   type CanhPhim,
@@ -450,7 +451,11 @@ function TheAlbum({ row, onMo }: { row: TomTatAlbum; onMo: () => void }) {
 
 /* ------------------------------------------------------------------ album --- */
 
-function MotAlbum({
+/* Exported so a test can render the album card on its own. The screen around
+ * it loads over three async readers, and `renderToStaticMarkup` is synchronous,
+ * so reaching this subtree through `AlbumChuyenDi` would only ever capture the
+ * spinner. Same shape as `ChuaCoDuLieu` in `KhamPha.tsx`. */
+export function MotAlbum({
   album,
   nguoiXem,
   onXemPhim,
@@ -498,9 +503,15 @@ function MotAlbum({
       {album.places.length > 0 ? (
         <Card>
           <Text style={{ ...type.title, color: c.ink }}>Đã tới</Text>
+          {/* `tenDiaDiem` rather than `place_name ?? place_id`: the fallback
+              used to be the id, so a check-in the server could not name read as
+              `· 4f1e2d3c-9a8b-...` -- an opaque identifier printed where a
+              place name goes. The reel below already refuses that (`Canh`
+              drops the place when it is null); this is the same refusal, said
+              in words so the row still carries the visit. */}
           {album.places.map((p) => (
             <Text key={p.place_id} style={{ ...type.body, color: c.ink }}>
-              · {p.place_name ?? p.place_id}
+              · {tenDiaDiem(p)}
             </Text>
           ))}
         </Card>

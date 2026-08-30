@@ -41,6 +41,26 @@ export type DiaDiemAlbum = {
   place_name: string | null;
 };
 
+/** Shown where a place's name goes when the server did not send one.
+ *
+ * `place_name` is nullable on the wire and `_text()` in the domain returns null
+ * for a blank one, so this is a state the server reaches by design. The place
+ * was still visited -- the row stays and says what is not known, rather than
+ * disappearing or printing `place_id`, which is an opaque identifier and not a
+ * word anybody can read. Same reasoning as `TEN_CHUA_BIET` for a person the
+ * app cannot name. */
+export const TEN_DIA_DIEM_CHUA_BIET = "Địa điểm chưa có tên";
+
+/** The place's name, or the honest stand-in -- never its id.
+ *
+ * Blank is folded into the same branch as null: the server strips before
+ * deciding, and a client that treated `"   "` as a name would render an empty
+ * bullet, which reads as a broken screen rather than as an unnamed place. */
+export function tenDiaDiem(place: { place_name: string | null }): string {
+  const ten = place.place_name?.trim();
+  return ten ? ten : TEN_DIA_DIEM_CHUA_BIET;
+}
+
 /** One row of the album shelf. */
 export type TomTatAlbum = {
   outing_id: string;
