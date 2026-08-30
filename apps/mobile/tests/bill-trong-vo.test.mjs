@@ -28,6 +28,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { lyDoBanDungCu } from "./tuoi-ban-dung.mjs";
+
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
 /**
@@ -53,6 +55,12 @@ function decode(code) {
 
 /** Every JS chunk the current build emitted, joined and unescaped. */
 function builtCode() {
+  // bug-010019. These assertions read a prebuilt bundle, so an export older
+  // than the tree lets a screen that was deleted still "đi được vào bản dựng",
+  // and a screen just added look absent. Neither answer is about this tree.
+  const banCu = lyDoBanDungCu(join(ROOT, ".expo-build-check"), ROOT);
+  assert.equal(banCu, null, banCu ?? "");
+
   const dir = join(ROOT, ".expo-build-check/_expo/static/js/web");
   let names;
   try {
