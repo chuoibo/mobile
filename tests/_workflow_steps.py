@@ -61,6 +61,23 @@ class Step:
     body: str
     """The shell the step runs, dedented, trailing whitespace stripped."""
 
+    working_directory: str = ""
+    """`working-directory:` if the step has one, else empty.
+
+    Carried because a step's commands only mean what they say relative to
+    where they run: `pytest tests/postgres` under `working-directory:
+    services/api` and `cd services/api && pytest tests/postgres` are the same
+    command, and anything comparing the two has to know that.
+    """
+
+    condition: str = ""
+    """`if:` if the step has one, else empty.
+
+    A step behind a condition may never run. Nothing here evaluates GitHub
+    expressions, so this exists for callers to REFUSE to conclude anything
+    about such a step rather than to quietly assume it runs.
+    """
+
     @property
     def key(self) -> str:
         return f"{self.workflow}::{self.job}::{self.label}"
@@ -135,7 +152,16 @@ def _steps_of_workflow(path: pathlib.Path) -> list[Step]:
             body = _dedent(run_lines) if run_lines else cur.get("run", "")
             first_line = body.splitlines()[0] if body else ""
             label = (cur.get("name") or cur.get("id") or first_line).strip()
-            steps.append(Step(workflow=path.name, job=job, label=label, body=body))
+            steps.append(
+                Step(
+                    workflow=path.name,
+                    job=job,
+                    label=label,
+                    body=body,
+                    working_directory=cur.get("working-directory", ""),
+                    condition=cur.get("if", ""),
+                )
+            )
         cur = None
         run_lines = []
         in_run_block = False
