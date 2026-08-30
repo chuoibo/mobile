@@ -3,7 +3,8 @@
 The shape being audited, stated once: **proving the CALLER may act here says
 nothing about the people the caller NAMES.** `_require_permission` answers the
 first question. Only `_require_participants_are_members` answers the second, and
-it is called from exactly two places.
+it is called from three places -- and being called is not the same as being
+handed every id, which is how holes 1 and 2 below survived #235.
 
 It has gone wrong twice, both times found after the merge:
 
@@ -24,9 +25,18 @@ Each case answers the three questions this audit asks:
   2. If not, what is written and who reads it?
   3. Is there a gate that goes red when the check is removed?
 
-Cases marked `xfail(strict=True)` are question 3 answered "no gate exists". They
-are strict on purpose: the marker is the second half of the fix, and a repair
-that leaves it in place turns XPASS into a red gate that names itself.
+Every case now asserts the behaviour that should happen, with no `xfail` left in
+the file. The three holes it opened were carried as `xfail(strict=True)` until
+each was closed -- hole 3 by #260, holes 1 and 2 by `rd-be-26` -- and the
+markers came out as the second half of those fixes, which is what strictness
+was for: a repair that left one in place would turn XPASS into a red gate that
+names itself.
+
+Holes 1 and 2 were not closed by adding a second check. `confirm_expense`
+already called the guard; it just handed it `participants` alone while
+`paid_by_id` and `recorded_by_id` came from the same body. So `mutants.sh`
+drops those two arguments one at a time rather than deleting the call, because
+deleting the call only re-proves the gate #235 already installed.
 """
 
 from __future__ import annotations
@@ -170,16 +180,9 @@ def test_expected_allocations_cannot_smuggle_a_name_past_the_roster(client, repo
     assert repository.confirmed == {}
 
 
-# --- 4. ExpenseInput.paid_by_id -- NO GATE ----------------------------------
+# --- 4. ExpenseInput.paid_by_id -- GATED at rd-be-26 ------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "rd-qa-40 hole 1: confirm_expense never checks paid_by_id against the "
-        "roster. Remove this marker as the second half of the fix."
-    ),
-)
 def test_paid_by_id_from_the_body_must_be_a_member(client, repository):
     """The third instance of the #235 pattern, and the one that moves money.
 
@@ -204,16 +207,9 @@ def test_paid_by_id_from_the_body_must_be_a_member(client, repository):
     assert repository.confirmed == {}
 
 
-# --- 5. ExpenseInput.recorded_by_id -- NO GATE ------------------------------
+# --- 5. ExpenseInput.recorded_by_id -- GATED at rd-be-26 --------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "rd-qa-40 hole 2: confirm_expense never checks recorded_by_id. Remove "
-        "this marker as the second half of the fix."
-    ),
-)
 def test_recorded_by_id_from_the_body_must_be_a_member(client, repository):
     """Not money -- a name, printed to somebody outside the group.
 
@@ -470,12 +466,6 @@ def test_live_member_role_cannot_be_set_on_a_non_member(postgres_session, standi
 
 
 @pytest.mark.postgres
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "rd-qa-40 hole 1, live tier. Remove this marker as the second half of the fix."
-    ),
-)
 def test_live_paid_by_outsider_must_not_reach_the_ledger(postgres_session):
     """Hole 1 on the real database, where the money actually lands.
 
@@ -546,12 +536,6 @@ def test_live_paid_by_outsider_must_not_reach_the_ledger(postgres_session):
 
 
 @pytest.mark.postgres
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "rd-qa-40 hole 2, live tier. Remove this marker as the second half of the fix."
-    ),
-)
 def test_live_recorded_by_outsider_must_not_reach_the_guest_page(postgres_session):
     """Hole 2's privacy half, on the page a non-member actually reads.
 
