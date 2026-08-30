@@ -1002,10 +1002,20 @@ def selftest() -> int:
     per_name: list[tuple[str, str, str, bool]] = []
     for name in REQUEST_FUNCTIONS:
         per_name.append(
-            (f"canary xấu qua {name}()", canary_through(name, CANARY_ROUTE), missing, True)
+            (
+                f"canary xấu qua {name}()",
+                canary_through(name, CANARY_ROUTE),
+                missing,
+                True,
+            )
         )
         per_name.append(
-            (f"canary sạch qua {name}()", canary_through(name, "/healthz"), missing, False)
+            (
+                f"canary sạch qua {name}()",
+                canary_through(name, "/healthz"),
+                missing,
+                False,
+            )
         )
 
     cases = tuple(per_name) + (
