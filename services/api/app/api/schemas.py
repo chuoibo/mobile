@@ -592,8 +592,7 @@ class GroupBudgetResponse(ApiModel):
             if self.avg_per_person_vnd is None:
                 raise ValueError("comparison requires a historical average")
             expected = (
-                self.comparison.candidate_per_person_vnd
-                - self.avg_per_person_vnd
+                self.comparison.candidate_per_person_vnd - self.avg_per_person_vnd
             )
             if self.comparison.delta_vnd != expected:
                 raise ValueError("comparison delta must be candidate minus average")

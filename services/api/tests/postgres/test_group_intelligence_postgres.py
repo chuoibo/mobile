@@ -111,7 +111,7 @@ class _Client:
     def __init__(self, app):
         self._app = app
 
-    def __enter__(self) -> "_Client":
+    def __enter__(self) -> _Client:
         return self
 
     def __exit__(self, *exc: object) -> bool:
@@ -290,9 +290,7 @@ class TestPreferenceProfilePermission:
         assert response.status_code == 403
         assert "BBQ" not in response.text
 
-    @pytest.mark.parametrize(
-        "state", [MembershipState.LEFT, MembershipState.INVITED]
-    )
+    @pytest.mark.parametrize("state", [MembershipState.LEFT, MembershipState.INVITED])
     def test_a_membership_row_that_is_not_active_is_not_membership(
         self,
         postgres_session: Session,
@@ -479,9 +477,7 @@ class TestContextualSuggestionPermission:
         assert "bí mật" not in response.text
         assert "đừng kể ai" not in response.text
 
-    @pytest.mark.parametrize(
-        "state", [MembershipState.LEFT, MembershipState.INVITED]
-    )
+    @pytest.mark.parametrize("state", [MembershipState.LEFT, MembershipState.INVITED])
     def test_only_an_active_member_may_read_a_card_built_from_the_chat(
         self,
         postgres_session: Session,
@@ -662,7 +658,6 @@ class TestTripAlbumPermission:
 
         assert existing.status_code == invented.status_code == 403
         assert existing.json() == invented.json()
-
 
     def test_a_stranger_is_refused_the_shelf(
         self, postgres_session: Session, monkeypatch: pytest.MonkeyPatch

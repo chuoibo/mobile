@@ -66,13 +66,13 @@ from app.api.schemas import (
     ChatExpenseDraft,
     ChatExpenseDraftResponse,
     CheckinCreateRequest,
-    ContextualSuggestionResponse,
-    ConversationBasis,
     CompanionTurnResponse,
     ContextBalanceEntry,
     ContextBalancesResponse,
     ContextCreateRequest,
     ContextResponse,
+    ContextualSuggestionResponse,
+    ConversationBasis,
     ExpenseConfirmationRequest,
     ExpenseConfirmationResponse,
     ExpenseInput,
@@ -121,6 +121,9 @@ from app.api.schemas import (
     PaymentReportRequest,
     PaymentReportResponse,
     PersonMatchResponse,
+    PreferenceProfileResponse,
+    PreferenceSection,
+    PreferenceTaste,
     PublishedGuestLink,
     PublishedObligation,
     RecapOutingResponse,
@@ -130,15 +133,11 @@ from app.api.schemas import (
     SocialMapResponse,
     StopCheckinResponse,
     SuggestionBasis,
-    PreferenceProfileResponse,
-    PreferenceSection,
-    PreferenceTaste,
     SuggestionStop,
     UnavailableLayer,
     UploadedImageResponse,
     VisitedPlace,
 )
-from app.places.catalog import PLACES
 from app.domain import permissions
 from app.domain.album import build_album
 from app.domain.allocator import allocate
@@ -162,7 +161,6 @@ from app.domain.friendship import (
 from app.domain.friendship import (
     open_request as open_friendship_request,
 )
-from app.domain.preferences import build_preference_profile
 from app.domain.ledger import (
     LedgerError,
     group_balances,
@@ -171,6 +169,7 @@ from app.domain.ledger import (
     obligations_from_allocations,
     settlement_plan,
 )
+from app.domain.preferences import build_preference_profile
 from app.domain.suggestion import (
     SuggestionError,
     ground_suggestion,
@@ -1170,9 +1169,7 @@ class ApiService:
                     "outing_id": record.outing.id,
                     "title": record.outing.title,
                     "headcount": record.outing.headcount,
-                    "budget_per_person_vnd": (
-                        record.outing.budget_per_person_vnd
-                    ),
+                    "budget_per_person_vnd": (record.outing.budget_per_person_vnd),
                     "split_total_vnd": record.split_total_vnd,
                     "in_progress": record.in_progress,
                 }
