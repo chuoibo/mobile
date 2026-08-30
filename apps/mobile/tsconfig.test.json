@@ -83,6 +83,8 @@
     "src/screens/chat/binh-chon.ts",
     "src/screens/chat/ai.ts",
     "src/screens/chat/nhom.ts",
+    "src/screens/chat/nhap-tu-chat.ts",
+    "src/screens/chat/TheNhapChiTuChat.tsx",
     "src/screens/chat/TinNhan.tsx",
     "src/screens/chat/BongBong.tsx",
     "src/screens/chat/TheKeHoach.tsx",
@@ -151,6 +153,8 @@
     "src/screens/len-plan/buoi-di.ts",
     "src/screens/len-plan/LenPlan.tsx",
     "src/screens/len-plan/TaoBuoiDi.tsx",
-    "src/screens/len-plan/DongThoiGian.tsx"
+    "src/screens/len-plan/DongThoiGian.tsx",
+    "src/screens/len-plan/NhanLoiMoi.tsx",
+    "src/screens/quet-anh.ts"
   ]
 }

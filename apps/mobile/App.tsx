@@ -37,6 +37,8 @@ import {
   registerPeople,
   saveBankRecipient,
   scanReceipt,
+  quetAnhChupMan,
+  type ScreenshotScanWire,
   taoBill,
   thongDiepNguoiDoc,
   type Attempt,
@@ -71,6 +73,7 @@ import {
   type Assignment,
 } from "./src/assignment";
 import { ChupBill } from "./src/screens/ChupBill";
+import { KetQuaQuetAnh } from "./src/screens/KetQuaQuetAnh";
 import { GoiYChia } from "./src/screens/GoiYChia";
 import { KetQuaNhanDien } from "./src/screens/KetQuaNhanDien";
 import { KetQuaThanhToan } from "./src/screens/KetQuaThanhToan";
@@ -105,6 +108,7 @@ import {
 type Step =
   | "chup-bill"
   | "ket-qua"
+  | "quet-anh"
   | "goi-y"
   | "nhap"
   | "de-xuat"
@@ -139,7 +143,7 @@ const SCAN_ACTOR_ID = makeIdFactory()();
  * the row also painted a cream strip along the top of a black screen, which
  * read as the camera failing to reach the top of the phone.
  */
-const TOAN_MAN: Step[] = ["chup-bill", "ket-qua"];
+const TOAN_MAN: Step[] = ["chup-bill", "ket-qua", "quet-anh"];
 
 /**
  * What a press is trying to write, as a string.
@@ -288,6 +292,7 @@ function LuongKhoanChi({ onExit, nguoi }: { onExit: () => void; nguoi: DemoPerso
   // React reuses the mounted instance, and a rescan showed the previous bill's
   // rejected "12x" still sitting in row three of a completely different bill.
   const [scanSeq, setScanSeq] = useState(0);
+  const [ketQuaAnh, setKetQuaAnh] = useState<ScreenshotScanWire | null>(null);
   const access = readAccess(permission, HAS_CAMERA);
   // Held here, not inside the screen. The screen unmounts on every step
   // change; a roster or a matrix owned there would vanish the moment someone
@@ -342,6 +347,32 @@ function LuongKhoanChi({ onExit, nguoi }: { onExit: () => void; nguoi: DemoPerso
       setPreview(null);
       setScanSeq((n) => n + 1);
       setStep("ket-qua");
+    });
+  }
+
+  /**
+   * Pick a screenshot, have it read, and show the one merchant + one total.
+   *
+   * Same file ownership as the paper-bill path: `withBillPhoto` deletes the
+   * capture even when the read throws. Nothing here holds a uri, and nothing
+   * is logged.
+   */
+  function scanScreenshot() {
+    return guard(async () => {
+      let wire;
+      try {
+        wire = await withBillPhoto(
+          nativeBackend(cameraRef),
+          "thu-vien",
+          (photo) => quetAnhChupMan(photo, SCAN_ACTOR_ID),
+          setGiaiDoan,
+        );
+      } finally {
+        setGiaiDoan(null);
+      }
+      if (wire === null) return;
+      setKetQuaAnh(wire);
+      setStep("quet-anh");
     });
   }
 
@@ -595,6 +626,7 @@ function LuongKhoanChi({ onExit, nguoi }: { onExit: () => void; nguoi: DemoPerso
           error={error}
           onShutter={() => scan("camera")}
           onPickImage={() => scan("thu-vien")}
+          onPickScreenshot={() => scanScreenshot()}
           onRequestPermission={() => guard(async () => {
             await requestPermission();
           })}
@@ -604,6 +636,24 @@ function LuongKhoanChi({ onExit, nguoi }: { onExit: () => void; nguoi: DemoPerso
           // dead end -- and the manual form is where "← Đóng" lives, so this
           // is also the way back out to the tabs.
           onCancel={() => { setError(null); setStep("nhap"); }}
+        />
+      )}
+
+      {step === "quet-anh" && ketQuaAnh !== null && (
+        <KetQuaQuetAnh
+          ketQua={ketQuaAnh}
+          onHuy={() => { setError(null); setKetQuaAnh(null); setStep("chup-bill"); }}
+          onChot={() => {
+            // DraftForm holds the occasion as text and the amount as the
+            // person's typed string. The wire has `merchant` and `total_vnd`;
+            // there is no `title` or `description` field on the form.
+            setForm((f) => ({
+              ...f,
+              occasion: ketQuaAnh.merchant,
+              amount: String(ketQuaAnh.total_vnd),
+            }));
+            setStep("nhap");
+          }}
         />
       )}
 
@@ -1118,6 +1168,7 @@ function XemDocBill() {
         error={null}
         onShutter={() => {}}
         onPickImage={() => {}}
+        onPickScreenshot={() => {}}
         onRequestPermission={() => {}}
         onOpenSettings={() => {}}
         onCancel={() => {}}

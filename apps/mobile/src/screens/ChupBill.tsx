@@ -41,6 +41,8 @@ export function ChupBill(props: {
   giaiDoan?: GiaiDoanDocBill | null;
   onShutter: () => void;
   onPickImage: () => void;
+  /** A screenshot, not a paper bill. Same picker, different reader. */
+  onPickScreenshot: () => void;
   onRequestPermission: () => void;
   onOpenSettings: () => void;
   onCancel: () => void;
@@ -251,9 +253,24 @@ export function ChupBill(props: {
           </View>
         </Pressable>
 
-        {/* Visual balance for the gallery control. No facing handler exists
-            on this screen, so this is empty space, not a dead button. */}
-        <View style={{ minWidth: HIT, minHeight: HIT }} />
+        <Pressable
+          onPress={props.onPickScreenshot}
+          disabled={busy}
+          accessibilityRole="button"
+          accessibilityLabel="Ảnh chụp màn hình"
+          style={({ pressed }) => ({
+            minWidth: HIT,
+            minHeight: HIT,
+            maxWidth: 88,
+            alignItems: "center",
+            justifyContent: "center",
+            opacity: busy ? 0.4 : pressed ? 0.7 : 1,
+          })}
+        >
+          <Text style={{ ...type.label, color: WHITE, fontWeight: "600", textAlign: "center" }}>
+            Ảnh chụp màn hình
+          </Text>
+        </Pressable>
       </View>
 
       {/* `type.label`, not `type.micro`.

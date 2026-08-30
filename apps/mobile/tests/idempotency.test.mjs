@@ -115,6 +115,11 @@ const WRITES = [
         "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
       ),
   },
+  {
+    name: "POST /outing-invites/{token}/accept",
+    volatile: false,
+    run: (api, attempt) => api.nhanLoiMoiBuoiDi("token-thu", ACTOR, attempt),
+  },
 ];
 
 function bodyFor(path) {
@@ -131,6 +136,15 @@ function bodyFor(path) {
     };
   }
   if (path.endsWith("/batches")) return { batch_id: "b-1", obligations: [] };
+  if (path.endsWith("/accept")) {
+    return {
+      invite_id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      outing_id: "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff",
+      context_id: NHOM,
+      membership_id: "cccccccc-dddd-4eee-8fff-aaaaaaaaaaaa",
+      membership_state: "active",
+    };
+  }
   if (path.endsWith("/timeline") || path.endsWith("/outings")) {
     return {
       id: "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff",
