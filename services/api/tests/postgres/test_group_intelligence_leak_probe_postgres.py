@@ -52,9 +52,8 @@ from .test_group_intelligence_postgres import (
     CAFE,
     GRILL,
     PLAY,
-    TRIP_START,
-    _Client,
     _checkin,
+    _Client,
     _group,
     _headers,
     _http,
@@ -591,9 +590,7 @@ class TestGuestSeesNoneOfThis:
             return function(*args)
 
         monkeypatch.setattr(anyio.to_thread, "run_sync", run_sync_inline)
-        monkeypatch.setattr(
-            "app.api.service._now", lambda: NOW + timedelta(minutes=10)
-        )
+        monkeypatch.setattr("app.api.service._now", lambda: NOW + timedelta(minutes=10))
         app = create_app()
         app.dependency_overrides[get_repository] = lambda: SqlAlchemyApiRepository(
             postgres_session
