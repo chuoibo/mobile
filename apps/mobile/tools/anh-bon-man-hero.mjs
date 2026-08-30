@@ -457,6 +457,38 @@ async function doMotMan(browser, port, man, tenTrang) {
   const anhMan = path.join(raDir, `${man.step}.png`);
   await page.screenshot({ path: anhMan, fullPage: false });
 
+  /* Geometry at FIRST PAINT; the decode happens at the very end.
+   *
+   * Two questions live here and conflating them produced two wrong reports in a
+   * row. Measured after a `scrollTo(0, 0)` the code decoded and was called fully
+   * visible; measured at first paint it failed to decode and was labelled
+   * KHONG GIAI DUOC -- which reads as a broken encoder when the truth is a
+   * correct code sitting partly off the bottom of the screen. A clipped
+   * screenshot cannot decode.
+   *
+   * So: "can the person see it when the screen lands" is answered now, before
+   * anything scrolls, in the same instant as the screenshot. "Are the modules
+   * real and scannable" is answered after every other pass, with the code
+   * scrolled fully into view, where scrolling can no longer disturb a
+   * measurement that has already been taken. */
+  let qrHinh = null;
+  if (man.step === "ket-qua-thanh-toan") {
+    qrHinh = await page.evaluate(() => {
+      let best = null;
+      for (const e of document.querySelectorAll("div")) {
+        const r = e.getBoundingClientRect();
+        if (r.width < 80 || r.height < 80) continue;
+        if (Math.abs(r.width - r.height) > 12) continue;
+        // A QR block is made of many small children; a plain card is not.
+        if (e.querySelectorAll("div").length < 100) continue;
+        if (!best || r.width > best.width) {
+          best = { x: r.x, y: r.y, width: r.width, height: r.height, con: e.querySelectorAll("div").length };
+        }
+      }
+      return best;
+    });
+  }
+
   const chus = await page.evaluate(thuChu);
   const nuts = await page.evaluate(thuNut);
 
@@ -565,26 +597,36 @@ async function doMotMan(browser, port, man, tenTrang) {
   /* The QR: only where one exists. The region is the biggest square-ish block
    * on the screen carrying the module Views, found by geometry rather than by a
    * test id, so a refactor that renames things does not silently stop looking. */
+  /* The decode, last, with the code scrolled fully in. */
   let qr = null;
   if (man.step === "ket-qua-thanh-toan") {
-    await page.evaluate(() => window.scrollTo(0, 0));
-    const o = await page.evaluate(() => {
-      let best = null;
-      for (const e of document.querySelectorAll("div")) {
-        const r = e.getBoundingClientRect();
-        if (r.width < 80 || r.height < 80) continue;
-        if (Math.abs(r.width - r.height) > 12) continue;
-        // A QR block is made of many small children; a plain card is not.
-        if (e.querySelectorAll("div").length < 100) continue;
-        if (!best || r.width > best.width) {
-          best = { x: r.x, y: r.y, width: r.width, height: r.height, con: e.querySelectorAll("div").length };
-        }
-      }
-      return best;
-    });
-    if (!o) {
+    if (!qrHinh) {
       qr = { tim: false };
     } else {
+      await page.evaluate(() => {
+        let best = null;
+        let bw = 0;
+        for (const e of document.querySelectorAll("div")) {
+          const r = e.getBoundingClientRect();
+          if (r.width < 80 || r.height < 80) continue;
+          if (Math.abs(r.width - r.height) > 12) continue;
+          if (e.querySelectorAll("div").length < 100) continue;
+          if (r.width > bw) { bw = r.width; best = e; }
+        }
+        if (best) best.scrollIntoView({ block: "center", inline: "nearest" });
+      });
+      const sau = await page.evaluate(() => {
+        let best = null;
+        for (const e of document.querySelectorAll("div")) {
+          const r = e.getBoundingClientRect();
+          if (r.width < 80 || r.height < 80) continue;
+          if (Math.abs(r.width - r.height) > 12) continue;
+          if (e.querySelectorAll("div").length < 100) continue;
+          if (!best || r.width > best.width) best = { x: r.x, y: r.y, width: r.width, height: r.height };
+        }
+        return best;
+      });
+      const o = sau ?? qrHinh;
       const clip = {
         x: Math.max(0, Math.floor(o.x)),
         y: Math.max(0, Math.floor(o.y)),
@@ -594,7 +636,14 @@ async function doMotMan(browser, port, man, tenTrang) {
       const anhQr = path.join(raDir, "vietqr.png");
       await page.screenshot({ path: anhQr, clip });
       const g = giaiQr(anhQr);
-      qr = { tim: true, con: o.con, w: Math.round(o.width), h: Math.round(o.height), anh: anhQr, ...g };
+      const hien = Math.max(0, Math.min(qrHinh.y + qrHinh.height, CAO) - Math.max(qrHinh.y, 0));
+      qr = {
+        tim: true, con: qrHinh.con,
+        w: Math.round(qrHinh.width), h: Math.round(qrHinh.height),
+        y: Math.round(qrHinh.y), hien: Math.round(hien),
+        tiLeHien: qrHinh.height ? hien / qrHinh.height : 0,
+        anh: anhQr, ...g,
+      };
     }
   }
 
@@ -712,6 +761,18 @@ async function main() {
       } else if (!r.qr.ok) {
         loi += 1;
         console.log(`   VietQR: [KHONG GIAI DUOC] ${r.qr.w}x${r.qr.h}, ${r.qr.con} module-view -- ${r.qr.loi}`);
+      } else if (!r.qr.text) {
+        /* Empty is not "a different payload", it is "no code was readable
+         * there at all", and the two want different first moves: one is an
+         * encoder bug, the other means nothing legible reached the glass.
+         * `cv2.detectAndDecode` reports both as a successful call returning "",
+         * so the distinction has to be drawn here -- the canary's QR mutant
+         * landed in the wrong bucket until it was. */
+        loi += 1;
+        console.log(
+          `   VietQR: [KHONG GIAI DUOC] ${r.qr.w}x${r.qr.h}, ${r.qr.con} module-view -- ` +
+            "OpenCV khong doc duoc ky tu nao tu anh chup (DOM van co du module-view)",
+        );
       } else if (r.qr.text !== VIETQR_FIXTURE) {
         loi += 1;
         console.log(`   VietQR: [SAI PAYLOAD] giai ra ${r.qr.text.length} ky tu, khac payload da gui`);
@@ -720,6 +781,17 @@ async function main() {
           `   VietQR: OK -- ${r.qr.w}x${r.qr.h}px, ${r.qr.con} module-view, OpenCV giai lai DUNG ` +
             `${r.qr.text.length} ky tu payload tu ANH CHUP`,
         );
+        const pct = Math.round(r.qr.tiLeHien * 100);
+        if (r.qr.tiLeHien < 0.999) {
+          loi += 1;
+          console.log(
+            `   VietQR: [DUOI FOLD] khoi ma o y=${r.qr.y}, cao ${r.qr.h}px, man cao ${CAO}px -- ` +
+              `chi ${r.qr.hien}/${r.qr.h}px (${pct}%) nam trong khung nhin luc moi ve. ` +
+              "Giai duoc khong co nghia la nhin thay: anh chup cat theo clip vuot ra ngoai viewport.",
+          );
+        } else {
+          console.log(`   VietQR: nam TRON trong khung nhin luc moi ve (y=${r.qr.y}, ${pct}%)`);
+        }
       }
     }
     console.log("");
