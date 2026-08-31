@@ -46,6 +46,17 @@ other, and a money column has to satisfy both.
   only happens for a few types, such as ``bool``. A float that leaks this far
   is stored silently and wrong, with no error anywhere. The real last line is
   the type check in ``allocate()`` and the pydantic boundary.
+* **"Money column" has two definitions here and neither one is complete.** The
+  type rule is name-blind, but it only reaches the inexact-numeric family.
+  Outside that family the gate has nothing to go on but the *name*, and the
+  name test is a heuristic (``*_vnd``, or containing ``amount``). So money that
+  is both named nothing like money *and* stored outside the numeric family
+  falls through both rules. This is measured, not theorised: planting
+  ``gia_tri text`` through a migration leaves this file green, while
+  ``tip_amount_vnd numeric`` turns it red. Renaming a money column to something
+  unlike money and storing it as ``text`` is therefore a way past this gate. It
+  is stated here because a gate whose blind spot is unwritten gets quoted as if
+  it had none.
 """
 
 from __future__ import annotations
