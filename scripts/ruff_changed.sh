@@ -22,6 +22,14 @@
 #   scripts/ruff_changed.sh <base> <head>    compare the merge base against <head>
 #   scripts/ruff_changed.sh --list <base>    print what it would check, check nothing
 #
+# The two forms read two different trees, and the difference is load bearing.
+# The <base> form judges the working tree, untracked files included, because
+# that is what a developer is about to commit. The <base> <head> form judges
+# the tree named by <head> -- both which files are in scope and their contents
+# come out of that ref, so it answers correctly about a branch nobody has
+# checked out. Standing on the branch is not a precondition; needing to stand
+# on it was the bug this form shipped with.
+#
 # Exit codes: 0 clean (or nothing to check), 1 ruff found problems,
 # 2 the script could not determine what to check -- which is a failure, never
 # a silent pass.
@@ -117,11 +125,33 @@ else
   )
 fi
 
-# Renames and case changes can leave a path in the diff that is not on disk.
+# "Does this path still exist" is a question about a TREE, and the two forms are
+# asking about different trees.
+#
+# Worktree form: the checkout is the thing under test, so on-disk is right.
+# Renames and case changes can leave a path in the diff that is not on disk,
+# and handing one to ruff fails a change for doing the right thing.
+#
+# Head form: on-disk is the WRONG tree, and asking it was a silent hole. `head`
+# is a ref the caller need not be standing on -- pre-checking someone else's
+# branch is the use this form advertises ("compare the merge base against
+# <head>") -- so every file that branch ADDS is missing from the current
+# checkout and was filtered away to nothing. The gate then printed "no Python
+# files changed" and exited 0, which is byte-for-byte what a genuinely clean
+# branch looks like. Measured 2026-08-31 from a branch not containing e572bcd:
+# `git diff --name-only origin/main...e572bcd -- '*.py'` names
+# tests/qa/qa-tt-0001/dot_bien_bo_mot_bang.py, the pinned ruff rejects that
+# blob, and `ruff_changed.sh origin/main e572bcd` said there was nothing to
+# check. Three PRs were pre-checked that way in one evening and all three came
+# back green. So existence is asked of the tree `head` names.
 files=()
 for path in "${candidates[@]}"; do
   [ -n "$path" ] || continue
-  [ -f "$path" ] || continue
+  if [ -n "$head" ]; then
+    git cat-file -e "${head}:${path}" 2>/dev/null || continue
+  else
+    [ -f "$path" ] || continue
+  fi
   files+=("$path")
 done
 
@@ -199,24 +229,131 @@ printf '  %s\n' "${files[@]}"
 status=0
 check_out=""
 format_out=""
+check_failed=0
+format_failed=0
 
-echo "--- ruff check ---"
-if check_out="$("$RUFF" check --no-cache "${files[@]}")"; then
-  check_failed=0
-else
-  check_failed=1
-  status=1
-fi
-if [ -n "$check_out" ]; then printf '%s\n' "$check_out"; fi
+# ## Which BYTES get judged
+#
+# Finding the right paths is only half of it. The head form then has to read
+# them out of `head`, not off the disk, and for the same reason the filter
+# above does: the caller need not be standing on `head`.
+#
+# Reading the disk here is wrong in both directions, and both are reachable:
+#
+#   head dirty, checkout clean -> green. A dirty commit laundered by whatever
+#     happens to sit at that path locally. This one is the dangerous half: it
+#     is a gate saying ĐẠT about bytes it never read.
+#   head clean, checkout dirty -> red. The author is failed for uncommitted
+#     junk that `head` does not contain.
+#
+# `--stdin-filename` is what makes this exact rather than approximate. ruff
+# resolves configuration hierarchically from the path it is GIVEN, so feeding
+# head's bytes under the real repo-relative path picks up
+# services/api/pyproject.toml for files under services/api and ruff's defaults
+# for everything else -- the same resolution a normal run gets. Measured on the
+# pin (0.9.2) 2026-08-31: `--stdin-filename services/api/app/zz.py` reports
+# UP035/UP006, `--stdin-filename tests/zz.py` reports nothing, on identical
+# bytes. And over 60 tracked files (9 format-dirty) plus the 12 files the tree
+# has that `ruff check` rejects, stdin mode and file mode agreed on every
+# finding, every exit code: 0 differences.
+#
+# Bytes go through a temp file rather than a `$( )` capture because command
+# substitution strips trailing newlines, and "missing final newline" is itself
+# something `ruff format` rejects -- capturing would have quietly fixed the
+# file on its way to the checker. mktemp/rm are external commands, which the
+# bare-PATH cases in tests/test_ruff_changed.py forbid, but they are only
+# reached here: after the pinned ruff has been resolved, which already needs a
+# runner far richer than bash and git.
+run_head_form() {
+  local path blob_tmp out failed_paths=() rc
+  blob_tmp="$(mktemp "${TMPDIR:-/tmp}/ruff-changed-blob-XXXXXX")" || {
+    echo "::error::không tạo được file tạm để đọc nội dung từ '${head}'" >&2
+    exit 2
+  }
+  # shellcheck disable=SC2064  # expand blob_tmp now, not at trap time
+  trap "rm -f '$blob_tmp'" EXIT
 
-echo "--- ruff format --check ---"
-if format_out="$("$RUFF" format --check --no-cache "${files[@]}")"; then
-  format_failed=0
+  for path in "${files[@]}"; do
+    # Already proven to exist by the filter above; a failure here means the ref
+    # moved under us, which is a refusal, never a skip.
+    if ! git cat-file blob "${head}:${path}" >"$blob_tmp"; then
+      echo "::error::không đọc được nội dung '${head}:${path}'" >&2
+      exit 2
+    fi
+
+    rc=0
+    out="$("$RUFF" check --no-cache --stdin-filename "$path" - <"$blob_tmp")" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+      check_failed=1
+      status=1
+      # Only failing files contribute. A clean file's output is the literal
+      # "All checks passed!", and one of those per file would bury the real
+      # findings under its own noise.
+      check_out="${check_out}${out}"$'\n'
+    fi
+
+    if ! "$RUFF" format --check --no-cache --stdin-filename "$path" - <"$blob_tmp"; then
+      format_failed=1
+      status=1
+      failed_paths+=("$path")
+    fi
+  done
+
+  # The pinned ruff prints NOTHING for `format --check` in stdin mode -- no
+  # "Would reformat:" line on stdout or stderr, only the exit code (measured
+  # 2026-08-31). So these lines are built from the per-file exit codes, one
+  # line per file that actually came back non-zero. That is a stronger
+  # attribution than the worktree form gets, not a weaker one: the worktree
+  # form parses one batch of output back into filenames and has to cross-check
+  # the result against the scope list to keep ruff's rendered source lines from
+  # being mistaken for paths, whereas here each verdict is already attached to
+  # the one file that produced it. The shape is kept identical so everything
+  # downstream -- the parse, the narrowing, the paste-ready fix block -- stays
+  # one code path.
+  if [ "${#failed_paths[@]}" -gt 0 ]; then
+    for path in "${failed_paths[@]}"; do
+      format_out="${format_out}Would reformat: ${path}"$'\n'
+    done
+    format_out="${format_out}${#failed_paths[@]} file(s) would be reformatted"
+  else
+    format_out="${#files[@]} file(s) already formatted"
+  fi
+  if [ "$check_failed" -eq 0 ]; then
+    check_out="All checks passed!"
+  else
+    check_out="${check_out%$'\n'}"
+  fi
+}
+
+if [ -n "$head" ]; then
+  # Said out loud on every run. A verdict about bytes the reader cannot see in
+  # their own checkout has to name where the bytes came from, or the next
+  # person debugs the wrong file.
+  echo "nội dung đọc từ '${head}' (không phải từ cây làm việc)"
+  run_head_form
+  echo "--- ruff check ---"
+  printf '%s\n' "$check_out"
+  echo "--- ruff format --check ---"
+  printf '%s\n' "$format_out"
 else
-  format_failed=1
-  status=1
+  echo "--- ruff check ---"
+  if check_out="$("$RUFF" check --no-cache "${files[@]}")"; then
+    check_failed=0
+  else
+    check_failed=1
+    status=1
+  fi
+  if [ -n "$check_out" ]; then printf '%s\n' "$check_out"; fi
+
+  echo "--- ruff format --check ---"
+  if format_out="$("$RUFF" format --check --no-cache "${files[@]}")"; then
+    format_failed=0
+  else
+    format_failed=1
+    status=1
+  fi
+  if [ -n "$format_out" ]; then printf '%s\n' "$format_out"; fi
 fi
-if [ -n "$format_out" ]; then printf '%s\n' "$format_out"; fi
 
 if [ "$status" -eq 0 ]; then
   exit 0

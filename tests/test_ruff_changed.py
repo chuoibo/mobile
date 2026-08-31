@@ -168,6 +168,13 @@ class BranchComparison(RuffGateHarness):
 
         A dirty file landing on main after the branch started must not fail the
         branch. Two-dot diffing would report it and blame the wrong person.
+
+        The scope assertion is the load-bearing half. Without it this case read
+        green for a run that checked NOTHING: the fixture checks out `moved`
+        before running the gate, so head's branch_file.py is not on disk, and
+        the on-disk filter dropped it. Mutation-tested 2026-08-31 -- writing
+        LINT_ERROR into branch_file.py left the case passing, which is the
+        `#210` story (green because empty) repeating in the two-argument form.
         """
         base = self.base_commit_with_dirty_file()
         self.write("branch_file.py", CLEAN)
@@ -181,6 +188,74 @@ class BranchComparison(RuffGateHarness):
         result = self.run_gate(moved, head)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn("landed_after.py", result.stdout)
+        # Green has to mean "checked head's file and it was clean", never
+        # "found nothing to check".
+        self.assertIn("branch_file.py", result.stdout)
+        self.assertNotIn("no Python files changed", result.stdout)
+
+    def test_head_form_checks_a_file_absent_from_the_working_tree(self) -> None:
+        """head is a ref, not the checkout. Its files need not be on disk.
+
+        This is the whole advertised point of the two-argument form -- "compare
+        the merge base against <head>" -- and it was the case the on-disk
+        filter silently removed. Pre-checking somebody else's branch from your
+        own gave "no Python files changed" + exit 0, which is indistinguishable
+        from a genuinely clean branch.
+        """
+        base = self.base_commit_with_dirty_file()
+        self.write("branch_file.py", LINT_ERROR)
+        head = self.commit("branch work")
+
+        # Standing anywhere that is not head. git removes branch_file.py from
+        # the working tree here, exactly as it does when a reviewer asks about
+        # a branch they have not checked out.
+        self.git("checkout", "-q", base)
+        self.assertFalse((self.repo / "branch_file.py").exists())
+
+        result = self.run_gate(base, head)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("branch_file.py", result.stdout)
+        self.assertIn("F401", result.stdout + result.stderr)
+
+    def test_head_form_judges_head_content_not_the_working_tree(self) -> None:
+        """Same path on disk, different bytes. The verdict follows head.
+
+        Sharper than the absent-file case: here the on-disk filter is happy, so
+        the old code ran ruff -- over the wrong content. A clean file sitting at
+        that path in the current checkout laundered a dirty commit into a green
+        gate, and nothing in the output said which bytes were judged.
+        """
+        base = self.base_commit_with_dirty_file()
+        self.write("branch_file.py", LINT_ERROR)
+        head = self.commit("branch work")
+
+        self.git("checkout", "-q", base)
+        self.git("checkout", "-q", "-b", "moved-on")
+        self.write("branch_file.py", CLEAN)
+        self.assertTrue((self.repo / "branch_file.py").exists())
+
+        result = self.run_gate(base, head)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("F401", result.stdout + result.stderr)
+
+    def test_head_form_does_not_blame_the_working_tree(self) -> None:
+        """The mirror failure, and the reason this cannot just read the disk.
+
+        head's commit is clean; the checkout happens to hold dirty uncommitted
+        bytes at the same path. Reading the disk fails the author for something
+        head does not contain -- a false red is as disqualifying as a false
+        green for a gate people are asked to trust before merging.
+        """
+        base = self.base_commit_with_dirty_file()
+        self.write("branch_file.py", CLEAN)
+        head = self.commit("branch work")
+
+        self.git("checkout", "-q", base)
+        self.git("checkout", "-q", "-b", "moved-on")
+        self.write("branch_file.py", LINT_ERROR)
+
+        result = self.run_gate(base, head)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_worktree_form_ignores_commits_main_moved_on_to(self) -> None:
         """The same blame bug as above, in the local form.
