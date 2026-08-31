@@ -68,6 +68,17 @@ value before its types are checked. Empty output is therefore a failure, not a
 free pass; the `group_recap` probe uses the same optional `Outing` seed as the
 wire driver, and a seedless positive control pins its early-return failure.
 
+Non-empty is not sufficient either, and the second thing that can make this
+half vacuous is arithmetic rather than emptiness. `person_finance_summary`
+publishes two `max(0, a - b)` clamps, and `max` returns the first maximal
+argument: at the tie it hands back its own `int` literal whatever `a` and `b`
+were. A probe standing where the clamp is zero therefore reads `int` off a
+constant and says nothing about the four subqueries underneath it. The clamped
+names are read out of the repository AST, not listed, and
+`test_clamped_money_fields_are_observed_away_from_zero` requires each of them
+to be observed strictly positive -- which is why the driver confirms a
+*partial* receipt and the probe reads both sides of the debt.
+
 ## What this gate does NOT prove -- read this before quoting it
 
 * **It only sees statements that actually ran.** The unit of counting is
@@ -145,6 +156,12 @@ REPOSITORY_MODULES = (
 # SQL functions that widen an integer argument on this server. Used ONLY by the
 # coverage reminder, never by the type rule -- see the docstring.
 WIDENING_FUNCTION_NAMES = frozenset({"sum", "avg", "round"})
+
+# What the Python driver confirms against an obligation worth `SHARE_VND`. A
+# strict fraction, so debt and receivable both stay strictly positive; the
+# reason that matters is in the driver and in
+# `test_clamped_money_fields_are_observed_away_from_zero`.
+PARTIAL_RECEIPT_VND = SHARE_VND // 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -364,18 +381,34 @@ def _python_load_confirmed_receipts(
 def _python_person_finance_summary(
     fixture: PythonMoneyFixture,
 ) -> tuple[PythonMoneyValue, ...]:
-    summary = fixture.slice_.repository.person_finance_summary(
-        fixture.slice_.sender_id, movement_limit=10
-    )
-    values = [
-        PythonMoneyValue(field.name, getattr(summary, field.name))
-        for field in dataclasses.fields(summary)
-        if field.name.endswith("_vnd")
-    ]
-    values.extend(
-        PythonMoneyValue(f"movements[{index}].amount_vnd", movement.amount_vnd)
-        for index, movement in enumerate(summary.movements)
-    )
+    """Both roles, because each one reads a different half of the method.
+
+    `outstanding_vnd` is only non-zero for the person who owes, and
+    `receivable_vnd` only for the person who fronted the bill. Probing one of
+    them leaves the other clamp sitting at zero, where `max` returns its int
+    literal and hides whatever produced it -- see
+    `test_clamped_money_fields_are_observed_away_from_zero`.
+    """
+
+    values: list[PythonMoneyValue] = []
+    for role, person_id in (
+        ("sender", fixture.slice_.sender_id),
+        ("payer", fixture.slice_.payer_id),
+    ):
+        summary = fixture.slice_.repository.person_finance_summary(
+            person_id, movement_limit=10
+        )
+        values.extend(
+            PythonMoneyValue(f"{role}.{field.name}", getattr(summary, field.name))
+            for field in dataclasses.fields(summary)
+            if field.name.endswith("_vnd")
+        )
+        values.extend(
+            PythonMoneyValue(
+                f"{role}.movements[{index}].amount_vnd", movement.amount_vnd
+            )
+            for index, movement in enumerate(summary.movements)
+        )
     return tuple(values)
 
 
@@ -402,7 +435,12 @@ def _drive_python_money_query_surface(
     slice_ = Slice(session)
     _expense_id, confirmation = slice_.confirm_expense()
     obligation_id = slice_.publish(confirmation.expense_version_id)
-    slice_.confirm_receipt(obligation_id, SHARE_VND, minute=7)
+    # PART of the share, not all of it. A full receipt settles the obligation
+    # exactly, which drives both `max(0, ...)` clamps in
+    # `person_finance_summary` to the tie -- and at the tie the clamp returns
+    # its own int literal instead of what the subqueries computed. Four of the
+    # seven money conversions in that method become unobservable that way.
+    slice_.confirm_receipt(obligation_id, PARTIAL_RECEIPT_VND, minute=7)
     if seed_trip:
         _seed_outing(session, slice_.context_id)
 
@@ -669,6 +707,101 @@ def test_money_values_reaching_python_are_int(postgres_session: Session) -> None
     observed = _drive_python_money_query_surface(postgres_session)
 
     _assert_python_money_surface_is_integer(observed)
+
+
+def _zero_clamped_money_fields() -> tuple[str, ...]:
+    """Money names assigned from a `max(0, ...)`/`min(0, ...)` clamp.
+
+    Derived from the tree rather than listed here, so a third clamp added
+    tomorrow is covered tomorrow. The clamp matters because it *launders a
+    type*: `max` returns the first maximal argument, so `max(0, 3.0 - 3.0)` is
+    the `int` literal `0`, not `0.0`. At the tie, and anywhere below it, an
+    inexact value upstream reaches the caller as an exact one and every type
+    rule downstream is satisfied by a number the code never computed.
+    """
+
+    source_root = pathlib.Path(__file__).resolve().parents[2]
+    found: set[str] = set()
+    for relative in REPOSITORY_MODULES:
+        tree = ast.parse((source_root / relative).read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            if node.name not in MONEY_QUERY_SURFACE:
+                continue
+            for statement in ast.walk(node):
+                if not isinstance(statement, ast.Assign):
+                    continue
+                value = statement.value
+                if not (
+                    isinstance(value, ast.Call)
+                    and isinstance(value.func, ast.Name)
+                    and value.func.id in {"max", "min"}
+                    and any(
+                        isinstance(argument, ast.Constant) and argument.value == 0
+                        for argument in value.args
+                    )
+                ):
+                    continue
+                for target in statement.targets:
+                    if isinstance(target, ast.Name) and target.id.endswith("_vnd"):
+                        found.add(target.id)
+    return tuple(sorted(found))
+
+
+def _observations_of(
+    observed: dict[str, tuple[PythonMoneyValue, ...]], field: str
+) -> list[object]:
+    """Every observed value for `field`, across probes and across roles."""
+
+    return [
+        money.value
+        for values in observed.values()
+        for money in values
+        if money.field == field or money.field.endswith(f".{field}")
+    ]
+
+
+def test_clamped_money_fields_are_observed_away_from_zero(
+    postgres_session: Session,
+) -> None:
+    """A clamped field observed only at zero proves nothing about its inputs.
+
+    `outstanding_vnd = max(0, owed_vnd - paid_vnd)` is exact when both inputs
+    are, and *also* exact when they are floats that happen to tie -- `max`
+    hands back the `int` literal and the float never surfaces. So the type rule
+    over these fields is only as strong as where the probe stands: at the tie
+    it is satisfied by arithmetic rather than by correctness, and a regression
+    in `owed_vnd`, `paid_vnd`, `advanced_vnd` or `collected_vnd` is invisible.
+
+    Every clamped field must therefore be observed strictly positive somewhere.
+    """
+
+    clamped = _zero_clamped_money_fields()
+    assert clamped, "clamp scanner found no clamped money fields; it is broken"
+
+    observed = _drive_python_money_query_surface(postgres_session)
+
+    never_seen = sorted(
+        name for name in clamped if not _observations_of(observed, name)
+    )
+    assert never_seen == [], (
+        f"these clamped money fields never reached a probe: {never_seen}. A "
+        "field nobody observes cannot be held to any type rule."
+    )
+
+    always_zero = sorted(
+        name
+        for name in clamped
+        if not any(value > 0 for value in _observations_of(observed, name))  # type: ignore[operator]
+    )
+    assert always_zero == [], (
+        f"these clamped money fields were only ever observed as zero: "
+        f"{always_zero}. At or below the clamp `max` returns its int literal, "
+        "so an inexact value upstream is laundered into an exact one and this "
+        "gate measures nothing about the expressions that produced it. Drive "
+        "the surface from a state where the clamp is strictly positive."
+    )
 
 
 def test_seedless_group_recap_fails_python_money_non_triviality(
