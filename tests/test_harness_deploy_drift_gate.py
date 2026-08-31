@@ -243,27 +243,46 @@ def test_cap_moi_khong_ai_khai_bao_UNMANAGED(checker, tmp_path):
     assert state_of(report, "agent_newthing.py") == "UNMANAGED"
 
 
-def test_manifest_rong_thi_TU_CHOI_chu_khong_xanh(checker, tmp_path, monkeypatch):
-    """An emptied manifest must refuse, not pass.
+def test_manifest_rong_thi_TU_CHOI_chu_khong_xanh(
+    checker, tmp_path, monkeypatch, capsys
+):
+    """An emptied manifest must REFUSE -- and be seen to refuse, not merely exit 2.
 
     Every loop in the scan iterates over DECLARED_PAIRS. Empty it and the whole
     gate passes having measured nothing, wearing the same green as a clean
     machine. That is the exact shape this repository keeps rediscovering, so it
     is refused by name.
+
+    The first version of this case asserted only `code == 2`, and a mutant that
+    deleted the floor entirely still passed it: with the manifest empty, both
+    real pairs fall through to UNMANAGED, which is also exit 2. Right answer,
+    wrong reason, and the floor was in fact ungated. So the refusal itself is
+    what is asserted now -- the exception, and the words on stderr.
     """
     repo = build_repo(tmp_path)
     harness = tmp_path / "harness"
     full_install(repo, harness)
 
     monkeypatch.setattr(checker, "DECLARED_PAIRS", ())
+
+    with pytest.raises(checker.Refuse) as excinfo:
+        checker.scan(repo, harness, "pretend-main")
+    assert "manifest" in str(excinfo.value)
+
     code, _ = run(checker, repo, harness)
     assert code == 2
+    assert "KHONG KIEM DUOC" in capsys.readouterr().err
 
 
 def test_manifest_khai_file_khong_co_trong_repo_thi_TU_CHOI(
-    checker, tmp_path, monkeypatch
+    checker, tmp_path, monkeypatch, capsys
 ):
-    """A manifest naming files the repo lacks is a broken ruler, not a verdict."""
+    """A manifest naming files the repo lacks is a broken ruler, not a verdict.
+
+    Asserted as a refusal for the same reason as the case above: dropping the
+    unknown name would leave the remaining pairs to produce exit 2 on their own,
+    and the check would look gated while measuring a manifest it cannot honour.
+    """
     repo = build_repo(tmp_path)
     harness = tmp_path / "harness"
     full_install(repo, harness)
@@ -271,8 +290,14 @@ def test_manifest_khai_file_khong_co_trong_repo_thi_TU_CHOI(
     monkeypatch.setattr(
         checker, "DECLARED_PAIRS", ("agent_supervisor.py", "khong_he_ton_tai.py")
     )
+
+    with pytest.raises(checker.Refuse) as excinfo:
+        checker.scan(repo, harness, "pretend-main")
+    assert "khong_he_ton_tai.py" in str(excinfo.value)
+
     code, _ = run(checker, repo, harness)
     assert code == 2
+    assert "KHONG KIEM DUOC" in capsys.readouterr().err
 
 
 def test_clone_nong_bao_UNKNOWN_chu_khong_bao_DIVERGED(checker, tmp_path):
