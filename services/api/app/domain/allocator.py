@@ -68,19 +68,31 @@ def _validate_structure(expense) -> None:
         raise AllocationError("DUPLICATE_PARTICIPANT")
 
     # Three separate namespaces: an item and a discount may share an id.
-    for elements, key in ((items, "item_id"), (surcharges, "surcharge_id"), (discounts, "discount_id")):
+    for elements, key in (
+        (items, "item_id"),
+        (surcharges, "surcharge_id"),
+        (discounts, "discount_id"),
+    ):
         for element in _by_id(elements, key):
             if not _is_valid_id(element[key]):
                 raise AllocationError("INVALID_ENTITY_ID")
-    for elements, key in ((items, "item_id"), (surcharges, "surcharge_id"), (discounts, "discount_id")):
+    for elements, key in (
+        (items, "item_id"),
+        (surcharges, "surcharge_id"),
+        (discounts, "discount_id"),
+    ):
         ids = [element[key] for element in elements]
         if len(set(ids)) != len(ids):
             raise AllocationError("DUPLICATE_ENTITY_ID")
 
     amounts = [("total", expense["total_vnd"])]
     amounts += [(i["item_id"], i["amount_vnd"]) for i in _by_id(items, "item_id")]
-    amounts += [(s["surcharge_id"], s["amount_vnd"]) for s in _by_id(surcharges, "surcharge_id")]
-    amounts += [(d["discount_id"], d["amount_vnd"]) for d in _by_id(discounts, "discount_id")]
+    amounts += [
+        (s["surcharge_id"], s["amount_vnd"]) for s in _by_id(surcharges, "surcharge_id")
+    ]
+    amounts += [
+        (d["discount_id"], d["amount_vnd"]) for d in _by_id(discounts, "discount_id")
+    ]
 
     # Integer shape first. Every comparison below is meaningless on a value
     # that is not an integer number of dong, and worse than meaningless on a
@@ -138,7 +150,9 @@ def _validate_references(expense) -> None:
     """
     participants = set(expense["participants"])
     for item in _by_id(expense["items"], "item_id"):
-        for participant in sorted(item["shared_by"], key=lambda p: str(p).encode("utf-8")):
+        for participant in sorted(
+            item["shared_by"], key=lambda p: str(p).encode("utf-8")
+        ):
             if participant not in participants:
                 raise AllocationError("UNKNOWN_PARTICIPANT")
 
@@ -169,7 +183,9 @@ def _exact_shares(expense) -> tuple[dict[str, Fraction], list[str]]:
     count = len(participants)
     warnings: list[str] = []
 
-    is_even_split = not expense["items"] and not expense["surcharges"] and not expense["discounts"]
+    is_even_split = (
+        not expense["items"] and not expense["surcharges"] and not expense["discounts"]
+    )
     if is_even_split:
         total = Fraction(expense["total_vnd"])
         return {p: total / count for p in participants}, warnings
@@ -185,7 +201,11 @@ def _exact_shares(expense) -> tuple[dict[str, Fraction], list[str]]:
     # Stage 2 -- global discounts, proportional.
     total_base = sum(base.values(), Fraction(0))
     global_discount = sum(
-        (Fraction(d["amount_vnd"]) for d in expense["discounts"] if d["scope"] == "global_proportional"),
+        (
+            Fraction(d["amount_vnd"])
+            for d in expense["discounts"]
+            if d["scope"] == "global_proportional"
+        ),
         Fraction(0),
     )
     if global_discount > total_base:
