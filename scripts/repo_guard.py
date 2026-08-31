@@ -265,6 +265,87 @@ class GuardError(RuntimeError):
     """A safe-to-display scanner error with no repository content."""
 
 
+# SECRET_RULES is the one table here whose emptiness is silent. `mask_match`
+# only redacts harder for its members, but ALLOWLISTABLE_RULES SUBTRACTS it:
+# empty the table and the subtraction removes nothing, so `google-api-key`,
+# `github-token` and both AWS rules become names a lane may pin into
+# `.repo-guard-allowlist.json` by path and digest -- after which the scan walks
+# past a real credential and exits 0. Measured by qa2's probe at
+# tests/qa/qa2-080313-o-rong/do_o_rong.py: intact, "is google-api-key
+# allowlistable?" is False; with the table emptied it is True, and nothing said
+# so.
+#
+# The empty table would express "no rule is a credential" with the same value
+# that expresses "there are no credential rules to protect". Only one of those
+# is safe and it is not the silent one, so an empty table is an error and the
+# module refuses to load rather than scanning and reporting a clean tree.
+#
+# The floor is anchored on literals, never on anything derived from the table
+# it guards -- a floor computed from SECRET_RULES is vacuously satisfied the
+# moment SECRET_RULES is empty, which is the same defect one level up.
+# REQUIRED_SECRET_RULE_COUNT exists so that hollowing out the anchor set is
+# itself caught instead of disarming the check. What this cannot catch alone is
+# someone editing the anchor AND the count together; that is why
+# tests/test_repo_guard_secret_rules_floor.py restates both names and the count
+# in a second file, so the two have to be edited in step to stay green.
+REQUIRED_SECRET_RULES = frozenset(
+    {
+        "aws-access-key-id",
+        "aws-secret-access-key",
+        "github-token",
+        "google-api-key",
+    }
+)
+REQUIRED_SECRET_RULE_COUNT = 4
+
+
+def verify_secret_rules() -> None:
+    """Refuse to load when the credential tables cannot do their job.
+
+    Checks the consequence (ALLOWLISTABLE_RULES) as well as the inputs, so a
+    rewritten derivation is caught even while SECRET_RULES still looks full.
+    Only rule names appear in the messages; they are fixed identifiers in this
+    file, never repository content.
+    """
+
+    if len(REQUIRED_SECRET_RULES) < REQUIRED_SECRET_RULE_COUNT:
+        raise GuardError(
+            "Repo guard refuses to run: REQUIRED_SECRET_RULES holds "
+            f"{len(REQUIRED_SECRET_RULES)} names but this build is pinned to "
+            f"{REQUIRED_SECRET_RULE_COUNT}. The floor that keeps credential "
+            "rules out of the allowlist cannot vouch for anything."
+        )
+    if not SECRET_RULES:
+        raise GuardError(
+            "Repo guard refuses to run: SECRET_RULES is empty, so no rule is "
+            "treated as a credential and every credential rule becomes "
+            "allowlistable."
+        )
+    missing = sorted(REQUIRED_SECRET_RULES - set(SECRET_RULES))
+    if missing:
+        raise GuardError(
+            "Repo guard refuses to run: SECRET_RULES no longer lists "
+            f"{missing}, which would make those rules allowlistable."
+        )
+    undeclared = sorted(REQUIRED_SECRET_RULES - set(CONTENT_RULES))
+    if undeclared:
+        raise GuardError(
+            "Repo guard refuses to run: CONTENT_RULES no longer lists "
+            f"{undeclared}, so subtracting SECRET_RULES protects nothing "
+            "for those rules."
+        )
+    allowlistable_secrets = sorted(REQUIRED_SECRET_RULES & set(ALLOWLISTABLE_RULES))
+    if allowlistable_secrets:
+        raise GuardError(
+            "Repo guard refuses to run: "
+            f"{allowlistable_secrets} are allowlistable. A credential rule "
+            "must never be a name .repo-guard-allowlist.json can carry."
+        )
+
+
+verify_secret_rules()
+
+
 @dataclass(frozen=True)
 class GitEntry:
     mode: str
