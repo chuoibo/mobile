@@ -63,4 +63,3 @@ def get_obligation_amounts(
         obligation_amount_vnd=row[0],
         confirmed_amount_vnd=row[1],
     )
-

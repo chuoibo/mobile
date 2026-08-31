@@ -22,7 +22,6 @@ from app.api.repository import (
     SqlAlchemyApiRepository,
 )
 from app.api.schemas import ExpenseInput
-from app.db.repository import get_obligation_amounts
 from app.db.models import (
     AuditEvent,
     BankRecipient,
@@ -47,6 +46,7 @@ from app.db.models import (
     Person,
     ReceiptConfirmation,
 )
+from app.db.repository import get_obligation_amounts
 
 from .conftest import seed_context
 
