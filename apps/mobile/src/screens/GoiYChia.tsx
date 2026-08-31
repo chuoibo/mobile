@@ -989,33 +989,63 @@ function MayChuChiaThu({
         </Text>
       ) : null}
 
-      {ketQua ? (
-        <View style={{ gap: 2, marginTop: space.xs }}>
-          {Object.entries(ketQua.allocations)
-            // Sorted by id, not by amount: the order must not change between two
-            // presses that returned the same numbers.
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([personId, amountVnd]) => (
-              <Row
-                key={personId}
-                left={labelInGroup(roster, nhom, personId)}
-                right={`${formatVnd(amountVnd)}đ`}
-              />
-            ))}
-          <Row left="Tổng máy chủ cộng lại" right={`${formatVnd(ketQua.totalAmountVnd)}đ`} muted />
-          <Text style={{ ...type.micro, color: c.inkFaint }}>
-            {ketQua.assignmentState === "confirmed"
-              ? "Máy chủ chia theo những ô đã chốt."
-              : "Máy chủ chia theo phần máy đoán. Chưa ai xác nhận những ô này."}
-          </Text>
-          {ketQua.warnings.map((w) => (
-            <Text key={w} style={{ ...type.label, color: c.warn }}>
-              {w}
-            </Text>
-          ))}
-        </View>
-      ) : null}
+      {ketQua ? <KetQuaChiaThu ketQua={ketQua} roster={roster} nhom={nhom} /> : null}
     </Card>
+  );
+}
+
+/**
+ * The server's answer, drawn.
+ *
+ * Split out of `MayChuChiaThu` so these labels can be measured. This is the
+ * second place on this screen that prints a person the SERVER named, and it
+ * leaks the same way the debt panel did in bug-050923: the keys of
+ * `allocations` are answered against the roster the server holds, so they
+ * routinely name somebody absent from the bill being typed.
+ *
+ * It used to sit inside `MayChuChiaThu`, behind `ketQua`, which is filled by a
+ * press and a fetch. A static render never reaches that state, so reverting
+ * this one lookup to `labelFor` passed the whole suite -- 999 of 999, the same
+ * count as a clean tree. The panel above it was pinned and this one was the
+ * remaining acquittal path for one bug. Nothing here changed but where the
+ * component boundary falls.
+ */
+export function KetQuaChiaThu({
+  ketQua,
+  roster,
+  nhom,
+}: {
+  ketQua: ChiaBill;
+  roster: Roster;
+  /** The group's active membership, for the ids that are not on this bill. */
+  nhom: GroupMember[];
+}): React.JSX.Element {
+  const c = usePalette();
+  return (
+    <View style={{ gap: 2, marginTop: space.xs }}>
+      {Object.entries(ketQua.allocations)
+        // Sorted by id, not by amount: the order must not change between two
+        // presses that returned the same numbers.
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([personId, amountVnd]) => (
+          <Row
+            key={personId}
+            left={labelInGroup(roster, nhom, personId)}
+            right={`${formatVnd(amountVnd)}đ`}
+          />
+        ))}
+      <Row left="Tổng máy chủ cộng lại" right={`${formatVnd(ketQua.totalAmountVnd)}đ`} muted />
+      <Text style={{ ...type.micro, color: c.inkFaint }}>
+        {ketQua.assignmentState === "confirmed"
+          ? "Máy chủ chia theo những ô đã chốt."
+          : "Máy chủ chia theo phần máy đoán. Chưa ai xác nhận những ô này."}
+      </Text>
+      {ketQua.warnings.map((w) => (
+        <Text key={w} style={{ ...type.label, color: c.warn }}>
+          {w}
+        </Text>
+      ))}
+    </View>
   );
 }
 

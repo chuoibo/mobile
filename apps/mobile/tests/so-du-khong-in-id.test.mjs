@@ -37,6 +37,15 @@
  * rather than the panel alone, on purpose -- repairing the panel while leaving
  * `nhom` unpassed at the call site is a fix that renders exactly the defect
  * this was filed for.
+ *
+ * The `Máy chủ chia thử` rows are pinned SEPARATELY, at the bottom of this
+ * file, and that separation was earned rather than chosen. Those rows only
+ * exist after a press and a fetch fill `ketQua`; the cases above render
+ * statically with `bill: null`, so they never reach that state. Measured on
+ * main @ 316c6c2: reverting that one lookup to `labelFor` and running the whole
+ * mobile gate returned `# pass 999 # fail 0` -- byte-identical to a clean tree.
+ * The panel was guarded and the card beside it was the remaining acquittal path
+ * for the same bug, on the same screen, out of the same reply.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -44,7 +53,7 @@ import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { GoiYChia } from "../dist-test/screens/GoiYChia.js";
+import { GoiYChia, KetQuaChiaThu } from "../dist-test/screens/GoiYChia.js";
 /* The word for a person nobody can name is one constant for the whole app, and
  * it already lives here because the chat bubble needed it first. Imported
  * rather than re-declared: the member list and this money row drifting into two
@@ -206,4 +215,56 @@ test("hai người trùng tên vẫn được đánh số, kể cả khi một n
     },
   });
   assert.ok(read.includes("Nam #2 trả Nam #1"), `mất số phân biệt hai người trùng tên: ${read}`);
+});
+
+/* ---- `Máy chủ chia thử`: the same leak, one card down ------------------- */
+
+/** The reply shape `POST /bills/{id}/split` returns, with the allocation keyed
+ *  to somebody in the group's ledger but not on the bill -- which is the normal
+ *  case for this card, not an edge one. That disagreement is the entire reason
+ *  the card is worth pressing. */
+function ketQuaVoiNguoiNgoaiBill(over = {}) {
+  return {
+    allocations: { [MINH]: 40000, [NGOC]: 25000 },
+    totalAmountVnd: 65000,
+    assignmentState: "confirmed",
+    warnings: [],
+    ...over,
+  };
+}
+
+function theMayChu(over = {}) {
+  return words(
+    React.createElement(KetQuaChiaThu, {
+      ketQua: ketQuaVoiNguoiNgoaiBill(over.ketQua),
+      roster: ROSTER,
+      nhom: NHOM,
+      ...over.props,
+    }),
+  );
+}
+
+test("thẻ Máy chủ chia thử không in id ra chỗ đặt tên", () => {
+  const read = theMayChu();
+  const lot = read.match(HINH_DANG_UUID);
+  assert.equal(lot, null, `id lọt ra thẻ máy chủ: ${lot?.[0]} trong "${read}"`);
+});
+
+test("thẻ Máy chủ chia thử gọi đúng tên người chỉ có trong nhóm", () => {
+  const read = theMayChu();
+  assert.ok(read.includes("Ngọc"), `mất tên Ngọc ở thẻ máy chủ: ${read}`);
+  assert.ok(read.includes("Minh"), `mất tên Minh ở thẻ máy chủ: ${read}`);
+});
+
+/* Same trap as above: a fix that slices the id satisfies the UUID shape and
+ * still prints `e3a44e25` where a person goes. */
+test("thẻ Máy chủ chia thử không in tám ký tự hex đầu của id", () => {
+  const read = theMayChu();
+  assert.ok(!read.includes(NGOC.slice(0, 8)), `tiền tố id lọt ra thẻ máy chủ: ${read}`);
+});
+
+test("người máy chủ nêu mà không ai biết tên thì nói ra, không in id", () => {
+  const read = theMayChu({ ketQua: { allocations: { [MINH]: 40000, [LA]: 25000 } } });
+  assert.equal(read.match(HINH_DANG_UUID), null, `id lọt ra thẻ máy chủ: ${read}`);
+  assert.ok(read.includes(TEN_CHUA_BIET), `thiếu "${TEN_CHUA_BIET}": ${read}`);
 });
