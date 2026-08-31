@@ -228,10 +228,40 @@ class BillResponse(ApiModel):
 
 
 class BillSplitResponse(ApiModel):
+    """The split, and -- said out loud -- the set of people it was split between.
+
+    `BillSplitRequest` names nobody, so the caller does not choose that set:
+    the server reads the group roster and keeps the `active` rows. A client
+    that renders its own member list and looks amounts up by id therefore has
+    no way to notice it is showing fewer people than were paid, which is how
+    one diner and 160.000d left a screen with a "write to the ledger" button
+    on it while the printed total stayed right.
+
+    `participant_ids` is not new information -- `allocation.allocations` has
+    always been keyed by exactly this set, zero-amount members included -- but
+    it is newly *named*, and the validator below is what keeps the name true.
+    `excluded_member_ids` is new: an invited member is on the roster the
+    client renders, is not split between, and appears nowhere else here.
+    """
+
     allocation: AllocationProposal
     assignment_state: Literal["confirmed", "ai_suggested"]
     suggested_item_keys: list[StrictStr]
     total_amount_vnd: MoneyVnd
+    participant_ids: list[UUID]
+    excluded_member_ids: list[UUID]
+
+    @model_validator(mode="after")
+    def _named_set_matches_the_paid_set(self) -> BillSplitResponse:
+        if set(self.participant_ids) != set(self.allocation.allocations):
+            # A declaration that can drift from the money is worse than none:
+            # a client would compare its roster against a list nobody pays.
+            raise ValueError(
+                "participant_ids must be exactly the ids the allocation pays"
+            )
+        if set(self.participant_ids) & set(self.excluded_member_ids):
+            raise ValueError("nobody can be both split between and left out")
+        return self
 
 
 class BillSelfClaimRequest(ApiModel):
