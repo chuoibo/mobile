@@ -315,7 +315,14 @@ test("phong bì mang tên người, không mang UUID", async () => {
     ],
   });
   try {
-    const envelopes = await publishBatch("b", { payerAcknowledged: true }, "a", LAN_BAM, ROSTER);
+    const envelopes = await publishBatch(
+      "b",
+      { payerAcknowledged: true },
+      "a",
+      LAN_BAM,
+      ROSTER,
+      [],
+    );
     assert.equal(envelopes[0].senderName, "Hà");
     assert.ok(!envelopes[0].senderName.includes("-"), "van con UUID tren man hinh");
   } finally {
@@ -323,11 +330,31 @@ test("phong bì mang tên người, không mang UUID", async () => {
   }
 });
 
-test("người không có trong danh sách vẫn hiện ra, bằng id, chứ không bị gộp", async () => {
-  // A missing name is a display problem. Falling back to a placeholder like
-  // "Người nhận" would make two different people look like one person on the
-  // exact screen whose job is telling them apart.
+/* This case used to assert the opposite -- that a person off the bill came back
+ * as their raw id -- on the reasoning that a placeholder would make two
+ * different people look like one on the screen whose job is telling them apart.
+ *
+ * That reasoning was written before `labelInGroup` (#423) and does not survive
+ * it, in two steps:
+ *
+ *   1. The lookup now widens to the GROUP before it gives up, and numbers
+ *      duplicates across both lists. Somebody in the group but not on this bill
+ *      is the common case here -- publish answers against the roster the SERVER
+ *      holds -- and they now come back named, which the old rule got wrong. The
+ *      case below is the residual one: neither list can name this person.
+ *   2. For that residual case a UUID does not tell two strangers apart for a
+ *      human reader; it only looks as though it does. Measured, the old rule
+ *      put "Gửi cho e3a44e25-4547-508a-8f4d-9b2495c3325f" on the button an
+ *      organiser taps to send somebody their payment link, and
+ *      "Phần của e3a44e25-…" into the message copied to the clipboard.
+ *
+ * So the rule is the one the rest of the app already follows: never an id where
+ * a name goes. Distinguishability is bought by widening the lookup, not by
+ * printing the key.
+ */
+test("người không ai đặt được tên thì nói ra, chứ không in id", async () => {
   const { publishBatch } = await import("../dist-test/api.js");
+  const { TEN_CHUA_BIET } = await import("../dist-test/screens/chat/tin-nhan.js");
   const stranger = "f9e9d9c9-b9a9-4f99-8e99-d9c9b9a9f999";
   const restore = respondWith({
     guest_links: [
@@ -335,8 +362,41 @@ test("người không có trong danh sách vẫn hiện ra, bằng id, chứ kh�
     ],
   });
   try {
-    const envelopes = await publishBatch("b", { payerAcknowledged: true }, "a", LAN_BAM, ROSTER);
-    assert.equal(envelopes[0].senderName, stranger);
+    const envelopes = await publishBatch(
+      "b",
+      { payerAcknowledged: true },
+      "a",
+      LAN_BAM,
+      ROSTER,
+      [],
+    );
+    assert.equal(envelopes[0].senderName, TEN_CHUA_BIET);
+  } finally {
+    restore();
+  }
+});
+
+/* The half the rule above is bought with: somebody the bill does not hold but
+ * the GROUP can name comes back with their own name, which is what the old rule
+ * got wrong every time publish named anybody off the bill. */
+test("người trong nhóm mà không có trên bill thì hiện tên của họ", async () => {
+  const { publishBatch } = await import("../dist-test/api.js");
+  const ngoai = "f9e9d9c9-b9a9-4f99-8e99-d9c9b9a9f999";
+  const restore = respondWith({
+    guest_links: [
+      { sender_id: ngoai, path: "/g/x", obligations: [{ obligation_id: "o", amount_vnd: 1 }] },
+    ],
+  });
+  try {
+    const envelopes = await publishBatch(
+      "b",
+      { payerAcknowledged: true },
+      "a",
+      LAN_BAM,
+      ROSTER,
+      [{ id: ngoai, name: "Ngọc" }],
+    );
+    assert.equal(envelopes[0].senderName, "Ngọc");
   } finally {
     restore();
   }
@@ -363,7 +423,7 @@ test("bảng đợt thu đọc được tên, số tiền và trạng thái", as
     ],
   });
   try {
-    const board = await loadBoard("c", "b", "a", ROSTER);
+    const board = await loadBoard("c", "b", "a", ROSTER, []);
     assert.equal(board.disputedCount, 1);
     assert.equal(board.obligations[0].senderName, "Hà");
     assert.equal(board.obligations[0].recipient, "Quyên");
@@ -392,7 +452,7 @@ test("tiền đã tới thì vẫn hiện là đã tới, kể cả khi có ngư
     ],
   });
   try {
-    const board = await loadBoard("c", "b", "a", ROSTER);
+    const board = await loadBoard("c", "b", "a", ROSTER, []);
     assert.equal(board.obligations[0].status, "confirmed", "che mat tien da toi");
   } finally {
     restore();
@@ -557,7 +617,7 @@ test("mã lạ giữ nguyên lời của máy chủ, không mượn câu tử t�
       { status: 409, headers: { "Content-Type": "application/json" } },
     );
   try {
-    await publishBatch("b", { payerAcknowledged: true }, "a", LAN_BAM);
+    await publishBatch("b", { payerAcknowledged: true }, "a", LAN_BAM, ROSTER, []);
     assert.fail("le ra phai bi tu choi");
   } catch (problem) {
     assert.ok(problem instanceof ApiError);
