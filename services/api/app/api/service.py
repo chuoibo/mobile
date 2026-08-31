@@ -3555,11 +3555,29 @@ class ApiService:
         # has always been on the `ApiRepository` protocol, and reading it
         # defensively meant a repository that merely forgot to implement it
         # degraded silently into that same fallback instead of failing loudly.
+        #
+        # Read once and partition. Two reads would let the set that is paid
+        # and the set that is reported come from different answers, which is
+        # the one way `BillSplitResponse`'s validator cannot catch: it checks
+        # that the two agree, not that they were taken at the same moment.
+        roster = self.repository.list_members(record.context_id)
         participant_ids = {
             membership.person_id
-            for membership in self.repository.list_members(record.context_id)
+            for membership in roster
             if membership.state == "active"
         }
+        # Rows the roster carries and the split does not pay: an invitation
+        # nobody has accepted yet. `list_members` filters `left_at IS NULL`,
+        # so somebody who left is in neither list -- the response describes
+        # the group as it stands, not everyone who ever ate with it.
+        excluded_member_ids = sorted(
+            (
+                membership.person_id
+                for membership in roster
+                if membership.state != "active"
+            ),
+            key=lambda value: value.bytes,
+        )
 
         try:
             projection = allocator_input_from_bill(
@@ -3629,6 +3647,8 @@ class ApiService:
             assignment_state=projection["assignment_state"],
             suggested_item_keys=projection["suggested_item_keys"],
             total_amount_vnd=projection["expense"]["total_vnd"],
+            participant_ids=sorted(participant_ids, key=lambda value: value.bytes),
+            excluded_member_ids=excluded_member_ids,
         )
 
     def propose_expense(self, proposal: ExpenseInput) -> ExpenseProposalResponse:
