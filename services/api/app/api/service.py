@@ -437,6 +437,36 @@ def _uploaded_image_response(
     )
 
 
+def _stored_image_bytes(
+    photo_storage: PhotoStorage, storage_key: str, *, code: str, message: str
+) -> bytes:
+    """The bytes behind a record, or the record's own not-found refusal.
+
+    A file storage lost and a file that is present with nothing in it are the
+    same situation for whoever asked: the ledger lists a picture that cannot be
+    rendered. They leave by the same door because a caller has no way to act on
+    the difference, and a second code would only add a branch nobody handles.
+
+    Answering `200` with an empty body -- what these routes did before #434 --
+    is not a thinner answer than `404`, it is a wrong one. It announces a
+    photograph, sets `content-type: image/jpeg`, and then sends none of it; the
+    client counts that as success and falls back to the placeholder it shows
+    for a group with no photos at all, silently, on both sides.
+
+    Nothing here is claimed about a file that holds the *wrong* bytes rather
+    than none: those still arrive with `200`. That condition has no decision
+    behind it yet, and this helper is not the place to invent one.
+    """
+
+    try:
+        content = photo_storage.read(storage_key)
+    except FileNotFoundError:
+        raise ApiProblem(404, code, message) from None
+    if not content:
+        raise ApiProblem(404, code, message)
+    return content
+
+
 def _bank_recipient_response(record: BankRecipientRecord) -> BankRecipientResponse:
     bank = describe_bank(record.bank_bin)
     return BankRecipientResponse(
@@ -1120,10 +1150,12 @@ class ApiService:
         record = self.repository.get_context_image(context_id, image_id)
         if record is None:
             raise ApiProblem(404, "photo_not_found", "Photo does not exist")
-        try:
-            content = self.photo_storage.read(record.storage_key)
-        except FileNotFoundError:
-            raise ApiProblem(404, "photo_not_found", "Photo does not exist") from None
+        content = _stored_image_bytes(
+            self.photo_storage,
+            record.storage_key,
+            code="photo_not_found",
+            message="Photo does not exist",
+        )
         return content, record.content_type
 
     def set_person_avatar(
@@ -1157,10 +1189,12 @@ class ApiService:
         record = self.repository.get_latest_avatar(person_id)
         if record is None:
             raise ApiProblem(404, "avatar_not_found", "Avatar does not exist")
-        try:
-            content = self.photo_storage.read(record.storage_key)
-        except FileNotFoundError:
-            raise ApiProblem(404, "avatar_not_found", "Avatar does not exist") from None
+        content = _stored_image_bytes(
+            self.photo_storage,
+            record.storage_key,
+            code="avatar_not_found",
+            message="Avatar does not exist",
+        )
         return content, record.content_type
 
     def post_context_memory(
