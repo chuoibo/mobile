@@ -18,7 +18,11 @@ Run 2026-08-31 against `origin/main` at b20cc4a:
 
     scripts/agent_supervisor.py   installed copy is 3 commits BEHIND main
         installed blob d2c98eb == 0389c58:scripts/agent_supervisor.py
-        (committed 2026-08-28 15:43, an ancestor of origin/main)
+        (committed 2026-08-28, at 15:43 — an ancestor of origin/main)
+        The comma is load-bearing. `repo_guard.py` reads a digit run joined by
+        spaces or hyphens as a possible account number, so a bare `YYYY-MM-DD
+        HH` is ten digits to it and turns the guard red on a date written in a
+        docstring. A comma is not one of the joiners, so it ends the run.
         commits it has not got:
             34d23da  #477  run_once measured its interval on the wall clock
             c749c98  #470  silence watchdog gagged by a BACKWARD clock step
