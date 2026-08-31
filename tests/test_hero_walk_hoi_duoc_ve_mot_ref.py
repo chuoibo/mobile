@@ -209,11 +209,25 @@ def test_tree_VANG_MAT_khong_doc_duoc_la_cay_sach(cay):
     assert done.returncode == 2, done.stdout + done.stderr
 
 
-def test_ref_KHONG_TON_TAI_thi_DO_chu_khong_XANH(cay):
-    """Một ref gõ sai phải ĐỎ. Xanh ở đây là cổng tự tháo bằng lỗi chính tả."""
+def test_ref_KHONG_TON_TAI_thi_DO_VA_NOI_DUNG_LY_DO(cay):
+    """Một ref gõ sai phải ĐỎ, và phải đỏ vì ĐÚNG lý do.
+
+    Mã thoát một mình không đủ, và đây là ca đo được chứ không phải lo xa. Gỡ
+    phép kiểm giải-ref ra (đột biến M1) thì lệnh VẪN thoát 2 — `merge-base
+    --is-ancestor <sha> ""` cũng hỏng — nhưng nó in ra:
+
+        lượt đi bộ chạy ở client ee8421a, KHÔNG nằm trong `khong-he-co-ref-nay` ()
+          Đi bộ từ một checkout của nó: git worktree add ... khong-he-co-ref-nay
+
+    tức bảo người đọc đi checkout một ref không tồn tại. Đỏ thật, lý do sai —
+    đúng cái bẫy mà chính file này đã đóng hai lần ở chỗ khác ("a true red with
+    a false reason ... sends the reader hunting a change they never made").
+    Nhận bằng mã thoát thôi là để đột biến đó sống.
+    """
     _ghi(cay)
     done = _chay(cay, "--status", "--ref", "khong-he-co-ref-nay")
     assert done.returncode == 2, done.stdout + done.stderr
+    assert "KHÔNG GIẢI ĐƯỢC ref" in done.stdout, done.stdout
 
 
 def test_phan_quyet_DUT_khong_thanh_XANH_chi_vi_hoi_ve_ref(cay):
@@ -248,13 +262,26 @@ def test_chua_ai_di_bo_thi_DO_chu_khong_im_lang(cay):
 
 
 def test_dong_ket_qua_NOI_RO_no_tra_loi_ve_ref_nao(cay):
-    """Một dòng xanh không nói nó xanh VỀ CÁI GÌ là dòng bị đọc nhầm sang cây này."""
+    """Một dòng xanh không nói nó xanh VỀ CÁI GÌ là dòng bị đọc nhầm sang cây này.
+
+    Neo vào CHÍNH DÒNG PHÁN QUYẾT, không phải vào cả stdout. Bản đầu của ca này
+    chỉ hỏi "main" có xuất hiện đâu đó không, và dòng nhắc ở dưới ("Trả lời về
+    `main`...") đã làm nó xanh — nên đột biến M6, thứ đổi dòng phán quyết thành
+    "nằm trong HEAD", sống sót. Chỗ người ta đọc và trích dẫn là dòng đầu.
+    """
     _ghi(cay)
     done = _chay(cay, "--status", "--ref", "main")
     assert done.returncode == 0, done.stdout + done.stderr
     sha_main = _git(cay, "rev-parse", "--short", "main")
-    assert "main" in done.stdout
-    assert sha_main in done.stdout
+
+    dong_phan_quyet = next(
+        d for d in done.stdout.splitlines() if d.startswith("hero_walk: ĐI ĐƯỢC")
+    )
+    assert "nằm trong `main`" in dong_phan_quyet, dong_phan_quyet
+    assert sha_main in dong_phan_quyet, dong_phan_quyet
+    # Chủ ngữ là ref, nên dòng đó KHÔNG được nói "HEAD" — HEAD là thứ nó vừa
+    # thôi trả lời về, và hai chữ đó cạnh nhau là cách người đọc hiểu ngược.
+    assert "HEAD" not in dong_phan_quyet, dong_phan_quyet
 
 
 def test_khong_co_ref_thi_van_la_che_do_cu(cay):
