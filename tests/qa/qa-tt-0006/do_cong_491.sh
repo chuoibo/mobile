@@ -94,7 +94,15 @@ done
 echo
 echo "############ 6. Quet URL -- CHAY TAY, khong tu chay o day ############"
 cat <<'EOF'
-  export PUPPETEER_EXECUTABLE_PATH=/home/lakiet/.cache/ms-playwright/chromium-1194/chrome-linux/chrome
+  # Let the machine answer where its own browser is. The pasted path this line
+  # used to carry named build 1194 in one user's home: correct on the laptop it
+  # was typed on, absent on every other. (Measured here 2026-08-31: three builds
+  # are installed -- 1187, 1194, 1234 -- and the resolver picks 1234, so even on
+  # this machine the pasted answer was not the current one.)
+  export PUPPETEER_EXECUTABLE_PATH=$(
+    node -e 'import(process.argv[1]).then((m) => console.log(m.timTrinhDuyet()))' \
+      "$(git rev-parse --show-toplevel)/tests/qa/tim-trinh-duyet.mjs"
+  )
   cd apps/mobile && npm run build:check && node tools/quet-tab-url.mjs
 
   Cho doi: EXIT=2, "tong findings tren cac man: 2" (doc-bill + doc-bill-chuan-bi),

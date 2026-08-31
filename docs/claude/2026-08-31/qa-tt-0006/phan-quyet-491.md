@@ -23,8 +23,22 @@ nền      origin/main = 7fff89c  (merge-base = 7fff89c, tức nhánh đã ở t
 cây      /home/lakiet/agent-harness/wt/qa, `git status` sạch ở mọi lượt đo
 ```
 
-Chrome ghim tay cho mọi lượt quét URL:
-`PUPPETEER_EXECUTABLE_PATH=/home/lakiet/.cache/ms-playwright/chromium-1194/chrome-linux/chrome`
+Chrome ghim cho mọi lượt quét URL. Lượt đo gốc dán tay đường dẫn tuyệt đối tới
+`chromium-1194` trong home của một người; đó là câu lệnh chỉ đúng trên đúng một
+máy, nên nó đã được thay bằng lệnh để **máy tự trả lời** — cùng một trình phân
+giải mà `tests/qa/tim-trinh-duyet.mjs` dùng:
+
+```bash
+export PUPPETEER_EXECUTABLE_PATH=$(
+  node -e 'import(process.argv[1]).then((m) => console.log(m.timTrinhDuyet()))' \
+    "$(git rev-parse --show-toplevel)/tests/qa/tim-trinh-duyet.mjs"
+)
+```
+
+Con số này **không phải** chi tiết vô hại: đo trên chính máy đã viết phán quyết
+(2026-08-31) có ba bản Chromium cùng nằm trong cache — 1187, 1194, 1234 — và
+trình phân giải chọn 1234. Tức đường dán tay không phải bản mới nhất ngay cả ở
+đây, và không tồn tại ở bất kỳ máy nào khác.
 
 Kỹ năng đã gọi: `e2e-testing` (chặng 2 cổng rẻ · chặng 5 trang/màn · chặng 7 kết
 luận) và `bug-reproduction` (đối chứng bản TRƯỚC · vòng reproduce→minimize ·
