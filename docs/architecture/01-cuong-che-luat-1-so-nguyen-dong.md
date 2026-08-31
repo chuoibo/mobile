@@ -302,6 +302,21 @@ khớp không thấy hình dạng trong đối chứng dương của nó.
 > vẫn trả `exit 0`** — đúng kiểu "cổng xanh vì không dựng được gì" mà repo này đã dính
 > nhiều lần.
 
+### Chính máy đếm nền này đã bị đột biến, không chỉ được hứa
+
+Một máy đếm nền không cắn được thì nó không đo gì cả — nó chỉ mô tả. Ba đột biến, chạy
+trên cây đã commit rồi hoàn nguyên:
+
+| Đột biến | Kết quả | Đọc là gì |
+|---|---|---|
+| làm mù máy so khớp (`isinstance` → tên không tồn tại) | `FAIL: the matcher cannot find the shape in its own control` · `exit 1` | đối chứng dương **cắn** |
+| làm mù máy so khớp **và gỡ bỏ đối chứng dương** | in `unit = subject: 0` · **`exit 0`** | **đây là thứ đối chứng dương mua được** |
+| rút ruột `SCOPE` thành `()` | `FAIL: only 0 files ... SCOPE looks wrong` · `exit 1` | phạm vi rỗng là **đỏ**, không phải "0 bản sao" |
+
+Hàng giữa là hàng đáng đọc. Không có đối chứng dương, một máy so khớp hỏng in ra số **0**
+— **đẹp hơn** con số thật (`1`) — và thoát `0`. Người đọc sẽ thấy "sạch hơn cả trước" và
+không có dấu hiệu nào báo rằng phép đo đã chết.
+
 ## Dẫn nguồn
 
 | PR | Đóng góp cho trang này |
