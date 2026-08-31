@@ -32,6 +32,56 @@ const HIT = 44;
 
 const WELL_SCRIM = "rgba(0, 0, 0, 0.82)";
 
+/* How the two side controls read as unavailable while a photo is being read.
+ *
+ * One appearance, applied two different ways, and the split is the whole point.
+ *
+ * The earlier note here reasoned from the composited colour: white at alpha a
+ * over black lands on a*255, so 0.46 -> #757575 -> 4.56:1, "the smallest value
+ * that clears the step". That arithmetic is right about a pixel the glyph never
+ * actually paints, and it is not the number anything measures. Dimming with
+ * `opacity` puts the text under an opacity stack, and against one of those the
+ * detector refuses the declared colour and scores the ink it can see instead
+ * (`screenshot-contrast.mjs`: it shoots the label, shoots it again with the
+ * glyphs turned transparent, diffs, and keeps the pixels that changed). The
+ * verdict is the 10th percentile of those pixels, and at 13px/600 the bottom
+ * decile is anti-aliased edge, which sits near the ground no matter what alpha
+ * the stroke core reaches.
+ *
+ * So the deciding number does not move with opacity. Measured on a swept page,
+ * white 13px/600 on #000, `imp detect --viewport 390x844`:
+ *
+ *     opacity   0.46   0.60   0.75   0.90   0.98
+ *     p10       1.0    1.1    1.1    1.1    1.1     <- the verdict
+ *     median    2.5    3.7    5.1    7.1    8.3
+ *
+ * 0.98 is visually opaque and still fails. The 0.40 -> 0.46 move that this
+ * comment used to justify could never have changed a verdict; it moved the
+ * median and left p10 where it was.
+ *
+ * Painting the label at full alpha in the equivalent grey is what fixes it, and
+ * not because it dodges the harder path. Full alpha means the stroke core
+ * really is the colour named here, where under `opacity` the ink only ever
+ * approaches it -- the label genuinely gets more legible, which is what the
+ * finding was about. It also moves the text onto the declared-colour check,
+ * which is a real gate and not a blind spot: on the same page #6d6d6d (4.1:1)
+ * is flagged and #7a7a7a is not, so the 4.5:1 step is enforced either way.
+ *
+ * 0.48 * 255 = 122.4 -> 122 = #7a7a7a, so the drawn glyph and the label dim to
+ * the same shade and stay locked together; only their paint differs. #7a7a7a on
+ * #000 is 4.89:1, chosen over the 4.56:1 minimum so rounding cannot land under.
+ *
+ * WCAG 2.2 SC 1.4.3 would exempt all of this -- the control really is inactive
+ * (`disabled`, and react-native-web emits `aria-disabled` + `pointer-events:
+ * none`). But "exempt from the floor" is not "legible", and a disabled control
+ * still has to say which control it is. The scrim above stops at y=612 while
+ * these sit at y=744, so they are on plain black and this is the only thing
+ * deciding whether their labels can be read.
+ */
+const MO_KHI_BAN = 0.48;
+/** The same dimmed shade as `MO_KHI_BAN`, for the control that carries text. */
+const CHU_KHI_BAN = "#7a7a7a";
+
 export function ChupBill(props: {
   access: CameraAccess;
   cameraRef: React.RefObject<any>;
@@ -212,7 +262,7 @@ export function ChupBill(props: {
             minHeight: HIT,
             alignItems: "center",
             justifyContent: "center",
-            opacity: busy ? 0.4 : pressed ? 0.7 : 1,
+            opacity: busy ? MO_KHI_BAN : pressed ? 0.7 : 1,
           })}
         >
           <GalleryGlyph />
@@ -258,16 +308,28 @@ export function ChupBill(props: {
           disabled={busy}
           accessibilityRole="button"
           accessibilityLabel="Ảnh chụp màn hình"
+          // No `opacity` for the busy state, unlike the icon-only control
+          // above: this is the one side control with a label, and dimming it
+          // from the container is what put the text under an opacity stack.
+          // The dim moves onto the text colour instead -- same shade, painted
+          // at full alpha. See `MO_KHI_BAN`.
           style={({ pressed }) => ({
             minWidth: HIT,
             minHeight: HIT,
             maxWidth: 88,
             alignItems: "center",
             justifyContent: "center",
-            opacity: busy ? 0.4 : pressed ? 0.7 : 1,
+            opacity: !busy && pressed ? 0.7 : 1,
           })}
         >
-          <Text style={{ ...type.label, color: WHITE, fontWeight: "600", textAlign: "center" }}>
+          <Text
+            style={{
+              ...type.label,
+              color: busy ? CHU_KHI_BAN : WHITE,
+              fontWeight: "600",
+              textAlign: "center",
+            }}
+          >
             Ảnh chụp màn hình
           </Text>
         </Pressable>
@@ -447,7 +509,7 @@ function AccessWell({
             borderRadius: radius.control,
             alignItems: "center",
             justifyContent: "center",
-            opacity: busy ? 0.4 : pressed ? 0.75 : 1,
+            opacity: busy ? MO_KHI_BAN : pressed ? 0.75 : 1,
           })}
         >
           <Text style={{ ...type.body, color: WHITE, fontWeight: "600" }}>{label}</Text>
