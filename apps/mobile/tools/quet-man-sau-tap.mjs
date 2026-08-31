@@ -135,6 +135,7 @@ import {
   installBeforeApp,
   listen,
 } from "./screen-snapshots.mjs";
+import { laLoiThat, phanLoai } from "./che-chu.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MOBILE_ROOT = path.resolve(HERE, "..");
@@ -347,6 +348,34 @@ button{background:#fafafa;color:#f0f0f0;border:none;padding:1px 2px;font-size:9p
 <p class="tiny">Chu sieu nho khong ai doc noi</p>
 <button>Bam</button>
 </div></body></html>`;
+
+/** Deliberately buried: an opaque sibling painted over a heading that is fully
+ *  in view. Its only job is to survive `che-chu.mjs` as a REAL occlusion.
+ *
+ *  The adjudicator added below removes `text-occlusion` findings it judges to
+ *  be clip artifacts, and the failure mode of any such filter is that it
+ *  answers "artifact" to everything -- which turns a buried heading green and
+ *  reads exactly like a screen with nothing wrong. `canary xau` cannot catch
+ *  that: it trips contrast and size rules, not this one. So the filter gets its
+ *  own positive control, and the run refuses to report a table unless this page
+ *  still comes back dirty after being adjudicated.
+ *
+ *  Same shape as `CHE_THAT` in `tests/che-chu.test.mjs`, on purpose: that file
+ *  proves the adjudicator can say `that` at all, and this one proves it still
+ *  says it here, through this scanner's own detector call and page load. */
+const CANARY_CHE = `<!DOCTYPE html><html lang="vi"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>canary che</title><style>
+body{background:#fff;color:#1a1a1a;font-family:system-ui,sans-serif;font-size:16px;
+  line-height:1.6;margin:0;padding:24px}
+h1{font-size:28px;line-height:1.3;margin:0 0 16px}
+</style></head><body>
+<div style="position:relative">
+  <h1>Bua toi o Da Lat</h1>
+  <div style="position:absolute;left:0;right:0;top:4px;height:40px;background:#123456"></div>
+</div>
+<p>Doan van ban nay co do tuong phan cao va co nhip do doc binh thuong.</p>
+</body></html>`;
 
 /** Deliberately plain: high contrast, ordinary rhythm, a real tap target. Its
  *  job is to come back clean, so a tool that finds faults everywhere is caught
@@ -722,6 +751,61 @@ function quet(url) {
 }
 
 /**
+ * Split `text-occlusion` findings into real defects and clip artifacts.
+ *
+ * `quet-tab-url.mjs` has done this since it was written; this file did not, and
+ * the two scanners therefore answered the same question two different ways --
+ * with the cruder answer landing on the ten screens the demo actually walks
+ * through. Measured on `ket-qua-thanh-toan`: the detector reports "Trang" 88%
+ * covered and "160.000đ" 100% covered by the footer button, and both adjudicate
+ * to `cuon-khuat` -- once scrolled to, 5/5 sampled points show the word itself
+ * on top. They are rows below the fold of an inner ScrollView whose boxes still
+ * intersect the pinned footer, which is the artifact `che-chu.mjs` exists for.
+ *
+ * That mattered in both directions. The hero table exited 2 for two words a
+ * reader can read perfectly well, and a gate that is red for fake reasons is
+ * one people stop reading -- so a genuine occlusion arriving on the money
+ * screens would have looked like the same familiar noise.
+ *
+ * Only `text-occlusion` is routed through here. Every other antipattern is kept
+ * verbatim: this adjudicates one rule's known artifact, it is not a filter on
+ * findings in general.
+ *
+ * Returns both halves. The artifacts are printed and persisted rather than
+ * dropped, because "we saw it and judged it" and "we never saw it" are
+ * different claims and only one of them is true here.
+ */
+async function xetCheChu(browser, url, needle, findings) {
+  const that = [];
+  const aoAnh = [];
+  const canXet = findings.filter((f) => f.antipattern === "text-occlusion");
+  if (canXet.length === 0) return { that: [...findings], aoAnh };
+
+  const page = await browser.newPage();
+  try {
+    page.setDefaultTimeout(30000);
+    await page.goto(url, { waitUntil: "networkidle0" });
+    if (needle) {
+      await page
+        .waitForFunction((n) => (document.body?.innerText ?? "").includes(n), { timeout: 20000 }, needle)
+        .catch(() => {});
+    }
+    for (const f of findings) {
+      if (f.antipattern !== "text-occlusion") {
+        that.push(f);
+        continue;
+      }
+      const kq = await phanLoai(page, f);
+      if (laLoiThat(kq)) that.push(f);
+      else aoAnh.push({ f, kq });
+    }
+  } finally {
+    await page.close();
+  }
+  return { that, aoAnh };
+}
+
+/**
  * Load the page in our own browser and confirm the walk landed.
  *
  * Separate from the detector's own navigation on purpose: this is what turns
@@ -788,6 +872,7 @@ async function main() {
 
     const tenXau = ghi("__canary-xau.html", CANARY_XAU);
     const tenSach = ghi("__canary-sach.html", CANARY_SACH);
+    const tenChe = ghi("__canary-che.html", CANARY_CHE);
     /* Mỗi màn một canary lái, chứ không một canary cho cả bảng.
      *
      * Bản trước ghim canary vào đúng một kịch bản và suy ra phần còn lại: "chạy
@@ -847,6 +932,31 @@ async function main() {
       defaultViewport: { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
       args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
     });
+
+    /* Đối chứng DƯƠNG cho bộ phân loại che chữ, chạy trước khi bảng dưới được
+     * đọc. Hai canary ở trên không thay được nó: chúng bắt tương phản và cỡ
+     * chữ, không đụng tới luật `text-occlusion`. Nếu bộ phân loại trả lời "ảo
+     * ảnh" cho mọi thứ thì một tiêu đề bị chôn thật cũng thành xanh, và bảng
+     * dưới trông y hệt một đường đi sạch. */
+    const che = await quet(`${goc}/${tenChe}`);
+    const cheXet = await xetCheChu(browser, `${goc}/${tenChe}`, null, che.findings);
+    const cheThat = cheXet.that.filter((f) => f.antipattern === "text-occlusion");
+    console.log(
+      `  canary che   findings=${che.findings.length} exit=${che.status}, ` +
+        `sau khi xet: ${cheThat.length} che that / ${cheXet.aoAnh.length} ao anh  (can che that > 0)`,
+    );
+    if (che.findings.filter((f) => f.antipattern === "text-occlusion").length === 0) {
+      throw new Error(
+        "MAY QUET KHONG THAY CHE CHU: trang co tinh chon chu khong ra finding text-occlusion nao. " +
+          "Bo phan loai duoi khong the duoc tin, vi khong co gi chung minh luat nay con chay.",
+      );
+    }
+    if (cheThat.length === 0) {
+      throw new Error(
+        "BO PHAN LOAI CHE CHU DA MU: mot tieu de bi de len that su bi xet thanh ao anh. " +
+          "Moi so 0 ve text-occlusion o bang duoi la vo nghia cho toi khi hieu vi sao.",
+      );
+    }
 
     console.log(`\n== ${MAN_SAU_TAP.length} man sau tap, tren trang that ==`);
     const bangKe = [];
@@ -918,14 +1028,29 @@ async function main() {
       }
 
       const { findings, status } = await quet(url);
-      bad += findings.length;
-      bangKe.push({ step, findings, status, chars: man.chars, els: man.els });
+      const { that, aoAnh } = await xetCheChu(browser, url, needle, findings);
+      bad += that.length;
+      bangKe.push({
+        step,
+        findings: that,
+        // Kept, not dropped: an artifact we looked at and judged is a different
+        // thing from one we never saw, and only the first is true here.
+        aoAnh: aoAnh.map(({ f, kq }) => ({ snippet: f.snippet, verdict: kq.verdict, ly: kq.ly })),
+        status,
+        chars: man.chars,
+        els: man.els,
+      });
       console.log(
-        `  ${step.padEnd(10)} findings=${String(findings.length).padStart(2)} exit=${status}` +
-          `  (da render: els=${man.els} chars=${man.chars}, needle OK, canary lai OK)`,
+        `  ${step.padEnd(10)} findings=${String(that.length).padStart(2)} exit=${status}` +
+          `  (da render: els=${man.els} chars=${man.chars}, needle OK, canary lai OK` +
+          `${aoAnh.length ? `, ${aoAnh.length} che-chu ao anh` : ""})`,
       );
-      for (const f of findings) {
+      for (const f of that) {
         console.log(`      [${f.severity}] ${f.antipattern}: ${(f.snippet ?? "").slice(0, 150)}`);
+      }
+      for (const { f, kq } of aoAnh) {
+        console.log(`      [bo qua: ${kq.verdict}] ${f.antipattern}: ${(f.snippet ?? "").slice(0, 110)}`);
+        console.log(`          ${kq.ly}`);
       }
     }
 
@@ -940,6 +1065,10 @@ async function main() {
         {
           viewport: VIEWPORT,
           canaryXau: xau.findings.length,
+          // The adjudicator's own positive control: how many text-occlusion
+          // findings a deliberately-buried heading still had AFTER being
+          // judged. A 0 here would mean every 0 below is unfalsifiable.
+          canaryChe: cheThat.length,
           // Per screen now, not one flag for the table. `chuaKetLuan` non-empty
           // is what makes the run inconclusive; `man` only ever holds screens
           // whose own drive canary came back with the marker.
