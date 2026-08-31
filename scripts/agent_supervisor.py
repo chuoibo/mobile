@@ -211,13 +211,35 @@ def watch_for_silence(
 
     It never kills anything. Long thinking is legitimate; the point is that
     somebody knows it is happening.
+
+    The gap is measured on `time.monotonic`, and that is load-bearing rather
+    than stylistic. `time.time` is not an interval; it is a number the rest of
+    the system is allowed to move, and on this machine it moves for two
+    ordinary reasons -- an NTP step correction, and the WSL2 host suspending
+    and resuming overnight. Neither says anything about the agent.
+
+    Both directions were wrong, and the quiet one is the dangerous one:
+
+        forward step  -> a working agent reported silent for an interval
+                         nobody observed, naming a number that never happened
+        backward step -> `quiet` goes NEGATIVE, `quiet >= heartbeat` is never
+                         true, and a genuinely dead agent produces no alert
+
+    A watchdog silenced by a clock step prints nothing, and printing nothing is
+    also what a healthy watchdog does -- the same costume worn by the URL
+    scanner with no Chrome that returned `[]` and exit 0. Measured against a
+    600s backward step, this loop stayed silent through 360s of real silence at
+    a 180s threshold.
     """
+    # Wall clock ON PURPOSE, and it must stay that way: `since` is a watermark
+    # compared against `path.stat().st_mtime` in `recent_files`, and file
+    # mtimes are wall-clock. A monotonic value here would match no file ever.
     since = time.time()
 
     def world() -> tuple[str, int]:
         return codex_progress(repo) if agent == "codex" else dir_progress(out_dir, since)
 
-    last, last_change = world(), time.time()
+    last, last_change = world(), time.monotonic()
     warned_at = 0.0
     while not stop.is_set():
         stop.wait(30)
@@ -225,12 +247,12 @@ def watch_for_silence(
             return
         now = world()
         if now != last:
-            quiet = int(time.time() - last_change)
+            quiet = int(time.monotonic() - last_change)
             if quiet > args.heartbeat:
                 emit("INFO", f"{agent} noi lai sau {quiet}s im lang")
-            last, last_change, warned_at = now, time.time(), 0.0
+            last, last_change, warned_at = now, time.monotonic(), 0.0
             continue
-        quiet = time.time() - last_change
+        quiet = time.monotonic() - last_change
         # Warn once per heartbeat window rather than every poll: an alert that
         # repeats every thirty seconds is an alert people mute.
         if quiet >= args.heartbeat and quiet - warned_at >= args.heartbeat:
