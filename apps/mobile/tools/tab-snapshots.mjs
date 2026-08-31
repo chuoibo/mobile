@@ -939,6 +939,29 @@ export function installTabStubs(apiBase, fixtures) {
       });
     }
 
+    /* ---- The companion turn, answered as a silence with a reason.
+     *
+     * Unstubbed, this route 404s, and a 404 is a real product state with its
+     * own sentence ("AI chưa nối vào máy chủ này") -- so a scan of the AI
+     * banner without this route would have measured the not-shipped-yet
+     * message under a filename claiming to measure the answer.
+     *
+     * `unavailable` on purpose: it is the longest of the nine sentences, so it
+     * is the one that wraps the most lines and puts the most pressure on
+     * `line-length` and `body-text-viewport-edge`. The short ones cannot fail
+     * a rule the long one passes.
+     *
+     * `spoke: false` means no card is drawn, so this adds no photographs and
+     * no new bubbles -- the counts the scan asserts stay the tab's own. */
+    if (method === "POST" && route.endsWith("/ai-turn")) {
+      return json({
+        context_id: fixtures.contextId,
+        spoke: false,
+        reason: "unavailable",
+        message: null,
+      });
+    }
+
     // Reached only by a route this file does not know about. Answering 404
     // rather than a plausible empty body keeps an unstubbed call loud.
     return json({ detail: `tab-snapshots: unstubbed ${method} ${route}` }, 404);
