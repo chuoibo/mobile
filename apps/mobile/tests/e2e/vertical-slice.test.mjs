@@ -270,7 +270,14 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
   // out loud. Asserted rather than assumed -- if this ever stops refusing, a
   // batch can freeze with nowhere to send the money.
   await assert.rejects(
-    () => openBatch(proposal, written.expenseVersionId, written.acknowledged, attemptFor(lanBam, "mo-dot-thu")),
+    () =>
+      openBatch(
+        proposal,
+        written.expenseVersionId,
+        written.acknowledged,
+        attemptFor(lanBam, "mo-dot-thu"),
+        nguoi,
+      ),
     (error) => error.code === "UNREADY_RECIPIENT_CHOICE_REQUIRED",
     "may chu phai doi hoi quyet dinh ve nguoi nhan chua san sang",
   );
@@ -309,6 +316,7 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
     written.expenseVersionId,
     written.acknowledged,
     attemptFor(lanBam, "mo-dot-thu"),
+    nguoi,
   );
   assert.ok(batch.batchId);
   // Two people owe the advancer; the advancer does not owe themselves.
@@ -319,7 +327,15 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
   // server's to enforce and is not modelled here at all.
   assert.equal(batch.gates.payerAcknowledged, true);
   await assert.rejects(
-    () => publishBatch(batch.batchId, { payerAcknowledged: false }, ungTien.id, attemptFor(lanBam, "phat")),
+    () =>
+      publishBatch(
+        batch.batchId,
+        { payerAcknowledged: false },
+        ungTien.id,
+        attemptFor(lanBam, "phat"),
+        draft.participants,
+        nguoi,
+      ),
     (error) => error.name === "GateNotPassedError",
     "phat duoc trong khi nguoi ung tien chua xac nhan",
   );
@@ -330,6 +346,7 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
     ungTien.id,
     attemptFor(lanBam, "phat"),
     draft.participants,
+    nguoi,
   );
   assert.equal(envelopes.length, 2);
 
@@ -401,7 +418,7 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
   // The other half of the round, which the app had no way to reach until now:
   // the money comes back. Publishing is not the end of anything -- an
   // organiser still has to see who paid and say it arrived.
-  const before = await loadBoard(contextId, batch.batchId, ungTien.id, draft.participants);
+  const before = await loadBoard(contextId, batch.batchId, ungTien.id, draft.participants, nguoi);
   assert.equal(before.obligations.length, 2);
   assert.ok(
     before.obligations.every((o) => o.status === "outstanding"),
@@ -424,7 +441,7 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
   // Read it back rather than trusting the reply: the board is what an
   // organiser looks at, and it derives status from the ledger rather than
   // storing it. If those two ever disagree, this is where it shows.
-  const after = await loadBoard(contextId, batch.batchId, ungTien.id, draft.participants);
+  const after = await loadBoard(contextId, batch.batchId, ungTien.id, draft.participants, nguoi);
   const settled = after.obligations.find((o) => o.id === owed.id);
   assert.equal(settled.status, "confirmed", "bang khong thay tien da ve");
   assert.equal(

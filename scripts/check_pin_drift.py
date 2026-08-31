@@ -62,7 +62,10 @@ to catch.
 Exit codes, matching scripts/gate.sh:
   0  no drift among the import-critical pins
   1  at least one import-critical pin differs from what is installed
-  2  the check could not run at all -- never a silent pass
+  2  the check could not run at all -- never a silent pass. That now includes
+     `IMPORT_CRITICAL` having been gutted: a table with nothing in it cannot
+     answer the question this file exists to ask, and answering 0 would be the
+     silent pass. See `verify_import_critical`.
 """
 
 from __future__ import annotations
@@ -115,6 +118,45 @@ IMPORT_CRITICAL = frozenset(
         "pytest-subtests",
     }
 )
+
+# The floor under the table above, written out a SECOND time as a literal.
+#
+# `critical_offenders` filters on `r["critical"]`, which is `name in
+# IMPORT_CRITICAL`. Empty that set and no row is ever critical, `main` reaches
+# `if not offenders` and prints "Không pin quan trọng nào lệch -- bộ test đã
+# chạy đúng bản sẽ ship" over exit 0. That sentence and that exit code say two
+# opposite things with one value: "every import-critical pin matches" and "no
+# pin is treated as import-critical". The second is this gate switched off, and
+# it is the one that makes no sound. Measured before this floor existed, with a
+# requirements file pinning fastapi and pytest to versions nobody has:
+# intact exit 1, `IMPORT_CRITICAL = frozenset()` exit 0.
+#
+# Anchored to a literal rather than to `IMPORT_CRITICAL`, because a floor
+# derived from the table it guards is satisfied by emptying both -- the same
+# defect one level up. `REQUIRED_IMPORT_CRITICAL_COUNT` exists so that gutting
+# this anchor is itself caught, rather than being a way to disarm the check.
+REQUIRED_IMPORT_CRITICAL = frozenset(
+    {
+        "fastapi",
+        "starlette",
+        "pydantic",
+        "sqlalchemy",
+        "alembic",
+        "pytest",
+        "pytest-subtests",
+    }
+)
+REQUIRED_IMPORT_CRITICAL_COUNT = 7
+
+# A version string no release can equal, so `survey` must classify a pin at this
+# version as drift-or-absent on any machine. Used only to ask whether the wiring
+# from `IMPORT_CRITICAL` through to the exit code is still connected.
+UNMATCHABLE_PIN = "0.0.0.dev0+pin-drift-floor-probe"
+
+
+class GateBroken(RuntimeError):
+    """The gate's own configuration is wrong -- never a fact about the pins."""
+
 
 # `name==version`, ignoring comments, blank lines, markers and extras. Anything
 # that is not a plain pin (a range, a URL, an `-r` include) is skipped rather
@@ -182,6 +224,80 @@ def critical_offenders(rows: list[dict[str, object]]) -> list[dict[str, object]]
     return [r for r in rows if r["critical"] and r["state"] != "match"]
 
 
+def verify_import_critical() -> None:
+    """Refuse to answer at all when the criticality table has been gutted.
+
+    Four branches, because there are four different ways to end up with a gate
+    that reports "no critical pin drifted" while being unable to notice one.
+    The last branch is the only one that checks a CONSEQUENCE rather than an
+    input: the first three can all be satisfied while `survey` or
+    `critical_offenders` has been rewritten so that the table no longer reaches
+    the exit code. It asks the question the caller actually depends on -- put an
+    import-critical pin at a version nobody can have, does it come back as an
+    offender? -- and so it survives a rewrite of the derivation between them.
+
+    Reads the module globals live rather than closing over them at definition
+    time, so this catches the table being replaced after import as well as the
+    source being edited. Those are different attacks and both are real: the
+    first is what a probe does, the second is what a careless rebase does.
+    """
+
+    if len(REQUIRED_IMPORT_CRITICAL) < REQUIRED_IMPORT_CRITICAL_COUNT:
+        raise GateBroken(
+            f"REQUIRED_IMPORT_CRITICAL chỉ còn {len(REQUIRED_IMPORT_CRITICAL)} "
+            f"tên, phải có ít nhất {REQUIRED_IMPORT_CRITICAL_COUNT}. Chính cái "
+            "neo bị rút ruột, nên nó không còn giữ được IMPORT_CRITICAL nữa."
+        )
+
+    if not IMPORT_CRITICAL:
+        raise GateBroken(
+            "IMPORT_CRITICAL rỗng, nên không hàng nào được coi là quan trọng và "
+            "cổng thoát 0 dù pin lệch bao xa. 'Không pin quan trọng nào lệch' và "
+            "'không pin nào được coi là quan trọng' là hai chuyện ngược nhau; "
+            "đây là chuyện thứ hai."
+        )
+
+    if missing := sorted(REQUIRED_IMPORT_CRITICAL - IMPORT_CRITICAL):
+        raise GateBroken(
+            f"IMPORT_CRITICAL không còn liệt kê {missing}. Lệch pin ở những tên "
+            "này sẽ không chặn được nữa, mà báo cáo vẫn đọc y hệt một cây sạch. "
+            "Bỏ hẳn một tên khỏi danh sách quan trọng thì phải sửa cả "
+            "REQUIRED_IMPORT_CRITICAL và mở ADR, không sửa lặng lẽ một chỗ."
+        )
+
+    # The consequence. Every required name, pinned to something unmatchable,
+    # must come back out of `critical_offenders` as blocking.
+    rows = survey({name: UNMATCHABLE_PIN for name in sorted(REQUIRED_IMPORT_CRITICAL)})
+    flagged = {row["name"] for row in critical_offenders(rows)}
+    if unflagged := sorted(REQUIRED_IMPORT_CRITICAL - flagged):
+        raise GateBroken(
+            f"IMPORT_CRITICAL vẫn đủ tên, nhưng {unflagged} pin ở một phiên bản "
+            "không ai có mà KHÔNG bị critical_offenders báo. Dây từ bảng tới mã "
+            "thoát đã đứt ở survey() hoặc critical_offenders() — bảng đầy không "
+            "cứu được một phép dẫn xuất đã bị viết lại."
+        )
+
+
+# At import, not in `main`: a broken table must stop every caller -- the gate
+# script, the test suite, anything that imports this module for `read_pins` --
+# and not only the one that happens to come through the CLI. #458 made the same
+# move on `repo_guard.SECRET_RULES` for the same reason.
+#
+# Run as a script the raise has to be converted, not left to propagate: an
+# uncaught exception exits 1, and 1 here means "an import-critical pin drifted",
+# a claim about the requirements file. A gutted table is a claim about this
+# script. Those must not share an exit code, so this is 2 -- "could not run at
+# all". Imported, it still raises: a caller must not receive a module whose
+# criticality table it cannot trust.
+try:
+    verify_import_critical()
+except GateBroken as _broken:  # pragma: no cover - exercised via subprocess
+    if __name__ == "__main__":
+        print(f"cổng tự từ chối chạy: {_broken}", file=sys.stderr)
+        raise SystemExit(2) from None
+    raise
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -206,6 +322,17 @@ def main(argv: list[str] | None = None) -> int:
         help="print only the import-critical names that drifted, one per line",
     )
     args = parser.parse_args(argv)
+
+    # Again, after import. `verify_import_critical` already ran at import time,
+    # but the table is a module global and anything holding this module can
+    # rebind it afterwards -- which is exactly what qa2's probe does, and what a
+    # plugin or a conftest could do by accident. Exit 2, the code this file's
+    # docstring reserves for "the check could not run at all", never 0.
+    try:
+        verify_import_critical()
+    except GateBroken as exc:
+        print(f"cổng tự từ chối chạy: {exc}", file=sys.stderr)
+        return 2
 
     if not args.requirements.is_file():
         print(f"không đọc được {args.requirements}", file=sys.stderr)
