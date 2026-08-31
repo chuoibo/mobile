@@ -134,8 +134,32 @@ if (reasons.length && !REQUIRED && !banCu) {
         timeout: 180000,
         label: `kịch bản đi bộ "${nhan}"`,
       });
-      const lai = await page.evaluate(() => ({ xong: window.__lai.xong, loi: window.__lai.loi }));
-      assert.equal(lai.loi, null, `kịch bản đi bộ "${nhan}" HỎNG: ${lai.loi}`);
+      const lai = await page.evaluate(() => ({
+        xong: window.__lai.xong,
+        loi: window.__lai.loi,
+        buoc: window.__lai.buoc,
+        ms: window.__lai.ms,
+        cho_ms: window.__lai.cho_ms,
+        luc_loi: window.__lai.luc_loi ?? null,
+      }));
+      // Printed on every run, pass or fail. A per-step budget can only be
+      // called too tight or about right by looking at the margin on the runs
+      // that PASSED, and those numbers do not exist unless somebody prints
+      // them. The slowest wait is the one the budget is really sized against.
+      const chamNhat = lai.cho_ms.length ? Math.max(...lai.cho_ms) : 0;
+      console.log(
+        `  [nhịp] "${nhan}": ${lai.ms.length} bước, chờ lâu nhất ${chamNhat}ms, ` +
+          `tổng ${lai.ms.reduce((a, b) => a + b, 0)}ms`,
+      );
+      assert.equal(
+        lai.loi,
+        null,
+        `kịch bản đi bộ "${nhan}" HỎNG: ${lai.loi}\n` +
+          `  đã qua ${lai.buoc.length} bước: ${JSON.stringify(lai.buoc)}\n` +
+          `  ms mỗi bước: ${JSON.stringify(lai.ms)}\n` +
+          `  ms mỗi lần chờ: ${JSON.stringify(lai.cho_ms)}\n` +
+          `  màn lúc chết: ${JSON.stringify(lai.luc_loi)}`,
+      );
       assert.equal(lai.xong, true, `kịch bản đi bộ "${nhan}" chưa xong`);
     }
 

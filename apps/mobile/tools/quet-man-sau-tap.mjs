@@ -452,7 +452,12 @@ button{background:#1a4fd6;color:#fff;border:none;border-radius:8px;padding:12px 
  * rather than surfacing three screens later as a missing needle.
  */
 export function laiTrongTrang(kichBan, dauLai) {
-  window.__lai = { xong: false, loi: null, buoc: [] };
+  // `ms` and `cho_ms` are ADDITIVE. Twenty-one tools read this object and every
+  // one of them reads only `xong` and `loi`, so new keys cannot change any
+  // existing verdict -- but a walk that dies on a budget has to be able to say
+  // how close the OTHER steps came, or "raise the number" is the only available
+  // diagnosis. `ms` is per completed step; `cho_ms` is per individual wait.
+  window.__lai = { xong: false, loi: null, buoc: [], ms: [], cho_ms: [], bam_lai: [] };
   const chu = () => (document.body ? document.body.innerText || "" : "");
 
   // Hold the page "busy" until the walk is done.
@@ -472,12 +477,49 @@ export function laiTrongTrang(kichBan, dauLai) {
   const neo = new AbortController();
   fetch("/__giu?lai=1", { signal: neo.signal }).catch(() => {});
 
-  function cho(text, ms) {
+  // How long a wait tolerates no progress before it suspects the press that
+  // preceded it never landed, and how many times it may press again.
+  const NHIP_BAM_LAI = 2500;
+  const SO_LAN_BAM_LAI = 2;
+
+  function cho(text, ms, lamLai) {
     return new Promise((res, rej) => {
       const t0 = Date.now();
+      let daBamLai = 0;
       (function poll() {
-        if (chu().includes(text)) return res();
-        if (Date.now() - t0 > ms) return rej(new Error('het gio cho "' + text + '"'));
+        if (chu().includes(text)) {
+          window.__lai.cho_ms.push(Date.now() - t0);
+          return res();
+        }
+        const troi = Date.now() - t0;
+        // A press that evaporated and a screen that is merely slow look
+        // identical from here, so the tie is broken by asking whether the
+        // button is STILL THERE. If the press landed, the screen moved on and
+        // the finder no longer matches, so nothing is pressed twice -- that is
+        // what keeps this from double-submitting a save. If it is still sitting
+        // there unpressed after `NHIP_BAM_LAI`, the press was lost.
+        //
+        // This cannot paper over a button that is genuinely dead: pressing a
+        // dead button again does nothing and the wait still times out. It only
+        // removes the case where the walk was right and the click was dropped.
+        if (lamLai && daBamLai < SO_LAN_BAM_LAI && troi > NHIP_BAM_LAI * (daBamLai + 1)) {
+          const el = lamLai();
+          if (el) {
+            daBamLai += 1;
+            // Recorded, never silent: a walk that only passes because it
+            // pressed three times is a walk with something wrong under it, and
+            // hiding the retries would turn that into a green nobody can read.
+            window.__lai.bam_lai.push({ cho: text, lan: daBamLai, sau_ms: troi });
+            bamVao(el);
+          }
+        }
+        if (troi > ms) {
+          // The budget and the elapsed time both go into the message. Without
+          // them a timeout reads as "the screen never came" when it can equally
+          // mean "the screen came at 20.4s against a 20s budget", and those two
+          // have opposite fixes.
+          return rej(new Error('het gio cho "' + text + '" sau ' + troi + 'ms (ngan sach ' + ms + 'ms)'));
+        }
         setTimeout(poll, 40);
       })();
     });
@@ -499,12 +541,25 @@ export function laiTrongTrang(kichBan, dauLai) {
     return el;
   }
 
-  function choDom(tim, moTa, ms) {
+  function choDom(tim, moTa, ms, lamLai) {
     return new Promise((res, rej) => {
       const t0 = Date.now();
+      let daBamLai = 0;
       (function poll() {
         if (tim()) return res();
-        if (Date.now() - t0 > ms) return rej(new Error("khong thay " + moTa));
+        const troi = Date.now() - t0;
+        // Same rule as `cho`: press again only while the target is still
+        // sitting there unpressed. See the note there for why that guard is
+        // what makes a retry safe rather than a second submission.
+        if (lamLai && daBamLai < SO_LAN_BAM_LAI && troi > NHIP_BAM_LAI * (daBamLai + 1)) {
+          const el = lamLai();
+          if (el) {
+            daBamLai += 1;
+            window.__lai.bam_lai.push({ cho: moTa, lan: daBamLai, sau_ms: troi });
+            bamVao(el);
+          }
+        }
+        if (troi > ms) return rej(new Error("khong thay " + moTa));
         setTimeout(poll, 40);
       })();
     });
@@ -546,19 +601,26 @@ export function laiTrongTrang(kichBan, dauLai) {
     });
   }
 
+  /** One press attempt on an already-found element. */
+  function bamVao(el) {
+    // `inline: "nearest"`, and the document's horizontal scroll put back:
+    // centring on a 445px-wide document at a 390px viewport scrolls the
+    // page under the pointer and the click lands on the background.
+    el.scrollIntoView({ block: "center", inline: "nearest" });
+    if (document.scrollingElement) document.scrollingElement.scrollLeft = 0;
+    el.click();
+  }
+
   function timBam(tim, moTa, ms) {
     return new Promise((res, rej) => {
       const t0 = Date.now();
       (function poll() {
         const el = tim();
         if (el) {
-          // `inline: "nearest"`, and the document's horizontal scroll put back:
-          // centring on a 445px-wide document at a 390px viewport scrolls the
-          // page under the pointer and the click lands on the background.
-          el.scrollIntoView({ block: "center", inline: "nearest" });
-          if (document.scrollingElement) document.scrollingElement.scrollLeft = 0;
-          el.click();
-          return res();
+          bamVao(el);
+          // The finder is handed back so the NEXT wait can press again if this
+          // press turns out to have evaporated. See `lamLaiCuoi`.
+          return res(tim);
         }
         if (Date.now() - t0 > ms) return rej(new Error("khong thay " + moTa));
         setTimeout(poll, 40);
@@ -590,18 +652,28 @@ export function laiTrongTrang(kichBan, dauLai) {
     });
   }
 
+  // The finder for the most recent press, carried into the NEXT `cho`.
+  // Scenarios are written press-then-wait, so the wait that follows a press is
+  // exactly where a dropped press shows up -- as a screen that never arrives.
+  let lamLaiCuoi = null;
+
   (async () => {
     for (const b of kichBan) {
-      if (b.cho) await cho(b.cho, b.ms || 20000);
+      const tBuoc = Date.now();
+      if (b.cho) {
+        const lamLai = lamLaiCuoi;
+        lamLaiCuoi = null;
+        await cho(b.cho, b.ms || 20000, lamLai);
+      }
       if (b.bam) {
-        await timBam(
+        lamLaiCuoi = await timBam(
           () => bamDuoc(document.querySelector('[aria-label="' + b.bam + '"]')),
           'nut "' + b.bam + '"',
           20000,
         );
       }
       if (b.bamChu) {
-        await timBam(
+        lamLaiCuoi = await timBam(
           () =>
             bamDuoc(
               [...document.querySelectorAll("button, [role='button']")].find(
@@ -613,7 +685,7 @@ export function laiTrongTrang(kichBan, dauLai) {
         );
       }
       if (b.themNguoi) {
-        await timBam(
+        const timMoi = await timBam(
           () => bamDuoc(document.querySelector('[aria-label="Thêm ' + b.themNguoi + ' vào nhóm"]')),
           'nut moi "' + b.themNguoi + '"',
           20000,
@@ -629,10 +701,11 @@ export function laiTrongTrang(kichBan, dauLai) {
             document.querySelector('[aria-label="' + b.themNguoi + '"]') !== null,
           '"' + b.themNguoi + '" vao nhom',
           20000,
+          timMoi,
         );
       }
       if (b.chonRadio) {
-        await timBam(
+        lamLaiCuoi = await timBam(
           () =>
             bamDuoc(
               [...document.querySelectorAll('[role="radio"]')].find(
@@ -646,6 +719,7 @@ export function laiTrongTrang(kichBan, dauLai) {
       if (b.go) await goChu(b.go.oNhap, b.go.chu, 20000);
       if (b.anh) await nap(b.anh);
       window.__lai.buoc.push(JSON.stringify(b).slice(0, 60));
+      window.__lai.ms.push(Date.now() - tBuoc);
     }
     if (dauLai) {
       // The drive canary's whole point: this only exists once the walk above
@@ -669,6 +743,25 @@ export function laiTrongTrang(kichBan, dauLai) {
     window.__lai.xong = true;
   })()
     .catch((e) => {
+      // Snapshot the screen the walk died ON, not just the sentence it died
+      // with. "the needle never came" has two opposite causes -- the press was
+      // lost and we are still on the previous screen, or the press worked and
+      // the destination rendered nothing -- and they are told apart by whether
+      // the button we just pressed is still sitting there. Without this the
+      // only available move is to raise the budget, which fixes neither.
+      try {
+        window.__lai.luc_loi = {
+          chu: chu().replace(/\s+/g, " ").slice(0, 400),
+          nut: [...document.querySelectorAll("button, [role='button']")]
+            .slice(0, 25)
+            .map((n) => ({
+              chu: n.textContent.replace(/\s+/g, " ").trim().slice(0, 40),
+              tat: !!n.disabled || n.getAttribute("aria-disabled") === "true",
+            })),
+        };
+      } catch (_) {
+        window.__lai.luc_loi = null;
+      }
       window.__lai.loi = String(e && e.message ? e.message : e);
     })
     // Released last, and in `finally` on purpose: a walk that died still has to
