@@ -11,7 +11,7 @@
 import React from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { formatVnd } from "../../../../packages/shared/money.mjs";
-import { labelFor, type Roster } from "../participants";
+import { labelFor, labelInGroup, type GroupMember, type Roster } from "../participants";
 import { radius, space, type, usePalette } from "../theme";
 import { toggleState } from "../ui/a11y";
 import { Button, Card, Row } from "../ui/Kit";
@@ -23,6 +23,10 @@ const INITIAL = space.lg;
 
 export function KetQuaThanhToan(props: {
   roster: Roster;
+  /** The group's active membership, for the senders the bill does not hold.
+   *  An envelope is answered by the server in ids, so labelling one against
+   *  the bill alone prints a UUID at a person -- bug-050923, one screen over. */
+  nhom: GroupMember[];
   allocations: Record<string, number>;
   obligations: Obligation[];
   envelopes: Envelope[];
@@ -37,7 +41,7 @@ export function KetQuaThanhToan(props: {
 }): React.JSX.Element {
   const c = usePalette();
   const {
-    roster, allocations, obligations, envelopes, itemCount, nguoiDangChon, advancerId,
+    roster, nhom, allocations, obligations, envelopes, itemCount, nguoiDangChon, advancerId,
   } = props;
 
   // Integer add of the server's own figures. Not a split: the split already
@@ -118,7 +122,12 @@ export function KetQuaThanhToan(props: {
               >
                 {envelopes.map((envelope) => {
                   const on = envelope.senderId === nguoiDangChon;
-                  const name = labelFor(roster, envelope.senderId);
+                  // `labelInGroup`, not `labelFor`: this id was chosen by the
+                  // server, not by walking the roster above, so the bill is
+                  // the wrong list to be sure it is in. `labelFor` hands the
+                  // id straight back when it cannot place one, which put a
+                  // UUID on the chip a person taps to find their own code.
+                  const name = labelInGroup(roster, nhom, envelope.senderId);
                   return (
                     <Pressable
                       key={envelope.senderId}
