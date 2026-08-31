@@ -153,17 +153,20 @@ const CANARY = `<!DOCTYPE html><html lang="vi"><head><meta charset="utf-8">
  .hide-outer { width:120px; overflow:hidden; }
  /* 22 ky tu trong 21ch: cat ra dung mot ch, co cua mot loi that. */
  .it { font-family:monospace; width:21ch; overflow:hidden; white-space:nowrap; }
- /* Cat o phia TRAI. Dat bang toa do tuyet doi chu khong bang text-align/rtl:
-  * hai cach kia con phu thuoc bidi, con cai nay thi hinh hoc noi thang. */
- .trai-outer { width:120px; overflow:hidden; position:relative; height:1.4em; }
- .trai-inner { position:absolute; left:-40px; white-space:nowrap; }
+ /* Cat o phia TRAI va CHI phia trai. Dat bang toa do tuyet doi chu khong bang
+  * text-align/rtl: hai cach kia con phu thuoc bidi, con cai nay thi hinh hoc
+  * noi thang. Hop rong 260 de meps phai cua chu (~143) con nam TRONG hop --
+  * neu chu tran ca hai phia thi mot phep do chi-phia-phai van tim thay no va
+  * hang nay thoi khong gac duoc gi (do bang dot bien D). */
+ .trai-outer { width:260px; overflow:hidden; position:relative; height:1.4em; }
+ .trai-inner { position:absolute; left:-40px; white-space:nowrap; font-family:monospace; }
 </style></head><body>
  <div class="clip">CANARY BI CAT MOT CHUOI RAT DAI KHONG THE HIEN HET</div>
  <div class="scroll">CANARY CUON DUOC MOT CHUOI RAT DAI NHUNG KEO NGANG DUOC</div>
  <div class="bleed-outer"><div class="bleed-inner">CANARY RA LE VAN DOC DUOC</div></div>
  <div class="hide-outer"><div class="bleed-inner">CANARY TO CHA CAT KHONG DOC HET DUOC</div></div>
  <div class="it">CANARY CAT IT MOT CHU!</div>
- <div class="trai-outer"><div class="trai-inner">CANARY CAT BEN TRAI MAT DAU</div></div>
+ <div class="trai-outer"><div class="trai-inner">CANARY CAT BEN TRAI</div></div>
 </body></html>`;
 
 /**
@@ -339,7 +342,7 @@ async function main() {
       { ma: "CANARY CAT IT", can: 1, catToiDa: 25, ly: "cat nho co mot ky tu -- co cua loi that tren may" },
       /* Chi hang nay bat duoc viec bo nua phia trai cua phep do. Khong co no,
        * xoa `hop.trai - r.left` van in "ok" ca bang -- da do bang dot bien D. */
-      { ma: "CANARY CAT BEN TRAI", can: 1, ly: "cat mat DAU chuoi: nhan canh phai trong hop bi cat" },
+      { ma: "CANARY CAT BEN TRAI", can: 1, catToiDa: 45, ly: "cat mat DAU chuoi: so canh phai trong hop bi cat" },
     ];
     let canarySai = 0;
     for (const k of CHO_DOI) {
