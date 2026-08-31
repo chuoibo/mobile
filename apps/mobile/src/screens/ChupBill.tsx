@@ -32,6 +32,27 @@ const HIT = 44;
 
 const WELL_SCRIM = "rgba(0, 0, 0, 0.82)";
 
+/* Opacity for the two side controls while a photo is being read.
+ *
+ * Measured, not chosen. At 0.40 the label "Ảnh chụp màn hình" -- white on this
+ * screen's black ground -- composites to #666, which is 3.66:1 against the
+ * ground it sits on. That is below the 4.5:1 step for body text. WCAG 2.2
+ * SC 1.4.3 does exempt it, because the control really is inactive here
+ * (`disabled`, and react-native-web emits `aria-disabled` + `pointer-events:
+ * none` from it), so nothing was strictly broken. But "exempt from the floor"
+ * is not the same as "legible", and a disabled control still has to say which
+ * control it is.
+ *
+ * 0.46 is the smallest value that clears the step: white at alpha a over black
+ * composites to a*255, and 4.5:1 needs relative luminance >= 0.175, i.e. a
+ * channel of about 116/255 = 0.455. Rounded up so rounding cannot land under.
+ * The dimming still reads as unavailable -- this is a 6% opacity move, not a
+ * change of state -- and the scrim above stops at y=612 while these controls
+ * sit at y=737, so they are on plain ground and this is the only thing
+ * deciding whether their labels can be read.
+ */
+const MO_KHI_BAN = 0.46;
+
 export function ChupBill(props: {
   access: CameraAccess;
   cameraRef: React.RefObject<any>;
@@ -212,7 +233,7 @@ export function ChupBill(props: {
             minHeight: HIT,
             alignItems: "center",
             justifyContent: "center",
-            opacity: busy ? 0.4 : pressed ? 0.7 : 1,
+            opacity: busy ? MO_KHI_BAN : pressed ? 0.7 : 1,
           })}
         >
           <GalleryGlyph />
@@ -264,7 +285,7 @@ export function ChupBill(props: {
             maxWidth: 88,
             alignItems: "center",
             justifyContent: "center",
-            opacity: busy ? 0.4 : pressed ? 0.7 : 1,
+            opacity: busy ? MO_KHI_BAN : pressed ? 0.7 : 1,
           })}
         >
           <Text style={{ ...type.label, color: WHITE, fontWeight: "600", textAlign: "center" }}>
@@ -447,7 +468,7 @@ function AccessWell({
             borderRadius: radius.control,
             alignItems: "center",
             justifyContent: "center",
-            opacity: busy ? 0.4 : pressed ? 0.75 : 1,
+            opacity: busy ? MO_KHI_BAN : pressed ? 0.75 : 1,
           })}
         >
           <Text style={{ ...type.body, color: WHITE, fontWeight: "600" }}>{label}</Text>
