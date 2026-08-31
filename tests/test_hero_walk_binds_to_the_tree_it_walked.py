@@ -305,3 +305,114 @@ def test_file_moi_chua_track_cung_lam_doi_van_tay(cay):
     (cay / "man-moi.ts").write_text("export const x = 1;\n", encoding="utf-8")
     assert _van_tay(cay) != sach
     assert _van_tay(cay).startswith("dirty:")
+
+
+# --- ô thứ bảy: phán quyết SẠCH + cây bây giờ có file CHƯA TRACK ------------
+#
+# Ca ngay trên chỉ đo tới VÂN TAY. Vân tay đổi mà `--status` vẫn nhận thì cổng
+# vẫn hở, và đó đúng là hình dạng #439 đã hở suốt: hai nửa đều chạy được, chỉ
+# mối nối giữa chúng là không. Nên ô này phải được đo ĐẦU-CUỐI, không suy ra.
+
+
+def test_di_bo_tren_cay_SACH_roi_them_FILE_MOI_thi_phan_quyet_HET_HIEU_LUC(cay):
+    """Ô thứ bảy — thêm file mới, không sửa file nào đang có.
+
+    Khác ô thứ sáu ở chỗ `git diff HEAD` RỖNG: không một file đã track nào đổi.
+    Chỉ `status --porcelain` và `ls-files --others` thấy nó. Một bản vá chỉ dựa
+    vào `diff HEAD` sẽ xanh ở đây trong khi cây đã mang một màn hình mới.
+    """
+    _ghi(cay)
+    assert _van_tay(cay) == "clean"
+
+    (cay / "man-moi.ts").write_text("export const x = 1;\n", encoding="utf-8")
+    assert _git(cay, "diff", "HEAD") == "", (
+        "tiền đề hỏng: file mới không được làm đổi diff"
+    )
+
+    done = _chay(cay, "--status", "--url", URL)
+    assert done.returncode == 2, done.stdout + done.stderr
+    assert "CÂY SẠCH" in done.stdout
+    assert "CHƯA COMMIT" in done.stdout
+
+
+def test_thu_muc_moi_chua_track_cung_lam_phan_quyet_het_hieu_luc(cay):
+    """`status --porcelain` gộp cả thư mục chưa track thành MỘT dòng `?? ten/`,
+    không kể tên file bên trong. Nên hai thư mục khác nội dung mà trùng tên vẫn
+    cho cùng một dòng status — `ls-files --others` mới là thứ mở nó ra."""
+    _ghi(cay)
+    (cay / "man").mkdir()
+    (cay / "man" / "moi.ts").write_text("export const x = 1;\n", encoding="utf-8")
+
+    done = _chay(cay, "--status", "--url", URL)
+    assert done.returncode == 2, done.stdout + done.stderr
+    assert "CÂY SẠCH" in done.stdout
+
+
+# --- ô thứ tám: git BỊ BẢO ĐỪNG NHÌN, và câu trả lời im lặng đọc thành sạch --
+
+
+def _che_mat_git(repo: Path, bit: str) -> None:
+    """Sửa thật một file đã track, rồi bảo git đừng nhìn nó nữa."""
+    (repo / "scripts" / "hero_walk.sh").write_text(
+        (repo / "scripts" / "hero_walk.sh").read_text(encoding="utf-8")
+        + "\n# sua ngam\n",
+        encoding="utf-8",
+    )
+    _git(repo, "update-index", bit, "scripts/hero_walk.sh")
+
+
+@pytest.mark.parametrize("bit", ["--assume-unchanged", "--skip-worktree"])
+def test_git_bi_bao_dung_nhin_thi_KHONG_duoc_doc_thanh_cay_sach(cay, bit):
+    """Cùng hình dạng ô thứ sáu, nhưng `git status` IM thay vì nói.
+
+    `assume-unchanged` và `skip-worktree` bảo git thôi so file đó với HEAD. Từ
+    lúc đó `status --porcelain` rỗng và `diff HEAD` rỗng, trong khi file trên đĩa
+    ĐÃ KHÁC — nên cả hai trục mà ô thứ sáu dựa vào đều trả lời "không có gì".
+
+    Đây không phải "không có gì để thấy", mà là "đã bảo đừng nhìn". Luật của
+    chính file này: một điều KHÔNG BIẾT không được đánh vần giống "clean".
+    """
+    _ghi(cay)
+    _che_mat_git(cay, bit)
+
+    assert _git(cay, "status", "--porcelain") == "", "tiền đề hỏng: status phải im"
+    assert _git(cay, "diff", "HEAD") == "", "tiền đề hỏng: diff phải rỗng"
+    assert _van_tay(cay) == "blind"
+
+    done = _chay(cay, "--status", "--url", URL)
+    assert done.returncode == 2, done.stdout + done.stderr
+    assert "ĐÁNH DẤU KHÔNG THEO DÕI" in done.stdout
+    # Đỏ đúng mà nói sai vẫn là hỏng: ở đây KHÔNG có sửa nào `git status` chịu
+    # in ra, nên gọi nó là "có sửa chưa commit" là đẩy người đọc đi tìm một diff
+    # mà chính họ đã bảo git giấu đi.
+    assert "CÂY SẠCH" not in done.stdout
+
+
+def test_phan_quyet_GHI_blind_cung_bi_tu_choi(cay):
+    """Chiều còn lại: lượt đi bộ chạy TRÊN một cây đã bị che mắt. Nó đo cái gì
+    thì chính nó cũng không biết, nên nó không bảo lãnh được cho cây nào."""
+    _ghi(cay, tree="blind")
+
+    done = _chay(cay, "--status", "--url", URL)
+    assert done.returncode == 2, done.stdout + done.stderr
+    assert "ĐÁNH DẤU KHÔNG THEO DÕI" in done.stdout
+
+
+def test_file_bi_GITIGNORE_van_la_cay_sach_va_do_la_co_y(cay):
+    """Ranh giới ĐÃ KHAI của vân tay, không phải chỗ mù bỏ quên.
+
+    `--exclude-standard` cố ý bỏ file bị `.gitignore`. Băm chúng nghĩa là băm
+    `node_modules`, `dist-test`, log, `.pyc` — cổng sẽ đỏ vĩnh viễn và chậm,
+    còn `.env` thật thì không được phép đi vào bất kỳ digest nào.
+
+    Ca này khoá hành vi đó lại để lần sau ai đổi nó là ĐỔI CÓ CHỦ Ý, chứ không
+    phải vô tình. Cái giá đã biết: đổi một artifact bị ignore mà lượt đi bộ có
+    dùng thì phán quyết vẫn được nhận.
+    """
+    (cay / ".gitignore").write_text("bo_qua/\n", encoding="utf-8")
+    _git(cay, "add", ".gitignore")
+    _git(cay, "commit", "-q", "-m", "ignore")
+    (cay / "bo_qua").mkdir()
+    (cay / "bo_qua" / "bundle.js").write_text("artifact moi\n", encoding="utf-8")
+
+    assert _van_tay(cay) == "clean"

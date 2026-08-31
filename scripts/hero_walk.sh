@@ -201,6 +201,27 @@ if head.returncode != 0 or status.returncode != 0:
     print("?")
     raise SystemExit(0)
 
+# Git can be TOLD NOT TO LOOK at a tracked file: `assume-unchanged` (lowercase
+# flag letter) and `skip-worktree` ("S"). Under either bit `status` and `diff`
+# stay silent while the file on disk differs from HEAD -- so the checks above
+# report a clean tree for edits that are really there. "Git was told not to
+# look" is not "there is nothing to see", and it gets its own value for the same
+# reason "?" does: spelling an unknown as "clean" is the failure this whole
+# field exists to separate. Priority over clean/dirty is deliberate -- once a
+# path is hidden, neither answer can be trusted, so neither may be printed.
+flags = git("ls-files", "-v")
+if flags.returncode != 0:
+    print("?")
+    raise SystemExit(0)
+bi_che = [
+    ln
+    for ln in flags.stdout.decode("utf-8", "replace").splitlines()
+    if ln and ln[0] != "H"
+]
+if bi_che:
+    print("blind")
+    raise SystemExit(0)
+
 if not status.stdout.strip():
     print("clean")
     raise SystemExit(0)
@@ -337,6 +358,16 @@ if tree == "?":
     print("  Chạy lại trong một checkout git: make hero-walk")
     raise SystemExit(2)
 
+if tree == "blind":
+    # Distinct wording from "?" on purpose: there git could not answer at all,
+    # here it answered exactly what it was told to answer. The reader needs to
+    # know which index bit to clear, not to go looking for a broken checkout.
+    print("hero_walk: lượt đi bộ chạy trên cây có file bị ĐÁNH DẤU KHÔNG THEO DÕI")
+    print("  (assume-unchanged / skip-worktree), nên trạng thái cây lúc đó không")
+    print("  đo được. Gỡ bằng: git update-index --no-assume-unchanged --no-skip-worktree <file>")
+    print("  rồi chạy: make hero-walk")
+    raise SystemExit(2)
+
 if tree != "clean":
     # Only meaningful for a dirty walk: a clean tree at a given commit is the
     # same bytes in every worktree, so which directory produced it says nothing.
@@ -369,6 +400,14 @@ if tree != now:
         print("hero_walk: KHÔNG ĐỌC ĐƯỢC trạng thái cây làm việc BÂY GIỜ,")
         print("  nên không xác nhận lại được phán quyết còn nói về cây này.")
         print("  'Không đọc được' KHÔNG phải 'cây vẫn thế'. Chạy: make hero-walk")
+    elif now == "blind":
+        # Same trap as `now == "?"`: a true red carrying a false reason. Falling
+        # through to the "clean" branch below would tell the reader they have
+        # uncommitted edits, and they would hunt a diff `git status` refuses to
+        # show them -- because they themselves told it not to.
+        print("hero_walk: cây BÂY GIỜ có file bị ĐÁNH DẤU KHÔNG THEO DÕI")
+        print("  (assume-unchanged / skip-worktree), nên không xác nhận lại được")
+        print("  phán quyết còn nói về cây này. Gỡ dấu rồi chạy: make hero-walk")
     elif tree == "clean":
         print("hero_walk: lượt đi bộ chạy trên CÂY SẠCH, còn cây bây giờ CÓ SỬA")
         print("  CHƯA COMMIT — client bây giờ không phải client đã đi bộ.")
