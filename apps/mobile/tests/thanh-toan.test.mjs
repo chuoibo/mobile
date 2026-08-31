@@ -112,6 +112,11 @@ function screen(props = {}) {
   return renderToStaticMarkup(
     React.createElement(KetQuaThanhToan, {
       roster: ROSTER,
+      /* Passed rather than left out. This fixture publishes one envelope, so
+       * the sender chip row never renders and the group lookup is never
+       * reached -- the screen would work here with no `nhom` at all. Relying
+       * on that is relying on the fixture, not on the screen. */
+      nhom: ROSTER.participants,
       allocations: ALLOCATIONS,
       obligations: OBLIGATIONS,
       envelopes: envelopes(),

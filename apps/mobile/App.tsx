@@ -1000,6 +1000,10 @@ function LuongKhoanChi({ onExit, nguoi, nhomPhien }: {
       {step === "ket-qua-tt" && proposal && (
         <KetQuaThanhToan
           roster={form.roster}
+          // The same widening the debt panel on `goi-y` needed: envelopes name
+          // their sender in an id the server chose, and the bill is not the
+          // list to resolve that against.
+          nhom={nguoiTrongNhom}
           // Straight from the server's allocator, not from anything this file
           // added up. `proposal.allocations` is what `POST /expenses` returned
           // and what `confirm` was checked against.
@@ -1213,6 +1217,9 @@ function XemKetQuaThanhToan() {
       <StatusBar style="dark" />
       <KetQuaThanhToan
         roster={DEMO_ROSTER}
+        // The demo publishes against exactly the people on its own bill, so
+        // the two lists are the same one here.
+        nhom={DEMO_ROSTER.participants}
         allocations={DEMO_ALLOCATIONS}
         obligations={DEMO_OBLIGATIONS}
         envelopes={DEMO_ENVELOPES}
