@@ -40,7 +40,7 @@ DC = $(COMPOSE) -p $(PROJECT)
 WAIT_TIMEOUT ?= 300
 
 .DEFAULT_GOAL := help
-.PHONY: help gate gate-merge ruff-fix test-db e2e up down clean logs ps migrate db-check seed demo demo-reset demo-check demo-data-check demo-persona-check demo-key-check demo-watch demo-watch-status demo-watch-install hero-walk hero-walk-status smoke bundle-check bundle android-doctor android-up android-check android-down
+.PHONY: help gate gate-merge ruff-fix test-db e2e up down clean logs ps migrate db-check seed demo demo-reset demo-check demo-data-check demo-persona-check demo-key-check demo-watch demo-watch-status demo-watch-install hero-walk hero-walk-status smoke bundle-check bundle android-doctor android-up android-check android-down android-adb
 
 # `demo` phải gọi đúng bộ container mà `up` vừa dựng. Trên nhánh này biến đó là
 # $(COMPOSE); PR #60 (đang mở, cùng lane) đổi nó thành $(DC) = compose kèm
@@ -444,3 +444,6 @@ android-check: ## Máy ảo có boot xong, có tới được API TỪ BÊN TRON
 
 android-down: ## Tắt ĐÚNG AVD của lệnh này — máy ảo của lane khác không bị đụng
 	@scripts/android_emulator.sh down
+
+android-adb: ## adb treo? Lệnh này nói vì SAO, và tự bật server nếu localhost hút SYN
+	@scripts/android_emulator.sh adb
