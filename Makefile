@@ -40,7 +40,7 @@ DC = $(COMPOSE) -p $(PROJECT)
 WAIT_TIMEOUT ?= 300
 
 .DEFAULT_GOAL := help
-.PHONY: help gate gate-merge test-db e2e up down clean logs ps migrate db-check seed demo demo-reset demo-check demo-data-check demo-persona-check demo-key-check demo-watch demo-watch-status demo-watch-install hero-walk hero-walk-status smoke bundle-check bundle
+.PHONY: help gate gate-merge ruff-fix test-db e2e up down clean logs ps migrate db-check seed demo demo-reset demo-check demo-data-check demo-persona-check demo-key-check demo-watch demo-watch-status demo-watch-install hero-walk hero-walk-status smoke bundle-check bundle
 
 # `demo` phải gọi đúng bộ container mà `up` vừa dựng. Trên nhánh này biến đó là
 # $(COMPOSE); PR #60 (đang mở, cùng lane) đổi nó thành $(DC) = compose kèm
@@ -80,6 +80,16 @@ help: ## In danh sách lệnh
 # không test được nếu không có make, còn script thì tests/ gọi được.
 gate: ## Chạy các cổng của CI ngay tại máy — ONLY="api mobile" chọn chặng, STRICT=1 coi bỏ-qua là hỏng
 	@scripts/gate.sh $(if $(STRICT),--strict) $(ONLY)
+
+# Chặng `ruff` của `gate` chặn năm người trong một tối (#372, #410, #411, #397,
+# #450) và cả năm lần đều mắc ở cùng bốn chi tiết: nhầm nửa `check` với nửa
+# `format`, quên bọc `scripts/ruff_pinned.sh` trong $( ), lint bằng bản trên
+# PATH thay vì bản ghim, và format cả cây thay vì file mình chạm. Cổng giờ in
+# sẵn lệnh dán được; đây là bản một-lệnh cho người không muốn chép đường dẫn.
+# Thân nằm ở scripts/ruff_fix.sh chứ không viết thẳng vào recipe, cùng lý do
+# với `gate`: recipe không test được, script thì tests/ gọi được.
+ruff-fix: ## Sửa ruff cho ĐÚNG file nhánh này chạm, bằng bản ghim — DRY=1 chỉ in lệnh
+	@scripts/ruff_fix.sh $(if $(DRY),--dry-run)
 
 # `gate` trả lời "nhánh tôi có lành không". Trước khi merge, câu hỏi là câu
 # khác: "main có lành không SAU KHI gộp tôi vào" — và hai câu đó lệch nhau mỗi
