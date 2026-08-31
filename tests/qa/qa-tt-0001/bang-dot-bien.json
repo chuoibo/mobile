@@ -1,0 +1,209 @@
+{
+  "results": [
+    {
+      "table": "audit_events",
+      "gate_green": false,
+      "summary": "1 failed, 9 passed in 0.90s"
+    },
+    {
+      "table": "bank_recipient_snapshots",
+      "gate_green": true,
+      "summary": "10 passed in 0.97s"
+    },
+    {
+      "table": "bank_recipients",
+      "gate_green": true,
+      "summary": "10 passed in 0.90s"
+    },
+    {
+      "table": "bill_discounts",
+      "gate_green": true,
+      "summary": "10 passed in 1.09s"
+    },
+    {
+      "table": "bill_item_shares",
+      "gate_green": true,
+      "summary": "10 passed in 0.83s"
+    },
+    {
+      "table": "bill_items",
+      "gate_green": true,
+      "summary": "10 passed in 0.80s"
+    },
+    {
+      "table": "bill_surcharges",
+      "gate_green": true,
+      "summary": "10 passed in 0.87s"
+    },
+    {
+      "table": "bills",
+      "gate_green": true,
+      "summary": "10 passed in 0.92s"
+    },
+    {
+      "table": "collection_batch_versions",
+      "gate_green": true,
+      "summary": "10 passed in 0.89s"
+    },
+    {
+      "table": "collection_batches",
+      "gate_green": true,
+      "summary": "10 passed in 0.85s"
+    },
+    {
+      "table": "collection_envelopes",
+      "gate_green": true,
+      "summary": "10 passed in 0.82s"
+    },
+    {
+      "table": "collection_obligation_sources",
+      "gate_green": true,
+      "summary": "10 passed in 0.86s"
+    },
+    {
+      "table": "collection_obligations",
+      "gate_green": true,
+      "summary": "10 passed in 0.92s"
+    },
+    {
+      "table": "confirmed_allocations",
+      "gate_green": true,
+      "summary": "10 passed in 0.90s"
+    },
+    {
+      "table": "contexts",
+      "gate_green": true,
+      "summary": "10 passed in 0.90s"
+    },
+    {
+      "table": "expense_discounts",
+      "gate_green": true,
+      "summary": "10 passed in 0.81s"
+    },
+    {
+      "table": "expense_item_shares",
+      "gate_green": true,
+      "summary": "10 passed in 0.89s"
+    },
+    {
+      "table": "expense_items",
+      "gate_green": true,
+      "summary": "10 passed in 0.91s"
+    },
+    {
+      "table": "expense_surcharges",
+      "gate_green": true,
+      "summary": "10 passed in 0.88s"
+    },
+    {
+      "table": "expense_versions",
+      "gate_green": false,
+      "summary": "1 failed, 9 passed in 0.95s"
+    },
+    {
+      "table": "expenses",
+      "gate_green": true,
+      "summary": "10 passed in 0.82s"
+    },
+    {
+      "table": "friend_requests",
+      "gate_green": true,
+      "summary": "10 passed in 0.92s"
+    },
+    {
+      "table": "guest_links",
+      "gate_green": true,
+      "summary": "10 passed in 0.86s"
+    },
+    {
+      "table": "idempotency_keys",
+      "gate_green": true,
+      "summary": "10 passed in 1.02s"
+    },
+    {
+      "table": "memberships",
+      "gate_green": true,
+      "summary": "10 passed in 0.89s"
+    },
+    {
+      "table": "memories",
+      "gate_green": false,
+      "summary": "1 failed, 9 passed in 0.84s"
+    },
+    {
+      "table": "memory_comments",
+      "gate_green": true,
+      "summary": "10 passed in 0.83s"
+    },
+    {
+      "table": "memory_reactions",
+      "gate_green": true,
+      "summary": "10 passed in 0.87s"
+    },
+    {
+      "table": "messages",
+      "gate_green": false,
+      "summary": "1 failed, 9 passed in 0.95s"
+    },
+    {
+      "table": "outing_invites",
+      "gate_green": true,
+      "summary": "10 passed in 0.92s"
+    },
+    {
+      "table": "outing_stop_checkins",
+      "gate_green": true,
+      "summary": "10 passed in 0.86s"
+    },
+    {
+      "table": "outing_stops",
+      "gate_green": true,
+      "summary": "10 passed in 0.83s"
+    },
+    {
+      "table": "outings",
+      "gate_green": true,
+      "summary": "10 passed in 0.87s"
+    },
+    {
+      "table": "payment_reports",
+      "gate_green": true,
+      "summary": "10 passed in 0.88s"
+    },
+    {
+      "table": "people",
+      "gate_green": true,
+      "summary": "10 passed in 0.88s"
+    },
+    {
+      "table": "posts",
+      "gate_green": true,
+      "summary": "10 passed in 0.85s"
+    },
+    {
+      "table": "receipt_confirmations",
+      "gate_green": true,
+      "summary": "10 passed in 0.82s"
+    },
+    {
+      "table": "uploaded_images",
+      "gate_green": true,
+      "summary": "10 passed in 0.85s"
+    },
+    {
+      "table": "vote_ballots",
+      "gate_green": true,
+      "summary": "10 passed in 0.89s"
+    },
+    {
+      "table": "vote_options",
+      "gate_green": true,
+      "summary": "10 passed in 0.85s"
+    },
+    {
+      "table": "votes",
+      "gate_green": true,
+      "summary": "10 passed in 0.91s"
+    }
+  ]
+}
