@@ -40,7 +40,7 @@ DC = $(COMPOSE) -p $(PROJECT)
 WAIT_TIMEOUT ?= 300
 
 .DEFAULT_GOAL := help
-.PHONY: help gate gate-merge ruff-fix test-db e2e up down clean logs ps migrate db-check seed demo demo-reset demo-check demo-data-check demo-persona-check demo-key-check demo-watch demo-watch-status demo-watch-install hero-walk hero-walk-status smoke bundle-check bundle
+.PHONY: help gate gate-merge ruff-fix test-db e2e up down clean logs ps migrate db-check seed demo demo-reset demo-check demo-data-check demo-persona-check demo-key-check demo-watch demo-watch-status demo-watch-install hero-walk hero-walk-status smoke bundle-check bundle android-doctor android-up android-check android-down
 
 # `demo` phải gọi đúng bộ container mà `up` vừa dựng. Trên nhánh này biến đó là
 # $(COMPOSE); PR #60 (đang mở, cùng lane) đổi nó thành $(DC) = compose kèm
@@ -397,3 +397,25 @@ smoke: ## Gọi thật /healthz qua cổng đã publish và in địa chỉ ra
 	@# mọi route đụng bảng `outings` trả 500. Đây là vế còn lại của câu hỏi
 	@# "bộ này dùng được không".
 	@$(MAKE) --no-print-directory db-check
+
+# --- Android native -------------------------------------------------------
+#
+# QA chuyển sang native từ 01/09. Bốn lệnh này là toàn bộ cách dựng lại môi
+# trường đó; trước chúng, môi trường sống trong một shell tiền cảnh của một
+# phiên và biến mất cùng phiên — chuyện đã xảy ra thật lúc 00:34 ngày 01/09,
+# giữa lượt viết chính script này.
+#
+# Đổi đích bằng biến: RD_AVD= tên máy ảo · RD_API_PORT= cổng API (mặc định
+# 8199) · RD_EMU_PORT= ghim serial khi chạy nhiều máy · RD_BOOT_TIMEOUT= giây.
+
+android-doctor: ## Máy này dựng được emulator không — trả lời TRƯỚC khi tải 1GB system image
+	@scripts/android_emulator.sh doctor
+
+android-up: ## Bật emulator headless, chờ sys.boot_completed=1 THẬT, rồi tự kiểm
+	@scripts/android_emulator.sh up
+
+android-check: ## Máy ảo có boot xong, có tới được API TỪ BÊN TRONG, có Expo Go chưa
+	@scripts/android_emulator.sh check
+
+android-down: ## Tắt ĐÚNG AVD của lệnh này — máy ảo của lane khác không bị đụng
+	@scripts/android_emulator.sh down
