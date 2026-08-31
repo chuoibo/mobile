@@ -60,12 +60,24 @@ explicit, reviewable entry. The reviewed set here is empty.
   "result types of executed statements", so a query no test drives is invisible
   to it. `MONEY_QUERY_SURFACE` below is a hand-written list of entry points and
   carries exactly the weakness every hand-written list carries: it cannot know
-  what it is missing. That gap is real. The difference from the name list is
-  that it is *visible and countable* -- the number of statements observed is
-  asserted below and printed on failure -- whereas "we forgot `func.avg`" was
-  invisible by construction. `test_every_aggregating_method_is_driven` turns
-  the drift into a red test rather than silence, but it is a reminder built on
-  names and inherits their limits; it is not part of the type rule.
+  what it is missing. That gap is real, and it is the only one left: what a
+  hand-written list can still be held to is that every name on it means
+  something, and `test_every_surface_name_is_actually_driven` holds it to that
+  by resolving each name to the callable it refers to and requiring that the
+  driver below really reached it. So the list can be short, but it cannot be
+  *decorative* -- a name whose call is deleted goes red instead of quietly
+  shrinking the surface this gate measures. `test_every_aggregating_method_is_driven`
+  covers the opposite drift, a new aggregate nobody added to the list; it is a
+  reminder built on names and inherits their limits, and neither reminder is
+  part of the type rule.
+* **A driven entry point may still not reach its aggregate.** The binding above
+  proves the call happens and that the call ran *some* result-returning
+  statement. It does not prove the call got as far as the money expression,
+  because an early return placed after another query is invisible to it.
+  `group_recap` is that shape on this server: it runs `select(Outing)` first
+  and returns early when the group has no trip. Measured, not assumed --
+  deleting the trip seeding from the driver leaves the whole file green. The
+  driver's docstring carries the warning; no assert here closes it.
 * **It is about the wire, not about JSON.** A number nested inside a `jsonb`
   document has no PostgreSQL numeric type, so it is outside every rule here,
   exactly as it is outside the storage gate.
@@ -79,6 +91,7 @@ from __future__ import annotations
 import ast
 import dataclasses
 import pathlib
+import sys
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -260,6 +273,138 @@ def test_recorder_is_actually_watching(postgres_session: Session) -> None:
 
     assert recorder.statements_seen > 0, "recorder saw no statements at all"
     assert recorder.result_columns_seen > 0, "recorder saw no result columns at all"
+
+
+# --------------------------------------------------------------------------
+# Binding the list to the driver. `MONEY_QUERY_SURFACE` and
+# `_drive_money_query_surface` are two artifacts that describe the same thing,
+# and nothing above stops them disagreeing: deleting one call from the driver
+# while leaving its name on the list shrinks what the gate measures and every
+# "no findings" assert stays green, because a query that never ran cannot
+# return an inexact type. The floor `statements_seen > 0` does not see it
+# either -- it answers "is the recorder dead", and losing one of four entry
+# points is not death.
+#
+# So each name is resolved to the callable it names and watched. That is a
+# lookup rather than a second list: it cannot drift from the first one, and a
+# name that resolves to nothing is itself a failure.
+# --------------------------------------------------------------------------
+
+
+@dataclass(slots=True)
+class SurfaceObservation:
+    """What one entry point on the surface actually did while the driver ran."""
+
+    calls: int = 0
+    result_columns: int = 0
+    executes_its_own_query: bool = True
+
+
+def _surface_target(name: str) -> tuple[object, bool]:
+    """Resolve a surface name to the object it must be patched on.
+
+    Two kinds live on the list and they are told apart by where the name
+    resolves, not by another hand-written list. A repository *method* runs its
+    own query, so reaching it is measurable. An imported statement *builder*
+    only assembles SQL -- executing it is the driver's job -- so no result
+    column can be attributed to the call itself.
+    """
+
+    if hasattr(SqlAlchemyApiRepository, name):
+        return SqlAlchemyApiRepository, True
+    module = sys.modules[__name__]
+    if hasattr(module, name):
+        return module, False
+    raise AssertionError(
+        f"{name!r} is on MONEY_QUERY_SURFACE but resolves to nothing: it is "
+        "neither a method of SqlAlchemyApiRepository nor imported into this "
+        "module, so no test can be driving it."
+    )
+
+
+@contextmanager
+def watching_surface(
+    recorder: ResultTypeRecorder,
+) -> Iterator[dict[str, SurfaceObservation]]:
+    """Count what each named entry point does, by wrapping the name itself."""
+
+    observed: dict[str, SurfaceObservation] = {}
+    restore: list[tuple[object, str, object]] = []
+
+    def wrap(owner: object, name: str, original):
+        def wrapper(*args, **kwargs):
+            before = recorder.result_columns_seen
+            try:
+                return original(*args, **kwargs)
+            finally:
+                entry = observed[name]
+                entry.calls += 1
+                entry.result_columns += recorder.result_columns_seen - before
+
+        return wrapper
+
+    for name in MONEY_QUERY_SURFACE:
+        owner, executes = _surface_target(name)
+        observed[name] = SurfaceObservation(executes_its_own_query=executes)
+        original = getattr(owner, name)
+        restore.append((owner, name, original))
+        setattr(owner, name, wrap(owner, name, original))
+    try:
+        yield observed
+    finally:
+        for owner, name, original in restore:
+            setattr(owner, name, original)
+
+
+def test_every_surface_name_is_actually_driven(postgres_session: Session) -> None:
+    """A name on the surface list must correspond to a call that really happens.
+
+    This is the assert that makes the list honest. Without it the list is a
+    claim about coverage that nothing checks, and the cheapest way to lose
+    coverage -- delete a line from the driver, leave the name -- is also the
+    quietest, because it makes the gate measure less while printing the same
+    green.
+    """
+
+    engine = postgres_session.get_bind()
+    with recording(engine) as recorder, watching_surface(recorder) as observed:
+        _drive_money_query_surface(postgres_session)
+
+    assert set(observed) == set(MONEY_QUERY_SURFACE), (
+        "the watcher did not cover the whole surface list"
+    )
+
+    never_called = sorted(name for name, seen in observed.items() if seen.calls == 0)
+    assert never_called == [], (
+        f"these names are on MONEY_QUERY_SURFACE but _drive_money_query_surface "
+        f"never calls them, so the gate is not watching them at all: "
+        f"{never_called}. Either drive them or take them off the list -- a name "
+        "left on the list is read as coverage that does not exist."
+    )
+
+    # Being called is not the same as running anything: a method stubbed to
+    # `return ()` satisfies the count above while the gate observes nothing of
+    # what it returns. This catches that shape and only that shape -- see the
+    # limit recorded directly below, which was measured rather than assumed.
+    ran_no_sql = sorted(
+        name
+        for name, seen in observed.items()
+        if seen.executes_its_own_query and seen.result_columns == 0
+    )
+    assert ran_no_sql == [], (
+        f"these entry points were called but executed no result-returning "
+        f"statement at all, so the gate saw nothing of what they return: "
+        f"{ran_no_sql}. A method stubbed out to return early looks exactly "
+        "like this."
+    )
+    # LIMIT, measured on this server rather than reasoned about: this does NOT
+    # catch an early return that happens *after* some other query.
+    # `group_recap` is exactly that shape -- it runs its `select(Outing)` and
+    # only then does `if not outings: return ()` -- so deleting the trip
+    # seeding from the driver leaves this assert green while the money
+    # aggregate is never reached. Verified by doing it: 12 passed. Reaching an
+    # entry point still is not the same as reaching its aggregate, and nothing
+    # in this file closes that; the driver's own docstring is the warning.
 
 
 def test_no_money_expression_returns_an_inexact_type(
