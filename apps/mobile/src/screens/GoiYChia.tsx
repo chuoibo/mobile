@@ -137,8 +137,31 @@ export function GoiYChia(props: {
         </Pressable>
         {/* `title`, not `h1`, and the same step the previous screen's heading
             uses. At 28pt "Gợi ý chia theo người" wraps onto two lines on a
-            390pt phone, which pushes "Làm lại" out of line with the back
-            chevron and costs a row of the table underneath. */}
+            390pt phone, which pushes the row's controls out of line with the
+            back chevron and costs a row of the table underneath.
+
+            At 20pt it fits, but only since "Làm lại" left this row. With four
+            controls here the 358pt row went 44 (chevron) + 30 (three gaps) +
+            72 ("Món của tôi") + 45 ("Làm lại"), leaving the heading 167pt to
+            draw a 203pt string: it truncated to "Gợi ý chia theo ng…" on the
+            one screen whose whole job is to say the AI read the bill. The
+            deterministic detector called it (`text-overflow ... overflows its
+            box by 36px`) and it was the only real finding on the ten hero
+            screens. Dropping one control gives the heading 222pt for 203.
+
+            NOT fully solved below 375pt, and the scanner cannot see that: it
+            pins 390x844, so it reports this screen clean while a 360pt Android
+            still truncates. Measured across widths after the fix --
+
+                320 -> over 51 · 360 -> over 11 · 375/390/414 -> over 0
+
+            (before the fix, measured on the pre-fix bundle, the same widths ran
+            over 106 / 66 / 51 / 36 / 12 -- every width truncated, including
+            414. Every width improved; only >=375 actually fits.) Closing 360
+            needs 11pt more and there is nowhere cheap left: chevron 44 is the
+            tap target and "Món của tôi" 72 is a hero-path control. It wants a
+            responsive type step, which is a DESIGN.md scale decision and not
+            one to make inside a screen file. */}
         <Text
           style={{ ...type.title, color: c.ink, flex: 1, minWidth: 0 }}
           numberOfLines={1}
@@ -161,9 +184,12 @@ export function GoiYChia(props: {
             mjs` both caught it. This row is already `HIT` tall for the chevron
             beside it, so a text control here costs zero height.
 
-            `title` on the heading is what gives way instead: it is
-            `numberOfLines={1}` and truncates. That is the cheaper loss -- the
-            screen a person is looking at is the one they can name. */}
+            It is the only control left beside the heading, and that is what
+            makes the heading fit. "Làm lại" used to sit here too and was what
+            pushed the title into truncating; it now rides the footer row next
+            to "Xem kết quả", which is already button-tall, so it costs no
+            height there either. Two text controls flanking a 20pt heading is
+            one more than a 390pt row holds. */}
         <Pressable
           onPress={props.khoaMonCuaToi === null ? props.onMonCuaToi : undefined}
           accessibilityRole="button"
@@ -189,14 +215,6 @@ export function GoiYChia(props: {
           >
             Món của tôi
           </Text>
-        </Pressable>
-        <Pressable
-          onPress={props.onReset}
-          accessibilityRole="button"
-          accessibilityLabel="Làm lại"
-          style={{ minWidth: HIT, minHeight: HIT, justifyContent: "center", alignItems: "flex-end" }}
-        >
-          <Text style={{ ...type.label, color: c.split, fontWeight: "600" }}>Làm lại</Text>
         </Pressable>
       </View>
 
@@ -561,12 +579,36 @@ export function GoiYChia(props: {
           <Text style={{ ...type.label, color: c.warn }}>{blocked}</Text>
         ) : null}
 
-        <Button
-          label="Xem kết quả"
-          tone="split"
-          disabled={blocked !== null}
-          onPress={props.onSeeResults}
-        />
+        {/* "Làm lại" rides this row rather than the title row, and the reason
+            is the same measured one that keeps "Món của tôi" up there: a row
+            that is already `HIT` tall carries a text control for free. The
+            `Button` sets this row's height, so the reset adds none -- the
+            alternative, a second `Button` stacked above, is the ~60pt that the
+            note on the title row records as too expensive.
+
+            Secondary on the left, primary on the right. It resets the ticking
+            to the default this screen states out loud ("cả nhóm ăn chung"), so
+            it belongs at the moment before the ticking is spent, and it is
+            recoverable rather than destructive: `onReset` rewrites the
+            assignment, never the bill or the read. */}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+          <Pressable
+            onPress={props.onReset}
+            accessibilityRole="button"
+            accessibilityLabel="Làm lại"
+            style={{ minWidth: HIT, minHeight: HIT, justifyContent: "center" }}
+          >
+            <Text style={{ ...type.label, color: c.split, fontWeight: "600" }}>Làm lại</Text>
+          </Pressable>
+          <View style={{ flex: 1 }}>
+            <Button
+              label="Xem kết quả"
+              tone="split"
+              disabled={blocked !== null}
+              onPress={props.onSeeResults}
+            />
+          </View>
+        </View>
       </View>
 
       <LinePicker
