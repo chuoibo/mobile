@@ -164,7 +164,9 @@ def main() -> int:
     # apart from an import that never reached the allocator at all.
     baseline = allocate(allocator_input_from_bill(_bill())["expense"])
     ok = baseline["allocations"] == {"an": 65_000, "binh": 70_000}
-    print(f"\n[doi chung duong] bill sach -> {baseline['allocations']}  {'OK' if ok else 'HONG'}")
+    print(
+        f"\n[doi chung duong] bill sach -> {baseline['allocations']}  {'OK' if ok else 'HONG'}"
+    )
     if not ok:
         print("!! doi chung duong HONG -- moi so duoi day vo nghia")
         return 3
