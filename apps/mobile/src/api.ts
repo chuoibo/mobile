@@ -47,7 +47,7 @@ import {
   type ChangGui,
   type CheckIn,
 } from "./screens/len-plan/buoi-di";
-import { makeIdFactory } from "./participants";
+import { labelInGroup, makeIdFactory, type GroupMember } from "./participants";
 import { maskAccount } from "./ui/vietqr";
 
 /** Where the API lives. Overridable so a phone can reach a laptop. */
@@ -1034,9 +1034,9 @@ export async function openBatch(
   expenseVersionId: string,
   acknowledged: boolean,
   attempt: Attempt,
+  members: GroupMember[],
 ): Promise<OpenedBatch> {
-  const nameOf = (id: string) =>
-    proposal.participants.find((person: Participant) => person.id === id)?.name ?? id;
+  const nameOf = (id: string) => nameFrom(proposal.participants, members, id);
 
   const result = await translatedAsActor<{
     batch_id: string;
@@ -1083,13 +1083,21 @@ export async function openBatch(
  * screen read "Gửi cho 6b4bda36-93e6-4a94-b7ca-48757974f36d", and the message
  * copied to the clipboard said "Phần của 6b4bda36-…" -- an organiser cannot
  * tell which link belongs to whom, which is the one job that screen has.
+ *
+ * The group membership is a second parameter for the same reason one screen up:
+ * publish answers against the roster the SERVER holds, which regularly names
+ * somebody who is in the group but not on the bill that was typed. Neither list
+ * has a default, deliberately -- an empty one is not a degraded lookup, it is
+ * every name on the screen turning into an id, and that is not a thing to let a
+ * caller do by forgetting.
  */
 export async function publishBatch(
   batchId: string,
   gates: PublishGates,
   actorId: string,
   attempt: Attempt,
-  roster: Participant[] = [],
+  roster: Participant[],
+  members: GroupMember[],
 ): Promise<Envelope[]> {
   // Checked here as well as by the disabled button. A disabled button is a
   // courtesy; this is what holds when the function is called directly.
@@ -1098,7 +1106,7 @@ export async function publishBatch(
   }
   // Gate 2 is the server's to enforce, so its refusal is the only true answer
   // about it.
-  return sendPublish(batchId, actorId, attempt, roster);
+  return sendPublish(batchId, actorId, attempt, roster, members);
 }
 
 /**
@@ -1160,11 +1168,32 @@ async function viDich<T>(
   }
 }
 
-function nameFrom(roster: Participant[], id: string): string {
-  // Falling back to the id is deliberate: a missing name is a display problem,
-  // and hiding it behind "Người nhận" would make two different people look
-  // like the same one on a screen whose whole purpose is telling them apart.
-  return roster.find((person) => person.id === id)?.name ?? id;
+/**
+ * The one place a server-supplied id becomes a name a person reads.
+ *
+ * Both callers here answer routes the server resolves against ITS roster --
+ * `POST /batches` and `POST /batches/{id}/publish` -- so the ids coming back
+ * routinely name people who are legitimately absent from the bill somebody
+ * typed. Looking only at the bill and ending `?? id` therefore printed a UUID
+ * where a name goes, on the collection board, beside the QR code, on the share
+ * row, and inside the message copied to the clipboard and sent to a real
+ * person. That was bug-050923 again, one layer down from the three screens
+ * already fixed for it.
+ *
+ * This used to be two private helpers with two different policies -- and the
+ * older one carried an argument FOR printing the id: that a fallback word
+ * would make two different people look like the same one. `labelInGroup`
+ * answers that, because it widens to the group and numbers duplicates across
+ * both lists before it gives up. Only somebody neither list can name reaches
+ * the fallback, and a raw UUID does not tell two of those apart for a human
+ * reader either -- it only looks as though it does.
+ */
+function nameFrom(
+  roster: Participant[],
+  members: GroupMember[],
+  id: string,
+): string {
+  return labelInGroup({ participants: roster, advancerId: null }, members, id);
 }
 
 async function sendPublish(
@@ -1172,6 +1201,7 @@ async function sendPublish(
   actorId: string,
   attempt: Attempt,
   roster: Participant[],
+  members: GroupMember[],
 ): Promise<Envelope[]> {
   const result = await translatedAsActor<{
     guest_links: {
@@ -1205,7 +1235,7 @@ async function sendPublish(
   // test passed, because none of them had ever published against a real server.
   return result.guest_links.map((link) => ({
     senderId: link.sender_id,
-    senderName: nameFrom(roster, link.sender_id),
+    senderName: nameFrom(roster, members, link.sender_id),
     amountVnd: link.obligations.reduce((sum, row) => sum + row.amount_vnd, 0),
     url: BASE_URL + link.path,
     opened: false,
@@ -1237,7 +1267,8 @@ export async function loadBoard(
   contextId: string,
   batchId: string,
   actorId: string,
-  roster: Participant[] = [],
+  roster: Participant[],
+  members: GroupMember[],
 ): Promise<{ obligations: Obligation[]; disputedCount: number }> {
   const result = await callAsActor<{
     disputed_count: number;
@@ -1256,8 +1287,8 @@ export async function loadBoard(
     obligations: result.obligations.map((row) => ({
       id: row.obligation_id,
       senderId: row.sender_id,
-      senderName: nameFrom(roster, row.sender_id),
-      recipient: nameFrom(roster, row.recipient_id),
+      senderName: nameFrom(roster, members, row.sender_id),
+      recipient: nameFrom(roster, members, row.recipient_id),
       amountVnd: row.amount_vnd,
       // Payment status and dispute are separate facts on the wire, and the
       // board has one slot. Showing "disputed" over "outstanding" is safe;

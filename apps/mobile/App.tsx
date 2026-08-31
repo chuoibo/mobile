@@ -429,11 +429,17 @@ function LuongKhoanChi({ onExit, nguoi, nhomPhien }: {
    */
   async function refreshBoard() {
     if (!batchId || !proposal) return;
+    // The group is read here rather than closed over from further down, so the
+    // membership this resolves names against is the one loaded right now. The
+    // board names people the SERVER picked, so without it every row on a
+    // refreshed board reads as a UUID -- see `nameFrom` in `api.ts`.
+    if (nhom.kind !== "xong") return;
     const board = await loadBoard(
       proposal.contextId,
       batchId,
       proposal.advancerId,
       proposal.participants,
+      nguoiCoTheChia(nhom.members),
     );
     setObligations(board.obligations);
   }
@@ -949,6 +955,10 @@ function LuongKhoanChi({ onExit, nguoi, nhomPhien }: {
               ledger.expenseVersionId,
               ledger.acknowledged,
               attemptFor(attempts.current, `mo-dot-thu:${ledger.expenseVersionId}`),
+              // The server names the people who owe, against the roster it
+              // holds, so the group is needed to turn those ids back into
+              // names. Without it the board reads "<uuid> gửi Minh".
+              nguoiTrongNhom,
             );
             setBatchId(batch.batchId);
             setObligations(batch.obligations);
@@ -971,6 +981,7 @@ function LuongKhoanChi({ onExit, nguoi, nhomPhien }: {
               proposal!.advancerId,
               attemptFor(attempts.current, `phat:${batchId}`),
               proposal!.participants,
+              nguoiTrongNhom,
             );
             setEnvelopes(sent);
             setPublished(true);
