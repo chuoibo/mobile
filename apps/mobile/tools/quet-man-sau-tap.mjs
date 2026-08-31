@@ -164,12 +164,26 @@ const VIEWPORT = process.env.QUET_VIEWPORT ?? "390x844";
  * At the default the parse yields exactly the literal it replaced, so this is a
  * no-op for every run that does not set `QUET_VIEWPORT` -- the point is that
  * runs which DO set it now mean it.
+ *
+ * This returns the whole `defaultViewport` object rather than a width/height
+ * pair, and `puppeteer.launch` below is handed the return value verbatim. That
+ * is deliberate: a test can then assert on the object the browser is actually
+ * opened with, instead of on a number that merely sits near the launch call.
+ * The bug being fixed was exactly a second, parallel copy of these numbers, so
+ * a gate that reads anything other than the value flowing into `launch` would
+ * be able to pass while the copy drifted again.
  */
-const [VP_W, VP_H] = (() => {
-  const m = /^(\d+)x(\d+)$/.exec(VIEWPORT.trim());
-  if (!m) throw new Error(`QUET_VIEWPORT "${VIEWPORT}" khong dung dang <rong>x<cao>, vi du 390x844`);
-  return [Number(m[1]), Number(m[2])];
-})();
+export function cauHinhTrinhDuyet(chuoi = VIEWPORT) {
+  const m = /^(\d+)x(\d+)$/.exec(String(chuoi).trim());
+  if (!m) throw new Error(`QUET_VIEWPORT "${chuoi}" khong dung dang <rong>x<cao>, vi du 390x844`);
+  return {
+    width: Number(m[1]),
+    height: Number(m[2]),
+    deviceScaleFactor: 2,
+    isMobile: true,
+    hasTouch: true,
+  };
+}
 
 /** The wrapper, not a bare `node`: the plugin's docs print a path that does not
  *  exist under a plugin install, and the system node is often too old. */
@@ -955,7 +969,7 @@ async function main() {
     browser = await puppeteer.launch({
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH ?? CHROME,
       headless: true,
-      defaultViewport: { width: VP_W, height: VP_H, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
+      defaultViewport: cauHinhTrinhDuyet(),
       args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
     });
 
