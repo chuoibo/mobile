@@ -178,6 +178,13 @@ def layer_b() -> list[tuple[str, bool, str]]:
         # this whole table depends on -- would go red for no reason at all,
         # which reads as "gate is broken" rather than "row set up wrong".
         base["sha"] = head_sha
+        # Same reasoning as `sha`, one axis later. The saved verdict was written
+        # by whatever walk ran last, quite possibly in a worktree that had
+        # uncommitted edits, and `--status` now refuses to lend that to another
+        # tree (B13-B16). Left unpinned, every row below would inherit somebody
+        # else's dirty state and B0 would go red for a reason no row is about.
+        base["tree"] = "clean"
+        base["worktree"] = str(REPO)
         base.update(over)
         vp.parent.mkdir(parents=True, exist_ok=True)
         vp.write_text(json.dumps(base), encoding="utf-8")
@@ -273,6 +280,65 @@ def layer_b() -> list[tuple[str, bool, str]]:
         False,
         "phải XANH — là kiểm tổ tiên, không phải ghim đúng bằng HEAD",
         lambda: write(rc=0, ts=time.time(), url=URL, sha=to_tien),
+    )
+
+    # --- the tree axis: was the walked client the client that commit holds? ---
+    #
+    # B9-B12 ask "which COMMIT". These ask "which TREE", and nothing did before:
+    # `git rev-parse HEAD` prints the same string for a clean checkout and for
+    # that checkout plus edits in no commit. Measured on 69938b7 -- commit a
+    # break in the scan seam, patch it back in the working tree only, walk: the
+    # walk is green and `--status` then calls the broken commit "ĐI ĐƯỢC 16/16
+    # chặng", while a real walk on that same clean tree exits 1.
+    def ban(digest: str) -> str:
+        return f"dirty:{digest}"
+
+    def xoa_truong_tree():
+        # Delete the key rather than null it: the case being reproduced is a
+        # verdict written by the OLD runner, which had no such field at all.
+        write(rc=0, ts=time.time(), url=URL)
+        d = json.loads(vp.read_text(encoding="utf-8"))
+        del d["tree"]
+        vp.write_text(json.dumps(d), encoding="utf-8")
+
+    check(
+        "B13 phán quyết KHÔNG GHI trạng thái cây",
+        True,
+        "bản của bộ chạy cũ — vắng mặt là 'không biết', không phải 'cây sạch'",
+        xoa_truong_tree,
+    )
+    check(
+        "B14 đi bộ trên cây BẨN của worktree KHÁC",
+        True,
+        "mã không nằm trong commit nào, và thư mục phán quyết dùng chung",
+        lambda: write(
+            rc=0, ts=time.time(), url=URL, tree=ban("a" * 16), worktree="/wt/lane-khac"
+        ),
+    )
+    check(
+        "B15 cây bẩn, nhưng sửa đã KHÁC so với lúc đi bộ",
+        True,
+        "client bây giờ không phải client đã đi bộ",
+        lambda: write(rc=0, ts=time.time(), url=URL, tree=ban("b" * 16)),
+    )
+    check(
+        "B16 không đọc được trạng thái cây",
+        True,
+        "'?' cũng không phải 'sạch'",
+        lambda: write(rc=0, ts=time.time(), url=URL, tree="?"),
+    )
+
+    # The control for B13-B16, and it has to ASK THE RUNNER for the fingerprint
+    # rather than compute one here: a table that reimplements the thing it is
+    # grading only ever grades the copy. If this worktree is clean the runner
+    # says "clean" and this row is B0 again; if it is dirty the row proves the
+    # other half -- a dirty walk still vouches for the tree that produced it.
+    van_tay = run([str(RUNNER), "--van-tay"]).stdout.strip()
+    check(
+        f"B17 ĐỐI CHỨNG: đúng cây đã đi bộ ({van_tay})",
+        False,
+        "phải XANH — cổng hỏi 'cây nào', không phải 'có sửa hay không'",
+        lambda: write(rc=0, ts=time.time(), url=URL, tree=van_tay, worktree=str(REPO)),
     )
 
     # The runner's own refusals: these are the edits that must not turn the
