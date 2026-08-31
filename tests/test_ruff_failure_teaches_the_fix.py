@@ -455,6 +455,25 @@ class TheFixerAgreesWithTheGate(unittest.TestCase):
         for path in listed:
             self.assertIn(path, dry.stdout, f"{path} có trong cổng mà fixer bỏ qua")
 
+    def test_findings_ruff_cannot_fix_are_reported_as_failure(self) -> None:
+        """The fixer must not hand out a green verdict on a tree the gate rejects.
+
+        E741 (ambiguous name `l`) is in ruff's default rule set and carries no
+        autofix, so `--fix` cannot clear it. A fixer that exits 0 here would send
+        somebody to push a branch the gate is about to stop.
+        """
+        (self.repo / "touched.py").write_text("l = 1\n", encoding="utf-8")
+
+        result = self.run_fixer()
+        combined = result.stdout + result.stderr
+        self.assertEqual(
+            result.returncode,
+            1,
+            f"còn findings không tự sửa được mà fixer vẫn báo thành công:\n{combined}",
+        )
+        self.assertIn("E741", combined)
+        self.assertRegex(combined, r"sửa tay")
+
     def test_nothing_to_fix_is_not_reported_as_a_fix(self) -> None:
         result = self.run_fixer()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
