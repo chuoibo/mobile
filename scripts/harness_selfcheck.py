@@ -73,9 +73,11 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -574,6 +576,282 @@ def cmd_install(args: argparse.Namespace) -> int:
     return 0
 
 
+# --- the contract this repo assumes of the harness that is installed --------
+#
+# The three measurements below used to be test classes in
+# `tests/test_harness_selfcheck.py`, reading `~/agent-harness` from inside the
+# blocking suite. That made the suite's verdict a function of a directory
+# outside this repository -- the defect QA blocked #487 for: same SHA, thirteen
+# minutes apart, `1 failed` then `0 failed`.
+#
+# Measured again 2026-08-31 on the file QA had NOT flagged, and it was the same
+# class. Repo byte-identical (`git status` empty), one extra test file in the
+# harness tree, nothing else changed:
+#
+#     ~/agent-harness as it is today          43 passed
+#     the same tree + one new test file       1 failed, 36 passed, 6 skipped
+#
+# The harness has no remote and its working tree is production, so "one extra
+# test file" is not a hypothetical: it is what any lane adding a harness test
+# does, and it would have painted this repo's gate red on a change this repo
+# did not make and could not fix.
+#
+# The measurements are worth keeping -- nothing else reads the harness contract
+# at all -- so they moved here, behind `gate.sh harness-contract`, which is
+# labelled local-only for the same reason `harness-clock` is.
+
+# The event `run --alert` writes. A formatter that has stopped rendering this
+# shape is how a new kind of breakage becomes invisible to the Lead.
+CONTRACT_ALERT_EVENT = {
+    "type": "HARNESS_SELFCHECK_RED",
+    "alert": True,
+    "severity": "critical",
+    "files": ["test_phat_hien_hong.py"],
+    "note": "harness tu kiem DO",
+}
+
+# Floor on the denominator, and a literal on purpose. Every verdict below is
+# accumulated in a list, and a list that came up short reads exactly like a
+# list where everything passed -- the same shape `discover()` above refuses.
+# Deleting a check has to cost this line.
+MIN_CONTRACT_CHECKS = 7
+
+_CONTRACT_PASS_TEST = """import unittest
+
+
+class T(unittest.TestCase):
+    def test_ok(self):
+        self.assertTrue(True)
+
+
+if __name__ == "__main__":
+    unittest.main()
+"""
+
+_CONTRACT_FAIL_TEST = """import unittest
+
+
+class T(unittest.TestCase):
+    def test_no(self):
+        self.fail("co y lam do")
+
+
+if __name__ == "__main__":
+    unittest.main()
+"""
+
+
+def fabricate_harness(
+    root: Path, *, missing: tuple[str, ...] = (), failing: tuple[str, ...] = ()
+) -> Path:
+    """A harness-shaped tree to point the real `team.sh` at.
+
+    `team.sh check` is measured against a fabricated tree rather than the live
+    one because the question is what `check` DOES -- exit non-zero on a red
+    file, on an empty directory, on a suite that shrank -- and the live tree is
+    green, so it can only ever answer the first of those.
+    """
+    (root / "tests").mkdir(parents=True, exist_ok=True)
+    for name in REQUIRED_TESTS:
+        if name in missing:
+            continue
+        body = _CONTRACT_FAIL_TEST if name in failing else _CONTRACT_PASS_TEST
+        (root / "tests" / name).write_text(body, encoding="utf-8")
+    (root / "lane.py").write_text("# lane gia\n", encoding="utf-8")
+    (root / "team.sh").write_text("#!/usr/bin/env bash\necho gia\n", encoding="utf-8")
+    return root
+
+
+def _team_check(harness: Path, root: Path) -> subprocess.CompletedProcess:
+    """Run the INSTALLED `team.sh check` against a fabricated root."""
+    team = harness / "team.sh"
+    return subprocess.run(
+        ["bash", str(team), "check"],
+        env={**os.environ, "HARNESS_ROOT": str(root)},
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+
+
+def _contract_manifest(harness: Path) -> str | None:
+    """REQUIRED_TESTS must name the files the installed tree actually has.
+
+    Both directions matter and they fail differently. A manifest naming a file
+    that is gone makes `discover()` refuse forever; a manifest missing a file
+    that exists leaves the floor lower than the tree, so losing that file later
+    is silent.
+    """
+    tests_dir = harness / "tests"
+    if not tests_dir.is_dir():
+        raise Refuse(f"KHONG KIEM DUOC: khong co thu muc {tests_dir}")
+    real = {p.name for p in tests_dir.glob("test_*.py") if p.is_file()}
+    missing = sorted(set(REQUIRED_TESTS) - real)
+    undeclared = sorted(real - set(REQUIRED_TESTS))
+    if missing:
+        return f"REQUIRED_TESTS tro vao file khong co that: {missing}"
+    if undeclared:
+        return (
+            f"cay harness co file test chua khai trong REQUIRED_TESTS: "
+            f"{undeclared} -- san dang thap hon thuc te"
+        )
+    return None
+
+
+def _contract_alert(harness: Path) -> str | None:
+    """`format_alert.py` must still render the event `run --alert` writes."""
+    fmt = harness / "format_alert.py"
+    if not fmt.is_file():
+        raise Refuse(
+            f"KHONG KIEM DUOC: khong co {fmt} -- duong bao dong khong do duoc, "
+            "va im lang o day khong duoc doc thanh DAT"
+        )
+    p = subprocess.run(
+        [sys.executable, str(fmt)],
+        input=json.dumps(CONTRACT_ALERT_EVENT) + "\n",
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if p.returncode != 0:
+        return f"format_alert.py thoat {p.returncode}: {p.stderr.strip()!r}"
+    thieu = [
+        s
+        for s in (CONTRACT_ALERT_EVENT["type"], CONTRACT_ALERT_EVENT["files"][0])
+        if s not in p.stdout
+    ]
+    if thieu:
+        return (
+            f"format_alert.py im lang voi su kien nay (thieu {thieu}) -- "
+            "bao dong se khong toi Lead"
+        )
+    return None
+
+
+def _contract_team_sh(harness: Path) -> list[tuple[str, str | None]]:
+    """What `team.sh check` DOES, measured by exit code, not by grep.
+
+    An earlier version of these read the source text of `team.sh` -- one
+    demanded the string `SAN_TEST`, the other the string `check)`. Mutation
+    killed both: lowering the floor to `-lt 0` leaves `SAN_TEST=6` declared at
+    the top of the file, and commenting the case arm out leaves `check)` in the
+    text. So each case below fabricates a tree and reads the exit code.
+    """
+    team = harness / "team.sh"
+    if not team.is_file():
+        raise Refuse(
+            f"KHONG KIEM DUOC: khong co {team} -- khong do duoc `check` lam gi"
+        )
+    out: list[tuple[str, str | None]] = []
+
+    with tempfile.TemporaryDirectory() as d:
+        root = fabricate_harness(Path(d))
+        p = _team_check(harness, root)
+        if p.returncode != 0:
+            out.append(("team.sh check: cay du va xanh -> 0", f"thoat {p.returncode}"))
+        else:
+            out.append(("team.sh check: cay du va xanh -> 0", None))
+        # A ✓ with no number reads exactly like a file that ran zero tests; an
+        # older team.sh matched only the plural "tests" and printed a blank.
+        cham = re.findall(r"✓ (\S+)\s+Ran (\d+) test", p.stdout)
+        if len(cham) != len(REQUIRED_TESTS) or not all(int(n) >= 1 for _, n in cham):
+            out.append(
+                (
+                    "team.sh check: moi file hien kem SO test da chay",
+                    f"doc duoc {len(cham)}/{len(REQUIRED_TESTS)} dong co so",
+                )
+            )
+        else:
+            out.append(("team.sh check: moi file hien kem SO test da chay", None))
+        # `start` fetches, builds worktrees and wants tmux; `check` must not.
+        out.append(
+            (
+                "team.sh check: khong dung toi wt/",
+                f"check tao ra {root / 'wt'}" if (root / "wt").exists() else None,
+            )
+        )
+
+    with tempfile.TemporaryDirectory() as d:
+        root = fabricate_harness(Path(d), failing=(REQUIRED_TESTS[2],))
+        rc = _team_check(harness, root).returncode
+        out.append(
+            (
+                "team.sh check: mot file DO -> khac 0",
+                "thoat 0 tren cay co file do -- `check` dang dem file chu khong chay test"
+                if rc == 0
+                else None,
+            )
+        )
+
+    with tempfile.TemporaryDirectory() as d:
+        (Path(d) / "tests").mkdir()
+        rc = _team_check(harness, Path(d)).returncode
+        out.append(
+            (
+                "team.sh check: tests/ rong -> khac 0",
+                "thoat 0 tren thu muc tests/ rong" if rc == 0 else None,
+            )
+        )
+
+    with tempfile.TemporaryDirectory() as d:
+        root = fabricate_harness(Path(d))
+        for name in REQUIRED_TESTS[2:]:
+            (root / "tests" / name).unlink()
+        rc = _team_check(harness, root).returncode
+        out.append(
+            (
+                "team.sh check: duoi san -> khac 0",
+                "thoat 0 voi 2 file test con lai" if rc == 0 else None,
+            )
+        )
+
+    return out
+
+
+def cmd_contract(args: argparse.Namespace) -> int:
+    harness = Path(args.harness)
+    if not harness.is_dir():
+        print(f"KHONG KIEM DUOC: khong co cay harness tai {harness}", file=sys.stderr)
+        return 3
+    try:
+        checks: list[tuple[str, str | None]] = [
+            ("manifest REQUIRED_TESTS khop cay that", _contract_manifest(harness)),
+            (
+                "format_alert.py hien duoc su kien SELFCHECK_RED",
+                _contract_alert(harness),
+            ),
+        ]
+        checks += _contract_team_sh(harness)
+    except Refuse as exc:
+        print(str(exc), file=sys.stderr)
+        return 3
+
+    if len(checks) < MIN_CONTRACT_CHECKS:
+        print(
+            f"KHONG KIEM DUOC: chi chay {len(checks)} phep kiem, san la "
+            f"{MIN_CONTRACT_CHECKS} -- danh sach tu ngan lai doc y het khi moi "
+            "phep deu dat, nen day la tu choi chu khong phai DAT",
+            file=sys.stderr,
+        )
+        return 3
+
+    hong = [(ten, ly_do) for ten, ly_do in checks if ly_do is not None]
+    for ten, ly_do in checks:
+        print(
+            f"  {'HONG' if ly_do else 'dat '}  {ten}"
+            + (f" -- {ly_do}" if ly_do else "")
+        )
+    if hong:
+        print(
+            f"\nDO: {len(hong)}/{len(checks)} phep kiem hong voi cay harness tai "
+            f"{harness}.\nDay la cay DANG CHAY, khong phai ban da merge.",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"\nXANH: {len(checks)}/{len(checks)} phep kiem, cay harness {harness}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Chay bo tu kiem cua harness, khong cho khoi dong lai."
@@ -594,6 +872,11 @@ def main(argv: list[str] | None = None) -> int:
     st = sub.add_parser("status", help="im lang bi coi la that bai")
     st.add_argument("--max-age", type=int, default=DEFAULT_MAX_AGE)
     st.set_defaults(fn=cmd_status)
+
+    ct = sub.add_parser(
+        "contract", help="cay harness DANG CAI co dung hop dong repo nay gia dinh khong"
+    )
+    ct.set_defaults(fn=cmd_contract)
 
     ins = sub.add_parser("install", help="khoi crontab cho luot canh dinh ky")
     ins.add_argument(

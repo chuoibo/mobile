@@ -149,6 +149,28 @@ LOCAL_ONLY: dict[str, str] = {
         "repository that other lanes write to mid-run -- QA blocked #487 for "
         "that: same SHA, 13 minutes apart, `1 failed` then `0 failed`."
     ),
+    "harness-contract": (
+        "asks whether the harness tree installed here still keeps the contract "
+        "this repo assumes of it: `REQUIRED_TESTS` naming files that exist, "
+        "`format_alert.py` still rendering the event `run --alert` writes, and "
+        "`team.sh check` exiting non-zero on a red file, an empty `tests/` and "
+        "a suite that shrank. A CI runner has no harness tree, so a job would "
+        "be measuring an empty directory. It is a stage rather than tests under "
+        "tests/ because that is where these three lived until 2026-08-31, and "
+        "there they made the blocking suite's verdict a function of a directory "
+        "outside this repository -- the defect QA blocked #487 for. Measured "
+        "with the repo byte-identical and one extra test file in the harness: "
+        "43 passed became 1 failed, 36 passed, 6 skipped."
+    ),
+    "suite-in-repo": (
+        "runs the blocking suite under an audit hook and names every test item "
+        "that touches a path outside the working tree. Local-only because the "
+        "answer is about THIS machine's outside world -- a CI runner has no "
+        "~/agent-harness, no ~/.fnm and no pinned-ruff cache, so the same "
+        "command there reports a clean suite for the reason this stage exists "
+        "to refuse. Measured 2026-08-31 over 917 items: 7 findings before the "
+        "#487 follow-up fix, 2 after, both pinned with a reason."
+    ),
     "harness-selfcheck": (
         "asks whether the harness self-check has run recently, was green, and "
         "was about the harness code that is live now. A CI runner has no "

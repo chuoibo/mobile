@@ -47,7 +47,6 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = REPO_ROOT / "scripts" / "harness_selfcheck.py"
-HARNESS_THAT = Path.home() / "agent-harness"
 
 PASS_TEST = """import unittest
 
@@ -510,122 +509,144 @@ class TestKhoiCrontab:
         assert M.CRON_BEGIN in p.stdout
 
 
-# --- neo vào cây harness THẬT ----------------------------------------------
+# --- hợp đồng với cây harness THẬT: phép đo đã dời khỏi bộ chặn -------------
+#
+# Ở đây từng có hai class đọc thẳng `~/agent-harness`: một class so
+# `REQUIRED_TESTS` với `tests/` của cây thật, một class chạy `team.sh` và
+# `format_alert.py` của cây thật. Chúng làm phán quyết của BỘ CHẶN thành hàm
+# của một thư mục NGOÀI repo — đúng lớp lỗi QA đã chặn #487 (cùng SHA, cách 13
+# phút, `1 failed` rồi `0 failed`).
+#
+# Đo lại 2026-08-31 trên chính file này, repo không đổi một byte:
+#
+#     ~/agent-harness như hôm nay            43 passed
+#     cùng cây + ĐÚNG MỘT file test mới      1 failed, 36 passed, 6 skipped
+#
+# Cây harness không có remote và cây làm việc của nó LÀ production, nên "thêm
+# một file test" không phải giả thuyết: đó là việc bất kỳ lane nào thêm ca test
+# cho harness cũng làm, và nó sẽ bôi đỏ cổng của repo này vì một thay đổi repo
+# này không gây ra và không sửa được.
+#
+# Phép đo KHÔNG bị bỏ — nó chuyển sang `harness_selfcheck.py contract`, gọi từ
+# chặng `gate.sh harness-contract` đã dán nhãn "máy này thôi". Những ca dưới
+# đây đo chính lệnh đó và dựng cây trong `tmp_path`, nên phán quyết của chúng
+# là hàm của repo chứ không của máy đang chạy.
+
+# `team.sh` thật, thu nhỏ còn đúng phần `contract` hỏi tới. Dùng bản giả chứ
+# không dùng bản thật là có chủ ý: ca ở đây hỏi `contract` có ĐỌC ĐÚNG hành vi
+# của `check` không; còn `check` thật làm đúng hay không là câu hỏi của chặng
+# gate, nơi cây thật mới có mặt.
+TEAM_SH_GIA = """#!/usr/bin/env bash
+root="${HARNESS_ROOT:?}"
+n=0
+shopt -s nullglob
+for f in "$root"/tests/test_*.py; do
+  if python3 "$f" >/dev/null 2>&1; then
+    echo "✓ $(basename "$f")  Ran 1 test"
+    n=$((n + 1))
+  else
+    echo "✗ $(basename "$f")"
+    exit 1
+  fi
+done
+[ "$n" -ge 6 ] || exit 1
+exit 0
+"""
+
+# Bản `team.sh` đếm file mà không chạy test — chính hình dạng `contract` phải
+# bắt được, và là hình dạng bảng đột biến cũ đã cho sống sót qua bộ test
+# đọc-chữ.
+TEAM_SH_DEM_FILE = """#!/usr/bin/env bash
+root="${HARNESS_ROOT:?}"
+shopt -s nullglob
+for f in "$root"/tests/test_*.py; do echo "✓ $(basename "$f")  Ran 1 test"; done
+exit 0
+"""
+
+FORMAT_ALERT_GIA = """#!/usr/bin/env python3
+import json
+import sys
+
+ev = json.loads(sys.stdin.read())
+print(ev["type"], *ev.get("files", []))
+"""
+
+FORMAT_ALERT_CAM = """#!/usr/bin/env python3
+import sys
+
+sys.stdin.read()
+"""
 
 
-@pytest.mark.skipif(not HARNESS_THAT.is_dir(), reason="máy này không có harness")
-class TestNeoVaoHarnessThat:
-    def test_danh_sach_bat_buoc_khop_voi_cay_that(self):
-        """Manifest phải nói về file có thật, không phải tên đã chết.
-
-        Một manifest trỏ vào file không tồn tại làm `discover()` TỪ CHỐI mãi
-        mãi; một manifest thiếu file có thật làm sàn thấp hơn thực tế. Cả hai
-        đều là cổng nói về một cây khác cây đang chạy.
-        """
-        that = {p.name for p in (HARNESS_THAT / "tests").glob("test_*.py")}
-        thieu = sorted(set(M.REQUIRED_TESTS) - that)
-        assert thieu == [], f"REQUIRED_TESTS trỏ vào file không có thật: {thieu}"
-        chua_khai = sorted(that - set(M.REQUIRED_TESTS))
-        assert chua_khai == [], (
-            f"cây harness có file test chưa khai trong REQUIRED_TESTS: "
-            f"{chua_khai} — sàn đang thấp hơn thực tế"
-        )
-
-    def test_duong_bao_dong_that_hien_duoc_su_kien_nay(self):
-        """Đo hành vi của `format_alert.py`, không đọc văn bản nguồn của nó.
-
-        Một kiểu sự kiện mới bị formatter bỏ rơi là cách một kiểu hỏng mới trở
-        thành vô hình. Nhánh cuối của `render()` nói là nó không bỏ rơi ai —
-        ca này bắt nó chứng minh, bằng cách bơm đúng dòng JSON mà `run --alert`
-        ghi ra và đòi một dòng chữ cho Lead.
-        """
-        fmt = HARNESS_THAT / "format_alert.py"
-        if not fmt.is_file():
-            pytest.skip("cây harness không có format_alert.py")
-        ev = {
-            "type": "HARNESS_SELFCHECK_RED",
-            "alert": True,
-            "severity": "critical",
-            "files": ["test_phat_hien_hong.py"],
-            "note": "harness tu kiem DO",
-        }
-        p = subprocess.run(
-            [sys.executable, str(fmt)],
-            input=json.dumps(ev) + "\n",
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        assert p.returncode == 0, p.stderr
-        assert "HARNESS_SELFCHECK_RED" in p.stdout, (
-            "format_alert.py im lặng với sự kiện này — báo động sẽ không tới Lead"
-        )
-        assert "test_phat_hien_hong.py" in p.stdout
+def _cay_harness_cai_dat(
+    root: Path, *, team: str = TEAM_SH_GIA, fmt: str | None = FORMAT_ALERT_GIA
+) -> Path:
+    """Cây đóng vai bản harness ĐANG CÀI mà `contract` sẽ đo."""
+    _harness_gia(root)
+    (root / "team.sh").write_text(team, encoding="utf-8")
+    if fmt is not None:
+        (root / "format_alert.py").write_text(fmt, encoding="utf-8")
+    return root
 
 
-@pytest.mark.skipif(
-    not (HARNESS_THAT / "team.sh").is_file(), reason="máy này không có team.sh"
-)
-class TestTeamShDoBangHanhVi:
-    """Đo `team.sh check` LÀM GÌ, không đọc `team.sh` VIẾT GÌ.
-
-    Bản đầu của hai ca này grep văn bản nguồn: một ca đòi chuỗi `SAN_TEST` có
-    trong file, ca kia đòi chuỗi `check)`. Bảng đột biến bắt được cả hai là vô
-    dụng — thay sàn thành `-lt 0` vẫn để lại dòng khai `SAN_TEST=6` ở đầu file,
-    và bọc `# check)` thành comment vẫn để lại chuỗi `check)`. Hai đột biến gỡ
-    đúng hai thứ này SỐNG SÓT qua bộ test đọc-chữ.
-
-    Nên các ca dưới đây dựng một cây harness giả rồi chạy `team.sh check` thật
-    vào nó qua `HARNESS_ROOT`, và đọc mã thoát.
-    """
-
-    @staticmethod
-    def _chay_check(root: Path) -> subprocess.CompletedProcess:
-        team = HARNESS_THAT / "team.sh"
-        return subprocess.run(
-            ["bash", str(team), "check"],
-            env={**os.environ, "HARNESS_ROOT": str(root)},
-            capture_output=True,
-            text=True,
-            timeout=600,
-        )
-
-    def test_cay_du_file_va_xanh_thi_check_thoat_0(self, tmp_path):
-        _harness_gia(tmp_path)
-        p = self._chay_check(tmp_path)
+class TestHopDongVoiCayHarness:
+    def test_cay_dung_hop_dong_thi_dat_va_in_ra_mau_so(self, tmp_path):
+        """Xanh phải kèm mẫu số, và mẫu số phải ≥ sàn."""
+        _cay_harness_cai_dat(tmp_path)
+        p = _chay(tmp_path, "contract")
         assert p.returncode == 0, p.stdout + p.stderr
-        # Mỗi file phải hiện kèm SỐ test đã chạy. Một dấu ✓ không có số đọc y
-        # hệt một file chạy đúng 0 test — mẫu cũ của team.sh chỉ khớp "tests"
-        # số nhiều, nên file chạy 1 test in ra ô trống.
-        cham = re.findall(r"✓ (\S+)\s+Ran (\d+) test", p.stdout)
-        assert len(cham) == len(M.REQUIRED_TESTS), p.stdout
-        assert all(int(n) >= 1 for _, n in cham), p.stdout
-
-    def test_mot_file_do_thi_check_thoat_khac_0(self, tmp_path):
-        """Chứng minh `check` CHẠY bộ test chứ không chỉ đếm file."""
-        _harness_gia(tmp_path, do=(M.REQUIRED_TESTS[2],))
-        assert self._chay_check(tmp_path).returncode != 0
-
-    def test_thu_muc_tests_rong_thi_check_thoat_khac_0(self, tmp_path):
-        """Lỗ đã đo: glob rỗng làm vòng cũ trả 0 sau khi chạy 0 test."""
-        (tmp_path / "tests").mkdir()
-        p = self._chay_check(tmp_path)
-        assert p.returncode != 0, (
-            "team.sh check nói ĐẠT trên một thư mục tests/ rỗng: " + p.stdout + p.stderr
+        khop = re.search(r"XANH: (\d+)/(\d+) phep kiem", p.stdout)
+        assert khop, p.stdout
+        assert int(khop.group(1)) == int(khop.group(2))
+        assert int(khop.group(2)) >= M.MIN_CONTRACT_CHECKS, (
+            f"chạy {khop.group(2)} phép kiểm, dưới sàn {M.MIN_CONTRACT_CHECKS}"
         )
 
-    def test_duoi_san_thi_check_thoat_khac_0(self, tmp_path):
-        """Bộ test teo lại — mọi file còn lại đều xanh — vẫn phải ĐỎ."""
-        _harness_gia(tmp_path)
-        for name in M.REQUIRED_TESTS[2:]:
-            (tmp_path / "tests" / name).unlink()
-        p = self._chay_check(tmp_path)
-        assert p.returncode != 0, (
-            "team.sh check nói ĐẠT với 2 file test còn lại: " + p.stdout + p.stderr
+    def test_them_mot_file_test_vao_cay_thi_do(self, tmp_path):
+        """Chính phép đo đã tái lập được lỗi #487 trên file này."""
+        _cay_harness_cai_dat(tmp_path)
+        (tmp_path / "tests" / "test_lane_chet_im_lang.py").write_text(
+            PASS_TEST, encoding="utf-8"
         )
+        p = _chay(tmp_path, "contract")
+        assert p.returncode == 1, p.stdout + p.stderr
+        assert "test_lane_chet_im_lang.py" in p.stdout
 
-    def test_check_khong_dung_toi_worktree_hay_tmux(self, tmp_path):
-        """`start` fetch + dựng worktree + đòi tmux; `check` phải không làm gì cả."""
-        _harness_gia(tmp_path)
-        assert self._chay_check(tmp_path).returncode == 0
-        assert not (tmp_path / "wt").exists()
+    def test_manifest_tro_vao_file_khong_co_that_thi_do(self, tmp_path):
+        _cay_harness_cai_dat(tmp_path)
+        (tmp_path / "tests" / M.REQUIRED_TESTS[0]).unlink()
+        p = _chay(tmp_path, "contract")
+        assert p.returncode == 1, p.stdout + p.stderr
+        assert M.REQUIRED_TESTS[0] in p.stdout
+
+    def test_team_sh_dem_file_ma_khong_chay_test_thi_do(self, tmp_path):
+        """`check` trả 0 trên cây có file đỏ là lỗ đã đo, không phải giả thuyết."""
+        _cay_harness_cai_dat(tmp_path, team=TEAM_SH_DEM_FILE)
+        p = _chay(tmp_path, "contract")
+        assert p.returncode == 1, p.stdout + p.stderr
+        assert "mot file DO" in p.stdout
+
+    def test_duong_bao_dong_cam_thi_do(self, tmp_path):
+        _cay_harness_cai_dat(tmp_path, fmt=FORMAT_ALERT_CAM)
+        p = _chay(tmp_path, "contract")
+        assert p.returncode == 1, p.stdout + p.stderr
+        assert "format_alert" in p.stdout
+
+    def test_khong_co_cay_harness_thi_tu_choi_chu_khong_dat(self, tmp_path):
+        p = _chay(tmp_path / "khong-co-o-day", "contract")
+        assert p.returncode == 3, p.stdout + p.stderr
+        assert "KHONG KIEM DUOC" in p.stderr
+
+    def test_thieu_duong_bao_dong_thi_tu_choi_chu_khong_dat(self, tmp_path):
+        """Thiếu file cần đo là KHÔNG ĐO ĐƯỢC — không được đọc thành ĐẠT."""
+        _cay_harness_cai_dat(tmp_path, fmt=None)
+        p = _chay(tmp_path, "contract")
+        assert p.returncode == 3, p.stdout + p.stderr
+        assert "KHONG KIEM DUOC" in p.stderr
+
+    def test_thieu_team_sh_thi_tu_choi_chu_khong_dat(self, tmp_path):
+        _cay_harness_cai_dat(tmp_path)
+        (tmp_path / "team.sh").unlink()
+        p = _chay(tmp_path, "contract")
+        assert p.returncode == 3, p.stdout + p.stderr
+        assert "KHONG KIEM DUOC" in p.stderr

@@ -72,7 +72,7 @@ REPO_ROOT="$PWD"
 
 # Every stage, in run order: cheapest and most likely to fail first, so a
 # broken tree is reported in seconds rather than after a docker build.
-STAGES=(guard guard-range ruff harness-deploy harness-clock harness-selfcheck contract client-routes server-routes screens cors api migration pinned-import demo-watch hero-walk shared mobile docker postgres e2e)
+STAGES=(guard guard-range ruff harness-deploy harness-clock harness-selfcheck harness-contract suite-in-repo contract client-routes server-routes screens cors api migration pinned-import demo-watch hero-walk shared mobile docker postgres e2e)
 
 stage_help() {
   case "$1" in
@@ -82,6 +82,8 @@ stage_help() {
     harness-deploy) echo "the agent_supervisor/agent_checkpoint copies that actually RUN match the ones merged to main (máy này thôi)" ;;
     harness-clock) echo "the harness copy that RUNS does not measure intervals with a wall clock (máy này thôi)" ;;
     harness-selfcheck) echo "the harness self-check has run recently, was green, and was about the harness code live now (máy này thôi)" ;;
+    harness-contract) echo "the installed harness still keeps the contract this repo assumes of it: manifest, alert path, team.sh check (máy này thôi)" ;;
+    suite-in-repo) echo "no test in the blocking suite reads state outside this repository, measured at run time (máy này thôi)" ;;
     contract)  echo "every route wanting X-Actor-ID is called with it (test.yml: contract)" ;;
     client-routes) echo "every route apps/mobile calls exists in the API (test.yml: api, inline)" ;;
     server-routes) echo "every route the API declares is called by some screen -- the other direction" ;;
@@ -515,6 +517,47 @@ do_harness-selfcheck() {
   python3 scripts/harness_selfcheck.py status
 }
 
+# `harness-selfcheck` above reads a RECORDED verdict about the harness. This
+# asks a different question of the same tree: does the copy installed here
+# still keep the contract this repo assumes of it -- `REQUIRED_TESTS` naming
+# files that exist, `format_alert.py` still rendering the event `run --alert`
+# writes, and `team.sh check` exiting non-zero on a red file, an empty
+# `tests/`, and a suite that shrank.
+#
+# These three were test classes under `tests/` until 2026-08-31, where they
+# made the blocking suite's verdict a function of a directory outside this
+# repository. That is the defect QA blocked #487 for, and the sweep that was
+# supposed to clear it missed this file because it perturbed the outside world
+# toward ABSENT -- a tree that is gone makes these skip, a tree that is PRESENT
+# and different makes them fail. Repo byte-identical, one extra test file in
+# the harness: `43 passed` became `1 failed, 36 passed, 6 skipped`.
+#
+# What it does NOT prove: `team.sh check` is measured against a fabricated tree
+# because the live one is green and so can only ever exercise the happy path;
+# a `check` that is right about fabricated trees and wrong about the real one
+# passes here. And it says nothing about `lane.py`, which is where the deaths
+# at 07:44:50 came from.
+do_harness-contract() {
+  python3 scripts/harness_selfcheck.py contract
+}
+
+# The gate above measures one out-of-repo dependency that we moved on purpose.
+# This one asks whether any others came back, and asks it of behaviour rather
+# than of source text: the suite runs under an audit hook, and every test item
+# that touches a path outside the working tree is named.
+#
+# A grep for `Path.home()` was the obvious alternative and it is the same shape
+# as the clock gate that went blind to `def now(): return time.time()` -- one
+# local alias and the text is gone while the syscall stays.
+#
+# What it does NOT prove: touching an outside path is not the same as having a
+# verdict that depends on one, so a finding is a question. The sound direction
+# is the other one -- an item that touched nothing outside could not have been
+# swayed by anything outside.
+do_suite-in-repo() {
+  python3 scripts/check_suite_stays_in_repo.py tests
+}
+
 # The demo box on 8099 is what the leader opens to decide whether the product
 # runs. Twice now it has served an older main than the one it claims to:
 # 58 routes against 62 for sixteen commits, then 65 against 69 for the four
@@ -737,6 +780,19 @@ check_prereq() {
         echo "không có $croot -- máy này không chạy harness nào để mà đo đồng hồ"; return 1; }
       # Deleting the checker is the one edit that must not turn this green.
       [ -f scripts/check_harness_clock.py ] || return 2 ;;
+    harness-contract)
+      # Same shape as harness-deploy: no harness installed is a BỎ QUA with a
+      # printed reason that --strict can turn red, never a green.
+      local kroot="${AGENT_HARNESS:-$HOME/agent-harness}"
+      [ -d "$kroot" ] || {
+        echo "không có $kroot -- máy này không cài harness nào để mà đo hợp đồng"; return 1; }
+      # Deleting the runner is the one edit that must not turn this green.
+      [ -f scripts/harness_selfcheck.py ] || return 2 ;;
+    suite-in-repo)
+      # No harness dependency here -- this one reads only this repository, so
+      # it has no honest reason to skip. The single edit it must survive is the
+      # detector being deleted.
+      [ -f scripts/check_suite_stays_in_repo.py ] || return 2 ;;
     harness-selfcheck)
       # No harness on this machine: nothing to self-check, and saying so is the
       # honest answer -- same as harness-deploy above.
@@ -937,6 +993,7 @@ broken_why() {
     e2e) echo "apps/mobile có mặt nhưng thiếu tests/e2e/vertical-slice.test.mjs -- từ chối bỏ qua" ;;
     demo-watch) echo "thiếu scripts/demo_watch.py -- xoá canh gác không được biến chặng này thành xanh" ;;
     harness-clock) echo "thiếu scripts/check_harness_clock.py -- xoá máy dò không được biến chặng này thành xanh" ;;
+    suite-in-repo) echo "thiếu scripts/check_suite_stays_in_repo.py -- xoá bộ dò không được biến chặng này thành xanh" ;;
     harness-selfcheck) echo "thiếu scripts/harness_selfcheck.py -- xoá máy chạy không được biến chặng này thành xanh" ;;
     hero-walk) echo "thiếu scripts/hero_walk.sh -- xoá bài đi bộ không được biến chặng này thành xanh" ;;
     *) echo "thiếu file mà chặng này cần -- từ chối bỏ qua" ;;
