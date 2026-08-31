@@ -479,6 +479,9 @@ export function laiTrongTrang(kichBan, dauLai) {
 
   // How long a wait tolerates no progress before it suspects the press that
   // preceded it never landed, and how many times it may press again.
+  //
+  // Only reachable from a step that asked for it: `{ bamChu: "...", bamLai: true }`.
+  // See `lamLaiCuoi` for why the decision has to live at the call site.
   const NHIP_BAM_LAI = 2500;
   const SO_LAN_BAM_LAI = 2;
 
@@ -492,12 +495,22 @@ export function laiTrongTrang(kichBan, dauLai) {
           return res();
         }
         const troi = Date.now() - t0;
-        // A press that evaporated and a screen that is merely slow look
-        // identical from here, so the tie is broken by asking whether the
-        // button is STILL THERE. If the press landed, the screen moved on and
-        // the finder no longer matches, so nothing is pressed twice -- that is
-        // what keeps this from double-submitting a save. If it is still sitting
-        // there unpressed after `NHIP_BAM_LAI`, the press was lost.
+        // `lamLai` is non-null only for a step that declared `bamLai: true`,
+        // and that gate is the whole safety argument -- there is no in-page
+        // predicate underneath it. An earlier version of this code claimed one
+        // ("the button is gone, therefore the press landed") and it was wrong:
+        // a save button, a tab, a toggle all stay on screen while the work is
+        // in flight, so "still pressable" is true in exactly the case the guard
+        // was supposed to exclude. Measured, it double-submitted 2 of 3 rows.
+        //
+        // Nor can the guard be repaired. Compare the two rows in
+        // `tests/bam-truot-thi-bam-lai.test.mjs`: a button that SWALLOWED the
+        // press and a button that ATE the press but whose screen is 4s away
+        // present this loop with the same observation -- connected, enabled,
+        // listener ran, destination text absent. Same observation, opposite
+        // correct actions. What separates them is not on the page; it is
+        // whether the press is safe to repeat, which only the scenario author
+        // knows. So they declare it, and the default is not to press again.
         //
         // This cannot paper over a button that is genuinely dead: pressing a
         // dead button again does nothing and the wait still times out. It only
@@ -548,9 +561,10 @@ export function laiTrongTrang(kichBan, dauLai) {
       (function poll() {
         if (tim()) return res();
         const troi = Date.now() - t0;
-        // Same rule as `cho`: press again only while the target is still
-        // sitting there unpressed. See the note there for why that guard is
-        // what makes a retry safe rather than a second submission.
+        // Same rule as `cho`: `lamLai` arrives non-null only from a step that
+        // declared `bamLai: true`. Note this one guards `themNguoi`, which is a
+        // WRITE -- adding a member twice is not a repeatable press -- so it is
+        // off unless the scenario says otherwise. See the note in `cho`.
         if (lamLai && daBamLai < SO_LAN_BAM_LAI && troi > NHIP_BAM_LAI * (daBamLai + 1)) {
           const el = lamLai();
           if (el) {
@@ -618,8 +632,9 @@ export function laiTrongTrang(kichBan, dauLai) {
         const el = tim();
         if (el) {
           bamVao(el);
-          // The finder is handed back so the NEXT wait can press again if this
-          // press turns out to have evaporated. See `lamLaiCuoi`.
+          // The finder is handed back so the NEXT wait CAN press again -- the
+          // caller decides whether it may, from the step's `bamLai`. Handing it
+          // back is not permission to use it. See `lamLaiCuoi`.
           return res(tim);
         }
         if (Date.now() - t0 > ms) return rej(new Error("khong thay " + moTa));
@@ -655,6 +670,15 @@ export function laiTrongTrang(kichBan, dauLai) {
   // The finder for the most recent press, carried into the NEXT `cho`.
   // Scenarios are written press-then-wait, so the wait that follows a press is
   // exactly where a dropped press shows up -- as a screen that never arrives.
+  //
+  // Set ONLY by a step carrying `bamLai: true`, so the default across every
+  // scenario in this repo is "press once and wait", byte for byte what it was
+  // before retrying existed. Opt in on a press that is safe to repeat -- a tab,
+  // a navigation, opening a screen -- and never on one that writes. Concretely,
+  // in `duong-vao-mon-cua-toi.test.mjs`: `{ bamChu: "Món của tôi" }` opts in
+  // (pressing it twice opens the same screen twice), `{ bamChu: "Lưu món của
+  // tôi" }` does not (pressing it twice is two `POST /bills`, and the wait
+  // right after it is exactly the window where the save is still in flight).
   let lamLaiCuoi = null;
 
   (async () => {
@@ -666,14 +690,15 @@ export function laiTrongTrang(kichBan, dauLai) {
         await cho(b.cho, b.ms || 20000, lamLai);
       }
       if (b.bam) {
-        lamLaiCuoi = await timBam(
+        const tim = await timBam(
           () => bamDuoc(document.querySelector('[aria-label="' + b.bam + '"]')),
           'nut "' + b.bam + '"',
           20000,
         );
+        lamLaiCuoi = b.bamLai ? tim : null;
       }
       if (b.bamChu) {
-        lamLaiCuoi = await timBam(
+        const tim = await timBam(
           () =>
             bamDuoc(
               [...document.querySelectorAll("button, [role='button']")].find(
@@ -683,6 +708,7 @@ export function laiTrongTrang(kichBan, dauLai) {
           'nut chu "' + b.bamChu + '" (bam duoc)',
           25000,
         );
+        lamLaiCuoi = b.bamLai ? tim : null;
       }
       if (b.themNguoi) {
         const timMoi = await timBam(
@@ -701,11 +727,11 @@ export function laiTrongTrang(kichBan, dauLai) {
             document.querySelector('[aria-label="' + b.themNguoi + '"]') !== null,
           '"' + b.themNguoi + '" vao nhom',
           20000,
-          timMoi,
+          b.bamLai ? timMoi : null,
         );
       }
       if (b.chonRadio) {
-        lamLaiCuoi = await timBam(
+        const tim = await timBam(
           () =>
             bamDuoc(
               [...document.querySelectorAll('[role="radio"]')].find(
@@ -715,6 +741,7 @@ export function laiTrongTrang(kichBan, dauLai) {
           'radio "' + b.chonRadio + '"',
           20000,
         );
+        lamLaiCuoi = b.bamLai ? tim : null;
       }
       if (b.go) await goChu(b.go.oNhap, b.go.chu, 20000);
       if (b.anh) await nap(b.anh);

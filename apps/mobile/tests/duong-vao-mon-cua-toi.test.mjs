@@ -179,9 +179,14 @@ if (reasons.length && !REQUIRED && !banCu) {
       ];
     }
 
+    // `bamLai` chỉ khai ở ĐÂY, và chỉ vì mở màn "Món của tôi" hai lần thì vẫn
+    // ra đúng màn "Món của tôi" — cú bấm lặp lại được. Đây đúng là bước từng
+    // rơi (~1/10 lượt), xem `bam-truot-thi-bam-lai.test.mjs`. Nút "Lưu món của
+    // tôi" ở ca dưới KHÔNG khai: nó là `POST /bills`, và cú chờ ngay sau nó là
+    // đúng cửa sổ mà bản ghi còn đang bay.
     const MO_MON_CUA_TOI = [
       ...denGoiY(),
-      { bamChu: "Món của tôi" },
+      { bamChu: "Món của tôi", bamLai: true },
       { cho: NEEDLE },
     ];
 
@@ -213,13 +218,15 @@ if (reasons.length && !REQUIRED && !banCu) {
         // Ô đã đổi trạng thái TRƯỚC khi bấm Lưu. Không có chặng này thì một cú
         // bấm trượt sẽ gửi nguyên tập cũ và bài đo bên dưới đổ cho nút Lưu.
         { cho: PHAN_MOT_MON },
+        // KHÔNG `bamLai`: đây là `POST /bills`. Cú chờ ngay dưới là đúng cửa sổ
+        // bản ghi đang bay, nên bấm lại ở đây là gửi hai lần một lần lưu.
         { bamChu: "Lưu món của tôi" },
         // Về lại màn gợi ý: `onXong` đưa bước về "goi-y".
         { cho: "Gợi ý chia theo người" },
         // Mở lại. Lần này ô tích phải được seed từ bill SERVER VỪA TRẢ VỀ, nên
         // đây là chặng giết được đột biến `onLuu={() => {}}`: không gửi thì
         // `bill` không đổi, và màn mở lại vẫn là 480.000đ.
-        { bamChu: "Món của tôi" },
+        { bamChu: "Món của tôi", bamLai: true },
         { cho: NEEDLE },
       ];
       await diBo("__mon-cua-toi-luu.html", kichBan, "bỏ tích, lưu, mở lại");
