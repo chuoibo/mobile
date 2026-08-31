@@ -16,10 +16,10 @@
  * who trusts the scanner concludes the screen is fine at 360. It is not.
  *
  * So this file measures the geometry directly instead of asking a rule about
- * it. `scrollWidth > clientWidth` on an element with visible text is not a
- * matter of opinion or threshold, and it is reported in the raw at every width.
+ * it: how much of each run of text is painted outside the nearest box that
+ * clips it, reported in the raw at every width.
  *
- * ## Truncated is not the same as scrollable
+ * ## Truncated is not the same as scrollable, and not the same as overflowing
  *
  * The naive version of this measurement is useless, and loudly so: the people
  * matrix on `goi-y` is a horizontal scroller, so it overflows its box by 265pt
@@ -32,6 +32,11 @@
  *   - some ancestor scrolls on X (`overflow-x: auto|scroll`)  -> reachable, not
  *     a defect. The same call `che-chu.mjs` makes for occlusion findings that
  *     turn out to be scrolled-away rather than buried.
+ *   - nothing clips it, it is merely painted outside its own box (`overflow:
+ *     visible`, the default) -> visible, not a defect. This is the one the
+ *     first version of this file got wrong; the delete button on `ket-qua`
+ *     bleeds 10pt into the Card padding on purpose and produced 15 of the 17
+ *     lines in the table, against 2 real ones.
  *   - clipped (`overflow: hidden`, typically with `text-overflow: ellipsis`,
  *     which is what `numberOfLines={1}` compiles to under react-native-web)
  *     -> the characters cannot be revealed by any gesture. Defect.
@@ -40,9 +45,10 @@
  *
  * A file that reports "0 truncated" is worthless until something proves it can
  * report anything at all -- the failure this whole repo keeps re-learning. So a
- * canary page with one deliberately clipped heading and one deliberately
- * scrollable row is measured first, every run. It must come back with exactly
- * the clipped one. If it does not, the run aborts instead of printing zeros.
+ * canary page is measured first, every run, and the run aborts instead of
+ * printing zeros if any row comes back wrong. Two of its six rows must stay
+ * SILENT: a control table that only proves a tool can shout does not prove it
+ * can tell the difference, and telling the difference is this file's whole job.
  *
  * ## The ratchet
  *
@@ -112,19 +118,25 @@ const DA_BIET = [
 ];
 
 /**
- * Four rows, and the pair that must stay SILENT is as load-bearing as the pair
+ * Six rows, and the two that must stay SILENT are as load-bearing as the four
  * that must come back red.
  *
- * `bi-cat` and `cuon-duoc` are the original two: one clipped, one scrollable.
- * The other two exist because the measurement below used to answer a different
- * question than the one it asks, and only these two rows can tell the two
- * questions apart:
+ * `bi-cat` and `cuon-duoc` are the original pair: one clipped, one scrollable.
+ * Each of the other four was added because a mutation of the measurement below
+ * survived without it -- the letter is the row in the mutation table it kills:
  *
- *   `ra-le` renders text outside its own box with every ancestor `overflow:
- *   visible` -- painted, readable, hit-testable. `scrollWidth > clientWidth`
- *   is TRUE for it, so a box-overflow rule calls it truncated. It is not.
- *   `to-cha-cat` is the same shape with one grandparent set to `overflow:
+ *   `ra-le` (A) renders text outside its own box with every ancestor `overflow:
+ *   visible` -- painted, readable, hit-testable. `scrollWidth > clientWidth` is
+ *   TRUE for it, so a box-overflow rule calls it truncated. It is not.
+ *   `to-cha-cat` (B) is the same shape with one grandparent set to `overflow:
  *   hidden`, so the characters really do stop existing at the same geometry.
+ *   `cat-it` (C) is cut by ~10pt, the size of a real defect on this app, and
+ *   asserts the magnitude as well as the count: the two big rows cut 325 and
+ *   220, so a threshold slipped in between them would kill the 12pt truncation
+ *   on `goi-y` and still print "ok" twice.
+ *   `cat-ben-trai` (D) loses the HEAD of its string, which is what a
+ *   right-aligned amount does inside a clipped box. Without it, deleting half
+ *   the measurement passes.
  *
  * Any classifier that gets `ra-le` right by being more permissive gets
  * `to-cha-cat` wrong, and a run that reports both or neither has stopped
@@ -141,12 +153,17 @@ const CANARY = `<!DOCTYPE html><html lang="vi"><head><meta charset="utf-8">
  .hide-outer { width:120px; overflow:hidden; }
  /* 22 ky tu trong 21ch: cat ra dung mot ch, co cua mot loi that. */
  .it { font-family:monospace; width:21ch; overflow:hidden; white-space:nowrap; }
+ /* Cat o phia TRAI. Dat bang toa do tuyet doi chu khong bang text-align/rtl:
+  * hai cach kia con phu thuoc bidi, con cai nay thi hinh hoc noi thang. */
+ .trai-outer { width:120px; overflow:hidden; position:relative; height:1.4em; }
+ .trai-inner { position:absolute; left:-40px; white-space:nowrap; }
 </style></head><body>
  <div class="clip">CANARY BI CAT MOT CHUOI RAT DAI KHONG THE HIEN HET</div>
  <div class="scroll">CANARY CUON DUOC MOT CHUOI RAT DAI NHUNG KEO NGANG DUOC</div>
  <div class="bleed-outer"><div class="bleed-inner">CANARY RA LE VAN DOC DUOC</div></div>
  <div class="hide-outer"><div class="bleed-inner">CANARY TO CHA CAT KHONG DOC HET DUOC</div></div>
  <div class="it">CANARY CAT IT MOT CHU!</div>
+ <div class="trai-outer"><div class="trai-inner">CANARY CAT BEN TRAI MAT DAU</div></div>
 </body></html>`;
 
 /**
@@ -320,6 +337,9 @@ async function main() {
        * Mot nguong lot vao giua se giet cai 12 va van in "ok" hai lan, nen phai
        * co mot hang doi chung dung CO cua loi that. */
       { ma: "CANARY CAT IT", can: 1, catToiDa: 25, ly: "cat nho co mot ky tu -- co cua loi that tren may" },
+      /* Chi hang nay bat duoc viec bo nua phia trai cua phep do. Khong co no,
+       * xoa `hop.trai - r.left` van in "ok" ca bang -- da do bang dot bien D. */
+      { ma: "CANARY CAT BEN TRAI", can: 1, ly: "cat mat DAU chuoi: nhan canh phai trong hop bi cat" },
     ];
     let canarySai = 0;
     for (const k of CHO_DOI) {
