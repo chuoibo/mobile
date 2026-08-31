@@ -470,6 +470,56 @@ REQUEST_FUNCTIONS = {
     "translatedAnonymous": (1, 2),
 }
 
+# The floor under the table above, written out a SECOND time as a literal.
+#
+# #430 put a floor under `WRAPPERS`, which is derived from `REQUEST_FUNCTIONS`.
+# That floor only fires when `WRAPPERS` reaches *empty*, and emptiness is not
+# how this table actually degrades. Losing ONE name leaves `WRAPPERS` non-empty,
+# so #430's floor stays quiet, and the sibling test
+# `test_every_wrapper_it_reads_is_still_declared_in_api_ts` iterates `WRAPPERS`
+# -- a name deleted from the table deletes its own guard along with it. Both
+# defences ask "is every name I know still in the client"; neither can ask "is
+# every name the client has still known to me".
+#
+# Measured on this tree before this floor existed, deleting a single entry:
+#
+#   intact                        67 đường dẫn, 79 lần gọi, 12 file, exit 0
+#   bỏ "translatedAnonymous"      64 đường dẫn, 75 lần gọi, 12 file, exit 0
+#   bỏ "doFetch"                  63 đường dẫn, 75 lần gọi,  8 file, exit 0
+#
+# Four files stopped being read and the gate still printed "Client và máy chủ
+# khớp hợp đồng". A smaller number is indistinguishable from a client that
+# makes fewer calls -- which is the sentence `lost_wrappers` already carries,
+# and this is the half of it that had no code.
+#
+# Anchored to a literal, not to `REQUEST_FUNCTIONS`: a floor derived from the
+# table it guards is satisfied by emptying both. `REQUIRED_REQUEST_FUNCTION_COUNT`
+# is here so that gutting this anchor is caught rather than being the way to
+# disarm the check.
+REQUIRED_REQUEST_FUNCTIONS = frozenset(
+    {
+        "fetch",
+        "doFetch",
+        "callAsActor",
+        "callAnonymous",
+        "translatedAsActor",
+        "translatedAnonymous",
+    }
+)
+REQUIRED_REQUEST_FUNCTION_COUNT = 6
+
+# The subset the repository spells itself, stated literally for the same reason.
+# Deriving it as `REQUIRED_REQUEST_FUNCTIONS - set(DIRECT_FETCH)` would let
+# `DIRECT_FETCH` grow to swallow every wrapper and take this floor with it.
+REQUIRED_WRAPPERS = frozenset(
+    {
+        "callAsActor",
+        "callAnonymous",
+        "translatedAsActor",
+        "translatedAnonymous",
+    }
+)
+
 # The wrappers this repository declares, as opposed to the platform's `fetch`.
 WRAPPERS = tuple(name for name in REQUEST_FUNCTIONS if name not in DIRECT_FETCH)
 
@@ -481,6 +531,99 @@ CALLEE = re.compile(
     + "|".join(sorted(REQUEST_FUNCTIONS, key=len, reverse=True))
     + r")\s*(?:<[^()]*>)?\s*\("
 )
+
+
+def verify_request_functions() -> None:
+    """Refuse to answer at all when the reader's name table has been gutted.
+
+    Five branches. The last two check a CONSEQUENCE rather than an input,
+    because the first three can all hold while the derivation between the table
+    and the scan has been rewritten -- and a table that is full but no longer
+    reaches the scanner produces exactly the reassuring output this whole file
+    is built to distrust.
+
+    Reads module globals live rather than closing over them, so a table replaced
+    after import is caught as well as a source edit.
+
+    Raises `RuntimeError`, which `main` already turns into `EXIT_CANNOT_READ`.
+    Never `EXIT_VIOLATION`: this is the reader admitting its own configuration
+    is broken, and saying nothing whatsoever about the client. Reporting a blind
+    spot as a client defect is the mistake #398 was opened to undo.
+    """
+
+    if len(REQUIRED_REQUEST_FUNCTIONS) < REQUIRED_REQUEST_FUNCTION_COUNT:
+        raise RuntimeError(
+            f"REQUIRED_REQUEST_FUNCTIONS chỉ còn {len(REQUIRED_REQUEST_FUNCTIONS)} "
+            f"tên, phải có ít nhất {REQUIRED_REQUEST_FUNCTION_COUNT} -- chính cái "
+            "neo bị rút ruột, nên nó không giữ được REQUEST_FUNCTIONS nữa."
+        )
+
+    if not REQUEST_FUNCTIONS:
+        raise RuntimeError(
+            "REQUEST_FUNCTIONS rỗng -- bộ đọc không còn nhận ra lời gọi nào, nên "
+            "'không tìm thấy vi phạm' chỉ có nghĩa là không nhìn thấy gì."
+        )
+
+    if missing := sorted(REQUIRED_REQUEST_FUNCTIONS - set(REQUEST_FUNCTIONS)):
+        raise RuntimeError(
+            f"REQUEST_FUNCTIONS không còn tên {missing}. Bộ đọc nhận diện lời gọi "
+            "BẰNG TÊN, nên mọi lời gọi qua tên đó trở thành vô hình: con số đường "
+            "dẫn chỉ NHỎ ĐI chứ không đỏ, mà nhỏ đi thì không phân biệt được với "
+            "một client gọi ít hơn. Đổi tên ở api.ts thì sửa KHỚP cả "
+            "REQUEST_FUNCTIONS lẫn REQUIRED_REQUEST_FUNCTIONS."
+        )
+
+    # Only the PARTIAL case. An empty `WRAPPERS` is #430's floor to answer, and
+    # it answers from inside `check` on purpose -- `tests/test_api_contract.py ::
+    # test_an_empty_wrapper_list_reaches_the_check_instead_of_killing_import`
+    # pins that it must not become an import-time death. Firing here first would
+    # take a deliberate decision away from that gate and replace its message with
+    # a vaguer one. What #430 cannot see is `DIRECT_FETCH` swallowing SOME of the
+    # wrappers: the tuple stays non-empty, its floor stays quiet, and the
+    # swallowed names stop being asked about.
+    if WRAPPERS and (lost := sorted(REQUIRED_WRAPPERS - set(WRAPPERS))):
+        raise RuntimeError(
+            f"{lost} không còn nằm trong WRAPPERS dù vẫn có trong "
+            "REQUEST_FUNCTIONS -- DIRECT_FETCH đã nuốt mất wrapper của chính repo "
+            "này, nên phép kiểm 'client có đổi tên wrapper không' thôi không hỏi "
+            "tới chúng nữa."
+        )
+
+    # The consequence: the compiled matcher must still recognise a call written
+    # through every required name. This is what survives a rewrite of the
+    # alternation above -- the table can be complete and the regex still not
+    # built from it.
+    unmatched = [
+        name
+        for name in sorted(REQUIRED_REQUEST_FUNCTIONS)
+        if not CALLEE.search(f"{name}(")
+    ]
+    if unmatched:
+        raise RuntimeError(
+            f"REQUEST_FUNCTIONS vẫn đủ tên, nhưng CALLEE không khớp lời gọi qua "
+            f"{unmatched}. Dây từ bảng tới bộ quét đã đứt ở chỗ dựng regex — bảng "
+            "đầy không cứu được một phép dẫn xuất đã bị viết lại."
+        )
+
+
+# At import, not only inside `check`: a broken table must stop every caller --
+# `tests/test_api_contract.py`, `--selftest`, any script importing this for
+# `client_files` -- not just the one that comes through `check`. #458 made the
+# same move on `repo_guard.SECRET_RULES`.
+#
+# Run as a script the raise has to be converted, not left to propagate. An
+# uncaught exception exits 1, and 1 here is `EXIT_VIOLATION` -- "the client
+# breaks the contract". That is the exact confusion `verify_request_functions`
+# is documented to avoid: gate.sh would report a reader that cannot configure
+# itself as a defect in somebody else's code. Imported, it still raises, because
+# an importer holding a half-built module must not get a usable object.
+try:
+    verify_request_functions()
+except RuntimeError as _broken:  # pragma: no cover - exercised via subprocess
+    if __name__ == "__main__":
+        print(f"KHÔNG CHẠY ĐƯỢC: {_broken}", file=sys.stderr)
+        raise SystemExit(EXIT_CANNOT_READ) from None
+    raise
 
 # The anchor, over exactly the names above that this repository owns and can
 # therefore rename -- `WRAPPERS`, not a second list. Two tuples both meaning
@@ -949,6 +1092,12 @@ def verdict(findings: list[Finding]) -> int:
 
 
 def check() -> tuple[list[Finding], dict]:
+    # First, before a single file is opened. `verify_request_functions` ran at
+    # import too, but the table is a module global and anything holding this
+    # module can rebind it afterwards. A scan run through a gutted table still
+    # produces a full, confident-looking summary -- just a smaller one.
+    verify_request_functions()
+
     if not CLIENT_ROOT.is_dir():
         raise RuntimeError(
             f"{CLIENT_ROOT.relative_to(REPO_ROOT)} không có trên nhánh này -- "
