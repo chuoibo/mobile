@@ -54,20 +54,35 @@ This is the same inversion `INEXACT_COLUMNS_REVIEWED` made on the storage side:
 deny by default on the *type*, and let anything legitimately inexact be an
 explicit, reviewable entry. The reviewed set here is empty.
 
+## The Python boundary uses the same named surface
+
+The wire type is only half of the contract. A separate gate checks the money
+objects delivered to Python with `type(value) is int`; `isinstance` would let a
+`bool` through because `bool` subclasses `int`.
+
+`MONEY_QUERY_SURFACE` is a name-to-probe map. Each name is registered together
+with the callable that exercises and inspects that entry point, and the Python
+driver iterates the map itself. There is no second hand-written Python call
+list to drift away from the surface. Each probe must expose at least one money
+value before its types are checked. Empty output is therefore a failure, not a
+free pass; the `group_recap` probe uses the same optional `Outing` seed as the
+wire driver, and a seedless positive control pins its early-return failure.
+
 ## What this gate does NOT prove -- read this before quoting it
 
 * **It only sees statements that actually ran.** The unit of counting is
   "result types of executed statements", so a query no test drives is invisible
-  to it. `MONEY_QUERY_SURFACE` below is a hand-written list of entry points and
-  carries exactly the weakness every hand-written list carries: it cannot know
-  what it is missing. That gap is real. What a hand-written list can still be
-  held to is that every name on it means something, and
+  to it. `MONEY_QUERY_SURFACE` below is a hand-written map of entry points and
+  Python probes, and carries exactly the weakness every hand-written surface
+  carries: it cannot know what it is missing. That gap is real. What a
+  hand-written surface can still be held to is that every name on it means
+  something, and
   `test_every_surface_name_is_actually_driven` holds it to that by resolving
   each name to the callable it refers to and requiring that the driver below
-  really reached it. So the list can be short, but it cannot be
+  really reached it. So the surface can be short, but it cannot be
   *decorative* -- a name whose call is deleted goes red instead of quietly
   shrinking the surface this gate measures. `test_every_aggregating_method_is_driven`
-  covers the opposite drift, a new aggregate nobody added to the list; it is a
+  covers the opposite drift, a new aggregate nobody added to the surface; it is a
   reminder built on names and inherits their limits, and neither reminder is
   part of the type rule.
 * **A computed column is a reachability witness, not an aggregate identity.**
@@ -92,7 +107,7 @@ import dataclasses
 import pathlib
 import sys
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date
@@ -107,6 +122,7 @@ from app.db.models import Outing, Person
 from app.db.repository import obligation_amounts_statement
 
 from .conftest import seed_context
+from .test_person_finance_postgres import SHARE_VND, Slice
 
 # PostgreSQL types that cannot represent "đồng" exactly, or that carry a
 # fractional part Law 1 forbids money from ever having. Spelled as type names
@@ -224,6 +240,26 @@ def recording(engine: Engine) -> Iterator[ResultTypeRecorder]:
         event.remove(engine, "after_cursor_execute", _after_cursor_execute)
 
 
+def _seed_outing(session: Session, context_id: uuid.UUID) -> None:
+    """Create enough of an outing to get `group_recap` past its early return."""
+
+    organiser = Person(display_name="Người tổ chức test")
+    session.add(organiser)
+    session.flush()
+    session.add(
+        Outing(
+            context_id=context_id,
+            created_by_id=organiser.id,
+            title="Chuyến đi test",
+            starts_on=date(2026, 8, 1),
+            ends_on=date(2026, 8, 2),
+            headcount=2,
+            budget_per_person_vnd=0,
+        )
+    )
+    session.flush()
+
+
 def _drive_money_query_surface(session: Session, *, seed_trip: bool = True) -> None:
     """Execute every money-returning entry point we know of.
 
@@ -245,22 +281,7 @@ def _drive_money_query_surface(session: Session, *, seed_trip: bool = True) -> N
     repository = SqlAlchemyApiRepository(session)
 
     if seed_trip:
-        # Enough of a trip to get past `group_recap`'s early return.
-        organiser = Person(display_name="Người tổ chức test")
-        session.add(organiser)
-        session.flush()
-        session.add(
-            Outing(
-                context_id=context_id,
-                created_by_id=organiser.id,
-                title="Chuyến đi test",
-                starts_on=date(2026, 8, 1),
-                ends_on=date(2026, 8, 2),
-                headcount=2,
-                budget_per_person_vnd=0,
-            )
-        )
-        session.flush()
+        _seed_outing(session, context_id)
 
     repository.group_recap(context_id, today=date(2026, 8, 31))
     repository.load_confirmed_receipts(context_id)
@@ -271,14 +292,125 @@ def _drive_money_query_surface(session: Session, *, seed_trip: bool = True) -> N
     session.execute(obligation_amounts_statement(uuid.uuid4())).all()
 
 
-# Hand-written, and labelled as such in the docstring: these are the entry
-# points driven above. Kept as data so the count can be asserted.
-MONEY_QUERY_SURFACE = (
+@dataclass(frozen=True, slots=True)
+class PythonMoneyValue:
+    """One named money value delivered to a Python caller."""
+
+    field: str
+    value: object
+
+
+@dataclass(frozen=True, slots=True)
+class PythonMoneyFixture:
+    """Shared non-empty ledger state for every Python-side surface probe."""
+
+    slice_: Slice
+    obligation_id: uuid.UUID
+
+
+PythonMoneyProbe = Callable[[PythonMoneyFixture], tuple[PythonMoneyValue, ...]]
+
+# Each decorator below creates one name -> callable entry. The surface name and
+# its Python driver therefore live in one registration rather than in a list
+# plus a second hand-written sequence of calls.
+MONEY_QUERY_SURFACE: dict[str, PythonMoneyProbe] = {}
+
+
+def _register_python_money_probe(
+    name: str,
+) -> Callable[[PythonMoneyProbe], PythonMoneyProbe]:
+    """Register one atomic surface-name-to-Python-probe pair."""
+
+    def register(probe: PythonMoneyProbe) -> PythonMoneyProbe:
+        if name in MONEY_QUERY_SURFACE:
+            raise AssertionError(f"duplicate money query surface name: {name}")
+        MONEY_QUERY_SURFACE[name] = probe
+        return probe
+
+    return register
+
+
+@_register_python_money_probe(
     "group_recap",
+)
+def _python_group_recap(fixture: PythonMoneyFixture) -> tuple[PythonMoneyValue, ...]:
+    recap = fixture.slice_.repository.group_recap(
+        fixture.slice_.context_id, today=date(2026, 8, 31)
+    )
+    return tuple(
+        PythonMoneyValue(f"recap[{index}].split_total_vnd", record.split_total_vnd)
+        for index, record in enumerate(recap)
+    )
+
+
+@_register_python_money_probe(
     "load_confirmed_receipts",
+)
+def _python_load_confirmed_receipts(
+    fixture: PythonMoneyFixture,
+) -> tuple[PythonMoneyValue, ...]:
+    receipts = fixture.slice_.repository.load_confirmed_receipts(
+        fixture.slice_.context_id
+    )
+    return tuple(
+        PythonMoneyValue(f"confirmed_receipts[{index}]", amount_vnd)
+        for index, amount_vnd in enumerate(receipts.values())
+    )
+
+
+@_register_python_money_probe(
     "person_finance_summary",
+)
+def _python_person_finance_summary(
+    fixture: PythonMoneyFixture,
+) -> tuple[PythonMoneyValue, ...]:
+    summary = fixture.slice_.repository.person_finance_summary(
+        fixture.slice_.sender_id, movement_limit=10
+    )
+    values = [
+        PythonMoneyValue(field.name, getattr(summary, field.name))
+        for field in dataclasses.fields(summary)
+        if field.name.endswith("_vnd")
+    ]
+    values.extend(
+        PythonMoneyValue(f"movements[{index}].amount_vnd", movement.amount_vnd)
+        for index, movement in enumerate(summary.movements)
+    )
+    return tuple(values)
+
+
+@_register_python_money_probe(
     "obligation_amounts_statement",
 )
+def _python_obligation_amounts_statement(
+    fixture: PythonMoneyFixture,
+) -> tuple[PythonMoneyValue, ...]:
+    row = fixture.slice_.session.execute(
+        obligation_amounts_statement(fixture.obligation_id)
+    ).one()
+    return (
+        PythonMoneyValue("obligation_amount_vnd", row[0]),
+        PythonMoneyValue("confirmed_amount_vnd", row[1]),
+    )
+
+
+def _drive_python_money_query_surface(
+    session: Session, *, seed_trip: bool = True
+) -> dict[str, tuple[PythonMoneyValue, ...]]:
+    """Run every Python probe from the surface map against non-empty state."""
+
+    slice_ = Slice(session)
+    _expense_id, confirmation = slice_.confirm_expense()
+    obligation_id = slice_.publish(confirmation.expense_version_id)
+    slice_.confirm_receipt(obligation_id, SHARE_VND, minute=7)
+    if seed_trip:
+        _seed_outing(session, slice_.context_id)
+
+    fixture = PythonMoneyFixture(slice_=slice_, obligation_id=obligation_id)
+    observed: dict[str, tuple[PythonMoneyValue, ...]] = {}
+    for name, probe in MONEY_QUERY_SURFACE.items():
+        observed[name] = probe(fixture)
+    return observed
 
 
 def test_recorder_is_actually_watching(postgres_session: Session) -> None:
@@ -294,10 +426,11 @@ def test_recorder_is_actually_watching(postgres_session: Session) -> None:
 
 
 # --------------------------------------------------------------------------
-# Binding the list to the driver. `MONEY_QUERY_SURFACE` and
+# Binding the surface map to the wire driver. `MONEY_QUERY_SURFACE` and
 # `_drive_money_query_surface` are two artifacts that describe the same thing,
-# and nothing above stops them disagreeing: deleting one call from the driver
-# while leaving its name on the list shrinks what the gate measures and every
+# and the Python-side map does not by itself stop their wire halves disagreeing:
+# deleting one call from the driver while leaving its name on the surface
+# shrinks what the gate measures and every
 # "no findings" assert stays green, because a query that never ran cannot
 # return an inexact type. The floor `statements_seen > 0` does not see it
 # either -- it answers "is the recorder dead", and losing one of four entry
@@ -322,7 +455,7 @@ class SurfaceObservation:
 def _surface_target(name: str) -> tuple[object, bool]:
     """Resolve a surface name to the object it must be patched on.
 
-    Two kinds live on the list and they are told apart by where the name
+    Two kinds live on the surface and they are told apart by where the name
     resolves, not by another hand-written list. A repository *method* runs its
     own query, so reaching it is measurable. An imported statement *builder*
     only assembles SQL -- executing it is the driver's job -- so no result
@@ -382,9 +515,9 @@ def watching_surface(
 
 
 def test_every_surface_name_is_actually_driven(postgres_session: Session) -> None:
-    """A name on the surface list must correspond to a call that really happens.
+    """A surface name must correspond to a wire-driver call that really happens.
 
-    This is the assert that makes the list honest. Without it the list is a
+    This is the assert that makes the wire surface honest. Without it the map is a
     claim about coverage that nothing checks, and the cheapest way to lose
     coverage -- delete a line from the driver, leave the name -- is also the
     quietest, because it makes the gate measure less while printing the same
@@ -396,15 +529,15 @@ def test_every_surface_name_is_actually_driven(postgres_session: Session) -> Non
         _drive_money_query_surface(postgres_session)
 
     assert set(observed) == set(MONEY_QUERY_SURFACE), (
-        "the watcher did not cover the whole surface list"
+        "the watcher did not cover the whole surface"
     )
 
     never_called = sorted(name for name, seen in observed.items() if seen.calls == 0)
     assert never_called == [], (
         f"these names are on MONEY_QUERY_SURFACE but _drive_money_query_surface "
         f"never calls them, so the gate is not watching them at all: "
-        f"{never_called}. Either drive them or take them off the list -- a name "
-        "left on the list is read as coverage that does not exist."
+        f"{never_called}. Either drive them or take them off the surface -- a name "
+        "left on the surface is read as coverage that does not exist."
     )
 
     # Being called is not the same as running anything: a method stubbed to
@@ -501,43 +634,59 @@ def test_no_money_expression_returns_an_inexact_type(
     )
 
 
-def test_money_values_reaching_python_are_int(postgres_session: Session) -> None:
-    """The same rule one layer out: what the caller receives, not what SQL said.
+def _python_surfaces_without_money_values(
+    observed: dict[str, tuple[PythonMoneyValue, ...]],
+) -> list[str]:
+    """Return surface probes that inspected no money values."""
 
-    A `Decimal` here is the symptom people actually see -- it reaches JSON as
-    `520000.0` -- so this asserts on the delivered object rather than on the
-    wire type.
-    """
+    return sorted(name for name, values in observed.items() if not values)
 
-    context_id = seed_context(postgres_session)
-    repository = SqlAlchemyApiRepository(postgres_session)
-    summary = repository.person_finance_summary(uuid.uuid4(), movement_limit=10)
 
-    money_fields = {
-        field.name: getattr(summary, field.name)
-        for field in dataclasses.fields(summary)
-        if field.name.endswith("_vnd")
-    }
-    assert money_fields, "no *_vnd fields found on the summary; check the dataclass"
+def _assert_python_money_surface_is_integer(
+    observed: dict[str, tuple[PythonMoneyValue, ...]],
+) -> None:
+    """Require non-empty exact-int observations from every surface probe."""
+
+    empty = _python_surfaces_without_money_values(observed)
+    assert empty == [], (
+        "these Python money probes returned no values, so their type rule was "
+        f"vacuous: {empty}"
+    )
+
     wrong = {
-        name: (type(value).__name__, value)
-        for name, value in money_fields.items()
+        f"{surface}.{money.field}": (type(money.value).__name__, money.value)
+        for surface, values in observed.items()
+        for money in values
         # `bool` is an `int` subclass and would pass a naive isinstance check.
-        if value is not None and (type(value) is not int)
+        if type(money.value) is not int
     }
-    assert wrong == {}, f"money fields that are not int: {wrong}"
+    assert wrong == {}, f"money values delivered to Python that are not int: {wrong}"
 
-    recap = repository.group_recap(context_id, today=date(2026, 8, 31))
-    for record in recap:
-        assert type(record.split_total_vnd) is int, (
-            f"group_recap split_total_vnd is {type(record.split_total_vnd).__name__}"
-        )
+
+def test_money_values_reaching_python_are_int(postgres_session: Session) -> None:
+    """Every named surface must deliver at least one exact `int` money value."""
+
+    observed = _drive_python_money_query_surface(postgres_session)
+
+    _assert_python_money_surface_is_integer(observed)
+
+
+def test_seedless_group_recap_fails_python_money_non_triviality(
+    postgres_session: Session,
+) -> None:
+    """Positive control: no trip makes only `group_recap` vacuous and red."""
+
+    observed = _drive_python_money_query_surface(postgres_session, seed_trip=False)
+
+    assert _python_surfaces_without_money_values(observed) == ["group_recap"]
+    with pytest.raises(AssertionError, match="group_recap"):
+        _assert_python_money_surface_is_integer(observed)
 
 
 # --------------------------------------------------------------------------
-# Positive controls. Every assertion above is "no findings", a shape a broken
-# recorder satisfies for free. These plant expressions KNOWN to be inexact and
-# require the recorder to go red on them.
+# Wire-type assertions have a "no findings" shape that a broken recorder
+# satisfies for free. These controls plant expressions KNOWN to be inexact and
+# require that recorder to go red on them.
 # --------------------------------------------------------------------------
 
 KNOWN_INEXACT_EXPRESSIONS = (
@@ -657,7 +806,7 @@ def _methods_containing_a_widening_call(source_root: pathlib.Path) -> set[str]:
 
 
 def test_every_aggregating_method_is_driven() -> None:
-    """Needs no database: a pure source-level drift check on the surface list."""
+    """Needs no database: a pure source-level drift check on the surface."""
 
     source_root = pathlib.Path(__file__).resolve().parents[2]
     aggregating = _methods_containing_a_widening_call(source_root)
