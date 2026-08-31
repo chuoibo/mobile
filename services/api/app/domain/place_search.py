@@ -104,7 +104,7 @@ def _distance_km(value: Any) -> float | None:
 
     if value is None:
         return None
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+    if isinstance(value, bool) or not isinstance(value, int | float) or value <= 0:
         raise _malformed()
     return value
 

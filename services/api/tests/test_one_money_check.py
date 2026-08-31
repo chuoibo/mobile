@@ -193,16 +193,18 @@ class TheMatcherItselfWorks(unittest.TestCase):
         `bool` rejection but admits a fraction on purpose, so it is not the
         đồng predicate and must not be pulled into `money.py`.
         """
-        source = (
-            "def _distance_km(value):\n"
-            "    if value is None:\n"
-            "        return None\n"
-            "    if isinstance(value, bool) or not isinstance(value, (int, float))"
-            " or value <= 0:\n"
-            "        raise _malformed()\n"
-            "    return value\n"
-        )
-        self.assertEqual(inline_quantity_checks(source), set())
+        for spelling in ("int | float", "(int, float)"):
+            with self.subTest(spelling=spelling):
+                source = (
+                    "def _distance_km(value):\n"
+                    "    if value is None:\n"
+                    "        return None\n"
+                    f"    if isinstance(value, bool) or not isinstance(value, {spelling})"
+                    " or value <= 0:\n"
+                    "        raise _malformed()\n"
+                    "    return value\n"
+                )
+                self.assertEqual(inline_quantity_checks(source), set())
 
     def test_it_finds_the_third_spelling(self):
         """`type(v) is not int` needs no `bool` call to reject `True`.
