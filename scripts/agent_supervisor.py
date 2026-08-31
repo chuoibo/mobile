@@ -299,7 +299,11 @@ def run_once(agent: str, prompt: str, args: argparse.Namespace) -> tuple[int, st
             f"-p={pathlib.Path(prompt).read_text(encoding='utf-8')}",
         ]
 
-    started = time.time()
+    # Monotonic for the same reason as `watch_for_silence`: this is an
+    # interval, and the wall clock is not one. The two ordinary steps on this
+    # machine -- an NTP correction and the WSL2 host resuming -- both land
+    # inside a long run, and both are silent.
+    started = time.monotonic()
     try:
         completed = subprocess.run(
             command,
@@ -318,10 +322,16 @@ def run_once(agent: str, prompt: str, args: argparse.Namespace) -> tuple[int, st
         code = 124
         emit("ALERT", f"{agent} vuot qua {args.timeout}s, da giet")
 
-    elapsed = int(time.time() - started)
+    elapsed = int(time.monotonic() - started)
     # A hung session exits cleanly and says nothing. Both parts are needed:
     # a fast quiet run is fine, a long quiet one is a conversation with
     # something that stopped answering.
+    #
+    # `elapsed` is the only thing separating those two, so a stepped clock does
+    # not merely mislabel this run -- it decides whether failure #3 in the
+    # module docstring gets reported at all. Backward: `elapsed` went negative,
+    # the test never fired, and a dead session logged `ket thuc sau -300s`.
+    # Forward: a 10s run was paged as a 3610s hang.
     if code == 0 and elapsed > 300 and len(output.strip()) < 200:
         emit(
             "ALERT",
