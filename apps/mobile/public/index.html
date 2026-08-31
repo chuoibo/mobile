@@ -37,6 +37,17 @@
         font-size: inherit;
       }
     </style>
+    <script>
+      if (window.location.pathname.startsWith("//")) {
+        window.history.replaceState(
+          null,
+          "",
+          window.location.pathname.replace(/^\/+/, "/") +
+            window.location.search +
+            window.location.hash,
+        );
+      }
+    </script>
   </head>
 
   <body>

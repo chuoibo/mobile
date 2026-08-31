@@ -1,12 +1,14 @@
 {
   "expo": {
-    "name": "mobile",
-    "slug": "mobile",
+    "name": "RuDi",
+    "slug": "rudi-mobile",
+    "scheme": "rudi",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "ios": {
+      "bundleIdentifier": "com.lakiet.rudi",
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Dùng camera để chụp ảnh bill, app đọc từng món rồi chia tiền. Ảnh chỉ gửi tới máy chủ của nhóm và bị xoá ngay sau khi đọc xong.",
@@ -14,6 +16,7 @@
       }
     },
     "android": {
+      "package": "com.lakiet.rudi",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -33,6 +36,7 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "expo-router",
       [
         "expo-camera",
         {
@@ -46,6 +50,9 @@
           "photosPermission": "Chọn một ảnh bill có sẵn khi bạn đã chụp từ trước. App chỉ đọc đúng ảnh bạn chọn."
         }
       ]
-    ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
   }
 }
