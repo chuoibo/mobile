@@ -1187,13 +1187,25 @@ async function viDich<T>(
  * both lists before it gives up. Only somebody neither list can name reaches
  * the fallback, and a raw UUID does not tell two of those apart for a human
  * reader either -- it only looks as though it does.
+ *
+ * Both lists are typed as required, so app code cannot forget one. They are
+ * still read defensively, because the callers are not all typed: the hero walk
+ * and the QA scripts under `tests/qa/` are plain `.mjs` and call these routes
+ * with the arguments they had when they were written. A missing list there
+ * should narrow the lookup, not throw -- `labelInGroup` reads `.filter` off it,
+ * and a TypeError raised from inside the money path is a worse failure than a
+ * name that falls back to a word. Neither branch can return an id.
  */
 function nameFrom(
   roster: Participant[],
   members: GroupMember[],
   id: string,
 ): string {
-  return labelInGroup({ participants: roster, advancerId: null }, members, id);
+  return labelInGroup(
+    { participants: roster ?? [], advancerId: null },
+    members ?? [],
+    id,
+  );
 }
 
 async function sendPublish(

@@ -253,6 +253,40 @@ test("bảng đợt thu không in id ở chỗ đặt tên", async () => {
   assert.ok(read.includes("Ngọc"), `mất tên Ngọc ở bảng đợt thu: ${read}`);
 });
 
+/* -- the parameter that must not go back to having a default --------------- */
+
+/* `loadBoard` carried `roster: Participant[] = []`, and that default is how the
+ * leak reached the REFRESH path: a caller that forgets the list does not get a
+ * degraded lookup, it gets every name on the board turning into an id. All
+ * three routes take both lists with no default now, so forgetting is a compile
+ * error rather than a screen full of UUIDs.
+ *
+ * A default does not count toward `Function.length`, so this reads the arity
+ * directly: adding `= []` back to any of them drops the number here.
+ *
+ * WHAT THIS DOES NOT PROVE, measured rather than assumed: it says nothing about
+ * a caller that passes `[]` on purpose. Dropping the group at all three call
+ * sites in `App.tsx` was run as a mutation against a freshly built bundle and
+ * the whole suite stayed green -- 1016/1016. The wiring is held by the type
+ * checker and by nothing else. A walk that drives the real app with somebody in
+ * the group but off the bill is what would close that, and it is not written.
+ */
+test("ba route đặt tên đều bắt buộc truyền cả bill lẫn nhóm", async () => {
+  const api = await import("../dist-test/api.js");
+  for (const [ten, soThamSo] of [
+    ["openBatch", 5],
+    ["publishBatch", 6],
+    ["loadBoard", 5],
+  ]) {
+    assert.equal(
+      api[ten].length,
+      soThamSo,
+      `${ten} nhận ${api[ten].length} tham số bắt buộc, chờ ${soThamSo} -- ` +
+        "có ai đó vừa cho một danh sách người một giá trị mặc định",
+    );
+  }
+});
+
 test("màn chia sẻ không in id ở chỗ đặt tên", async () => {
   const envelopes = await phat(NGOC);
   const read = words(React.createElement(ChiaSe, { envelopes, onDone: () => {} }));
