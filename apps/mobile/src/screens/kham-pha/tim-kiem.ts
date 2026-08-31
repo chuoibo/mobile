@@ -293,13 +293,23 @@ export function formatBanKinh(km: number): string {
  * hand, and shown raw when it is not. Raw is not a bug worth hiding: an id on
  * screen is ugly and readable, whereas dropping the row would quietly shrink
  * the reading being shown back, which is the one thing this panel exists to
- * prevent.
+ * prevent. These ids are slugs the catalogue mints -- `cafe`,
+ * `quan-an-local` -- not the opaque person keys bug-050923 was about, so a
+ * reader can still check them against what they typed.
+ *
+ * `categories` USED to default to `[]`, and that default is now gone. It was
+ * the same silent default in a second costume: with it, calling
+ * `hieuDuocGi(u)` turned the whole lookup off and rendered every category as
+ * its slug, with nothing anywhere saying so. The line above claiming ids are
+ * "guaranteed to exist in the catalogue" could not be checked as long as a
+ * caller could hand over an empty catalogue by omission. Required means the
+ * compiler asks, once, at every call site.
  *
  * Returns `[]` when the model drew no conditions at all. That is a real answer
  * and the caller has to say it in words -- see `CauAiHieu.tsx`, which prints a
  * sentence rather than an empty box.
  */
-export function hieuDuocGi(u: Understood, categories: Category[] = []): DongHieu[] {
+export function hieuDuocGi(u: Understood, categories: Category[]): DongHieu[] {
   const nhan = new Map(categories.map((k) => [k.id, k.label]));
   const rows: DongHieu[] = [];
   if (u.budgetPerPersonVnd !== null) {
