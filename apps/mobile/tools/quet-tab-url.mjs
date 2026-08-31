@@ -337,6 +337,84 @@ const MAN_TUONG_TAC = [
   },
 ];
 
+/** The `?man=` scan doors, which are addresses rather than journeys.
+ *
+ * `App.tsx` routes a handful of exact `?man=` values to a screen mounted over a
+ * frozen fixture. They exist because those screens sit behind a group, a
+ * confirmed split or a photograph somebody took, so no cold URL and no amount
+ * of pressing reaches them. Until now nothing in this file opened one, which
+ * meant the doors were built, gated by `moi-man-co-duong-do.test.mjs` for
+ * existing, and never actually scanned -- an address is not a measurement.
+ *
+ * Two differences from the rows above, both load-bearing:
+ *
+ *   - The address is a QUERY, not a fragment. `manThamSo()` reads
+ *     `location.search`; a `#man=` would parse as nothing and the door would
+ *     fall through to the real app, which then renders the opening screen. A
+ *     scan of the opening screen filed under the name of another screen is the
+ *     failure this whole file is built to refuse, so the needles below name
+ *     text that only the door's own screen prints.
+ *   - They take no `bam`. Everything they need is in the fixture, which is the
+ *     point of a door.
+ *
+ * The API stub still goes in. These two screens never call the server, so it
+ * is a no-op today -- it stays because a door that grows a fetch tomorrow
+ * should get fixture data rather than an error panel, and finding that out
+ * from a needle failure costs a run.
+ */
+const MAN_CUA_QUET = [
+  {
+    step: "nhap-khoan-chi",
+    truyVan: "man=nhap-khoan-chi",
+    // The hint under the title. The word "Khoản chi" alone also appears on the
+    // split screen, so a needle on the title would read true from the wrong
+    // screen if the door ever stopped routing.
+    needle: "Ai có mặt, hết bao nhiêu, ai trả trước",
+  },
+  {
+    step: "dot-thu",
+    truyVan: "man=dot-thu",
+    // Only the unpublished board prints this: it is the gate card's refusal
+    // line, and publishing removes the card entirely. So this needle also
+    // proves the two doors below are not the same page twice.
+    needle: "App không gửi gì dưới tên một người trước khi họ đồng ý",
+  },
+  {
+    step: "dot-thu-da-phat",
+    truyVan: "man=dot-thu-da-phat",
+    // Published-only, for the mirror-image reason: the share button does not
+    // exist before the round goes out.
+    needle: "Chia sẻ cho từng người",
+  },
+];
+
+/** The `?man=` doors `App.tsx` routes that this run did NOT open.
+ *
+ * Printed rather than asserted, and printed every run. `MAN_CUA_QUET` above is
+ * a hand-written list, and a hand-written list cannot notice the door somebody
+ * adds tomorrow -- the same defect `moi-man-co-duong-do.test.mjs` exists to
+ * catch one layer up. The difference is that a red gate here would be wrong:
+ * several of these doors are opened by other tools (`fixture-hai-man-giua`,
+ * `moi-vao-chuyen`, `duong-vao-mon-cua-toi`), so "this run did not open it" is
+ * not the same claim as "nothing measures it".
+ *
+ * What it buys is that the bottom of this run stops reading as a total. A tool
+ * that bounds its own coverage and says nothing reports a subset as if it were
+ * the whole, which is exactly how "the tabs are clean" once meant three out of
+ * four.
+ */
+function cuaChuaMo() {
+  const src = fs.readFileSync(path.join(MOBILE_ROOT, "App.tsx"), "utf8");
+  const dung = [...src.matchAll(/manThamSo\(\)\s*===\s*"([^"]+)"/g)].map((m) => m[1]);
+  const dau = [...src.matchAll(/manThamSo\(\)\?\.startsWith\("([^"]+)"\)/g)].map((m) => m[1]);
+  const moi = new Set(MAN_CUA_QUET.map((m) => m.truyVan.replace(/^man=/, "")));
+  // A prefix route is reported by its prefix: `doc-bill` stands for every
+  // address behind it, and inventing the exact suffixes here would print doors
+  // that may not exist.
+  const tatCa = [...new Set([...dung, ...dau])];
+  return tatCa.filter((v) => !moi.has(v) && ![...moi].some((m) => m.startsWith(v)));
+}
+
 /** Serialised into the page, so it can reference nothing outside itself.
  *
  * `chuoiBam` is a LIST of prefixes pressed in order, each one waited for
@@ -713,6 +791,9 @@ async function main() {
     for (const { step, bam } of MAN_TUONG_TAC) {
       ghi(`__quet-${step}.html`, trangCoStub(indexHtml, fixtures, bam));
     }
+    for (const { step } of MAN_CUA_QUET) {
+      ghi(`__quet-${step}.html`, trangCoStub(indexHtml, fixtures, null));
+    }
 
     // The canaries decide whether any number below is allowed to mean anything.
     console.log(`== doi chung may quet (viewport ${VIEWPORT}) ==`);
@@ -785,11 +866,23 @@ async function main() {
     // sentence describing the list was not -- the same class of drift this
     // whole file exists to catch, sitting in its own output.
     console.log(
-      `\n== ${moiMan().length} man tu URL + ${MAN_TUONG_TAC.length} man sau khi bam, tren trang that ==`,
+      `\n== ${moiMan().length} man tu URL + ${MAN_TUONG_TAC.length} man sau khi bam` +
+        ` + ${MAN_CUA_QUET.length} cua quet, tren trang that ==`,
     );
     const bangKe = [];
-    for (const { step, frag, needle, anh } of [...moiMan(), ...MAN_TUONG_TAC]) {
-      const url = `${goc}/__quet-${step}.html#${frag}`;
+    for (const { step, frag, truyVan, needle, anh } of [
+      ...moiMan(),
+      ...MAN_TUONG_TAC,
+      ...MAN_CUA_QUET,
+    ]) {
+      // A door addresses itself with a query and a journey with a fragment.
+      // Emitting both keys unconditionally would put a bare `#` or `?` on every
+      // URL, and `?` alone is enough to make `manThamSo()` parse an empty
+      // search and route nowhere.
+      const url =
+        `${goc}/__quet-${step}.html` +
+        (truyVan ? `?${truyVan}` : "") +
+        (frag ? `#${frag}` : "");
 
       const man = await kiemManHinh(browser, url, needle);
       if (!man.co) {
@@ -887,6 +980,16 @@ async function main() {
       path.join(outDir, "ket-qua.json"),
       JSON.stringify({ viewport: VIEWPORT, canaryXau: xau.findings.length, man: bangKe }, null, 2),
     );
+    // Before the total, so the total is read with its denominator attached.
+    const chuaMo = cuaChuaMo();
+    console.log(
+      `\ncua ?man= App.tsx dinh tuyen ma luot nay KHONG mo (${chuaMo.length}): ` +
+        `${chuaMo.join(", ") || "khong con cai nao"}`,
+    );
+    console.log(
+      "  -> so duoi day khong noi gi ve chung. Vai cai duoc do boi tool khac; xem SO_DO trong moi-man-co-duong-do.test.mjs.",
+    );
+
     console.log(`\ntong findings tren cac man: ${bad}`);
     console.log(`chi tiet: ${path.join(outDir, "ket-qua.json")}`);
   } finally {
