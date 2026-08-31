@@ -155,9 +155,15 @@ def _file_python(goc: Path) -> list[str]:
     try:
         ra = subprocess.run(
             [
-                "git", "-C", str(goc),
-                "ls-files", "--cached", "--others", "--exclude-standard",
-                "--", "*.py",
+                "git",
+                "-C",
+                str(goc),
+                "ls-files",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+                "--",
+                "*.py",
             ],
             capture_output=True,
             text=True,
