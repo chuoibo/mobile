@@ -74,7 +74,16 @@ test parse AST giữ điều đó.
 
 ### Cái mà phép cộng thật sự tạo ra, và ai bắt nó
 
-`tests/qa/backend-100055-phep-cong-bill-104/probe_phep_cong.py`, chạy hai nền:
+`tests/qa/backend-100055-phep-cong-bill-104/probe_phep_cong.py`, chạy hai nền.
+
+> **Phần 1 dưới đây đã bị qa-tt-0057 làm trước, và làm kỹ hơn.** #466 lên main lúc
+> 10:40, tức là *sau* khi tôi đo nhưng *trước* khi tôi mở PR này. Họ chạy ma trận
+> 5 slot × 4 hình dạng = 21 ô đi đúng đường tiền thật, ra `0 BLOCKED` ở nền
+> `b632d53` và `21 BLOCKED` ở sau #450, và họ đặt tên cho hiện tượng chính xác hơn
+> tôi: ở ca `bool` phép cộng **giặt sạch bằng chứng** (`True + 70_000 = 70001`,
+> int, không còn vết), trong khi ở ca float nó giữ vết. Phần 1 của tôi vì thế chỉ
+> còn giá trị là một phép đo độc lập trùng kết quả — **đừng đọc nó như phát hiện
+> mới**. Cái mới của tài liệu này là Phần 2, mục 2 và mục 3.
 
 **Phần 1 — một toán hạng xấu đi vào phép cộng**
 
