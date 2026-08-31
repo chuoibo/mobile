@@ -1569,8 +1569,8 @@ function XemMonCuaToi() {
  * the backdrop div's inline style empty for a data URI, with no failed request
  * and no console error, so the screen came out as three boxes floating on a
  * blank white card. Measured, not guessed: the same door pointed at an ordinary
- * http URL emits both the `<img>` and the `background-image`, which is how the
- * component was cleared of the fault.
+ * http URL emits both the `img` element and the `background-image`, which is
+ * how the component was cleared of the fault.
  *
  * It is a drawing, and `anh-nhom-dung-san.svg` says why it must stay one.
  */
@@ -1672,6 +1672,107 @@ function XemMoiVaoChuyen() {
   );
 }
 
+/* ---- Khoản chi mới and Đợt thu, from a URL, web only ----------------------
+ *
+ * The last two screens on the money path that no detector had ever opened.
+ * Both sat in `moi-man-co-duong-do.test.mjs` as `chuaDo` with an honest reason
+ * -- one is only reachable from inside a group, the other only after a
+ * confirmed split has produced obligations to collect -- and a disclosure is
+ * not a measurement. A screen nothing can open scores zero findings for the
+ * same reason a clean screen does, and these two are the first and third steps
+ * of the walk the standing checklist asks for.
+ *
+ * Same contract as the doors above: one exact parameter value, web only
+ * (`manThamSo` reads `location.search`, which native does not have), the real
+ * components with the real copy, no writes, and no route from here back into
+ * the product.
+ *
+ * `?man=dot-thu-da-phat` is its own value rather than a toggle, for the reason
+ * `binh-chon-hoa` is: publishing is the thing the screen exists to do, it
+ * swaps the entire footer, drops the "Trước khi phát" card and grows a button
+ * on every unsettled row. Nothing a headless browser can press turns one state
+ * into the other without a server behind it, so a single address would leave
+ * half the surface unmeasured while the row read green.
+ */
+const NHOM_QUET_CHI: GroupMember[] = [
+  { id: "f1f1f1f1-aaaa-4aaa-8aaa-f1f1f1f1f1f1", name: "Minh" },
+  { id: "f2f2f2f2-bbbb-4bbb-8bbb-f2f2f2f2f2f2", name: "Hà" },
+  { id: "f3f3f3f3-cccc-4ccc-8ccc-f3f3f3f3f3f3", name: "Bảo" },
+  { id: "f4f4f4f4-dddd-4ddd-8ddd-f4f4f4f4f4f4", name: "Ngọc" },
+  // Two left over on purpose: `availableMembers` drives the "add someone"
+  // choices, and an exhausted roster hides that whole control from the scan.
+  { id: "f5f5f5f5-eeee-4eee-8eee-f5f5f5f5f5f5", name: "Quân" },
+  { id: "f6f6f6f6-ffff-4fff-8fff-f6f6f6f6f6f6", name: "Thu" },
+];
+
+/* Filled rather than blank. An empty form is the cheapest thing to render and
+ * the least informative to measure: no participant chips, no advancer choice,
+ * no formatted amount, and every rule that counts characters on a laid-out
+ * line has nothing to count. */
+const FORM_QUET: DraftForm = {
+  occasion: "Lẩu Thái tối thứ Sáu",
+  pending: "",
+  amount: "1840000",
+  roster: {
+    participants: NHOM_QUET_CHI.slice(0, 4).map((m) => ({ id: m.id, name: m.name })),
+    advancerId: NHOM_QUET_CHI[0].id,
+  },
+};
+
+function XemNhapKhoanChi() {
+  const c = usePalette();
+  // Local, for the same reason the ballot is: a form whose fields cannot move
+  // is a form a keyboard pass cannot walk.
+  const [form, setForm] = useState<DraftForm>(FORM_QUET);
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
+      <StatusBar style="dark" />
+      <NhapKhoanChi
+        form={form}
+        nhom={NHOM_QUET_CHI}
+        onForm={setForm}
+        onNext={() => {}}
+      />
+    </SafeAreaView>
+  );
+}
+
+/* Five transfers, and deliberately not five distinct people: Minh owes two
+ * different recipients. That is the exact case `DotThu`'s own header says the
+ * counters are built around -- transfers first, people second -- so a fixture
+ * of one-each would render the two numbers identical and prove nothing about
+ * either. Every status that colours a row differently appears once. */
+const NGHIA_VU_QUET: Obligation[] = [
+  { id: "g1", senderId: "f1f1f1f1-aaaa-4aaa-8aaa-f1f1f1f1f1f1", senderName: "Minh", recipient: "Thu", amountVnd: 460000, status: "outstanding" },
+  { id: "g2", senderId: "f2f2f2f2-bbbb-4bbb-8bbb-f2f2f2f2f2f2", senderName: "Hà", recipient: "Thu", amountVnd: 320000, status: "confirmed" },
+  { id: "g3", senderId: "f3f3f3f3-cccc-4ccc-8ccc-f3f3f3f3f3f3", senderName: "Bảo", recipient: "Thu", amountVnd: 285000, status: "disputed" },
+  { id: "g4", senderId: "f1f1f1f1-aaaa-4aaa-8aaa-f1f1f1f1f1f1", senderName: "Minh", recipient: "Quân", amountVnd: 175000, status: "partially_confirmed" },
+  { id: "g5", senderId: "f4f4f4f4-dddd-4ddd-8ddd-f4f4f4f4f4f4", senderName: "Ngọc", recipient: "Thu", amountVnd: 240000, status: "waived" },
+];
+
+function XemDotThu() {
+  const c = usePalette();
+  const daPhat = manThamSo() === "dot-thu-da-phat";
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
+      <StatusBar style="dark" />
+      <DotThu
+        obligations={NGHIA_VU_QUET}
+        published={daPhat}
+        // Unpublished is shown with the gate still open, because that is the
+        // state carrying the refusal copy and the disabled button. Ticked, the
+        // card says one word and the button is ordinary.
+        gates={{ payerAcknowledged: daPhat }}
+        busy={false}
+        onPublish={() => {}}
+        onShare={() => {}}
+        onRefresh={() => {}}
+        onConfirmReceipt={() => {}}
+      />
+    </SafeAreaView>
+  );
+}
+
 export default function App() {
   if (manDo()) return <XemKetQuaThanhToan />;
   if (manThamSo() === "trang-thai") return <XemTrangThai />;
@@ -1681,6 +1782,8 @@ export default function App() {
   if (manThamSo() === "mon-cua-toi") return <XemMonCuaToi />;
   if (manThamSo() === "nhan-mat") return <XemNhanMat />;
   if (manThamSo() === "moi-vao-chuyen") return <XemMoiVaoChuyen />;
+  if (manThamSo() === "nhap-khoan-chi") return <XemNhapKhoanChi />;
+  if (manThamSo()?.startsWith("dot-thu")) return <XemDotThu />;
   if (manThamSo()?.startsWith("doc-bill")) return <XemDocBill />;
   if (manThamSo()?.startsWith("tai-khoan-nhan")) return <XemTaiKhoanNhan />;
   return (

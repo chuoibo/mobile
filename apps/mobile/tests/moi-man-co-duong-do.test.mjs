@@ -115,8 +115,19 @@ const SO_DO = {
   KetQuaNhanDien: { quet: "nhan-dien" },
   GoiYChia: { quet: "goi-y-chia" },
   KetQuaThanhToan: { quet: "ket-qua-thanh-toan" },
-  NhapKhoanChi: { chuaDo: "chỉ tới được từ trong nhóm, không có vao=" },
-  DotThu: { chuaDo: "chỉ tới được sau khi đã có nghĩa vụ để gom" },
+  // The first and third steps of the money walk. Both read `chuaDo` until
+  // frontend-tt-0003 -- "only reachable from inside a group", "only after there
+  // are obligations to gather" -- which was true and was still an unmeasured
+  // screen. `quet` and not `do`: each address mounts the real component over a
+  // frozen fixture, so a detector and a screenshot pass can open them cold,
+  // and no probe row walks either against a server.
+  NhapKhoanChi: { quet: "nhap-khoan-chi" },
+  // Two addresses behind one key, same as the vote. `?man=dot-thu` is the board
+  // before publishing, carrying the gate card and the refusal copy; `dot-thu-da-phat`
+  // is after, which drops that card, swaps the footer and grows a button on
+  // every unsettled row. Neither state can be pressed into the other without a
+  // server, so one address would have left half the screen unmeasured.
+  DotThu: { quet: "dot-thu" },
   // Added by #312 (F26) and caught by this gate the first time the branch was
   // rebased onto it -- twenty minutes after that PR merged, before anybody had
   // scanned the screen. This is the case the file was written for.
