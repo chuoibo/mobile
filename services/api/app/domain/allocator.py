@@ -24,6 +24,7 @@ from .contract import (
     SURCHARGE_MODES,
     AllocationError,
 )
+from .money import NOT_INTEGER, vnd_violation
 
 __all__ = ["allocate"]
 
@@ -81,6 +82,15 @@ def _validate_structure(expense) -> None:
     amounts += [(s["surcharge_id"], s["amount_vnd"]) for s in _by_id(surcharges, "surcharge_id")]
     amounts += [(d["discount_id"], d["amount_vnd"]) for d in _by_id(discounts, "discount_id")]
 
+    # Integer shape first. Every comparison below is meaningless on a value
+    # that is not an integer number of dong, and worse than meaningless on a
+    # bool: `True` answers False to `< 0`, `== 0` and `> MAX_AMOUNT_VND` alike,
+    # so it used to walk through all three and become one dong. The predicate
+    # is `money.vnd_violation`, the same one the ledger uses -- spelling it out
+    # again here is how a second, drifting copy starts.
+    for _, amount in amounts:
+        if vnd_violation(amount) == NOT_INTEGER:
+            raise AllocationError("AMOUNT_NOT_INTEGER")
     for _, amount in amounts:
         if amount < 0:
             raise AllocationError("NEGATIVE_AMOUNT")
