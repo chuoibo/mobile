@@ -183,8 +183,10 @@ def heatmap_rong(api: str, ctx: str, actor: str) -> None:
     """
 
     st, truoc = goi(api, "GET", f"/contexts/{ctx}/heatmap", actor)
-    print(f"  truoc      GET  /heatmap -> {st}  khu={len(truoc['areas'])}"
-          f" scanned={truoc['scanned_checkins']}")
+    print(
+        f"  truoc      GET  /heatmap -> {st}  khu={len(truoc['areas'])}"
+        f" scanned={truoc['scanned_checkins']}"
+    )
 
     st, doc = goi(api, "GET", f"/places?context_id={ctx}", actor)
     places = doc["places"] if isinstance(doc, dict) and "places" in doc else doc
@@ -195,12 +197,16 @@ def heatmap_rong(api: str, ctx: str, actor: str) -> None:
         print(f"  ghi        POST /contexts/{{id}}/checkins {place['id']} -> {st}")
 
     st, sau = goi(api, "GET", f"/contexts/{ctx}/heatmap", actor)
-    print(f"  sau        GET  /heatmap -> {st}  khu={len(sau['areas'])}"
-          f" scanned={sau['scanned_checkins']}"
-          f" {[(a['id'], a['visit_count']) for a in sau['areas']]}")
+    print(
+        f"  sau        GET  /heatmap -> {st}  khu={len(sau['areas'])}"
+        f" scanned={sau['scanned_checkins']}"
+        f" {[(a['id'], a['visit_count']) for a in sau['areas']]}"
+    )
     if len(truoc["areas"]) == 0 and len(sau["areas"]) > 0:
-        print("  => heatmap rong la DU LIEU, khong phai quyen: seed khong tao"
-              " mot memory kind='checkin' nao.")
+        print(
+            "  => heatmap rong la DU LIEU, khong phai quyen: seed khong tao"
+            " mot memory kind='checkin' nao."
+        )
     else:
         print("  => khong khop hinh dang du kien -- doc hai dong tren.")
 
@@ -213,11 +219,13 @@ def main() -> int:
         "--ghi",
         action="store_true",
         help="chay them chang GHI check-in de phan biet heatmap rong voi 403 "
-             "(sua du lieu -- chi chay tren stack dung mot lan)",
+        "(sua du lieu -- chi chay tren stack dung mot lan)",
     )
     args = ap.parse_args()
     if not args.api or not args.dsn:
-        sys.exit("can --api va --dsn (hoac MOBILE_SEED_API_BASE_URL / MOBILE_DATABASE_URL)")
+        sys.exit(
+            "can --api va --dsn (hoac MOBILE_SEED_API_BASE_URL / MOBILE_DATABASE_URL)"
+        )
     api = args.api.rstrip("/")
     dsn = args.dsn.replace("postgresql+psycopg://", "postgresql://")
 
@@ -238,9 +246,14 @@ def main() -> int:
     print()
 
     print(f"[D] id co phai mot nhom khong -- GET /contexts/{{id}} boi {thanh_vien[:8]}")
-    for nhan, ctx in (("ID GHIM 1aa00000-...", ID_GHIM), (f"NHOM THAT {ctx_that[:8]}", ctx_that)):
+    for nhan, ctx in (
+        ("ID GHIM 1aa00000-...", ID_GHIM),
+        (f"NHOM THAT {ctx_that[:8]}", ctx_that),
+    ):
         st, doc = goi(api, "GET", f"/contexts/{ctx}", thanh_vien)
-        print(f"  {nhan:<34} GET  /contexts/{{id}} -> {st}  {ma_loi(doc) if st != 200 else ''}")
+        print(
+            f"  {nhan:<34} GET  /contexts/{{id}} -> {st}  {ma_loi(doc) if st != 200 else ''}"
+        )
         dem_hang(dsn, ctx)
     print()
 
