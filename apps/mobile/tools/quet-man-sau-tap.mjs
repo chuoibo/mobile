@@ -155,11 +155,19 @@ const VIEWPORT = process.env.QUET_VIEWPORT ?? "390x844";
  * layout. The JSON artifact recorded `viewport: <requested>` for the pair, so
  * the file claimed a width it had only half used.
  *
- * Measured before this was single-sourced, on the ten hero screens: a run at
- * 360x800 returned three `text-occlusion` findings on `ket-qua-thanh-toan`
- * (against two at 390) and every one of them was dismissed as a scroll illusion
- * by a browser looking at a different layout than the one they came from. The
- * verdicts may well have been right; they were not measurements.
+ * How far the lie actually reached, measured rather than assumed: the ten hero
+ * screens were run at 360x800 twice, once with the browser pinned back to the
+ * pre-fix literal and once single-sourced. The two `.tab-scan` artifacts are
+ * byte-identical. On `ket-qua-thanh-toan` the three `text-occlusion` findings
+ * (against two at 390) come back dismissed as scroll illusions either way.
+ *
+ * So this fixes what was MEASURED, not what was CONCLUDED -- on today's screens
+ * the wrong-width adjudication happened to reach the same verdicts. The finding
+ * percentages do differ between 390 and 360, but that difference is the
+ * detector's own render, which always received the right width; it is not
+ * evidence about the browser this file drives, and reading it as such would be
+ * the same mistake one layer along. What is removed here is a silent-lie mode:
+ * a run at a non-default width now means the width it prints.
  *
  * At the default the parse yields exactly the literal it replaced, so this is a
  * no-op for every run that does not set `QUET_VIEWPORT` -- the point is that

@@ -15,10 +15,18 @@
  * declared a width it had only half used, and a reader had no way to see it:
  * both halves ran, both produced numbers, and nothing crashed.
  *
- * Measured on the ten hero screens before the fix: a run at 360x800 returned
- * three `text-occlusion` findings on `ket-qua-thanh-toan` against two at 390,
- * and every one of them was dismissed by a browser looking at the 390 layout.
- * Those verdicts may have been correct. They were not measurements.
+ * How far that reached, measured rather than assumed: the ten hero screens were
+ * run at 360x800 twice, once with the browser pinned back to the pre-fix
+ * literal and once single-sourced, and the two `.tab-scan` artifacts are
+ * byte-identical. On today's screens the wrong-width adjudication reached the
+ * same verdicts as the right-width one.
+ *
+ * That is worth stating plainly, because it bounds what this file is for. It
+ * does not protect a number that was wrong; it removes a mode in which a number
+ * COULD be wrong without anything saying so. The defect was invisible by
+ * construction -- both halves ran, both produced output, nothing crashed -- and
+ * a defect whose only symptom is that you cannot trust the output is exactly
+ * the kind that needs a gate rather than a reader.
  *
  * ## What this file asserts on, and why that specific thing
  *
