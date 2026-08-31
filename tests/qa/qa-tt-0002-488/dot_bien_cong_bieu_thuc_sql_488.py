@@ -138,7 +138,10 @@ def drive_body_lines(source: str) -> tuple[int, int]:
     """
 
     for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.FunctionDef) and node.name == "_drive_money_query_surface":
+        if (
+            isinstance(node, ast.FunctionDef)
+            and node.name == "_drive_money_query_surface"
+        ):
             body = node.body
             if (
                 body
@@ -287,7 +290,9 @@ def main() -> int:
     def measure(label: str) -> bool:
         code, summary = run_gate(options.database_url)
         caught = code != 0
-        print(f"{label:<56} rc={code}  {summary:<34} -> {'BAT DUOC' if caught else 'LOT'}")
+        print(
+            f"{label:<56} rc={code}  {summary:<34} -> {'BAT DUOC' if caught else 'LOT'}"
+        )
         if not caught:
             survivors.append(label)
         return caught
@@ -297,7 +302,9 @@ def main() -> int:
     # condition rather than a row.
     print("=== M0 nen ===")
     baseline_code, baseline_summary = run_gate(options.database_url)
-    print(f"{'M0 khong dot bien (phai XANH)':<56} rc={baseline_code}  {baseline_summary}")
+    print(
+        f"{'M0 khong dot bien (phai XANH)':<56} rc={baseline_code}  {baseline_summary}"
+    )
     if baseline_code != 0:
         print(
             "KHONG KIEM DUOC: nen da DO san. Bang dot bien tren mot cay do san "
@@ -344,7 +351,9 @@ def main() -> int:
     enclosing = _cast_owners(repository_source)
     paired = 0
     for name in names:
-        owned = [site for site, owner in zip(sites, enclosing, strict=True) if owner == name]
+        owned = [
+            site for site, owner in zip(sites, enclosing, strict=True) if owner == name
+        ]
         lines = drive_map[name]
         if not owned or not lines:
             continue
@@ -355,7 +364,8 @@ def main() -> int:
             del source_lines[line_index]
         GATE.write_text("".join(source_lines), encoding="utf-8")
         REPOSITORY.write_text(
-            repository_source[:start] + inner + repository_source[end:], encoding="utf-8"
+            repository_source[:start] + inner + repository_source[end:],
+            encoding="utf-8",
         )
         measure(f"P khong lai {name} + lui 1 cast that cua no")
         restore()
