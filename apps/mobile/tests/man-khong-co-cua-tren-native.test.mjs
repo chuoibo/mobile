@@ -25,14 +25,23 @@
  * ĐỌC RA TỪ NGUỒN, không viết tay — một danh sách tay không tự biết mình thiếu
  * cái màn ai đó thêm ngày mai, mà đó lại đúng là ca file này sinh ra để bắt.
  *
+ * Gốc là ĐÚNG MỘT nút: hàm `export default` của App.tsx. Các hàm cấp cao khác
+ * trong App.tsx là nút riêng chứ không phải gốc, nên một component cục bộ mà
+ * không ai mount sẽ kéo theo mọi màn nó chứa — xem `MAN_LUONG_HERO` và hai
+ * canary đi kèm. Cạnh nằm trong một `prop={...}` là cạnh CÓ ĐIỀU KIỆN: nó chỉ
+ * sống khi một file đã tới được thật sự viết `prop(`.
+ *
  * ## KHÔNG CHỨNG MINH
  *
  * Đây là **CHẶN TRÊN của khả năng tới được**, không phải khả năng tới được.
  *
  *   - Một cạnh có trong đồ thị KHÔNG chứng minh ngón tay đi được qua nó. Màn
- *     con có thể nằm sau một điều kiện không ai thoả (`if (thu == null)`), sau
- *     một prop chỉ fragment mới truyền, hay sau một nút `opacity: 0`. Nên
- *     "tới được" ở đây đọc là "chưa bị loại trừ", không đọc là "đã đi thử".
+ *     con có thể nằm sau một điều kiện không ai thoả (`if (thu == null)`), hay
+ *     sau một nút `opacity: 0`. Nên "tới được" ở đây đọc là "chưa bị loại trừ",
+ *     không đọc là "đã đi thử".
+ *   - Điều kiện của cạnh qua prop chỉ hỏi "còn ai GỌI prop này không", không
+ *     hỏi lời gọi ấy có nằm trong nhánh người dùng tới được hay không. Một lời
+ *     gọi trong nhánh chết vẫn giữ cạnh sống.
  *   - Ngược lại thì DỨT KHOÁT: KHÔNG có cạnh nào thì không có đường nào. Đó là
  *     giá trị của phép đo này và là lý do nó đáng chạy mỗi lần.
  *   - Không nói gì về cái đẹp, tương phản, cỡ chạm, hay việc màn có render nổi
@@ -130,57 +139,149 @@ function chu(ham, i) {
   return cur;
 }
 
-/**
- * Gốc của cây THẬT: mọi màn `App.tsx` mount ở NGOÀI các trang quét.
+/* ------------------------------------------- App.tsx là một CÂY, không một nút
  *
- * "Trang quét" nhận diện bằng tiền tố `Xem`, và cái tên đó KHÔNG được tin
- * suông — `cuaQuetDocLocation` dưới đây bắt `App.tsx` tự khai rằng `manThamSo`
- * đọc `location`, và ca "trang quét phải rẽ qua manThamSo" bắt mỗi hàm `Xem*`
- * thật sự nằm sau một nhánh `manThamSo()`. Không có hai ca đó thì đổi tên hàm
- * là gỡ được cổng trong im lặng.
+ * Bản đầu của file này coi cả `App.tsx` là một nút: mọi dòng `<X` nằm ngoài một
+ * hàm `Xem*` đều được tính là GỐC. Đo được rằng đó là một lỗ, và lỗ nằm đúng
+ * trên luồng hero:
+ *
+ *   `LuongKhoanChi` — thân của cả luồng chụp bill -> chia tiền -> VietQR — là
+ *   một component CỤC BỘ trong App.tsx. Nó tới được điện thoại qua đúng một sợi
+ *   chỉ: `App()` dựng JSX trong prop `renderKhoanChi`, `AppRoot` chuyền tiếp,
+ *   `VoTab` GỌI nó. Cắt sợi chỉ đó ở bất kỳ đầu nào là luồng hero chết trên
+ *   Android, mà bảng cũ vẫn in `51/54, 3 mồ côi` — vì các dòng `<ChupBill`,
+ *   `<GoiYChia`, `<DotThu` vẫn nằm nguyên trong App.tsx, chỉ là không ai mount
+ *   cái component chứa chúng nữa.
+ *
+ * Nên bây giờ mỗi hàm cấp cao của App.tsx là một nút riêng (`App.tsx#App`,
+ * `App.tsx#LuongKhoanChi`, ...), và gốc là ĐÚNG MỘT nút: hàm `export default`.
  */
-function goCayThat(nguon) {
-  const { dong, ham } = chuCuaDong(nguon.get("App.tsx"));
-  const quet = new Set(ham.map(([, t]) => t).filter((t) => t.startsWith("Xem")));
+
+/** Innermost enclosing `prop={...}` for each line, or null. */
+function propTheoDong(src) {
+  const ra = [];
+  const ngan = [];
+  let sau = 0;
+  let trongDong = null;
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (ch === "\n") {
+      ra.push(trongDong);
+      trongDong = ngan.length > 0 ? ngan[ngan.length - 1].ten : null;
+      continue;
+    }
+    if (ch === "{") {
+      sau++;
+      const m = /(\w+)=$/.exec(src.slice(Math.max(0, i - 48), i));
+      if (m) ngan.push({ ten: m[1], sau });
+    } else if (ch === "}") {
+      if (ngan.length > 0 && ngan[ngan.length - 1].sau === sau) ngan.pop();
+      sau--;
+    }
+    if (ngan.length > 0) trongDong = ngan[ngan.length - 1].ten;
+  }
+  ra.push(trongDong);
+  return ra;
+}
+
+/** Named imports of `App.tsx` that resolve to a real `.tsx`. */
+function nhapCuaApp(nguon) {
   const nhap = new Map();
   for (const m of nguon.get("App.tsx").matchAll(/import\s*\{([^}]*)\}\s*from\s*"(\.[^"]+)"/g)) {
     const dich = giaiDuong("App.tsx", m[2], nguon);
     if (!dich) continue;
     for (const ten of m[1].match(/[A-Z]\w*/g) ?? []) nhap.set(ten, dich);
   }
-  const goc = new Set();
-  for (let i = 0; i < dong.length; i++) {
-    if (quet.has(chu(ham, i))) continue;
-    for (const [ten, dich] of nhap) {
-      if (new RegExp("<" + ten + "\\b").test(dong[i])) goc.add(dich);
-    }
-  }
-  return { goc, quet };
+  return nhap;
 }
 
-function toiDuoc(goc, canh) {
-  const thay = new Set(goc);
-  const chong = [...goc];
-  while (chong.length > 0) {
-    for (const dich of canh.get(chong.pop()) ?? []) {
-      if (!thay.has(dich)) {
-        thay.add(dich);
-        chong.push(dich);
-      }
+/** The `export default function` of App.tsx — the single root of the real tree. */
+function tenGoc(nguonApp) {
+  const m = /export default function (\w+)/.exec(nguonApp);
+  return m ? m[1] : null;
+}
+
+/**
+ * Cạnh trong App.tsx: `App.tsx#<hàm>` -> file, hoặc -> `App.tsx#<hàm cục bộ>`.
+ *
+ * Cạnh nằm trong một `prop={...}` mang theo tên prop ở `can`: nó là cạnh CÓ
+ * ĐIỀU KIỆN, chỉ sống khi có ai đó thật sự GỌI prop ấy (xem `toiDuoc`).
+ *
+ * Trang quét (`Xem*`) không sinh cạnh: đó là toàn bộ lý do file này tồn tại.
+ */
+function dungCanhApp(nguon, quet) {
+  const app = nguon.get("App.tsx");
+  const { dong, ham } = chuCuaDong(app);
+  const cucBo = new Set(ham.map(([, t]) => t));
+  const nhap = nhapCuaApp(nguon);
+  const prop = propTheoDong(app);
+  const canh = new Map();
+  const them = (tu, dich, can) => {
+    if (!canh.has(tu)) canh.set(tu, []);
+    canh.get(tu).push({ dich, can });
+  };
+  for (let i = 0; i < dong.length; i++) {
+    const tu = "App.tsx#" + chu(ham, i);
+    const can = prop[i] ?? null;
+    for (const [ten, dich] of nhap) {
+      if (new RegExp("<" + ten + "\\b").test(dong[i])) them(tu, dich, can);
+    }
+    for (const ten of cucBo) {
+      if (quet.has(ten)) continue;
+      if (new RegExp("<" + ten + "\\b").test(dong[i])) them(tu, "App.tsx#" + ten, can);
     }
   }
-  return thay;
+  return canh;
+}
+
+/**
+ * Điểm bất động: tập tới được lớn dần, cạnh có điều kiện được xét lại mỗi vòng.
+ *
+ * Điều kiện của một cạnh qua prop `p` là: có một file ĐÃ tới được viết `p(`.
+ * Khai báo (`p={...}`, `p:` trong kiểu, `p,` khi destructure) không khớp — chỉ
+ * lời GỌI mới khớp. Đây là chặn trên, không phải bằng chứng ngón tay đi qua:
+ * nó nói "còn có người gọi", không nói "gọi trong nhánh người dùng tới được".
+ */
+function toiDuoc(goc, canhApp, canhFile, nguon) {
+  const thay = new Set([goc]);
+  const goiDuoc = (p) => {
+    const re = new RegExp("\\b" + p + "\\s*\\(");
+    for (const n of thay) {
+      const f = n.startsWith("App.tsx#") ? "App.tsx" : n;
+      if (re.test(nguon.get(f) ?? "")) return true;
+    }
+    return false;
+  };
+  for (;;) {
+    const truoc = thay.size;
+    for (const n of [...thay]) {
+      if (n.startsWith("App.tsx#")) {
+        for (const { dich, can } of canhApp.get(n) ?? []) {
+          if (can !== null && !goiDuoc(can)) continue;
+          thay.add(dich);
+        }
+      } else {
+        for (const dich of canhFile.get(n) ?? []) thay.add(dich);
+      }
+    }
+    if (thay.size === truoc) return thay;
+  }
 }
 
 /** Toàn bộ phép đo, trên một bản nguồn có thể bị thay đổi để làm đối chứng. */
 function doMotLuot(nguon) {
-  const canh = dungCanh(nguon);
-  const { goc, quet } = goCayThat(nguon);
-  const thay = toiDuoc(goc, canh);
+  const app = nguon.get("App.tsx");
+  const { ham } = chuCuaDong(app);
+  const quet = new Set(ham.map(([, t]) => t).filter((t) => t.startsWith("Xem")));
+  const canhFile = dungCanh(nguon);
+  const canhApp = dungCanhApp(nguon, quet);
+  const goc = "App.tsx#" + tenGoc(app);
+  const thay = toiDuoc(goc, canhApp, canhFile, nguon);
   const man = [...nguon.keys()].filter((f) => f.startsWith("src/screens/")).sort();
   return {
     man,
     quet,
+    goc,
     toiDuoc: man.filter((f) => thay.has(f)),
     mocoi: man.filter((f) => !thay.has(f)),
   };
@@ -270,6 +371,88 @@ test("canary: gỡ đúng MỘT dòng mount thì Khám phá phải rơi khỏi t
     "Bỏ dòng mount duy nhất của Khám phá mà thước vẫn nói tới được. " +
       "Nghĩa là nó không đọc cạnh — nó đang xanh vì lý do khác.",
   );
+});
+
+/* ------------------------------------------- luồng hero treo trên MỘT sợi chỉ
+ *
+ * `LuongKhoanChi` là component cục bộ trong App.tsx mang cả luồng chụp bill ->
+ * chia tiền -> VietQR. Nó tới được điện thoại qua đúng một sợi: `App()` dựng nó
+ * trong prop `renderKhoanChi`, `AppRoot` chuyền, `VoTab` gọi. Cắt ở đầu nào
+ * cũng làm luồng chết trên Android.
+ *
+ * Đo được trên bản f8fbf49..221d0a6 (trước thay đổi này): cắt sợi chỉ đó rồi
+ * chạy cổng này thì nó vẫn in `51/54, 3 mồ côi, 10/10 xanh` — bảng không đổi
+ * một chữ. Chỉ các ca đi bộ trong CHROME bắt được (14 ca đỏ trong `npm test`).
+ * Nghĩa là câu hỏi "còn sống trên native không" lúc đó chỉ có Chrome trả lời,
+ * mà Chrome đúng là thứ thay thế đội này đang rời bỏ.
+ */
+
+const MAN_LUONG_HERO = [
+  "src/screens/ChupBill.tsx",
+  "src/screens/KetQuaNhanDien.tsx",
+  "src/screens/GoiYChia.tsx",
+  "src/screens/NhapKhoanChi.tsx",
+  "src/screens/DotThu.tsx",
+  "src/screens/KetQuaThanhToan.tsx",
+  "src/screens/tai-khoan/TaiKhoanNhan.tsx",
+];
+
+test("đối chứng dương: cả bảy màn của luồng hero đang được xếp là TỚI ĐƯỢC", () => {
+  // Không có ca này thì hai canary dưới xanh một cách rỗng: một thước xếp mọi
+  // thứ là mồ côi cũng "bắt" được cả hai mutation.
+  for (const f of MAN_LUONG_HERO) {
+    assert.ok(DO.toiDuoc.includes(f), `${f} đang bị xếp mồ côi trước khi đột biến gì cả.`);
+  }
+});
+
+test("nền: dòng mount LuongKhoanChi thật sự nằm trong prop renderKhoanChi", () => {
+  // Ghim máy đọc prop vào thực tế. Nếu nó trả null ở đây thì cạnh thành vô
+  // điều kiện và canary "VoTab thôi gọi" bên dưới mất hiệu lực trong im lặng.
+  const app = NGUON.get("App.tsx");
+  const prop = propTheoDong(app);
+  const i = app.split("\n").findIndex((d) => /<LuongKhoanChi\b/.test(d));
+  assert.ok(i >= 0, "không còn dòng nào mount LuongKhoanChi — neo đã trượt");
+  assert.equal(
+    prop[i],
+    "renderKhoanChi",
+    "máy đọc prop không thấy dòng này nằm trong `renderKhoanChi={...}`.",
+  );
+});
+
+test("canary: App() thôi dựng LuongKhoanChi thì bảy màn luồng hero phải rơi", () => {
+  const gia = new Map(NGUON);
+  const truoc = gia.get("App.tsx");
+  assert.match(truoc, /<LuongKhoanChi\b/, "neo của canary đã trượt");
+  gia.set("App.tsx", truoc.replace(/<LuongKhoanChi\b/, "<KhongPhaiLuongKhoanChi"));
+
+  const sau = doMotLuot(gia);
+  for (const f of MAN_LUONG_HERO) {
+    assert.ok(
+      sau.mocoi.includes(f),
+      `Cắt mount của LuongKhoanChi mà ${f} vẫn được xếp là tới được. ` +
+        "Thước đang tính mọi dòng `<X` trong App.tsx là gốc, kể cả dòng nằm " +
+        "trong một component không ai mount — đúng lỗ đã đo được.",
+    );
+  }
+});
+
+test("canary: VoTab thôi GỌI renderKhoanChi thì bảy màn luồng hero phải rơi", () => {
+  // Dạng chết thứ hai, tàng hình hơn: dòng `<LuongKhoanChi` vẫn nằm nguyên
+  // trong App.tsx, prop vẫn được chuyền qua AppRoot, chỉ là không ai gọi nó.
+  const gia = new Map(NGUON);
+  const votab = "src/navigation/VoTab.tsx";
+  const truoc = gia.get(votab);
+  assert.match(truoc, /\brenderKhoanChi\s*\(/, "VoTab không còn gọi renderKhoanChi — neo đã trượt");
+  gia.set(votab, truoc.replace(/\brenderKhoanChi\s*\(/g, "khongAiGoiNua("));
+
+  const sau = doMotLuot(gia);
+  for (const f of MAN_LUONG_HERO) {
+    assert.ok(
+      sau.mocoi.includes(f),
+      `Prop được chuyền nhưng KHÔNG ai gọi, mà ${f} vẫn được xếp là tới được. ` +
+        "Một prop không ai gọi không phải một cạnh.",
+    );
+  }
 });
 
 test("canary: một màn không ai mount phải bị bắt", () => {
