@@ -155,8 +155,9 @@ export function GoiYChia(props: {
 
                 320 -> over 51 · 360 -> over 11 · 375/390/414 -> over 0
 
-            (before the fix the same widths ran over 117 / 66 / 51 / 36 / 21,
-            so every width improved, but only >=375 actually fits). Closing 360
+            (before the fix, measured on the pre-fix bundle, the same widths ran
+            over 106 / 66 / 51 / 36 / 12 -- every width truncated, including
+            414. Every width improved; only >=375 actually fits.) Closing 360
             needs 11pt more and there is nowhere cheap left: chevron 44 is the
             tap target and "Món của tôi" 72 is a hero-path control. It wants a
             responsive type step, which is a DESIGN.md scale decision and not
