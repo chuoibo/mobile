@@ -72,13 +72,14 @@ REPO_ROOT="$PWD"
 
 # Every stage, in run order: cheapest and most likely to fail first, so a
 # broken tree is reported in seconds rather than after a docker build.
-STAGES=(guard guard-range ruff contract client-routes server-routes screens cors api migration pinned-import demo-watch hero-walk shared mobile docker postgres e2e)
+STAGES=(guard guard-range ruff harness-deploy contract client-routes server-routes screens cors api migration pinned-import demo-watch hero-walk shared mobile docker postgres e2e)
 
 stage_help() {
   case "$1" in
     guard)     echo "repo_guard.py tree HEAD (repo-guard.yml)" ;;
     guard-range) echo "repo_guard.py range on every commit this branch adds (repo-guard.yml)" ;;
     ruff)      echo "ruff on the files this branch changes, uncommitted ones included (test.yml: lint)" ;;
+    harness-deploy) echo "the agent_supervisor/agent_checkpoint copies that actually RUN match the ones merged to main (máy này thôi)" ;;
     contract)  echo "every route wanting X-Actor-ID is called with it (test.yml: contract)" ;;
     client-routes) echo "every route apps/mobile calls exists in the API (test.yml: api, inline)" ;;
     server-routes) echo "every route the API declares is called by some screen -- the other direction" ;;
@@ -426,6 +427,37 @@ PY
   )
 }
 
+# `scripts/agent_supervisor.py` never runs from this tree. It runs from a copy
+# under `~/agent-harness/`, because checking out a branch that lacks the file
+# deletes it from disk mid-launch -- which happened twice, and is why its own
+# docstring tells you to install a copy outside any working tree. The install
+# is a person typing `git show <ref>:scripts/... > ~/agent-harness/...`, and
+# nothing has ever checked that they did.
+#
+# Measured 2026-08-31 against origin/main at b20cc4a: the installed supervisor
+# was three commits behind, and the three it lacked included both #470 and
+# #477 -- the two clock fixes. Reviewed, merged, gated, and not running; #470
+# had been merged for three days. `brains.py:53` in the harness records the
+# same accident from the other side in a comment, so it had already happened
+# once and produced nothing that would catch it happening again.
+#
+# In the DEFAULT list for the reason `demo-watch` below gives: the failure was
+# never that the answer was hard, it was that nobody asked. A deploy check that
+# only runs when somebody suspects a stale deploy is the docstring again.
+#
+# What it does NOT prove: nothing here runs the installed file, so a copy that
+# matches main byte for byte and crashes on start passes. And it is blind to
+# the nine files under `~/agent-harness/` with no counterpart in `scripts/`
+# (`lane.py`, `brains.py`, `harnessd.py`...): they live in a repository with no
+# remote, so there is no merged version to compare them against. The clock fix
+# in lane.py is governed by nothing on this path.
+do_harness-deploy() {
+  # Fetches by default: comparing against a stale origin/main would call a
+  # drifted copy clean, which is the one wrong answer this stage exists to
+  # prevent. Offline degrades to a printed warning, not a silent pass.
+  python3 scripts/check_harness_deploy_drift.py
+}
+
 # The demo box on 8099 is what the leader opens to decide whether the product
 # runs. Twice now it has served an older main than the one it claims to:
 # 58 routes against 62 for sixteen commits, then 65 against 69 for the four
@@ -625,6 +657,16 @@ check_prereq() {
       [ -n "$(ruff_pin)" ] || return 0
       echo "nhánh không đổi file Python nào so với origin/main -- ruff không kiểm được gì"
       return 1 ;;
+    harness-deploy)
+      # The checker exits 0 on a machine with nothing installed, which is the
+      # right answer for it and the wrong one here: this file would render that
+      # 0 as ĐẠT, and "no harness installed" would read as "the harness is up
+      # to date". Same shape as the empty ruff scope two cases below. So the
+      # absence is answered here, where it becomes a BỎ QUA with a reason and
+      # --strict can turn it red before a merge.
+      local hroot="${AGENT_HARNESS:-$HOME/agent-harness}"
+      [ -d "$hroot" ] || {
+        echo "không có $hroot -- máy này không cài bản harness nào để mà lệch"; return 1; } ;;
     guard-range)
       git rev-parse --git-dir >/dev/null 2>&1 || { echo "không phải git repo"; return 1; }
       # No base: let the body fail loudly rather than skipping quietly here.
