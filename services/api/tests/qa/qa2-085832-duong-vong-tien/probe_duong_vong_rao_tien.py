@@ -57,6 +57,10 @@ RULE = "=" * 78
 # somebody silently deciding which way, so it is the clearest possible witness
 # that luật 1 (số nguyên đồng) was crossed.
 NOT_DONG = 82000.5
+# The witness that can actually SEE the fence: a lax `int` field accepts this
+# and coerces it to 82000; a strict one refuses it. See do_3 for why using
+# NOT_DONG alone let a "fence removed" mutant survive the first draft.
+INTEGRAL_FLOAT = 82000.0
 GOOD = 82000
 
 APP_ROOT = API_ROOT / "app"
@@ -195,13 +199,8 @@ def _amount(obj: object) -> object:
     return getattr(obj, "amount_vnd", None)
 
 
-def do_3_seven_mechanisms() -> None:
-    section(3, "BẢY CƠ CHẾ SINH OBJECT — cái nào cho float đi qua?")
-    print(
-        f"pydantic {pydantic.VERSION}; model đo: ExpenseItemInput.amount_vnd: MoneyVnd"
-    )
-    print(f"giá trị thử: {NOT_DONG!r} (float không nguyên — không làm tròn được)\n")
-
+def _mechanisms(witness: object) -> list[tuple[str, object]]:
+    """The seven ways to bring an `ExpenseItemInput` into existence."""
     good = ExpenseItemInput(item_id="i", amount_vnd=GOOD, shared_by=[])
 
     def via_new() -> ExpenseItemInput:
@@ -209,51 +208,53 @@ def do_3_seven_mechanisms() -> None:
         object.__setattr__(
             obj,
             "__dict__",
-            {"item_id": "i", "amount_vnd": NOT_DONG, "shared_by": []},
+            {"item_id": "i", "amount_vnd": witness, "shared_by": []},
         )
         return obj
 
     def via_setattr() -> ExpenseItemInput:
         obj = ExpenseItemInput(item_id="i", amount_vnd=GOOD, shared_by=[])
-        obj.amount_vnd = NOT_DONG
+        obj.amount_vnd = witness
         return obj
 
-    mechanisms = [
+    return [
         (
             "__init__",
-            lambda: ExpenseItemInput(item_id="i", amount_vnd=NOT_DONG, shared_by=[]),
+            lambda: ExpenseItemInput(item_id="i", amount_vnd=witness, shared_by=[]),
         ),
         (
             "model_validate",
             lambda: ExpenseItemInput.model_validate(
-                {"item_id": "i", "amount_vnd": NOT_DONG, "shared_by": []}
+                {"item_id": "i", "amount_vnd": witness, "shared_by": []}
             ),
         ),
         (
             "model_validate_json",
             lambda: ExpenseItemInput.model_validate_json(
-                json.dumps({"item_id": "i", "amount_vnd": NOT_DONG, "shared_by": []})
+                json.dumps({"item_id": "i", "amount_vnd": witness, "shared_by": []})
             ),
         ),
         (
             "model_construct",
             lambda: ExpenseItemInput.model_construct(
-                item_id="i", amount_vnd=NOT_DONG, shared_by=[]
+                item_id="i", amount_vnd=witness, shared_by=[]
             ),
         ),
         (
             "model_copy(update=)",
-            lambda: good.model_copy(update={"amount_vnd": NOT_DONG}),
+            lambda: good.model_copy(update={"amount_vnd": witness}),
         ),
         ("__new__ + __dict__", via_new),
         ("gán thuộc tính", via_setattr),
     ]
 
+
+def _run_mechanisms(witness: object) -> tuple[list[str], list[str]]:
     leaked: list[str] = []
     blocked: list[str] = []
-    for name, build in mechanisms:
+    for name, build in _mechanisms(witness):
         try:
-            obj = build()
+            obj = build()  # type: ignore[operator]
         except Exception as exc:  # noqa: BLE001 -- any refusal counts as blocked
             blocked.append(name)
             print(f"  {name:22} CHẶN   {type(exc).__name__}")
@@ -261,12 +262,54 @@ def do_3_seven_mechanisms() -> None:
         value = _amount(obj)
         leaked.append(name)
         print(f"  {name:22} LỌT    amount_vnd={value!r} ({type(value).__name__})")
+    return leaked, blocked
 
-    print(f"\n  chặn: {len(blocked)}/7   LỌT: {len(leaked)}/7")
-    print(f"  lọt qua: {', '.join(leaked)}")
+
+def do_3_seven_mechanisms() -> None:
+    section(3, "BẢY CƠ CHẾ SINH OBJECT — cái nào cho giá trị sai đi qua?")
+    print(f"pydantic {pydantic.VERSION}; model đo: ExpenseItemInput.amount_vnd\n")
+
+    # Two witnesses, because ONE of them cannot see the fence at all.
+    #
+    # 82000.5 is refused by a lax `int` field just as firmly as by a strict one:
+    # pydantic only coerces float->int when the float is integral, so a
+    # non-integral float is rejected either way. A probe that used it alone
+    # would print the same table whether `MoneyVnd` were strict or plain `int`
+    # -- which is exactly what happened to the first draft of this file, and
+    # the mutant survived. 82000.0 is the value that separates them.
+    print("  ── nhân chứng A: 82000.5 (float KHÔNG nguyên) ─────────────────────")
+    print("     lax lẫn strict đều chặn — KHÔNG phân biệt được rào\n")
+    leaked_a, blocked_a = _run_mechanisms(NOT_DONG)
+
+    print("\n  ── nhân chứng B: 82000.0 (float NGUYÊN) ───────────────────────────")
+    print("     lax NHẬN (ép thành 82000), strict CHẶN — đây mới là thước đo rào\n")
+    leaked_b, blocked_b = _run_mechanisms(INTEGRAL_FLOAT)
+
+    print(f"\n  nhân chứng A: chặn {len(blocked_a)}/7, LỌT {len(leaked_a)}/7")
+    print(f"  nhân chứng B: chặn {len(blocked_b)}/7, LỌT {len(leaked_b)}/7")
+    print(f"  lọt ở cả hai: {', '.join(sorted(set(leaked_a) & set(leaked_b)))}")
     print("\n  TRẢ LỜI CÂU HỎI: model_construct KHÔNG phải đường duy nhất.")
-    print("  Và đường thứ tư không phải API lạ — nó là `obj.amount_vnd = x`,")
-    print("  dòng Python bình thường nhất mà bất kỳ ai cũng có thể viết.")
+    print("  Bốn cửa, không phải một. Và cửa thứ tư không phải API lạ —")
+    print("  nó là `obj.amount_vnd = x`, dòng Python bình thường nhất")
+    print("  mà bất kỳ ai cũng có thể viết mà không thấy mình đang phá gì.")
+
+    blocked = blocked_a
+    leaked = leaked_a
+    # The strictness canary. If `MoneyVnd` stopped being strict, witness B
+    # would sail through `__init__` and this is the line that goes red.
+    check(
+        "__init__" in blocked_b,
+        "__init__ NHẬN float nguyên 82000.0 — rào MoneyVnd không còn strict, "
+        "hoặc phép đo đang đọc nhầm model",
+    )
+    check(
+        "model_validate" in blocked_b,
+        "model_validate NHẬN float nguyên 82000.0 — rào không còn strict",
+    )
+    check(
+        set(leaked_a) == set(leaked_b),
+        f"hai nhân chứng ra hai tập lọt khác nhau: {leaked_a} vs {leaked_b}",
+    )
 
     check(
         "__init__" in blocked,
