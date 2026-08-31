@@ -62,6 +62,16 @@
 #   - that the tree being gated still walks. `--status` binds the verdict to an
 #     ANCESTOR of HEAD, so commits added after the walk are covered by nothing.
 #     It rules out borrowed evidence, not staleness within the branch.
+#   - that anything git does not track holds the same bytes here as where the
+#     walk ran. `tree` is built from `git status`, so gitignored paths are
+#     outside it by construction. What IS checked is the PRESENCE of the
+#     out-of-git artifacts the walk cannot start without (`ngoai_git`), so a
+#     verdict can no longer be lent to a tree that has never run `npm ci`.
+#     Their CONTENT is not: two trees whose `node_modules` were installed from
+#     different lockfiles read alike here. Hashing them would mean hashing
+#     `node_modules` on every gate run and putting a real `.env` into a digest,
+#     which repo rules forbid outright -- so this is a boundary chosen with the
+#     cost named, not a corner nobody looked at.
 #   - that a walk measured over uncommitted edits says anything about a commit.
 #     It no longer PRETENDS to: the verdict records the tree state next to the
 #     sha, and `--status` refuses to lend a dirty walk to any other tree. What
@@ -118,6 +128,8 @@
 #   scripts/hero_walk.sh --status             what did the last walk say
 #   scripts/hero_walk.sh --van-tay            what this runner thinks the
 #                                             working tree is right now
+#   scripts/hero_walk.sh --ngoai-git          what the walk needs that git does
+#                                             not track, and whether it is here
 #
 # Exit: 0 walk green · 1 a precondition is genuinely absent · 2 something that
 # should be here is missing or broken (refuse to skip), or the walk failed.
@@ -144,6 +156,7 @@ while [ $# -gt 0 ]; do
     --walk) WALK="${2:?--walk cần một đường dẫn}"; shift 2 ;;
     --status) MODE="status"; shift ;;
     --van-tay) MODE="van-tay"; shift ;;
+    --ngoai-git) MODE="ngoai-git"; shift ;;
     --max-age-hours) MAX_AGE_HOURS="${2:?--max-age-hours cần một số}"; shift 2 ;;
     # The header, all of it, however long it gets. The magic `2,95p` this
     # replaces was already cutting the Usage block off at line 95 before
@@ -246,6 +259,53 @@ print("dirty:" + h.hexdigest()[:16])
 PY
 }
 
+# `cay_van_tay` above answers "which tracked bytes". This answers the question
+# that one cannot: is the stuff git DOES NOT TRACK, and the walk cannot run
+# without, actually here?
+#
+# The comment guarding the `worktree` check used to justify itself with
+#
+#     "a clean tree at a given commit is the same bytes in every worktree"
+#
+# which is true of tracked files and false of what this walk depends on.
+# `apps/mobile/node_modules` is a hard precondition of this very script (`exit
+# 1` if absent), it is gitignored, and it is built per worktree. So "clean at
+# commit X" in two directories can mean "walks" in one and "cannot start" in
+# the other, and `git status` is silent about the difference by construction.
+#
+# Measured on 5cfcefa in a throwaway repo with no apps/ at all:
+#     --status            -> "ĐI ĐƯỢC 16/16 chặng"   exit 0
+#     a real walk, same tree -> exit 2
+#
+# PRESENCE only, never content. Hashing these would mean hashing node_modules
+# on every gate run (slow, and red forever the moment a package updates) and
+# putting a real `.env` into a digest, which repo rules forbid outright. The
+# weaker promise is written down in KHÔNG chứng minh rather than implied.
+ngoai_git_van_tay() {
+  python3 - "$REPO_ROOT" <<'PY'
+import os
+import sys
+
+repo = sys.argv[1]
+
+# Kept deliberately short: every entry must be something the walk genuinely
+# cannot run without, or this turns into a second, slower `git status` that
+# goes red for reasons nobody can act on.
+CAN = ["apps/mobile/node_modules"]
+
+if not CAN:
+    # An empty list would make every tree produce the same string, every
+    # comparison below succeed, and the whole check disarm itself in silence --
+    # while still printing a value that reads like an answer. Same law as "?".
+    print("?")
+    raise SystemExit(0)
+
+print(",".join(
+    f"{p}={'1' if os.path.exists(os.path.join(repo, p)) else '0'}" for p in CAN
+))
+PY
+}
+
 # Printing the fingerprint is not a debug convenience bolted on for tests: a
 # refusal that says "cây đã khác" and gives the reader no way to see WHAT the
 # runner thinks the tree is turns a correct red into an unexplainable one, and
@@ -254,6 +314,11 @@ PY
 # would only grade a copy of the logic.
 if [ "$MODE" = "van-tay" ]; then
   cay_van_tay
+  exit 0
+fi
+
+if [ "$MODE" = "ngoai-git" ]; then
+  ngoai_git_van_tay
   exit 0
 fi
 
@@ -271,6 +336,7 @@ if [ "$MODE" = "status" ]; then
   MOBILE_HERO_WALK_MAX_AGE_HOURS="$MAX_AGE_HOURS" \
   MOBILE_HERO_WALK_REPO="$REPO_ROOT" \
   MOBILE_HERO_WALK_TREE_NOW="$(cay_van_tay)" \
+  MOBILE_HERO_WALK_NGOAI_GIT_NOW="$(ngoai_git_van_tay)" \
   python3 - "$VERDICT" <<'PY'
 import json, os, subprocess, sys, time
 
@@ -368,16 +434,75 @@ if tree == "blind":
     print("  rồi chạy: make hero-walk")
     raise SystemExit(2)
 
-if tree != "clean":
-    # Only meaningful for a dirty walk: a clean tree at a given commit is the
-    # same bytes in every worktree, so which directory produced it says nothing.
-    # Uncommitted edits are the opposite -- they exist in exactly one directory.
-    where = v.get("worktree")
-    if where != repo:
-        print(f"hero_walk: lượt đi bộ chạy trên cây CÓ SỬA CHƯA COMMIT ở {where},")
-        print(f"  không phải {repo}. Mã nó đo không nằm trong commit nào,")
-        print("  nên nó không bảo lãnh được cho cây này. Chạy: make hero-walk")
-        raise SystemExit(2)
+where = v.get("worktree")
+muon = where != repo
+
+if tree != "clean" and muon:
+    # Uncommitted edits exist in exactly one directory, so a dirty walk can
+    # never be lent -- no further question to ask.
+    print(f"hero_walk: lượt đi bộ chạy trên cây CÓ SỬA CHƯA COMMIT ở {where},")
+    print(f"  không phải {repo}. Mã nó đo không nằm trong commit nào,")
+    print("  nên nó không bảo lãnh được cho cây này. Chạy: make hero-walk")
+    raise SystemExit(2)
+
+# A clean verdict MAY still be lent to another worktree -- that sharing is the
+# design, not an accident, and forbidding it would make ten worktrees each burn
+# a model call, which is how this stage gets deleted. But it was lent
+# UNCONDITIONALLY, on a justification that only covers tracked files:
+#
+#     "a clean tree at a given commit is the same bytes in every worktree"
+#
+# The two things below are what that sentence leaves out. Both are cheap.
+#
+# First: the verdict has to name a tree that is still there. A green pointing
+# at a directory nothing can reach is evidence about nothing -- the same
+# "bằng chứng gọi tên một thứ không phải thứ đã được kiểm" this file was
+# extended twice to stop, one axis over.
+if muon and not os.path.isdir(where or ""):
+    print(f"hero_walk: phán quyết nói nó đo ở {where}, thư mục đó KHÔNG CÓ trên máy này.")
+    print("  Không kiểm lại được nó đo trên cái gì, nên nó không bảo lãnh được")
+    print(f"  cho {repo}. Chạy: make hero-walk")
+    raise SystemExit(2)
+
+# Second: the things the walk needs that git does not track. See
+# `ngoai_git_van_tay`. Checked for EVERY verdict, borrowed or not -- deleting
+# `node_modules` in the same directory that produced the green leaves `git
+# status` silent and the walk unable to start, and that hole is not about
+# borrowing at all.
+ngoai = v.get("ngoai_git")
+ngoai_now = os.environ["MOBILE_HERO_WALK_NGOAI_GIT_NOW"]
+if ngoai is None:
+    # Same law as `tree` above: a field an older runner never wrote is
+    # "unknown", and reading unknown as the safe value is the failure this whole
+    # file exists to separate.
+    print("hero_walk: phán quyết KHÔNG GHI những thứ ngoài git mà lượt đi bộ cần")
+    print("  (node_modules...) — bản của bộ chạy cũ, vốn không phân biệt được")
+    print("  một cây đi bộ được với một cây chưa hề 'npm ci'.")
+    print("  Thiếu trường đó KHÔNG đọc được là 'đủ'. Chạy: make hero-walk")
+    raise SystemExit(2)
+
+if ngoai == "?" or ngoai_now == "?":
+    print("hero_walk: KHÔNG ĐỌC ĐƯỢC danh sách thứ ngoài git mà lượt đi bộ cần.")
+    print("  'Không đọc được' KHÔNG phải 'đủ'. Chạy: make hero-walk")
+    raise SystemExit(2)
+
+if ngoai != ngoai_now:
+    def _tach(s):
+        return dict(p.split("=", 1) for p in s.split(",") if "=" in p)
+
+    luc_do, bay_gio = _tach(ngoai), _tach(ngoai_now)
+    khac = sorted(k for k in set(luc_do) | set(bay_gio) if luc_do.get(k) != bay_gio.get(k))
+    # Name the paths. A refusal that says only "khác nhau" sends the reader to
+    # read this script instead of to the one directory they need to fix, and
+    # unexplainable reds are the ones people route around.
+    for k in khac or ["(danh sách đã đổi)"]:
+        print(f"hero_walk: {k} — lúc đi bộ: {luc_do.get(k, 'không có trong phán quyết')},"
+              f" bây giờ: {bay_gio.get(k, 'không có')}")
+    o_dau = f"ở {where}" if muon else "ở chính cây này"
+    print(f"  Lượt đi bộ chạy {o_dau} với những thứ đó KHÁC bây giờ, mà git không")
+    print("  theo dõi chúng nên trạng thái 'cây sạch' không nói gì về chúng.")
+    print("  Chạy: make hero-walk")
+    raise SystemExit(2)
 
 # OUTSIDE the branch above, and that placement is the whole fix. This comparison
 # used to sit INSIDE `if tree != "clean":`, so it only ever ran when the RECORDED
@@ -431,10 +556,17 @@ if age > max_age:
 # both is how the verdict got borrowed in the first place. Say it on the line
 # people actually read.
 ve_cay = "" if tree == "clean" else " — ĐO TRÊN CÂY CÓ SỬA CHƯA COMMIT, không phải trên commit nào"
+
+# A borrowed green and a self-measured green must not read alike. Everything
+# checkable about the loan has been checked above, and what is left over --
+# the CONTENT of those out-of-git artifacts, and any commit added between the
+# two trees -- is exactly what the reader needs to know they are trusting. Say
+# it on the line people actually read, same rule as `ve_cay`.
+ve_muon = "" if not muon else f" — MƯỢN từ cây {where}, không phải đo ở đây"
 print(
     f"hero_walk: ĐI ĐƯỢC {when} — {v.get('so_chang','?')} chặng, "
     f"{v['url']}, client {sha} (nằm trong HEAD {head}), "
-    f"model đọc {v.get('so_mon','?')} món.{ve_cay}"
+    f"model đọc {v.get('so_mon','?')} món.{ve_cay}{ve_muon}"
 )
 PY
   exit $?
@@ -552,6 +684,7 @@ MOBILE_HERO_WALK_URL="$URL" \
 MOBILE_HERO_WALK_SHA="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo '?')" \
 MOBILE_HERO_WALK_TREE="$(cay_van_tay)" \
 MOBILE_HERO_WALK_WORKTREE="$REPO_ROOT" \
+MOBILE_HERO_WALK_NGOAI_GIT="$(ngoai_git_van_tay)" \
 MOBILE_HERO_WALK_ROUTES="$route_count" \
 MOBILE_HERO_WALK_ANH="$ANH" \
 python3 - "$OUT" "$VERDICT" <<'PY'
@@ -577,6 +710,10 @@ verdict = {
     # read as a clean one.
     "tree": os.environ["MOBILE_HERO_WALK_TREE"],
     "worktree": os.environ["MOBILE_HERO_WALK_WORKTREE"],
+    # Presence of what git does not track and the walk cannot run without.
+    # `tree` cannot see these by construction; a clean tree in a directory that
+    # never ran `npm ci` reads identically to one that did.
+    "ngoai_git": os.environ["MOBILE_HERO_WALK_NGOAI_GIT"],
     "routes": os.environ["MOBILE_HERO_WALK_ROUTES"],
     "anh": os.environ["MOBILE_HERO_WALK_ANH"],
     "so_chang": find(r"DAT (\d+/\d+) chang"),

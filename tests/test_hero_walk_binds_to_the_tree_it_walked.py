@@ -94,6 +94,40 @@ def _van_tay(repo: Path) -> str:
     return done.stdout.strip()
 
 
+def _ngoai_git(repo: Path) -> str:
+    """Hỏi chính bộ chạy, không tự dựng lại chuỗi.
+
+    Cùng lý do như `_van_tay`: một bản sao của logic chỉ chấm điểm bản sao đó.
+    """
+    done = _chay(repo, "--ngoai-git")
+    assert done.returncode == 0, done.stderr
+    return done.stdout.strip()
+
+
+def _ngoai_git_hoac_thieu(repo: Path):
+    done = _chay(repo, "--ngoai-git")
+    return done.stdout.strip() if done.returncode == 0 else None
+
+
+def _co_node_modules(repo: Path) -> None:
+    """Dựng thứ ngoài git mà lượt đi bộ không chạy nổi nếu thiếu.
+
+    Bộ chạy tự đặt nó làm tiền đề (`exit 1` nếu vắng), nên nó là ví dụ ĐO ĐƯỢC
+    của "cùng một commit, hai worktree, hai kết quả khác nhau".
+
+    Có FILE thật bên trong, và bị loại qua `.git/info/exclude`. Một thư mục
+    rỗng thì git im lặng dù có luật loại trừ hay không — dựng kiểu đó thì ca
+    "ngoài git không làm bẩn vân tay CÂY" xanh vì lý do sai, và sẽ vẫn xanh cả
+    khi ai đó đem node_modules vào `cay_van_tay` thật.
+    """
+    thu_muc = repo / "apps" / "mobile" / "node_modules"
+    thu_muc.mkdir(parents=True, exist_ok=True)
+    (thu_muc / "goi.js").write_text("module.exports = 1;\n", encoding="utf-8")
+    loai_tru = repo / ".git" / "info" / "exclude"
+    loai_tru.parent.mkdir(parents=True, exist_ok=True)
+    loai_tru.write_text("node_modules/\n", encoding="utf-8")
+
+
 def _ghi(repo: Path, **truong) -> None:
     """Một phán quyết XANH hợp lệ, rồi đè lên đúng trường mà ca này đang đổi.
 
@@ -107,6 +141,13 @@ def _ghi(repo: Path, **truong) -> None:
         "sha": _git(repo, "rev-parse", "--short", "HEAD"),
         "tree": "clean",
         "worktree": str(repo),
+        # Hỏi bộ chạy, và CHỊU ĐƯỢC bộ chạy chưa biết cờ này. Không phải để dễ
+        # dãi: đó là cái giữ cho phép đo đỏ-trước-xanh-sau còn đọc được. Chạy
+        # bảng này trên bản TRƯỚC bản vá mà `_ghi` cũng chết theo thì mọi ca đều
+        # đỏ vì "Tham số lạ", và một bảng toàn đỏ không phân biệt được ca nào
+        # thật sự bắt được lỗi. Rơi về đây không giấu được hồi quy: ca đối chứng
+        # `..._va_dung_cay_thi_XANH` đòi mã 0, nên cờ biến mất là nó đỏ ngay.
+        "ngoai_git": _ngoai_git_hoac_thieu(repo),
         "routes": "77",
         "anh": "/tmp/ro.jpg",
         "so_chang": "16/16",
@@ -266,6 +307,160 @@ def test_cay_ban_khong_lam_hong_phep_kiem_to_tien_cua_sha(cay):
     done = _chay(cay, "--status", "--url", URL)
     assert done.returncode == 2, done.stdout + done.stderr
     assert "nhánh khác" in done.stdout
+
+
+# --- nhóm NGOÀI GIT: "cùng commit" không có nghĩa "cùng chạy được" ----------
+#
+# Trục thứ ba, và là trục cuối còn hở sau #439 và #444. Phép kiểm `worktree`
+# nằm BÊN TRONG nhánh `if tree != "clean":`, với lý do ghi thẳng trong comment:
+#
+#     "a clean tree at a given commit is the same bytes in every worktree"
+#
+# Câu đó đúng với file GIT THEO DÕI, và lượt đi bộ không chỉ phụ thuộc vào
+# những file đó. Chính bộ chạy đặt `apps/mobile/node_modules` làm tiền đề cứng
+# (`exit 1` nếu vắng) — một thư mục bị gitignore, dựng riêng cho từng worktree.
+# Nên hai cây "sạch tại cùng một commit" vẫn có thể một cây đi bộ được và một
+# cây không, và `--status` cũ không có cách nào biết.
+#
+# Đo được trước bản vá, ở một repo tạm KHÔNG hề có apps/mobile:
+#     --status  -> "ĐI ĐƯỢC 16/16 chặng"   EXIT=0
+#     lượt đi bộ THẬT trên đúng cây đó      EXIT=2
+#
+# Cái KHÔNG gác ở đây, nói thẳng: NỘI DUNG của những thứ ngoài git. Chỉ sự CÓ
+# MẶT vào vân tay. Băm nội dung là băm node_modules (chậm) và là đưa `.env`
+# thật vào một digest — luật repo cấm, và #449 đã nêu đúng lý do đó.
+
+
+def test_phan_quyet_SACH_cua_WORKTREE_KHAC_khong_duoc_nhan_vo_dieu_kien(cay):
+    """Ca trung tâm của trục này.
+
+    Trước bản vá: `tree == "clean"` bỏ qua hoàn toàn trường `worktree`, nên một
+    phán quyết ghi tên một thư mục KHÔNG HỀ TỒN TẠI vẫn được nhận, mã 0. Bằng
+    chứng gọi tên một cây, và cây đó không có ở đâu cả.
+    """
+    _co_node_modules(cay)
+    _ghi(cay, tree="clean", worktree="/mot/cay/HOAN/TOAN/KHAC")
+
+    done = _chay(cay, "--status", "--url", URL)
+    assert done.returncode == 2, done.stdout + done.stderr
+    # Phải NÊU TÊN cây không tìm thấy. Chỉ so mã thoát thì ca này xanh cả khi
+    # cổng từ chối vì một lý do khác hẳn.
+    assert "/mot/cay/HOAN/TOAN/KHAC" in done.stdout
+
+
+def test_phan_quyet_khong_ghi_NGOAI_GIT_khong_doc_duoc_la_du(cay):
+    """Trường VẮNG MẶT là "không biết", không phải "đủ".
+
+    Cùng một luật file này đã đặt cho `tree`. Đặt lại cho trường mới, nếu không
+    mọi phán quyết do bộ chạy cũ ghi ra đều đi thẳng qua cổng mới.
+    """
+    _co_node_modules(cay)
+    _ghi(cay)
+    p = cay.parent / "phan-quyet" / "verdict.json"
+    d = json.loads(p.read_text(encoding="utf-8"))
+    d.pop("ngoai_git", None)
+    p.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
+
+    done = _chay(cay, "--status", "--url", URL)
+    assert done.returncode == 2, done.stdout + done.stderr
+    assert "KHÔNG GHI" in done.stdout and "ngoài git" in done.stdout
+
+
+def test_thu_muc_ngoai_git_BIEN_MAT_sau_luot_di_bo_thi_phan_quyet_het_hieu_luc(cay):
+    """Cùng worktree, không sửa file nào git thấy — mà lượt đi bộ đã hết chạy được.
+
+    `git status` im lặng suốt ca này: đây đúng là chỗ mù mà trục `tree` KHÔNG
+    với tới được, chứ không phải một cách viết khác của ca đã có.
+    """
+    _co_node_modules(cay)
+    _ghi(cay, worktree=str(cay))
+    assert _chay(cay, "--status", "--url", URL).returncode == 0
+
+    shutil.rmtree(cay / "apps" / "mobile" / "node_modules")
+    assert _git(cay, "status", "--porcelain") == ""  # git vẫn nói "sạch"
+
+    done = _chay(cay, "--status", "--url", URL)
+    assert done.returncode == 2, done.stdout + done.stderr
+    assert "node_modules" in done.stdout
+
+
+def test_muon_phan_quyet_cua_cay_KHAC_van_duoc_nhung_phai_TU_KHAI(cay, tmp_path):
+    """Mượn không bị cấm — bị cấm mới là cái làm cổng bị gỡ.
+
+    Thư mục phán quyết dùng chung là thiết kế có chủ ý: bắt mười worktree mỗi
+    cây đốt một lượt gọi model là cách chắc chắn để chặng này bị xoá. Nhưng một
+    màu xanh MƯỢN và một màu xanh TỰ ĐO không được đọc giống nhau — đó đúng là
+    "một giá trị mang hai nghĩa" mà cả file này tồn tại để tách.
+    """
+    _co_node_modules(cay)
+    cay_kia = tmp_path / "cay-kia" / "apps" / "mobile" / "node_modules"
+    cay_kia.mkdir(parents=True)
+    _ghi(cay, tree="clean", worktree=str(tmp_path / "cay-kia"))
+
+    done = _chay(cay, "--status", "--url", URL)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "ĐI ĐƯỢC" in done.stdout
+    assert "MƯỢN" in done.stdout
+    assert str(tmp_path / "cay-kia") in done.stdout
+
+
+def test_muon_bi_TU_CHOI_khi_cay_kia_co_thu_ma_cay_nay_khong_co(cay, tmp_path):
+    """Đúng hình dạng của lỗi thật: repo gốc có `.env` và `node_modules`, các
+    worktree lane thì không, và lượt đi bộ xanh ở repo gốc bảo lãnh cho cả bọn."""
+    cay_kia = tmp_path / "cay-kia" / "apps" / "mobile" / "node_modules"
+    cay_kia.mkdir(parents=True)
+    # Phán quyết ghi vân tay CỦA CÂY KIA (có node_modules), còn cây này thì không.
+    _ghi(
+        cay,
+        tree="clean",
+        worktree=str(tmp_path / "cay-kia"),
+        ngoai_git="apps/mobile/node_modules=1",
+    )
+
+    done = _chay(cay, "--status", "--url", URL)
+    assert done.returncode == 2, done.stdout + done.stderr
+    assert "node_modules" in done.stdout
+
+
+def test_doi_chung_cung_cay_va_du_thu_ngoai_git_thi_XANH_va_KHONG_noi_muon(cay):
+    """Đối chứng của trục này. Không có nó, "cổng biết từ chối" và "cổng đỏ với
+    mọi thứ" nhìn từ bảng là một — và nhãn MƯỢN dán bừa lên cả xanh tự đo cũng
+    lọt."""
+    _co_node_modules(cay)
+    _ghi(cay, worktree=str(cay))
+
+    done = _chay(cay, "--status", "--url", URL)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "ĐI ĐƯỢC" in done.stdout
+    assert "MƯỢN" not in done.stdout
+
+
+# --- nhóm VÂN TAY NGOÀI GIT: cái giữ nhóm trên khỏi thành lời hứa suông -----
+
+
+def test_van_tay_ngoai_git_phan_biet_duoc_co_voi_khong(cay):
+    """Thiếu ca này, một `ngoai_git_van_tay` trả HẰNG SỐ vẫn làm cả nhóm trên
+    xanh: mọi phép so đều là "bằng chính nó"."""
+    khong = _ngoai_git(cay)
+    _co_node_modules(cay)
+    assert _ngoai_git(cay) != khong
+
+
+def test_van_tay_ngoai_git_khong_bao_gio_RONG(cay):
+    """Danh sách nguồn rỗng làm cổng tự tháo trong im lặng: mọi cây cho cùng một
+    chuỗi rỗng, mọi phép so khớp, và bảng vẫn xanh hết."""
+    assert _ngoai_git(cay).strip() != ""
+
+
+def test_thu_ngoai_git_khong_lam_doi_van_tay_CAY(cay):
+    """Hai trục phải TÁCH NHAU.
+
+    Nếu `node_modules` lọt vào `cay_van_tay`, cây nào cũng "dirty" vĩnh viễn và
+    trục `tree` chết — đúng cái giá #449 nêu khi từ chối băm file bị gitignore.
+    """
+    assert _van_tay(cay) == "clean"
+    _co_node_modules(cay)
+    assert _van_tay(cay) == "clean"
 
 
 # --- nhóm VÂN TAY: cái làm nhóm trên không thành lời hứa suông --------------
