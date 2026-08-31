@@ -40,7 +40,7 @@ DC = $(COMPOSE) -p $(PROJECT)
 WAIT_TIMEOUT ?= 300
 
 .DEFAULT_GOAL := help
-.PHONY: help gate gate-merge ruff-fix test-db e2e up down clean logs ps migrate db-check seed demo demo-reset demo-check demo-data-check demo-persona-check demo-key-check demo-watch demo-watch-status demo-watch-install hero-walk hero-walk-status smoke bundle-check bundle
+.PHONY: help gate gate-merge ruff-fix test-db e2e up down clean logs ps migrate db-check seed demo demo-reset demo-check demo-data-check demo-persona-check demo-key-check demo-watch demo-watch-status demo-watch-install hero-walk hero-walk-status smoke harness-check bundle-check bundle
 
 # `demo` phải gọi đúng bộ container mà `up` vừa dựng. Trên nhánh này biến đó là
 # $(COMPOSE); PR #60 (đang mở, cùng lane) đổi nó thành $(DC) = compose kèm
@@ -346,6 +346,21 @@ hero-walk-status: ## Lượt đi bộ gần nhất nói gì (mã 2 nếu chưa a
 # KHÔNG nằm trong `make gate`, và đó là chủ ý: `gate` chạy trên nhánh, nơi
 # HEAD khác origin/main theo đúng thiết kế. Gộp vào đó thì cổng đỏ mỗi lần,
 # và một cổng luôn đỏ là một cổng người ta học cách bỏ qua.
+# `scripts/agent_supervisor.py` chạy từ BẢN CHÉP ở ~/agent-harness/, không chạy
+# từ cây này — đổi nhánh là file biến mất giữa lúc đang chạy, nên docstring của
+# nó dặn cài một bản ra ngoài mọi worktree. Việc cài là người gõ tay, và trước
+# hôm nay không có gì kiểm xem họ đã gõ chưa: đo 31/08 thì bản đang chạy CHẬM 3
+# commit, thiếu đúng #470 và #477 — hai bản vá đồng hồ, đã merge, đã gác, và
+# chưa từng chạy.
+#
+# Mục này chỉ để gõ tay khi cần xem chi tiết. Cổng thật nằm trong `make gate`
+# (chặng `harness-deploy`), vì lỗi này chưa bao giờ là "khó trả lời" mà là
+# "không ai hỏi".
+harness-check: ## Bản harness đang CHẠY có khớp bản đã MERGE không — REF= đổi mốc
+	@python3 scripts/check_harness_deploy_drift.py \
+	  $(if $(REF),--ref $(REF)) $(if $(NOFETCH),--no-fetch) \
+	  $(if $(STRICT),--strict) $(if $(JSON),--json)
+
 bundle-check: ## Cây đang đứng có khớp origin/main không — hỏi TRƯỚC khi xuất bundle
 	@python3 scripts/check_tree_matches_main.py \
 	  $(if $(TREE),--tree $(TREE)) $(if $(REF),--ref $(REF)) \
