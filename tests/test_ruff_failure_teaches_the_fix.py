@@ -204,6 +204,38 @@ class TheBlockIsRunnable(TeachingHarness):
             f"--- khối ---\n{block}\n--- lần hai ---\n{self.output(second)}",
         )
 
+    def test_a_path_needing_shell_quoting_is_still_pasteable(self) -> None:
+        """The block is shell, so the paths in it have to survive being shell.
+
+        An unquoted path with a space in it becomes two arguments, and `ruff
+        format` then reports a file-not-found for both halves of the name --
+        which reads as "the gate is broken" rather than "your filename". The
+        block is built with `printf %q` for that reason; this is what keeps it
+        that way.
+        """
+        base = self.base()
+        self.write("has space.py", FORMAT_ERROR)
+
+        first = self.run_gate(base)
+        self.assertEqual(first.returncode, 1, self.output(first))
+
+        block = self.paste_block(first)
+        pasted = subprocess.run(
+            ["bash", "-c", block],
+            cwd=self.repo,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        self.assertEqual(
+            pasted.returncode, 0, f"{block}\n{pasted.stdout}\n{pasted.stderr}"
+        )
+        self.assertEqual(
+            self.run_gate(base).returncode,
+            0,
+            f"khối dán không sửa nổi file có dấu cách trong tên:\n{block}",
+        )
+
     def test_pasted_block_does_not_touch_untouched_debt(self) -> None:
         """Point 4, measured rather than asserted.
 
