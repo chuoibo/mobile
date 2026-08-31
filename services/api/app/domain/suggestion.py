@@ -39,6 +39,8 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
+from app.domain.money import count_violation, vnd_violation
+
 #: The card kind this module -- and only this module -- serves. Deliberately
 #: not a fourth kind inside `ground_card`: a proactive suggestion is not a chat
 #: message, and widening the companion's whitelist to carry it would put an
@@ -134,14 +136,14 @@ def _integer_dong(value: Any) -> int:
     Python and `True` is not a sum of money.
     """
 
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+    if vnd_violation(value):
         raise SuggestionError("suggestion_history_not_integer_dong")
     return value
 
 
 def _headcount(value: Any) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-        raise SuggestionError("suggestion_history_not_integer_dong")
+    if count_violation(value, minimum=1):
+        raise SuggestionError("suggestion_history_headcount_not_integer")
     return value
 
 
