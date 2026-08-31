@@ -604,7 +604,11 @@ def _build_cases() -> list[MutationCase]:
             "bỏ query_params + path_params khỏi vòng lặp",
             GATE_PATH,
             partial(_drop_query_and_path, target=walker_loop),
-            "observe",
+            # Was "observe": on the first table this mutant survived, because
+            # the walker fed query/path params to a model walk that could not
+            # see them. The gate now has a scalar-parameter rule, so dropping
+            # them is a real regression and this is pinned red.
+            "red",
         ),
         MutationCase(
             "R1",
@@ -692,7 +696,7 @@ def _measure() -> int:
     if unexpected:
         print("KẾT QUẢ NGOÀI DỰ KIẾN: " + "; ".join(unexpected))
         return 1
-    print("KẾT QUẢ ĐÚNG KỲ VỌNG; W2 là phép đo quan sát, E1 được phép LỌT.")
+    print("KẾT QUẢ ĐÚNG KỲ VỌNG; 9 đột biến thật ĐỎ, E1 là phép quy thuộc nên XANH.")
     return 0
 
 
