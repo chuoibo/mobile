@@ -64,6 +64,19 @@ def test_cham_qua_bi_danh():
 """
 
 
+# Đường tiến trình con. Năm trong bảy phát hiện thật của lượt quét đầu tiên
+# đến từ đúng đường này (`exec ~/agent-harness/team.sh`), nên nó phải có ca
+# riêng — không có ca này thì gỡ hẳn nhánh `subprocess.Popen` vẫn xanh.
+CA_CHAY_TIEN_TRINH_NGOAI = """import subprocess
+from pathlib import Path
+
+
+def test_chay_lenh_ngoai_repo():
+    subprocess.run([str(Path.home() / "khong-co-that.sh")], check=False)
+    assert True
+"""
+
+
 def _du_an(root: Path, ca: dict[str, str]) -> Path:
     """Một cây repo tí hon đủ để bộ dò chạy được trên nó."""
     (root / "scripts").mkdir(parents=True, exist_ok=True)
@@ -96,6 +109,14 @@ class TestBoDoDocRaNgoai:
         p = _chay(repo, "tests", "--min-items", "1")
         assert p.returncode == 1, p.stdout + p.stderr
         assert "test_ngoai.py::test_cham_vao_home" in p.stdout, p.stdout
+
+    def test_chay_tien_trinh_con_ngoai_repo_thi_do(self, tmp_path):
+        """`exec` là đường đã tạo 5/7 phát hiện thật của lượt quét đầu tiên."""
+        repo = _du_an(tmp_path, {"test_exec.py": CA_CHAY_TIEN_TRINH_NGOAI})
+        p = _chay(repo, "tests", "--min-items", "1")
+        assert p.returncode == 1, p.stdout + p.stderr
+        assert "test_exec.py::test_chay_lenh_ngoai_repo" in p.stdout, p.stdout
+        assert "exec " in p.stdout, p.stdout
 
     def test_bi_danh_cuc_bo_khong_giau_duoc(self, tmp_path):
         """Chỗ một lượt grep sẽ mù, và là lý do bộ dò này đo hành vi."""
