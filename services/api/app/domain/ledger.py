@@ -141,10 +141,19 @@ def merge_obligations(obligations: list[dict]) -> list[dict]:
 
 
 def confirmed_total(receipt_confirmations: list[dict]) -> int:
-    """Sum of amounts the recipient has confirmed receiving."""
+    """Sum of amounts the recipient has confirmed receiving.
+
+    This used to hand-roll `amount <= 0` and never check the type, which is the
+    fourth way in that review's original sweep missed: a float passed `> 0`, so
+    a tenth plus a fifth summed to a hair over three tenths and
+    `obligation_status` read an exactly-paid obligation as `over_confirmed`.
+    `require_vnd` runs first so the annotated return type is true; zero keeps
+    its own diagnostic because "you confirmed nothing" is a different mistake
+    from "that is not a number".
+    """
     total = 0
     for confirmation in receipt_confirmations:
-        amount = confirmation["amount_vnd"]
+        amount = require_vnd(confirmation["amount_vnd"])
         if amount <= 0:
             raise LedgerError("NON_POSITIVE_CONFIRMATION")
         total += amount
@@ -187,7 +196,14 @@ def obligation_status(
 
     `receiver_confirmed` is not bank evidence. It should not be able to close
     an argument either.
+
+    Both money arguments run through `require_vnd`. This one used to hand-roll
+    `<= 0`, which is how the fix one function up missed it: `0.5 <= 0` and
+    `True <= 0` are both False, so a float face value produced a status and
+    `True` became one dong, reading every real payment as `over_confirmed`.
+    Zero keeps its own diagnostic for the same reason `confirmed_total` does.
     """
+    require_vnd(declared_amount_vnd)
     if declared_amount_vnd <= 0:
         raise LedgerError("NON_POSITIVE_OBLIGATION")
     confirmed = confirmed_total(receipt_confirmations)

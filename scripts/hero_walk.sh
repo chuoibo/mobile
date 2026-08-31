@@ -338,17 +338,46 @@ if tree == "?":
     raise SystemExit(2)
 
 if tree != "clean":
+    # Only meaningful for a dirty walk: a clean tree at a given commit is the
+    # same bytes in every worktree, so which directory produced it says nothing.
+    # Uncommitted edits are the opposite -- they exist in exactly one directory.
     where = v.get("worktree")
     if where != repo:
         print(f"hero_walk: lượt đi bộ chạy trên cây CÓ SỬA CHƯA COMMIT ở {where},")
         print(f"  không phải {repo}. Mã nó đo không nằm trong commit nào,")
         print("  nên nó không bảo lãnh được cho cây này. Chạy: make hero-walk")
         raise SystemExit(2)
-    if tree != now:
+
+# OUTSIDE the branch above, and that placement is the whole fix. This comparison
+# used to sit INSIDE `if tree != "clean":`, so it only ever ran when the RECORDED
+# tree was dirty. A verdict saying `clean` was therefore never compared to
+# anything: it was accepted unconditionally for MAX_AGE_HOURS.
+#
+# That left the gate blind in the one direction every lane travels daily -- walk
+# a clean main, then start typing. From the first keystroke the verdict vouches
+# for a tree nobody walked, which is verbatim what this block was added to stop:
+# "it vouched for code it never ran". The dirty->dirty direction was closed, so
+# the hole was an ASYMMETRY, not a dead gate, and asymmetric holes survive
+# precisely because the half that works reads as proof the whole thing works.
+if tree != now:
+    if now == "?":
+        # Reachable while every sha check above still passes: a corrupt or
+        # locked index (and `.git` is SHARED between this repo's worktrees) makes
+        # `git status` exit 128 while `rev-parse` answers fine. Must not be
+        # phrased as "you have uncommitted edits" -- that is a true red with a
+        # false reason, and it sends the reader hunting a change they never made.
+        print("hero_walk: KHÔNG ĐỌC ĐƯỢC trạng thái cây làm việc BÂY GIỜ,")
+        print("  nên không xác nhận lại được phán quyết còn nói về cây này.")
+        print("  'Không đọc được' KHÔNG phải 'cây vẫn thế'. Chạy: make hero-walk")
+    elif tree == "clean":
+        print("hero_walk: lượt đi bộ chạy trên CÂY SẠCH, còn cây bây giờ CÓ SỬA")
+        print("  CHƯA COMMIT — client bây giờ không phải client đã đi bộ.")
+        print("  Chạy: make hero-walk")
+    else:
         print("hero_walk: lượt đi bộ chạy trên cây có sửa chưa commit, và những sửa đó")
         print("  ĐÃ KHÁC so với bây giờ — client bây giờ không phải client đã đi bộ.")
         print("  Chạy: make hero-walk")
-        raise SystemExit(2)
+    raise SystemExit(2)
 
 if int(v.get("rc", 1)) != 0:
     print(f"hero_walk: lượt gần nhất ({when}) ĐỨT ở '{v.get('buoc_hong','?')}' trên {v['url']}.")

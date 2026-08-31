@@ -7,6 +7,15 @@ return `b""` and noticed something nobody had asked about: the route answered
 **HTTP 200 with zero bytes**, not 404. A check written as `assert status == 200`
 stays green over a wall of completely broken thumbnails.
 
+**Row D was decided and fixed on #434**: a file that is present and empty now
+answers exactly what a file storage lost answers, on both routes. The rows
+below were rewritten to assert that contract rather than the old defect, and
+each one now compares against **B's real answer on the same route** instead of
+against a literal -- pinning both routes to one code string would have split D
+from B on the avatar route, which uses `avatar_not_found`, and that split is
+the thing the decision removed. Row E is untouched and still answers `200`: no
+decision has been made about a file holding the wrong bytes rather than none.
+
 That was a mutation, not a real condition. A mutation proves a *measurement*
 can bite; it does not prove a *user* can reach the state. This file separates
 the two. It walks each way the bytes behind a photo can be missing or wrong and
@@ -304,31 +313,34 @@ def main() -> int:
     # --- B: DB row survives, file deleted ----------------------------------
     gone, gone_path = upload_and_locate(group, an, blob)
     gone_path.unlink()
-    status, payload, _ = call("GET", gone["url"], actor=an, contexts=group)
-    record("photos", "B file bi XOA khoi dia", status, payload)
+    b_status, b_payload, _ = call("GET", gone["url"], actor=an, contexts=group)
+    record("photos", "B file bi XOA khoi dia", b_status, b_payload)
     check(
         "B file bi xoa -> 404 photo_not_found",
-        status == 404 and js(payload).get("code") == "photo_not_found",
-        f"status={status} code={js(payload).get('code')}",
+        b_status == 404 and js(b_payload).get("code") == "photo_not_found",
+        f"status={b_status} code={js(b_payload).get('code')}",
     )
 
     # --- D: file truncated to zero -----------------------------------------
+    # Da sua (#434): D tra dung cai B tra. So sanh voi CAU TRA LOI THAT cua B
+    # o tren, khong so voi mot chuoi viet tay -- de hai dieu kien nay khong the
+    # roi nhau ra trong mot lan sua sau.
     empty, empty_path = upload_and_locate(group, an, blob)
     declared = empty["byte_size"]
     empty_path.write_bytes(b"")
     status, payload, headers = call("GET", empty["url"], actor=an, contexts=group)
     record("photos", "D file bi cat ve 0 BYTE", status, payload)
     check(
-        "D file 0 byte -> 200 voi 0 byte (LO HONG)",
-        status == 200 and len(payload) == 0,
-        f"status={status} len={len(payload)}"
-        f" content-length={headers.get('content-length')}"
-        f" ctype={headers.get('content-type')}",
+        "D file 0 byte -> 404 photo_not_found, GIONG HET B",
+        status == b_status and payload == b_payload,
+        f"status={status} code={js(payload).get('code')}"
+        f" | B tra status={b_status} code={js(b_payload).get('code')}",
     )
     check(
-        "D may chu BIET so byte dung ({} byte) ma khong doi chieu".format(declared),
-        status == 200 and len(payload) == 0 and declared > 0,
-        f"DB khai byte_size={declared}, route phat {len(payload)} byte",
+        "D khong con phat 0 byte duoi nhan image/* (DB khai {} byte)".format(declared),
+        not (status == 200 and len(payload) == 0),
+        f"status={status} len={len(payload)}"
+        f" ctype={headers.get('content-type')} DB khai byte_size={declared}",
     )
 
     # --- E: file overwritten with non-image bytes --------------------------
@@ -336,8 +348,12 @@ def main() -> int:
     junk_path.write_bytes(b"khong phai anh, chi la chu")
     status, payload, headers = call("GET", junk["url"], actor=an, contexts=group)
     record("photos", "E file bi ghi de bang RAC", status, payload)
+    # Ban va cua #434 chi dong D. E VAN mo, va o day co chu dich: ban va do
+    # "rong" chu khong doi chieu byte_size, nen mot file dung so byte nhung sai
+    # ruot van di qua. Chua ai quyet dinh cau tra loi dung cho E; hang nay giu
+    # nguyen de con so do duoc chu khong bi im di cung luc voi D.
     check(
-        "E file rac -> 200 voi rac, dan nhan image/jpeg (LO HONG)",
+        "E file rac -> 200 voi rac, dan nhan image/jpeg (VAN MO, chua co quyet dinh)",
         status == 200
         and decode_size(payload) is None
         and headers.get("content-type", "").startswith("image/"),
@@ -407,16 +423,33 @@ def main() -> int:
         f"status={status} len={len(payload)} size={decode_size(payload)}",
     )
 
+    # B' truoc, roi D' -- cung cach doi chieu nhu ben route photos. Chu y ma
+    # loi: route avatar dung `avatar_not_found` chu KHONG dung `photo_not_found`.
+    # Quyet dinh o #434 la "D tra dung cai B tra"; tren route nay cai B tra la
+    # `avatar_not_found`. Ghim ca hai vao mot chuoi chung se tach lai D khoi B
+    # ngay tren route nay -- dung cai hinh dang ban va vua go bo.
+    avatar_path.unlink()
+    b_status, b_payload, _ = call(
+        "GET", f"/people/{an}/avatar", actor=an, contexts=group
+    )
+    record("avatar", "B file bi XOA khoi dia", b_status, b_payload)
+    check(
+        "B' avatar bi xoa -> 404 avatar_not_found",
+        b_status == 404 and js(b_payload).get("code") == "avatar_not_found",
+        f"status={b_status} code={js(b_payload).get('code')}",
+    )
+
     avatar_path.write_bytes(b"")
     status, payload, headers = call(
         "GET", f"/people/{an}/avatar", actor=an, contexts=group
     )
     record("avatar", "D file bi cat ve 0 BYTE", status, payload)
     check(
-        "D' avatar 0 byte -> 200 voi 0 byte (LO HONG, cung hinh dang)",
-        status == 200 and len(payload) == 0,
-        f"status={status} len={len(payload)}"
-        f" declared byte_size={avatar.get('byte_size')}",
+        "D' avatar 0 byte -> GIONG HET B' (404 avatar_not_found)",
+        status == b_status and payload == b_payload,
+        f"status={status} code={js(payload).get('code')}"
+        f" | B' tra status={b_status} code={js(b_payload).get('code')}"
+        f" | DB khai byte_size={avatar.get('byte_size')}",
     )
 
     # --- PART 3: can a caller reach rows D or E through the product? -------
