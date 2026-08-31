@@ -37,6 +37,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -461,24 +462,70 @@ class TestNeoVaoHarnessThat:
         )
         assert "test_phat_hien_hong.py" in p.stdout
 
-    def test_team_sh_van_co_duong_goi_tay(self):
-        """`team.sh check` là chỗ gọi tay; mất nó là quay về chỉ-khi-restart."""
+
+@pytest.mark.skipif(
+    not (HARNESS_THAT / "team.sh").is_file(), reason="máy này không có team.sh"
+)
+class TestTeamShDoBangHanhVi:
+    """Đo `team.sh check` LÀM GÌ, không đọc `team.sh` VIẾT GÌ.
+
+    Bản đầu của hai ca này grep văn bản nguồn: một ca đòi chuỗi `SAN_TEST` có
+    trong file, ca kia đòi chuỗi `check)`. Bảng đột biến bắt được cả hai là vô
+    dụng — thay sàn thành `-lt 0` vẫn để lại dòng khai `SAN_TEST=6` ở đầu file,
+    và bọc `# check)` thành comment vẫn để lại chuỗi `check)`. Hai đột biến gỡ
+    đúng hai thứ này SỐNG SÓT qua bộ test đọc-chữ.
+
+    Nên các ca dưới đây dựng một cây harness giả rồi chạy `team.sh check` thật
+    vào nó qua `HARNESS_ROOT`, và đọc mã thoát.
+    """
+
+    @staticmethod
+    def _chay_check(root: Path) -> subprocess.CompletedProcess:
         team = HARNESS_THAT / "team.sh"
-        if not team.is_file():
-            pytest.skip("cây harness không có team.sh")
-        body = team.read_text(encoding="utf-8")
-        assert "check)" in body, (
-            "team.sh không còn subcommand `check` — bộ tự kiểm lại chỉ tới được "
-            "bằng cách khởi động lại cả đội"
+        return subprocess.run(
+            ["bash", str(team), "check"],
+            env={**os.environ, "HARNESS_ROOT": str(root)},
+            capture_output=True,
+            text=True,
+            timeout=600,
         )
 
-    def test_team_sh_co_san_so_file_test(self):
-        """Vòng bash phải có sàn, không thì glob rỗng lại đọc thành ĐẠT."""
-        team = HARNESS_THAT / "team.sh"
-        if not team.is_file():
-            pytest.skip("cây harness không có team.sh")
-        body = team.read_text(encoding="utf-8")
-        assert "SAN_TEST" in body, (
-            "team.sh không có sàn số file test: thư mục tests/ rỗng sẽ làm "
-            "kiem_tra_harness trả 0 sau khi chạy đúng 0 test"
+    def test_cay_du_file_va_xanh_thi_check_thoat_0(self, tmp_path):
+        _harness_gia(tmp_path)
+        p = self._chay_check(tmp_path)
+        assert p.returncode == 0, p.stdout + p.stderr
+        # Mỗi file phải hiện kèm SỐ test đã chạy. Một dấu ✓ không có số đọc y
+        # hệt một file chạy đúng 0 test — mẫu cũ của team.sh chỉ khớp "tests"
+        # số nhiều, nên file chạy 1 test in ra ô trống.
+        cham = re.findall(r"✓ (\S+)\s+Ran (\d+) test", p.stdout)
+        assert len(cham) == len(M.REQUIRED_TESTS), p.stdout
+        assert all(int(n) >= 1 for _, n in cham), p.stdout
+
+    def test_mot_file_do_thi_check_thoat_khac_0(self, tmp_path):
+        """Chứng minh `check` CHẠY bộ test chứ không chỉ đếm file."""
+        _harness_gia(tmp_path, do=(M.REQUIRED_TESTS[2],))
+        assert self._chay_check(tmp_path).returncode != 0
+
+    def test_thu_muc_tests_rong_thi_check_thoat_khac_0(self, tmp_path):
+        """Lỗ đã đo: glob rỗng làm vòng cũ trả 0 sau khi chạy 0 test."""
+        (tmp_path / "tests").mkdir()
+        p = self._chay_check(tmp_path)
+        assert p.returncode != 0, (
+            "team.sh check nói ĐẠT trên một thư mục tests/ rỗng: " + p.stdout + p.stderr
         )
+
+    def test_duoi_san_thi_check_thoat_khac_0(self, tmp_path):
+        """Bộ test teo lại — mọi file còn lại đều xanh — vẫn phải ĐỎ."""
+        _harness_gia(tmp_path)
+        for name in M.REQUIRED_TESTS[2:]:
+            (tmp_path / "tests" / name).unlink()
+        p = self._chay_check(tmp_path)
+        assert p.returncode != 0, (
+            "team.sh check nói ĐẠT với 2 file test còn lại: " + p.stdout + p.stderr
+        )
+
+    def test_check_khong_dung_toi_worktree_hay_tmux(self, tmp_path):
+        """`start` fetch + dựng worktree + đòi tmux; `check` phải không làm gì cả."""
+        _harness_gia(tmp_path)
+        assert self._chay_check(tmp_path).returncode == 0
+        assert not (tmp_path / "wt").exists()
