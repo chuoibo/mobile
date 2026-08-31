@@ -92,44 +92,97 @@ const DA_BIET = [
     step: "goi-y",
     rong: 360,
     chu: "Gợi ý chia theo người",
-    over: 11,
+    over: 12,
     ly:
       "Hàng tiêu đề còn chevron 44 (tap target) + 'Món của tôi' 72 (nút đường hero). " +
-      "Đóng nốt 11pt cần một bậc chữ theo bề ngang, tức quyết định về thang trong " +
-      "DESIGN.md, không phải sửa trong một file màn. Đã báo Lead, chưa có phán quyết.",
+      "Đóng nốt cần một bậc chữ theo bề ngang, tức quyết định về thang trong " +
+      "DESIGN.md, không phải sửa trong một file màn. Đã báo Lead, chưa có phán quyết. " +
+      "Con số là 12 chứ không phải 11 như bản ghi cũ, và MÀN KHÔNG XẤU ĐI: 11 là " +
+      "`scrollWidth - clientWidth` của cái hộp, 12 là phần chữ thật sự vẽ ra ngoài " +
+      "mép hộp cắt nó. Chữ bắt đầu lệch vào 1pt so với mép trong của hộp, nên số đo " +
+      "mới lớn hơn đúng 1. Đo cái người đọc mất, không đo cái hộp thừa.",
   },
   {
     step: "goi-y",
     rong: 320,
     chu: "Gợi ý chia theo người",
-    over: 51,
+    over: 52,
     ly: "Cùng nguyên nhân với ca 360, xa hơn 40pt. Cùng một bản sửa sẽ đóng cả hai.",
   },
 ];
 
-/** One deliberately clipped heading and one deliberately scrollable row. The
- *  measurement below must return the first and not the second; a run that
- *  cannot tell them apart cannot be trusted about any real screen. */
+/**
+ * Four rows, and the pair that must stay SILENT is as load-bearing as the pair
+ * that must come back red.
+ *
+ * `bi-cat` and `cuon-duoc` are the original two: one clipped, one scrollable.
+ * The other two exist because the measurement below used to answer a different
+ * question than the one it asks, and only these two rows can tell the two
+ * questions apart:
+ *
+ *   `ra-le` renders text outside its own box with every ancestor `overflow:
+ *   visible` -- painted, readable, hit-testable. `scrollWidth > clientWidth`
+ *   is TRUE for it, so a box-overflow rule calls it truncated. It is not.
+ *   `to-cha-cat` is the same shape with one grandparent set to `overflow:
+ *   hidden`, so the characters really do stop existing at the same geometry.
+ *
+ * Any classifier that gets `ra-le` right by being more permissive gets
+ * `to-cha-cat` wrong, and a run that reports both or neither has stopped
+ * measuring the thing it is named after.
+ */
 const CANARY = `<!DOCTYPE html><html lang="vi"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>canary tran chu</title><style>
  body { margin:0; font: 16px/1.4 system-ui, sans-serif; color:#1a1a1a; background:#fff; }
  .clip { width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
  .scroll { width:120px; overflow-x:auto; white-space:nowrap; }
+ .bleed-outer { width:120px; }
+ .bleed-inner { width:60px; white-space:nowrap; }
+ .hide-outer { width:120px; overflow:hidden; }
+ /* 22 ky tu trong 21ch: cat ra dung mot ch, co cua mot loi that. */
+ .it { font-family:monospace; width:21ch; overflow:hidden; white-space:nowrap; }
 </style></head><body>
  <div class="clip">CANARY BI CAT MOT CHUOI RAT DAI KHONG THE HIEN HET</div>
  <div class="scroll">CANARY CUON DUOC MOT CHUOI RAT DAI NHUNG KEO NGANG DUOC</div>
+ <div class="bleed-outer"><div class="bleed-inner">CANARY RA LE VAN DOC DUOC</div></div>
+ <div class="hide-outer"><div class="bleed-inner">CANARY TO CHA CAT KHONG DOC HET DUOC</div></div>
+ <div class="it">CANARY CAT IT MOT CHU!</div>
 </body></html>`;
 
 /**
- * Every element whose own text is wider than the box it was given AND which no
- * ancestor can scroll into view.
+ * Every run of text whose painted width is cut off by a box it cannot escape.
  *
- * Runs inside the page. Innermost wins: a clipped leaf also makes each of its
- * ancestors measure over, and reporting the chain would turn one defect into
- * five lines naming the same characters.
+ * Runs inside the page. The unit is a TEXT NODE, not an element, and that is
+ * the correction this function carries. The old version asked each element
+ * `scrollWidth > clientWidth` and called a positive answer truncation unless
+ * some ancestor scrolled. Those are not the same question, and CSS is why: with
+ * the default `overflow: visible`, content that does not fit its box is still
+ * PAINTED outside it. The box overflows; the reader loses nothing.
+ *
+ * Measured cost of the difference, on `ket-qua` at five widths: 15 lines, every
+ * one of them the delete button of a dish row. That button carries a deliberate
+ * `marginRight: -space.sm` so its 44pt tap target overhangs the row track into
+ * the Card's padding, and the render agrees it is fine -- at 390pt the button
+ * sits at [329,373] inside a clipping ancestor that ends at 374, and
+ * `elementFromPoint` at its rightmost painted column returns the button itself.
+ * The one real defect in the same table, an 11pt clip on `goi-y`, printed
+ * fifteenth. A measurement whose false alarms outnumber its findings 15:2 gets
+ * read as noise, which is the same outcome as not running it.
+ *
+ * So: find each text run's painted rectangle, find the nearest ancestor that
+ * actually clips (`overflow-x` not `visible`), and report the overhang between
+ * them. `overflow: hidden` on the element itself is the ordinary case -- that is
+ * what `numberOfLines={1}` compiles to under react-native-web -- and it is
+ * caught by the same rule with no special case, because such an element is its
+ * own nearest clipper.
+ *
+ * Horizontal only, deliberately: the question is which phone widths truncate,
+ * and vertical clipping on a scrolling screen is a different defect with a
+ * different fix.
  */
 function doTrongTrang() {
+  /* Reachable by dragging is not truncated -- the horizontal people-matrix on
+   * `goi-y` overflows by 265pt at 414 by design, forever. */
   const cuonDuoc = (el) => {
     for (let n = el; n && n !== document.documentElement; n = n.parentElement) {
       const ox = getComputedStyle(n).overflowX;
@@ -137,31 +190,64 @@ function doTrongTrang() {
     }
     return false;
   };
-  const els = [];
-  for (const el of document.querySelectorAll("*")) {
-    const over = el.scrollWidth - el.clientWidth;
-    if (over <= 0 || el.clientWidth <= 0) continue;
-    const chu = (el.innerText ?? "").trim().replace(/\s+/g, " ");
+  /* The first box on the way up that would actually cut paint. `visible` boxes
+   * are skipped however small they are; that is the whole point. Nothing above
+   * the viewport can clip, so the viewport is the backstop. */
+  const hopCat = (el) => {
+    for (let n = el; n && n !== document.documentElement; n = n.parentElement) {
+      if (getComputedStyle(n).overflowX !== "visible") {
+        const r = n.getBoundingClientRect();
+        const cs = getComputedStyle(n);
+        // Content box: padding still shows paint, borders do not.
+        return {
+          trai: r.left + parseFloat(cs.borderLeftWidth || "0"),
+          phai: r.right - parseFloat(cs.borderRightWidth || "0"),
+          ten: `${n.tagName.toLowerCase()}${n.getAttribute("role") ? `[role=${n.getAttribute("role")}]` : ""}`,
+        };
+      }
+    }
+    return { trai: 0, phai: window.innerWidth, ten: "viewport" };
+  };
+
+  const ra = [];
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const chu = (node.nodeValue ?? "").trim().replace(/\s+/g, " ");
     if (!chu) continue;
+    const el = node.parentElement;
+    if (!el) continue;
+    const cs = getComputedStyle(el);
+    if (cs.visibility === "hidden" || cs.display === "none" || Number(cs.opacity) === 0) continue;
     if (cuonDuoc(el)) continue;
-    els.push(el);
+
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    const rects = [...range.getClientRects()].filter((r) => r.width > 0 && r.height > 0);
+    range.detach?.();
+    if (!rects.length) continue;
+
+    const hop = hopCat(el);
+    /* Right and left separately: a right-aligned label in a clipped box loses
+     * its head, not its tail, and reporting only one side would call that
+     * clean. */
+    let cat = 0;
+    for (const r of rects) {
+      cat = Math.max(cat, r.right - hop.phai, hop.trai - r.left);
+    }
+    if (cat <= 0.5) continue;
+
+    const rong = Math.max(...rects.map((r) => r.right)) - Math.min(...rects.map((r) => r.left));
+    ra.push({
+      chu: chu.slice(0, 60),
+      over: Math.round(cat),
+      sw: Math.round(rong),
+      cw: Math.round(hop.phai - hop.trai),
+      // What cut it, not just what it says: on this app "×" names six boxes and
+      // a fix needs to know which one was measured.
+      nut: `${el.tagName.toLowerCase()}${el.getAttribute("role") ? `[role=${el.getAttribute("role")}]` : ""} trong ${hop.ten}`,
+    });
   }
-  /* Innermost wins, by DOM containment rather than by comparing the strings.
-   * The string version silently kept whole chains: a row whose only text is a
-   * "×" button has the SAME innerText as the six nested boxes under it, and
-   * `a.chu !== b.chu` dropped every one of those comparisons, so one 10pt
-   * overflow printed six identical lines. Containment has no such tie. */
-  return els
-    .filter((a) => !els.some((b) => b !== a && a.contains(b)))
-    .map((el) => ({
-      chu: (el.innerText ?? "").trim().replace(/\s+/g, " ").slice(0, 60),
-      over: el.scrollWidth - el.clientWidth,
-      sw: el.scrollWidth,
-      cw: el.clientWidth,
-      // What it is, not just what it says: "×" names six different boxes, and a
-      // fix needs to know which one was measured.
-      nut: `${el.tagName.toLowerCase()}${el.getAttribute("role") ? `[role=${el.getAttribute("role")}]` : ""}`,
-    }));
+  return ra;
 }
 
 /** Load one page at one width and return what it truncates. */
@@ -222,19 +308,35 @@ async function main() {
 
     console.log(`== doi chung: trang canary (${BE_NGANG[0]}pt) ==`);
     const cn = await doMotMan(browser, `${goc}/${tenCanary}`, null, BE_NGANG[0]);
-    const batDuoc = cn.tran.filter((t) => t.chu.startsWith("CANARY BI CAT"));
-    const batNham = cn.tran.filter((t) => t.chu.startsWith("CANARY CUON DUOC"));
-    console.log(`  bi cat  : ${batDuoc.length} (can = 1)   ${batDuoc.map((t) => `over ${t.over}`).join("")}`);
-    console.log(`  cuon duoc: ${batNham.length} (can = 0)`);
-    if (batDuoc.length !== 1) {
-      throw new Error(
-        "PHEP DO DA MU: chuoi bi cat co tinh khong duoc bao. Moi so 0 duoi day la vo nghia.",
+    /* Two rows must come back and two must stay silent. Both halves are the
+     * control: a classifier tuned until the false alarms go away also stops
+     * reporting the real thing, and only the `can = 1` rows can tell. */
+    const CHO_DOI = [
+      { ma: "CANARY BI CAT", can: 1, ly: "chuoi bi chinh hop cua no cat" },
+      { ma: "CANARY CUON DUOC", can: 0, ly: "hang cuon ngang duoc, keo tay la thay" },
+      { ma: "CANARY RA LE", can: 0, ly: "chu ve ngoai hop nhung khong hop nao cat -- van doc duoc" },
+      { ma: "CANARY TO CHA CAT", can: 1, ly: "cung hinh dang, nhung mot to cha overflow:hidden" },
+      /* Hai hang `can = 1` kia cat 325 va 220. Loi that tren `goi-y` cat 12.
+       * Mot nguong lot vao giua se giet cai 12 va van in "ok" hai lan, nen phai
+       * co mot hang doi chung dung CO cua loi that. */
+      { ma: "CANARY CAT IT", can: 1, catToiDa: 25, ly: "cat nho co mot ky tu -- co cua loi that tren may" },
+    ];
+    let canarySai = 0;
+    for (const k of CHO_DOI) {
+      const thay = cn.tran.filter((t) => t.chu.startsWith(k.ma));
+      const duCo = k.catToiDa === undefined || thay.every((t) => t.over <= k.catToiDa);
+      const dat = thay.length === k.can && duCo;
+      if (!dat) canarySai += 1;
+      console.log(
+        `  ${dat ? "ok  " : "SAI "} ${k.ma.padEnd(18)} thay ${thay.length} (can = ${k.can})` +
+          `${thay.length ? `  cat ${thay.map((t) => t.over).join(",")}` : ""}` +
+          `${k.catToiDa !== undefined ? ` (can <= ${k.catToiDa})` : ""}   ${k.ly}`,
       );
     }
-    if (batNham.length !== 0) {
+    if (canarySai > 0) {
       throw new Error(
-        "PHEP DO BAT NHAM: mot hang cuon ngang duoc bi bao la cat. Bang duoi se chim " +
-          "trong bao dong gia va cai 11pt that se khong ai thay.",
+        `PHEP DO KHONG PHAN BIET DUOC: ${canarySai}/4 hang doi chung sai. Moi con so duoi day ` +
+          "la vo nghia -- ca so 0 lan so khac 0.",
       );
     }
 
@@ -282,7 +384,23 @@ async function main() {
     fs.mkdirSync(outDir, { recursive: true });
     fs.writeFileSync(
       path.join(outDir, "tran-chu.json"),
-      JSON.stringify({ beNgang: BE_NGANG, cao: CAO, canary: { batDuoc: batDuoc.length, batNham: batNham.length }, tran: bangKe, daBiet: DA_BIET }, null, 2),
+      JSON.stringify(
+        {
+          beNgang: BE_NGANG,
+          cao: CAO,
+          // The whole control table, not a pass/fail bit: a reader who wants to
+          // know whether the zeros mean anything needs the `can = 1` rows too.
+          canary: CHO_DOI.map((k) => ({
+            ma: k.ma,
+            can: k.can,
+            thay: cn.tran.filter((t) => t.chu.startsWith(k.ma)).length,
+          })),
+          tran: bangKe,
+          daBiet: DA_BIET,
+        },
+        null,
+        2,
+      ),
     );
     console.log(`chi tiet: ${path.join(outDir, "tran-chu.json")}`);
   } finally {
