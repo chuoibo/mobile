@@ -120,7 +120,9 @@ def run_gate(database_url: str) -> tuple[bool, str]:
     # A run that collected nothing is not a pass. Guard against a mutation that
     # makes the module fail to import and exits non-zero for the wrong reason.
     collected = re.search(r"(\d+) passed", summary)
-    green = proc.returncode == 0 and collected is not None and int(collected.group(1)) == 10
+    green = (
+        proc.returncode == 0 and collected is not None and int(collected.group(1)) == 10
+    )
     return green, summary
 
 
@@ -160,11 +162,15 @@ def main() -> int:
 
         write_gate(mutate_exclude(original, tables))
         empty_green, empty_sum = run_gate(args.url)
-        print(f"canary empty-read    : {'GREEN' if empty_green else 'RED'}  {empty_sum}")
+        print(
+            f"canary empty-read    : {'GREEN' if empty_green else 'RED'}  {empty_sum}"
+        )
 
         write_gate(mutate_no_money(original))
         nomoney_green, nomoney_sum = run_gate(args.url)
-        print(f"canary blind-name    : {'GREEN' if nomoney_green else 'RED'}  {nomoney_sum}")
+        print(
+            f"canary blind-name    : {'GREEN' if nomoney_green else 'RED'}  {nomoney_sum}"
+        )
 
         if not base_green or empty_green or nomoney_green:
             print(
@@ -180,7 +186,9 @@ def main() -> int:
             write_gate(mutate_exclude(original, [table]))
             green, summary = run_gate(args.url)
             results.append({"table": table, "gate_green": green, "summary": summary})
-            print(f"  {'KHÔNG THẤY' if green else 'BẮT ĐƯỢC '}  bỏ {table:35s} {summary}")
+            print(
+                f"  {'KHÔNG THẤY' if green else 'BẮT ĐƯỢC '}  bỏ {table:35s} {summary}"
+            )
     finally:
         write_gate(original)
 
