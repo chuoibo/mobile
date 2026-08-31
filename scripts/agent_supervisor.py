@@ -200,7 +200,11 @@ def clear_stale_codex_sessions() -> list[str]:
 
 
 def watch_for_silence(
-    agent: str, args: argparse.Namespace, out_dir: pathlib.Path, repo: pathlib.Path, stop
+    agent: str,
+    args: argparse.Namespace,
+    out_dir: pathlib.Path,
+    repo: pathlib.Path,
+    stop,
 ) -> None:
     """Say something while an agent goes quiet, not after it finishes.
 
@@ -237,7 +241,9 @@ def watch_for_silence(
     since = time.time()
 
     def world() -> tuple[str, int]:
-        return codex_progress(repo) if agent == "codex" else dir_progress(out_dir, since)
+        return (
+            codex_progress(repo) if agent == "codex" else dir_progress(out_dir, since)
+        )
 
     last, last_change = world(), time.monotonic()
     warned_at = 0.0
@@ -267,22 +273,28 @@ def run_once(agent: str, prompt: str, args: argparse.Namespace) -> tuple[int, st
         if stale:
             emit("INFO", f"don phien codex cu: {', '.join(stale)}")
         command = [
-            str(CODEX), "exec",
-            "--cd", args.cwd,
+            str(CODEX),
+            "exec",
+            "--cd",
+            args.cwd,
             "--skip-git-repo-check",
             # `workspace-write`, not `--dangerously-bypass-approvals-and-sandbox`.
             # Codex only ever needs to write inside its own checkout, and the
             # bypass flag would also hand it the rest of the machine. The
             # narrow option is available and does the job.
-            "--sandbox", "workspace-write",
+            "--sandbox",
+            "workspace-write",
             pathlib.Path(prompt).read_text(encoding="utf-8"),
         ]
     else:
         # Foreground on purpose. Backgrounding is how run 2 disappeared: the
         # job left the registry and its status could no longer be asked for.
         command = [
-            str(AGY), "--output-format", "text",
-            "--print-timeout", args.print_timeout,
+            str(AGY),
+            "--output-format",
+            "text",
+            "--print-timeout",
+            args.print_timeout,
             "--dangerously-skip-permissions",
             f"-p={pathlib.Path(prompt).read_text(encoding='utf-8')}",
         ]
@@ -300,7 +312,9 @@ def run_once(agent: str, prompt: str, args: argparse.Namespace) -> tuple[int, st
         output = (completed.stdout or "") + (completed.stderr or "")
         code = completed.returncode
     except subprocess.TimeoutExpired as expired:
-        output = (expired.stdout or b"").decode("utf-8", "replace") if expired.stdout else ""
+        output = (
+            (expired.stdout or b"").decode("utf-8", "replace") if expired.stdout else ""
+        )
         code = 124
         emit("ALERT", f"{agent} vuot qua {args.timeout}s, da giet")
 
@@ -309,7 +323,10 @@ def run_once(agent: str, prompt: str, args: argparse.Namespace) -> tuple[int, st
     # a fast quiet run is fine, a long quiet one is a conversation with
     # something that stopped answering.
     if code == 0 and elapsed > 300 and len(output.strip()) < 200:
-        emit("ALERT", f"{agent} chay {elapsed}s ma gan nhu khong noi gi — nghi treo phien")
+        emit(
+            "ALERT",
+            f"{agent} chay {elapsed}s ma gan nhu khong noi gi — nghi treo phien",
+        )
     emit("INFO", f"{agent} ket thuc sau {elapsed}s, exit={code}")
     return code, output
 
@@ -352,7 +369,9 @@ def main() -> int:
             "va khong noi gi, nen cho toi luc no ket thuc moi biet la muon."
         ),
     )
-    parser.add_argument("--mirror", default=None, help="clone co mang, de day checkpoint di")
+    parser.add_argument(
+        "--mirror", default=None, help="clone co mang, de day checkpoint di"
+    )
     parser.add_argument("--push", default=None, help="ten remote nhan checkpoint")
     args = parser.parse_args()
 
@@ -363,7 +382,11 @@ def main() -> int:
     since = time.time()
 
     def snapshot() -> tuple[str, int]:
-        return codex_progress(repo) if args.agent == "codex" else dir_progress(out_dir, since)
+        return (
+            codex_progress(repo)
+            if args.agent == "codex"
+            else dir_progress(out_dir, since)
+        )
 
     prompt_path = pathlib.Path(args.prompt_file)
     base_prompt = prompt_path.read_text(encoding="utf-8")
@@ -373,7 +396,10 @@ def main() -> int:
         watch = [
             sys.executable,
             str(pathlib.Path(__file__).with_name("agent_checkpoint.py")),
-            "watch", args.agent, "--interval", str(args.checkpoint),
+            "watch",
+            args.agent,
+            "--interval",
+            str(args.checkpoint),
         ]
         if args.agent == "codex":
             watch += ["--repo", args.cwd]
@@ -381,13 +407,18 @@ def main() -> int:
                 watch += ["--mirror", args.mirror, "--push", args.push]
         else:
             watch += ["--out-dir", str(out_dir)]
-        checkpointer = subprocess.Popen(watch, stdout=sys.stdout, stderr=subprocess.STDOUT)
+        checkpointer = subprocess.Popen(
+            watch, stdout=sys.stdout, stderr=subprocess.STDOUT
+        )
         emit("INFO", f"cham diem moi {args.checkpoint}s, pid={checkpointer.pid}")
 
     attempt = 0
     while attempt <= args.max_restarts:
         before = snapshot()
-        emit("START", f"{args.agent} lan {attempt + 1}/{args.max_restarts + 1}, moc={before}")
+        emit(
+            "START",
+            f"{args.agent} lan {attempt + 1}/{args.max_restarts + 1}, moc={before}",
+        )
 
         prompt_for_run = prompt_path
         if attempt:
@@ -437,7 +468,11 @@ def main() -> int:
             # carries the time it resets, and that is the only part a person can
             # actually act on.
             line = next(
-                (l.strip() for l in output.splitlines() if blocked.group(0).lower() in l.lower()),
+                (
+                    ln.strip()
+                    for ln in output.splitlines()
+                    if blocked.group(0).lower() in ln.lower()
+                ),
                 blocked.group(0),
             )
             emit("ALERT", f"{args.agent} KHONG THE THU LAI: {line}")
@@ -472,9 +507,17 @@ def main() -> int:
             emit("RESTART", f"khoi dong lai {args.agent} sau 10s")
             time.sleep(10)
 
-    emit("ALERT", f"{args.agent} CHET HAN sau {args.max_restarts + 1} lan. Can nguoi vao xem.")
+    emit(
+        "ALERT",
+        f"{args.agent} CHET HAN sau {args.max_restarts + 1} lan. Can nguoi vao xem.",
+    )
     if args.checkpoint:
-        emit("INFO", "viec cua no KHONG mat: agent_checkpoint.py restore " + args.agent + " --to <dir>")
+        emit(
+            "INFO",
+            "viec cua no KHONG mat: agent_checkpoint.py restore "
+            + args.agent
+            + " --to <dir>",
+        )
     if checkpointer:
         checkpointer.terminate()
     return 1
