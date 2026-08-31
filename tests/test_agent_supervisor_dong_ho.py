@@ -301,5 +301,148 @@ def test_noi_lai_sau_im_lang_bao_dung_so_giay(monkeypatch, tmp_path, capsys):
     )
 
 
+# -- the SECOND gap in this same file -------------------------------------
+#
+# `watch_for_silence` above was fixed and `run_once` sixty lines below it was
+# not, which is the ordinary way a fix stops halfway: the reported defect names
+# one function, the defect class covers two.
+#
+# `run_once` measures how long the whole session ran, and that number is not
+# cosmetic -- it feeds the "hung session" test:
+#
+#     if code == 0 and elapsed > 300 and len(output.strip()) < 200:
+#         emit("ALERT", "... nghi treo phien")
+#
+# which exists for failure #3 in the module docstring: agy hit its own
+# print-timeout after a 42-cell QA run and wrote nothing down. Exit 0, no
+# output, hours gone. `elapsed` is the ONLY thing separating that from a fast
+# clean run, and measured on the wall clock it is not an interval.
+
+
+class _KetQua:
+    """`subprocess.CompletedProcess` is a dataclass; only three fields are read."""
+
+    def __init__(self, returncode: int, stdout: str, stderr: str = "") -> None:
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+def _phien_treo(clock: DongHoGia, that: float, buoc_wall: float = 0.0):
+    """A session that runs `that` REAL seconds, exits 0, and says nothing.
+
+    This is failure #3 from the module docstring, reproduced exactly: the
+    process ends cleanly and produces no output, so the duration is the only
+    evidence that anything went wrong. `buoc_wall` is somebody stepping the
+    wall clock while that session is in flight.
+    """
+
+    def chay(*_args: object, **_kwargs: object) -> _KetQua:
+        clock.troi(that)
+        clock.buoc_wall(buoc_wall)
+        return _KetQua(0, "")
+
+    return chay
+
+
+def _chay_run_once(
+    monkeypatch, tmp_path, capsys, *, that: float, buoc_wall: float = 0.0
+) -> list[str]:
+    sup = _load()
+    clock = DongHoGia()
+    monkeypatch.setattr(sup, "time", clock)
+    monkeypatch.setattr(sup.subprocess, "run", _phien_treo(clock, that, buoc_wall))
+
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("lam viec di", encoding="utf-8")
+    args = argparse.Namespace(
+        timeout=7200,
+        cwd=str(tmp_path),
+        out_dir=str(tmp_path),
+        print_timeout="600",
+    )
+    sup.run_once("agy", str(prompt), args)
+    return [ln for ln in capsys.readouterr().out.splitlines() if ln.strip()]
+
+
+def _treo(lines: list[str]) -> list[str]:
+    return [ln for ln in _alerts(lines) if "treo phien" in ln]
+
+
+# -- positive control: this fixture can produce the alert at all ------------
+
+
+def test_run_once_phien_treo_that_van_keu(monkeypatch, tmp_path, capsys):
+    """A 600s silent clean exit must raise the hung-session ALERT.
+
+    Load-bearing, exactly like `test_dong_ho_lanh_manh_van_keu` above: without
+    it the backward-step case below could pass against a `run_once` whose alert
+    was simply deleted.
+    """
+    lines = _chay_run_once(monkeypatch, tmp_path, capsys, that=600)
+    assert _treo(lines), (
+        f"phiên chạy 600s, exit 0, không in gì — đúng sự cố #3 trong docstring "
+        f"của module — mà không có ALERT nào: {lines}"
+    )
+
+
+# -- defect 1: the quiet direction, again ----------------------------------
+
+
+def test_run_once_buoc_lui_khong_duoc_bit_mieng(monkeypatch, tmp_path, capsys):
+    """A backward wall-clock step must not hide a hung session.
+
+    600 real seconds pass while the wall clock steps back 900 (a host resume or
+    an NTP correction). On the wall clock `elapsed` reads -300, `elapsed > 300`
+    is false, and the one alert that exists for this failure never fires.
+
+    The session is just as dead as in the control above. Only the clock moved.
+    """
+    lines = _chay_run_once(monkeypatch, tmp_path, capsys, that=600, buoc_wall=-900)
+
+    assert _treo(lines), (
+        "đồng hồ lùi 900s đã bịt miệng ALERT treo phiên: phiên chạy thật 600s, "
+        "exit 0, không in gì — mà cảnh gác im. Đây là kiểu hỏng tệ nhất, vì im "
+        f"lặng của kẻ canh gác trông y hệt một lượt chạy sạch. Đã in: {lines}"
+    )
+
+
+def test_run_once_khong_bao_gio_khai_so_giay_am(monkeypatch, tmp_path, capsys):
+    """The duration in the log must be a duration.
+
+    `ket thuc sau -300s` is not a slightly-wrong number, it is a number that
+    cannot happen -- and it is the line a person greps when asking how long
+    last night's run took.
+    """
+    lines = _chay_run_once(monkeypatch, tmp_path, capsys, that=600, buoc_wall=-900)
+
+    import re
+
+    so = [int(m) for ln in lines for m in re.findall(r"ket thuc sau (-?\d+)s", ln)]
+    assert so, f"không có dòng 'ket thuc sau' để đọc: {lines}"
+    assert min(so) >= 0, (
+        f"báo cáo thời lượng ÂM ({min(so)}s) — một khoảng thời gian không thể "
+        f"âm; con số này đến từ bước nhảy đồng hồ chứ không từ phiên chạy: {lines}"
+    )
+
+
+# -- defect 2: the loud direction ------------------------------------------
+
+
+def test_run_once_buoc_toi_khong_duoc_bao_dong_gia(monkeypatch, tmp_path, capsys):
+    """A forward wall-clock step must not invent a hung session.
+
+    The session runs 10 real seconds and exits clean -- a fast, healthy run.
+    An NTP step of one hour lands mid-flight, the wall clock reads 3600s, and
+    the supervisor pages somebody about a hang that did not happen.
+    """
+    lines = _chay_run_once(monkeypatch, tmp_path, capsys, that=10, buoc_wall=3600)
+
+    assert not _treo(lines), (
+        "đồng hồ nhảy tới 3600s đẻ ra báo động treo phiên giả: phiên chỉ chạy "
+        f"10s thật và thoát sạch: {_treo(lines)}"
+    )
+
+
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-v"]))

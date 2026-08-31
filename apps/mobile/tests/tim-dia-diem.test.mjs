@@ -237,7 +237,11 @@ test("model trả lời nhưng không chỗ nào hợp: vẫn là co-ket-qua, v�
   assert.equal(state.kind, "co-ket-qua");
   assert.deepEqual(state.places, []);
   assert.equal(state.understood.budgetPerPersonVnd, 30000);
-  assert.equal(hieuDuocGi(state.understood)[0].value, "30k/người");
+  // Empty catalogue said out loud rather than left off. `categories` used to
+  // default to `[]`, which is how a caller could turn the label lookup off
+  // without anybody reading the line noticing; this row is a budget, so an
+  // empty catalogue is the honest argument here.
+  assert.equal(hieuDuocGi(state.understood, [])[0].value, "30k/người");
 });
 
 /* -------------------------------------------- the reading being shown --- */
@@ -263,7 +267,7 @@ test("understood rỗng hoàn toàn là câu trả lời thật, không phải l
   });
   // Parses fine, and `hieuDuocGi` returns nothing -- which is the signal the
   // panel uses to print a sentence instead of drawing an empty box.
-  assert.deepEqual(hieuDuocGi(u), []);
+  assert.deepEqual(hieuDuocGi(u, []), []);
 });
 
 test("source ai mà thiếu understood thì từ chối, không hiện bảng hiểu rỗng", () => {

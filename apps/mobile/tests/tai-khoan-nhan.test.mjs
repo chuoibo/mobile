@@ -321,6 +321,10 @@ test("the proposal screen names the account without printing it", () => {
         advancerId: "p1",
         occasion: "bữa tối",
       },
+      // Everyone here is on the bill, so the group adds nothing; it is passed
+      // because the prop is required, which is what stops a real call site
+      // from quietly falling back to printing ids.
+      nhom: [],
       taiKhoanNhan: `Vietcombank ${maskAccount(SO_THAT)}`,
       onConfirm: () => {},
       onBack: () => {},
