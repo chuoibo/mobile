@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Protocol
 
-from sqlalchemy import Date, and_, cast, func, or_, select, tuple_
+from sqlalchemy import BigInteger, Date, and_, cast, func, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased
 
@@ -1888,13 +1888,18 @@ class SqlAlchemyApiRepository:
             for row in self.session.execute(
                 select(
                     Outing.id.label("outing_id"),
-                    # `int(...)`, and not the driver's answer: PostgreSQL sums a
-                    # bigint as `numeric`, which psycopg returns as `Decimal`,
-                    # and a Decimal that escapes reaches JSON as `520000.0`.
-                    # Law 1 is integer đồng end to end.
-                    func.coalesce(func.sum(ledger.c.amount_vnd), 0).label(
-                        "split_total_vnd"
-                    ),
+                    # Cast in SQL rather than `int()` at the caller: PostgreSQL
+                    # sums a bigint as `numeric`, which psycopg returns as
+                    # `Decimal`, and a Decimal that escapes reaches JSON as
+                    # `520000.0`. Law 1 is integer đồng end to end, including
+                    # intermediate values, so the fix belongs where the type is
+                    # decided instead of at one call site that remembered.
+                    # `coalesce` goes inside the cast because it widens to
+                    # numeric too -- with no rows the literal 0 still came back
+                    # as `Decimal('0')`.
+                    cast(
+                        func.coalesce(func.sum(ledger.c.amount_vnd), 0), BigInteger
+                    ).label("split_total_vnd"),
                     func.count(func.distinct(ledger.c.expense_id)).label(
                         "expense_count"
                     ),
@@ -3317,7 +3322,10 @@ class SqlAlchemyApiRepository:
             select(
                 CollectionObligation.sender_id,
                 CollectionObligation.recipient_id,
-                func.sum(ReceiptConfirmation.amount_vnd),
+                # Cast in SQL: `sum()` over a bigint is `numeric`, which arrives
+                # as `Decimal`. The `-> dict[..., int]` annotation above was
+                # false without this, whatever the caller then did.
+                cast(func.sum(ReceiptConfirmation.amount_vnd), BigInteger),
             )
             .join(
                 ReceiptConfirmation,
@@ -4297,13 +4305,21 @@ class SqlAlchemyApiRepository:
         # 3 in one query -- nothing is read from a balance column because
         # there is no balance column.
         #
-        # `int(...)` rather than the driver's own answer: PostgreSQL sums a
-        # bigint column as `numeric`, which psycopg hands back as `Decimal`.
-        # Law 1 of this product is integer đồng end to end, and a Decimal that
-        # escapes here reaches JSON as `200000.0`.
+        # Cast in SQL, not `int()` at the caller: PostgreSQL sums a bigint
+        # column as `numeric`, which psycopg hands back as `Decimal`. Law 1 of
+        # this product is integer đồng end to end *including intermediate
+        # values*, and a Decimal that escapes here reaches JSON as `200000.0`.
+        # Converting at the caller makes the value right while leaving the
+        # expression wrong, so the next reader of this query inherits the trap.
+        # `coalesce` sits inside the cast because it widens to numeric too.
         spend_vnd = int(
             self.session.scalar(
-                select(func.coalesce(func.sum(current_allocations.c.amount_vnd), 0))
+                select(
+                    cast(
+                        func.coalesce(func.sum(current_allocations.c.amount_vnd), 0),
+                        BigInteger,
+                    )
+                )
             )
             or 0
         )
@@ -4342,7 +4358,10 @@ class SqlAlchemyApiRepository:
         owed_vnd = int(
             self.session.scalar(
                 select(
-                    func.coalesce(func.sum(current_allocations.c.amount_vnd), 0)
+                    cast(
+                        func.coalesce(func.sum(current_allocations.c.amount_vnd), 0),
+                        BigInteger,
+                    )
                 ).where(current_allocations.c.paid_by_id != person_id)
             )
             or 0
@@ -4353,7 +4372,12 @@ class SqlAlchemyApiRepository:
         # their own debt by pressing a button.
         paid_vnd = int(
             self.session.scalar(
-                select(func.coalesce(func.sum(ReceiptConfirmation.amount_vnd), 0))
+                select(
+                    cast(
+                        func.coalesce(func.sum(ReceiptConfirmation.amount_vnd), 0),
+                        BigInteger,
+                    )
+                )
                 .select_from(ReceiptConfirmation)
                 .join(
                     CollectionObligation,
@@ -4403,7 +4427,12 @@ class SqlAlchemyApiRepository:
         )
         advanced_vnd = int(
             self.session.scalar(
-                select(func.coalesce(func.sum(advanced_allocations.c.amount_vnd), 0))
+                select(
+                    cast(
+                        func.coalesce(func.sum(advanced_allocations.c.amount_vnd), 0),
+                        BigInteger,
+                    )
+                )
             )
             or 0
         )
@@ -4413,7 +4442,12 @@ class SqlAlchemyApiRepository:
         # where self-report is most obviously not evidence.
         collected_vnd = int(
             self.session.scalar(
-                select(func.coalesce(func.sum(ReceiptConfirmation.amount_vnd), 0))
+                select(
+                    cast(
+                        func.coalesce(func.sum(ReceiptConfirmation.amount_vnd), 0),
+                        BigInteger,
+                    )
+                )
                 .select_from(ReceiptConfirmation)
                 .join(
                     CollectionObligation,
