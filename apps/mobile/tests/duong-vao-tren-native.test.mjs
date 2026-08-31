@@ -116,9 +116,14 @@ test("F14: thẻ nhận lời mời có mặt NGAY CẢ khi chưa có người v
   assert.match(html, /Mã lời mời/);
 });
 
-test("đối chứng dương của cùng màn: lối tạo chuyến có sẵn vẫn được thấy", () => {
+test("đối chứng dương trên CHÍNH màn Lên plan: chữ có sẵn từ trước vẫn được thấy", () => {
+  // "Đang mở nhóm" là trạng thái đầu của màn này từ trước thay đổi này, không
+  // do tôi thêm. Nếu thước không thấy nó thì mọi khẳng định về màn này hỏng.
+  // Đo được: chạy ca này trên bản f8fbf49 (trước thay đổi) thì nó XANH, trong
+  // khi hai ca F05/F14 bên trên ĐỎ — nên đỏ ở kia là do thiếu cạnh, không phải
+  // do màn không render được.
   const html = ve(React.createElement(LenPlan, { nguoi: MINH, nhomPhien: null }));
-  assert.match(html, /Có người mời bạn đi\?/);
+  assert.match(html, /Đang mở nhóm/);
 });
 
 /* --------------------------------------------------- docMaLoiMoi: đọc và từ chối */
