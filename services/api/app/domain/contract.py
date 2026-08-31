@@ -13,6 +13,13 @@ MAX_AMOUNT_VND = 10**12
 MAX_ID_BYTES = 64
 
 # ADR-0004 section 6, the single canonical precedence. Order is significant.
+#
+# `AMOUNT_NOT_INTEGER` was added by ADR-0012. It sits immediately before the
+# three amount codes because sign and ceiling are questions you can only ask
+# about a value that is already an integer number of dong: `True < 0` and
+# `0.5 > MAX_AMOUNT_VND` both answer False, which is how a bool used to reach
+# the arithmetic as one dong. No golden vector changes -- the 41 frozen vectors
+# carry integer amounts, so none of them can reach this code.
 ERROR_PRECEDENCE = (
     # group 1: structural
     "NO_PARTICIPANTS",
@@ -20,6 +27,7 @@ ERROR_PRECEDENCE = (
     "DUPLICATE_PARTICIPANT",
     "INVALID_ENTITY_ID",
     "DUPLICATE_ENTITY_ID",
+    "AMOUNT_NOT_INTEGER",
     "NEGATIVE_AMOUNT",
     "ZERO_AMOUNT",
     "AMOUNT_TOO_LARGE",
