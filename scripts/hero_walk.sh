@@ -116,6 +116,8 @@
 #   scripts/hero_walk.sh --url http://h:1234  another box
 #   scripts/hero_walk.sh --anh /tmp/x/ro.jpg  another bill image
 #   scripts/hero_walk.sh --status             what did the last walk say
+#   scripts/hero_walk.sh --van-tay            what this runner thinks the
+#                                             working tree is right now
 #
 # Exit: 0 walk green · 1 a precondition is genuinely absent · 2 something that
 # should be here is missing or broken (refuse to skip), or the walk failed.
@@ -143,7 +145,12 @@ while [ $# -gt 0 ]; do
     --status) MODE="status"; shift ;;
     --van-tay) MODE="van-tay"; shift ;;
     --max-age-hours) MAX_AGE_HOURS="${2:?--max-age-hours cần một số}"; shift 2 ;;
-    -h|--help) sed -n '2,95p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    # The header, all of it, however long it gets. The magic `2,95p` this
+    # replaces was already cutting the Usage block off at line 95 before
+    # --van-tay was added to it: the only part of the help a reader comes for
+    # was the part that never printed, and nothing noticed because a truncated
+    # help still exits 0 and still looks like help.
+    -h|--help) awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; exit 0 ;;
     *) echo "Tham số lạ: $1 (xem scripts/hero_walk.sh --help)" >&2; exit 2 ;;
   esac
 done
