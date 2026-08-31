@@ -32,6 +32,13 @@
  *          correctly, but it is still a reason the user saw no answer, so it
  *          gets its own calm sentence rather than being hidden.
  *
+ * There is a ninth outcome that never arrives in `reason` at all: HTTP 429
+ * from the per-person ceiling, 30 turns in 60 seconds, checked BEFORE the
+ * cadence rules ever run. It is the same class of event as `rate_limited` and
+ * is drawn the same way, so it lives in the sentence table beside them rather
+ * than in the generic error path, whose only reason to exist is a status
+ * nobody predicted.
+ *
  * `chua-noi-duoc` survives from the first version for one honest reason: a
  * 404 still means this build of the API predates rd-be-04, and the app can be
  * pointed at an older server than the one on main today.
@@ -83,6 +90,14 @@ export const LY_DO_IM_LANG = [
  *  seeing one come back on an asked turn means the API predates PR 378. */
 export const LY_DO_NHIP = ["already_spoke_last", "rate_limited", "cooldown"] as const;
 
+/** The one reason that never arrives in `reason`.
+ *
+ *  The per-person ceiling on this route answers HTTP 429 with a body whose
+ *  `code` is this string; the 200 vocabulary never mentions it. Named here so
+ *  the sentence table has one key per outcome a person can hit, and so the
+ *  status-code branch and the copy cannot drift apart. */
+export const LY_DO_TRAN_PHUT = "companion_turn_rate_limited";
+
 export type AiTurnState =
   /** The companion read the thread and chose not to speak. Draw nothing. */
   | { kind: "im-lang"; reason: string }
@@ -108,38 +123,107 @@ export function cauAiChuaNoiDuoc(url: string): string {
 }
 
 /**
- * The sentence for `unavailable` and `ungrounded`.
+ * One sentence per outcome, and no two the same.
  *
- * Both are honest about what happened without leaking anything: the server
- * never sends the exception text (it would risk carrying the API key or the
- * chat content), so neither does this.
+ * Every silence used to collapse into three sentences: the three cadence
+ * reasons shared one, and `unavailable` shared the catch-all with any name a
+ * later server might invent. Two people hitting two different ceilings read
+ * the same words, so neither could tell what to do next, and the one outcome
+ * that means "the AI is down" was written in the same voice as the one that
+ * means "keep chatting".
+ *
+ * Rules the wording follows, each of them load-bearing:
+ *
+ *  - **Say what unblocks it, in the unit that actually unblocks it.** The
+ *    90-second rule is a clock, so its sentence gives seconds. The window
+ *    ceiling is 3 companion turns inside the last 20 messages, which is a
+ *    COUNT: waiting changes nothing there and only new messages push the old
+ *    turns out of the window, so promising "thử lại sau N phút" would be a
+ *    clock that does not exist. The per-person 429 is a real 60-second
+ *    window, and that one does say a minute.
+ *  - **Never print the server's own machine words.** The 429 body carries
+ *    `companion_turn_rate_limited`; before this, that string reached the
+ *    screen through the generic error path, under "Máy chủ trả lỗi 429".
+ *  - **Never say why the model failed.** `unavailable` covers a missing key,
+ *    a provider 429, a timeout and a malformed answer (PR 420), and the
+ *    server drops the difference on purpose because the provider's error text
+ *    can carry the API key and the group's own words. The sentence says the
+ *    AI side is down and that the group did nothing wrong, which is the whole
+ *    of what is known.
+ *  - **No "lỗi", no status codes, no em dash.**
+ *
+ * The numbers 90, 3 and 20 are `DEFAULT_LIMITS` in `app/domain/companion.py`;
+ * 60 is `RECEIPT_SCAN_WINDOW_SECONDS`, which the companion limiter reuses.
+ * `cau-chu-im-lang.test.mjs` reads them back out of the Python and fails if
+ * this copy still quotes an old number.
  */
-export function cauKhongTraLoiDuoc(reason: string): string {
-  if (reason === "ungrounded") {
-    return "AI có trả lời nhưng nhắc tới một địa điểm không có trong danh mục của máy chủ, nên cả thẻ đã bị bỏ. Không có gợi ý nào được đăng.";
-  }
-  // The per-window ceiling, refusing under its own name because the turn was
-  // asked for. It is the bill working, not a fault, and saying it the way a
-  // missing API key is said would teach people to skip the sentence that
-  // matters. Names the way out: keep talking, then ask again.
-  if (reason === "asked_too_often") {
-    return "Rủ Đi AI vừa trả lời mấy lượt liền trong nhóm này nên đang tạm nghỉ. Nhóm nhắn thêm vài tin rồi hỏi lại nhé.";
-  }
+export const CAU_THEO_LY_DO: Readonly<Record<string, string>> = {
   // Asked before anyone said anything. There is nothing to answer, and that is
   // the one silence a person can fix in one move.
-  if (reason === "no_conversation") {
-    return "Nhóm chưa có tin nhắn nào để Rủ Đi AI đọc. Gửi một tin trước rồi hỏi lại nhé.";
-  }
-  // Only reachable when a person asked and the server answered with a cadence
-  // reason anyway, which means this build of the API predates PR 378 and ignored
-  // the flag. Not a fault of the group and not an outage; say which.
-  if ((LY_DO_NHIP as readonly string[]).includes(reason)) {
-    return "Máy chủ này chưa nhận câu hỏi thẳng, nó vẫn đang giữ nhịp tự lên tiếng. Chờ một lát rồi hỏi lại nhé.";
-  }
-  if (reason === "no_content") {
-    return "Máy chủ nhận câu hỏi nhưng trả về một lượt rỗng. Chưa có câu trả lời nào để hiện.";
-  }
-  return "AI chưa trả lời được lúc này. Máy chủ nhận yêu cầu nhưng phần trả lời không dùng được. Thử gửi thêm một tin nữa.";
+  no_conversation:
+    "Nhóm chưa có tin nhắn nào để Rủ Đi AI đọc. Gửi một tin trước rồi hỏi lại nhé.",
+  // Cadence, reachable on an asked turn only against a server that predates
+  // PR 378 and ignored the flag. Still gets a true sentence rather than a
+  // sentence about the server's version: what the person can see is that the
+  // companion spoke last, and that is what it says.
+  already_spoke_last:
+    "Rủ Đi AI là người nhắn sau cùng nên nó đang đợi nhóm đáp lại. Nhắn thêm một tin rồi hỏi lại nhé.",
+  cooldown:
+    "Rủ Đi AI vừa lên tiếng cách đây chưa tới 90 giây nên đang nhường lượt cho nhóm nói. Chờ đủ 90 giây kể từ lượt đó rồi hỏi lại nhé.",
+  // Same ceiling as `asked_too_often`, different event: here the companion
+  // chose not to volunteer, and nobody was waiting.
+  rate_limited:
+    "Rủ Đi AI đã nói 3 lượt trong 20 tin gần đây nên đang tạm nghỉ cho nhóm nói. Nhóm nhắn thêm vài tin rồi hỏi lại nhé.",
+  // The per-window ceiling refusing under its own name because the turn was
+  // asked for. It is the bill working, not a fault. Leads with the question
+  // being the thing that was dropped, because to the person who pressed the
+  // button that is the news.
+  asked_too_often:
+    "Câu vừa hỏi chưa tới lượt: Rủ Đi AI đã nói 3 lượt trong 20 tin gần đây. Nhóm nhắn thêm vài tin rồi hỏi lại nhé.",
+  // The one outcome that is not the product working as designed.
+  unavailable:
+    "Rủ Đi AI đang không gọi được sang bên mô hình nên lượt này chưa có câu trả lời. Thử lại sau khoảng một phút; nếu vẫn vậy thì phần AI đang tắt chứ không phải nhóm làm gì sai.",
+  // The anti-fabrication guard firing. Worth saying plainly, because "cả thẻ
+  // bị bỏ" is the reason the screen is empty and it is a decision, not a fault.
+  ungrounded:
+    "Rủ Đi AI có trả lời nhưng nhắc tới một chỗ không có trong danh sách địa điểm của Rủ Đi, nên cả thẻ đã bị bỏ để không giới thiệu nhầm. Hỏi lại một lần nữa nhé.",
+  // HTTP 429. The count is deliberately not quoted: 30 is a server constant
+  // this client cannot read at runtime, and a stale number would be worse
+  // than none. The minute is the part that tells a person what to do.
+  [LY_DO_TRAN_PHUT]:
+    "Bạn hỏi Rủ Đi AI hơi nhiều lượt trong một phút vừa rồi nên phần hỏi đang tạm nghỉ. Thử lại sau khoảng một phút nhé.",
+  // Client-side only: a 204 or an empty 200 body. Not in the server vocabulary.
+  no_content:
+    "Máy chủ nhận câu hỏi nhưng trả về một lượt rỗng. Chưa có câu trả lời nào để hiện.",
+};
+
+/**
+ * Pressed before the group finished opening.
+ *
+ * Client-side only, and deliberately not a `reason`: no request was made, so
+ * the server never had an opinion. `hoiThangAi` returns early while `nhom` is
+ * still loading, and measured in Chrome that early press sent NO request and
+ * painted NOTHING: no turn, no banner, not even the "Đang hỏi…" label. A
+ * button that answers a press with an unchanged screen is the exact defect the
+ * asked turn exists to fix, so the early return says so instead.
+ */
+export const CAU_NHOM_CHUA_MO_XONG =
+  "Nhóm chat còn đang mở. Chờ một chút cho nhóm hiện ra rồi hỏi lại nhé.";
+
+/** The sentence shown for a `reason` this build has never heard of.
+ *
+ *  A later server adding a name lands here rather than on a blank screen. It
+ *  promises nothing about why, because nothing is known. */
+export const CAU_LY_DO_LA = "Rủ Đi AI chưa trả lời được lượt này. Thử nhắn thêm một tin rồi hỏi lại nhé.";
+
+/**
+ * The sentence for one reason.
+ *
+ * Kept as a function so the screen and the test assert the same words. Never
+ * echoes anything the server sent: the reason is used as a key, never printed.
+ */
+export function cauKhongTraLoiDuoc(reason: string): string {
+  return CAU_THEO_LY_DO[reason] ?? CAU_LY_DO_LA;
 }
 
 export function aiTurnUrl(base: string, contextId: string): string {
@@ -282,6 +366,16 @@ export async function goiAiTurn(opts: {
   // 204 is read as silence without touching the body: some stacks reject
   // `json()` on an empty response, and that rejection is not a server fault.
   if (res.status === 204) return yenHoacNoiRa("no_content", hoiThang);
+  // The per-person ceiling, 30 turns in 60 seconds, and the only 429 this
+  // route can produce. Handled here rather than by the generic error path for
+  // two reasons. The body is `{code: "companion_turn_rate_limited", detail:
+  // …}` and `docLoi` would put that English code on screen under "Máy chủ trả
+  // lỗi 429", which is a machine word in front of a person. And it is a
+  // ceiling, not a fault: same class as `rate_limited`, so it draws nothing on
+  // a turn nobody asked for and a calm timed sentence on one that was asked.
+  // The body is deliberately not read; the sentence must not depend on the
+  // server's wording, and there is nothing in it this client would trust.
+  if (res.status === 429) return yenHoacNoiRa(LY_DO_TRAN_PHUT, hoiThang);
   if (!res.ok) {
     return { kind: "hong", url, status: res.status, detail: await docLoi(res) };
   }

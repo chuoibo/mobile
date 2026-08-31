@@ -434,6 +434,35 @@ Remove-NetFirewallHyperVRule -Name 'RuDi-ExpoGo'
 
 </details>
 
+### Xuất bundle: hỏi cây trước, đừng hỏi sau
+
+```bash
+make bundle-check           # cây này có khớp origin/main không?
+make bundle                 # kiểm rồi mới expo export, và đóng SHA vào bundle
+```
+
+`bundle-check` trả lời đúng một câu, bằng đúng một trong ba chữ:
+
+| | mã thoát | nghĩa |
+|---|---|---|
+| **KHỚP** | 0 | cây bằng đúng `origin/main`, xuất được |
+| **LỆCH** | 1 | lệch bao nhiêu commit, và file nào đang bẩn |
+| **KHÔNG KIỂM ĐƯỢC** | 2 | không fetch được / không phải cây git — **không phải** là khớp |
+
+Lý do nó tồn tại: 03:20 ngày 31/08 một bundle được xuất từ checkout lùi 4 commit
+đang có file màn ở trạng thái đã xoá, rồi đẩy lên máy demo. Bundle thiếu hẳn
+`AlbumChuyenDi` và `CaNhanHoa` — và **mọi thứ vẫn báo 200**, vì mọi cổng đọc cây
+client đều đọc chính cây bị hỏng đó (`check_screens_reachable.py` in `51/52 màn`
+rồi thoát 0; cây sạch in `53/54`).
+
+Kiểm `HEAD == origin/main` thôi thì **không đủ**: `git pull --ff-only` không mang
+về file bạn đã xoá, nên cây có thể đứng đúng SHA của main mà vẫn thiếu màn. Cổng
+soi cả hai nửa, và `tests/test_tree_matches_main_gate.py` đột biến từng nửa một
+để chứng minh cả hai đều đang cắn.
+
+`make bundle` đóng `BUILD-SHA.txt` vào thư mục xuất ra, nên mở cổng 8081 là đối
+chiếu được mình đang xem commit nào — thay vì đoán.
+
 ---
 
 ## Test

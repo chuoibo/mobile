@@ -42,6 +42,8 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
+from app.domain.money import count_violation
+
 #: Catalogue category -> the section of the profile it belongs under.
 #:
 #: Written out rather than inferred from the category string, because the
@@ -81,7 +83,7 @@ def _integer_count(value: Any) -> int:
     module spells this out for money; a headcount deserves the same refusal.
     """
 
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+    if count_violation(value):
         raise PreferenceError("preference_count_not_integer")
     return value
 

@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from collections import defaultdict
 
+from app.domain.money import NEGATIVE, NON_POSITIVE, NOT_INTEGER, vnd_violation
+
 __all__ = [
     "LedgerError",
     "require_vnd",
@@ -48,11 +50,12 @@ def require_vnd(value, *, positive: bool = False) -> int:
     `bool` is rejected explicitly because `isinstance(True, int)` is True in
     Python, and `True` would silently become one dong.
     """
-    if isinstance(value, bool) or not isinstance(value, int):
+    violation = vnd_violation(value, positive=positive)
+    if violation == NOT_INTEGER:
         raise LedgerError("AMOUNT_NOT_INTEGER")
-    if value < 0:
+    if violation == NEGATIVE:
         raise LedgerError("NEGATIVE_AMOUNT")
-    if positive and value == 0:
+    if violation == NON_POSITIVE:
         raise LedgerError("NON_POSITIVE_AMOUNT")
     return value
 
@@ -362,7 +365,7 @@ def settlement_plan(balances: dict[str, int], *, exact_limit: int = 15) -> dict:
     marks it as not proven minimal instead of hiding the weaker guarantee.
     """
     for amount in balances.values():
-        if isinstance(amount, bool) or not isinstance(amount, int):
+        if vnd_violation(amount, allow_negative=True):
             raise LedgerError("AMOUNT_NOT_INTEGER")
     if sum(balances.values()) != 0:
         raise LedgerError("BALANCES_DO_NOT_NET_TO_ZERO")

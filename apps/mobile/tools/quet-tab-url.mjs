@@ -303,6 +303,28 @@ const MAN_TUONG_TAC = [
     needle: "Lẩu Thái tối qua",
     anh: 0,
   },
+  /* F16. The sentence the companion's silence turns into, which no cold URL
+   * reaches: the banner exists only after "Hỏi Rủ Đi AI" has been pressed and
+   * the turn has come back. Nine outcomes share one component, and the stub
+   * answers with `unavailable` because it carries the longest of the nine --
+   * the short ones cannot fail a wrapping rule the long one passes.
+   *
+   * The needle is a clause printed by nothing else on this screen and, more
+   * to the point, by no OTHER outcome: the 404 sentence, the cadence sentences
+   * and the ceiling sentence all read differently, so a press that landed on
+   * the wrong state cannot pass as this one.
+   *
+   * `anh: 0`, same as the cold `tin-nhan` row: a sentence is not a photograph. */
+  {
+    step: "ai-khong-tra-loi-duoc",
+    frag: `tab=tin-nhan&nguoi=${NGUOI}`,
+    // Wait for a message bubble first. The button renders before the group
+    // has opened, and an early press is a different outcome with a different
+    // sentence; measured once, that is what this step scanned.
+    bam: [{ cho: "Tối nay ăn gì?", bam: "Hỏi Rủ Đi AI" }],
+    needle: "phần AI đang tắt chứ không phải nhóm làm gì sai",
+    anh: 0,
+  },
   /* F39/F42. The wall on Cá nhân: compose is behind "Viết lên tường", and
    * the needle is a post body that only the loaded wall prints. `anh: 0`
    * because a post is a sentence, not a photograph. */
@@ -328,17 +350,32 @@ const MAN_TUONG_TAC = [
  * Each step waits for a control whose text starts with the prefix AND which is
  * not disabled -- the button here spends its first two presses disabled, and
  * clicking a disabled button succeeds silently while doing nothing.
+ *
+ * A step may also be `{cho: "<chữ>", bam: "<prefix>"}`, which waits for that
+ * text to be on screen BEFORE hunting for the control. "Enabled" and "ready"
+ * are not the same property and this app has both shapes: "Hỏi Rủ Đi AI" is
+ * never disabled, but pressing it before the group has opened returns early
+ * with a different sentence, so a scan without the wait would measure the
+ * not-ready message under a filename claiming to measure the answer. That is
+ * exactly what this step did on its first run.
  */
 function tuDongBam(chuoiBam) {
-  const buoc = Array.isArray(chuoiBam) ? chuoiBam : [chuoiBam];
+  const buoc = (Array.isArray(chuoiBam) ? chuoiBam : [chuoiBam]).map((b) =>
+    typeof b === "string" ? { bam: b, cho: null } : b,
+  );
   const t0 = Date.now();
   let i = 0;
   (function poll() {
     if (i >= buoc.length) return;
-    const el = [...document.querySelectorAll("button, [role='button']")].find((n) => {
-      if (n.disabled || n.getAttribute("aria-disabled") === "true") return false;
-      return n.textContent.replace(/\s+/g, " ").trim().startsWith(buoc[i]);
-    });
+    // `document.body` is null on the first ticks: this script is injected into
+    // `<head>`, ahead of the bundle, which is the whole reason the stub works.
+    const san = !buoc[i].cho || (document.body?.innerText ?? "").includes(buoc[i].cho);
+    const el = !san
+      ? null
+      : [...document.querySelectorAll("button, [role='button']")].find((n) => {
+          if (n.disabled || n.getAttribute("aria-disabled") === "true") return false;
+          return n.textContent.replace(/\s+/g, " ").trim().startsWith(buoc[i].bam);
+        });
     if (el) {
       el.scrollIntoView({ block: "center", inline: "nearest" });
       if (document.scrollingElement) document.scrollingElement.scrollLeft = 0;

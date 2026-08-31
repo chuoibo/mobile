@@ -62,8 +62,10 @@
 #   - that the tree being gated still walks. `--status` binds the verdict to an
 #     ANCESTOR of HEAD, so commits added after the walk are covered by nothing.
 #     It rules out borrowed evidence, not staleness within the branch.
-#   - that the walk ran on a clean tree. The recorded sha names a commit, and
-#     uncommitted edits are invisible to it. Walk after committing.
+#   - that a walk measured over uncommitted edits says anything about a commit.
+#     It no longer PRETENDS to: the verdict records the tree state next to the
+#     sha, and `--status` refuses to lend a dirty walk to any other tree. What
+#     it still cannot do is tell you which of your edits carried the green.
 #
 # ## Why it pins the URL instead of letting the client default
 #
@@ -114,6 +116,8 @@
 #   scripts/hero_walk.sh --url http://h:1234  another box
 #   scripts/hero_walk.sh --anh /tmp/x/ro.jpg  another bill image
 #   scripts/hero_walk.sh --status             what did the last walk say
+#   scripts/hero_walk.sh --van-tay            what this runner thinks the
+#                                             working tree is right now
 #
 # Exit: 0 walk green · 1 a precondition is genuinely absent · 2 something that
 # should be here is missing or broken (refuse to skip), or the walk failed.
@@ -139,13 +143,98 @@ while [ $# -gt 0 ]; do
     --anh)  ANH="${2:?--anh cần một đường dẫn}"; shift 2 ;;
     --walk) WALK="${2:?--walk cần một đường dẫn}"; shift 2 ;;
     --status) MODE="status"; shift ;;
+    --van-tay) MODE="van-tay"; shift ;;
     --max-age-hours) MAX_AGE_HOURS="${2:?--max-age-hours cần một số}"; shift 2 ;;
-    -h|--help) sed -n '2,95p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    # The header, all of it, however long it gets. The magic `2,95p` this
+    # replaces was already cutting the Usage block off at line 95 before
+    # --van-tay was added to it: the only part of the help a reader comes for
+    # was the part that never printed, and nothing noticed because a truncated
+    # help still exits 0 and still looks like help.
+    -h|--help) awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; exit 0 ;;
     *) echo "Tham số lạ: $1 (xem scripts/hero_walk.sh --help)" >&2; exit 2 ;;
   esac
 done
 
 say() { printf '%s\n' "$*"; }
+
+# The one question the recorded sha cannot answer: is the client that was walked
+# the client that commit contains? `git rev-parse HEAD` prints the same string
+# for a clean checkout and for that checkout plus edits living in no commit, and
+# the verdict dir is shared by every worktree on this machine -- so a walk done
+# over a local fix vouched for the broken commit underneath it, in every other
+# lane's `make gate` too.
+#
+# Measured before this existed, on 69938b7: break the scan seam, COMMIT the
+# break (e845ced), patch it back in the working tree only, walk. The walk is
+# green 16/16 and records sha=e845ced. Restore the tree to the committed state
+# and `--status` says "ĐI ĐƯỢC 16/16 chặng, client e845ced (nằm trong HEAD
+# e845ced)", exit 0 -- while a real walk on that same clean tree exits 1, ĐỨT at
+# the scan step. One field, two meanings, and the dangerous one silent.
+#
+# So the walk records WHICH TREE, not only which commit. `clean` keeps the cheap
+# ancestor rule below untouched -- no clean walk changes behaviour. Anything else
+# is code no commit contains, and may vouch only for the worktree that produced
+# it, and only while that worktree still holds those exact edits.
+#
+# Untracked files count: a new .ts under apps/mobile/src is compiled into the
+# client the walk drives, and `git diff HEAD` alone never sees it.
+cay_van_tay() {
+  python3 - "$REPO_ROOT" <<'PY'
+import hashlib
+import os
+import subprocess
+import sys
+
+repo = sys.argv[1]
+
+
+def git(*args):
+    return subprocess.run(["git", "-C", repo, *args], capture_output=True)
+
+
+head = git("rev-parse", "--verify", "HEAD")
+status = git("status", "--porcelain", "-z")
+if head.returncode != 0 or status.returncode != 0:
+    # Not a git checkout, or git cannot answer. "I could not tell" must not be
+    # spelled the same as "clean" -- that is the whole failure this field exists
+    # to separate, so it gets its own value and the reader refuses on it.
+    print("?")
+    raise SystemExit(0)
+
+if not status.stdout.strip():
+    print("clean")
+    raise SystemExit(0)
+
+h = hashlib.sha256()
+h.update(status.stdout)  # which paths changed, and how
+h.update(git("diff", "HEAD").stdout)  # what the tracked edits actually say
+# Untracked paths carry no diff, and `--porcelain` names an untracked DIRECTORY
+# rather than the files inside it. `ls-files --others` enumerates the files, so
+# a new source file cannot slip in under an unchanged fingerprint.
+others = git("ls-files", "--others", "--exclude-standard", "-z").stdout
+for rel in sorted(p for p in others.decode("utf-8", "replace").split("\0") if p):
+    h.update(rel.encode("utf-8"))
+    try:
+        with open(os.path.join(repo, rel), "rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+    except OSError:
+        h.update(b"<doc khong duoc>")
+
+print("dirty:" + h.hexdigest()[:16])
+PY
+}
+
+# Printing the fingerprint is not a debug convenience bolted on for tests: a
+# refusal that says "cây đã khác" and gives the reader no way to see WHAT the
+# runner thinks the tree is turns a correct red into an unexplainable one, and
+# unexplainable reds are the ones people route around. It also lets the tests
+# ask the runner for its own answer instead of reimplementing the digest, which
+# would only grade a copy of the logic.
+if [ "$MODE" = "van-tay" ]; then
+  cay_van_tay
+  exit 0
+fi
 
 # --- status ---------------------------------------------------------------
 
@@ -160,6 +249,7 @@ if [ "$MODE" = "status" ]; then
   MOBILE_HERO_WALK_EXPECT_URL="$URL" \
   MOBILE_HERO_WALK_MAX_AGE_HOURS="$MAX_AGE_HOURS" \
   MOBILE_HERO_WALK_REPO="$REPO_ROOT" \
+  MOBILE_HERO_WALK_TREE_NOW="$(cay_van_tay)" \
   python3 - "$VERDICT" <<'PY'
 import json, os, subprocess, sys, time
 
@@ -222,6 +312,44 @@ if git("merge-base", "--is-ancestor", sha, "HEAD").returncode != 0:
     print("  Phán quyết đó không nói gì về cây này. Chạy: make hero-walk")
     raise SystemExit(2)
 
+# The sha above answers "which COMMIT". This answers "which TREE", and until now
+# nothing did: a walk driven by uncommitted edits recorded the untouched sha
+# underneath them, so it vouched for code it never ran. See `cay_van_tay`.
+#
+# Deliberately BEFORE the rc check, like `url` and `sha`: provenance first, then
+# content. A verdict that belongs to another tree must be refused rather than
+# reported as "ĐỨT ở chặng X" -- borrowed evidence in the red direction still
+# sends the wrong lane hunting a bug that is not in their tree, and this repo has
+# already spent turns on exactly that.
+tree = v.get("tree")
+now = os.environ["MOBILE_HERO_WALK_TREE_NOW"]
+if tree is None:
+    # An older runner could not tell a clean walk from a dirty one. A missing
+    # field is "unknown", never "clean": reading absence as the safe value is the
+    # bug this whole block exists to close.
+    print("hero_walk: phán quyết KHÔNG GHI trạng thái cây làm việc — bản của bộ chạy cũ,")
+    print("  vốn không phân biệt được cây sạch với cây có sửa chưa commit.")
+    print("  Thiếu trường đó KHÔNG đọc được là 'cây sạch'. Chạy: make hero-walk")
+    raise SystemExit(2)
+
+if tree == "?":
+    print("hero_walk: lượt đi bộ KHÔNG ĐỌC ĐƯỢC trạng thái cây làm việc của chính nó.")
+    print("  Chạy lại trong một checkout git: make hero-walk")
+    raise SystemExit(2)
+
+if tree != "clean":
+    where = v.get("worktree")
+    if where != repo:
+        print(f"hero_walk: lượt đi bộ chạy trên cây CÓ SỬA CHƯA COMMIT ở {where},")
+        print(f"  không phải {repo}. Mã nó đo không nằm trong commit nào,")
+        print("  nên nó không bảo lãnh được cho cây này. Chạy: make hero-walk")
+        raise SystemExit(2)
+    if tree != now:
+        print("hero_walk: lượt đi bộ chạy trên cây có sửa chưa commit, và những sửa đó")
+        print("  ĐÃ KHÁC so với bây giờ — client bây giờ không phải client đã đi bộ.")
+        print("  Chạy: make hero-walk")
+        raise SystemExit(2)
+
 if int(v.get("rc", 1)) != 0:
     print(f"hero_walk: lượt gần nhất ({when}) ĐỨT ở '{v.get('buoc_hong','?')}' trên {v['url']}.")
     raise SystemExit(2)
@@ -230,10 +358,15 @@ if age > max_age:
     print(f"hero_walk: phán quyết CŨ QUÁ — {when}, ngưỡng {max_age/3600:.0f} giờ. Chạy lại: make hero-walk")
     raise SystemExit(2)
 
+# A green measured over uncommitted edits is still a green about THIS tree, but
+# it is not a green about any commit -- and a pass line that reads the same for
+# both is how the verdict got borrowed in the first place. Say it on the line
+# people actually read.
+ve_cay = "" if tree == "clean" else " — ĐO TRÊN CÂY CÓ SỬA CHƯA COMMIT, không phải trên commit nào"
 print(
     f"hero_walk: ĐI ĐƯỢC {when} — {v.get('so_chang','?')} chặng, "
     f"{v['url']}, client {sha} (nằm trong HEAD {head}), "
-    f"model đọc {v.get('so_mon','?')} món."
+    f"model đọc {v.get('so_mon','?')} món.{ve_cay}"
 )
 PY
   exit $?
@@ -349,6 +482,8 @@ mkdir -p "$VERDICT_DIR"
 MOBILE_HERO_WALK_RC="$rc" \
 MOBILE_HERO_WALK_URL="$URL" \
 MOBILE_HERO_WALK_SHA="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo '?')" \
+MOBILE_HERO_WALK_TREE="$(cay_van_tay)" \
+MOBILE_HERO_WALK_WORKTREE="$REPO_ROOT" \
 MOBILE_HERO_WALK_ROUTES="$route_count" \
 MOBILE_HERO_WALK_ANH="$ANH" \
 python3 - "$OUT" "$VERDICT" <<'PY'
@@ -369,6 +504,11 @@ verdict = {
     "rc": int(os.environ["MOBILE_HERO_WALK_RC"]),
     "url": os.environ["MOBILE_HERO_WALK_URL"],
     "sha": os.environ["MOBILE_HERO_WALK_SHA"],
+    # "clean" | "dirty:<digest>" | "?" -- which TREE, next to which COMMIT.
+    # `--status` refuses a verdict missing this, so an old verdict cannot be
+    # read as a clean one.
+    "tree": os.environ["MOBILE_HERO_WALK_TREE"],
+    "worktree": os.environ["MOBILE_HERO_WALK_WORKTREE"],
     "routes": os.environ["MOBILE_HERO_WALK_ROUTES"],
     "anh": os.environ["MOBILE_HERO_WALK_ANH"],
     "so_chang": find(r"DAT (\d+/\d+) chang"),
