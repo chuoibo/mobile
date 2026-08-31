@@ -38,11 +38,11 @@
  *
  *   1. A fixture carrying the shape three ways and two safe fallbacks. The
  *      walker must return exactly the three.
- *   2. The REAL defect, read out of git. `0c04cb7` is the commit before the
- *      `api.ts` fix landed, and the gate has to go red on its `api.ts` at the
- *      two lines the bug was actually filed about. A regression gate that
- *      cannot redden on the pinned original proves nothing about the copy of
- *      the bug it was written against.
+ *   2. The REAL defect: the whole pre-fix `api.ts`, byte for byte, checked in
+ *      beside this file. The gate has to go red on it at the two lines the bug
+ *      was actually filed about. A regression gate that cannot redden on the
+ *      original proves nothing about the copy of the bug it was written
+ *      against.
  *   3. Floors on files read and expressions examined, so a walk that read
  *      nothing cannot pass as a tree with nothing in it.
  *
@@ -55,7 +55,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -65,11 +65,56 @@ const MOBILE = fileURLToPath(new URL("..", import.meta.url));
 const SRC = join(MOBILE, "src");
 const APP = join(MOBILE, "App.tsx");
 
-/** The red control: a commit on `main` whose `api.ts` still carries both
- *  fallbacks. Named by sha rather than by "HEAD minus something" because the
- *  fix reached `main` as a squash (#464) and any relative reference would drift
- *  the moment somebody merges again. */
-const TRUOC_KHI_SUA = "0c04cb7";
+/*
+ * The red control's material, and why it is a checked-in file rather than a
+ * `git show`.
+ *
+ * The first version of this control ran `git show 0c04cb7:apps/mobile/src/
+ * api.ts`. It went red on CI, and the red was correct behaviour by a control
+ * written to fail hard rather than skip -- but what it had caught was its own
+ * hidden dependency, not a defect. CI checks out shallow (`fetch-depth: 1`),
+ * so the object is simply not in the clone:
+ *
+ *     not ok - phép quét ĐỎ được trên chính bản mã trước khi bug-050923...
+ *       fatal: invalid object name "0c04cb7"
+ *
+ * Two separate things were wrong with reading history from a test. Clone depth
+ * is one. The other is worse: this repo squash-merges, so any branch sha can
+ * stop existing at all, and a control pinned to one would then be unrunnable
+ * everywhere rather than only on CI. A negative control needs the old CONTENT.
+ * It never needed the old COMMIT.
+ *
+ * So the content lives here, and provenance is kept by content-addressing
+ * instead of by history. `OID_TRUOC_KHI_VA` is the git blob object id, and the
+ * test below recomputes it from the bytes on disk -- sha1 over the `blob
+ * <len>\0` header plus the content, which is what `git hash-object` does. Two
+ * consequences worth stating:
+ *
+ *   - With no history whatsoever, `git hash-object <fixture>` reproduces this
+ *     value, so an edited fixture cannot pass quietly.
+ *   - With full history, `git rev-parse 0c04cb7:apps/mobile/src/api.ts` yields
+ *     the same value, which is what ties the file to the commit it came from.
+ *
+ * Why a sibling file and not a template literal in this test: the blob holds
+ * 298 backticks and 52 `${`. Inlining it means escaping it, and an escaped
+ * copy is no longer the bytes the commit had -- which destroys precisely the
+ * property the control exists for.
+ *
+ * The file is deliberately `.txt`. As `.ts` it would enter `tsc --noEmit` and
+ * the tree walkers, and a stale copy of `api.ts` type-checked beside the real
+ * one is the "two functions with the same name" failure this repo has already
+ * paid for once. Note for anyone grepping later: this file is SUPPOSED to
+ * contain `?? id`. It is the disease sample, not an outbreak.
+ */
+const TRUOC_KHI_VA = join(MOBILE, "tests/fixtures/bug-050923/api.ts.truoc-khi-va.txt");
+const OID_TRUOC_KHI_VA = "008c141ab50d20759c512168cc8ae4e68af20602";
+/** Where the fixture came from. Documentation: nothing below reads it. */
+const COMMIT_TRUOC_KHI_VA = "0c04cb7";
+
+/** `git hash-object` in pure JS, so the check needs no git and no history. */
+function gitBlobOid(buf) {
+  return createHash("sha1").update(`blob ${buf.length}\0`).update(buf).digest("hex");
+}
 
 /* An id-bearing name. Written against the snake_case form so that `sender_id`
  * from the wire and `senderId` from the app are one rule rather than two.
@@ -223,28 +268,43 @@ test("phép quét nhận ra hình dạng, và không bắn oan chỗ có mặc �
   assert.equal(seen, 5, "phải soi cả năm biểu thức, kể cả hai chỗ lành");
 });
 
-test("phép quét ĐỎ được trên chính bản mã trước khi bug-050923 được vá", () => {
-  // Read out of git rather than copied into this repo: a copy of the defect is
-  // a copy of what its author believed the defect was.
-  let truoc;
+test("bản mã trước khi vá còn nguyên là bản đã ra khỏi git, không phải bản chép tay", () => {
+  // Runs before the control below and asserts nothing about the defect. Its
+  // whole job is to say whether the material the control is about to read is
+  // still the material it was written against. A hand-edited fixture would
+  // otherwise let that control pass on a defect nobody ever shipped.
+  let bytes;
   try {
-    truoc = execFileSync("git", ["show", `${TRUOC_KHI_SUA}:apps/mobile/src/api.ts`], {
-      cwd: MOBILE,
-      encoding: "utf8",
-      maxBuffer: 32 * 1024 * 1024,
-    });
+    bytes = readFileSync(TRUOC_KHI_VA);
   } catch (err) {
     // A hard failure, never a skip. A control that quietly does not run leaves
     // the gate below unproven while still printing green.
-    assert.fail(
-      `không đọc được ${TRUOC_KHI_SUA}:apps/mobile/src/api.ts, nên đối chứng đỏ KHÔNG chạy: ${err}`,
-    );
+    assert.fail(`không đọc được fixture ${TRUOC_KHI_VA}, nên đối chứng đỏ KHÔNG chạy: ${err}`);
   }
+
+  assert.equal(
+    gitBlobOid(bytes),
+    OID_TRUOC_KHI_VA,
+    `fixture đã bị sửa: nội dung không còn là blob ${OID_TRUOC_KHI_VA} ` +
+      `(${COMMIT_TRUOC_KHI_VA}:apps/mobile/src/api.ts). Kiểm lại bằng: ` +
+      `git hash-object apps/mobile/tests/fixtures/bug-050923/api.ts.truoc-khi-va.txt`,
+  );
+});
+
+test("phép quét ĐỎ được trên chính bản mã trước khi bug-050923 được vá", () => {
+  const truoc = readFileSync(TRUOC_KHI_VA, "utf8");
 
   const { hits } = fallbacksToId(truoc, "api.ts");
   const codes = hits.map((h) => h.code);
 
   assert.equal(hits.length, 2, `bản cũ phải còn đúng hai chỗ, thấy: ${JSON.stringify(codes)}`);
+  // The lines the bug was filed about. Pinnable because the fixture is pinned:
+  // counting two is not the same as finding the right two.
+  assert.deepEqual(
+    hits.map((h) => h.line),
+    [1039, 1167],
+    `đúng hai chỗ nhưng sai dòng, thấy: ${JSON.stringify(hits)}`,
+  );
   for (const code of codes) assert.match(code, /\?\? id$/);
   assert.ok(
     codes.some((c) => c.includes("proposal.participants")),
