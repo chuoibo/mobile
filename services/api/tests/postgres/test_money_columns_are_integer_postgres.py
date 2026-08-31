@@ -2,15 +2,17 @@
 
 ## What this gate counts, and why that unit was chosen
 
-The unit of counting is **the schema Alembic actually migrated**, read back out
-of ``information_schema.columns``. It is not a hand-written list of column
-names. A hand-written list cannot notice a column nobody added it to, so it
-reports "all clear" for exactly the change it was supposed to catch.
+The table-level completeness unit is **the SQLAlchemy model metadata**, compared
+with the tables returned by ``information_schema.columns``. It is not a
+hand-written list of table or column names. A hand-written list cannot notice a
+table nobody added to it, so it reports "all clear" for exactly the change it
+was supposed to catch.
 
-The enumeration here is complete by construction: every column in the migrated
-schema is classified, and the classification is **deny by default**. A money
-column added tomorrow is caught whatever it is called, because the rule is
-stated over the column's *type*, not over its *name*:
+The schema read is not assumed complete merely because it returns many rows.
+Every model table must be represented in the read, and every returned column is
+then classified **deny by default**. Within the numeric family, a money column
+added tomorrow is caught whatever it is called, because the rule is stated over
+the column's *type*, not over its *name*:
 
     every inexact-numeric column must appear in INEXACT_COLUMNS_REVIEWED
 
@@ -20,9 +22,9 @@ entry carries the reason it is not money. Adding a third entry is a visible,
 reviewable act in a diff -- which is the point.
 
 A second, name-side rule runs the other way and catches money stored in a type
-that is not numeric at all (``text``, ``varchar``, ``jsonb``): every column
-named like money must be an exact integer type. Neither rule subsumes the
-other, and a money column has to satisfy both.
+that is not numeric at all (``text``, ``varchar``, ``jsonb``) when the column
+matches the repository's ``_vnd``/``amount`` naming convention. Neither rule
+subsumes the other, and the naming heuristic is intentionally not exhaustive.
 
 ## What this gate does NOT prove -- read this before quoting it
 
@@ -35,6 +37,11 @@ other, and a money column has to satisfy both.
   There is no count over column types that answers "every SQL expression
   returning money is an int"; that question is answered at runtime, on the
   values the repository actually hands back.
+* **A money column can evade both rules by using both an unconventional name
+  and a type outside the numeric family.** For example, ``gia_tri text`` and
+  ``total text`` match neither detector. The last line of defence for this gap
+  is the type check in ``allocate()`` plus the pydantic boundary, not a longer
+  hand-written name list here.
 * **It does not read inside ``jsonb``.** PostgreSQL applies no numeric type to
   a value nested in a JSON document, so money inside ``jsonb`` is outside every
   rule stated here. The blind spot is bounded rather than silent: the jsonb
@@ -53,6 +60,8 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
+
+from app.db.models import Base
 
 # PostgreSQL types that cannot represent "đồng" exactly, or that carry a
 # fractional part Law 1 forbids money from ever having.
@@ -109,6 +118,18 @@ def _columns(engine: Engine) -> list[tuple[str, str, str]]:
     return [(row.table_name, row.column_name, row.data_type) for row in rows]
 
 
+def _model_tables() -> frozenset[str]:
+    """Return the table names derived from SQLAlchemy model metadata."""
+
+    return frozenset(Base.metadata.tables)
+
+
+def _tables_missing_from_read(
+    columns: list[tuple[str, str, str]],
+) -> list[str]:
+    return sorted(_model_tables() - {table for table, _, _ in columns})
+
+
 def _unreviewed_inexact(columns: list[tuple[str, str, str]]) -> list[str]:
     return [
         f"{table}.{column} :: {data_type}"
@@ -127,17 +148,94 @@ def _money_named_not_integer(columns: list[tuple[str, str, str]]) -> list[str]:
 
 
 def test_schema_enumeration_is_not_empty(postgres_engine: Engine) -> None:
-    """A gate whose input list is empty passes by saying nothing.
+    """Catch a schema read that is empty or broadly truncated.
 
     Both rules below are "no row satisfies X". An empty enumeration satisfies
-    them for free, so the schema read has to be shown non-empty first or the
-    green means nothing.
+    them for free, so these coarse floors still reject a badly truncated read.
+    They do not answer whether one table is missing; the model-table coverage
+    test answers that separate question.
     """
 
     columns = _columns(postgres_engine)
     assert len(columns) > 200, f"migrated schema looks truncated: {len(columns)}"
     money_named = [c for c in columns if _looks_like_money(c[1])]
     assert len(money_named) >= 20, f"money columns missing: {len(money_named)}"
+
+
+def test_schema_read_covers_every_model_table(postgres_engine: Engine) -> None:
+    """Every mapped table must contribute columns to the schema read."""
+
+    missing = _tables_missing_from_read(_columns(postgres_engine))
+    assert missing == [], (
+        "model table(s) missing from the schema read: "
+        + ", ".join(missing)
+        + ". A table that falls out of this read makes every rule in this file "
+        "pass for that table for free. A missing role grant is a measured cause; "
+        "restore the grant before trusting this gate."
+    )
+
+
+def test_read_completeness_notices_every_single_lost_table(
+    postgres_engine: Engine,
+) -> None:
+    """Positive control for the coverage rule: lose each table in turn.
+
+    ``test_schema_read_covers_every_model_table`` is another "no rows matched"
+    assertion, and on a healthy schema it passes whether or not the detector
+    behind it works at all. So the detector is exercised here against a read
+    that is known to have lost a table -- every table in turn, not a sampled
+    one, because a single chosen table only says something about that table.
+
+    The second half measures the floors this rule was added to replace, and it
+    derives which tables they are blind to from the schema read rather than
+    remembering a list of names. Two numbers, measured separately, both real:
+
+    * **40 of 41** tables can leave the read without either floor noticing.
+      ``expense_versions`` is the one exception -- it carries six money columns,
+      enough to take the money count from 24 under the floor of 20.
+    * **37 of 41** tables can leave the read without *any* of the gate's cases
+      going red. The three-table difference is ``memories``, ``audit_events``
+      and ``messages``, and they are not caught by a money rule at all: each is
+      named in ``INEXACT_COLUMNS_REVIEWED`` or ``JSONB_COLUMNS_REVIEWED``, so
+      losing them trips the allowlist-freshness rule by coincidence of having
+      been written down. That is not coverage, and it does not extend to the
+      money tables, which is where the 13-of-14 figure in the report came from.
+
+    Only the first number is derived here, because only the floors are what
+    this rule replaces.
+    """
+
+    columns = _columns(postgres_engine)
+    model_tables = _model_tables()
+
+    checked: list[str] = []
+    invisible_to_old_floors: list[str] = []
+    for victim in sorted(model_tables):
+        truncated = [column for column in columns if column[0] != victim]
+
+        assert _tables_missing_from_read(truncated) == [victim], (
+            f"losing {victim} from the read was not reported as exactly that "
+            "table missing"
+        )
+        checked.append(victim)
+
+        money_named = [c for c in truncated if _looks_like_money(c[1])]
+        if len(truncated) > 200 and len(money_named) >= 20:
+            invisible_to_old_floors.append(victim)
+
+    # A loop that never ran asserts nothing -- the exact shape of free-green
+    # this file exists to reject. Pin the trip count against its source.
+    assert checked == sorted(model_tables), (
+        f"coverage control ran over {len(checked)} of {len(model_tables)} tables"
+    )
+    assert len(checked) > 0, "no model tables to check; the source list is empty"
+
+    # If this ever drops to zero the floors would be doing the job on their own
+    # and this rule would be dead weight. It was 40/41 when the rule was added.
+    assert len(invisible_to_old_floors) > 0, (
+        "the row-count floors now notice every single lost table on their own; "
+        "re-examine whether this rule is still the thing catching them"
+    )
 
 
 def test_no_unreviewed_inexact_numeric_column(postgres_engine: Engine) -> None:
@@ -219,6 +317,11 @@ def test_reviewed_entries_still_describe_the_schema(postgres_engine: Engine) -> 
         # which is why the name rule exists.
         ("text", "amount_vnd", False, True),
         ("jsonb", "total_amount_vnd", False, True),
+        # Measured blind spots: these rows are documented holes, not controls.
+        ("text", "gia_tri", False, False),
+        ("character varying(32)", "so_tien", False, False),
+        ("jsonb", "tong_cong", False, False),
+        ("text", "total", False, False),
     ],
 )
 def test_detector_catches_a_column_known_to_be_wrong(
@@ -228,12 +331,14 @@ def test_detector_catches_a_column_known_to_be_wrong(
     caught_by_type_rule: bool,
     caught_by_name_rule: bool,
 ) -> None:
-    """Positive control: plant a column known to be wrong, re-run the real query.
+    """Plant measured canaries and verify each detector's expected result.
 
     Without this, every assertion above is "no rows matched", which a broken
     query satisfies just as well as a clean schema. The canary goes into the
     same migrated schema and is read back by the same ``_columns`` call, so it
     exercises the query the gate actually depends on -- not a hand-fed list.
+    Rows expecting neither rule to fire record the known detection gap; they
+    are not positive controls.
     """
 
     with postgres_engine.begin() as connection:
@@ -256,10 +361,6 @@ def test_detector_catches_a_column_known_to_be_wrong(
         assert bool(name_rule) is caught_by_name_rule, (
             f"name rule on {column_name} {sql_type}: expected "
             f"caught={caught_by_name_rule}, got {name_rule}"
-        )
-        assert caught_by_type_rule or caught_by_name_rule, (
-            "this row claims neither rule catches the column, which would make "
-            "it a documented hole rather than a control"
         )
     finally:
         with postgres_engine.begin() as connection:
