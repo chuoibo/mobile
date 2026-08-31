@@ -36,7 +36,7 @@ printf '%-16s | %-12s | %-12s | %-9s | %-7s | %-4s | %s\n' \
   CA "grounding" "injection" "dung-duoc" "#title" "exit" "ket luan trung thuc"
 printf '%s\n' "-----------------+--------------+--------------+-----------+---------+------+---------------------"
 
-for ca in chet-ai loi-500 nghe-hoa nghe-bien-thien nghe-y-nguyen; do
+for ca in chet-ai bi-bat loi-500 nghe-hoa nghe-bien-thien nghe-y-nguyen; do
   port="$(python3 -c "import socket;s=socket.socket();s.bind(('127.0.0.1',0));print(s.getsockname()[1]);s.close()")"
   python3 "$HERE/bia-reel.py" "$port" "$ca" >/dev/null 2>&1 &
   bia=$!
@@ -54,7 +54,8 @@ for ca in chet-ai loi-500 nghe-hoa nghe-bien-thien nghe-y-nguyen; do
   d="$(printf '%s\n' "$out" | sed -n 's/^dựng được: \([0-9]*\/[0-9]*\).*$/\1/p')"
   t="$(printf '%s\n' "$out" | sed -n 's/^số title khác nhau qua [0-9]* lượt: \([0-9]*\)$/\1/p')"
   case "$ca" in
-    chet-ai)         mong="reel TAT — khong duoc pass" ;;
+    chet-ai)         mong="reel TAT (thieu khoa) — khong duoc pass" ;;
+    bi-bat)          mong="model BIA, ground_reel DA CHAN — grounding THAT BAI" ;;
     loi-500)         mong="route HONG — khong duoc pass" ;;
     nghe-hoa)        mong="model DA NGHE THEO" ;;
     nghe-bien-thien) mong="DA NGHE THEO, khong con dau vet nao" ;;

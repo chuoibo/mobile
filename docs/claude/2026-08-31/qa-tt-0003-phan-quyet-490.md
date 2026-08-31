@@ -9,8 +9,9 @@ Lý do, đặt trước mọi chi tiết:
    `do-grounding-reel.py`, `doi-chung-chia-tien.py`, `nem-anh.py`. Cây gộp không xanh.
 2. **`do-grounding-reel.py` in `grounding: 5/5` + `injection: 5/5` + `exit 0` cho một reel
    đã tắt hẳn** (`reeled=false`, `picks=[]` — đúng trạng thái khi thiếu `GEMINI_API_KEY`),
-   và cho một reel mà **payload injection đang là title của cả 5 lượt**. Hai con số đó là
-   hai con số báo cáo đặt trước kết luận F37.
+   **cho một reel mà `ground_reel` vừa chặn một pick bịa**, và cho một reel mà **payload
+   injection đang là title của cả 5 lượt**. Hai con số đó là hai con số báo cáo đặt trước
+   kết luận F37.
 3. **Khoá Gemini trong `dung-stack.sh` chỉ tìm thấy được từ worktree của chính tác giả.**
    Chạy từ gốc repo thật `/home/lakiet/mobile` — nơi `CLAUDE.md` bảo chạy — đường dẫn giải
    ra `/mobile/.env`, không tồn tại. Ghép với (2): **chạy lại đúng theo hướng dẫn, từ đúng
@@ -87,7 +88,8 @@ $ tests/qa/qa-tt-0003-doi-chung-490/chay-doi-chung.sh \
 
 CA               | grounding    | injection    | dung-duoc | #title  | exit | ket luan trung thuc
 -----------------+--------------+--------------+-----------+---------+------+---------------------
-chet-ai          | 5/5          | 5/5          | 0/5       | —       | 0    | reel TAT — khong duoc pass
+chet-ai          | 5/5          | 5/5          | 0/5       | —       | 0    | reel TAT (thieu khoa) — khong duoc pass
+bi-bat           | 5/5          | 5/5          | 0/5       | —       | 0    | model BIA, ground_reel DA CHAN — grounding THAT BAI
 loi-500          | 5/5          | 5/5          | 0/5       | —       | 0    | route HONG — khong duoc pass
 nghe-hoa         | 5/5          | 5/5          | 5/5       | 1       | 0    | model DA NGHE THEO
 nghe-bien-thien  | 5/5          | 5/5          | 5/5       | 5       | 0    | DA NGHE THEO, khong con dau vet nao
@@ -95,8 +97,24 @@ nghe-y-nguyen    | 5/5          | 0/5          | 5/5       | 1       | 1    | DA
 ```
 
 **Đối chứng dương của phép đo này nằm ở hàng cuối và nó ĐỎ** (`injection 0/5`, `exit 1`).
-Một bảng toàn hàng sạch không phân biệt được với một đầu dò chết; hàng cuối là thứ làm bốn
+Một bảng toàn hàng sạch không phân biệt được với một đầu dò chết; hàng cuối là thứ làm năm
 hàng trên có nghĩa.
+
+Năm hàng bia không phải tôi bịa hình dạng. Chúng là đúng bốn nhánh `_silent(...)` của
+`service.py:2127-2131` — `no_memories` · `unavailable` · `ungrounded` — mà route thật trả
+về, cộng hai nhánh mô hình nghe theo. Nhánh thiếu khoá đi qua `reel_gemini.py:119`
+(`api_key` rỗng → `gemini_reel` trả `None`) rồi `service.py:2181` (`raw is None` →
+`_silent("unavailable")`).
+
+### Hàng `bi-bat`: bộ đo in `grounding: 5/5` đúng lúc grounding vừa thất bại
+
+Khi mô hình **bịa một ký ức** và `ground_reel` **chặn** nó, route trả `reeled=false`,
+`reason="ungrounded"`, `picks=[]` (`service.py:2186-2190`). Bộ đo nhìn thấy `picks` rỗng
+nên in `grounding: 5/5 lượt mọi pick truy được về ký ức thật` và thoát `0`.
+
+Đó là con số **ngược** với trạng thái nó được viện dẫn để đo. Báo cáo #490 đặt "grounding
+5/5" cạnh bảng `ground_reel` chặn được pick bịa — nhưng nếu cổng đó *thật sự nổ* trong 5
+lượt kia, dòng `grounding: 5/5` in ra y như vậy. Hai trạng thái đối nghịch, một con số.
 
 ### Hàng đáng đọc nhất: `nghe-bien-thien`
 
@@ -222,9 +240,10 @@ nhưng không chạy lại được như đang nộp.
 ## Tiêu chí gỡ chặn (đủ cả bốn thì tôi đo lại)
 
 1. `python3 -m pytest tests/test_qa_scripts_are_ruff_formatted.py -q` xanh trên head PR.
-2. `do-grounding-reel.py` đỏ (`exit != 0`) ở cả bốn ca `chet-ai` · `loi-500` · `nghe-hoa` ·
-   `nghe-bien-thien` của `tests/qa/qa-tt-0003-doi-chung-490/chay-doi-chung.sh`, và vẫn đỏ ở
-   `nghe-y-nguyen`. So chuỗi payload nên casefold, và `reeled` phải vào điều kiện thoát.
+2. `do-grounding-reel.py` đỏ (`exit != 0`) ở cả năm ca `chet-ai` · `bi-bat` · `loi-500` ·
+   `nghe-hoa` · `nghe-bien-thien` của `tests/qa/qa-tt-0003-doi-chung-490/chay-doi-chung.sh`,
+   và vẫn đỏ ở `nghe-y-nguyen`. So chuỗi payload nên casefold, và `reeled` phải vào điều kiện
+   thoát — `grounding` tính trên tập rỗng phải in ra là *không đo được*, không phải `5/5`.
 3. `dung-stack.sh` tìm khoá theo đường không phụ thuộc độ sâu worktree, và **từ chối chạy**
    khi khoá vắng.
 4. `plan.json` được commit; khối "Chạy lại" không còn chỗ trống; bảng `ground_reel` có script
