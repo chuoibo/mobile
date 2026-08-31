@@ -280,12 +280,48 @@ class TestStatusImLangLaThatBai:
         assert p.returncode == 2
         assert "KHONG DOC DUOC" in p.stderr
 
-    def test_ban_ghi_cu_thi_mac_2(self, tmp_path):
+    def _crontab_gia(self, tmp_path, noi_dung: str) -> dict:
+        """PATH có một `crontab` giả trả về đúng nội dung mình muốn."""
+        gia = tmp_path / "bin"
+        gia.mkdir(exist_ok=True)
+        luu = tmp_path / "cron.txt"
+        luu.write_text(noi_dung, encoding="utf-8")
+        (gia / "crontab").write_text(
+            f'#!/usr/bin/env bash\n[ "$1" = "-l" ] && cat "{luu}" && exit 0\nexit 1\n'
+        )
+        (gia / "crontab").chmod(0o755)
+        return {**os.environ, "PATH": f"{gia}:{os.environ['PATH']}"}
+
+    def test_ban_ghi_cu_va_CO_khoi_cron_thi_bao_canh_gac_da_dung(self, tmp_path):
         _harness_gia(tmp_path)
         _ban_ghi(tmp_path, unix=time.time() - 4000)
-        p = _chay(tmp_path, "status", "--max-age", "3600")
-        assert p.returncode == 2
+        env = self._crontab_gia(tmp_path, f"{M.CRON_BEGIN}\n*/15 * * * * x\n")
+        p = subprocess.run(
+            [sys.executable, str(SCRIPT), "--harness", str(tmp_path), "status"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            env=env,
+        )
+        assert p.returncode == 2, p.stdout + p.stderr
         assert "BAN GHI CU" in p.stderr
+
+    def test_ban_ghi_cu_va_KHONG_co_khoi_cron_thi_bao_chua_cai(self, tmp_path):
+        """Nói "canh gác đã dừng" khi chưa từng cài là bắt người ta đi tìm một
+        cái xác không tồn tại. Hai đường cùng mã 2, nhưng chỉ về hai chỗ khác."""
+        _harness_gia(tmp_path)
+        _ban_ghi(tmp_path, unix=time.time() - 4000)
+        env = self._crontab_gia(tmp_path, "*/5 * * * * viec-cua-nguoi-khac\n")
+        p = subprocess.run(
+            [sys.executable, str(SCRIPT), "--harness", str(tmp_path), "status"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            env=env,
+        )
+        assert p.returncode == 2, p.stdout + p.stderr
+        assert "CHUA CAI CANH GAC" in p.stderr
+        assert "install --apply" in p.stderr
 
     def test_ban_ghi_moi_va_xanh_thi_mac_0(self, tmp_path):
         _harness_gia(tmp_path)

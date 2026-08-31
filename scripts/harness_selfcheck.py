@@ -372,6 +372,26 @@ def cmd_run(args: argparse.Namespace) -> int:
         held.unlink(missing_ok=True)
 
 
+def _cron_installed() -> bool | None:
+    """True/False if the crontab answered, None if it could not be asked.
+
+    None is not False: "crontab is not installed on this box" must not be
+    reported as "somebody removed the watcher".
+    """
+    if shutil.which("crontab") is None:
+        return None
+    try:
+        out = subprocess.run(
+            ["crontab", "-l"], capture_output=True, text=True, timeout=10
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0 and not out.stdout:
+        # No crontab for this user at all -- an answer, and the answer is no.
+        return False
+    return CRON_BEGIN in out.stdout
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     """Report on the harness AND on whether anybody is still checking it."""
     harness = Path(args.harness)
@@ -396,11 +416,24 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     age = time.time() - float(data.get("unix") or 0)
     if age > max_age:
-        print(
-            f"tu-kiem: BAN GHI CU — {int(age)}s > {max_age}s. Canh gac da "
-            f"dung chay.\n  Kiem:  crontab -l | grep -A2 '{CRON_BEGIN}'",
-            file=sys.stderr,
-        )
+        # "Never armed" and "armed then died" are both exit 2, but they send the
+        # reader to different places -- and telling somebody the watcher stopped
+        # when no watcher was ever installed costs them a hunt for a corpse that
+        # does not exist. The distinction is the whole subject of this file, so
+        # it is worth one `crontab -l`.
+        if _cron_installed() is False:
+            print(
+                f"tu-kiem: CHUA CAI CANH GAC — ban ghi {int(age)}s > {max_age}s "
+                f"va khong co khoi cron nao. Ban ghi nay la mot luot chay TAY.\n"
+                f"  Bat:  python3 {Path(__file__).name} install --apply",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"tu-kiem: BAN GHI CU — {int(age)}s > {max_age}s. Canh gac da "
+                f"dung chay.\n  Kiem:  crontab -l | grep -A2 '{CRON_BEGIN}'",
+                file=sys.stderr,
+            )
         return 2
 
     verdict = data.get("verdict")
