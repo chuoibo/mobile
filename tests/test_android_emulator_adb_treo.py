@@ -75,7 +75,7 @@ HANG_SECONDS = 40
 CONG_THU_GOC = 5987
 
 AVD = "rudi-test"
-CONSOLE_PORT = 5602          # even, the emulator console convention
+CONSOLE_PORT = 5602  # even, the emulator console convention
 ADBD_PORT = CONSOLE_PORT + 1  # odd, what `adb connect` targets
 
 
@@ -269,8 +269,7 @@ def test_check_chay_duoc_khi_chua_co_adb_server(moi_truong):
         f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
     assert elapsed < HANG_SECONDS, (
-        f"check mất {elapsed:.1f}s — nó đã ngồi chờ hết cú adb treo thay vì "
-        f"bật server."
+        f"check mất {elapsed:.1f}s — nó đã ngồi chờ hết cú adb treo thay vì bật server."
     )
     assert "sys.boot_completed 1" in result.stdout, result.stdout
 
@@ -319,7 +318,10 @@ def test_thong_bao_bat_server_khong_lot_vao_stdout(moi_truong):
     env = _env(tmp_path, sdk)
     result = subprocess.run(
         ["bash", "-c", f'set -euo pipefail; source "{fns}"; ensure_adb_server'],
-        capture_output=True, text=True, env=env, timeout=60,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=60,
     )
 
     assert result.returncode == 0, result.stderr
@@ -346,11 +348,17 @@ def test_khong_bat_server_thu_hai_khi_da_co_mot_cai(moi_truong):
     mark = tmp_path / "server.pid"
     srv = subprocess.Popen(
         [
-            str(sdk / "platform-tools" / "adb"), "-L", f"tcp:{port}",
-            "server", "nodaemon",
+            str(sdk / "platform-tools" / "adb"),
+            "-L",
+            f"tcp:{port}",
+            "server",
+            "nodaemon",
         ],
-        env={**os.environ, "RD_FAKE_SERVER_MARK": str(mark),
-             "RD_ADB_LOG": str(tmp_path / "adb.log")},
+        env={
+            **os.environ,
+            "RD_FAKE_SERVER_MARK": str(mark),
+            "RD_ADB_LOG": str(tmp_path / "adb.log"),
+        },
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
@@ -363,9 +371,7 @@ def test_khong_bat_server_thu_hai_khi_da_co_mot_cai(moi_truong):
 
         (tmp_path / "adb.log").write_text("")
         started = time.monotonic()
-        result = _run(
-            ["check"], tmp_path, sdk, extra={"RD_ADB_SERVER_PORT": str(port)}
-        )
+        result = _run(["check"], tmp_path, sdk, extra={"RD_ADB_SERVER_PORT": str(port)})
         elapsed = time.monotonic() - started
 
         assert result.returncode == 0, result.stdout + result.stderr
