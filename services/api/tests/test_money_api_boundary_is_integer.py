@@ -19,6 +19,17 @@ A hand-written list cannot notice a model nobody added it to, so it reports
 app means a model added tomorrow is measured tomorrow, under whatever name its
 author chose.
 
+Query and path parameters are collected **separately** from the model walk, and
+the reason is worth stating because it was found by mutation rather than by
+reading. Mutant W2 removed query and path parameters from the walk and the gate
+stayed green: measured on this tree there are 101 such parameters and *none* is
+a pydantic model, so feeding them to a model walk discovers exactly nothing.
+Passing them to the walk and calling that coverage would have been a claim with
+no measurement under it. One of those 101 is money --
+``candidate_per_person_vnd`` on ``GET /contexts/{context_id}/budget`` -- and it
+is the single place where a client controls a money value that no model-shaped
+rule in this file can see. It gets its own test below.
+
 ## The rules, and why none subsumes another
 
 **Rule A -- behavioural, over money-named fields.** Every field whose *name*
@@ -109,6 +120,11 @@ FRACTIONAL_PROBES: tuple[object, ...] = (300.5, Decimal("300.5"))
 # kept as text passes every numeric rule in this file.
 INTEGER_PROBE = 300
 
+# A query parameter arrives off the wire as text, so ``300.5`` reaches it as
+# ``"300.5"``. Probing a scalar parameter with the float alone would test a
+# shape no HTTP client can actually send.
+WIRE_FRACTIONAL_PROBES: tuple[object, ...] = (*FRACTIONAL_PROBES, "300.5")
+
 # Deny by default: an inexact field NOT listed here fails the gate. Each entry
 # states why it is not money. Coordinates, ratings, distances and normalised
 # scores -- nothing that is ever paid to anybody.
@@ -194,15 +210,22 @@ def _annotation_of(field: object) -> object | None:
     return getattr(info, "annotation", None) if info is not None else None
 
 
-def _walk_contract() -> tuple[dict[tuple[str, str], object], set[str], int]:
+def _walk_contract() -> tuple[
+    dict[tuple[str, str], object],
+    dict[tuple[str, str], object],
+    set[str],
+    int,
+]:
     """Walk the built app into every reachable pydantic field.
 
-    Returns the discovered fields keyed by (model name, field name), the set of
-    model names visited, and the number of APIRoutes walked. Nothing here is
+    Returns the discovered model fields keyed by (model name, field name), the
+    scalar query/path parameters keyed by (route path, parameter name), the set
+    of model names visited, and the number of APIRoutes walked. Nothing here is
     driven by a hand-written list: the only input is ``app.routes``.
     """
 
     discovered: dict[tuple[str, str], object] = {}
+    scalars: dict[tuple[str, str], object] = {}
     visited: set[str] = set()
     seen_models: set[type] = set()
     routes_walked = 0
@@ -240,9 +263,16 @@ def _walk_contract() -> tuple[dict[tuple[str, str], object], set[str], int]:
             + list(dependant.query_params or ())
             + list(dependant.path_params or ())
         ):
-            walk(_annotation_of(param))
+            annotation = _annotation_of(param)
+            walk(annotation)
+            # A query or path parameter is usually a bare scalar, not a model,
+            # so ``walk`` above discovers nothing for it. Money arriving that
+            # way would be invisible to every model-shaped rule in this file.
+            name = getattr(param, "name", None)
+            if name is not None and annotation is not None:
+                scalars[(route.path, name)] = annotation
 
-    return discovered, visited, routes_walked
+    return discovered, scalars, visited, routes_walked
 
 
 def _accepts(annotation: object, value: object) -> bool:
@@ -256,7 +286,12 @@ def _accepts(annotation: object, value: object) -> bool:
 
 
 @pytest.fixture(scope="module")
-def contract() -> tuple[dict[tuple[str, str], object], set[str], int]:
+def contract() -> tuple[
+    dict[tuple[str, str], object],
+    dict[tuple[str, str], object],
+    set[str],
+    int,
+]:
     return _walk_contract()
 
 
@@ -267,7 +302,7 @@ def test_walker_reached_every_api_route(contract) -> None:
     without saying so.
     """
 
-    _, _, routes_walked = contract
+    _, _, _, routes_walked = contract
     live_routes = sum(1 for route in app.routes if isinstance(route, APIRoute))
     assert routes_walked == live_routes, (
         f"walked {routes_walked} routes but the app has {live_routes}"
@@ -278,7 +313,7 @@ def test_walker_reached_every_api_route(contract) -> None:
 def test_every_money_field_refuses_a_fractional_value(contract) -> None:
     """Rule A. Behavioural: the value is run, the declaration is ignored."""
 
-    discovered, _, _ = contract
+    discovered, _, _, _ = contract
     money = {
         key: annotation
         for key, annotation in discovered.items()
@@ -313,10 +348,47 @@ def test_every_money_field_refuses_a_fractional_value(contract) -> None:
     )
 
 
+def test_every_money_query_or_path_parameter_refuses_a_fractional_value(
+    contract,
+) -> None:
+    """Rule A, applied to scalars that never live inside a model.
+
+    A query parameter is a bare annotation hanging off the route, so the model
+    walk never reaches it. Measured on the tree this landed on there are 101
+    query and path parameters, none of them a pydantic model, and exactly one
+    of them is money: ``candidate_per_person_vnd`` on
+    ``GET /contexts/{context_id}/budget``. Without this test that parameter is
+    the one place money enters the API with nothing in this file watching it.
+    """
+
+    _, scalars, _, _ = contract
+    money = {
+        key: annotation
+        for key, annotation in scalars.items()
+        if _looks_like_money(key[1])
+    }
+    assert money, (
+        "no money-named query or path parameter found at all; the parameter "
+        "collection above broke, because this tree has one"
+    )
+
+    leaked = [
+        f"{path}?{name} accepted {value!r}"
+        for (path, name), annotation in sorted(money.items())
+        for value in WIRE_FRACTIONAL_PROBES
+        if _accepts(annotation, value)
+    ]
+    assert leaked == [], (
+        "a money query/path parameter accepted a fractional value, violating "
+        "Law 1 at the point where a client controls it directly:\n  "
+        + "\n  ".join(leaked)
+    )
+
+
 def test_every_inexact_field_is_reviewed(contract) -> None:
     """Rule B. Deny by default, stated over the type, not over the name."""
 
-    discovered, _, _ = contract
+    discovered, _, _, _ = contract
     inexact = {
         key
         for key, annotation in discovered.items()
@@ -342,7 +414,7 @@ def test_reviewed_inexact_entries_all_still_exist(contract) -> None:
     so there is no way for this file to pass by measuring nothing.
     """
 
-    discovered, _, _ = contract
+    discovered, _, _, _ = contract
     stale = sorted(set(INEXACT_API_FIELDS_REVIEWED) - set(discovered))
     assert stale == [], (
         "reviewed inexact fields no longer exist in the contract; either the "
