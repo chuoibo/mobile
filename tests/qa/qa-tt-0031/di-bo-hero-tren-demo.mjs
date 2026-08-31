@@ -39,7 +39,6 @@ import {
   saveBankRecipient,
   scanReceipt,
   taoBill,
-  translated,
 } from "../../../apps/mobile/dist-test/api.js";
 import { readingFromWire } from "../../../apps/mobile/dist-test/receipt.js";
 
