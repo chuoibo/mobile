@@ -12,10 +12,18 @@
 #      the server logged no request is a screen inventing its own data. Without
 #      access lines there is nothing to read but the screen, and the screen is
 #      the least trustworthy instrument in the box.
-#   2. `GEMINI_API_KEY` is passed through from the repo-root `.env`, because F37
-#      is an AI feature and a reel measured against a missing key measures the
-#      key, not the feature. The value is never printed, never written to the
-#      log directory, and never committed -- only the fact that it is present.
+#   2. `GEMINI_API_KEY` is passed through from a `.env` found WITHOUT assuming
+#      how deep this worktree sits, because F37 is an AI feature and a reel
+#      measured against a missing key measures the key, not the feature. The
+#      value is never printed, never written to the log directory, and never
+#      committed -- only the fact that it is present and where it came from.
+#
+#      The key is resolved and REQUIRED before any container starts: without it
+#      the script exits 3 rather than running on with the AI switched off. A
+#      keyless run does not fail loudly downstream -- the reel route answers
+#      `reeled=false reason=unavailable`, which reads as "nothing wrong" to
+#      anything not specifically looking. Refusing here is what keeps the
+#      "Chạy lại" block from quietly measuring something else.
 #
 # It stays in the foreground once the stack answers, so whoever started it owns
 # the lifetime. The URLs are written to `$OUT_DIR/stack.env` for other processes.
@@ -27,6 +35,58 @@ OUT_DIR="${1:?usage: dung-stack.sh <out-dir>}"
 mkdir -p "$OUT_DIR"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 IMAGE="postgres:16-alpine"
+
+# Finding the key must not depend on how deep this worktree sits. An earlier
+# version read `$REPO_ROOT/../../../mobile/.env`, which resolves only from a
+# checkout three levels beside `mobile/`: from the repo root itself it pointed at
+# `/mobile/.env` and found nothing. It then printed "KHÔNG có key" and CARRIED ON,
+# so anyone pasting the "Chạy lại" block from a different directory measured a
+# reel with the AI switched off -- and, before the fix below it, got a PASS for it.
+#
+# `git rev-parse --git-common-dir` names the MAIN worktree's `.git` from inside
+# any linked worktree at any depth, which is exactly the anchor wanted.
+chua_khoa=""
+common_dir="$(git -C "$REPO_ROOT" rev-parse --git-common-dir 2>/dev/null || true)"
+case "$common_dir" in
+  "") ;;
+  /*) chua_khoa="$(cd "$(dirname "$common_dir")" && pwd)" ;;
+  *)  chua_khoa="$(cd "$REPO_ROOT/$(dirname "$common_dir")" && pwd)" ;;
+esac
+
+doc_env() { [ -f "$1" ] && sed -n 's/^[[:space:]]*GEMINI_API_KEY=//p' "$1" | tr -d '"'"'" | head -1; }
+
+# Order: an explicitly exported key, an explicitly named file, this worktree's
+# root, then the main worktree's root.
+if [ -z "${GEMINI_API_KEY:-}" ]; then
+  for ung_vien in "${MOBILE_ENV_FILE:-}" "$REPO_ROOT/.env" "${chua_khoa:+$chua_khoa/.env}"; do
+    [ -n "$ung_vien" ] || continue
+    GEMINI_API_KEY="$(doc_env "$ung_vien")"
+    [ -n "$GEMINI_API_KEY" ] && { nguon="$ung_vien"; break; }
+  done
+else
+  nguon="biến môi trường"
+fi
+
+if [ -z "${GEMINI_API_KEY:-}" ]; then
+  cat >&2 <<EOF
+DỪNG: không tìm thấy GEMINI_API_KEY.
+
+F37 là tính năng AI. Một reel đo khi thiếu khoá đo cái khoá, không đo tính năng —
+và route trả reeled=false reason=unavailable, thứ mà một bộ đo cẩu thả đọc thành
+"sạch". Nên script này TỪ CHỐI chạy thay vì chạy tiếp rồi để lại một con số đẹp
+mà không ai kiểm được.
+
+Đã tìm ở (theo thứ tự):
+  \$GEMINI_API_KEY (biến môi trường)
+  \${MOBILE_ENV_FILE:-<không đặt>}
+  $REPO_ROOT/.env
+  ${chua_khoa:+$chua_khoa/.env}
+
+Gỡ: export GEMINI_API_KEY=..., hoặc MOBILE_ENV_FILE=/đường/dẫn/.env
+EOF
+  exit 3
+fi
+echo "gemini: key có mặt (${#GEMINI_API_KEY} ký tự, không in) — nguồn: ${nguon:-?}"
 
 CONTAINER=""
 API_PID=""
@@ -61,9 +121,6 @@ echo "alembic: head"
 
 port="$(python3 -c "import socket;s=socket.socket();s.bind(('127.0.0.1',0));print(s.getsockname()[1]);s.close()")"
 id_key="$(head -c 48 /dev/urandom | base64 | tr -d '/+=' | head -c 44)"
-GEMINI_API_KEY="$(sed -n 's/^GEMINI_API_KEY=//p' "$REPO_ROOT/../../../mobile/.env" 2>/dev/null | tr -d '"' | head -1)"
-[ -n "$GEMINI_API_KEY" ] && echo "gemini: key có mặt (${#GEMINI_API_KEY} ký tự, không in)" || echo "gemini: KHÔNG có key"
-
 (
   cd "$REPO_ROOT/services/api" || exit 2
   MOBILE_DATABASE_URL="$DATABASE_URL" \

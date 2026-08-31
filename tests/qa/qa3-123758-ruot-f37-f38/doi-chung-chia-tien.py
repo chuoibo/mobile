@@ -38,6 +38,7 @@ because it is a shell" are the two states this whole exercise exists to separate
 
 Prints JSON: the amount, the server's own allocation, and the expense version.
 """
+
 import json
 import sys
 import urllib.error
@@ -65,7 +66,9 @@ def call(api, method, path, *, body=None, actor=None, ctx=None, key=None):
         with urllib.request.urlopen(req, timeout=60) as r:
             raw = r.read()
     except urllib.error.HTTPError as e:
-        raise SystemExit(f"{method} {path} -> {e.code}\n{e.read().decode('utf-8', 'replace')}")
+        raise SystemExit(
+            f"{method} {path} -> {e.code}\n{e.read().decode('utf-8', 'replace')}"
+        )
     return json.loads(raw) if raw else {}
 
 
@@ -113,12 +116,13 @@ def main() -> int:
         ctx=ctx,
         key=f"qa3-doi-chung-confirm-{tong}",
     )
+    phan_bo = de_xuat["allocation"]["allocations"]
     print(
         json.dumps(
             {
                 "tong_vnd": tong,
-                "phan_bo": de_xuat["allocation"]["allocations"],
-                "sum_phan_bo": sum(de_xuat["allocation"]["allocations"].values()),
+                "phan_bo": phan_bo,
+                "sum_phan_bo": sum(phan_bo.values()),
                 "expense_id": de_xuat["expense_id"],
                 "expense_version_id": xac_nhan["expense_version_id"],
                 "occurred_at": khi.isoformat(),
@@ -126,6 +130,39 @@ def main() -> int:
             ensure_ascii=False,
             indent=1,
         )
+    )
+
+    # Printing `sum_phan_bo` next to `tong_vnd` and returning 0 regardless is not
+    # a control -- it is a printer, and a reader comparing two numbers by eye is
+    # the check. This file is the POSITIVE control the whole F37/F38 reading
+    # leans on ("if the instrument calls splitting a shell, the instrument is
+    # broken"), so it has to be able to FAIL. Below is the part that can.
+    #
+    # Luật 1 (số nguyên đồng) and Luật 2 (Σ phân bổ = tổng) are asserted here on
+    # the wire, not because the allocator is doubted -- 41 golden vectors cover
+    # it -- but because this script's claim is that the amount travelled through
+    # the product intact. A float share or a sum that misses by a đồng means it
+    # did not, and that is a finding about the run this script is the control for.
+    sai = []
+    if not all(
+        isinstance(v, int) and not isinstance(v, bool) for v in phan_bo.values()
+    ):
+        sai.append(f"Luật 1: phân bổ có giá trị không phải số nguyên — {phan_bo}")
+    if sum(phan_bo.values()) != tong:
+        sai.append(f"Luật 2: Σ phân bổ = {sum(phan_bo.values())} ≠ tổng {tong}")
+    if set(phan_bo) != set(people):
+        sai.append(
+            f"tập người được chia {sorted(phan_bo)} ≠ tập tham gia {sorted(people)}"
+        )
+    if not xac_nhan.get("expense_version_id"):
+        sai.append("confirm không trả expense_version_id — khoản chi chưa vào sổ")
+    if sai:
+        for s in sai:
+            print(f"HỎNG {s}", file=sys.stderr)
+        return 1
+    print(
+        f"ĐẠT: Σ phân bổ = {tong} = tổng, {len(phan_bo)} người, mọi phần là số nguyên đồng.",
+        file=sys.stderr,
     )
     return 0
 
