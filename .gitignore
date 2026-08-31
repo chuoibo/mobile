@@ -276,6 +276,7 @@ dist-test/
 # the app still bundles; keeping its output would put a build artifact in the
 # history for a test that runs in five seconds.
 .expo-build-check/
+.expo-native-check/
 
 # Output of `apps/mobile/tools/screen-snapshots.mjs`. Sáu file HTML dựng lại từ
 # một lần chạy trình duyệt, để detector quét — bằng chứng của một lần chạy chứ
