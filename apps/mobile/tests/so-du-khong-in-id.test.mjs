@@ -29,8 +29,28 @@
  * The panel below it has the same shape and the same cause: `Máy chủ chia thử`
  * draws `ketQua.allocations`, whose keys come from the server against the
  * roster the SERVER holds -- which is the entire reason that card is worth
- * pressing. It is pinned here too rather than left as the second acquittal
- * path for one bug.
+ * pressing.
+ *
+ * ## 2026-08-31: that second panel was NOT pinned, despite this file saying so
+ *
+ * The paragraph above used to end "It is pinned here too rather than left as
+ * the second acquittal path for one bug." It was not, and the sentence is
+ * exactly the kind that stops anybody checking.
+ *
+ * `MayChuChiaThu` returns `null` while `bill === null`, and every case here
+ * passed `bill: null`. So the card never rendered, and its `labelInGroup` call
+ * was reached by no test in the repository. Measured rather than reasoned:
+ * swapping that one row back to the pre-fix `labelFor(roster, personId)` and
+ * running the entire mobile suite gave 917 tests / 887 pass / 14 fail -- the
+ * same 14 the unmutated tree gives, name for name, all of them needing the
+ * expo build or a live stack. Not one case moved.
+ *
+ * Nothing reached it because the rows only appear after a press, on purpose,
+ * and `renderToStaticMarkup` cannot press. So `GoiYChia` took one optional
+ * prop, `ketQuaChiaThu`, seeding the state a press would have set -- the same
+ * kind of seam the card already had in `doc`, and never passed by the app.
+ * With the card actually on screen the assertions below are the ones already
+ * written for the panel above: same ids, same UUID shape, same hex-prefix trap.
  *
  * What this file pins: no id reaches the reader, and a name the app actually
  * holds is used rather than the fallback word. It renders the whole `GoiYChia`
@@ -119,6 +139,36 @@ const SO_DU = {
   provenMinimal: true,
 };
 
+/** The stored bill. Only needed so `Máy chủ chia thử` draws at all: with
+ *  `bill: null` that card returns `null` and takes its id lookup off screen. */
+const BILL = {
+  id: "7f2c1a90-4d3b-5e12-9a77-2b6c8d0e4f31",
+  context_id: "1d9e6b44-8c25-5f07-b3a1-6e0c9d2f5a83",
+  printed_total_vnd: 65000,
+  items_total_vnd: 65000,
+  needs_review: false,
+  created_by_id: MINH,
+  created_at: "2026-08-31T00:00:00Z",
+  assignment_state: "confirmed",
+  suggested_item_keys: [],
+  items: [],
+  surcharges: [],
+  discounts: [],
+};
+
+/** What a press on "Hỏi máy chủ" returns. The keys are the server's, against
+ *  the roster the SERVER holds -- so they name Ngọc and Linh, who are in the
+ *  group and not on this bill. That mismatch is the reason to press. */
+const CHIA_MAY_CHU = {
+  allocations: { [MINH]: 30000, [NGOC]: 20000, [LINH]: 15000 },
+  exactShares: { [MINH]: "30000", [NGOC]: "20000", [LINH]: "15000" },
+  roundingGainers: [],
+  warnings: [],
+  assignmentState: "confirmed",
+  suggestedItemKeys: [],
+  totalAmountVnd: 65000,
+};
+
 function manGoiY(over = {}) {
   return words(
     React.createElement(GoiYChia, {
@@ -179,6 +229,86 @@ test("tám ký tự hex đầu của id cũng không được coi là tên", () 
   for (const id of [NGOC, LINH]) {
     assert.ok(!read.includes(id.slice(0, 8)), `tiền tố id lọt ra màn hình: ${read}`);
   }
+});
+
+/* The second panel, drawn for real rather than described in a comment.
+ *
+ * `bill` and `ketQuaChiaThu` together are what put the card on screen; without
+ * both it renders nothing and every assertion below passes vacuously. So the
+ * first thing asserted is that the card is actually there. */
+function manGoiYCoMayChu(over = {}) {
+  return manGoiY({ bill: BILL, ketQuaChiaThu: CHIA_MAY_CHU, ...over });
+}
+
+/* Only the card, not the whole screen.
+ *
+ * Asserting "Ngọc appears" against the full text is a gate that cannot fail:
+ * the debt panel above prints Ngọc too, from a lookup this card does not
+ * share. Measured -- with the whole-screen reading, replacing this card's
+ * label with the fallback word left that case green. Cutting at the card's own
+ * title is what makes it name something.
+ *
+ * The tail after the card (the footer, the total) is left in. It holds no
+ * person's name, so it cannot acquit; trimming to the next heading would only
+ * add a second string to keep in step with the screen. */
+function bangMayChu(read) {
+  const at = read.indexOf("Máy chủ chia thử");
+  assert.notEqual(at, -1, `không thấy bảng máy chủ trên màn: ${read}`);
+  return read.slice(at);
+}
+
+test("bảng máy chủ chia thử có thật trên màn, không phải khẳng định suông", () => {
+  const read = manGoiYCoMayChu();
+  assert.ok(read.includes("Máy chủ chia thử"), `thiếu chính cái bảng: ${read}`);
+  assert.ok(read.includes("Tổng máy chủ cộng lại"), `bảng có tiêu đề mà rỗng ruột: ${read}`);
+});
+
+test("bảng máy chủ chia thử cũng không in id ra chỗ đặt tên", () => {
+  const read = bangMayChu(manGoiYCoMayChu());
+  const lot = read.match(HINH_DANG_UUID);
+  assert.equal(lot, null, `id lọt ra màn hình: ${lot?.[0]} trong "${read}"`);
+});
+
+/* Same trap as the panel above: falling back to the word for everybody hides
+ * the id and loses the name, and only this pair of cases tells them apart. */
+test("bảng máy chủ chia thử gọi đúng tên người chỉ có trong nhóm", () => {
+  const read = bangMayChu(manGoiYCoMayChu());
+  assert.ok(read.includes("Ngọc"), `mất tên Ngọc: ${read}`);
+  assert.ok(read.includes("Linh"), `mất tên Linh: ${read}`);
+});
+
+test("bảng máy chủ chia thử không cắt tám ký tự hex đầu làm tên", () => {
+  const read = bangMayChu(manGoiYCoMayChu());
+  for (const id of [NGOC, LINH]) {
+    assert.ok(!read.includes(id.slice(0, 8)), `tiền tố id lọt ra màn hình: ${read}`);
+  }
+});
+
+/* A person the ledger keeps and the group no longer lists reaches this card
+ * the same way it reaches the one above -- the server answers against its own
+ * roster, not against this phone's. */
+test("bảng máy chủ chia thử nói ra khi không ai biết tên, không in id", () => {
+  const read = bangMayChu(
+    manGoiYCoMayChu({
+      ketQuaChiaThu: {
+        ...CHIA_MAY_CHU,
+        allocations: { [LA]: 65000 },
+        exactShares: { [LA]: "65000" },
+      },
+    }),
+  );
+  assert.equal(read.match(HINH_DANG_UUID), null, `id lọt ra màn hình: ${read}`);
+  assert.ok(read.includes(TEN_CHUA_BIET), `thiếu "${TEN_CHUA_BIET}": ${read}`);
+});
+
+/* The seam must not change what the app draws. Nothing passes `ketQuaChiaThu`
+ * outside these tests, and with it absent the card stays empty until pressed --
+ * a seam that quietly turned the panel on would be a product change wearing a
+ * test's clothes. */
+test("không truyền hạt giống thì bảng vẫn rỗng, đúng như trước khi có seam", () => {
+  const read = manGoiY({ bill: BILL });
+  assert.ok(read.includes("Máy chủ chia thử"), `mất luôn cái bảng: ${read}`);
+  assert.ok(!read.includes("Tổng máy chủ cộng lại"), `bảng tự có kết quả khi chưa ai bấm: ${read}`);
 });
 
 /* `labelFor` numbers people who share a display name so two of them can be

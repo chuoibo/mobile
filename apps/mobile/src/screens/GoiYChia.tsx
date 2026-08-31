@@ -93,6 +93,20 @@ export function GoiYChia(props: {
    * to); this screen is left rendering what it is told. `khoaMonCuaToi` in
    * `bill/mon-cua-toi.ts` is where the sentence is decided. */
   khoaMonCuaToi: string | null;
+  /** Seam for the tests: the server's split as if the press had already
+   *  happened.
+   *
+   * `Máy chủ chia thử` only fills in after somebody presses it, which is
+   * deliberate (see that component) and which left its rows unreachable from
+   * `renderToStaticMarkup` -- no press, no effect on mount, nothing to assert
+   * against. So the second place on this screen that turns a server id into a
+   * name had no test at all, while `so-du-khong-in-id.test.mjs` claimed in
+   * prose that it did. Measured: swapping that row back to `labelFor` left the
+   * whole mobile suite at 887 pass / 14 fail, unchanged.
+   *
+   * `undefined` in the app, always: nothing passes it but a test, and the
+   * panel starts empty exactly as before. */
+  ketQuaChiaThu?: ChiaBill | null;
 }): React.JSX.Element {
   const c = usePalette();
   const { reading, roster, assignment, preview } = props;
@@ -496,7 +510,12 @@ export function GoiYChia(props: {
 
         <SoDuNhom soDu={props.soDu} roster={roster} nhom={props.nhom} />
 
-        <MayChuChiaThu bill={props.bill} roster={roster} nhom={props.nhom} />
+        <MayChuChiaThu
+          bill={props.bill}
+          roster={roster}
+          nhom={props.nhom}
+          ketQuaBanDau={props.ketQuaChiaThu ?? null}
+        />
 
       </ScrollView>
 
@@ -923,6 +942,7 @@ function MayChuChiaThu({
   roster,
   nhom,
   doc = docChiaBill,
+  ketQuaBanDau = null,
 }: {
   bill: BillWire | null;
   roster: Roster;
@@ -932,9 +952,12 @@ function MayChuChiaThu({
   nhom: GroupMember[];
   /** Seam for the tests. */
   doc?: typeof docChiaBill;
+  /** Seam for the tests: what a press would have returned. Only ever the
+   *  initial value, so a press still overwrites it the way it always did. */
+  ketQuaBanDau?: ChiaBill | null;
 }): React.JSX.Element | null {
   const c = usePalette();
-  const [ketQua, setKetQua] = useState<ChiaBill | null>(null);
+  const [ketQua, setKetQua] = useState<ChiaBill | null>(ketQuaBanDau);
   const [loi, setLoi] = useState<string | null>(null);
   const [dangHoi, setDangHoi] = useState(false);
   // One key for one bill, held across renders. Two presses on a slow connection
