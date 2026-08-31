@@ -291,6 +291,12 @@ dist-test/
 # nguồn. Repo guard fail closed với binary nên chúng không được vào Git.
 .impeccable/review/
 
+# Cache của design hook, viết lại mỗi lần sửa một file UI. Nội dung là mtime
+# dạng epoch mili giây, và repo guard đọc 13 chữ số liền nhau thành số tài
+# khoản rồi chặn commit. Không phải nguồn, dựng lại bằng lần sửa file kế tiếp.
+.impeccable/hook.cache.json
+**/.impeccable/hook.cache.json
+
 # rd-fe-08: local web export used for detector scans and screenshots
 apps/mobile/.rd-fe-08-web/
 apps/mobile/.impeccable/review/
