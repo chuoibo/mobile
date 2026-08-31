@@ -11,6 +11,8 @@ everything before it *including* its own "6304" header.
 
 from __future__ import annotations
 
+from app.domain.money import NOT_INTEGER, vnd_violation
+
 __all__ = ["crc16_ccitt_false", "build_payload", "parse_tlv", "VietQRError"]
 
 _GUID_VIETQR = "A000000727"
@@ -38,7 +40,9 @@ def crc16_ccitt_false(data: str) -> str:
     for byte in data.encode("utf-8"):
         crc ^= byte << 8
         for _ in range(8):
-            crc = ((crc << 1) ^ 0x1021) & 0xFFFF if crc & 0x8000 else (crc << 1) & 0xFFFF
+            crc = (
+                ((crc << 1) ^ 0x1021) & 0xFFFF if crc & 0x8000 else (crc << 1) & 0xFFFF
+            )
     return f"{crc:04X}"
 
 
@@ -69,9 +73,10 @@ def build_payload(
     if not account_number or not account_number.isalnum():
         raise VietQRError("INVALID_ACCOUNT_NUMBER")
     if amount_vnd is not None:
-        if isinstance(amount_vnd, bool) or not isinstance(amount_vnd, int):
+        violation = vnd_violation(amount_vnd, positive=True)
+        if violation == NOT_INTEGER:
             raise VietQRError("AMOUNT_NOT_INTEGER")
-        if amount_vnd <= 0:
+        if violation:
             raise VietQRError("NON_POSITIVE_AMOUNT")
 
     beneficiary = _tlv("00", bank_bin) + _tlv("01", account_number)

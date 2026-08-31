@@ -30,7 +30,9 @@ tội oan. Phần "không chứng minh gì" đầy đủ nằm ở đầu script
 
 from __future__ import annotations
 
+import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -42,13 +44,14 @@ SCRIPT = REPO_ROOT / "scripts" / "check_actor_headers.py"
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 
-def _run(*args: str) -> subprocess.CompletedProcess:
+def _run(*args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, str(SCRIPT), *args],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
         timeout=300,
+        env={**os.environ, **(env or {})},
     )
 
 
@@ -381,15 +384,19 @@ export async function askSearch(query: string): Promise<void> {
 """
 
     def _run_with(self, source: str) -> subprocess.CompletedProcess:
-        """Thả một file vào cây client thật rồi chạy cổng, y như --selftest làm."""
+        """Chạy cổng với một file mẫu ở thư mục tạm, KHÔNG đụng cây client thật.
+
+        Bản trước thả file vào chính `apps/mobile/src` rồi xoá đi. Đo được: cây
+        client bẩn 9,3 giây trên 12 giây mà file này chạy, và mọi bộ đọc khác
+        soi thư mục đó trong cửa sổ ấy đều đọc lệch — kể cả chính cổng này, nó
+        in "HỎNG" và trỏ vào một file không nằm trong git.
+        `tests/test_gates_do_not_touch_the_client_tree.py` gác chỗ này.
+        """
         import check_actor_headers as mod
 
-        target = mod.CLIENT_DIR / "__actor_exit_code_case__.ts"
-        target.write_text(source, encoding="utf-8")
-        try:
-            return _run()
-        finally:
-            target.unlink(missing_ok=True)
+        with tempfile.TemporaryDirectory(prefix="actor-exit-code-") as tmp:
+            (pathlib.Path(tmp) / "mau.ts").write_text(source, encoding="utf-8")
+            return _run(env={mod.EXTRA_CLIENT_DIR_ENV: tmp})
 
     def test_a_url_it_cannot_read_exits_two_not_one(self):
         done = self._run_with(self.BLIND_BUT_CORRECT)
@@ -432,6 +439,46 @@ export async function askSearch(query: string): Promise<void> {
             done.returncode,
             1,
             f"vi phạm thật bị chỗ mù che mất:\n{done.stdout}\n{done.stderr}",
+        )
+
+
+class TheExtraScanDirCannotQuietenTheGate(unittest.TestCase):
+    """`MOBILE_ACTOR_EXTRA_CLIENT_DIR` chỉ được CỘNG THÊM, không được thay thế.
+
+    Biến này tồn tại để ca test thả file mẫu ở thư mục tạm thay vì bẩn cây
+    client thật. Nhưng một biến môi trường đổi được phạm vi quét của cổng là
+    một cửa hậu: trỏ nó vào thư mục chỉ có một lời gọi sạch thì cổng thoát 0
+    trong khi cây thật đang thiếu header, và phép gác `call_sites == 0` không
+    bắt được vì con số đó là 1 chứ không phải 0.
+
+    Nên tính chất phải gác là "cây thật VẪN được đọc", chứ không phải "biến này
+    chạy được".
+    """
+
+    @staticmethod
+    def _file_count(out: str) -> int:
+        m = re.search(r"—\s*(\d+)\s*file client", out)
+        assert m, f"không đọc được số file từ đầu ra:\n{out}"
+        return int(m.group(1))
+
+    def test_the_real_client_tree_is_still_scanned_when_an_extra_dir_is_given(self):
+        base = self._file_count(_run().stdout)
+        self.assertGreater(base, 1, "cây client thật phải có nhiều hơn 1 file")
+
+        with tempfile.TemporaryDirectory(prefix="actor-extra-") as tmp:
+            (pathlib.Path(tmp) / "mau.ts").write_text(
+                "export const x = 1;\n", encoding="utf-8"
+            )
+            import check_actor_headers as mod
+
+            done = _run(env={mod.EXTRA_CLIENT_DIR_ENV: tmp})
+
+        self.assertEqual(
+            self._file_count(done.stdout),
+            base + 1,
+            "thư mục đọc thêm phải CỘNG vào cây thật. Bằng đúng số file của "
+            "thư mục tạm nghĩa là nó đã THAY THẾ cây thật — đó là cửa hậu tắt "
+            f"cổng bằng một biến môi trường:\n{done.stdout}",
         )
 
 

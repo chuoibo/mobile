@@ -13,6 +13,8 @@
  * and never derived from order or display name.
  */
 
+import { TEN_CHUA_BIET } from "./screens/chat/tin-nhan";
+
 export type Participant = { id: string; name: string };
 
 export type Roster = {
@@ -167,6 +169,52 @@ export function labelFor(roster: Roster, id: string): string {
   const sameName = roster.participants.filter((p) => p.name === person.name);
   if (sameName.length < 2) return person.name;
   return `${person.name} #${sameName.indexOf(person) + 1}`;
+}
+
+/**
+ * A label for somebody the SERVER named, who need not be on this bill.
+ *
+ * `labelFor` answers about the bill, and returning the id when it cannot place
+ * one is the right shape for its callers: they iterate the roster, so a miss
+ * there is a bug worth seeing. Anything drawn from a server reply is a
+ * different question. `/contexts/{id}/balances` answers for the ledger of the
+ * whole group and `POST /bills/{id}/split` answers against the roster the
+ * server holds, so both routinely name people who are legitimately absent from
+ * the bill somebody is typing -- and `labelFor`'s fallback then prints a UUID
+ * on a money row, next to a real name, in the same block. That was
+ * bug-050923: "e3a44e25-4547-508a-8f4d-9b2495c3325f trả Minh 505.094đ" above
+ * "Trang trả Minh 374.262đ", where `e3a44e25` was Ngọc and the app was holding
+ * her name the whole time.
+ *
+ * So the lookup widens to the group before it gives up. `members` is the
+ * active membership the screen already has for its "thêm vào nhóm" buttons;
+ * nothing new is fetched.
+ *
+ * Numbering counts across both lists rather than within either. A Nam on the
+ * bill and a Nam who is only in the group are two people, and one unnumbered
+ * "Nam" on a money row is exactly the ambiguity `labelFor` numbers to remove.
+ *
+ * A person in neither list is genuinely unknown to this client -- a member who
+ * left still owes what they owed, and the ledger keeps them. They get the same
+ * word the chat bubble and the member list use. Never a sliced id: eight hex
+ * characters look like something the reader ought to recognise, which is worse
+ * than saying nothing.
+ */
+export function labelInGroup(roster: Roster, members: GroupMember[], id: string): string {
+  const onBill = new Set(roster.participants.map((person) => person.id));
+  const known: Roster = {
+    participants: [
+      ...roster.participants,
+      ...members
+        // A member the server sent without a display name is not a name; the
+        // blank would render as an empty cell where a person goes.
+        .filter((member) => !onBill.has(member.id) && member.name.trim() !== "")
+        .map((member) => ({ id: member.id, name: member.name })),
+    ],
+    advancerId: roster.advancerId,
+  };
+  if (!known.participants.some((person) => person.id === id)) return TEN_CHUA_BIET;
+  return labelFor(known, id);
 }
 
 /** Everything the "new expense" screen is holding while a person fills it in.

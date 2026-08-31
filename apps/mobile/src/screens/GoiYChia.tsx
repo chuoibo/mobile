@@ -25,7 +25,13 @@ import {
 } from "../assignment";
 import { moTaTrangThaiGan, type BillWire, type SoDu } from "../bill";
 import { itemsTotalVnd, type BillLine, type BillReading } from "../receipt";
-import { availableMembers, labelFor, type GroupMember, type Roster } from "../participants";
+import {
+  availableMembers,
+  labelFor,
+  labelInGroup,
+  type GroupMember,
+  type Roster,
+} from "../participants";
 import { attemptFor, docChiaBill, type Attempt, type ChiaBill, type SplitPreview } from "../api";
 import { radius, space, type, usePalette } from "../theme";
 import { toggleState } from "../ui/a11y";
@@ -76,6 +82,17 @@ export function GoiYChia(props: {
   onAddMember: (member: GroupMember) => void;
   onRemovePerson: (id: string) => void;
   onSeeResults: () => void;
+  /** Open F22 self-tagging: I tick my own dishes instead of somebody ticking
+   *  the whole group's columns for me. */
+  onMonCuaToi: () => void;
+  /** Why that cannot be opened right now, or `null` when it can.
+   *
+   * A sentence rather than a boolean, and it renders under the disabled
+   * button. The parent owns the reason because the parent owns the two facts
+   * it depends on (whether the bill write landed, and who the phone belongs
+   * to); this screen is left rendering what it is told. `khoaMonCuaToi` in
+   * `bill/mon-cua-toi.ts` is where the sentence is decided. */
+  khoaMonCuaToi: string | null;
 }): React.JSX.Element {
   const c = usePalette();
   const { reading, roster, assignment, preview } = props;
@@ -128,6 +145,51 @@ export function GoiYChia(props: {
         >
           Gợi ý chia theo người
         </Text>
+        {/* The other way to fill this matrix in: each person ticks their own
+            dishes rather than one person ticking seven columns. Both write to
+            the same bill, so this is a second door onto one room and not a
+            second allocator -- `POST /bills/{id}/my-items` replaces only the
+            caller's shares and cannot express anybody else's name.
+
+            In this row rather than in the pinned footer, and that placement is
+            measured rather than chosen. As a `Button` above "Xem kết quả" it
+            cost the footer about 60pt, and the matrix scroller is the only
+            `flex: 1` block on the screen, so it paid all of it: at 390x844
+            with three people on the bill the clip box fell to 406..549 while
+            the first dish row sat at y=572, and all three dishes went under
+            the fold. `mon-tren-goi-y.test.mjs` and `muc-hang-mon-goi-y.test.
+            mjs` both caught it. This row is already `HIT` tall for the chevron
+            beside it, so a text control here costs zero height.
+
+            `title` on the heading is what gives way instead: it is
+            `numberOfLines={1}` and truncates. That is the cheaper loss -- the
+            screen a person is looking at is the one they can name. */}
+        <Pressable
+          onPress={props.khoaMonCuaToi === null ? props.onMonCuaToi : undefined}
+          accessibilityRole="button"
+          accessibilityLabel={
+            props.khoaMonCuaToi === null
+              ? "Món của tôi"
+              : `Món của tôi, chưa mở được: ${props.khoaMonCuaToi}`
+          }
+          // `disabled` and not `accessibilityState`: on react-native-web the
+          // latter never reaches the DOM (`aria-state.test.mjs`), while this
+          // one does emit `aria-disabled` -- and the reason it is disabled is
+          // in the accessible name above, where a screen reader will read it.
+          disabled={props.khoaMonCuaToi !== null}
+          style={{ minWidth: HIT, minHeight: HIT, justifyContent: "center", alignItems: "flex-end" }}
+        >
+          <Text
+            style={{
+              ...type.label,
+              color: props.khoaMonCuaToi === null ? c.split : c.inkSoft,
+              fontWeight: "600",
+            }}
+            numberOfLines={1}
+          >
+            Món của tôi
+          </Text>
+        </Pressable>
         <Pressable
           onPress={props.onReset}
           accessibilityRole="button"
@@ -432,9 +494,9 @@ export function GoiYChia(props: {
           </>
         )}
 
-        <SoDuNhom soDu={props.soDu} roster={roster} />
+        <SoDuNhom soDu={props.soDu} roster={roster} nhom={props.nhom} />
 
-        <MayChuChiaThu bill={props.bill} roster={roster} />
+        <MayChuChiaThu bill={props.bill} roster={roster} nhom={props.nhom} />
 
       </ScrollView>
 
@@ -796,9 +858,13 @@ function LinePicker({
 function SoDuNhom({
   soDu,
   roster,
+  nhom,
 }: {
   soDu: SoDu | null;
   roster: Roster;
+  /** The group's active membership. Needed because these ids come off the
+   *  ledger of the whole group, not off this bill; see `labelInGroup`. */
+  nhom: GroupMember[];
 }): React.JSX.Element | null {
   const c = usePalette();
   if (soDu == null || soDu.transfers.length === 0) return null;
@@ -813,8 +879,8 @@ function SoDuNhom({
             key={`${row.fromId}-${row.toId}`}
             style={{ ...type.body, color: c.ink }}
           >
-            {labelFor(roster, row.fromId)} trả {labelFor(roster, row.toId)}{" "}
-            {formatVnd(row.amountVnd)}đ
+            {labelInGroup(roster, nhom, row.fromId)} trả{" "}
+            {labelInGroup(roster, nhom, row.toId)} {formatVnd(row.amountVnd)}đ
           </Text>
         ))}
         {/* Said only when the server proved it, and never upgraded to a claim
@@ -855,10 +921,15 @@ function SoDuNhom({
 function MayChuChiaThu({
   bill,
   roster,
+  nhom,
   doc = docChiaBill,
 }: {
   bill: BillWire | null;
   roster: Roster;
+  /** The group's active membership. These keys are the server's answer against
+   *  the roster IT holds -- the disagreement this card exists to expose is
+   *  precisely the case where an id is not on the local bill. */
+  nhom: GroupMember[];
   /** Seam for the tests. */
   doc?: typeof docChiaBill;
 }): React.JSX.Element | null {
@@ -927,7 +998,7 @@ function MayChuChiaThu({
             .map(([personId, amountVnd]) => (
               <Row
                 key={personId}
-                left={labelFor(roster, personId)}
+                left={labelInGroup(roster, nhom, personId)}
                 right={`${formatVnd(amountVnd)}đ`}
               />
             ))}

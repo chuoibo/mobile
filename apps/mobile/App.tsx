@@ -52,6 +52,8 @@ import {
 import { BinhChon } from "./src/screens/binh-chon/BinhChon";
 import { bangKetQuaTuWire } from "./src/screens/binh-chon/ket-qua";
 import { MonCuaToi } from "./src/screens/bill/MonCuaToi";
+import { BuocMonCuaToi } from "./src/screens/bill/BuocMonCuaToi";
+import { apDungMonCuaToi, khoaMonCuaToi } from "./src/screens/bill/mon-cua-toi";
 import { NhanMatTrenAnh } from "./src/screens/nhan-mat/NhanMatTrenAnh";
 import { MoiVaoChuyen } from "./src/screens/len-plan/MoiVaoChuyen";
 import type { LoiMoiBuoiDi } from "./src/screens/quan-tri/quan-tri";
@@ -134,6 +136,10 @@ type Step =
   | "ket-qua"
   | "quet-anh"
   | "goi-y"
+  // Not a step on the line either. A detour off "goi-y" where one person tags
+  // their own dishes (F22) instead of somebody filling in the whole matrix,
+  // and it returns to "goi-y" whether or not anything was saved.
+  | "mon-cua-toi"
   | "nhap"
   | "de-xuat"
   // Not a step on the line. A detour off "de-xuat", reached only when the
@@ -309,6 +315,11 @@ function LuongKhoanChi({ onExit, nguoi, nhomPhien }: {
   // reply cannot lose it. State would be restored asynchronously, and the gap
   // is exactly when a person presses again.
   const attempts = useRef<Record<string, Attempt>>({});
+  /** A `POST /bills` is in flight. Guards the late store below, not the one on
+   *  "Tiếp tục": adding two people quickly would otherwise fire twice, and the
+   *  two calls carry different rosters, so their attempt keys differ and the
+   *  server would store two bills for one dinner rather than replaying one. */
+  const dangTaoBill = useRef(false);
 
   // --- reading a bill -------------------------------------------------
   const cameraRef = useRef<CameraView | null>(null);
@@ -751,14 +762,55 @@ function LuongKhoanChi({ onExit, nguoi, nhomPhien }: {
             setAssignment((a) => toggle(a, lineId, personId));
           }}
           onAddMember={(member) => {
-            setForm((f) => ({ ...f, roster: addMember(f.roster, member) }));
+            const rosterMoi = addMember(form.roster, member);
             // Somebody who just joined the bill starts on every dish, matching
             // the default the screen states out loud ("mặc định là cả nhóm ăn
             // chung"). Ticking them off is one tap; hunting for the dishes they
             // did eat is eight.
-            setAssignment((a) =>
-              addPersonToAll(a, reading.lines.map((line) => line.id), member.id),
+            const ganMoi = addPersonToAll(
+              assignment,
+              reading.lines.map((line) => line.id),
+              member.id,
             );
+            setForm((f) => ({ ...f, roster: rosterMoi }));
+            setAssignment(ganMoi);
+
+            // Store the bill here if "Tiếp tục" could not.
+            //
+            // `onContinue` needs somebody on the roster to name as author and
+            // returns without writing when there is nobody -- and on the real
+            // demo path there never is: the bill is read before the group is
+            // picked, so the roster is filled on THIS screen, one step after
+            // the write was supposed to happen. Measured on the walk in
+            // `quet-man-sau-tap.mjs`: `POST /bills` was absent from the whole
+            // request log, `bill` stayed null to the end, and the footer said
+            // "Chưa lưu được. Ô đã tích chỉ ở máy này." for the entire demo.
+            //
+            // So this is the retry, not a second way of storing bills: same
+            // call, same attempt-key scheme, and it only ever runs while
+            // nothing has been stored.
+            if (bill === null && !dangTaoBill.current) {
+              const ids = rosterMoi.participants.map((person) => person.id);
+              const nguoiTao = ids[0];
+              if (nguoiTao !== undefined) {
+                dangTaoBill.current = true;
+                taoBill(
+                  reading,
+                  contextId,
+                  ganMoi,
+                  nguoiTao,
+                  attemptFor(attempts.current, `tao-bill:${signature(reading, ids, ganMoi)}`),
+                )
+                  .then(setBill)
+                  .catch((problem) => {
+                    // Released, so adding the next person tries again. A latch
+                    // left closed on a failure would make the first network
+                    // blip permanent for the rest of the dinner.
+                    dangTaoBill.current = false;
+                    setError(moTaLoi(problem));
+                  });
+              }
+            }
           }}
           onRemovePerson={(id) => {
             setForm((f) => ({ ...f, roster: removeParticipant(f.roster, id) }));
@@ -797,6 +849,36 @@ function LuongKhoanChi({ onExit, nguoi, nhomPhien }: {
               .then(setBill)
               .catch((problem) => setError(moTaLoi(problem)));
           }}
+          onMonCuaToi={() => { setError(null); setStep("mon-cua-toi"); }}
+          khoaMonCuaToi={khoaMonCuaToi(
+            bill,
+            nguoi?.personId ?? null,
+            form.roster.participants.map((person) => person.id),
+          )}
+        />
+      )}
+
+      {/* Guarded on the same two facts `khoaMonCuaToi` reports on, so the step
+          cannot render without the bill id it writes to or the identity it
+          writes as. Landing back on "goi-y" rather than showing a broken
+          screen: the only way to be here with either one missing is a bill
+          write that failed while the step was open. */}
+      {step === "mon-cua-toi" && bill !== null && nguoi !== null && (
+        <BuocMonCuaToi
+          bill={bill}
+          toiId={nguoi.personId}
+          contextId={contextId}
+          tenNhom={nhom.kind === "xong" ? nhom.tenNhom : ""}
+          onXong={(moi) => {
+            setBill(moi);
+            // The claim has to reach the local matrix, or the next "Xem kết
+            // quả" writes this matrix over the whole bill and erases it --
+            // after the screen said it was saved. Only my own shares move;
+            // see `apDungMonCuaToi`.
+            setAssignment((a) => apDungMonCuaToi(a, moi, nguoi.personId));
+            setStep("goi-y");
+          }}
+          onQuayLai={() => setStep("goi-y")}
         />
       )}
 
@@ -1319,6 +1401,13 @@ function XemGoiYChia() {
         preview={preview}
         bill={DEMO_BILL_WIRE}
         soDu={null}
+        // Locked, and not with a no-op `onMonCuaToi`. This door renders one
+        // screen for a scanner and has no step to move to, so an enabled
+        // button here would be a control that does nothing -- exactly the
+        // shape `duong-vao-mon-cua-toi.test.mjs` exists to catch. Saying WHY
+        // it is locked keeps the scanned pixels honest about it.
+        onMonCuaToi={() => {}}
+        khoaMonCuaToi="Cửa quét: màn này không đi đâu được."
         onBack={() => {}}
         onReset={() => setAssignment(DEMO_ASSIGNMENT)}
         onToggle={(lineId, personId) =>

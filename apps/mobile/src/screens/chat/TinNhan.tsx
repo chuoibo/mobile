@@ -26,7 +26,13 @@ import React, { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { DEMO_PEOPLE, type DemoPerson } from "../../navigation/nhom-demo";
 import { radius, space, type, usePalette } from "../../theme";
-import { napNhapKhoanChiTuChat } from "../../api";
+import {
+  attemptFor,
+  confirmExpense,
+  napNhapKhoanChiTuChat,
+  proposeSplit,
+  type Attempt,
+} from "../../api";
 import { Card } from "../../ui/Kit";
 import { themChiTiet } from "../../ui/loi-may-chu";
 import { AiHieuNhom } from "../ai-hieu-nhom/AiHieuNhom";
@@ -34,15 +40,21 @@ import {
   napAiHieuNhom,
   type AiHieuNhomState,
 } from "../ai-hieu-nhom/ai-hieu-nhom";
-import { goiAiTurn, type AiTurnState } from "./ai";
+import { CAU_NHOM_CHUA_MO_XONG, goiAiTurn, type AiTurnState } from "./ai";
 import { TheNhapChiTuChat } from "./TheNhapChiTuChat";
 import {
+  banNhapDeGhi,
+  CHUA_GHI,
+  dongChiaTuAllocation,
+  ghiHongTuLoi,
   trangTuLoi,
   trangTuWire,
+  type TrangGhiKhoanChi,
   type TrangNhapTuChat,
 } from "./nhap-tu-chat";
 import {
   cardBoPhieu,
+  cardDongBinhChon,
   cardMoBinhChon,
   diaDiemDaGoiY,
   tongHopBinhChon,
@@ -119,9 +131,13 @@ export function TinNhan({ nguoi, nhomPhien }: {
   const [theNhap, setTheNhap] = useState<{
     messageId: string;
     trang: TrangNhapTuChat;
+    ghi: TrangGhiKhoanChi;
   } | null>(null);
 
   const cuonRef = useRef<ScrollView>(null);
+  // Attempt keys, in a ref so a re-render between the press and the reply
+  // cannot lose one and turn a retry into a second write.
+  const soKhoa = useRef<Record<string, Attempt>>({});
   const dangGoiAi = useRef(false);
   const messages = tin.kind === "co-tin" ? tin.messages : [];
   const cuoiTin = messages[messages.length - 1]?.id;
@@ -274,6 +290,37 @@ export function TinNhan({ nguoi, nhomPhien }: {
    * and the number beside it would be wrong for exactly as long as the
    * request takes -- on a slow link, long enough to be read aloud.
    */
+  /**
+   * Close a poll, as a third card in the same thread.
+   *
+   * Not a local flag. A close that lived in this component's state would show
+   * "Đã đóng" on the phone that pressed it and leave the ballot open on every
+   * other phone in the group -- and the tally would keep moving underneath the
+   * word. It goes on the wire for the same reason the ballots do.
+   *
+   * Who is allowed is decided in `tongHopBinhChon` against `author_id`, which
+   * the server writes; this function does not check it, and must not, because
+   * a check that only lives on the client is a check the next client skips.
+   * The button is hidden for non-openers so nobody is offered a press that
+   * does nothing, but hiding is the courtesy and the fold is the rule.
+   */
+  async function dongBinhChon(pollId: string) {
+    if (!nguoi || nhom.kind !== "xong" || dangBoPhieu) return;
+    setDangBoPhieu(true);
+    const sent = await guiTheAi({
+      contextId: nhom.contextId,
+      actorId: nguoi.personId,
+      card: cardDongBinhChon(pollId),
+      idempotencyKey: taoKhoa(),
+    });
+    setDangBoPhieu(false);
+    if (sent.kind !== "xong") {
+      setThongBao(cauGuiHong(sent));
+      return;
+    }
+    setTin((truoc) => noiTinMoi(truoc, sent.message, nhom.contextId));
+  }
+
   async function boPhieu(pollId: string, optionId: string) {
     if (!nguoi || nhom.kind !== "xong" || dangBoPhieu) return;
     setDangBoPhieu(true);
@@ -301,12 +348,60 @@ export function TinNhan({ nguoi, nhomPhien }: {
     const members = nhom.members;
     const contextId = nhom.contextId;
     const actorId = nguoi.personId;
-    setTheNhap({ messageId, trang: { kind: "dang-doc" } });
+    setTheNhap({ messageId, trang: { kind: "dang-doc" }, ghi: CHUA_GHI });
     try {
       const wire = await napNhapKhoanChiTuChat(contextId, messageId, actorId);
-      setTheNhap({ messageId, trang: trangTuWire(wire, members) });
+      setTheNhap({ messageId, trang: trangTuWire(wire, members), ghi: CHUA_GHI });
     } catch (err) {
-      setTheNhap({ messageId, trang: trangTuLoi(err) });
+      setTheNhap({ messageId, trang: trangTuLoi(err), ghi: CHUA_GHI });
+    }
+  }
+
+  /**
+   * Write the reading the card is showing into the ledger.
+   *
+   * Two calls, both already in `api.ts`, and no new route: `proposeSplit` is
+   * `POST /expenses`, which is where the allocator divides the total, and
+   * `confirmExpense` is `POST /expenses/{id}/confirm`, which is the one that
+   * writes. The numbers drawn on the confirmation are the server's own
+   * allocation, echoed back; this screen never divides anything.
+   *
+   * The attempt key is derived from the proposal body rather than from the
+   * message id. Pressing the same unchanged draft twice must replay one write,
+   * but the reader is a model and a second read of the same message can come
+   * back different -- keying on the message alone would send changed bytes
+   * under a used key, which the server answers with a refusal aimed at somebody
+   * who did nothing wrong.
+   */
+  async function ghiKhoanChi(messageId: string) {
+    if (!nguoi || nhom.kind !== "xong") return;
+    const the = theNhap;
+    if (!the || the.messageId !== messageId) return;
+    if (the.trang.kind !== "co-nhap" || the.ghi.kind === "dang-ghi" || the.ghi.kind === "da-ghi") {
+      return;
+    }
+    const members = nhom.members;
+    const contextId = nhom.contextId;
+    const trang = the.trang;
+    const ban = banNhapDeGhi(trang, members);
+    const khoa = `nhap-chat:${ban.advancerId}:${ban.totalVnd}:${ban.participants
+      .map((p) => p.id)
+      .join(",")}:${ban.occasion}`;
+
+    setTheNhap({ messageId, trang, ghi: { kind: "dang-ghi" } });
+    try {
+      const deXuat = await proposeSplit(contextId, ban, attemptFor(soKhoa.current, khoa));
+      await confirmExpense(deXuat, attemptFor(soKhoa.current, `chot:${khoa}`));
+      setTheNhap({
+        messageId,
+        trang,
+        ghi: {
+          kind: "da-ghi",
+          dong: dongChiaTuAllocation(deXuat.allocations, trang.nguoiChiaIds, members),
+        },
+      });
+    } catch (err) {
+      setTheNhap({ messageId, trang, ghi: ghiHongTuLoi(err) });
     }
   }
 
@@ -339,7 +434,17 @@ export function TinNhan({ nguoi, nhomPhien }: {
    * the three turns the window allows on one press.
    */
   async function hoiThangAi() {
-    if (!nguoi || nhom.kind !== "xong" || dangGoiAi.current) return;
+    // A turn is already in flight and the button already says "Đang hỏi…", so
+    // a second press has nothing to add.
+    if (dangGoiAi.current) return;
+    // Not ready yet. This used to return silently, and silently is measurably
+    // wrong: pressed while `nhom` was still loading, the screen sent no
+    // request and painted nothing at all, which reads as a dead button rather
+    // than as a group that has not opened yet.
+    if (!nguoi || nhom.kind !== "xong") {
+      setAiYen({ giong: "binh-tinh", cau: CAU_NHOM_CHUA_MO_XONG });
+      return;
+    }
     dangGoiAi.current = true;
     setDangHoiAi(true);
     setAiYen(null);
@@ -367,7 +472,17 @@ export function TinNhan({ nguoi, nhomPhien }: {
       setTin((truoc) => noiTinMoi(truoc, s.message, s.message.context_id));
       return;
     }
-    if (s.kind === "chua-noi-duoc" || s.kind === "khong-tra-loi-duoc") {
+    // Two calm outcomes, and they are NOT the same news. `chua-noi-duoc` is a
+    // route this API build does not have yet, so it wears the "còn nợ" chip.
+    // `khong-tra-loi-duoc` is the product working as designed: a cadence
+    // ceiling, a refused fabrication, or the model being down. Wearing "còn
+    // nợ" there would tell a person their group is waiting on unfinished work
+    // every time the companion hit its own ceiling.
+    if (s.kind === "chua-noi-duoc") {
+      setAiYen({ giong: "con-no", cau: s.cau });
+      return;
+    }
+    if (s.kind === "khong-tra-loi-duoc") {
       setAiYen({ giong: "binh-tinh", cau: s.cau });
       return;
     }
@@ -416,12 +531,19 @@ export function TinNhan({ nguoi, nhomPhien }: {
             binhChonTheoTin={binhChonTheoTin}
             soThanhVien={soThanhVien}
             dangBoPhieu={dangBoPhieu}
+            toiLaAi={nguoi?.personId ?? null}
             onBoPhieu={(pollId, optionId) => {
               void boPhieu(pollId, optionId);
+            }}
+            onDongBinhChon={(pollId) => {
+              void dongBinhChon(pollId);
             }}
             theNhap={theNhap}
             onTachTien={(messageId) => {
               void tachTien(messageId);
+            }}
+            onGhiKhoanChi={(messageId) => {
+              void ghiKhoanChi(messageId);
             }}
             onDongTheNhap={() => setTheNhap(null)}
           />
@@ -432,10 +554,14 @@ export function TinNhan({ nguoi, nhomPhien }: {
             binhChon={binhChon}
             soThanhVien={soThanhVien}
             dangBoPhieu={dangBoPhieu}
+            toiLaAi={nguoi?.personId ?? null}
             coDiaDiem={diaDiem.length >= 2}
             keHoach={keHoachMoi}
             onBoPhieu={(pollId, optionId) => {
               void boPhieu(pollId, optionId);
+            }}
+            onDongBinhChon={(pollId) => {
+              void dongBinhChon(pollId);
             }}
             onMoBinhChon={() => setDangMoBinhChon(true)}
             onXemKeHoach={setKeHoachDangXem}
@@ -468,7 +594,7 @@ export function TinNhan({ nguoi, nhomPhien }: {
   );
 }
 
-type AiYen = { giong: "binh-tinh" | "loi"; cau: string };
+type AiYen = { giong: "con-no" | "binh-tinh" | "loi"; cau: string };
 
 function DauMan({ nhom }: { nhom: NhomMan }) {
   const c = usePalette();
@@ -597,9 +723,12 @@ function DongTin({
   binhChonTheoTin,
   soThanhVien,
   dangBoPhieu,
+  toiLaAi,
   onBoPhieu,
+  onDongBinhChon,
   theNhap,
   onTachTien,
+  onGhiKhoanChi,
   onDongTheNhap,
 }: {
   nhom: NhomMan;
@@ -615,67 +744,73 @@ function DongTin({
   binhChonTheoTin: Map<string, KetQuaBinhChon>;
   soThanhVien: number;
   dangBoPhieu: boolean;
+  /** This device's person, for `laNguoiMo`. Null before one is chosen, which
+   *  is a person who opened nothing, so no close button is drawn. */
+  toiLaAi: string | null;
   onBoPhieu: (pollId: string, optionId: string) => void;
-  theNhap: { messageId: string; trang: TrangNhapTuChat } | null;
+  onDongBinhChon: (pollId: string) => void;
+  theNhap: { messageId: string; trang: TrangNhapTuChat; ghi: TrangGhiKhoanChi } | null;
   onTachTien: (messageId: string) => void;
+  onGhiKhoanChi: (messageId: string) => void;
   onDongTheNhap: () => void;
 }) {
   const c = usePalette();
 
+  /* Every not-ready branch below used to drop `aiYen` on the floor: the banner
+   * was drawn once, at the bottom of the loaded stream, so a sentence set
+   * while the group or the thread was still loading existed in state and
+   * nowhere on screen. That is the same defect as a button wired to nothing,
+   * one layer down, and it was measured: pressing "Hỏi Rủ Đi AI" during the
+   * loading window painted no words at all. */
+  const boc = (noiDung: React.ReactNode) => (
+    <View style={{ padding: space.md, gap: space.sm }}>
+      {noiDung}
+      {aiYen ? <BangAiYen yen={aiYen} /> : null}
+    </View>
+  );
+
   if (nhom.kind === "chua-chon") {
-    return (
-      <View style={{ padding: space.md }}>
-        <Card>
-          <Text style={{ ...type.body, color: c.ink }}>Chưa chọn người, nên không mở được nhóm chat.</Text>
-          <Text style={{ ...type.label, color: c.inkSoft }}>
-            Quay lại màn mở đầu và chọn một người trong nhóm. Không có người thì không có
-            thành viên để hỏi máy chủ.
-          </Text>
-        </Card>
-      </View>
+    return boc(
+      <Card>
+        <Text style={{ ...type.body, color: c.ink }}>Chưa chọn người, nên không mở được nhóm chat.</Text>
+        <Text style={{ ...type.label, color: c.inkSoft }}>
+          Quay lại màn mở đầu và chọn một người trong nhóm. Không có người thì không có thành viên
+          để hỏi máy chủ.
+        </Text>
+      </Card>,
     );
   }
 
   if (nhom.kind === "dang-tai") {
-    return (
-      <View style={{ padding: space.md }}>
-        <Card>
-          <Text style={{ ...type.body, color: c.inkSoft }}>Đang mở nhóm…</Text>
-        </Card>
-      </View>
+    return boc(
+      <Card>
+        <Text style={{ ...type.body, color: c.inkSoft }}>Đang mở nhóm…</Text>
+      </Card>,
     );
   }
 
   if (nhom.kind === "hong") {
-    return (
-      <View style={{ padding: space.md }}>
-        <TheHong
-          tieuDe={cauBuocNhom(nhom.buoc)}
-          than="Không phải mạng lúc nào cũng là nguyên nhân. Bước đứng và địa chỉ đã thử nằm dưới."
-          url={nhom.url}
-          status={nhom.status}
-          detail={nhom.detail}
-        />
-      </View>
+    return boc(
+      <TheHong
+        tieuDe={cauBuocNhom(nhom.buoc)}
+        than="Không phải mạng lúc nào cũng là nguyên nhân. Bước đứng và địa chỉ đã thử nằm dưới."
+        url={nhom.url}
+        status={nhom.status}
+        detail={nhom.detail}
+      />,
     );
   }
 
   if (tin.kind === "dang-tai") {
-    return (
-      <View style={{ padding: space.md }}>
-        <Card>
-          <Text style={{ ...type.body, color: c.inkSoft }}>Đang tải tin nhắn của nhóm…</Text>
-        </Card>
-      </View>
+    return boc(
+      <Card>
+        <Text style={{ ...type.body, color: c.inkSoft }}>Đang tải tin nhắn của nhóm…</Text>
+      </Card>,
     );
   }
 
   if (tin.kind !== "co-tin" && tin.kind !== "rong") {
-    return (
-      <View style={{ padding: space.md }}>
-        <TheHongTin state={tin} />
-      </View>
-    );
+    return boc(<TheHongTin state={tin} />);
   }
 
   // Ballots are cast as messages, but they are not conversation. Left in the
@@ -742,7 +877,9 @@ function DongTin({
                 ketQua={kq}
                 soThanhVien={soThanhVien}
                 dangGui={dangBoPhieu}
+                laNguoiMo={laNguoiMoBinhChon(kq, toiLaAi)}
                 onChon={(optionId) => onBoPhieu(kq.pollId, optionId)}
+                onDong={() => onDongBinhChon(kq.pollId)}
               />
             );
           }
@@ -778,7 +915,12 @@ function DongTin({
                 </Pressable>
               ) : null}
               {theNhap?.messageId === m.id ? (
-                <TheNhapChiTuChat trang={theNhap.trang} onDong={onDongTheNhap} />
+                <TheNhapChiTuChat
+                  trang={theNhap.trang}
+                  ghi={theNhap.ghi}
+                  onGhi={() => onGhiKhoanChi(m.id)}
+                  onDong={onDongTheNhap}
+                />
               ) : null}
             </View>
           );
@@ -799,20 +941,28 @@ function DongTin({
  * that a group with a vote running lands on the vote. The timeline is one
  * tap away and draws the same `ChiTietKeHoach` it always did.
  *
- * The mockup's "Chốt plan với kết quả bình chọn" button and its "Kết thúc
- * sau 2h" countdown are not drawn. There is no endpoint that closes a poll
- * and no field that stores a deadline, so both would be paint: a button that
- * settles nothing and a clock counting down to nothing. Same rule the
- * reactions in `BongBong` are held to.
+ * The mockup's "Kết thúc sau 2h" countdown is still not drawn: no field
+ * anywhere stores a deadline, so it would be a clock counting down to nothing.
+ * Same rule the reactions in `BongBong` are held to.
+ *
+ * Closing, which this comment used to refuse on the same grounds, now settles
+ * something real. A `poll_close` card written by the opener stops the count at
+ * its own position in the thread -- ballots after it are not merely uncounted,
+ * they cannot overwrite one cast while the poll was open. So "Đóng bình chọn"
+ * is not paint: pressing it changes what every other phone in the group reads.
+ * The mockup's "Chốt plan với kết quả bình chọn" is still absent, because
+ * writing the winner into a plan is a second thing and nothing stores it yet.
  */
 function TabPlan({
   dangTai,
   binhChon,
   soThanhVien,
   dangBoPhieu,
+  toiLaAi,
   coDiaDiem,
   keHoach,
   onBoPhieu,
+  onDongBinhChon,
   onMoBinhChon,
   onXemKeHoach,
 }: {
@@ -820,10 +970,12 @@ function TabPlan({
   binhChon: KetQuaBinhChon[];
   soThanhVien: number;
   dangBoPhieu: boolean;
+  toiLaAi: string | null;
   /** Whether the thread holds two or more places to put on a ballot. */
   coDiaDiem: boolean;
   keHoach: KeHoach | null;
   onBoPhieu: (pollId: string, optionId: string) => void;
+  onDongBinhChon: (pollId: string) => void;
   onMoBinhChon: () => void;
   onXemKeHoach: (k: KeHoach) => void;
 }) {
@@ -861,7 +1013,9 @@ function TabPlan({
             ketQua={kq}
             soThanhVien={soThanhVien}
             dangGui={dangBoPhieu}
+            laNguoiMo={laNguoiMoBinhChon(kq, toiLaAi)}
             onChon={(optionId) => onBoPhieu(kq.pollId, optionId)}
+            onDong={() => onDongBinhChon(kq.pollId)}
           />
         ))
       )}
@@ -1113,6 +1267,11 @@ function BangAiYen({ yen }: { yen: AiYen }) {
   const loi = yen.giong === "loi";
   return (
     <View
+      // The whole reason this banner exists is that a screen which does not
+      // move after a press is indistinguishable from a dead app. For anyone
+      // reading by ear, appearing silently in the flow IS not moving, so the
+      // sentence announces itself the way `BangThongBao` does.
+      accessibilityRole="alert"
       style={{
         // Same ground either way. Only the edge changes: a missing route is
         // not a fault to paint red, it is work that has not landed.
@@ -1124,7 +1283,7 @@ function BangAiYen({ yen }: { yen: AiYen }) {
         gap: space.xs,
       }}
     >
-      {loi ? null : (
+      {yen.giong === "con-no" ? (
         <View
           style={{
             alignSelf: "flex-start",
@@ -1138,7 +1297,7 @@ function BangAiYen({ yen }: { yen: AiYen }) {
         >
           <Text style={{ ...type.micro, color: c.inkSoft }}>còn nợ</Text>
         </View>
-      )}
+      ) : null}
       <Text style={{ ...type.body, color: loi ? c.warn : c.inkSoft }}>{yen.cau}</Text>
     </View>
   );
@@ -1189,12 +1348,30 @@ function keHoachGanNhat(messages: MessageWire[]): KeHoach | null {
   return null;
 }
 
-/** A ballot message, which the thread counts but does not draw. Read off the
- *  wire shape rather than off a parsed card, so a malformed ballot is still
- *  recognised as a ballot and still stays out of the conversation. */
+/** A ballot or a close: messages the thread counts but does not draw. Read off
+ *  the wire shape rather than off a parsed card, so a malformed one is still
+ *  recognised for what it is and still stays out of the conversation.
+ *
+ *  The close is hidden for the same reason the ballots are, and it loses
+ *  nothing: the card it closed redraws itself as "Đã đóng" and names the
+ *  result, which is the whole of what a bubble reading "đã đóng bình chọn"
+ *  would have said. */
 function laPhieuBau(m: MessageWire): boolean {
   if (m.kind !== "ai_card" || m.card === null || typeof m.card !== "object") return false;
-  return (m.card as Record<string, unknown>).kind === "poll_vote";
+  const kind = (m.card as Record<string, unknown>).kind;
+  return kind === "poll_vote" || kind === "poll_close";
+}
+
+/** Whether this device's person opened this poll, and so is the one offered
+ *  the close.
+ *
+ *  Both nulls matter and neither is an accident: a poll the companion opened
+ *  (`taoBoi === null`) has no opener, and a session with nobody chosen
+ *  (`toiLaAi === null`) is not the opener of anything. Comparing the two
+ *  directly would make `null === null` true and hand the close to whoever
+ *  happened to be looking. */
+function laNguoiMoBinhChon(kq: KetQuaBinhChon, toiLaAi: string | null): boolean {
+  return kq.taoBoi !== null && toiLaAi !== null && kq.taoBoi === toiLaAi;
 }
 
 function nguoiTheoAuthor(authorId: string | null): NguoiHienThi | null {

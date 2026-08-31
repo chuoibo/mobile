@@ -26,11 +26,17 @@ here names the reading rule that broke rather than "something in apps/mobile".
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
+import shutil
 import sys
+import tempfile
 import textwrap
+import types
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = REPO_ROOT / "scripts" / "check_api_contract.py"
@@ -71,6 +77,12 @@ def paths_read(source: str) -> int:
     ).paths
 
 
+def declares(source: str) -> frozenset[str]:
+    return contract_gate.findings_for_source(
+        textwrap.dedent(source), "snippet.ts", a_contract()
+    ).declares
+
+
 class GateBites(unittest.TestCase):
     def test_a_route_the_server_does_not_have(self):
         # The defect `src/api.ts` records: "The app called
@@ -78,7 +90,7 @@ class GateBites(unittest.TestCase):
         self.assertEqual(
             kinds(
                 """
-                await translated(PUBLISH_REFUSALS, `/batches/current/publish`, {
+                await translatedAsActor(PUBLISH_REFUSALS, `/batches/current/publish`, {
                   body: { delivery_method: "personal_link" },
                   actorId,
                 });
@@ -131,7 +143,7 @@ class GateStaysQuiet(unittest.TestCase):
                  * never existed.
                  */
                 // there is no `/polls` route to post either one to
-                await translated(TABLE, `/batches/${batchId}/publish`, { actorId });
+                await translatedAsActor(TABLE, `/batches/${batchId}/publish`, { actorId });
                 """
             ),
             [],
@@ -239,6 +251,41 @@ class ReaderDoesNotGoBlind(unittest.TestCase):
             1,
         )
 
+    def test_every_wrapper_it_reads_is_still_declared_in_api_ts(self):
+        # `REQUEST_FUNCTIONS` is the reader's one hardcoded dependency on how
+        # the client spells itself, and drift in it is silent in the worst
+        # direction: a name nobody calls any more matches nothing, every call
+        # site through it stops being read, and the gate still exits 0 on the
+        # sites it can still see.
+        #
+        # That is not hypothetical. This branch renamed `call` and `translated`
+        # into four `*AsActor` / `*Anonymous` wrappers. Measured before the
+        # reader was taught them: 13 paths across 19 call sites, against 65
+        # across 77 after. 58 call sites unread, and the only thing that noticed
+        # was `assertGreater(total, 10)` -- which then stopped noticing the
+        # moment `main` merged three more direct `fetch` calls in and carried
+        # the total from 10 to 13.
+        #
+        # So the count below is a backstop for the reader dying outright, not a
+        # guard against this. This is the guard against this, and it names the
+        # function instead of printing a number that got quietly satisfied.
+        api_ts = contract_gate.CLIENT_ROOT / "api.ts"
+        if not api_ts.is_file():
+            self.skipTest("apps/mobile không có trên nhánh này")
+        source = api_ts.read_text(encoding="utf-8")
+        declared = contract_gate.declarations(
+            source, contract_gate.mask(source, contract_gate.tokenize(source))
+        )
+        unknown = [name for name in contract_gate.WRAPPERS if name not in declared]
+        self.assertEqual(
+            unknown,
+            [],
+            f"bộ đọc còn nhận ra {unknown} nhưng api.ts không khai báo tên đó "
+            "nữa -- mọi lời gọi qua tên mới sẽ KHÔNG được đọc, và cổng vẫn "
+            "xanh trên phần nó còn thấy. Sửa REQUEST_FUNCTIONS trong "
+            "scripts/check_api_contract.py cho khớp tên api.ts đang dùng.",
+        )
+
     def test_the_real_client_still_has_routes_to_check(self):
         # The whole-repo guard, stated as a number. `check()` refuses to pass
         # when this reaches zero, but by then the gate has been green for
@@ -257,6 +304,262 @@ class ReaderDoesNotGoBlind(unittest.TestCase):
             "bộ đọc chỉ thấy vài đường dẫn trong cả apps/mobile/src -- nhiều "
             "khả năng nó đã hỏng chứ không phải client đã ngừng gọi API",
         )
+
+
+class ReaderKnowsItLostTheWrappers(unittest.TestCase):
+    """The floor above is a floor, and a floor gets lifted past the failure.
+
+    Measured on main a6fdbe4 on 2026-08-31, renaming `call` and `translated`
+    the way PR #397 did: the reader fell from 67 paths to 11, and 11 is greater
+    than 10, so the floor stayed green. So did `--selftest`, whose canaries
+    write `call` themselves. So did the script, which printed "Client và máy
+    chủ khớp hợp đồng" and exited 0.
+
+    A count cannot tell blindness from a client that got smaller. The name can:
+    the reader knows which wrappers it is looking for, so it can be made to say
+    when the client no longer has them.
+    """
+
+    def test_the_wrappers_this_reader_depends_on_are_still_in_the_client(self):
+        # The whole point, stated against the real tree: no snippet, no
+        # rename, main as it stands.
+        if not contract_gate.CLIENT_ROOT.is_dir():
+            self.skipTest("apps/mobile không có trên nhánh này")
+        self.assertEqual(
+            contract_gate.lost_wrappers(contract_gate.declared_wrappers()), []
+        )
+
+    def test_a_wrapper_that_no_longer_exists_is_named(self):
+        # #397 renamed `call` -> `callAsActor`/`callAnonymous`. The reader does
+        # not report fewer routes -- it stops seeing those call sites, and
+        # nothing seen is printed as agreement.
+        #
+        # Taken from `WRAPPERS` rather than spelled out: a test that names the
+        # wrappers itself keeps passing after the client renames them, which is
+        # the failure this whole class exists to catch.
+        gone, *rest = contract_gate.WRAPPERS
+        problems = contract_gate.lost_wrappers(set(rest))
+        self.assertEqual(len(problems), 1)
+        self.assertIn(gone, problems[0])
+
+    def test_losing_every_wrapper_names_every_one(self):
+        self.assertEqual(
+            len(contract_gate.lost_wrappers(set())), len(contract_gate.WRAPPERS)
+        )
+
+    def test_a_healthy_anchor_is_silent(self):
+        self.assertEqual(contract_gate.lost_wrappers(set(contract_gate.WRAPPERS)), [])
+
+    def test_an_empty_wrapper_list_is_a_complaint_and_not_silence(self):
+        # "No name is missing" and "there is no name to miss" are the same empty
+        # list to a comprehension, and only one of them is innocent. With no
+        # name to hold, every rename this anchor exists to catch walks past it.
+        #
+        # Nothing intentional stopped this before: an empty tuple happened to
+        # raise IndexError while a canary built `WRAPPERS[0]` at import. That is
+        # protection by accident, and it disappears the moment someone makes
+        # those canaries tolerate an empty tuple -- which is a change that looks
+        # like hardening.
+        with mock.patch.object(contract_gate, "WRAPPERS", ()):
+            problems = contract_gate.lost_wrappers(contract_gate.declared_wrappers())
+        self.assertNotEqual(problems, [])
+
+    def test_the_empty_list_blames_the_reader_and_not_the_client(self):
+        # A misconfigured reader reported as a client problem is the mistake
+        # #398 was opened to undo. The client may be untouched here.
+        with mock.patch.object(contract_gate, "WRAPPERS", ()):
+            problems = contract_gate.lost_wrappers(contract_gate.declared_wrappers())
+        self.assertIn("WRAPPERS", problems[0])
+        self.assertIn("BỘ ĐỌC", problems[0])
+
+    def test_an_empty_wrapper_list_reaches_the_check_instead_of_killing_import(self):
+        # The complaint above is only worth having if it can be reached. The
+        # module builds its canaries from `WRAPPERS` at import time, and those
+        # used to index `WRAPPERS[0]` and spell `CANARY_WRAPPER` out by hand, so
+        # an empty list died on IndexError before `check` could say anything --
+        # exit 1, a traceback, and the client blamed for a reader bug.
+        #
+        # Executed from source rather than patched, because what is under test
+        # happens at import: patching a constant afterwards cannot see it.
+        source = Path(contract_gate.__file__).read_text(encoding="utf-8")
+        literal = 'DIRECT_FETCH = ("fetch", "doFetch")'
+        # Without this the substitution below could silently no-op and the test
+        # would pass while exercising the untouched module.
+        self.assertIn(literal, source)
+        grown = (
+            literal[:-1]
+            + ", "
+            + ", ".join(f'"{n}"' for n in contract_gate.WRAPPERS)
+            + ")"
+        )
+        # A real module registered in `sys.modules`: `@dataclass` resolves
+        # defaults through `sys.modules[cls.__module__]`, so a bare dict raises
+        # before the module finishes executing.
+        name = "cac_empty_wrappers"
+        variant = types.ModuleType(name)
+        variant.__file__ = contract_gate.__file__
+        sys.modules[name] = variant
+        self.addCleanup(sys.modules.pop, name, None)
+        exec(  # noqa: S102 - executing a variant of this very file is the point
+            compile(source.replace(literal, grown), contract_gate.__file__, "exec"),
+            variant.__dict__,
+        )
+        self.assertEqual(variant.WRAPPERS, ())
+        self.assertNotEqual(variant.lost_wrappers(set(contract_gate.WRAPPERS)), [])
+
+    def test_a_declaration_is_the_definition_not_the_import(self):
+        # Every screen does `import { callAsActor } from "./api"`. If an import
+        # counted, the anchor would hold on to a name that no longer exists
+        # anywhere -- which is the failure it was written for.
+        name = contract_gate.WRAPPERS[0]
+        self.assertEqual(declares(f'import {{ {name} }} from "./api";'), frozenset())
+        self.assertEqual(
+            declares(
+                f"async function {name}<T>(path: string) {{ return fetch(path); }}"
+            ),
+            frozenset({name}),
+        )
+
+    def test_the_renamed_wrapper_is_invisible_rather_than_unresolved(self):
+        # Why a count could never have caught this: after the rename the call
+        # site produces no path AND no unresolved entry AND no finding. There
+        # is nothing for the gate to print.
+        renamed = contract_gate.WRAPPERS[0] + "Renamed"
+        scan = contract_gate.findings_for_source(
+            textwrap.dedent(
+                f"""
+                import {{ {renamed} }} from "./api";
+                export async function a() {{ return {renamed}<void>("/places", {{}}); }}
+                """
+            ),
+            "snippet.ts",
+            a_contract(),
+        )
+        self.assertEqual(
+            (scan.paths, scan.sites, scan.findings, scan.unresolved), (0, 0, [], [])
+        )
+        self.assertEqual(scan.declares, frozenset())
+
+
+class TheGateItselfStops(unittest.TestCase):
+    """Everything above proves the READER. This proves the GATE.
+
+    Measured by mutation on 2026-08-31, and the reason this class exists: with
+    the `lost_wrappers` call inside `check` disabled -- the anchor computed and
+    then thrown away -- all 18 tests above stayed green and `--selftest` exited
+    0. A check whose verdict never reaches the exit code is decoration, and the
+    plumbing is the half that rots first.
+
+    The client is a temporary file and the server a four-line dict, so this
+    asks about `check` rather than about today's `apps/mobile`.
+    """
+
+    def _run(self, source: str):
+        # A whole fake repository rather than a loose file: `check` reports
+        # paths relative to `REPO_ROOT`, and a client outside it raises a
+        # ValueError that would look like the gate refusing for the right
+        # reason. Built under /tmp so a test never writes into the tree.
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        client = root / "apps" / "mobile" / "src"
+        client.mkdir(parents=True)
+        (root / "services" / "api").mkdir(parents=True)
+        module = client / "api.ts"
+        module.write_text(textwrap.dedent(source), encoding="utf-8")
+        return mock.patch.multiple(
+            contract_gate,
+            REPO_ROOT=root,
+            CLIENT_ROOT=client,
+            API_ROOT=root / "services" / "api",
+            client_files=lambda: [module],
+            load_openapi=lambda: {"paths": {"/healthz": {"get": {}}}},
+            load_pins=lambda: {},
+        )
+
+    def test_check_refuses_to_run_when_the_client_renamed_its_wrappers(self):
+        with self._run(contract_gate.CANARY_WRAPPERS_RENAMED):
+            with self.assertRaises(RuntimeError) as caught:
+                contract_gate.check()
+        # Names every wrapper, so the message is actionable rather than
+        # "blind". Read from `WRAPPERS`, because a message that happened to say
+        # the word "call" would satisfy a hardcoded assertion while naming
+        # nothing the reader actually lost.
+        for name in contract_gate.WRAPPERS:
+            self.assertIn(name, str(caught.exception))
+
+    def test_check_runs_when_the_wrappers_are_where_it_expects(self):
+        # The other half of the pair: a `check` that raised on everything would
+        # pass the test above while gating nothing.
+        with self._run(contract_gate.CANARY_WRAPPERS_PRESENT):
+            findings, summary = contract_gate.check()
+        # Not `findings == []`: the wrapper's own declaration line is read as a
+        # call site with `path: string` for a URL, so an unpinned blind finding
+        # is the correct output here. What must be absent is an accusation.
+        self.assertEqual(
+            [f.kind for f in findings if f.kind != contract_gate.BLIND_KIND], []
+        )
+        self.assertGreater(summary["duong_dan_tim_thay"], 0)
+
+    def test_the_gate_stops_when_the_reader_has_no_wrapper_to_anchor_on(self):
+        # The client here is HEALTHY -- it declares every wrapper. What is empty
+        # is the reader's own list. Measured before this was checked for: give
+        # the canaries an empty tuple they tolerate and the gate printed "Client
+        # và máy chủ khớp hợp đồng" and exited 0 with the anchor fully disarmed.
+        noise = io.StringIO()
+        with self._run(contract_gate.CANARY_WRAPPERS_PRESENT):
+            with (
+                mock.patch.object(contract_gate, "WRAPPERS", ()),
+                mock.patch.object(sys, "argv", ["check_api_contract.py"]),
+                contextlib.redirect_stdout(noise),
+                contextlib.redirect_stderr(noise),
+            ):
+                code = contract_gate.main()
+        # 2, not 0: an empty list must not read as "nothing is wrong". And not
+        # 1 either -- this client did nothing wrong.
+        self.assertEqual(code, contract_gate.EXIT_CANNOT_READ)
+        self.assertNotIn("Client và máy chủ khớp hợp đồng", noise.getvalue())
+        # The exit code alone does NOT prove this. Measured while writing it:
+        # with the anchor blind to an empty list, this run still exited 2 --
+        # because the wrapper's own declaration line scores an unpinned blind
+        # finding, and `verdict` maps blind to CANNOT_READ too. The test passed
+        # for a reason that had nothing to do with what it claims to check.
+        # So the refusal has to be named, not just counted.
+        self.assertIn("KHÔNG CHẠY ĐƯỢC", noise.getvalue())
+        self.assertIn("WRAPPERS rỗng", noise.getvalue())
+
+    def test_the_exit_code_is_cannot_read_and_never_violation(self):
+        # 2, not 1, and the difference is the whole of #398: `1` says the
+        # client is wrong, and the client is not wrong -- this reader is blind.
+        # `0` would be the real bug, so the anchor must not be made quiet.
+        noise = io.StringIO()
+        with self._run(contract_gate.CANARY_WRAPPERS_RENAMED):
+            with (
+                mock.patch.object(sys, "argv", ["check_api_contract.py"]),
+                contextlib.redirect_stdout(noise),
+                contextlib.redirect_stderr(noise),
+            ):
+                code = contract_gate.main()
+        self.assertEqual(code, contract_gate.EXIT_CANNOT_READ)
+        self.assertNotEqual(code, contract_gate.EXIT_VIOLATION)
+        # The success sentence in full, not the phrase: the refusal message
+        # quotes "khớp hợp đồng" while explaining what this is not.
+        self.assertNotIn("Client và máy chủ khớp hợp đồng", noise.getvalue())
+
+    def test_a_blind_spot_alone_never_reads_as_the_client_being_wrong(self):
+        # Not this change's line -- `verdict` has mapped the three answers
+        # since #398 -- but found by mutating it on 2026-08-31: turning the
+        # blind branch into `EXIT_VIOLATION` left all 21 tests green. It is the
+        # same distinction the anchor above depends on, one layer up, so it is
+        # covered here rather than left as a known-uncovered branch.
+        blind = contract_gate.Finding(contract_gate.BLIND_KIND, "f.ts", 1, "")
+        real = contract_gate.Finding("route_khong_ton_tai", "f.ts", 1, "")
+        self.assertEqual(contract_gate.verdict([blind]), contract_gate.EXIT_CANNOT_READ)
+        self.assertEqual(contract_gate.verdict([real]), contract_gate.EXIT_VIOLATION)
+        # A real mismatch outranks a blind spot: it is the one somebody can act on.
+        self.assertEqual(
+            contract_gate.verdict([blind, real]), contract_gate.EXIT_VIOLATION
+        )
+        self.assertEqual(contract_gate.verdict([]), contract_gate.EXIT_OK)
 
 
 if __name__ == "__main__":

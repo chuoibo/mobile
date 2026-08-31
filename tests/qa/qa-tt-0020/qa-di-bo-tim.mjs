@@ -8,17 +8,31 @@
  * It asserts nothing about wording it has not first proven is on screen -- a
  * "no English leaked" check passes vacuously on a blank page.
  *
- * Run from apps/mobile:  node tools/qa-di-bo-tim.mjs
+ * Run from anywhere:  node tests/qa/qa-tt-0020/qa-di-bo-tim.mjs
+ *
+ * The specifiers below name apps/mobile from the repo root rather than from a
+ * sibling directory. This file was written in apps/mobile/tools/ and moved
+ * here with its `../tests/` and `./` specifiers untouched, so every run since
+ * has died at ERR_MODULE_NOT_FOUND before the first assertion -- the same
+ * silent shape that took `make hero-walk` to 0/16.
  */
 import { readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { findChrome, launch, serve } from "../tests/chrome-cdp.mjs";
-import { API_BASE, NGUOI, installTabStubs, taoFixtures } from "./tab-snapshots.mjs";
+import { findChrome, launch, serve } from "../../../apps/mobile/tests/chrome-cdp.mjs";
+import {
+  API_BASE,
+  NGUOI,
+  installTabStubs,
+  taoFixtures,
+} from "../../../apps/mobile/tools/tab-snapshots.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const EXPORT_DIR = join(HERE, "..", ".expo-build-check");
+/* The export the walk reads is written by `npx expo export` run from
+ * apps/mobile, so it lands there and not next to this file. Moving the script
+ * broke this the same way it broke the specifiers above. */
+const EXPORT_DIR = join(HERE, "..", "..", "..", "apps", "mobile", ".expo-build-check");
 const TRANG = "__qa-di-bo-tim.html";
 
 const O_VIET = "Ô viết bình luận cho ảnh này";

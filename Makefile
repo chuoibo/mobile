@@ -40,7 +40,7 @@ DC = $(COMPOSE) -p $(PROJECT)
 WAIT_TIMEOUT ?= 300
 
 .DEFAULT_GOAL := help
-.PHONY: help gate gate-merge test-db e2e up down clean logs ps migrate db-check seed demo demo-reset demo-check demo-data-check demo-persona-check demo-key-check demo-watch demo-watch-status demo-watch-install smoke
+.PHONY: help gate gate-merge test-db e2e up down clean logs ps migrate db-check seed demo demo-reset demo-check demo-data-check demo-persona-check demo-key-check demo-watch demo-watch-status demo-watch-install hero-walk hero-walk-status smoke bundle-check bundle
 
 # `demo` phải gọi đúng bộ container mà `up` vừa dựng. Trên nhánh này biến đó là
 # $(COMPOSE); PR #60 (đang mở, cùng lane) đổi nó thành $(DC) = compose kèm
@@ -310,6 +310,42 @@ demo-watch-install: ## Cắm lượt canh định kỳ vào crontab — APPLY=1 
 	@python3 scripts/demo_watch.py install \
 	  $(if $(URL),--url $(URL)) $(if $(REPO),--repo $(REPO)) $(if $(REF),--ref $(REF)) \
 	  $(if $(APPLY),--apply) $(if $(REMOVE),--remove)
+
+# `demo-watch` hỏi máy demo có phục vụ ĐÚNG BỘ ROUTE của main không. Đếm route
+# khớp không có nghĩa là đường đi được: một máy phục vụ đủ 76 route và trả 500
+# cho tất cả vẫn khớp. Mục dưới đi thật hết đường hero, kể cả mối nối
+# ảnh -> Gemini -> readingFromWire -> POST /bills mà không cổng nào khác đi qua.
+#
+# Có gọi model thật, nên nó là mục gọi TAY (chạy trước khi demo), còn chặng
+# `hero-walk` trong `make gate` chỉ đọc lại phán quyết mục này ghi ra.
+hero-walk: ## Đi bộ cả đường hero trên máy demo, kể cả chặng ảnh -> món — URL=, ANH= để đổi đích
+	@scripts/hero_walk.sh $(if $(URL),--url $(URL)) $(if $(ANH),--anh $(ANH))
+
+hero-walk-status: ## Lượt đi bộ gần nhất nói gì (mã 2 nếu chưa ai đi, đứt, hoặc quá cũ)
+	@scripts/hero_walk.sh --status $(if $(URL),--url $(URL)) $(if $(MAXAGE),--max-age-hours $(MAXAGE))
+
+# Hai mục dưới gác một lỗi đã xảy ra thật lúc 03:20 ngày 31/08: bundle được
+# xuất từ một checkout lùi 4 commit và đang có file màn ở trạng thái đã xoá,
+# rồi đẩy lên máy demo. Bundle thiếu hẳn AlbumChuyenDi và CaNhanHoa, mà mọi
+# tín hiệu vẫn xanh — vì mọi cổng đọc client đều đọc CHÍNH cây bị hỏng đó.
+#
+# `bundle-check` chỉ hỏi, không dựng gì: KHỚP / LỆCH / KHÔNG KIỂM ĐƯỢC.
+# `bundle` là đường nên dùng — nó chạy `bundle-check` trước rồi mới export,
+# và đóng SHA vào bundle để người mở cổng 8081 đối chiếu được.
+#
+# KHÔNG nằm trong `make gate`, và đó là chủ ý: `gate` chạy trên nhánh, nơi
+# HEAD khác origin/main theo đúng thiết kế. Gộp vào đó thì cổng đỏ mỗi lần,
+# và một cổng luôn đỏ là một cổng người ta học cách bỏ qua.
+bundle-check: ## Cây đang đứng có khớp origin/main không — hỏi TRƯỚC khi xuất bundle
+	@python3 scripts/check_tree_matches_main.py \
+	  $(if $(TREE),--tree $(TREE)) $(if $(REF),--ref $(REF)) \
+	  $(if $(NOFETCH),--no-fetch) $(if $(PHAMVI),--pham-vi $(PHAMVI)) $(if $(JSON),--json)
+
+bundle: ## Kiểm cây khớp main RỒI MỚI expo export, và đóng dấu SHA vào bundle
+	@scripts/xuat_bundle.sh \
+	  $(if $(TREE),--tree $(TREE)) $(if $(REF),--ref $(REF)) \
+	  $(if $(PLATFORM),--platform $(PLATFORM)) $(if $(OUT),--output-dir $(OUT)) \
+	  $(if $(NOFETCH),--no-fetch) $(if $(DUBIET),--du-biet)
 
 smoke: ## Gọi thật /healthz qua cổng đã publish và in địa chỉ ra
 	@# `smoke` là việc cuối `up` chạy, nên nó giữ màn hình cuối cùng. Nhắc lại
