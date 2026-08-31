@@ -277,6 +277,13 @@ dist-test/
 # history for a test that runs in five seconds.
 .expo-build-check/
 
+# Output of `apps/mobile/tools/do-canh-21-man.mjs`. Bản ghi một lượt đi bộ bằng
+# chuột thật: mọi trạng thái màn nó đứng lên, kèm đường bấm tới đó. Dựng lại
+# được bằng một lệnh, nên nó là bằng chứng của một lần chạy chứ không phải
+# nguồn — và nó chứa payload VietQR của fixture, tức một chuỗi số dài mà repo
+# guard đọc thành số tài khoản, đúng như guard nên làm.
+do-canh-21-man.json
+
 # Output of `apps/mobile/tools/screen-snapshots.mjs`. Sáu file HTML dựng lại từ
 # một lần chạy trình duyệt, để detector quét — bằng chứng của một lần chạy chứ
 # không phải nguồn, và dựng lại được bất cứ lúc nào bằng một lệnh.
