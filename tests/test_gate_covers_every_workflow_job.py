@@ -125,6 +125,17 @@ COVERED_BY: dict[str, tuple[str, ...]] = {
 # workflow job declares, an entry already claimed in COVERED_BY, and an entry
 # the gate no longer has.
 LOCAL_ONLY: dict[str, str] = {
+    "harness-deploy": (
+        "asks whether the `agent_supervisor.py` / `agent_checkpoint.py` copies "
+        "installed under ~/agent-harness -- the ones the launcher actually "
+        "executes -- match what was merged to main. A CI runner installs no "
+        "harness, so a job would be comparing against an empty directory and "
+        "reporting green for the reason this stage exists to refuse. It runs "
+        "locally because the gap was real and silent: measured 2026-08-31, the "
+        "installed supervisor was three commits behind and the three it lacked "
+        "included both #470 and #477, the two clock fixes -- merged, reviewed, "
+        "gated, and never running, #470 for three days."
+    ),
     "demo-watch": (
         "asks whether the demo box on 8099 is still being watched, and whether "
         "its last recorded verdict was about main. A CI runner has no demo box "

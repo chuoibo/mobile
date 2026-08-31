@@ -68,6 +68,7 @@ CHECKER = re.compile(r"scripts/(check_[A-Za-z0-9_]+\.(?:py|sh))")
 # it. The rule is the narrower one, held in both directions below: a checker
 # `gate.sh` invokes is a checker this table has to name.
 STAGE_CHECKERS: dict[str, str] = {
+    "harness-deploy": "check_harness_deploy_drift.py",
     "contract": "check_actor_headers.py",
     "client-routes": "check_api_contract.py",
     "server-routes": "check_server_routes_called.py",
