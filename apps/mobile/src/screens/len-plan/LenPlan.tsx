@@ -38,7 +38,7 @@ import {
 } from "../quan-tri/quan-tri";
 import { danhSachThanhVien } from "../vao-cua/cong-api";
 import { space, type, usePalette } from "../../theme";
-import { Button, Card, Screen } from "../../ui/Kit";
+import { Button, Card, Field, Screen } from "../../ui/Kit";
 import { CoLoi, DangTai, TrongRong } from "../../ui/TrangThai";
 import {
   nhanKhoangNgay,
@@ -57,7 +57,8 @@ import {
 } from "./ngan-sach";
 import { DongThoiGian } from "./DongThoiGian";
 import { MoiVaoChuyen, type SoThanhVien } from "./MoiVaoChuyen";
-import { gopLoiMoi } from "./moi-vao-chuyen";
+import { NhanLoiMoi } from "./NhanLoiMoi";
+import { docMaLoiMoi, gopLoiMoi } from "./moi-vao-chuyen";
 import { TaoBuoiDi } from "./TaoBuoiDi";
 
 type NhomMan = { kind: "dang-tai" } | { kind: "chua-chon" } | NhomState;
@@ -72,7 +73,10 @@ type CuaSo =
   | { pha: "tg"; buoi: BuoiDi }
   /** F14. The invite screen for one trip. Carries the trip rather than an id
    *  so the screen can print its name and dates without a second read. */
-  | { pha: "moi"; buoi: BuoiDi };
+  | { pha: "moi"; buoi: BuoiDi }
+  /** F14, the receiving end. Carries the token already parsed, so the accept
+   *  screen never sees the raw string somebody pasted. */
+  | { pha: "nhan-moi"; token: string };
 /** F34. How the recap read went. A failed read is its own case rather than an
  *  empty map, because an empty map means "no trip has finished" and that is a
  *  sentence this screen prints. */
@@ -88,6 +92,11 @@ export function LenPlan({ nguoi, nhomPhien }: {
   const [nhom, setNhom] = useState<NhomMan>(nguoi ? { kind: "dang-tai" } : { kind: "chua-chon" });
   const [ds, setDs] = useState<DsMan>({ kind: "dang-tai" });
   const [cuaSo, setCuaSo] = useState<CuaSo>({ pha: "ds" });
+  // F14, receiving end. What somebody pasted, before `docMaLoiMoi` has vouched
+  // for it. Kept as the raw string rather than the parsed token so a person
+  // fixing a typo can still see the typo -- the same rule `KetBan` follows for
+  // a failed number search.
+  const [maMoi, setMaMoi] = useState("");
   const [busy, setBusy] = useState(false);
   const [loiGhi, setLoiGhi] = useState<string | null>(null);
   // F46. Arrivals for the outing currently open, refetched when it opens and
@@ -466,6 +475,19 @@ export function LenPlan({ nguoi, nhomPhien }: {
     );
   }
 
+  if (cuaSo.pha === "nhan-moi") {
+    return (
+      <NhanLoiMoi
+        token={cuaSo.token}
+        nguoi={nguoi}
+        onDong={() => {
+          setMaMoi("");
+          setCuaSo({ pha: "ds" });
+        }}
+      />
+    );
+  }
+
   return (
     <Screen title="Lên plan" hint="Chuyến đi của nhóm, ngày giờ và ai đi.">
       <ScrollView
@@ -538,8 +560,80 @@ export function LenPlan({ nguoi, nhomPhien }: {
             }}
           />
         ) : null}
+
+        <NhanBangMa
+          ma={maMoi}
+          onMa={setMaMoi}
+          onMo={(token) => {
+            setLoiGhi(null);
+            setCuaSo({ pha: "nhan-moi", token });
+          }}
+        />
       </ScrollView>
     </Screen>
+  );
+}
+
+/** F14, the receiving end: the only native way in to `NhanLoiMoi`.
+ *
+ * ## Why it is on this screen and not behind the group
+ *
+ * Deliberately outside every `nhom.kind === "xong"` guard above it. The person
+ * who was invited is, by definition, the person who is not in the group yet:
+ * gating the way in on having a group would hide the control from exactly the
+ * people it exists for, and it would do it silently, which is how a screen
+ * ends up with no entrance at all.
+ *
+ * It sits under the trip list because that is the screen this act is about --
+ * accepting an invite is how a trip appears in that list. There is no
+ * `GET /people/{id}/outing-invites`, so this cannot be an inbox; the token
+ * really does arrive in whatever chat app the organiser used, and pasting it
+ * is the honest shape rather than a placeholder for a notification feed that
+ * no route can feed.
+ *
+ * The button is absent, not disabled-and-failing, until the paste parses. What
+ * counts as parsing is `docMaLoiMoi`'s problem and it is tested without a
+ * browser; this component only renders the verdict.
+ */
+function NhanBangMa({
+  ma,
+  onMa,
+  onMo,
+}: {
+  ma: string;
+  onMa: (t: string) => void;
+  onMo: (token: string) => void;
+}) {
+  const c = usePalette();
+  const token = docMaLoiMoi(ma);
+  const daGo = ma.trim() !== "";
+  return (
+    <Card>
+      <Text style={{ ...type.title, color: c.ink }}>Có người mời bạn đi?</Text>
+      <Text style={{ ...type.label, color: c.inkSoft }}>
+        Dán link hoặc mã lời mời người ta gửi cho bạn. Nhận xong chuyến sẽ nằm trong
+        danh sách ở trên.
+      </Text>
+      <Field
+        label="Mã lời mời"
+        value={ma}
+        onChangeText={onMa}
+        placeholder="/outing-invites/abc123..."
+        hint="Dán cả link cũng được, app tự lấy phần mã."
+        maxLength={200}
+        onSubmitEditing={() => {
+          if (token) onMo(token);
+        }}
+      />
+      {daGo && !token ? (
+        <Text style={{ ...type.label, color: c.inkSoft }}>
+          Chưa đọc được mã trong chỗ vừa dán. Kiểm tra lại xem đã copy đủ chưa.
+        </Text>
+      ) : null}
+      {token ? (
+        <Button label="Mở lời mời" onPress={() => onMo(token)} tone="ghost" />
+      ) : null}
+    </Card>
   );
 }
 

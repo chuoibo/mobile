@@ -37,6 +37,64 @@ import type { LoiMoiBuoiDi } from "../quan-tri/quan-tri";
 import { tenThanhVien } from "../quan-tri/quan-tri";
 import type { ThanhVien } from "../vao-cua/cong-api";
 
+/**
+ * Read an invite token out of whatever somebody pasted.
+ *
+ * ## Why this exists at all
+ *
+ * `NhanLoiMoi` used to have exactly one entrance: the `#moi=<token>` fragment
+ * that `navigation/lien-ket.ts` parses. That file says of itself, in its own
+ * header, "Web only by nature -- `location` does not exist on a phone". This
+ * product ships to Android and iOS. So the screen that accepts an invite was
+ * reachable in Chrome and by nothing at all on the platform the product ships
+ * on: the organiser could mint a link, and the person it was minted for had no
+ * way to open it.
+ *
+ * Pasting is the honest native edge. There is no in-app inbox to read -- there
+ * is no `GET /people/{id}/outing-invites` -- so the token genuinely does
+ * arrive out of band, in whatever chat app the organiser used. What arrives is
+ * one of three things, and refusing two of them would make the feature depend
+ * on a link surviving a copy-paste:
+ *
+ *   - the whole `invite_path` the server sent (`/outing-invites/<token>`),
+ *   - a full link somebody's chat app turned it into,
+ *   - the bare token, read aloud across a table and typed.
+ *
+ * ## What it refuses, and why the refusal is narrow
+ *
+ * The token is pasted straight into a URL by `api.ts` (`/outing-invites/
+ * ${token}/accept`). So the one thing this must never return is a string that
+ * can steer that request somewhere else: a `..` segment, or anything still
+ * holding a slash after the last segment is taken. That is the same guard
+ * `lien-ket.ts` puts on `#moi=`, kept identical on purpose -- two doors into
+ * one screen that disagree about what a token is would mean the safer door is
+ * decoration.
+ *
+ * A query string or fragment is stripped rather than rejected: chat apps
+ * append tracking parameters to links, and a person who pasted a working link
+ * should not be told their invite is malformed because Zalo added `?fbclid=`.
+ *
+ * Returns null for anything it will not vouch for. The screen renders the null
+ * as a sentence; it never sends a request built from a string it could not
+ * read.
+ */
+export function docMaLoiMoi(text: string): string | null {
+  const cat = text.trim().split(/[?#]/, 1)[0] ?? "";
+  if (cat === "") return null;
+  // Last non-empty segment: handles the bare token, `/outing-invites/<t>`, and
+  // `https://host/outing-invites/<t>/` alike, without caring which it was.
+  const doan = cat.split("/").filter((s) => s !== "");
+  const ma = doan[doan.length - 1] ?? "";
+  if (ma === "" || ma === "." || ma === "..") return null;
+  // A token is what the server mints: url-safe base64 or hex. Anything holding
+  // a character that changes the meaning of a path is not one.
+  if (!/^[A-Za-z0-9_-]{8,128}$/.test(ma)) return null;
+  // `/outing-invites` alone is a path, not a token. Refuse the route's own
+  // name so a half-copied link cannot read as a valid code.
+  if (ma === "outing-invites" || ma === "accept") return null;
+  return ma;
+}
+
 /** One roster row as the invite card offers it. */
 export type HangMoi = {
   personId: string;

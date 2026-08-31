@@ -208,6 +208,17 @@
     // `PUBLISH_REFUSALS` did not have when it shipped naming two codes that
     // existed nowhere in `services/api/app`.
     "src/screens/ca-nhan/ban-be.ts",
+    // F03/F04/F05's screen. `ket-ban-web.test.mjs` already drives it through a
+    // real browser, and that remains the stronger measurement -- it holds the
+    // request the screen builds. Compiled here as well for one claim that
+    // browser cannot make: the entrance to F05's READING half must not depend
+    // on `location`. `lien-ket.ts` says of itself it is "web only by nature",
+    // so a check performed inside Chrome cannot tell a door that works on a
+    // phone from one that only works where a fragment exists. Rendering under
+    // bare node -- where `globalThis.location` is genuinely undefined -- is the
+    // only cheap way to stand on the native side of that line. See
+    // `tests/duong-vao-tren-native.test.mjs`.
+    "src/screens/ca-nhan/KetBan.tsx",
     // F13/F15 outing screens. Compiled so a test can run the pure rules under
     // bare node and render the two forms through react-native-web, the same
     // substitution Expo's web build performs, and read the markup a browser

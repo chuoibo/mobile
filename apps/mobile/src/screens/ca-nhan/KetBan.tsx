@@ -57,6 +57,7 @@ import { Anh, khungTron } from "../../ui/Anh";
 import { moTaLoi } from "../../ui/loi-tren-man";
 import { radius, space, type, usePalette } from "../../theme";
 import type { DemoPerson } from "../../navigation/nhom-demo";
+import { docMaBan } from "../vao-cua/ma-ban";
 import { ngayNgan } from "./tai-chinh";
 import {
   chuDau,
@@ -113,6 +114,10 @@ export function KetBan({
 }) {
   const c = usePalette();
   const [so, setSo] = useState("");
+  // F05. What somebody pasted off a friend's code, before `docMaBan` has
+  // vouched for it. Separate from `so` because the two name a person by
+  // different means and a half-typed one must not clear the other.
+  const [ma, setMa] = useState("");
   const [phaTim, setPhaTim] = useState<PhaTim>({ pha: "chua" });
   const [phaGui, setPhaGui] = useState<PhaGui>({ pha: "chua" });
   const [ds, setDs] = useState<PhaDanhSach>({ pha: "dang-tai" });
@@ -156,6 +161,46 @@ export function KetBan({
     } catch (problem) {
       setPhaTim({ pha: "hong", loi: moTaLoi(problem) });
     }
+  }
+
+  /** F05. Turn a pasted code into the same "found" state a search produces.
+   *
+   * No route call. `POST /friends/lookup` answers a telephone number, and a
+   * code already carries the id that lookup exists to find -- asking the
+   * server to find a person we were just handed would be a second way to get
+   * the same answer, and the slower one.
+   *
+   * So this feeds `phaTim` directly and the ask button below is the one the
+   * search already draws. `guiLoiMoi` takes an `addressee_id`, which is
+   * exactly what the code carries, so nothing about the send path is
+   * duplicated either.
+   */
+  function chayMa() {
+    const ban = docMaBan(ma);
+    if (!ban) {
+      setPhaTim({
+        pha: "hong",
+        loi: "Chưa đọc được mã trong chỗ vừa dán. Kiểm tra lại xem đã copy đủ chưa.",
+      });
+      return;
+    }
+    setPhaGui({ pha: "chua" });
+    setPhaTim({
+      pha: "thay",
+      ai: {
+        person_id: ban.personId,
+        // A code may carry an id and no name -- a bare id read aloud across a
+        // table looks exactly like that. `ma-ban.ts` is explicit that the
+        // absence gets rendered rather than filled with a plausible name
+        // somebody might mistake for their friend's, so this is a phrase that
+        // cannot be read as one.
+        display_name: ban.ten ?? "người trong mã này",
+      },
+    });
+    // The code has done its job, same as the number above: from here on the
+    // person is a card, and leaving the raw string on screen only invites it
+    // into a screenshot.
+    setMa("");
   }
 
   async function chayGui(ai: NguoiTimDuoc) {
@@ -217,6 +262,13 @@ export function KetBan({
           onTim={() => void chayTim()}
           batDuoc={Boolean(toi) && soCoTheGoi(so)}
           pha={phaTim}
+        />
+
+        <OMa
+          ma={ma}
+          onMa={setMa}
+          onDoc={chayMa}
+          batDuoc={Boolean(toi) && ma.trim() !== ""}
         />
 
         {phaTim.pha === "thay" ? (
@@ -296,6 +348,57 @@ function OTim({
           diaChi={DIA_CHI_API}
         />
       ) : null}
+    </Card>
+  );
+}
+
+/** F05, the reading end of the code `MaCuaToi` draws on Cá nhân.
+ *
+ * ## Why a paste box and not a camera
+ *
+ * The code's payload is a fragment link (`ma-ban.ts` explains the choice), and
+ * until now the only thing that read one was `navigation/lien-ket.ts`, whose
+ * own header says it is "Web only by nature -- `location` does not exist on a
+ * phone". This product ships to Android and iOS. So on the platform it ships
+ * on, a person could *show* their code and nobody could *read* one: the half
+ * of F05 that adds a friend had no entrance at all, in the app, on the device.
+ *
+ * A real camera scanner is the nicer answer and it is not this change: it
+ * needs a permission prompt, a preview surface and a decoder, and none of that
+ * makes the feature reachable any sooner than a field that accepts the same
+ * string. What the code encodes is text, and a person holding a phone can
+ * already get text out of a photograph with the camera app they have.
+ *
+ * The field accepts everything `docMaBan` accepts -- the fragment link, the
+ * spec's `/u/<id>` form, and a bare id -- because that reader was deliberately
+ * written more forgiving than the writer, and narrowing it here would undo the
+ * reason.
+ */
+function OMa({
+  ma,
+  onMa,
+  onDoc,
+  batDuoc,
+}: {
+  ma: string;
+  onMa: (t: string) => void;
+  onDoc: () => void;
+  batDuoc: boolean;
+}) {
+  const c = usePalette();
+  return (
+    <Card>
+      <Text style={{ ...type.title, color: c.ink }}>Thêm bằng mã kết bạn</Text>
+      <Field
+        label="Mã hoặc link của người bạn muốn thêm"
+        value={ma}
+        onChangeText={onMa}
+        placeholder="#ban=..."
+        maxLength={300}
+        onSubmitEditing={onDoc}
+        hint="Chụp mã của họ bằng app camera rồi dán vào đây, hoặc gõ tay mã họ đọc cho bạn."
+      />
+      <Button label="Đọc mã" onPress={onDoc} disabled={!batDuoc} tone="ghost" />
     </Card>
   );
 }
