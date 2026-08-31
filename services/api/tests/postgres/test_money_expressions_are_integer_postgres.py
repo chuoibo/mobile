@@ -60,24 +60,23 @@ explicit, reviewable entry. The reviewed set here is empty.
   "result types of executed statements", so a query no test drives is invisible
   to it. `MONEY_QUERY_SURFACE` below is a hand-written list of entry points and
   carries exactly the weakness every hand-written list carries: it cannot know
-  what it is missing. That gap is real, and it is the only one left: what a
-  hand-written list can still be held to is that every name on it means
-  something, and `test_every_surface_name_is_actually_driven` holds it to that
-  by resolving each name to the callable it refers to and requiring that the
-  driver below really reached it. So the list can be short, but it cannot be
+  what it is missing. That gap is real. What a hand-written list can still be
+  held to is that every name on it means something, and
+  `test_every_surface_name_is_actually_driven` holds it to that by resolving
+  each name to the callable it refers to and requiring that the driver below
+  really reached it. So the list can be short, but it cannot be
   *decorative* -- a name whose call is deleted goes red instead of quietly
   shrinking the surface this gate measures. `test_every_aggregating_method_is_driven`
   covers the opposite drift, a new aggregate nobody added to the list; it is a
   reminder built on names and inherits their limits, and neither reminder is
   part of the type rule.
-* **A driven entry point may still not reach its aggregate.** The binding above
-  proves the call happens and that the call ran *some* result-returning
-  statement. It does not prove the call got as far as the money expression,
-  because an early return placed after another query is invisible to it.
-  `group_recap` is that shape on this server: it runs `select(Outing)` first
-  and returns early when the group has no trip. Measured, not assumed --
-  deleting the trip seeding from the driver leaves the whole file green. The
-  driver's docstring carries the warning; no assert here closes it.
+* **A computed column is a reachability witness, not an aggregate identity.**
+  Every query-executing entry point must now expose at least one result column
+  whose libpq provenance says it was computed rather than read from a table.
+  That catches a call such as `group_recap` reading `Outing` and returning
+  before its aggregate. It proves only that *some* computed expression ran
+  during the call, however; it does not prove that the entry point's intended
+  money aggregate was the expression that ran.
 * **It is about the wire, not about JSON.** A number nested inside a `jsonb`
   document has no PostgreSQL numeric type, so it is outside every rule here,
   exactly as it is outside the storage gate.
@@ -142,18 +141,20 @@ class InexactResult:
 
 
 class ResultTypeRecorder:
-    """Reads the result type of every statement, without reading the statement.
+    """Read result types and table provenance without parsing the statement.
 
     The point of the indirection is that nothing here inspects *how* a query
-    was written. `cursor.description` is PostgreSQL's own answer, so a
-    hand-written `text("SUM(...)")` is measured by the same path as a
-    `func.sum()` built through the ORM.
+    was written. `cursor.description` supplies PostgreSQL's type answer, while
+    libpq's `ftable()` identifies whether each result column came from a real
+    table. A hand-written `text("SUM(...)")` is therefore measured by the same
+    path as a `func.sum()` built through the ORM.
     """
 
     def __init__(self, inexact_oids: dict[int, str]) -> None:
         self._inexact_oids = inexact_oids
         self.statements_seen = 0
         self.result_columns_seen = 0
+        self.computed_columns_seen = 0
         self.findings: list[InexactResult] = []
 
     def observe(self, cursor, statement: str) -> None:
@@ -161,8 +162,24 @@ class ResultTypeRecorder:
         description = cursor.description
         if description is None:
             return
-        for column in description:
+        try:
+            pgresult = cursor.pgresult
+        except AttributeError as error:
+            raise AssertionError(
+                "ResultTypeRecorder requires psycopg3 cursor.pgresult provenance "
+                "to distinguish computed columns from table columns"
+            ) from error
+        if pgresult is None:
+            raise AssertionError(
+                "ResultTypeRecorder received result columns but psycopg3 "
+                "cursor.pgresult is unavailable; computed-column coverage "
+                "cannot be measured"
+            )
+        for index, column in enumerate(description):
             self.result_columns_seen += 1
+            # libpq reports relation OID zero for a computed result column.
+            if not pgresult.ftable(index):
+                self.computed_columns_seen += 1
             type_name = self._inexact_oids.get(column.type_code)
             if type_name is None:
                 continue
@@ -207,7 +224,7 @@ def recording(engine: Engine) -> Iterator[ResultTypeRecorder]:
         event.remove(engine, "after_cursor_execute", _after_cursor_execute)
 
 
-def _drive_money_query_surface(session: Session) -> None:
+def _drive_money_query_surface(session: Session, *, seed_trip: bool = True) -> None:
     """Execute every money-returning entry point we know of.
 
     A result *type* is a property of the statement rather than of the rows, so
@@ -218,31 +235,32 @@ def _drive_money_query_surface(session: Session) -> None:
     and therefore never reaches its money query at all.
 
     So the seeding below is not about having realistic amounts. It exists to
-    get *past the early returns*, and that is the shape to keep in mind when
-    adding an entry point here: reaching the method is not the same as reaching
-    its aggregate.
+    get *past the early returns*. The default stays enabled for the gate;
+    `seed_trip=False` exists only so a positive control can prove that the
+    computed-column reachability rule rejects the seedless path.
     """
 
     context_id = seed_context(session)
     person_id = uuid.uuid4()
     repository = SqlAlchemyApiRepository(session)
 
-    # Enough of a trip to get past `group_recap`'s `if not outings: return ()`.
-    organiser = Person(display_name="Người tổ chức test")
-    session.add(organiser)
-    session.flush()
-    session.add(
-        Outing(
-            context_id=context_id,
-            created_by_id=organiser.id,
-            title="Chuyến đi test",
-            starts_on=date(2026, 8, 1),
-            ends_on=date(2026, 8, 2),
-            headcount=2,
-            budget_per_person_vnd=0,
+    if seed_trip:
+        # Enough of a trip to get past `group_recap`'s early return.
+        organiser = Person(display_name="Người tổ chức test")
+        session.add(organiser)
+        session.flush()
+        session.add(
+            Outing(
+                context_id=context_id,
+                created_by_id=organiser.id,
+                title="Chuyến đi test",
+                starts_on=date(2026, 8, 1),
+                ends_on=date(2026, 8, 2),
+                headcount=2,
+                budget_per_person_vnd=0,
+            )
         )
-    )
-    session.flush()
+        session.flush()
 
     repository.group_recap(context_id, today=date(2026, 8, 31))
     repository.load_confirmed_receipts(context_id)
@@ -297,6 +315,7 @@ class SurfaceObservation:
 
     calls: int = 0
     result_columns: int = 0
+    computed_columns: int = 0
     executes_its_own_query: bool = True
 
 
@@ -333,13 +352,19 @@ def watching_surface(
 
     def wrap(owner: object, name: str, original):
         def wrapper(*args, **kwargs):
-            before = recorder.result_columns_seen
+            result_columns_before = recorder.result_columns_seen
+            computed_columns_before = recorder.computed_columns_seen
             try:
                 return original(*args, **kwargs)
             finally:
                 entry = observed[name]
                 entry.calls += 1
-                entry.result_columns += recorder.result_columns_seen - before
+                entry.result_columns += (
+                    recorder.result_columns_seen - result_columns_before
+                )
+                entry.computed_columns += (
+                    recorder.computed_columns_seen - computed_columns_before
+                )
 
         return wrapper
 
@@ -384,8 +409,8 @@ def test_every_surface_name_is_actually_driven(postgres_session: Session) -> Non
 
     # Being called is not the same as running anything: a method stubbed to
     # `return ()` satisfies the count above while the gate observes nothing of
-    # what it returns. This catches that shape and only that shape -- see the
-    # limit recorded directly below, which was measured rather than assumed.
+    # what it returns. This catches that shape; the computed-provenance rule
+    # below catches an early return that happens after a pure table read.
     ran_no_sql = sorted(
         name
         for name, seen in observed.items()
@@ -397,14 +422,63 @@ def test_every_surface_name_is_actually_driven(postgres_session: Session) -> Non
         f"{ran_no_sql}. A method stubbed out to return early looks exactly "
         "like this."
     )
-    # LIMIT, measured on this server rather than reasoned about: this does NOT
-    # catch an early return that happens *after* some other query.
-    # `group_recap` is exactly that shape -- it runs its `select(Outing)` and
-    # only then does `if not outings: return ()` -- so deleting the trip
-    # seeding from the driver leaves this assert green while the money
-    # aggregate is never reached. Verified by doing it: 12 passed. Reaching an
-    # entry point still is not the same as reaching its aggregate, and nothing
-    # in this file closes that; the driver's own docstring is the warning.
+
+
+def _surface_methods_without_computed_expression(
+    observed: dict[str, SurfaceObservation],
+) -> list[str]:
+    """Return query-executing methods that exposed only table columns.
+
+    Statement builders are exempt because they only assemble SQL. The driver,
+    outside the builder's wrapped call, is where that statement is executed
+    and where its result-column provenance can be observed.
+    """
+
+    return sorted(
+        name
+        for name, seen in observed.items()
+        if seen.executes_its_own_query and seen.computed_columns < 1
+    )
+
+
+def test_every_surface_method_reaches_a_computed_expression(
+    postgres_session: Session,
+) -> None:
+    """Each method must get beyond pure table reads to a computed expression."""
+
+    engine = postgres_session.get_bind()
+    with recording(engine) as recorder, watching_surface(recorder) as observed:
+        _drive_money_query_surface(postgres_session)
+
+    pure_table_only = _surface_methods_without_computed_expression(observed)
+    assert pure_table_only == [], (
+        "these entry points were called and executed result-returning SQL, but "
+        "read only columns from real tables and exposed no computed result "
+        f"column: {pure_table_only}. They returned before reaching their "
+        "aggregate (usually because a required fixture was removed), so this "
+        "gate measured nothing about their money expressions."
+    )
+
+
+def test_seedless_group_recap_fails_computed_expression_reachability(
+    postgres_session: Session,
+) -> None:
+    """Positive control: dropping the trip seed must make the new rule red."""
+
+    engine = postgres_session.get_bind()
+    with recording(engine) as recorder, watching_surface(recorder) as observed:
+        _drive_money_query_surface(postgres_session, seed_trip=False)
+
+    recap = observed["group_recap"]
+    assert recap.calls == 1 and recap.result_columns > 0, (
+        "seedless group_recap no longer models a called method that runs SQL "
+        "before returning early"
+    )
+    assert _surface_methods_without_computed_expression(observed) == ["group_recap"], (
+        "the computed-expression reachability rule did not reject seedless "
+        "group_recap specifically; the positive control no longer proves the "
+        "fixture-removal regression is caught"
+    )
 
 
 def test_no_money_expression_returns_an_inexact_type(
