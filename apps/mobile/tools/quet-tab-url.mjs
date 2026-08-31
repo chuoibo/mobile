@@ -377,35 +377,38 @@ const MAN_TUONG_TAC = [
  * plainly: the number was never wrong, it was narrower than it read. A total
  * printed under a list of exclusions is still read as a total.
  *
- * ## The two `doc-bill` rows leave a finding standing, on purpose
+ * ## The two `doc-bill` rows: "unsatisfiable" was true of one lever only
  *
- * Both print `low-contrast ... pixel contrast 1.1:1 median 2.9:1` on the label
- * "Ảnh chụp màn hình", so this run ends at `tong findings: 2` and exit 2. That
- * is not a defect waiting to be fixed, and it is not a number to fix by
- * reaching for an ignore. It was measured:
+ * Both used to print `low-contrast ... pixel contrast 1.1:1 median 2.9:1` on
+ * the label "Ảnh chụp màn hình", and this file used to argue the finding should
+ * stand. Half of that argument holds up and half of it does not, and the half
+ * that does not is the more useful one to keep written down.
  *
- *   - the label is `rgb(255,255,255)` inside a `<button aria-disabled="true"`,
- *     `disabled`, `pointer-events: none`, so the control really is inactive,
- *     and WCAG 2.2 SC 1.4.3 exempts inactive components from the contrast step;
- *   - sampling the rendered pixels of that 88x44 strip gives 3.66:1 at the old
- *     0.40 opacity and 4.56:1 at the 0.46 `ChupBill` now uses -- the label
- *     CLEARS 4.5:1. The rule's headline 1.1:1 is a minimum over sampled pixels,
- *     so it is dominated by antialiased glyph edges, which on a black ground
- *     approach the background no matter what the opacity is. Raising 0.40 to
- *     0.46 moved the median 2.4 -> 2.9 and left the 1.1 untouched, which is the
- *     signature of a metric no legitimate design change can satisfy;
- *   - `hook-admin.mjs ignore-value low-contrast <value>` refuses this rule
- *     ("no extractable ignore value"), and the only other scope is `--file`,
- *     which would switch contrast checking off for the whole screen including
- *     the overlay text that is the one thing on it meant to be read. Silencing
- *     it that way would cost more than the finding does.
+ * What was right: no OPACITY value satisfies the rule. Swept and measured,
+ * white 13px/600 on #000 --
  *
- * The cost of leaving it standing, stated so nobody has to rediscover it:
- * `dot-bien-anh-ve.mjs` opens with `nen sach: ma=0 (can 0)` and throws
- * `nen sach da do san` when the baseline is not clean, so it now refuses to
- * run. It refuses LOUDLY with an accurate message rather than quietly scoring
- * a mutation table against a red tree, which is the better of the two
- * failures, but it does mean that tool needs a decision before its next use.
+ *     opacity   0.46   0.60   0.75   0.90   0.98
+ *     p10       1.0    1.1    1.1    1.1    1.1
+ *     median    2.5    3.7    5.1    7.1    8.3
+ *
+ * p10 is the verdict and it does not move, so the earlier 0.40 -> 0.46 change
+ * shifted the median and could never have changed the outcome.
+ *
+ * What was wrong: reading that as "a metric no legitimate design change can
+ * satisfy". It is a metric no legitimate change to THAT ONE PROPERTY can
+ * satisfy, which is a different sentence. The rule only scores rendered ink
+ * because an opacity stack is present at all (`screenshot-contrast.mjs` sets
+ * `preferRenderedForeground` from it); painting the label at full alpha in the
+ * same grey drops it back onto the declared-colour check, which is a real gate
+ * and not a blind spot -- #6d6d6d (4.1:1) is flagged there, #7a7a7a is not.
+ * `ChupBill` now does that, both rows come back 0, and this run ends at
+ * `tong findings: 0`, exit 0.
+ *
+ * The general form, since it cost a tool: "no value of X works" is evidence
+ * about X, and turns into "nothing works" only if X was the only lever, which
+ * is a claim that needs its own check. Leaving the finding standing also left
+ * `dot-bien-anh-ve.mjs` refusing to run for as long as the baseline was red --
+ * see the outage note in that file for what happened to it in the meantime.
  */
 const MAN_CUA_QUET = [
   {

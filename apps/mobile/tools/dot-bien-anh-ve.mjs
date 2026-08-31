@@ -44,6 +44,24 @@
  * row that aims at it first drops the `anh` expectation from the rows ahead of
  * it. Covering only the shape that happens to be scanned first is how a canary
  * ends up vouching for screens it never ran on.
+ *
+ * ## A refusal to run is not a pause, it is an expiry
+ *
+ * The control row M4 was green when this file was written, and went stale
+ * without anyone touching it: `album-mot` arrived in the scan list later, and
+ * it draws two frames while decoding one, so the node-counting measure the
+ * control restores answers 2 against an expectation of 1. From then on M4 was
+ * red for a reason it was not asking about.
+ *
+ * Nothing reported that, because by then the tool had stopped running at all.
+ * Two `low-contrast` findings on `doc-bill` had made the baseline red, and the
+ * guard above throws `nen sach da do san` rather than score a table against a
+ * red tree. That guard is right, and it is still the better of the two
+ * failures. But the cost is worth naming: while a tool refuses to run, the
+ * things inside it keep going out of date, and it comes back not where it was
+ * left but wherever the codebase drifted to. The refusal was loud; what it was
+ * protecting was quietly rotting behind it. So the first clean run after an
+ * outage should be read as a first run, not as a resumption.
  */
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -72,6 +90,33 @@ const DEM_CU = {
   file: QUET,
   neo: "    const anh = await demAnhVeDuoc(page, r.khung);",
   thay: "    const anh = r.khung.length; /* dot-bien: dem node, khong dem pixel */",
+};
+
+/** Steering for the control row, for the reason given under "Why one row costs
+ *  two edits" -- but aimed at a screen rather than an ordering.
+ *
+ *  `album-mot` draws TWO frames and decodes ONE on purpose: the stub holds
+ *  bytes for `...0002` and not for `...0004`, and `anh: 1` is the honest count
+ *  of what a reader actually sees. Swap the measure for node-counting and that
+ *  same screen answers 2, which trips the "Thừa ảnh" branch of the exact-count
+ *  assertion -- a red that says the counter changed, not that the painting
+ *  broke. Left in, it makes the control red for a reason the control is not
+ *  asking about, and by this file's own rule that is a miss.
+ *
+ *  So the control aligns this one row to what node-counting reports, leaving
+ *  the broken painting as the only thing still available for the gate to see.
+ *  Measured: with this edit the mutated scan ends `tong findings: 0`, exit 0 --
+ *  the painting is off and the old measure calls it fine, which is the whole
+ *  claim. `album-phim` is deliberately NOT touched; it draws one frame and
+ *  decodes it, so node-counting already agrees with it, and moving it to 2
+ *  produces `album-phim: can 2, dang co 1` -- measured, on the first attempt at
+ *  this fix. */
+const KHUNG_THUA_ALBUM = {
+  file: STUB,
+  neo: `    needle: "Tên album là tên chuyến",
+    anh: 1,`,
+  thay: `    needle: "Tên album là tên chuyến",
+    anh: 2, /* dot-bien: bang so KHUNG, vi cot dang dem node */`,
 };
 
 const DOT_BIEN = [
@@ -119,7 +164,7 @@ const DOT_BIEN = [
     // decoration -- and that the red rows above are not free.
     ten: "M4 · CHỨNG: cùng vết đứt của M1, đo bằng cột `anh` cũ (đếm node)",
     kieu: "canMu",
-    sua: [TAT_VE, DEM_CU],
+    sua: [TAT_VE, DEM_CU, KHUNG_THUA_ALBUM],
     mongDoi: null,
   },
 ];
