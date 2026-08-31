@@ -193,6 +193,57 @@ def test_sua_chua_commit_da_doi_thi_phan_quyet_het_hieu_luc(cay):
     assert "ĐÃ KHÁC so với bây giờ" in done.stdout
 
 
+def test_di_bo_tren_cay_SACH_roi_bat_dau_sua_thi_phan_quyet_HET_HIEU_LUC(cay):
+    """Ô thứ sáu, và là ô hay xảy ra nhất trong ngày làm việc thật.
+
+    Năm ca trên phủ mọi chiều BẮT ĐẦU TỪ MỘT PHÁN QUYẾT BẨN. Không ca nào hỏi
+    chiều ngược lại: phán quyết ghi `tree: "clean"`, còn cây BÂY GIỜ đã có sửa
+    chưa commit. Đó chính là trạng thái mọi lane rơi vào ngay sau khi gõ phím
+    đầu tiên — đi bộ trên main sạch, rồi bắt đầu làm việc.
+
+    Phép so `tree != now` nằm BÊN TRONG nhánh `if tree != "clean":`, nên nhánh
+    "clean" không bao giờ được đem so với cây hiện tại: nó được nhận vô điều
+    kiện, và từ đó mọi `make gate` in ĐI ĐƯỢC về một cây chưa ai đi bộ. Đúng
+    cái file này nói nó chặn: "vouched for code it never ran".
+    """
+    _ghi(cay)  # phán quyết sạch, ghi lúc cây còn sạch
+    assert _van_tay(cay) == "clean"
+
+    _lam_ban(cay, "sua SAU khi da di bo xong tren cay sach")
+    assert _van_tay(cay).startswith("dirty:")
+
+    done = _chay(cay, "--status", "--url", URL)
+    assert done.returncode == 2, done.stdout + done.stderr
+    # Nêu tên đúng lý do. Chỉ so mã thoát thì ca này xanh cả khi cổng từ chối vì
+    # chuyện khác hẳn — và ở đây "chuyện khác" rất sẵn: sha, url, tuổi.
+    assert "CÂY SẠCH" in done.stdout
+    assert "CHƯA COMMIT" in done.stdout
+
+
+def test_khong_doc_duoc_cay_BAY_GIO_khong_duoc_doc_thanh_cay_van_sach(cay):
+    """ "Tôi không đọc được cây" phải khác "cây vẫn y nguyên".
+
+    Trạng thái này tới được THẬT, không phải giả định: một index hỏng hoặc bị
+    khoá bởi tiến trình git khác — mà thư mục `.git` ở đây là DÙNG CHUNG giữa
+    các worktree — làm `git status` thoát 128, trong khi `rev-parse` và
+    `cat-file` vẫn trả lời bình thường. Nên mọi phép kiểm sha ở trên vẫn qua,
+    và `cay_van_tay` in "?" đúng lúc chỉ còn trục cây gác.
+
+    Nếu bản vá chỉ so `tree != now` rồi in "cây bây giờ có sửa chưa commit", nó
+    đỏ ĐÚNG nhưng nói SAI: người đọc đi tìm bản sửa không tồn tại. Một giá trị
+    mang hai nghĩa, lần này ở phía "bây giờ".
+    """
+    _ghi(cay)
+    (cay / ".git" / "index").write_bytes(b"GARBAGE-NOT-AN-INDEX")
+    assert _van_tay(cay) == "?", "tiền đề của ca này hỏng: index hỏng phải cho '?'"
+
+    done = _chay(cay, "--status", "--url", URL)
+    assert done.returncode == 2, done.stdout + done.stderr
+    assert "KHÔNG ĐỌC ĐƯỢC trạng thái cây làm việc BÂY GIỜ" in done.stdout
+    # Và không được vu cho người đọc một bản sửa họ không hề có.
+    assert "CÂY SẠCH" not in done.stdout
+
+
 def test_cay_ban_van_bao_lanh_cho_CHINH_no_va_noi_ro_dieu_do(cay):
     """Người đang sửa dở vẫn lấy được màu xanh cho cây của chính họ.
 
