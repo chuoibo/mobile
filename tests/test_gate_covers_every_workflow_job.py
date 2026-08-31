@@ -136,6 +136,17 @@ LOCAL_ONLY: dict[str, str] = {
         "included both #470 and #477, the two clock fixes -- merged, reviewed, "
         "gated, and never running, #470 for three days."
     ),
+    "harness-selfcheck": (
+        "asks whether the harness self-check has run recently, was green, and "
+        "was about the harness code that is live now. A CI runner has no "
+        "harness tree and no crontab of ours, so a job would report on nothing "
+        "-- and it reads a record written by a cron on THIS machine, which no "
+        "runner can see. It runs locally because the gap was real and silent: "
+        "the check exists and works, but only `team.sh start` calls it, so "
+        "between two restarts nothing runs it. Measured 2026-08-31, a "
+        "regression on f874225 tha bổng cả ba cổng kỹ năng and lived until the "
+        "Lead happened to restart the team and see red."
+    ),
     "demo-watch": (
         "asks whether the demo box on 8099 is still being watched, and whether "
         "its last recorded verdict was about main. A CI runner has no demo box "

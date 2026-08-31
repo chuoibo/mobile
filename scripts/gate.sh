@@ -72,7 +72,7 @@ REPO_ROOT="$PWD"
 
 # Every stage, in run order: cheapest and most likely to fail first, so a
 # broken tree is reported in seconds rather than after a docker build.
-STAGES=(guard guard-range ruff harness-deploy contract client-routes server-routes screens cors api migration pinned-import demo-watch hero-walk shared mobile docker postgres e2e)
+STAGES=(guard guard-range ruff harness-deploy harness-selfcheck contract client-routes server-routes screens cors api migration pinned-import demo-watch hero-walk shared mobile docker postgres e2e)
 
 stage_help() {
   case "$1" in
@@ -80,6 +80,7 @@ stage_help() {
     guard-range) echo "repo_guard.py range on every commit this branch adds (repo-guard.yml)" ;;
     ruff)      echo "ruff on the files this branch changes, uncommitted ones included (test.yml: lint)" ;;
     harness-deploy) echo "the agent_supervisor/agent_checkpoint copies that actually RUN match the ones merged to main (máy này thôi)" ;;
+    harness-selfcheck) echo "the harness self-check has run recently, was green, and was about the harness code live now (máy này thôi)" ;;
     contract)  echo "every route wanting X-Actor-ID is called with it (test.yml: contract)" ;;
     client-routes) echo "every route apps/mobile calls exists in the API (test.yml: api, inline)" ;;
     server-routes) echo "every route the API declares is called by some screen -- the other direction" ;;
@@ -458,6 +459,33 @@ do_harness-deploy() {
   python3 scripts/check_harness_deploy_drift.py
 }
 
+# `harness-deploy` above asks whether the installed copies match main. This asks
+# the question one step further in: does the harness that is running pass its
+# own tests, and did anybody check recently?
+#
+# The harness has a self-check and it works. But it is a bash function inside
+# `team.sh`, reachable only from `start` and `restart`, so between two restarts
+# nothing runs it -- and the harness tree has no remote, no CI and no deploy
+# step, so an edit is live the moment it is saved. Measured 2026-08-31: a
+# regression rode in on `f874225`, tha bổng ba cổng kỹ năng, and survived until
+# the Lead happened to restart the team and see red.
+#
+# So there is now a 15-minute cron (`harness_selfcheck.py install --apply`).
+# Which adds the failure mode a scheduler always adds: it stops, and then it
+# emits nothing, and nothing is what healthy looks like. This stage is the
+# caller that notices -- `status` returns 2 for never-ran, stale, unreadable,
+# and for a verdict about harness code that has since been replaced.
+#
+# What it does NOT prove: it reads a RECORDED verdict, so it says a check ran
+# and was green, never that the harness is healthy at this instant. It cannot
+# see a harness broken and fixed between two cron runs. And the tests it
+# reports on are the harness's own six files -- lane.py has no test for the
+# hard-timeout path that killed five lanes, so green here is green about what
+# is covered, not about the harness.
+do_harness-selfcheck() {
+  python3 scripts/harness_selfcheck.py status
+}
+
 # The demo box on 8099 is what the leader opens to decide whether the product
 # runs. Twice now it has served an older main than the one it claims to:
 # 58 routes against 62 for sixteen commits, then 65 against 69 for the four
@@ -667,6 +695,22 @@ check_prereq() {
       local hroot="${AGENT_HARNESS:-$HOME/agent-harness}"
       [ -d "$hroot" ] || {
         echo "không có $hroot -- máy này không cài bản harness nào để mà lệch"; return 1; } ;;
+    harness-selfcheck)
+      # No harness on this machine: nothing to self-check, and saying so is the
+      # honest answer -- same as harness-deploy above.
+      #
+      # But NO crontab check here, deliberately, and this is the difference from
+      # `demo-watch`. There, a missing schedule can mean the machine never took
+      # on the job, so skipping is right. Here the schedule missing is exactly
+      # the thing being reported: `status` answers "chưa chạy lần nào" with a 2,
+      # and a prereq that skipped on a missing crontab block would turn "nobody
+      # is checking the harness" into a green line. Uninstalling the watcher
+      # must make this stage RED, not quiet.
+      local sroot="${AGENT_HARNESS:-$HOME/agent-harness}"
+      [ -d "$sroot" ] || {
+        echo "không có $sroot -- máy này không chạy harness nào để mà tự kiểm"; return 1; }
+      # Deleting the runner is the one edit that must not turn this green.
+      [ -f scripts/harness_selfcheck.py ] || return 2 ;;
     guard-range)
       git rev-parse --git-dir >/dev/null 2>&1 || { echo "không phải git repo"; return 1; }
       # No base: let the body fail loudly rather than skipping quietly here.
@@ -825,6 +869,7 @@ broken_why() {
     mobile) echo "apps/mobile có mặt nhưng thiếu package-lock.json -- từ chối bỏ qua" ;;
     e2e) echo "apps/mobile có mặt nhưng thiếu tests/e2e/vertical-slice.test.mjs -- từ chối bỏ qua" ;;
     demo-watch) echo "thiếu scripts/demo_watch.py -- xoá canh gác không được biến chặng này thành xanh" ;;
+    harness-selfcheck) echo "thiếu scripts/harness_selfcheck.py -- xoá máy chạy không được biến chặng này thành xanh" ;;
     hero-walk) echo "thiếu scripts/hero_walk.sh -- xoá bài đi bộ không được biến chặng này thành xanh" ;;
     *) echo "thiếu file mà chặng này cần -- từ chối bỏ qua" ;;
   esac
