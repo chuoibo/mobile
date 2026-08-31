@@ -46,6 +46,7 @@ from app.db.models import (
     Person,
     ReceiptConfirmation,
 )
+from app.db.repository import get_obligation_amounts
 
 from .conftest import seed_context
 
@@ -509,6 +510,64 @@ def test_load_confirmed_receipts_groups_events_and_scopes_them_to_context(
     }
     assert all(type(amount_vnd) is int for amount_vnd in receipts.values())
     assert (other_context.sender_id, other_context.recipient_id) not in receipts
+
+
+def test_db_repository_obligation_amounts_stay_integer_dong(
+    postgres_session: Session,
+):
+    """`app/db/repository.py` must obey Law 1 the same as its `app/api` sibling.
+
+    PostgreSQL sums a `bigint` as `numeric` and psycopg hands `numeric` back as
+    `Decimal`, so a `func.sum()` that nobody wraps in `int()` returns a Decimal
+    no matter what the dataclass annotation says -- a frozen dataclass checks
+    nothing when it is built. The equality assertions below cannot see that,
+    because `Decimal('40000') == 40000` is True; only the type assertions can.
+
+    `type(...) is int` and not `isinstance(...)`: `isinstance(True, int)` is
+    True, so isinstance would wave a bool through -- the same hole #450 closed
+    on the allocator side.
+    """
+
+    state = _persist_lifecycle(postgres_session)
+
+    amounts = get_obligation_amounts(postgres_session, state.obligation_id)
+
+    assert amounts.obligation_amount_vnd == OBLIGATION_VND
+    assert amounts.confirmed_amount_vnd == OBLIGATION_VND
+    assert type(amounts.obligation_amount_vnd) is int
+    assert type(amounts.confirmed_amount_vnd) is int
+    assert type(amounts.remaining_amount_vnd) is int
+
+
+def test_db_repository_obligation_amounts_stay_integer_dong_with_no_receipts(
+    postgres_session: Session,
+):
+    """The zero row is its own case: `coalesce(sum(...), 0)` is still numeric.
+
+    With no `ReceiptConfirmation` at all the sum is NULL and the coalesce
+    supplies the literal `0` -- but coalesce takes the wider type of its
+    arguments, so the column is still `numeric` and psycopg still returns
+    `Decimal('0')`. A fix that only converted the non-empty branch would leave
+    this one leaking.
+    """
+
+    state = _persist_lifecycle(postgres_session, confirm_receipts=False)
+
+    amounts = get_obligation_amounts(postgres_session, state.obligation_id)
+
+    assert amounts.confirmed_amount_vnd == 0
+    assert amounts.remaining_amount_vnd == OBLIGATION_VND
+    assert type(amounts.confirmed_amount_vnd) is int
+    assert type(amounts.remaining_amount_vnd) is int
+
+
+def test_db_repository_obligation_amounts_rejects_unknown_obligation(
+    postgres_session: Session,
+):
+    """The `None` row raises rather than returning a zeroed record."""
+
+    with pytest.raises(LookupError):
+        get_obligation_amounts(postgres_session, uuid.uuid4())
 
 
 def test_guest_http_uses_name_derived_from_real_postgres_projection(
