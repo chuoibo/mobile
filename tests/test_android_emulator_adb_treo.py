@@ -218,7 +218,7 @@ def moi_truong(tmp_path: Path):
                 pass
 
 
-def _run(args, tmp_path: Path, sdk: Path, *, timeout=HANG_SECONDS - 5, extra=None):
+def _env(tmp_path: Path, sdk: Path, extra=None):
     env = dict(os.environ)
     env.update(
         {
@@ -238,11 +238,15 @@ def _run(args, tmp_path: Path, sdk: Path, *, timeout=HANG_SECONDS - 5, extra=Non
     env.pop("ANDROID_SERIAL", None)
     if extra:
         env.update(extra)
+    return env
+
+
+def _run(args, tmp_path: Path, sdk: Path, *, timeout=HANG_SECONDS - 5, extra=None):
     return subprocess.run(
         ["bash", str(SCRIPT), *args],
         capture_output=True,
         text=True,
-        env=env,
+        env=_env(tmp_path, sdk, extra),
         timeout=timeout,
     )
 
@@ -297,20 +301,35 @@ def test_gan_may_ao_bang_connect_khong_cho_may_quet(moi_truong):
 def test_thong_bao_bat_server_khong_lot_vao_stdout(moi_truong):
     """Câu thông báo phải ra stderr, vì nó được in TRONG `$(adbq …)`.
 
-    Lọt vào stdout thì nó bị bắt vào giá trị và thành một serial giả — script
-    sẽ đi hỏi `adb -s "adb server chưa chạy…"`. Đây là đối chứng cho chính cách
-    bản vá được cài, không phải cho ý tưởng của nó.
+    Gọi thẳng `ensure_adb_server` chứ không đi qua `check`. Lý do: qua `check`,
+    dòng lọt vào stdout vẫn bị `awk` của booted_serial lọc mất, nên ca test XANH
+    kể cả khi bỏ hết `>&2` — bảng đột biến M3 đã bắt được đúng lỗ đó ở bản đầu
+    của chính file này. Một ca không giết được đột biến của mình thì nó đang gác
+    thứ khác với cái tên nó mang.
+
+    Vẫn là chuyện thật: `boot_completed` và `avd_of_serial` bắt stdout KHÔNG lọc,
+    nên một dòng thông báo lọt ra là một serial giả hoặc một 'sys.boot_completed'
+    giả.
     """
     sdk, tmp_path = moi_truong
-    result = _run(["check"], tmp_path, sdk)
+    fns = tmp_path / "fns.sh"
+    src = SCRIPT.read_text()
+    fns.write_text(src[: src.index('case "${1:-check}"')])
 
-    serial_lines = [ln for ln in result.stdout.splitlines() if "serial " in ln]
-    assert serial_lines, result.stdout
-    assert serial_lines[0].split()[-1] == f"127.0.0.1:{ADBD_PORT}", (
-        f"serial bị nhiễm chữ thông báo: {serial_lines[0]!r}"
+    env = _env(tmp_path, sdk)
+    result = subprocess.run(
+        ["bash", "-c", f'set -euo pipefail; source "{fns}"; ensure_adb_server'],
+        capture_output=True, text=True, env=env, timeout=60,
     )
-    assert "adb server" not in result.stdout, (
-        "thông báo bật server lọt vào stdout:\n" + result.stdout
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "", (
+        "ensure_adb_server in ra STDOUT; trong `$(adbq …)` dòng này thành giá trị:\n"
+        f"{result.stdout!r}"
+    )
+    assert "adb server" in result.stderr, (
+        "không nói gì cả cũng sai — người chạy cần biết server vừa được bật.\n"
+        f"stderr: {result.stderr!r}"
     )
 
 
@@ -342,15 +361,33 @@ def test_khong_bat_server_thu_hai_khi_da_co_mot_cai(moi_truong):
             time.sleep(0.1)
         assert mark.read_text().strip(), "fake server không lên"
 
+        (tmp_path / "adb.log").write_text("")
+        started = time.monotonic()
         result = _run(
             ["check"], tmp_path, sdk, extra={"RD_ADB_SERVER_PORT": str(port)}
         )
+        elapsed = time.monotonic() - started
 
         assert result.returncode == 0, result.stdout + result.stderr
         assert mark.read_text().strip() == str(srv.pid), (
             "script đã bật ĐÈ một server thứ hai lên cổng đang có người dùng"
         )
         assert "chưa chạy" not in result.stderr, result.stderr
+
+        # Cái ở trên KHÔNG đủ, và bảng đột biến M4 đã chứng minh: bỏ hẳn phép
+        # kiểm 'đã có ai nghe chưa' vẫn xanh, vì server thứ hai không bind nổi
+        # nên chết trước khi kịp ghi đè marker. Phải đo dấu vết nó ĐỂ LẠI.
+        launches = (tmp_path / "adb.log").read_text().count(" -- server nodaemon")
+        assert launches == 0, (
+            f"script bật thêm {launches} adb server trong khi cổng đã có người "
+            "nghe — mỗi cú adb sẽ đẻ một tiến trình chết yểu."
+        )
+        # Và mỗi lần bật lại kéo theo phép thử loopback 3s. Server đã sẵn sàng
+        # thì check phải nhanh, không phải 'vẫn ra kết quả đúng, chỉ chậm'.
+        assert elapsed < 15, (
+            f"check mất {elapsed:.1f}s dù server đã chạy sẵn — dấu hiệu mỗi cú "
+            "adb đang chạy lại phép thử loopback."
+        )
     finally:
         srv.kill()
         srv.wait(timeout=10)
