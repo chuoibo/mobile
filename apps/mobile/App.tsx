@@ -20,7 +20,15 @@
 import { useCameraPermissions, type CameraView } from "expo-camera";
 import { StatusBar } from "expo-status-bar";
 import React, { useEffect, useRef, useState } from "react";
-import { Pressable, SafeAreaView, ScrollView, Text, View, useColorScheme } from "react-native";
+import {
+  LogBox,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  Text,
+  View,
+  useColorScheme,
+} from "react-native";
 import { AppRoot } from "./src/navigation/AppRoot";
 import {
   attemptFor,
@@ -130,6 +138,34 @@ import {
   DEMO_ROSTER,
   DEMO_SPLIT_PREVIEW,
 } from "./src/fixtures/thanh-toan-demo";
+
+/* Keep LogBox's notification strip off the entrance to the hero flow.
+ *
+ * LogBox pins its strip to the bottom of the screen, which is exactly where
+ * the tab bar and its [+] button live. Measured on Expo Go 57 / Android 15 at
+ * 1080x2400: the strip covers [26,2146]-[1054,2271]; the four tab labels sit
+ * at y~2311 and stay tappable, but the [+] "Tạo mới" button spans y 2195..2337
+ * with its centre at 2266 -- inside the strip. Exactly one control is
+ * swallowed, and it is the door into capture-bill -> split -> VietQR.
+ *
+ * Tapping it produced no error, no log and no navigation, which on screen is
+ * indistinguishable from "this feature does not exist". It cost two false
+ * readings in a single native measurement pass before anyone knew to dismiss
+ * the strip first.
+ *
+ * This is invisible in Chrome: react-native-web exports an inert LogBox, so
+ * the strip is never drawn there and no browser-based measurement can reach
+ * this bug.
+ *
+ * `ignoreAllLogs` silences the strip only. React Native's own source says so
+ * at Libraries/LogBox/LogBox.js:155 -- "this only disables notifications,
+ * uncaught errors will still open a full screen LogBox". Warnings still reach
+ * `console` and logcat, so this hides no information; it only stops dev chrome
+ * from sitting on the hero entrance. In a release build LogBox is already the
+ * no-op branch, and on web the react-native-web stub is a no-op, so the call
+ * is inert on both of those and does its work only where the bug is.
+ */
+LogBox.ignoreAllLogs();
 
 type Step =
   | "chup-bill"
