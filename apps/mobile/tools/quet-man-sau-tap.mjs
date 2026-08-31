@@ -145,6 +145,32 @@ const MOBILE_ROOT = path.resolve(HERE, "..");
  *  differently per width, and an unstated width makes two runs incomparable. */
 const VIEWPORT = process.env.QUET_VIEWPORT ?? "390x844";
 
+/**
+ * The same width, parsed once, for the browser this file drives itself.
+ *
+ * `VIEWPORT` used to reach only the detector subprocess while the browser below
+ * was pinned to a literal 390x844. A run at any other width therefore measured
+ * two widths at once: the detector rendered at the requested width and produced
+ * findings, and `xetCheChu` then adjudicated those findings against a 390
+ * layout. The JSON artifact recorded `viewport: <requested>` for the pair, so
+ * the file claimed a width it had only half used.
+ *
+ * Measured before this was single-sourced, on the ten hero screens: a run at
+ * 360x800 returned three `text-occlusion` findings on `ket-qua-thanh-toan`
+ * (against two at 390) and every one of them was dismissed as a scroll illusion
+ * by a browser looking at a different layout than the one they came from. The
+ * verdicts may well have been right; they were not measurements.
+ *
+ * At the default the parse yields exactly the literal it replaced, so this is a
+ * no-op for every run that does not set `QUET_VIEWPORT` -- the point is that
+ * runs which DO set it now mean it.
+ */
+const [VP_W, VP_H] = (() => {
+  const m = /^(\d+)x(\d+)$/.exec(VIEWPORT.trim());
+  if (!m) throw new Error(`QUET_VIEWPORT "${VIEWPORT}" khong dung dang <rong>x<cao>, vi du 390x844`);
+  return [Number(m[1]), Number(m[2])];
+})();
+
 /** The wrapper, not a bare `node`: the plugin's docs print a path that does not
  *  exist under a plugin install, and the system node is often too old. */
 const IMP = process.env.IMP_BIN ?? path.join(os.homedir(), ".claude/skills/impeccable-pipeline/scripts/imp");
@@ -659,7 +685,7 @@ export function trangTuLai(indexHtml, kichBan, dauLai = null) {
  * The held responses are tracked so shutdown can destroy them; an unanswered
  * request holds its socket open, and `server.close()` waits for open sockets.
  */
-function serverGiuNhip(root) {
+export function serverGiuNhip(root) {
   const server = createStaticServer(root);
   const tinh = server.listeners("request").slice();
   server.removeAllListeners("request");
@@ -929,7 +955,7 @@ async function main() {
     browser = await puppeteer.launch({
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH ?? CHROME,
       headless: true,
-      defaultViewport: { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
+      defaultViewport: { width: VP_W, height: VP_H, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
       args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
     });
 
