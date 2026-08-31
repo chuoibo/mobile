@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """Mutation table for the write-side money gate (PR #495).
 
-A gate that has never been seen red is a decoration. This applies eight
-mutations and reports, for each, whether the gate caught it. Two of them are
+A gate that has never been seen red is a decoration. This applies seven
+mutations and reports, for each, whether the gate caught it. Five of them are
 aimed at the gate's own machinery rather than at the product, because a
 recorder that quietly stopped recording satisfies every "nothing matched"
 assertion in the file for free.
+
+It then applies one *attribution* mutation, which is a different question:
+not "is the gutted step caught" but "by which rule". It must turn the gate
+green again, and the run fails if it does not.
 
 Every mutation is applied to a file, measured, and reverted from an in-memory
 copy of the original bytes -- never from git, so an uncommitted edit cannot be
@@ -51,7 +55,7 @@ MUTATIONS: list[tuple[str, pathlib.Path, str, str, str]] = [
     (
         "M3",
         GATE,
-        "    slice_.report_payment(state[\"obligation_id\"], minute=5)",
+        '    slice_.report_payment(state["obligation_id"], minute=5)',
         "    return  # mutant: buoc bi rut ruot, ten van con trong dict",
         "rut ruot mot buoc, GIU ten trong MONEY_WRITE_SURFACE",
     ),
@@ -110,7 +114,16 @@ SELECT = "tests/postgres/test_money_writes_are_integer_postgres.py"
 
 def run_gate() -> tuple[int, str]:
     proc = subprocess.run(
-        [sys.executable, "-m", "pytest", SELECT, "-q", "--no-header", "-p", "no:cacheprovider"],
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            SELECT,
+            "-q",
+            "--no-header",
+            "-p",
+            "no:cacheprovider",
+        ],
         cwd=API,
         capture_output=True,
         text=True,
