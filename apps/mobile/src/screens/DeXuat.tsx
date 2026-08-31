@@ -8,6 +8,7 @@ import type { Participant } from "./NhapKhoanChi";
 import React from "react";
 import { ScrollView, Text, View } from "react-native";
 import { formatVnd } from "../../../../packages/shared/money.mjs";
+import { labelInGroup, type GroupMember } from "../participants";
 import { space, type, usePalette } from "../theme";
 import { Button, Card, Row, Screen } from "../ui/Kit";
 
@@ -20,8 +21,16 @@ export type Proposal = {
   occasion: string;
 };
 
-export function DeXuat({ proposal, onConfirm, onBack, taiKhoanNhan }: {
+export function DeXuat({ proposal, nhom, onConfirm, onBack, taiKhoanNhan }: {
   proposal: Proposal; onConfirm: () => void; onBack: () => void;
+  /** The group's active membership, for ids this bill's roster cannot place.
+   *
+   *  Required rather than optional, and that is the point of the prop. An
+   *  optional `nhom` with an `= []` default would let a caller drop the group
+   *  and get the old behaviour back without the compiler saying anything --
+   *  which is precisely how `?? id` survived four rounds of patching. Making
+   *  it required means a new call site cannot forget. */
+  nhom: GroupMember[];
   /** One masked line naming where the advancer's money will land, once it is
    *  known. Present only after the detour that stores it, and shown so that
    *  pressing the button that was just refused is an informed press rather than
@@ -33,12 +42,26 @@ export function DeXuat({ proposal, onConfirm, onBack, taiKhoanNhan }: {
   // Iterate people, not allocation keys: the key is an id, and only the
   // participant list can turn it back into a name to show.
   const people = proposal.participants;
-  const advancerName =
-    people.find((p) => p.id === proposal.advancerId)?.name ?? proposal.advancerId;
-  // roundingGainers holds ids; ids are never shown to anyone.
-  const gainerNames = proposal.roundingGainers.map(
-    (id) => people.find((p) => p.id === id)?.name ?? id
-  );
+  /* Names come through `labelInGroup`, not through a `?? id` fallback.
+   *
+   * `roundingGainers` is `allocation.rounding_gainers` off `POST /expenses`:
+   * the SERVER picks who carries the odd dong, keyed against the roster IT
+   * holds. `advancerId` travels with the draft, so today both of them do
+   * resolve against `proposal.participants` on the happy path -- this is the
+   * shape of bug-050923 rather than a fifth live sighting of it, and it is
+   * written down that way instead of being announced as a leak.
+   *
+   * It is still fixed, for two reasons. The fallback is a lie in the direction
+   * that costs the most: it makes the screen where money enters the ledger
+   * print a database key where a person's name goes, and it does it silently.
+   * And the guarantee this screen wants does not depend on which call feeds
+   * it -- `docChiaBill` already answers "against the roster IT has", so the
+   * day anything routes that answer here the old code leaks and the new code
+   * says "Thành viên". */
+  const goiTen = (id: string) =>
+    labelInGroup({ participants: people, advancerId: proposal.advancerId }, nhom, id);
+  const advancerName = goiTen(proposal.advancerId);
+  const gainerNames = proposal.roundingGainers.map(goiTen);
   const owed = people.filter(
     (p) => p.id !== proposal.advancerId && proposal.allocations[p.id] > 0
   );

@@ -931,6 +931,9 @@ function LuongKhoanChi({ onExit, nguoi, nhomPhien }: {
       {step === "de-xuat" && proposal && (
         <DeXuat
           proposal={proposal}
+          // Same reason the batch board below gets it: the odd dong is assigned
+          // by the server, against the roster the server holds.
+          nhom={nguoiTrongNhom}
           taiKhoanNhan={
             taiKhoanNhan === null
               ? null
