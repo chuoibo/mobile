@@ -357,10 +357,55 @@ const MAN_TUONG_TAC = [
  *   - They take no `bam`. Everything they need is in the fixture, which is the
  *     point of a door.
  *
- * The API stub still goes in. These two screens never call the server, so it
+ * The API stub still goes in. None of these screens calls the server, so it
  * is a no-op today -- it stays because a door that grows a fetch tomorrow
  * should get fixture data rather than an error panel, and finding that out
  * from a needle failure costs a run.
+ *
+ * ## The eight rows below are the demo path, and they were the gap
+ *
+ * The three rows this list started with are the money screens on either side
+ * of the split. Everything BETWEEN the photograph and the money -- reading the
+ * bill, correcting what the model read, assigning items to people, the split
+ * preview, the destination account, the settled result -- was routed by
+ * `App.tsx`, gated for existing by `moi-man-co-duong-do.test.mjs`, and never
+ * opened here. So this file's closing `tong findings tren cac man: 0` was a
+ * zero over the tabs and the edges, with the product's whole reason for
+ * existing sitting outside the count and named only in the footnote.
+ *
+ * That footnote is why the gap was findable at all, and it is worth saying
+ * plainly: the number was never wrong, it was narrower than it read. A total
+ * printed under a list of exclusions is still read as a total.
+ *
+ * ## The two `doc-bill` rows leave a finding standing, on purpose
+ *
+ * Both print `low-contrast ... pixel contrast 1.1:1 median 2.9:1` on the label
+ * "Ảnh chụp màn hình", so this run ends at `tong findings: 2` and exit 2. That
+ * is not a defect waiting to be fixed, and it is not a number to fix by
+ * reaching for an ignore. It was measured:
+ *
+ *   - the label is `rgb(255,255,255)` inside a `<button aria-disabled="true"`,
+ *     `disabled`, `pointer-events: none`, so the control really is inactive,
+ *     and WCAG 2.2 SC 1.4.3 exempts inactive components from the contrast step;
+ *   - sampling the rendered pixels of that 88x44 strip gives 3.66:1 at the old
+ *     0.40 opacity and 4.56:1 at the 0.46 `ChupBill` now uses -- the label
+ *     CLEARS 4.5:1. The rule's headline 1.1:1 is a minimum over sampled pixels,
+ *     so it is dominated by antialiased glyph edges, which on a black ground
+ *     approach the background no matter what the opacity is. Raising 0.40 to
+ *     0.46 moved the median 2.4 -> 2.9 and left the 1.1 untouched, which is the
+ *     signature of a metric no legitimate design change can satisfy;
+ *   - `hook-admin.mjs ignore-value low-contrast <value>` refuses this rule
+ *     ("no extractable ignore value"), and the only other scope is `--file`,
+ *     which would switch contrast checking off for the whole screen including
+ *     the overlay text that is the one thing on it meant to be read. Silencing
+ *     it that way would cost more than the finding does.
+ *
+ * The cost of leaving it standing, stated so nobody has to rediscover it:
+ * `dot-bien-anh-ve.mjs` opens with `nen sach: ma=0 (can 0)` and throws
+ * `nen sach da do san` when the baseline is not clean, so it now refuses to
+ * run. It refuses LOUDLY with an accurate message rather than quietly scoring
+ * a mutation table against a red tree, which is the better of the two
+ * failures, but it does mean that tool needs a decision before its next use.
  */
 const MAN_CUA_QUET = [
   {
@@ -385,6 +430,86 @@ const MAN_CUA_QUET = [
     // Published-only, for the mirror-image reason: the share button does not
     // exist before the round goes out.
     needle: "Chia sẻ cho từng người",
+  },
+  {
+    step: "doc-bill-chuan-bi",
+    truyVan: "man=doc-bill-chuan-bi",
+    // `DangDocBill` picks its whole copy off one boolean, so the body line is
+    // the only thing separating this door from `doc-bill` below. A needle on
+    // "Đang chuẩn bị" would also read true from the title, but the title is
+    // one word away from the other stage's; the body lines share nothing.
+    needle: "Thu nhỏ ảnh và xoá vị trí chụp trước khi gửi đi.",
+  },
+  {
+    step: "doc-bill",
+    truyVan: "man=doc-bill",
+    // The other half of the same component. Paired with the needle above, this
+    // proves the prefix route hands the two addresses to two different stages
+    // rather than rendering the default twice.
+    needle: "Ảnh đã gửi. Đang chờ máy chủ đọc xong tên món và số tiền.",
+  },
+  {
+    step: "nhan-dien",
+    truyVan: "man=nhan-dien",
+    // The screen title. The fixture's dish names would be the wrong needle:
+    // `DEMO_READING` also feeds `goi-y-chia`, so "Cá lóc nướng trui" reads true
+    // from the next screen along and would not notice a door that stopped
+    // routing to this one.
+    needle: "Kết quả nhận diện",
+  },
+  {
+    step: "goi-y-chia",
+    truyVan: "man=goi-y-chia",
+    // The title, which is the only line here that paints unconditionally. The
+    // matrix prompt "Ai đã ăn bữa này? Chọn trong nhóm." was the first choice
+    // and was wrong: it is the EMPTY branch of a ternary, and `DEMO_ASSIGNMENT`
+    // arrives with items already assigned, so the door rendered 209 elements of
+    // real screen and the needle still missed. A needle has to name text the
+    // fixture cannot switch off.
+    //
+    // `ket-qua-thanh-toan` prints "Quay lại gợi ý chia", which shares three
+    // words with this; it does not contain this, so the substring test parts
+    // them. The 390pt truncation to "Gợi ý chia theo ng…" that `GoiYChia`
+    // documents at line 146 is a paint effect and leaves `textContent` whole.
+    needle: "Gợi ý chia theo người",
+  },
+  {
+    step: "mon-cua-toi",
+    truyVan: "man=mon-cua-toi",
+    // The save button. "Món của tôi" alone is the heading here AND a button on
+    // `goi-y-chia`, so it would read true from the wrong screen.
+    needle: "Lưu món của tôi",
+  },
+  {
+    step: "tai-khoan-nhan",
+    truyVan: "man=tai-khoan-nhan",
+    // The submit label of the empty form. The review step replaces it, so this
+    // needle also proves the two account doors are not one page twice.
+    needle: "Xem lại rồi lưu",
+  },
+  {
+    step: "tai-khoan-nhan-duyet",
+    truyVan: "man=tai-khoan-nhan-duyet",
+    // Review-step only, and the one press in this product that commits money to
+    // a destination nobody can verify. If any screen here deserved scanning
+    // first, it was this one.
+    needle: "Đúng, lưu tài khoản này",
+  },
+  {
+    step: "ket-qua-thanh-toan",
+    truyVan: "man=ket-qua-thanh-toan",
+    // The share button. "Quay lại gợi ý chia" was the first choice, for being
+    // the line least likely to be confused with `dot-thu-da-phat`'s
+    // "Chia sẻ cho từng người" -- but it is an `accessibilityLabel` on an icon,
+    // and this check reads rendered TEXT. The door served 619 elements of real
+    // screen and the needle still missed, which is the same failure as
+    // `goi-y-chia` above wearing different clothes: a needle must name text a
+    // reader can see, not text the DOM merely carries.
+    //
+    // So: the share label, and the confusability is handled by the substring
+    // test rather than by word choice. "Chia sẻ kết quả" is not a substring of
+    // "Chia sẻ cho từng người" and neither contains the other.
+    needle: "Chia sẻ kết quả",
   },
 ];
 
