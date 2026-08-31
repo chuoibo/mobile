@@ -136,6 +136,19 @@ LOCAL_ONLY: dict[str, str] = {
         "included both #470 and #477, the two clock fixes -- merged, reviewed, "
         "gated, and never running, #470 for three days."
     ),
+    "harness-clock": (
+        "asks whether the harness copy that actually RUNS measures intervals "
+        "with a wall clock -- the defect class that killed five lanes at "
+        "07:44:50. A CI runner has no harness tree, so a job would scan an "
+        "empty directory and report green for the reason this stage exists to "
+        "refuse. It runs locally because the gap was real and silent: measured "
+        "2026-08-31, 3 findings over 17 files, one of them the defect #477 had "
+        "already fixed and merged onto a copy that was three commits older and "
+        "had never carried it. It is a gate stage rather than a test under "
+        "tests/ because its verdict is a function of a directory outside this "
+        "repository that other lanes write to mid-run -- QA blocked #487 for "
+        "that: same SHA, 13 minutes apart, `1 failed` then `0 failed`."
+    ),
     "harness-selfcheck": (
         "asks whether the harness self-check has run recently, was green, and "
         "was about the harness code that is live now. A CI runner has no "

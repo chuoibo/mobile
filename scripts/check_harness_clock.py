@@ -1,4 +1,5 @@
-"""The clock rule must also be read against the harness that is RUNNING.
+#!/usr/bin/env python3
+"""Does the harness that RUNS measure intervals with a wall clock?
 
 `tests/test_khong_do_khoang_bang_dong_ho_treo_tuong.py` states the rule and
 then says, in its own list of what it does not cover:
@@ -13,7 +14,7 @@ side: it compares bytes for the two files that have a counterpart in
 `scripts/`, and says nothing at all about the nine harness files that have
 none.
 
-This file measures whether that hole is empty. It was not.
+This checker measures whether that hole is empty. It was not.
 
 ## The measurement that produced this file
 
@@ -34,6 +35,26 @@ how FAST the harness notices a hung lane -- a backward clock step makes
 `time.time() - started` negative, `assertLess(negative, 30)` passes
 unconditionally, and a detector that got slower cannot be seen getting slower.
 
+## Why this is a gate stage and not a test under `tests/`
+
+It was a test under `tests/` first, and that was wrong. Its verdict is a
+function of `~/agent-harness`, a directory outside this repository, with no
+remote, whose working tree is production and which other lanes write to while
+a gate is running. QA measured the consequence on 2026-08-31 (#487 verdict):
+
+    same SHA 7ed5984, same machine, same command, 13 minutes apart
+    -> `1 failed`  then  `0 failed`
+
+`python3 -m pytest services/api/tests tests -q` is the command every lane runs
+and the Lead reads to decide a merge, so it has to be a function of what is in
+the repository and nothing else. It was not, and the red it produced pointed at
+whichever PR happened to be running -- a red at the wrong address is worse than
+no red, because somebody spends a turn on it.
+
+So the measurement lives here, behind `gate.sh harness-clock`, next to
+`harness-deploy` and `harness-selfcheck`, which ask their own machine-local
+questions and are already labelled `(máy này thôi)`.
+
 ## Why this scans the harness's `tests/` too
 
 The in-repo scan deliberately skips `tests/`, because tests legitimately
@@ -51,59 +72,44 @@ It says nothing about the harness files it cannot see: anything under a
 gitignored directory, and any second install somewhere other than the path
 `agy_test_pr.sh` resolves. And it is one machine's answer -- the harness has no
 remote, so there is no ref to check this against and no CI that could.
+
+Exit codes: 0 clean, 2 for findings AND for every question it cannot answer.
+"Cannot answer" is never a 0 here; a checker that exits 0 when it failed to
+look is the failure this whole family of gates exists to refuse.
 """
 
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import os
 import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # The detector lives in the module that states the rule, and is loaded rather
 # than re-implemented. A second copy of the matching logic would only ever
 # prove that the copy agrees with itself, which is the failure this repository
-# has already paid for once.
+# has already paid for once. The direction is unusual -- a script reaching into
+# `tests/` -- and it is still the cheaper of the two mistakes available.
 MAY_DO_PATH = REPO_ROOT / "tests" / "test_khong_do_khoang_bang_dong_ho_treo_tuong.py"
 
-# Floor on the denominator. Every assertion below is over a loop, and a loop
-# over an empty list is green without measuring anything -- the same green a
-# clean tree produces. The installed harness had 17 Python files when this was
-# written; ten is well under that and still far from zero, so a genuine
-# reorganisation does not trip it but an unhooked scan does.
+# Floor on the denominator. The scan is a loop, and a loop over an empty list
+# is green without measuring anything -- the same green a clean tree produces.
+# The installed harness had 17 Python files when this was written; ten is well
+# under that and still far from zero, so a genuine reorganisation does not trip
+# it but an unhooked scan does.
 MIN_FILES = 10
-
-# The exact shape found at `agent_supervisor.py:209`, kept here as a positive
-# control. If the detector cannot be loaded, or is loaded but does not fire,
-# the real scan below returns zero findings and reads as a clean harness. This
-# case makes that failure loud instead.
-CANARY_HONG = """
-import time
-def run_once(agent):
-    started = time.time()
-    code = go(agent)
-    emit("INFO", f"{agent} ket thuc sau {int(time.time() - started)}s")
-    return code
-"""
 
 
 class KhongTraLoiDuoc(Exception):
     """The question could not be answered, and must not be read as 'fine'."""
 
 
-def _nap_may_do():
-    """Import the detector by path, and say plainly when that fails.
-
-    By path rather than by module name because a bare `import` here depends on
-    how pytest was invoked -- running this one file directly puts a different
-    directory on `sys.path` than running the suite from the repo root does, and
-    a gate that only works under one invocation is a gate people learn to skip.
-    """
+def nap_may_do():
+    """Import the detector by path, and say plainly when that fails."""
     if not MAY_DO_PATH.exists():
         raise KhongTraLoiDuoc(f"không thấy máy dò tại {MAY_DO_PATH}")
     spec = importlib.util.spec_from_file_location("_may_do_dong_ho", MAY_DO_PATH)
@@ -120,7 +126,7 @@ def _nap_may_do():
     return ham
 
 
-def _goc_cai_dat() -> tuple[Path, bool]:
+def goc_cai_dat(khai_bao: str | None = None) -> tuple[Path, bool]:
     """Where the launcher looks. Returns (path, whether it was named explicitly).
 
     `agy_test_pr.sh` resolves the supervisor as
@@ -130,16 +136,16 @@ def _goc_cai_dat() -> tuple[Path, bool]:
     The second element separates two situations a single "does it exist" check
     would flatten: a machine that simply has no harness installed, and a
     machine where somebody pointed `AGENT_HARNESS` at a path that is not there.
-    The first is an honest skip; the second is a way to make this gate green by
-    aiming it at nothing, so it is refused instead.
+    Both are refused here, but only the second is somebody aiming the gate at
+    nothing, so it gets its own message.
     """
-    khai_bao = os.environ.get("AGENT_HARNESS")
-    if khai_bao:
-        return Path(khai_bao).expanduser(), True
+    named = khai_bao if khai_bao is not None else os.environ.get("AGENT_HARNESS")
+    if named:
+        return Path(named).expanduser(), True
     return Path.home() / "agent-harness", False
 
 
-def _file_python(goc: Path) -> list[str]:
+def file_python(goc: Path) -> list[str]:
     """Harness `.py` paths, asked of git: tracked plus untracked-not-ignored.
 
     Tracked alone is wrong here in a way it is not wrong in a normal repo. This
@@ -183,72 +189,80 @@ def _file_python(goc: Path) -> list[str]:
     return sorted(d for d in ra.stdout.split() if d.strip())
 
 
-def _phai_co_goc() -> Path:
-    goc, khai_bao = _goc_cai_dat()
-    if not goc.is_dir():
-        if khai_bao:
-            raise KhongTraLoiDuoc(
-                f"AGENT_HARNESS trỏ vào {goc}, chỗ đó không có — cổng này không "
-                "được xanh chỉ vì bị chỉ vào hư không"
-            )
-        pytest.skip(
-            f"máy này không cài harness tại {goc}; không có bản đang chạy để đo. "
-            "Đây là BỎ QUA, không phải ĐẠT."
+def quet(goc: Path) -> tuple[list[str], list[str]]:
+    """Return (findings, files scanned). Raises KhongTraLoiDuoc rather than guessing."""
+    ham = nap_may_do()
+    files = file_python(goc)
+    if len(files) < MIN_FILES:
+        raise KhongTraLoiDuoc(
+            f"chỉ thấy {len(files)} file .py dưới {goc} (sàn {MIN_FILES}) — lượt "
+            "quét này đang tự tháo chính nó; danh sách rỗng đọc y hệt cây sạch"
         )
-    return goc
-
-
-def test_may_do_that_su_bat_duoc_dang_da_tim_thay():
-    """Positive control, and it does not skip when the harness is absent.
-
-    Everything else here reports "no findings" both when the harness is clean
-    and when the detector never ran. This case is the only thing that tells
-    those two apart, so it is deliberately independent of the install.
-    """
-    ham = _nap_may_do()
-    loi = ham(CANARY_HONG, "canary")
-    assert loi, (
-        "máy dò KHÔNG bắt được chính hình dạng đã tìm thấy ở "
-        "agent_supervisor.py:209 — nên số 0 của lượt quét thật dưới đây không "
-        "có nghĩa gì cả"
-    )
-
-
-def test_co_file_de_quet():
-    """Guard the denominator before trusting any green below it."""
-    goc = _phai_co_goc()
-    files = _file_python(goc)
-    assert len(files) >= MIN_FILES, (
-        f"chỉ thấy {len(files)} file .py dưới {goc} (sàn {MIN_FILES}) — lượt "
-        "quét này đang tự tháo chính nó; danh sách rỗng đọc y hệt cây sạch"
-    )
-
-
-def test_harness_dang_chay_khong_do_khoang_bang_dong_ho_treo_tuong():
-    """The real scan, against the copy that actually runs."""
-    goc = _phai_co_goc()
-    ham = _nap_may_do()
-    files = _file_python(goc)
-    assert len(files) >= MIN_FILES, f"danh sách file rỗng bất thường: {files}"
-
     loi: list[str] = []
     for rel in files:
         duong = goc / rel
         try:
             nguon = duong.read_text(encoding="utf-8")
-        except OSError as e:  # pragma: no cover
+        except OSError as e:
             raise KhongTraLoiDuoc(f"không đọc được {duong}: {e}") from e
         loi += ham(nguon, rel)
+    return loi, files
 
-    assert not loi, (
-        f"bản harness ĐANG CHẠY tại {goc} đo khoảng bằng đồng hồ treo tường "
-        f"({len(loi)} chỗ trên {len(files)} file):\n"
-        + "\n".join(loi)
-        + "\n\nĐây là bản được thi hành, không phải bản đã merge. Sửa tại chỗ "
-        "đó; với file có bản gốc trong scripts/, "
-        "scripts/check_harness_deploy_drift.py nói bản đang chạy thiếu commit nào."
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument(
+        "--harness",
+        default=None,
+        help="gốc bản harness cần quét (mặc định: $AGENT_HARNESS, rồi ~/agent-harness)",
     )
+    args = parser.parse_args(argv)
+
+    goc, khai_bao = goc_cai_dat(args.harness)
+    if not goc.is_dir():
+        if khai_bao:
+            print(
+                f"KHÔNG TRẢ LỜI ĐƯỢC: chỉ vào {goc}, chỗ đó không có — cổng này "
+                "không được xanh chỉ vì bị chỉ vào hư không",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"KHÔNG TRẢ LỜI ĐƯỢC: máy này không cài harness tại {goc}; không "
+                "có bản đang chạy để đo",
+                file=sys.stderr,
+            )
+        return 2
+
+    try:
+        loi, files = quet(goc)
+    except KhongTraLoiDuoc as e:
+        print(f"KHÔNG TRẢ LỜI ĐƯỢC: {e}", file=sys.stderr)
+        return 2
+
+    if loi:
+        print(
+            f"bản harness ĐANG CHẠY tại {goc} đo khoảng bằng đồng hồ treo tường "
+            f"({len(loi)} chỗ trên {len(files)} file):",
+            file=sys.stderr,
+        )
+        for d in loi:
+            print(f"  {d}", file=sys.stderr)
+        print(
+            "\nĐây là bản được thi hành, không phải bản đã merge. Sửa tại chỗ đó; "
+            "với file có bản gốc trong scripts/, "
+            "scripts/check_harness_deploy_drift.py nói bản đang chạy thiếu commit nào.",
+            file=sys.stderr,
+        )
+        return 2
+
+    # The denominator is printed on the green line on purpose: "0 findings" and
+    # "scanned nothing" are the same sentence otherwise.
+    print(
+        f"XANH — {len(files)} file .py dưới {goc}, không chỗ nào đo khoảng bằng time.time()"
+    )
+    return 0
 
 
-if __name__ == "__main__":  # pragma: no cover
-    raise SystemExit(pytest.main([__file__, "-v"]))
+if __name__ == "__main__":
+    sys.exit(main())

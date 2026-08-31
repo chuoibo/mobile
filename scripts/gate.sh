@@ -72,7 +72,7 @@ REPO_ROOT="$PWD"
 
 # Every stage, in run order: cheapest and most likely to fail first, so a
 # broken tree is reported in seconds rather than after a docker build.
-STAGES=(guard guard-range ruff harness-deploy harness-selfcheck contract client-routes server-routes screens cors api migration pinned-import demo-watch hero-walk shared mobile docker postgres e2e)
+STAGES=(guard guard-range ruff harness-deploy harness-clock harness-selfcheck contract client-routes server-routes screens cors api migration pinned-import demo-watch hero-walk shared mobile docker postgres e2e)
 
 stage_help() {
   case "$1" in
@@ -80,6 +80,7 @@ stage_help() {
     guard-range) echo "repo_guard.py range on every commit this branch adds (repo-guard.yml)" ;;
     ruff)      echo "ruff on the files this branch changes, uncommitted ones included (test.yml: lint)" ;;
     harness-deploy) echo "the agent_supervisor/agent_checkpoint copies that actually RUN match the ones merged to main (máy này thôi)" ;;
+    harness-clock) echo "the harness copy that RUNS does not measure intervals with a wall clock (máy này thôi)" ;;
     harness-selfcheck) echo "the harness self-check has run recently, was green, and was about the harness code live now (máy này thôi)" ;;
     contract)  echo "every route wanting X-Actor-ID is called with it (test.yml: contract)" ;;
     client-routes) echo "every route apps/mobile calls exists in the API (test.yml: api, inline)" ;;
@@ -459,6 +460,34 @@ do_harness-deploy() {
   python3 scripts/check_harness_deploy_drift.py
 }
 
+# `harness-deploy` above compares the two harness files that have a counterpart
+# in `scripts/`. This asks the clock question of ALL of them, including the nine
+# -- `lane.py`, `brains.py`, `harnessd.py`... -- that have no merged version to
+# be compared against and are therefore governed by nothing else on this path.
+#
+# Measured 2026-08-31 against the installed harness: 3 findings over 17 files.
+# One was the defect #477 had already fixed and merged; the installed copy was
+# three commits older and had never contained the fix. The other two were
+# `assertLess(time.time() - started, 30)` in the harness's own tests, which a
+# backward clock step turns into `assertLess(negative, 30)` -- passing
+# unconditionally, so a detector that got slower cannot be seen getting slower.
+#
+# This lived in `tests/` first, and QA blocked #487 for it: the blocking suite's
+# verdict became a function of a directory outside the repository that other
+# lanes write to mid-run, and the same SHA produced `1 failed` then `0 failed`
+# 13 minutes apart. A red at the wrong address costs somebody a turn. Here the
+# question is asked in the place already labelled "máy này thôi", and
+# `pytest services/api/tests tests` is a function of the repo again.
+#
+# What it does NOT prove: it reads source shape, so it proves nobody TYPED the
+# pattern, not that the harness measures time correctly at runtime. It is blind
+# to gitignored directories and to any second install somewhere other than the
+# path `agy_test_pr.sh` resolves. And the harness has no remote, so this is one
+# machine's answer with no ref to check it against.
+do_harness-clock() {
+  python3 scripts/check_harness_clock.py
+}
+
 # `harness-deploy` above asks whether the installed copies match main. This asks
 # the question one step further in: does the harness that is running pass its
 # own tests, and did anybody check recently?
@@ -695,6 +724,19 @@ check_prereq() {
       local hroot="${AGENT_HARNESS:-$HOME/agent-harness}"
       [ -d "$hroot" ] || {
         echo "không có $hroot -- máy này không cài bản harness nào để mà lệch"; return 1; } ;;
+    harness-clock)
+      # Same shape as harness-deploy above: no harness installed is a BỎ QUA
+      # with a printed reason that --strict can turn red, never a green.
+      #
+      # Only the ABSENCE is answered here. `AGENT_HARNESS` pointing at a path
+      # that is not there is deliberately left to the checker, which refuses
+      # with exit 2: that is somebody aiming the gate at nothing, and it must
+      # be a HỎNG rather than a skip line.
+      local croot="${AGENT_HARNESS:-$HOME/agent-harness}"
+      [ -n "${AGENT_HARNESS:-}" ] || [ -d "$croot" ] || {
+        echo "không có $croot -- máy này không chạy harness nào để mà đo đồng hồ"; return 1; }
+      # Deleting the checker is the one edit that must not turn this green.
+      [ -f scripts/check_harness_clock.py ] || return 2 ;;
     harness-selfcheck)
       # No harness on this machine: nothing to self-check, and saying so is the
       # honest answer -- same as harness-deploy above.
@@ -894,6 +936,7 @@ broken_why() {
     mobile) echo "apps/mobile có mặt nhưng thiếu package-lock.json -- từ chối bỏ qua" ;;
     e2e) echo "apps/mobile có mặt nhưng thiếu tests/e2e/vertical-slice.test.mjs -- từ chối bỏ qua" ;;
     demo-watch) echo "thiếu scripts/demo_watch.py -- xoá canh gác không được biến chặng này thành xanh" ;;
+    harness-clock) echo "thiếu scripts/check_harness_clock.py -- xoá máy dò không được biến chặng này thành xanh" ;;
     harness-selfcheck) echo "thiếu scripts/harness_selfcheck.py -- xoá máy chạy không được biến chặng này thành xanh" ;;
     hero-walk) echo "thiếu scripts/hero_walk.sh -- xoá bài đi bộ không được biến chặng này thành xanh" ;;
     *) echo "thiếu file mà chặng này cần -- từ chối bỏ qua" ;;
