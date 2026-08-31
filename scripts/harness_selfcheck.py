@@ -80,6 +80,10 @@ import time
 from pathlib import Path
 
 HARNESS = Path(os.environ.get("HARNESS_ROOT", Path.home() / "agent-harness"))
+# The durable checkout a crontab line may name. `team.sh` calls it HARNESS_REPO
+# and builds every lane worktree from it, so it is the one path on this machine
+# that outlives branches.
+DEFAULT_REPO = Path(os.environ.get("HARNESS_REPO", Path.home() / "mobile"))
 
 # The test files the harness is expected to have. A count floor alone would let
 # a rename quietly shrink the suite; naming them means losing one is loud and
@@ -437,8 +441,24 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
-def cron_block(harness: Path, script: Path) -> str:
+def runner_in(repo: Path) -> Path:
+    """The copy of this script cron should call: the one inside `repo`.
+
+    Deliberately NOT `__file__`. This file is normally being run out of whatever
+    lane worktree its author happened to be standing in, and those get deleted,
+    rebased, and left on branches that never merge. A crontab line outlives all
+    of that: it must name a checkout that will still be there next week and that
+    picks up later fixes when the repo is updated.
+
+    Same reasoning as `demo_watch.watcher_in`, whose cron line has pointed at
+    ~/mobile rather than a worktree since the day it was written.
+    """
+    return repo / "scripts" / "harness_selfcheck.py"
+
+
+def cron_block(harness: Path, repo: Path) -> str:
     """Generated, so the paths in the crontab cannot drift from this file."""
+    script = runner_in(repo.resolve())
     log = Path.home() / ".cache" / "harness-selfcheck" / "cron.log"
     return (
         f"{CRON_BEGIN}\n"
@@ -467,8 +487,8 @@ def _strip_block(current: str) -> str:
 
 def cmd_install(args: argparse.Namespace) -> int:
     harness = Path(args.harness)
-    script = Path(__file__).resolve()
-    block = cron_block(harness, script)
+    repo = Path(args.repo)
+    block = cron_block(harness, repo)
 
     if not args.apply and not args.remove:
         print(block, end="")
@@ -476,6 +496,20 @@ def cmd_install(args: argparse.Namespace) -> int:
         return 0
     if shutil.which("crontab") is None:
         print("tu-kiem: khong co lenh crontab tren may nay.", file=sys.stderr)
+        return 2
+    # Refuse to install a line pointing at a file that is not there. Cron would
+    # accept it, fail every 15 minutes into a log nobody opens, and `status`
+    # would report "chua chay lan nao" forever -- a watcher that is installed
+    # and dead, which is the exact costume this file exists to strip off.
+    target = runner_in(repo.resolve())
+    if not args.remove and not target.is_file():
+        print(
+            f"tu-kiem: TU CHOI CAI - khong co {target}\n"
+            f"  Dong crontab phai tro vao mot checkout ben vung, khong phai cay\n"
+            f"  worktree cua lane (no bi xoa, bi rebase, hoac o nhanh chua merge).\n"
+            f"  Cai sau khi ban va da vao main va {repo} da cap nhat.",
+            file=sys.stderr,
+        )
         return 2
 
     current = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
@@ -529,6 +563,12 @@ def main(argv: list[str] | None = None) -> int:
     st.set_defaults(fn=cmd_status)
 
     ins = sub.add_parser("install", help="khoi crontab cho luot canh dinh ky")
+    ins.add_argument(
+        "--repo",
+        default=str(DEFAULT_REPO),
+        help="checkout ben vung ma cron se goi (mac dinh ~/mobile, KHONG phai "
+        "worktree cua lane)",
+    )
     ins.add_argument("--apply", action="store_true", help="ghi that vao crontab")
     ins.add_argument("--remove", action="store_true", help="go khoi ra")
     ins.set_defaults(fn=cmd_install)

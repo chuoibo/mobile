@@ -710,7 +710,32 @@ check_prereq() {
       [ -d "$sroot" ] || {
         echo "không có $sroot -- máy này không chạy harness nào để mà tự kiểm"; return 1; }
       # Deleting the runner is the one edit that must not turn this green.
-      [ -f scripts/harness_selfcheck.py ] || return 2 ;;
+      [ -f scripts/harness_selfcheck.py ] || return 2
+      # Two signals, either one enough, because they fail in opposite
+      # directions -- the same shape as `demo-watch` above.
+      #
+      # The crontab block says "this machine took on the job of watching". That
+      # alone must keep the stage running even with no record yet, because
+      # "installed and never produced a verdict" is exactly what wants
+      # reporting. The record says "somebody armed this at some point"; that
+      # alone keeps the stage running after the crontab block is removed, so
+      # uninstalling the watcher cannot quietly turn this green -- it goes red
+      # as soon as the last verdict ages out.
+      #
+      # Neither present means the machine never armed it: on a fresh clone, or
+      # before this lands on main and ~/mobile picks it up, the question is
+      # unanswerable. That is a BỎ QUA with its reason printed, which --strict
+      # turns red before a merge.
+      #
+      # The hole left: clear the crontab AND delete the record and this skips.
+      # Same hole demo-watch documents, same answer -- a printed reason and
+      # --strict -- which is the most this file can honestly claim.
+      if ! crontab -l 2>/dev/null | grep -q 'harness-selfcheck'; then
+        [ -f "$sroot/state/selfcheck.json" ] || {
+          echo "máy này chưa cài canh gác tự kiểm và chưa có bản ghi nào (bật: python3 scripts/harness_selfcheck.py install --apply)"
+          return 1
+        }
+      fi ;;
     guard-range)
       git rev-parse --git-dir >/dev/null 2>&1 || { echo "không phải git repo"; return 1; }
       # No base: let the body fail loudly rather than skipping quietly here.

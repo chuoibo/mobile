@@ -382,15 +382,79 @@ class TestDauVanTay:
 
 class TestKhoiCrontab:
     def test_khoi_co_dau_moc_hai_dau_va_duong_dan_tuyet_doi(self, tmp_path):
-        block = M.cron_block(tmp_path, SCRIPT)
+        repo = tmp_path / "repo"
+        (repo / "scripts").mkdir(parents=True)
+        block = M.cron_block(tmp_path, repo)
         assert block.startswith(M.CRON_BEGIN)
         assert block.rstrip().endswith(M.CRON_END)
         # Cron chạy với PATH tối thiểu: cả trình thông dịch lẫn script phải là
         # đường dẫn tuyệt đối, và gốc harness phải nói rõ ra.
         assert sys.executable in block
-        assert str(SCRIPT) in block
         assert f"HARNESS_ROOT={tmp_path}" in block
         assert "run --alert" in block
+
+    def test_dong_cron_tro_vao_checkout_ben_vung_khong_phai_worktree(self, tmp_path):
+        """Dòng crontab sống lâu hơn cái nhánh sinh ra nó.
+
+        File này gần như luôn được chạy từ worktree của một lane — thứ bị xoá,
+        bị rebase, hoặc ở trên một nhánh không bao giờ merge. Một dòng cron trỏ
+        vào đó là một canh gác hẹn giờ tự chết. Nên khối phải gọi bản trong
+        `--repo`, KHÔNG phải `__file__`.
+        """
+        repo = tmp_path / "mobile"
+        (repo / "scripts").mkdir(parents=True)
+        block = M.cron_block(tmp_path, repo)
+        assert str(repo / "scripts" / "harness_selfcheck.py") in block
+        # Chính là điểm của ca này: đường dẫn worktree đang chạy không được lọt
+        # vào dòng crontab.
+        assert str(SCRIPT) not in block
+
+    def test_tu_choi_cai_khi_checkout_chua_co_file(self, tmp_path):
+        """Cron nhận dòng trỏ vào file không có, rồi hỏng im mỗi 15 phút."""
+        repo = tmp_path / "chua-merge"
+        (repo / "scripts").mkdir(parents=True)
+        p = _chay(tmp_path, "install", "--repo", str(repo), "--apply")
+        assert p.returncode == 2, p.stdout + p.stderr
+        assert "TU CHOI CAI" in p.stderr
+
+    def test_cai_duoc_khi_checkout_da_co_file(self, tmp_path, monkeypatch):
+        """Đường đi thật, nhưng không đụng crontab của máy: giả lập `crontab`."""
+        repo = tmp_path / "mobile"
+        (repo / "scripts").mkdir(parents=True)
+        (repo / "scripts" / "harness_selfcheck.py").write_text("# ban da merge\n")
+        gia = tmp_path / "bin"
+        gia.mkdir()
+        luu = tmp_path / "crontab.txt"
+        luu.write_text("*/5 * * * * viec-cua-nguoi-khac\n")
+        (gia / "crontab").write_text(
+            "#!/usr/bin/env bash\n"
+            f'LUU="{luu}"\n'
+            'if [ "$1" = "-l" ]; then cat "$LUU"; exit 0; fi\n'
+            'if [ "$1" = "-" ]; then cat > "$LUU"; exit 0; fi\n'
+            "exit 1\n"
+        )
+        (gia / "crontab").chmod(0o755)
+        monkeypatch.setenv("PATH", f"{gia}:{os.environ['PATH']}")
+        p = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "--harness",
+                str(tmp_path),
+                "install",
+                "--repo",
+                str(repo),
+                "--apply",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            env={**os.environ, "PATH": f"{gia}:{os.environ['PATH']}"},
+        )
+        assert p.returncode == 0, p.stdout + p.stderr
+        sau = luu.read_text()
+        assert M.CRON_BEGIN in sau
+        assert "viec-cua-nguoi-khac" in sau, "đã xoá dòng cron của người khác"
 
     def test_go_khoi_khong_dung_toi_dong_khac(self):
         cu = (
