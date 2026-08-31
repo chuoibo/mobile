@@ -6,6 +6,19 @@ it kept measuring its gap with `time.time()` and kept feeding that number to
 the one alert that reports a hung session. The second one was found by hand,
 by someone re-reading the file. Hands do not scale to the next script.
 
+Then it was found a THIRD time, and the third one is why this file now resolves
+aliases. `lane.py` in the harness enforces its hard timeout with
+
+    elapsed = now() - started            # module-level: def now(): time.time()
+    if elapsed > self.brain.hard_timeout: self.kill(proc)
+
+so the source never types `time.time()` anywhere near the subtraction, and the
+first version of this detector read the whole file as clean -- 0 findings, while
+the line it missed was deciding whether to SIGTERM a running brain. Measured
+after teaching it the one-hop alias: 9 findings on the same file, 0 after the
+fix. A gate that only recognises one spelling of a thing is a gate that teaches
+people the other spelling.
+
 The rule, stated so it can be argued with:
 
     Reading `time.time()` is fine. SUBTRACTING two readings of it inside one
@@ -13,6 +26,11 @@ The rule, stated so it can be argued with:
     A wall clock is not an interval -- it is a number the rest of the system is
     allowed to move -- and `time.monotonic()` is always available and always
     correct for that job.
+
+    "Reading `time.time()`" includes reading it through a module-level name
+    bound to it. What matters is what the name RETURNS, never what it is
+    called: `lane.py` now ships `now()` and `khoang()` side by side, and a
+    detector keyed on names rather than bodies would flag the correct one.
 
 Both directions of a clock step are wrong, and they are wrong in opposite ways.
 A forward step invents a gap nobody observed and pages a person about it. A
@@ -30,6 +48,16 @@ WHAT THIS GATE DOES NOT COVER -- read this before trusting a green run:
   * It is scoped to `scripts/`. `tests/` legitimately fabricates wall-clock
     timestamps for fixtures, and flagging those would train people to add
     ignores until the gate means nothing.
+  * It is scoped to THIS repository, and the third occurrence was not in it.
+    `lane.py` lives in `~/agent-harness/`, which has no remote and whose
+    working tree is production; nothing here can scan it. The alias hop was
+    added so the RULE covers that shape, and the fix was verified by running
+    this module's detector against that file by hand -- but no gate in this
+    repo runs on every change to the harness, and that gap is real.
+  * Two shapes are known-uncovered and pinned as executable cases in
+    `MU_CO_CHU_DICH`: a mark passed BETWEEN two module-level functions (no
+    scope sees both ends), and an alias of an alias. They are tests rather
+    than prose so that "documented" cannot quietly become "believed closed".
   * It cannot flag a CROSS-PROCESS age -- `time.time() - ts` where `ts` was
     persisted by another process, as in `demo_watch.py`. Monotonic is genuinely
     impossible there, because two processes share no monotonic origin. Those
@@ -67,8 +95,8 @@ def _go_boc(node: ast.AST) -> ast.AST:
     return node
 
 
-def _la_dong_ho_treo_tuong(node: ast.AST) -> bool:
-    """True for a wall-clock read: `time.time()`, or a bare `time()` import."""
+def _la_dong_ho_goc(node: ast.AST) -> bool:
+    """True for a literal wall-clock read: `time.time()` or a bare `time()`."""
     node = _go_boc(node)
     if not isinstance(node, ast.Call):
         return False
@@ -76,6 +104,70 @@ def _la_dong_ho_treo_tuong(node: ast.AST) -> bool:
     if isinstance(func, ast.Attribute) and func.attr == "time":
         return isinstance(func.value, ast.Name) and func.value.id == "time"
     return isinstance(func, ast.Name) and func.id == "time"
+
+
+def _bi_danh_dong_ho(cay: ast.Module) -> set[str]:
+    """Module-level names that are just another spelling of `time.time`.
+
+    This exists because the defect's third occurrence hid behind exactly that.
+    `lane.py` measures its hard timeout with `now() - started`, where the whole
+    module shares
+
+        def now() -> float:
+            return time.time()
+
+    The source never types `time.time()` near the subtraction, so a detector
+    that only recognises the literal call reads the file as clean. Measured on
+    the real file before this hop was added: 0 findings, while the subtraction
+    it missed was driving `kill()` on a live supervisor.
+
+    Deliberately ONE hop, and deliberately module level. An alias of an alias,
+    or one built at runtime, is not resolved -- chasing those needs real name
+    resolution, and a detector that is only mostly right about which names are
+    clocks would start reporting lines nobody can act on. One hop is the shape
+    that actually occurred; the limit is written down rather than assumed.
+    """
+    ten: set[str] = set()
+    for node in ast.iter_child_nodes(cay):
+        # def now(): return time.time()  -- docstring before the return is fine.
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            than = [
+                c
+                for c in node.body
+                if not (isinstance(c, ast.Expr) and isinstance(c.value, ast.Constant))
+            ]
+            if (
+                len(than) == 1
+                and isinstance(than[0], ast.Return)
+                and than[0].value is not None
+                and _la_dong_ho_goc(than[0].value)
+            ):
+                ten.add(node.name)
+        # now = time.time  -- the function object rebound, not called.
+        elif isinstance(node, ast.Assign) and isinstance(node.value, ast.Attribute):
+            if (
+                node.value.attr == "time"
+                and isinstance(node.value.value, ast.Name)
+                and node.value.value.id == "time"
+            ):
+                for dich in node.targets:
+                    if isinstance(dich, ast.Name):
+                        ten.add(dich.id)
+    return ten
+
+
+def _la_dong_ho_treo_tuong(
+    node: ast.AST, bi_danh: frozenset[str] = frozenset()
+) -> bool:
+    """True for a wall-clock read, whether spelled literally or through an alias."""
+    if _la_dong_ho_goc(node):
+        return True
+    node = _go_boc(node)
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in bi_danh
+    )
 
 
 def _nong(scope: ast.AST):
@@ -114,6 +206,9 @@ def do_khoang_bang_dong_ho_treo_tuong(source: str, nhan: str = "<nguon>") -> lis
       `since = time.time()`      compared to file mtimes  -> NOT flagged
     """
     cay = ast.parse(source)
+    # Resolved once for the whole module: a local alias for `time.time` makes
+    # every call to it a wall-clock read, wherever in the file it is used.
+    bi_danh = frozenset(_bi_danh_dong_ho(cay))
     # lineno -> (độ ưu tiên, thông báo). One finding per line, reported from the
     # innermost scope that can see both endpoints: the module scope can also see
     # every function's locals, and reporting from there named the same line twice.
@@ -135,14 +230,16 @@ def do_khoang_bang_dong_ho_treo_tuong(source: str, nhan: str = "<nguon>") -> lis
 
         moc: set[str] = set()
         for node in nodes:
-            if isinstance(node, ast.Assign) and _la_dong_ho_treo_tuong(node.value):
+            if isinstance(node, ast.Assign) and _la_dong_ho_treo_tuong(
+                node.value, bi_danh
+            ):
                 for dich in node.targets:
                     if ten := _ten(dich):
                         moc.add(ten)
             elif (
                 isinstance(node, ast.AnnAssign)
                 and node.value
-                and _la_dong_ho_treo_tuong(node.value)
+                and _la_dong_ho_treo_tuong(node.value, bi_danh)
             ):
                 if ten := _ten(node.target):
                     moc.add(ten)
@@ -156,7 +253,7 @@ def do_khoang_bang_dong_ho_treo_tuong(source: str, nhan: str = "<nguon>") -> lis
                 continue
             trai, phai = _go_boc(node.left), _go_boc(node.right)
             for a, b in ((trai, phai), (phai, trai)):
-                if _la_dong_ho_treo_tuong(a) and (_ten(b) or "") in moc:
+                if _la_dong_ho_treo_tuong(a, bi_danh) and (_ten(b) or "") in moc:
                     cu = thay.get(node.lineno)
                     if cu is None or uu_tien > cu[0]:
                         thay[node.lineno] = (
@@ -224,6 +321,42 @@ def run():
     started = time()
     return time() - started
 """,
+    # The shape that actually got through. Kept verbatim from `lane.py`, where
+    # the subtraction it hides was deciding whether to SIGTERM a live brain.
+    # The shape that actually got through, kept faithful to `lane.py`: the mark
+    # is taken in one method and spent in another, and the CLASS is what lets
+    # the detector see both ends. Flattening this to two module-level functions
+    # would not be caught -- see `MU_CO_CHU_DICH` below, which pins that hole
+    # instead of pretending it is closed.
+    "bí danh cục bộ — đúng dạng đã lọt ở lane.py": """
+import time
+def now() -> float:
+    return time.time()
+class Lane:
+    def run_task(self, task):
+        started = now()
+        return self.watch(started)
+    def watch(self, started):
+        elapsed = now() - started
+        if elapsed > self.brain.hard_timeout:
+            self.kill()
+""",
+    "bí danh có docstring vẫn là bí danh": """
+import time
+def now():
+    \"\"\"Gio hien tai.\"\"\"
+    return time.time()
+def run():
+    moc = now()
+    return now() - moc
+""",
+    "bí danh gán thẳng, không gọi qua def": """
+import time
+now = time.time
+def run():
+    started = now()
+    return now() - started
+""",
 }
 
 PHAI_THA = {
@@ -258,7 +391,70 @@ def a():
 def b():
     return time.time() - moc_o_dau_do
 """,
+    # The alias hop must resolve what the name RETURNS, not what it is called.
+    # `lane.py` now ships `now()` and `khoang()` side by side; a detector that
+    # keyed on the name would flag the correct one and teach people to ignore it.
+    "hàm tên giống nhưng trả monotonic — đây là bản ĐÚNG": """
+import time
+def now():
+    return time.monotonic()
+def run():
+    started = now()
+    return now() - started
+""",
+    "bí danh dùng cho tuổi liên tiến trình vẫn phải tha": """
+import time
+def now():
+    return time.time()
+def doc(data):
+    return now() - data["ts"]
+""",
 }
+
+
+# -- holes this detector KNOWS it has -------------------------------------
+#
+# Pinned as executable cases rather than as a sentence in the docstring, because
+# a documented limitation drifts into a believed-closed one the moment somebody
+# skims. If one of these ever starts being caught, this test goes red and asks
+# to be promoted into PHAI_BAT -- a gate getting stronger should be a decision,
+# not a surprise.
+MU_CO_CHU_DICH = {
+    # No enclosing scope sees both ends, so the mark and its use never meet.
+    # Real interprocedural resolution is the only fix and it costs more than it
+    # returns here; `lane.py` was caught because its two halves share a class.
+    "mốc đi qua tham số giữa HAI HÀM MODULE-LEVEL": """
+import time
+def now():
+    return time.time()
+def watch(started):
+    return now() - started
+def run():
+    watch(now())
+""",
+    # Two hops. `_bi_danh_dong_ho` resolves exactly one on purpose.
+    "bí danh của bí danh": """
+import time
+def now():
+    return time.time()
+def gio():
+    return now()
+def run():
+    moc = gio()
+    return gio() - moc
+""",
+}
+
+
+@pytest.mark.parametrize("ten", sorted(MU_CO_CHU_DICH))
+def test_lo_hong_da_biet_van_dung_nguyen_do(ten):
+    """These are NOT covered. The test exists so nobody can believe they are."""
+    loi = do_khoang_bang_dong_ho_treo_tuong(MU_CO_CHU_DICH[ten])
+    assert not loi, (
+        f"máy dò đã BẮT ĐƯỢC {ten!r}, một lỗ hổng trước đây được ghi là mù. "
+        f"Đây là tin tốt: chuyển ca này sang PHAI_BAT và sửa phần tài liệu "
+        f"nói nó không phủ.\n{loi}"
+    )
 
 
 @pytest.mark.parametrize("ten", sorted(PHAI_BAT))
