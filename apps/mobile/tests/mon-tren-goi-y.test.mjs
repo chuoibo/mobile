@@ -21,10 +21,22 @@
  *     ancestor chain that does the clipping.
  *   - `imp detect` reported 0 findings on this render. Nothing is occluded and
  *     nothing is low contrast; the content simply is not inside its window.
- *   - The occlusion rules deliberately do NOT fire here, and that is correct:
- *     text scrolled out of a container is not text covered by an element, and
+ *   - Text scrolled out of a container is not text covered by an element, and
  *     this repo has burned three times on box arithmetic that conflated them
  *     (`che-chu.mjs`). "Below the fold of a scroller" needs its own question.
+ *
+ *     An earlier draft of this comment went one step further and said the
+ *     occlusion rules "deliberately do NOT fire here". That is measurably
+ *     wrong, and it is the kind of wrong that stops the next reader checking.
+ *     They fire: on `?man=goi-y-chia` at 390x844 the rule returns three
+ *     findings, one of them `"90.000" is 100% covered by an opaque element`,
+ *     about dish rows the browser never painted at those coordinates. The rule
+ *     compares raw boxes via `elementFromPoint` and has no clip test at all;
+ *     put an opaque banner under any overflowing scroller and it accuses one
+ *     row per line below the edge. So on this screen occlusion findings are
+ *     EXPECTED NOISE, which is worse than silence: a real one would arrive
+ *     fourth in a list the reader has learned to wave through.
+ *     `che-chu-tren-man-chia-tien.test.mjs` holds that line.
  *
  * So the question this file asks is the one a person answers by looking: is a
  * dish row's own ink box fully inside the scroller's clip box, at first paint,
