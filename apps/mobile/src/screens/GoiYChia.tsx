@@ -147,7 +147,20 @@ export function GoiYChia(props: {
             one screen whose whole job is to say the AI read the bill. The
             deterministic detector called it (`text-overflow ... overflows its
             box by 36px`) and it was the only real finding on the ten hero
-            screens. Dropping one control gives the heading 222pt for 203. */}
+            screens. Dropping one control gives the heading 222pt for 203.
+
+            NOT fully solved below 375pt, and the scanner cannot see that: it
+            pins 390x844, so it reports this screen clean while a 360pt Android
+            still truncates. Measured across widths after the fix --
+
+                320 -> over 51 · 360 -> over 11 · 375/390/414 -> over 0
+
+            (before the fix the same widths ran over 117 / 66 / 51 / 36 / 21,
+            so every width improved, but only >=375 actually fits). Closing 360
+            needs 11pt more and there is nowhere cheap left: chevron 44 is the
+            tap target and "Món của tôi" 72 is a hero-path control. It wants a
+            responsive type step, which is a DESIGN.md scale decision and not
+            one to make inside a screen file. */}
         <Text
           style={{ ...type.title, color: c.ink, flex: 1, minWidth: 0 }}
           numberOfLines={1}
