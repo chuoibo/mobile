@@ -331,8 +331,13 @@ demo-watch-install: ## Cắm lượt canh định kỳ vào crontab — APPLY=1 
 hero-walk: ## Đi bộ cả đường hero trên máy demo, kể cả chặng ảnh -> món — URL=, ANH= để đổi đích
 	@scripts/hero_walk.sh $(if $(URL),--url $(URL)) $(if $(ANH),--anh $(ANH))
 
-hero-walk-status: ## Lượt đi bộ gần nhất nói gì (mã 2 nếu chưa ai đi, đứt, hoặc quá cũ)
-	@scripts/hero_walk.sh --status $(if $(URL),--url $(URL)) $(if $(MAXAGE),--max-age-hours $(MAXAGE))
+# `REF=origin/main` là câu hỏi mà không lệnh nào hỏi được cho tới 31/08: phán
+# quyết mặc định buộc vào HEAD của thư mục đang đứng, nên người đi bộ luôn thấy
+# xanh trên chính nhánh mình, còn main thì không ai hỏi hộ. Đo lúc 20:35 hôm đó:
+# lượt gần nhất nói về 7b8fed8, thuộc một nhánh CHƯA merge — main không có phán
+# quyết nào, và không có cách nào phát hiện ra ngoài việc đứng đúng chỗ.
+hero-walk-status: ## Lượt đi bộ gần nhất nói gì — REF=origin/main để hỏi về một commit thay vì thư mục này (mã 2 nếu chưa ai đi, đứt, hoặc quá cũ)
+	@scripts/hero_walk.sh --status $(if $(URL),--url $(URL)) $(if $(REF),--ref $(REF)) $(if $(MAXAGE),--max-age-hours $(MAXAGE))
 
 # Hai mục dưới gác một lỗi đã xảy ra thật lúc 03:20 ngày 31/08: bundle được
 # xuất từ một checkout lùi 4 commit và đang có file màn ở trạng thái đã xoá,

@@ -121,11 +121,42 @@
 # walk keep the seam working. That weaker promise is written down below rather
 # than left for a reader to assume the stronger one.
 #
+# ## Why `--ref` exists: HEAD is the wrong subject for the question people ask
+#
+# Everything above binds the verdict to HEAD -- the HEAD of whatever directory
+# the command was typed in. That is right for a gate running on a branch, and it
+# has one blind half. The person who walks the path is standing on their own
+# branch, so they see green. Nobody is standing on `origin/main`, so nobody asks
+# about it, and there was no way to ask: `--status` cannot be pointed anywhere.
+#
+# Measured 2026-08-31T20:35+0700, which is what prompted this:
+#
+#     scripts/gate.sh hero-walk            (branch devops, HEAD e069be1)
+#       -> HỎNG  "client 7b8fed8, KHÔNG nằm trong HEAD e069be1"
+#     git merge-base --is-ancestor 7b8fed8 origin/main
+#       -> 1     (7b8fed8 is on backend/split-..., never merged)
+#
+# So the only hero-path evidence on this machine was about an unmerged branch,
+# `origin/main` had none, and on the branch that DID walk it the gate read
+# green. An asymmetric hole again, and asymmetric holes survive because the half
+# that works reads as proof the whole thing works.
+#
+# `--ref <ref>` moves the subject from a directory to a commit. It skips the
+# checks that read the current directory -- a commit does not acquire
+# uncommitted edits, lose its `node_modules`, or stop existing when a temporary
+# worktree is deleted -- and pays for them with a rule working-tree mode does
+# not have: `tree` must be `clean`, because a walk over uncommitted edits ran
+# code that lives in no commit and so vouches for none. The trade is stated at
+# the check itself, not only here.
+#
 # Usage:
 #   scripts/hero_walk.sh                      walk the demo box on 8099
 #   scripts/hero_walk.sh --url http://h:1234  another box
 #   scripts/hero_walk.sh --anh /tmp/x/ro.jpg  another bill image
 #   scripts/hero_walk.sh --status             what did the last walk say
+#   scripts/hero_walk.sh --status --ref origin/main
+#                                             ...about THAT COMMIT rather than
+#                                             about this directory. See below.
 #   scripts/hero_walk.sh --van-tay            what this runner thinks the
 #                                             working tree is right now
 #   scripts/hero_walk.sh --ngoai-git          what the walk needs that git does
@@ -147,6 +178,10 @@ ANH_DIR="${MOBILE_HERO_WALK_ANH_DIR:-/tmp/mobile-hero-walk-anh}"
 VERDICT_DIR="${MOBILE_HERO_WALK_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/mobile-hero-walk}"
 VERDICT="$VERDICT_DIR/verdict.json"
 MODE="run"
+# Empty = ask about THIS working tree, the only question this file could ask
+# until 2026-08-31. Non-empty = ask about a commit the caller names, which is
+# the question `origin/main` needs somebody to ask on its behalf.
+REF=""
 MAX_AGE_HOURS="${MOBILE_HERO_WALK_MAX_AGE_HOURS:-24}"
 
 while [ $# -gt 0 ]; do
@@ -157,6 +192,7 @@ while [ $# -gt 0 ]; do
     --status) MODE="status"; shift ;;
     --van-tay) MODE="van-tay"; shift ;;
     --ngoai-git) MODE="ngoai-git"; shift ;;
+    --ref)  REF="${2:?--ref cần một ref git}"; shift 2 ;;
     --max-age-hours) MAX_AGE_HOURS="${2:?--max-age-hours cần một số}"; shift 2 ;;
     # The header, all of it, however long it gets. The magic `2,95p` this
     # replaces was already cutting the Usage block off at line 95 before
@@ -335,6 +371,7 @@ if [ "$MODE" = "status" ]; then
   MOBILE_HERO_WALK_EXPECT_URL="$URL" \
   MOBILE_HERO_WALK_MAX_AGE_HOURS="$MAX_AGE_HOURS" \
   MOBILE_HERO_WALK_REPO="$REPO_ROOT" \
+  MOBILE_HERO_WALK_REF="$REF" \
   MOBILE_HERO_WALK_TREE_NOW="$(cay_van_tay)" \
   MOBILE_HERO_WALK_NGOAI_GIT_NOW="$(ngoai_git_van_tay)" \
   python3 - "$VERDICT" <<'PY'
@@ -344,6 +381,11 @@ path = sys.argv[1]
 want_url = os.environ["MOBILE_HERO_WALK_EXPECT_URL"]
 max_age = float(os.environ["MOBILE_HERO_WALK_MAX_AGE_HOURS"]) * 3600.0
 repo = os.environ["MOBILE_HERO_WALK_REPO"]
+# Which question is being asked. Empty -> "does this working tree have a proven
+# hero path", the only one that existed before. Non-empty -> "does THAT COMMIT
+# have one", which is what a reader of `origin/main` needs and could not ask.
+ref = (os.environ.get("MOBILE_HERO_WALK_REF") or "").strip()
+che_do_ref = bool(ref)
 
 
 def git(*args):
@@ -389,14 +431,32 @@ if git("cat-file", "-e", f"{sha}^{{commit}}").returncode != 0:
     print("  Chạy lại trên chính cây đang gác: make hero-walk")
     raise SystemExit(2)
 
-if git("merge-base", "--is-ancestor", sha, "HEAD").returncode != 0:
+# The commit the verdict has to be bound to. In working-tree mode that is HEAD,
+# unchanged. In `--ref` mode the caller names it, and a name git cannot resolve
+# must be red: answering "yes" to a question about a ref that does not exist is
+# a gate that disarms itself on a typo.
+if che_do_ref:
+    r = git("rev-parse", "--verify", "--short", f"{ref}^{{commit}}")
+    if r.returncode != 0 or not r.stdout.strip():
+        print(f"hero_walk: KHÔNG GIẢI ĐƯỢC ref `{ref}` trong {repo}.")
+        print("  Không có mốc thì không buộc phán quyết vào đâu được — từ chối báo xanh.")
+        raise SystemExit(2)
+    moc, moc_ten = r.stdout.strip(), f"`{ref}` ({r.stdout.strip()})"
+else:
+    moc, moc_ten = "HEAD", f"HEAD {head}"
+
+if git("merge-base", "--is-ancestor", sha, moc).returncode != 0:
     # Ancestor, not equality: requiring an exact match would burn a model call
     # on every docs commit, and a stage that expensive gets deleted. Ancestry
     # still refuses the thing that was broken -- a walk on a branch this tree
     # does not contain. It does NOT prove the commits added since the walk keep
     # the seam working; that is stated in KHÔNG chứng minh, not papered over.
-    print(f"hero_walk: lượt đi bộ chạy ở client {sha}, KHÔNG nằm trong HEAD {head} — nhánh khác.")
-    print("  Phán quyết đó không nói gì về cây này. Chạy: make hero-walk")
+    print(f"hero_walk: lượt đi bộ chạy ở client {sha}, KHÔNG nằm trong {moc_ten} — nhánh khác.")
+    if che_do_ref:
+        print(f"  Phán quyết đó không nói gì về `{ref}`. Đi bộ từ một checkout của nó:")
+        print(f"  git worktree add --detach <thư mục> {ref} && cd <thư mục> && make hero-walk")
+    else:
+        print("  Phán quyết đó không nói gì về cây này. Chạy: make hero-walk")
     raise SystemExit(2)
 
 # The sha above answers "which COMMIT". This answers "which TREE", and until now
@@ -437,6 +497,28 @@ if tree == "blind":
 where = v.get("worktree")
 muon = where != repo
 
+# Everything from here down to the `tree != now` comparison answers one
+# question: is this verdict still true of THIS DIRECTORY? Every one of those
+# checks reads the directory the command was typed in.
+#
+# `--ref` asks a different question, about a commit. A commit does not acquire
+# uncommitted edits, does not lose its `node_modules`, and does not stop
+# existing because a temporary worktree was deleted -- so answering the ref
+# question out of this directory's state would be measuring the wrong thing in
+# both directions: red for a main that is fine, green for a main that is not.
+#
+# It is not a loosening. `--ref` pays for the skipped checks immediately below,
+# with a rule working-tree mode does not have: a walk over uncommitted edits
+# ran code that lives in NO commit, so it vouches for no commit at all -- not
+# even the one underneath it. Working-tree mode may accept such a walk (it can
+# re-verify the edits are still there, and does). Ref mode can never accept it.
+kiem_thu_muc = not che_do_ref
+if che_do_ref and tree != "clean":
+    print(f"hero_walk: lượt đi bộ chạy trên CÂY CÓ SỬA CHƯA COMMIT ({where}).")
+    print("  Mã nó đo không nằm trong commit nào, nên nó không bảo lãnh được cho")
+    print(f"  `{ref}`. Đi bộ lại trên một checkout sạch của `{ref}`.")
+    raise SystemExit(2)
+
 if tree != "clean" and muon:
     # Uncommitted edits exist in exactly one directory, so a dirty walk can
     # never be lent -- no further question to ask.
@@ -458,7 +540,7 @@ if tree != "clean" and muon:
 # at a directory nothing can reach is evidence about nothing -- the same
 # "bằng chứng gọi tên một thứ không phải thứ đã được kiểm" this file was
 # extended twice to stop, one axis over.
-if muon and not os.path.isdir(where or ""):
+if kiem_thu_muc and muon and not os.path.isdir(where or ""):
     print(f"hero_walk: phán quyết nói nó đo ở {where}, thư mục đó KHÔNG CÓ trên máy này.")
     print("  Không kiểm lại được nó đo trên cái gì, nên nó không bảo lãnh được")
     print(f"  cho {repo}. Chạy: make hero-walk")
@@ -471,7 +553,7 @@ if muon and not os.path.isdir(where or ""):
 # borrowing at all.
 ngoai = v.get("ngoai_git")
 ngoai_now = os.environ["MOBILE_HERO_WALK_NGOAI_GIT_NOW"]
-if ngoai is None:
+if kiem_thu_muc and ngoai is None:
     # Same law as `tree` above: a field an older runner never wrote is
     # "unknown", and reading unknown as the safe value is the failure this whole
     # file exists to separate.
@@ -481,12 +563,12 @@ if ngoai is None:
     print("  Thiếu trường đó KHÔNG đọc được là 'đủ'. Chạy: make hero-walk")
     raise SystemExit(2)
 
-if ngoai == "?" or ngoai_now == "?":
+if kiem_thu_muc and (ngoai == "?" or ngoai_now == "?"):
     print("hero_walk: KHÔNG ĐỌC ĐƯỢC danh sách thứ ngoài git mà lượt đi bộ cần.")
     print("  'Không đọc được' KHÔNG phải 'đủ'. Chạy: make hero-walk")
     raise SystemExit(2)
 
-if ngoai != ngoai_now:
+if kiem_thu_muc and ngoai != ngoai_now:
     def _tach(s):
         return dict(p.split("=", 1) for p in s.split(",") if "=" in p)
 
@@ -515,7 +597,7 @@ if ngoai != ngoai_now:
 # "it vouched for code it never ran". The dirty->dirty direction was closed, so
 # the hole was an ASYMMETRY, not a dead gate, and asymmetric holes survive
 # precisely because the half that works reads as proof the whole thing works.
-if tree != now:
+if kiem_thu_muc and tree != now:
     if now == "?":
         # Reachable while every sha check above still passes: a corrupt or
         # locked index (and `.git` is SHARED between this repo's worktrees) makes
@@ -563,11 +645,25 @@ ve_cay = "" if tree == "clean" else " — ĐO TRÊN CÂY CÓ SỬA CHƯA COMMIT,
 # two trees -- is exactly what the reader needs to know they are trusting. Say
 # it on the line people actually read, same rule as `ve_cay`.
 ve_muon = "" if not muon else f" — MƯỢN từ cây {where}, không phải đo ở đây"
-print(
-    f"hero_walk: ĐI ĐƯỢC {when} — {v.get('so_chang','?')} chặng, "
-    f"{v['url']}, client {sha} (nằm trong HEAD {head}), "
-    f"model đọc {v.get('so_mon','?')} món.{ve_cay}{ve_muon}"
-)
+
+# Name what was answered ABOUT. A green reading "nằm trong HEAD <sha>" when the
+# caller asked about `origin/main` is this file's recurring failure one axis
+# over: evidence read as being about something it was never about. And in ref
+# mode the directory is not the subject, so the loan note would only invite the
+# reader to weigh the wrong thing.
+if che_do_ref:
+    print(
+        f"hero_walk: ĐI ĐƯỢC {when} — {v.get('so_chang','?')} chặng, "
+        f"{v['url']}, client {sha} (nằm trong {moc_ten}), "
+        f"model đọc {v.get('so_mon','?')} món.{ve_cay}"
+    )
+    print(f"  Trả lời về `{ref}`, KHÔNG phải về thư mục {repo}.")
+else:
+    print(
+        f"hero_walk: ĐI ĐƯỢC {when} — {v.get('so_chang','?')} chặng, "
+        f"{v['url']}, client {sha} (nằm trong HEAD {head}), "
+        f"model đọc {v.get('so_mon','?')} món.{ve_cay}{ve_muon}"
+    )
 PY
   exit $?
 fi
