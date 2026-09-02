@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import {
   BILL_ITEMS,
@@ -13,6 +13,8 @@ import {
   cloneItinerary,
   type ItineraryDay,
 } from "./fixtures";
+import { docPhienThoAsync, ghiPhienThoAsync, xoaPhienAsync } from "./kho";
+import { dongGoi, moGoi } from "./luu-tru";
 import { draftPicture, type DraftPicture } from "./money";
 import { visibleVoteTallies } from "./vote";
 
@@ -81,6 +83,17 @@ type RudiSessionApi = RudiSession & {
   photoCount: number;
   videoCount: number;
   checkInCount: number;
+  /** Still reading the disk. Screens must not write over what has not arrived. */
+  dangNapPhien: boolean;
+  /**
+   * Whether the last write reached the disk.
+   *
+   * The screens read this to decide whether they may say "lưu trên máy". Before
+   * AsyncStorage landed, four sentences said it while nothing was written
+   * anywhere; a flag that can be false is what keeps that from happening again
+   * when a write fails on a full or restricted device.
+   */
+  luuTruSong: boolean;
   enterDemo: () => void;
   resetSession: () => void;
   setDisplayName: (value: string) => void;
@@ -117,6 +130,38 @@ const RudiSessionContext = createContext<RudiSessionApi | null>(null);
 
 export function RudiSessionProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<RudiSession>(seed);
+  const [dangNapPhien, setDangNapPhien] = useState(true);
+  const [luuTruSong, setLuuTruSong] = useState(false);
+  const hen = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Read once, at mount. `moGoi` validates every field against this seed, so a
+  // blob from an older build degrades field by field instead of crashing a
+  // money screen on launch.
+  useEffect(() => {
+    let song = true;
+    void docPhienThoAsync().then((raw) => {
+      if (!song) return;
+      setState((hien) => moGoi(raw, hien));
+      setDangNapPhien(false);
+    });
+    return () => {
+      song = false;
+    };
+  }, []);
+
+  // Write on change, debounced. `setDisplayName` fires once per keystroke, and
+  // one AsyncStorage round trip per character is a real cost on a slow device.
+  useEffect(() => {
+    // Writing before the read lands would put the seed on top of the real data.
+    if (dangNapPhien) return undefined;
+    if (hen.current !== null) clearTimeout(hen.current);
+    hen.current = setTimeout(() => {
+      void ghiPhienThoAsync(dongGoi(state)).then((ketQua) => setLuuTruSong(ketQua.ok));
+    }, 400);
+    return () => {
+      if (hen.current !== null) clearTimeout(hen.current);
+    };
+  }, [state, dangNapPhien]);
 
   const money = useMemo(
     () =>
@@ -142,6 +187,8 @@ export function RudiSessionProvider({ children }: { children: ReactNode }) {
 
   const api: RudiSessionApi = useMemo(() => ({
     ...state,
+    dangNapPhien,
+    luuTruSong,
     money,
     photoCount: MEMORY_PHOTOS.length,
     videoCount: MEMORY_VIDEO_INDEXES.length,
@@ -153,7 +200,13 @@ export function RudiSessionProvider({ children }: { children: ReactNode }) {
     // previous person's name, chat, check-ins and saved places. Measured on the
     // emulator before this line existed. Seeding fresh is the whole of logout
     // while there is no server session to end.
-    resetSession: () => setState(seed()),
+    resetSession: () => {
+      setState(seed());
+      // The debounced write above would land on the seed anyway; this is for
+      // the case where the app is killed inside those 400ms. "Đăng xuất xoá
+      // mọi lựa chọn" has to be true even then.
+      void xoaPhienAsync();
+    },
     setDisplayName: (displayName) => setState((current) => ({ ...current, displayName })),
     setBio: (bio) => setState((current) => ({ ...current, bio })),
     setInterests: (interests) => setState((current) => ({ ...current, interests })),
@@ -261,7 +314,7 @@ export function RudiSessionProvider({ children }: { children: ReactNode }) {
     setProfileNotice: (profileNotice) => setState((current) => ({ ...current, profileNotice })),
     setInboxOpen: (inboxOpen) => setState((current) => ({ ...current, inboxOpen })),
     tripPath: (suffix) => `/trips/${DEMO_GROUP.id}${suffix}` as const,
-  }), [state, money, voteTallies]);
+  }), [state, money, voteTallies, dangNapPhien, luuTruSong]);
 
   return <RudiSessionContext.Provider value={api}>{children}</RudiSessionContext.Provider>;
 }

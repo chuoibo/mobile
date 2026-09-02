@@ -91,12 +91,12 @@
     },
     {
       "path": "apps/mobile/package-lock.json",
-      "sha256": "dba73d95c41e9eaeac13774fd1dc4558eb6f1f8fd11531daecb22fc5e91b1771",
+      "sha256": "3fff44b6ee728dd356239f065e8227db889c01868cf84de9effaf3cc1193dd18",
       "rules": [
         "aggregate-base64-fragments",
         "long-number"
       ],
-      "reason": "Lockfile npm của ứng dụng mobile. Các chuỗi base64 là integrity digest của npm và số dài là metadata phiên bản; cả hai thuộc cấu trúc lockfile. Digest được cập nhật cùng lần chuyển app sang Expo Router và bổ sung các module native đã khai báo trong package.json. Ghim chính xác path và SHA-256 để thay đổi dependency tiếp theo phải được review lại."
+      "reason": "Lockfile npm của ứng dụng mobile. Các chuỗi base64 là integrity digest của npm và số dài là metadata phiên bản; cả hai thuộc cấu trúc lockfile. Ghim lại 2026-09-03 (dba73d95c41e -> 3fff44b6ee72) sau khi thêm @react-native-async-storage/async-storage@2.2.0 và expo-secure-store@57.0.3 cho lớp lưu trữ phiên, kéo theo hai phụ thuộc bắc cầu is-plain-obj@2.1.0 và merge-options@3.0.4. Diff đã đọc từng dòng: 44 dòng thêm, 0 dòng bớt, đều là version/resolved/integrity/license/engines từ registry.npmjs.org. Không dòng nào mang dữ liệu người tham gia."
     },
     {
       "path": "docs/assets/bang-mau.svg",

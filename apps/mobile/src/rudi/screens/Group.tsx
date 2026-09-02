@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { DEMO_GROUP, PEOPLE, PLACES, VOTE_PLACE_IDS } from "../fixtures";
+import { noiLuu } from "../luu-tru";
 import { useRudiSession } from "../session";
 import { typography, useRudiTheme } from "../theme";
 import {
@@ -389,7 +390,9 @@ export function VotingScreen() {
           </View>
           <View style={styles.flex}>
             <Text style={[typography.title, { color: colors.ink }]}>Bạn đã chọn {VOTE_OPTIONS[session.voteChoice].name}</Text>
-            <Text style={[typography.caption, { color: colors.inkFaint }]}>Phiếu chỉ nằm trong lần mở app này. Chưa gửi lên máy chủ.</Text>
+            <Text style={[typography.caption, { color: colors.inkFaint }]}>
+              Phiếu {noiLuu(session.luuTruSong)}. Chưa gửi lên máy chủ.
+            </Text>
           </View>
         </Card>
       ) : null}

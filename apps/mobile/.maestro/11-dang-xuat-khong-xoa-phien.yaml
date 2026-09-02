@@ -4,7 +4,7 @@
 # then fixed by `resetSession()` in src/rudi/session.tsx.
 appId: host.exp.exponent
 ---
-- runFlow: _vao-app.yaml
+- runFlow: _vao-app-sach.yaml
 - tapOn: "Cá nhân"
 - scrollUntilVisible:
     element:

@@ -1,0 +1,35 @@
+# The flow that changed polarity.
+#
+# Before AsyncStorage this file asserted the OPPOSITE: change the 18:00 slot,
+# kill the process, and watch the edit vanish while four sentences on five
+# screens said choices were "lưu trên máy". That version was green, and green
+# was the finding.
+#
+# Now the same walk must show the edit surviving. Keeping the flow and flipping
+# its assertions -- rather than deleting it and writing a new one -- is what
+# makes the change legible: the same steps, the opposite verdict.
+appId: host.exp.exponent
+---
+- runFlow: 05-them-quan-vao-lich.yaml
+# The provider debounces its write by 400ms. Kill the process before that lands
+# and the test would be measuring the debounce, not the storage.
+- extendedWaitUntil:
+    visible: "18:00"
+    timeout: 10000
+- stopApp
+- runFlow: _vao-app.yaml
+- tapOn: "Tin nhắn"
+- scrollUntilVisible:
+    element:
+      text: "Xem lịch trình"
+    direction: DOWN
+    centerElement: true
+    timeout: 30000
+- tapOn: "Xem lịch trình"
+- extendedWaitUntil:
+    visible: "18:00"
+    timeout: 30000
+# The edit made before the restart is still there, and the seed is gone.
+- assertVisible: "Still Cafe Đà Lạt"
+- assertNotVisible: "BBQ bên hồ Tuyền Lâm"
+- takeScreenshot: 07-itinerary-survived-restart

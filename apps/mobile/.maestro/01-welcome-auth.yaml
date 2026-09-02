@@ -4,6 +4,10 @@ appId: host.exp.exponent
 ---
 - stopApp
 - openLink: exp://localhost:8095
+# Fired twice: on this shared emulator the first VIEW intent is sometimes
+# dropped and Expo Go stays on its own home. The second is a no-op once the
+# app is up. Cost one red run before it was added here too.
+- openLink: exp://localhost:8095
 - extendedWaitUntil:
     visible: "Rủ Đi thôi!"
     timeout: 120000

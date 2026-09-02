@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { DEMO_GROUP, PEOPLE, demoAssets, formatVnd } from "../fixtures";
+import { noiLuu, noiLuuNgan } from "../luu-tru";
 import { useRudiSession } from "../session";
 import { typography, useRudiTheme } from "../theme";
 import {
@@ -290,7 +291,7 @@ export function CheckInScreen() {
               {session.locationSharing ? "Đang chia sẻ vị trí đến 11:30" : "Chưa chia sẻ vị trí"}
             </Text>
             <Text style={[typography.caption, { color: colors.inkFaint }]}>
-              Opt-in, có hạn. Bản trải nghiệm không đọc GPS máy, chỉ đổi trạng thái trong lần mở app này.
+              Opt-in, có hạn. Bản trải nghiệm không đọc GPS máy, trạng thái {noiLuu(session.luuTruSong)}.
             </Text>
           </View>
         </Inline>
@@ -360,7 +361,7 @@ export function CheckInScreen() {
       </Inline>
       {session.remindedPending ? (
         <Text style={[typography.caption, styles.demoNote, { color: colors.accent }]}>
-          Đã ghi nhắc {missing.length} người trong lần mở app này. Chưa gửi push.
+          Đã ghi nhắc {missing.length} người {noiLuuNgan(session.luuTruSong)}. Chưa gửi push.
         </Text>
       ) : null}
     </RudiScreen>

@@ -3,7 +3,7 @@
 # centerElement keeps the row clear of the bottom tab bar + FAB before tapping.
 appId: host.exp.exponent
 ---
-- runFlow: _vao-app.yaml
+- runFlow: _vao-app-sach.yaml
 - tapOn: "Cá nhân"
 - scrollUntilVisible:
     element:

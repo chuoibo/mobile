@@ -17,6 +17,7 @@ import {
 
 import { chuanHoaSo } from "../../screens/vao-cua/danh-tinh";
 import { demoAssets } from "../fixtures";
+import { noiLuu } from "../luu-tru";
 import { useRudiSession } from "../session";
 import { typography, useRudiTheme } from "../theme";
 import {
@@ -279,7 +280,7 @@ export function PersonalizationScreen() {
       <ProgressBar value={100} />
       <Heading
         title="Cho Rủ Đi biết gu của bạn"
-        subtitle="Chọn ít nhất 3 sở thích. Lựa chọn chỉ sống trong lần mở app này."
+        subtitle={`Chọn ít nhất 3 sở thích. Lựa chọn ${noiLuu(session.luuTruSong)}.`}
       />
       <Card style={styles.preferenceCard}>
         <Text style={[typography.title, { color: colors.ink }]}>Bạn thường mê gì?</Text>

@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { COLLECTOR_INDEX, DEMO_GROUP, PEOPLE, demoAssets, formatVnd } from "../fixtures";
+import { noiLuu, noiLuuNgan } from "../luu-tru";
 import { useRudiSession } from "../session";
 import { typography, useRudiTheme } from "../theme";
 import {
@@ -91,7 +92,7 @@ export function ProfileScreen() {
         </Inline>
         <Heading
           title={`${session.savedPlaceIds.length} địa điểm`}
-          subtitle="Danh sách chỉ sống trong lần mở app này. Mở Khám phá để thêm."
+          subtitle={`Danh sách ${noiLuu(session.luuTruSong)}. Mở Khám phá để thêm.`}
         />
         <RudiButton label="Mở Khám phá" onPress={() => router.push("/explore")} />
       </RudiScreen>
@@ -199,7 +200,7 @@ export function ProfileScreen() {
         <ListRow
           icon="bookmark-outline"
           onPress={() => setPanel("saved")}
-          subtitle={`${session.savedPlaceIds.length} địa điểm trong lần mở app này`}
+          subtitle={`${session.savedPlaceIds.length} địa điểm ${noiLuuNgan(session.luuTruSong)}`}
           title="Đã lưu"
         />
         <View style={[styles.rowLine, { backgroundColor: colors.line }]} />

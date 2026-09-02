@@ -6,7 +6,7 @@
 # assertions bite. Everything before the final assert is the same path 02 walks.
 appId: host.exp.exponent
 ---
-- runFlow: _vao-app.yaml
+- runFlow: _vao-app-sach.yaml
 - tapOn: "Cá nhân"
 - scrollUntilVisible:
     element:

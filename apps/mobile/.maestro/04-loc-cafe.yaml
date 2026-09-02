@@ -1,7 +1,7 @@
 # PR claim: "Cafe lọc còn subset, không còn cả 12 quán".
 appId: host.exp.exponent
 ---
-- runFlow: _vao-app.yaml
+- runFlow: _vao-app-sach.yaml
 - takeScreenshot: 04-explore-before
 - tapOn: "Cafe"
 - extendedWaitUntil:

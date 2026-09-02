@@ -1,0 +1,63 @@
+# Enter the app from a KNOWN state.
+#
+# Before AsyncStorage every flow started from the seed by construction: the
+# process died and took the session with it. Now the session survives, so a
+# flow that changes an assignment leaves that change for whoever runs next --
+# 10-gan-mon asserts "2 người" on Bò nướng before it taps, and a second run of
+# the suite would find 3 there and read it as a regression.
+#
+# The reset walks the product's own logout, which calls `resetSession()` and
+# clears the stored blob. Two things fall out of doing it this way: every flow
+# starts from the seed, and the reset path itself is exercised on every run.
+#
+# Deliberately NOT `launchApp: clearState: true`: `appId` here is Expo Go, and
+# this emulator is shared with other lanes. Clearing it would take their
+# bundles and their history with it.
+appId: host.exp.exponent
+---
+- stopApp
+- openLink: exp://localhost:8095
+- openLink: exp://localhost:8095
+- extendedWaitUntil:
+    visible: "Rủ Đi thôi!"
+    timeout: 150000
+- tapOn: "Rủ Đi thôi!"
+- extendedWaitUntil:
+    visible: "Vào bản trải nghiệm Team Đà Lạt"
+    timeout: 30000
+- tapOn: "Vào bản trải nghiệm Team Đà Lạt"
+- extendedWaitUntil:
+    visible: "Tạo không gian của tôi"
+    timeout: 30000
+- tapOn: "Tạo không gian của tôi"
+- extendedWaitUntil:
+    visible: "Khám phá"
+    timeout: 30000
+- tapOn: "Cá nhân"
+- scrollUntilVisible:
+    element:
+      text: "Tài khoản"
+    direction: DOWN
+    centerElement: true
+    timeout: 30000
+- tapOn: "Tài khoản"
+- extendedWaitUntil:
+    visible: "Đăng xuất bản trải nghiệm"
+    timeout: 20000
+- tapOn: "Đăng xuất bản trải nghiệm"
+- extendedWaitUntil:
+    visible: "Rủ Đi thôi!"
+    timeout: 30000
+# Now walk in for real, on a seed nobody has touched.
+- tapOn: "Rủ Đi thôi!"
+- extendedWaitUntil:
+    visible: "Vào bản trải nghiệm Team Đà Lạt"
+    timeout: 30000
+- tapOn: "Vào bản trải nghiệm Team Đà Lạt"
+- extendedWaitUntil:
+    visible: "Tạo không gian của tôi"
+    timeout: 30000
+- tapOn: "Tạo không gian của tôi"
+- extendedWaitUntil:
+    visible: "Khám phá"
+    timeout: 30000

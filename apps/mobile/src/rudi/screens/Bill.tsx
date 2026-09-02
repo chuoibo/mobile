@@ -9,6 +9,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { ApiError, BASE_URL, scanReceipt } from "../../api";
 import { DEMO_PEOPLE } from "../../navigation/nhom-demo";
 import { BILL_ITEMS, COLLECTOR_INDEX, DEMO_GROUP, PEOPLE, demoAssets, formatVnd } from "../fixtures";
+import { noiLuuNgan } from "../luu-tru";
 import { useRudiSession } from "../session";
 import { typography, useRudiTheme } from "../theme";
 import {
@@ -353,7 +354,7 @@ export function SettlementScreen() {
         icon="notifications-outline"
         label={
           session.remindedPending
-            ? `Đã nhắc ${pendingCount} người trong lần mở app này`
+            ? `Đã nhắc ${pendingCount} người ${noiLuuNgan(session.luuTruSong)}`
             : `Nhắc ${pendingCount} người đang chờ`
         }
         onPress={() => session.remindPending()}

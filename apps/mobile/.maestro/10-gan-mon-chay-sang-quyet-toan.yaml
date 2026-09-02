@@ -8,7 +8,7 @@
 # to array positions, which is the one-đồng difference this asserts away.
 appId: host.exp.exponent
 ---
-- runFlow: _vao-app.yaml
+- runFlow: _vao-app-sach.yaml
 - tapOn: "Tạo mới"
 - extendedWaitUntil:
     visible: "Chia hóa đơn"

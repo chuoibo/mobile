@@ -251,6 +251,11 @@
     // produces no navigation -- and the version that lived inside a `useEffect`
     // could only be measured by driving an emulator.
     "src/rudi/duong-vao.ts",
+    // Đọc/ghi phiên. Compile chứ không đọc nguồn vì luật nó mang là luật PHỦ
+    // ĐỊNH: không blob nào, dù hỏng thế nào, được phép làm màn tiền ném. Một
+    // chỉ số người sai trong dữ liệu đã lưu là crash ở MỌI lần mở app, và chỉ
+    // có chạy hàm thật trên đúng những giá trị hỏng đó mới trả lời được.
+    "src/rudi/luu-tru.ts",
     "src/rudi/money.ts",
     "src/rudi/places.ts",
     "src/rudi/vote.ts"

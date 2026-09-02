@@ -1,7 +1,7 @@
 # PR claim: "«Thêm vào Đà Lạt cuối tuần» đổi 18:00 thành quán vừa chọn".
 appId: host.exp.exponent
 ---
-- runFlow: _vao-app.yaml
+- runFlow: _vao-app-sach.yaml
 - scrollUntilVisible:
     element:
       text: "Still Cafe Đà Lạt"

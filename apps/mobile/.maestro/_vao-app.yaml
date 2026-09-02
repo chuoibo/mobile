@@ -1,4 +1,8 @@
 # Shared entry: cold start → welcome → login → demo → personalization → tabs.
+#
+# Walks in on WHATEVER is stored. `_vao-app-sach.yaml` is the one that resets
+# first; use that unless the flow is specifically checking that stored state
+# survived, which is 07 and only 07.
 # Deep links to inner routes do NOT work on native (see 91-deeplink-nuot.yaml),
 # so every flow walks the real path a person walks.
 appId: host.exp.exponent
