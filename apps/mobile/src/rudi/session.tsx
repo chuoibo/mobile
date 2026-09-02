@@ -13,13 +13,13 @@ import {
   cloneItinerary,
   type ItineraryDay,
 } from "./fixtures";
-import { docPhienThoAsync, ghiPhienThoAsync, xoaPhienAsync } from "./kho";
+import { dangCoPhien, datPhienBearer, datXuLyMatPhien } from "../api";
+import { docPhienThoAsync, docTokenAsync, ghiPhienThoAsync, xoaPhienAsync, xoaTokenAsync } from "./kho";
 import { dongGoi, moGoi } from "./luu-tru";
 import { draftPicture, type DraftPicture } from "./money";
 import { visibleVoteTallies } from "./vote";
 
 export type RudiSession = {
-  enteredAsDemo: boolean;
   displayName: string;
   bio: string;
   interests: string[];
@@ -50,7 +50,6 @@ const defaultAssignments = () => BILL_ITEMS.map((item) => [...item.people]);
 
 function seed(): RudiSession {
   return {
-    enteredAsDemo: false,
     displayName: PEOPLE[COLLECTOR_INDEX].name,
     bio: "Đi để nhớ, tụ họp để thương 🌿",
     interests: ["Ăn ngon", "Cafe chill", "Khám phá"],
@@ -83,6 +82,19 @@ type RudiSessionApi = RudiSession & {
   photoCount: number;
   videoCount: number;
   checkInCount: number;
+  /**
+   * Whose data the screens are showing.
+   *
+   * `trai-nghiem` is the fixture: Team Đà Lạt, eight people, a bill nobody
+   * paid. `live` means a session token exists, so every number on screen came
+   * from the server. Derived from the token and nothing else -- the field it
+   * replaces, `enteredAsDemo`, was set by the login screen and read by nowhere,
+   * which is a promise of a gate rather than a gate.
+   *
+   * ADR-0014 section 9: the 21 screens stay on the experience build until there
+   * IS a token, and the copy says so.
+   */
+  cheDo: "live" | "trai-nghiem";
   /** Still reading the disk. Screens must not write over what has not arrived. */
   dangNapPhien: boolean;
   /**
@@ -94,7 +106,6 @@ type RudiSessionApi = RudiSession & {
    * when a write fails on a full or restricted device.
    */
   luuTruSong: boolean;
-  enterDemo: () => void;
   resetSession: () => void;
   setDisplayName: (value: string) => void;
   setBio: (value: string) => void;
@@ -131,6 +142,7 @@ const RudiSessionContext = createContext<RudiSessionApi | null>(null);
 export function RudiSessionProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<RudiSession>(seed);
   const [dangNapPhien, setDangNapPhien] = useState(true);
+  const [cheDo, setCheDo] = useState<"live" | "trai-nghiem">("trai-nghiem");
   const [luuTruSong, setLuuTruSong] = useState(false);
   const hen = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -146,6 +158,28 @@ export function RudiSessionProvider({ children }: { children: ReactNode }) {
     });
     return () => {
       song = false;
+    };
+  }, []);
+
+  // The bearer, read once and handed to `src/api.ts`, which is the only place
+  // that decides what identity a request carries. A 401 while holding one means
+  // the session is gone rather than the server being broken, so the token is
+  // dropped and the screens fall back to the experience build they already know
+  // how to be.
+  useEffect(() => {
+    let song = true;
+    void docTokenAsync().then((token) => {
+      if (!song) return;
+      datPhienBearer(token);
+      setCheDo(token === null ? "trai-nghiem" : "live");
+    });
+    datXuLyMatPhien(() => {
+      void xoaTokenAsync();
+      setCheDo("trai-nghiem");
+    });
+    return () => {
+      song = false;
+      datXuLyMatPhien(null);
     };
   }, []);
 
@@ -187,6 +221,7 @@ export function RudiSessionProvider({ children }: { children: ReactNode }) {
 
   const api: RudiSessionApi = useMemo(() => ({
     ...state,
+    cheDo,
     dangNapPhien,
     luuTruSong,
     money,
@@ -194,7 +229,6 @@ export function RudiSessionProvider({ children }: { children: ReactNode }) {
     videoCount: MEMORY_VIDEO_INDEXES.length,
     checkInCount: state.checkedInIds.length,
     voteTallies,
-    enterDemo: () => setState((current) => ({ ...current, enteredAsDemo: true })),
     // "Đăng xuất" used to be `router.replace("/welcome")` and nothing else, so
     // the next person to tap "Vào bản trải nghiệm" on the same process got the
     // previous person's name, chat, check-ins and saved places. Measured on the
@@ -314,7 +348,7 @@ export function RudiSessionProvider({ children }: { children: ReactNode }) {
     setProfileNotice: (profileNotice) => setState((current) => ({ ...current, profileNotice })),
     setInboxOpen: (inboxOpen) => setState((current) => ({ ...current, inboxOpen })),
     tripPath: (suffix) => `/trips/${DEMO_GROUP.id}${suffix}` as const,
-  }), [state, money, voteTallies, dangNapPhien, luuTruSong]);
+  }), [state, money, voteTallies, cheDo, dangNapPhien, luuTruSong]);
 
   return <RudiSessionContext.Provider value={api}>{children}</RudiSessionContext.Provider>;
 }

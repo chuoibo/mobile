@@ -168,10 +168,9 @@ export function LoginScreen() {
     setError("OTP nhà cung cấp chưa kết nối. Không thể xác thực số thật trên bản này.");
   };
 
-  const enterDemo = () => {
-    session.enterDemo();
-    router.push("/personalization");
-  };
+  // No state to set: the screens are on the experience build whenever there is
+  // no session token, and that is the only thing that decides it now.
+  const enterDemo = () => router.push("/personalization");
 
   return (
     <RudiScreen contentStyle={styles.formScreen} testID="login-screen">

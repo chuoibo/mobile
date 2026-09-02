@@ -24,6 +24,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { DemoPerson } from "./fixtures";
+import { useRudiSession } from "./session";
 import {
   cardShadow,
   RudiTone,
@@ -202,8 +203,17 @@ export function Eyebrow({ children, tone = "accent" }: { children: ReactNode; to
   );
 }
 
+/**
+ * "Dữ liệu demo". A claim about where the numbers came from, so it reads the
+ * mode rather than being placed by hand on the screens somebody remembered.
+ *
+ * Renders NOTHING in live mode. A badge saying "demo" over real money would be
+ * the same lie as the reverse, pointed the other way.
+ */
 export function DemoBadge({ label = "Dữ liệu demo" }: { label?: string }) {
   const { colors } = useRudiTheme();
+  const { cheDo } = useRudiSession();
+  if (cheDo === "live") return null;
   return (
     <View style={[styles.demoBadge, { backgroundColor: colors.card, borderColor: colors.line }]}>
       <Ionicons color={colors.inkFaint} name="flask-outline" size={12} />

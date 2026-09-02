@@ -241,11 +241,58 @@ export function thongDiepNguoiDoc(status: number, detail: unknown): string {
   return "Chưa làm được việc này. Thử lại sau một chút.";
 }
 
+/**
+ * The session bearer, when there is one. ADR-0014 section 9.
+ *
+ * Module-level and synchronous on purpose: `SecureStore` is async, and
+ * `actorHeaders` is called on every request from code that cannot await. The
+ * app reads the token once at start and hands it here; nothing else may write
+ * it.
+ *
+ * `null` is the state the whole product is in today, and it is not a bug: the
+ * route that mints one does not exist yet (`src/rudi/phien.ts`).
+ */
+let phienBearer: string | null = null;
+
+/** Called once at start, and on 401. Not exported for screens to poke at. */
+export function datPhienBearer(token: string | null): void {
+  phienBearer = token;
+}
+
+export function dangCoPhien(): boolean {
+  return phienBearer !== null;
+}
+
+/**
+ * What to do when the server says this session is not a session any more.
+ *
+ * A 401 while holding a bearer is not "sự cố máy chủ", it is "you are logged
+ * out" -- and rendering it as the former is the defect `check_actor_headers.py`
+ * was written after: the app showed a server-fault sentence for six hours for
+ * something that was not a server fault.
+ */
+let khiMatPhien: (() => void) | null = null;
+
+export function datXuLyMatPhien(xuLy: (() => void) | null): void {
+  khiMatPhien = xuLy;
+}
+
 function actorHeaders(
   actorId: string,
   roles = "member,advancer,recipient,batch_owner",
   contexts?: string,
 ): Record<string, string> {
+  // With a session, the server derives person, roles and contexts from the
+  // session row (ADR-0014 section 7). Sending the header trio alongside would
+  // be handing it a second, client-asserted answer to the same question --
+  // exactly what prod mode is defined to stop trusting. So they are OMITTED,
+  // not merely ignored server-side.
+  if (phienBearer !== null) {
+    return {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${phienBearer}`,
+    };
+  }
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     // A trusted gateway is supposed to write these; there is no gateway yet,
@@ -406,6 +453,14 @@ async function send<T>(
       if (problem?.detail) detail = problem.detail;
     } catch {
       /* not JSON; there is nothing to read, so the status chooses the words */
+    }
+    // A 401 while holding a bearer means the session is gone: expired, revoked,
+    // or minted by a server that has since forgotten it. Drop the token before
+    // the error travels, so the next request goes out as the app's honest
+    // unauthenticated self instead of retrying a credential that cannot work.
+    if (response.status === 401 && phienBearer !== null) {
+      phienBearer = null;
+      khiMatPhien?.();
     }
     throw new ApiError(
       response.status,

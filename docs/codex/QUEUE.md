@@ -4,6 +4,34 @@
 
 ---
 
+## 0. MỚI 2026-09-03 — ba việc từ nhánh `claude/p0-w-rudi-du-lieu-that`
+
+### 0a. Route cấp phiên (ADR-0014) — client đã dựng xong nửa của nó
+
+Hợp đồng đầy đủ ở `docs/claude/2026-09-03/adr-0014-nua-client-da-san-sang.md`.
+Tóm tắt: `actorHeaders` trong `src/api.ts` đã bỏ hẳn `X-Actor-ID`/`X-Actor-Roles`/
+`X-Actor-Contexts` khi có bearer, 401 đã xoá token, và `src/rudi/phien.ts` là
+seam **ném** `ChuaCoRouteError` — không path literal nào, nên cổng hợp đồng vẫn
+xanh. Ship route trước, client theo sau. ADR-0014 vẫn cần Lead nhận.
+
+### 0b. `scripts/check_api_contract.py` mù với route khai ngoài `routes/`
+
+`/healthz` khai ở `services/api/app/api/main.py:220` với `include_in_schema=False`.
+Cổng chỉ đọc `app/api/routes/*.py`, nên **bất kỳ** client nào gọi `/healthz` đều
+làm cổng đỏ — và cái đỏ đó chỉ sai địa chỉ, route có thật (đo được: API ở :8106
+trả 200). PR #512 dính đúng cái này. Tôi đã gỡ bằng cách xoá lời gọi thay vì vá
+cổng, vì `scripts/` là hạ tầng dùng chung.
+
+### 0c. Seed và fixture RuDi kể hai câu chuyện khác nhau
+
+`scripts/seed_demo_data.py` có «Team Đà Lạt» **7 người** (Minh, Trang, Hải, Ngọc,
+Đức, Linh, Quân); fixture RuDi có **8 người** (Minh Anh, Tuấn Kiệt, Thu Trang,
+Quang Huy, Lan Anh, Minh Khoa, Hải Yến, Thanh Phúc) với bill Xóm Lèo 1.280.000đ
+và tổng chuyến 3.840.000đ. Khi màn RuDi nối vào dữ liệu thật, số trên màn sẽ là
+số của seed. Muốn demo kể một câu chuyện thì seed phải đổi — lane của bạn.
+
+---
+
 ## A. REVIEW — 5 PR đang chờ bạn
 
 ### A1. PR #11 — hai luồng phản đối của khách *(mới, quan trọng)*
