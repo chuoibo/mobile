@@ -17,7 +17,6 @@ import {
 
 import { chuanHoaSo } from "../../screens/vao-cua/danh-tinh";
 import { demoAssets } from "../fixtures";
-import { probeLedger } from "../ledger";
 import { useRudiSession } from "../session";
 import { typography, useRudiTheme } from "../theme";
 import {
@@ -46,7 +45,7 @@ const WELCOME_PAGES = [
   },
   {
     title: "Chia bill từng đồng",
-    body: "Gán món, xem ai nợ ai. Số trên quyết toán và tài chính phải cùng một nguồn — không bịa sổ cái.",
+    body: "Gán món, xem ai nợ ai. Số trên quyết toán và tài chính phải cùng một nguồn, không bịa sổ cái.",
   },
   {
     title: "Giữ kỷ niệm của hội",
@@ -144,28 +143,19 @@ export function LoginScreen() {
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
   const [otpSent, setOtpSent] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [providerNotice, setProviderNotice] = useState<string | null>(null);
 
   const normalized = chuanHoaSo(phone);
 
-  const sendOtp = async () => {
-    setError(null);
+  const sendOtp = () => {
     setProviderNotice(null);
     if (!normalized) {
       setError("Nhập số điện thoại di động Việt Nam hợp lệ.");
       return;
     }
-    setBusy(true);
-    const probe = await probeLedger();
-    setBusy(false);
     setOtpSent(true);
-    if (!probe.connected) {
-      setError(probe.message + " Không gửi được OTP.");
-      return;
-    }
-    setError("Máy chủ đang chạy nhưng chưa phát OTP. Dùng bản trải nghiệm bên dưới, hoặc đợi nhà cung cấp (Pha D).");
+    setError("Chưa có nhà cung cấp OTP nên không gửi được mã. Dùng bản trải nghiệm bên dưới, hoặc đợi Pha D.");
   };
 
   const verifyOtp = () => {
@@ -190,7 +180,7 @@ export function LoginScreen() {
         <Heading
           align="center"
           title="Chào bạn"
-          subtitle="Đăng nhập bằng Google, Apple hoặc số điện thoại. Tài khoản nhà cung cấp chưa gắn — đừng nhầm với bản trải nghiệm."
+          subtitle="Đăng nhập bằng Google, Apple hoặc số điện thoại. Tài khoản nhà cung cấp chưa gắn, đừng nhầm với bản trải nghiệm."
         />
       </View>
       <Card style={styles.loginCard}>
@@ -237,16 +227,14 @@ export function LoginScreen() {
           />
         ) : null}
         <RudiButton
-          disabled={busy}
           label={otpSent ? "Xác nhận OTP" : "Gửi OTP"}
-          loading={busy}
-          onPress={() => void (otpSent ? verifyOtp() : sendOtp())}
+          onPress={() => (otpSent ? verifyOtp() : sendOtp())}
         />
         {error ? <Text style={[typography.caption, styles.authError, { color: colors.warn }]}>{error}</Text> : null}
         {providerNotice ? (
           <Text style={[typography.caption, { color: colors.inkSoft }]}>{providerNotice}</Text>
         ) : null}
-        <Pressable accessibilityRole="button" onPress={() => setError("Khôi phục mật khẩu cần nhà cung cấp OTP — chưa kết nối.")}>
+        <Pressable accessibilityRole="button" onPress={() => setError("Khôi phục mật khẩu cần nhà cung cấp OTP, hiện chưa kết nối.")}>
           <Text style={[typography.caption, { color: colors.accent }]}>Quên mật khẩu?</Text>
         </Pressable>
       </Card>
@@ -254,7 +242,7 @@ export function LoginScreen() {
       <Inline style={styles.signupRow}>
         <Text style={[typography.label, { color: colors.inkSoft }]}>Chưa có tài khoản?</Text>
         <Pressable accessibilityRole="button" onPress={enterDemo}>
-          <Text style={[typography.label, { color: colors.accent }]}>Tạo ngay — bản trải nghiệm</Text>
+          <Text style={[typography.label, { color: colors.accent }]}>Tạo ngay (bản trải nghiệm)</Text>
         </Pressable>
       </Inline>
       <Text style={[typography.caption, styles.privacyText, { color: colors.inkFaint }]}>
@@ -291,7 +279,7 @@ export function PersonalizationScreen() {
       <ProgressBar value={100} />
       <Heading
         title="Cho Rủ Đi biết gu của bạn"
-        subtitle="Chọn ít nhất 3 sở thích. Lựa chọn lưu trên máy cho bản trải nghiệm này."
+        subtitle="Chọn ít nhất 3 sở thích. Lựa chọn chỉ sống trong lần mở app này."
       />
       <Card style={styles.preferenceCard}>
         <Text style={[typography.title, { color: colors.ink }]}>Bạn thường mê gì?</Text>

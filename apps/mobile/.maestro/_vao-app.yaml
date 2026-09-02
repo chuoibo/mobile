@@ -1,0 +1,25 @@
+# Shared entry: cold start → welcome → login → demo → personalization → tabs.
+# Deep links to inner routes do NOT work on native (see 91-deeplink-nuot.yaml),
+# so every flow walks the real path a person walks.
+appId: host.exp.exponent
+---
+- stopApp
+- openLink: exp://localhost:8095
+# Shared emulator: the first VIEW intent is sometimes dropped and Expo Go
+# stays on its own home. Fire it twice; the second is a no-op when the app is up.
+- openLink: exp://localhost:8095
+- extendedWaitUntil:
+    visible: "Rủ Đi thôi!"
+    timeout: 150000
+- tapOn: "Rủ Đi thôi!"
+- extendedWaitUntil:
+    visible: "Vào bản trải nghiệm Team Đà Lạt"
+    timeout: 30000
+- tapOn: "Vào bản trải nghiệm Team Đà Lạt"
+- extendedWaitUntil:
+    visible: "Tạo không gian của tôi"
+    timeout: 30000
+- tapOn: "Tạo không gian của tôi"
+- extendedWaitUntil:
+    visible: "Khám phá"
+    timeout: 30000

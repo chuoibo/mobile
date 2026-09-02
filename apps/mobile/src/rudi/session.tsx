@@ -82,6 +82,7 @@ type RudiSessionApi = RudiSession & {
   videoCount: number;
   checkInCount: number;
   enterDemo: () => void;
+  resetSession: () => void;
   setDisplayName: (value: string) => void;
   setBio: (value: string) => void;
   setInterests: (value: string[]) => void;
@@ -128,7 +129,7 @@ export function RudiSessionProvider({ children }: { children: ReactNode }) {
           amount: item.amount,
           personIndexes: [...item.people],
         })),
-        personCount: PEOPLE.length,
+        personIds: PEOPLE.map((person) => person.id),
         collectorIndex: COLLECTOR_INDEX,
       }),
     [state.assignments],
@@ -139,7 +140,7 @@ export function RudiSessionProvider({ children }: { children: ReactNode }) {
     [state.voteChoice, state.voteConfirmed],
   );
 
-  const api: RudiSessionApi = {
+  const api: RudiSessionApi = useMemo(() => ({
     ...state,
     money,
     photoCount: MEMORY_PHOTOS.length,
@@ -147,6 +148,12 @@ export function RudiSessionProvider({ children }: { children: ReactNode }) {
     checkInCount: state.checkedInIds.length,
     voteTallies,
     enterDemo: () => setState((current) => ({ ...current, enteredAsDemo: true })),
+    // "Đăng xuất" used to be `router.replace("/welcome")` and nothing else, so
+    // the next person to tap "Vào bản trải nghiệm" on the same process got the
+    // previous person's name, chat, check-ins and saved places. Measured on the
+    // emulator before this line existed. Seeding fresh is the whole of logout
+    // while there is no server session to end.
+    resetSession: () => setState(seed()),
     setDisplayName: (displayName) => setState((current) => ({ ...current, displayName })),
     setBio: (bio) => setState((current) => ({ ...current, bio })),
     setInterests: (interests) => setState((current) => ({ ...current, interests })),
@@ -254,7 +261,7 @@ export function RudiSessionProvider({ children }: { children: ReactNode }) {
     setProfileNotice: (profileNotice) => setState((current) => ({ ...current, profileNotice })),
     setInboxOpen: (inboxOpen) => setState((current) => ({ ...current, inboxOpen })),
     tripPath: (suffix) => `/trips/${DEMO_GROUP.id}${suffix}` as const,
-  };
+  }), [state, money, voteTallies]);
 
   return <RudiSessionContext.Provider value={api}>{children}</RudiSessionContext.Provider>;
 }

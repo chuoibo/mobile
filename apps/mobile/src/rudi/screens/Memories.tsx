@@ -3,7 +3,7 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 
-import { DEMO_GROUP, MEMORY_PHOTOS, MEMORY_VIDEO_INDEXES, PEOPLE, demoAssets } from "../fixtures";
+import { COLLECTOR_INDEX, DEMO_GROUP, MEMORY_PHOTOS, MEMORY_VIDEO_INDEXES, PEOPLE, demoAssets } from "../fixtures";
 import { useRudiSession } from "../session";
 import { typography, useRudiTheme } from "../theme";
 import {
@@ -60,7 +60,7 @@ function FeedPost({
           <View style={[styles.reactionDots, { backgroundColor: colors.accentSoft }]}>
             <Ionicons color={colors.accent} name="heart" size={13} />
           </View>
-          <Text style={[typography.caption, { color: colors.inkFaint }]}>Minh Anh và 12 người khác</Text>
+          <Text style={[typography.caption, { color: colors.inkFaint }]}>{PEOPLE[COLLECTOR_INDEX].name} và {PEOPLE.length - 1} người khác</Text>
         </Inline>
         <Text style={[typography.caption, { color: colors.inkFaint }]}>4 bình luận</Text>
       </View>

@@ -233,7 +233,7 @@ export function AiItineraryScreen() {
           </View>
         </Inline>
         <AiNote>
-          Lịch trình xếp theo quãng đường. Chỉnh bằng nút lên/xuống hoặc xoá slot — không kéo thả.
+          Lịch trình xếp theo quãng đường. Chỉnh bằng nút lên/xuống hoặc xoá slot. Chưa kéo thả được.
         </AiNote>
       </Card>
       <View style={styles.dayTabs}>
@@ -389,7 +389,7 @@ export function VotingScreen() {
           </View>
           <View style={styles.flex}>
             <Text style={[typography.title, { color: colors.ink }]}>Bạn đã chọn {VOTE_OPTIONS[session.voteChoice].name}</Text>
-            <Text style={[typography.caption, { color: colors.inkFaint }]}>Phiếu lưu trên máy. Chưa gửi lên máy chủ.</Text>
+            <Text style={[typography.caption, { color: colors.inkFaint }]}>Phiếu chỉ nằm trong lần mở app này. Chưa gửi lên máy chủ.</Text>
           </View>
         </Card>
       ) : null}

@@ -246,6 +246,11 @@
     // mid-flight while the report calls it the settled one. See
     // `tests/fixture-hai-man-giua.test.mjs`.
     "src/fixtures/thanh-toan-demo.ts",
+    // The cold-start URL decision. Compiled rather than read as source because
+    // the rule it carries is a negative one -- a URL that already names a route
+    // produces no navigation -- and the version that lived inside a `useEffect`
+    // could only be measured by driving an emulator.
+    "src/rudi/duong-vao.ts",
     "src/rudi/money.ts",
     "src/rudi/places.ts",
     "src/rudi/vote.ts"

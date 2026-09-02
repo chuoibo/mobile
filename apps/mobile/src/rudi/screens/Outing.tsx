@@ -279,7 +279,7 @@ export function CheckInScreen() {
     <RudiScreen testID="check-in-screen">
       <TopBar title="Check-in nhóm" right={<DemoBadge />} />
       <Card>
-        <Text style={[typography.h2, { color: colors.ink }]}>{arrived}/8 thành viên đã tới</Text>
+        <Text style={[typography.h2, { color: colors.ink }]}>{arrived}/{PEOPLE.length} thành viên đã tới</Text>
         <Text style={[typography.caption, { color: colors.inkFaint }]}>Quảng trường Lâm Viên · Đà Lạt</Text>
         <AvatarStack max={8} people={PEOPLE.filter((person) => session.checkedInIds.includes(person.id))} />
       </Card>
@@ -290,7 +290,7 @@ export function CheckInScreen() {
               {session.locationSharing ? "Đang chia sẻ vị trí đến 11:30" : "Chưa chia sẻ vị trí"}
             </Text>
             <Text style={[typography.caption, { color: colors.inkFaint }]}>
-              Opt-in, có hạn. Bản trải nghiệm không đọc GPS máy — chỉ lưu trạng thái trên máy.
+              Opt-in, có hạn. Bản trải nghiệm không đọc GPS máy, chỉ đổi trạng thái trong lần mở app này.
             </Text>
           </View>
         </Inline>
@@ -303,7 +303,7 @@ export function CheckInScreen() {
       <Card style={styles.mapPlaceholder}>
         <Ionicons color={colors.inkFaint} name="map-outline" size={36} />
         <Text style={[typography.label, { color: colors.ink }]}>Bản đồ Quảng trường Lâm Viên</Text>
-        <Text style={[typography.caption, { color: colors.inkFaint }]}>Placeholder — GPS thật là Pha D.</Text>
+        <Text style={[typography.caption, { color: colors.inkFaint }]}>Placeholder. GPS thật là Pha D.</Text>
       </Card>
       <View style={styles.section}>
         <Text style={[typography.title, { color: colors.ink }]}>Ai đã tới</Text>
@@ -360,7 +360,7 @@ export function CheckInScreen() {
       </Inline>
       {session.remindedPending ? (
         <Text style={[typography.caption, styles.demoNote, { color: colors.accent }]}>
-          Đã ghi nhắc {missing.length} người trên máy. Chưa gửi push.
+          Đã ghi nhắc {missing.length} người trong lần mở app này. Chưa gửi push.
         </Text>
       ) : null}
     </RudiScreen>

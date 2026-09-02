@@ -1,0 +1,28 @@
+# Production-readiness probe, not a PR claim. Nothing the session holds survives
+# a process restart: there is no AsyncStorage/SecureStore anywhere in the app.
+# Personalization prints "Lựa chọn lưu trên máy" and Group prints "Phiếu lưu
+# trên máy" — this flow measures whether that is true.
+#
+# Step 1 (via 05) puts "Still Cafe Đà Lạt" in the 18:00 slot.
+# Step 2 kills the process and walks back to the same itinerary.
+# Step 3 shows the seed value is back and the edit is gone.
+appId: host.exp.exponent
+---
+- runFlow: 05-them-quan-vao-lich.yaml
+- stopApp
+- runFlow: _vao-app.yaml
+- tapOn: "Tin nhắn"
+- scrollUntilVisible:
+    element:
+      text: "Xem lịch trình"
+    direction: DOWN
+    centerElement: true
+    timeout: 30000
+- tapOn: "Xem lịch trình"
+- extendedWaitUntil:
+    visible: "18:00"
+    timeout: 30000
+# The seed slot is back; the edit made before the restart is gone.
+- assertVisible: "BBQ bên hồ Tuyền Lâm"
+- assertNotVisible: "Still Cafe Đà Lạt"
+- takeScreenshot: 07-itinerary-reverted-after-restart

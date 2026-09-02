@@ -1,0 +1,17 @@
+# Deep link into an inner route. Before the fix this landed on the welcome
+# screen 4 times out of 4 on Expo Go 57 / SDK 57, because a synchronous guard
+# sat in front of an asynchronous `router.replace`. See src/rudi/duong-vao.ts.
+#
+# With the shipping `rudi://` scheme this is every invite, share and push link,
+# so it is asserted on the device rather than only in duong-vao's unit tests.
+appId: host.exp.exponent
+---
+- stopApp
+- openLink: exp://localhost:8095/--/settlements/team-da-lat
+- openLink: exp://localhost:8095/--/settlements/team-da-lat
+- extendedWaitUntil:
+    visible: "Quyết toán chuyến đi"
+    timeout: 150000
+- assertVisible: "3.840.000đ"
+- assertNotVisible: "Rủ Đi thôi!"
+- takeScreenshot: 91-deeplink-opens-settlement

@@ -57,9 +57,15 @@ export function ProfileScreen() {
         </Inline>
         <Text style={[typography.body, { color: colors.ink }]}>Đang xem với tư cách {session.displayName}.</Text>
         <Text style={[typography.caption, { color: colors.inkFaint }]}>
-          Đăng xuất đưa về welcome. Phiên này không ký máy chủ — mở lại là bản trải nghiệm Team Đà Lạt.
+          Đăng xuất xoá mọi lựa chọn của lần mở app này rồi đưa về welcome. Phiên này không ký máy chủ.
         </Text>
-        <RudiButton label="Đăng xuất bản trải nghiệm" onPress={() => router.replace("/welcome")} />
+        <RudiButton
+          label="Đăng xuất bản trải nghiệm"
+          onPress={() => {
+            session.resetSession();
+            router.replace("/welcome");
+          }}
+        />
       </RudiScreen>
     );
   }
@@ -72,7 +78,7 @@ export function ProfileScreen() {
         </Inline>
         <Field label="Tên" onChangeText={session.setDisplayName} value={session.displayName} />
         <Field label="Bio" multiline onChangeText={session.setBio} value={session.bio} />
-        <RudiButton label="Lưu trên máy" onPress={() => setPanel("home")} />
+        <RudiButton label="Xong" onPress={() => setPanel("home")} />
       </RudiScreen>
     );
   }
@@ -85,7 +91,7 @@ export function ProfileScreen() {
         </Inline>
         <Heading
           title={`${session.savedPlaceIds.length} địa điểm`}
-          subtitle="Danh sách trên máy. Mở Khám phá để thêm."
+          subtitle="Danh sách chỉ sống trong lần mở app này. Mở Khám phá để thêm."
         />
         <RudiButton label="Mở Khám phá" onPress={() => router.push("/explore")} />
       </RudiScreen>
@@ -193,7 +199,7 @@ export function ProfileScreen() {
         <ListRow
           icon="bookmark-outline"
           onPress={() => setPanel("saved")}
-          subtitle={`${session.savedPlaceIds.length} địa điểm trên máy`}
+          subtitle={`${session.savedPlaceIds.length} địa điểm trong lần mở app này`}
           title="Đã lưu"
         />
         <View style={[styles.rowLine, { backgroundColor: colors.line }]} />
@@ -215,17 +221,22 @@ export function FinanceScreen() {
   const picture = session.money;
   const mine = picture.spent[COLLECTOR_INDEX];
   const budget = DEMO_GROUP.budgetPerPersonVnd;
+  // Bar width only, never a sentence. ADR-0009 decision 4 and the Lead note of
+  // 2026-08-29 ban telling somebody a percentage of their own money; they do not
+  // ban drawing one. `tests/receipt.test.mjs` reads copy for an interpolated
+  // percent sign, which is the distinction, and it went red on the version that
+  // printed this number as a sentence.
   const budgetPct = budget === 0 ? 0 : (mine * 100 - ((mine * 100) % budget)) / budget;
   const owe = picture.transfers
     .filter((row) => row.fromIndex === COLLECTOR_INDEX)
     .reduce((sum, row) => sum + row.amount, 0);
-  const receive = COLLECTOR_INDEX === 0 ? picture.collectorReceives : 0;
+  const receive = picture.collectorReceives;
   const unpaid = picture.transfers.filter((row) => !session.paidFromIndexes.includes(row.fromIndex)).length;
   const transactions = [
     {
       icon: "restaurant-outline" as const,
       title: "Tiệm Nướng Xóm Lèo",
-      detail: "Phần bạn trong bill — cùng số với Quyết toán",
+      detail: "Phần bạn trong bill, cùng số với Quyết toán",
       amount: -picture.shares[COLLECTOR_INDEX],
       tone: "#F97316",
     },
@@ -239,7 +250,7 @@ export function FinanceScreen() {
     {
       icon: "arrow-down-circle-outline" as const,
       title: `${PEOPLE[COLLECTOR_INDEX].name} sẽ thu (bill)`,
-      detail: "Nháp — chưa confirm sổ",
+      detail: "Nháp, chưa confirm sổ",
       amount: receive,
       tone: "#00756B",
     },
@@ -264,7 +275,9 @@ export function FinanceScreen() {
         <View style={styles.budgetCopy}>
           <Text style={[typography.caption, { color: colors.inkFaint }]}>So với ngân sách vui chơi</Text>
           <Text style={[typography.caption, { color: colors.split }]}>
-            {String(budgetPct)}% của {formatVnd(budget)}
+            {mine <= budget
+              ? `Còn ${formatVnd(budget - mine)} trong ${formatVnd(budget)}`
+              : `Vượt ${formatVnd(mine - budget)} so với ${formatVnd(budget)}`}
           </Text>
         </View>
         <ProgressBar tone="split" value={budgetPct} />
@@ -333,7 +346,7 @@ export function FinanceScreen() {
       <Card style={styles.financeFootnote}>
         <Ionicons color={colors.split} name="calculator-outline" size={20} />
         <Text style={[typography.caption, styles.flex, { color: colors.inkSoft }]}>
-          Số trên màn này và Quyết toán cùng một phép tính nháp. Chưa confirm sổ cái — đây không phải số dư ngân hàng.
+          Số trên màn này và Quyết toán cùng một phép tính nháp. Chưa confirm sổ cái. Đây không phải số dư ngân hàng.
         </Text>
       </Card>
     </RudiScreen>

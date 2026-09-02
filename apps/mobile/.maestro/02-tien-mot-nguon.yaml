@@ -1,0 +1,39 @@
+# Core PR claim: settlement and finance derive from ONE integer-dong split.
+# Walked as a person walks it: tabs → Cá nhân → Tài chính → Quyết toán.
+# centerElement keeps the row clear of the bottom tab bar + FAB before tapping.
+appId: host.exp.exponent
+---
+- runFlow: _vao-app.yaml
+- tapOn: "Cá nhân"
+- scrollUntilVisible:
+    element:
+      text: "Tài chính của tôi"
+    direction: DOWN
+    centerElement: true
+    timeout: 30000
+- tapOn: "Tài chính của tôi"
+- extendedWaitUntil:
+    visible: "Cả chuyến 3.840.000đ · một bill Xóm Lèo 1.280.000đ. Không có dữ liệu tháng khác nên không hiện bộ lọc kỳ."
+    timeout: 30000
+# Minh Anh (collector, index 0): 173.750đ of the bill + 320.000đ of
+# homestay+xăng = 493.750đ. Hand-checked against BILL_ITEMS / OTHER_TRIP_ITEMS.
+- assertVisible: "493.750đ"
+- assertVisible: "1.106.250đ"
+- assertNotVisible: "2.840.000đ"
+- takeScreenshot: 02-finance
+- scrollUntilVisible:
+    element:
+      text: "Xem quyết toán"
+    direction: DOWN
+    centerElement: true
+    timeout: 30000
+- tapOn: "Xem quyết toán"
+- extendedWaitUntil:
+    visible: "Quyết toán chuyến đi"
+    timeout: 30000
+- assertVisible: "3.840.000đ"
+- assertVisible: "Gồm bill Xóm Lèo 1.280.000đ và phần còn lại 2.560.000đ (homestay + xăng)."
+# Same 1.106.250đ the finance screen printed → one source, not two constants.
+- assertVisible: "1.106.250đ"
+- assertNotVisible: "2.840.000đ"
+- takeScreenshot: 02-settlement

@@ -1,0 +1,29 @@
+# PR claim: "welcome → «Tìm hiểu thêm» không skip auth, Google báo chưa kết nối,
+# «Vào bản trải nghiệm» vào được".
+appId: host.exp.exponent
+---
+- stopApp
+- openLink: exp://localhost:8095
+- extendedWaitUntil:
+    visible: "Rủ Đi thôi!"
+    timeout: 120000
+- assertVisible: "Hẹn hội bạn. Rủ Đi lo phần còn lại."
+- tapOn: "Tìm hiểu thêm"
+- extendedWaitUntil:
+    visible: "Tìm nơi hợp cả hội"
+    timeout: 15000
+# "Tìm hiểu thêm" must page the carousel, NOT enter the app.
+- assertNotVisible: "Khám phá"
+- takeScreenshot: 01-welcome-page2
+- tapOn: "Rủ Đi thôi!"
+- extendedWaitUntil:
+    visible: "Chào bạn"
+    timeout: 30000
+- tapOn: "Tiếp tục với Google"
+- assertVisible: "Google chưa kết nối. Cần tài khoản OAuth (Pha D)."
+- takeScreenshot: 01-login-google-honest
+- tapOn: "Vào bản trải nghiệm Team Đà Lạt"
+- extendedWaitUntil:
+    visible: "Cho Rủ Đi biết gu của bạn"
+    timeout: 30000
+- takeScreenshot: 01-personalization

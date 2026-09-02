@@ -437,7 +437,7 @@ export function PlaceDetailScreen() {
                     icon="share-social-outline"
                     onPress={() =>
                       void Share.share({
-                        message: `${place.name} — ${place.subtitle}`,
+                        message: `${place.name}: ${place.subtitle}`,
                       })
                     }
                   />

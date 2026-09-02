@@ -1,0 +1,21 @@
+# Negative control. `scripts/mobile_native.sh` runs it separately, by name,
+# and treats a GREEN here as the whole table proving nothing.
+#
+# This flow MUST fail, and must fail on its LAST step —
+# a red canary that dies early proves the harness is broken, not that the
+# assertions bite. Everything before the final assert is the same path 02 walks.
+appId: host.exp.exponent
+---
+- runFlow: _vao-app.yaml
+- tapOn: "Cá nhân"
+- scrollUntilVisible:
+    element:
+      text: "Tài chính của tôi"
+    direction: DOWN
+    centerElement: true
+    timeout: 30000
+- tapOn: "Tài chính của tôi"
+- extendedWaitUntil:
+    visible: "Cả chuyến 3.840.000đ · một bill Xóm Lèo 1.280.000đ. Không có dữ liệu tháng khác nên không hiện bộ lọc kỳ."
+    timeout: 30000
+- assertVisible: "KHONG_BAO_GIO_CO_CHUOI_NAY_TREN_MAN"

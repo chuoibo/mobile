@@ -1,0 +1,28 @@
+# PR claim: "«Thêm vào Đà Lạt cuối tuần» đổi 18:00 thành quán vừa chọn".
+appId: host.exp.exponent
+---
+- runFlow: _vao-app.yaml
+- scrollUntilVisible:
+    element:
+      text: "Still Cafe Đà Lạt"
+    direction: DOWN
+    centerElement: true
+    timeout: 30000
+- tapOn: "Still Cafe Đà Lạt"
+- extendedWaitUntil:
+    visible: "Cà phê view đồi, không gian yên"
+    timeout: 30000
+- scrollUntilVisible:
+    element:
+      text: "Thêm vào Đà Lạt cuối tuần"
+    direction: DOWN
+    centerElement: true
+    timeout: 30000
+- tapOn: "Thêm vào Đà Lạt cuối tuần"
+# The button navigates straight to the itinerary.
+- extendedWaitUntil:
+    visible: "18:00"
+    timeout: 30000
+- assertVisible: "Still Cafe Đà Lạt"
+- assertNotVisible: "BBQ bên hồ Tuyền Lâm"
+- takeScreenshot: 05-itinerary-updated

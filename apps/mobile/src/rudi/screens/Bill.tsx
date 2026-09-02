@@ -3,13 +3,12 @@ import * as ImagePicker from "expo-image-picker";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ApiError, BASE_URL, scanReceipt } from "../../api";
 import { DEMO_PEOPLE } from "../../navigation/nhom-demo";
 import { BILL_ITEMS, COLLECTOR_INDEX, DEMO_GROUP, PEOPLE, demoAssets, formatVnd } from "../fixtures";
-import { probeLedger } from "../ledger";
 import { useRudiSession } from "../session";
 import { typography, useRudiTheme } from "../theme";
 import {
@@ -92,11 +91,6 @@ export function ReceiptReviewScreen() {
         return;
       }
       session.setReceiptPicked(true);
-      const probe = await probeLedger();
-      if (!probe.connected) {
-        setScanNote(probe.message + " Ảnh nằm trên máy; chưa gửi OCR.");
-        return;
-      }
       try {
         await scanReceipt(
           { uri: picked.assets[0].uri, bytes: picked.assets[0].fileSize ?? 0 },
@@ -262,8 +256,6 @@ export function OcrAssignmentScreen() {
 export function SettlementScreen() {
   const { colors } = useRudiTheme();
   const session = useRudiSession();
-  const [probeNote, setProbeNote] = useState("Đang kiểm tra máy chủ…");
-  const [connected, setConnected] = useState(false);
   const picture = session.money;
   const collector = PEOPLE[COLLECTOR_INDEX];
   const paidCount = session.paidFromIndexes.length;
@@ -271,18 +263,6 @@ export function SettlementScreen() {
   const paidSum = picture.transfers
     .filter((row) => session.paidFromIndexes.includes(row.fromIndex))
     .reduce((sum, row) => sum + row.amount, 0);
-
-  useEffect(() => {
-    let live = true;
-    void probeLedger().then((result) => {
-      if (!live) return;
-      setConnected(result.connected);
-      setProbeNote(result.message);
-    });
-    return () => {
-      live = false;
-    };
-  }, []);
 
   return (
     <RudiScreen tone="split" testID="settlement-screen">
@@ -296,8 +276,8 @@ export function SettlementScreen() {
         <Text style={[typography.caption, { color: colors.inkSoft }]}>
           Gồm bill Xóm Lèo {formatVnd(picture.billTotal)} và phần còn lại {formatVnd(picture.otherTotal)} (homestay + xăng).
         </Text>
-        <Text style={[typography.caption, { color: connected ? colors.split : colors.warn }]}>
-          {connected ? "Máy chủ sống — số dưới vẫn là nháp, chưa confirm sổ." : "Chưa nối sổ cái. Đang xem nháp trên máy."}
+        <Text style={[typography.caption, { color: colors.warn }]}>
+          Số dưới là nháp trên máy, chưa confirm vào sổ cái.
         </Text>
         <View style={styles.settlementStats}>
           <View style={styles.settlementStat}>
@@ -333,7 +313,6 @@ export function SettlementScreen() {
           Đã nhận {formatVnd(paidSum)} · còn {formatVnd(picture.collectorReceives - paidSum)}
         </Text>
       </Card>
-      <Text style={[typography.caption, { color: colors.inkFaint }]}>{probeNote}</Text>
       <SectionHeader title="Các khoản chuyển (chỉ bill Xóm Lèo)" />
       <View style={styles.transferList}>
         {picture.transfers.map((item) => {
@@ -367,14 +346,14 @@ export function SettlementScreen() {
       <Card style={styles.safetyNote}>
         <Ionicons color={colors.warn} name="shield-checkmark-outline" size={21} />
         <Text style={[typography.caption, styles.flex, { color: colors.inkSoft }]}>
-          “Đã trả” là xác nhận trong Rủ Đi, không phải bằng chứng ngân hàng. VietQR theo từng người nhận — chưa phát trên bản nháp này.
+          “Đã trả” là xác nhận trong Rủ Đi, không phải bằng chứng ngân hàng. VietQR theo từng người nhận, chưa phát trên bản nháp này.
         </Text>
       </Card>
       <RudiButton
         icon="notifications-outline"
         label={
           session.remindedPending
-            ? `Đã nhắc ${pendingCount} người trên máy`
+            ? `Đã nhắc ${pendingCount} người trong lần mở app này`
             : `Nhắc ${pendingCount} người đang chờ`
         }
         onPress={() => session.remindPending()}
