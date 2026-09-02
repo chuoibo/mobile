@@ -1,10 +1,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { COLLECTOR_INDEX, DEMO_GROUP, PEOPLE, demoAssets, formatVnd } from "../fixtures";
+import { BASE_URL } from "../../api";
+import { layTaiChinh, tinhTrangNo, type Finance } from "../../screens/ca-nhan/tai-chinh";
 import { noiLuu, noiLuuNgan } from "../luu-tru";
 import { useRudiSession } from "../session";
 import { typography, useRudiTheme } from "../theme";
@@ -215,7 +217,123 @@ export function ProfileScreen() {
   );
 }
 
+/**
+ * The finance screen, on the same switch as the settlement screen.
+ *
+ * These two are the pair the whole PR was about: they must never print two
+ * different totals for one trip. Wiring only ONE of them to the server would
+ * recreate exactly that defect, pointed the other way -- measured on the
+ * emulator, where the settlement screen showed the seeded group's 6.785.000đ
+ * while this one still showed the fixture's 3.840.000đ in the same launch.
+ */
 export function FinanceScreen() {
+  const session = useRudiSession();
+  if (session.nguon.kieu === "live") {
+    return <TaiChinhLive actorId={session.nguon.actorId} contextId={session.nguon.contextId} />;
+  }
+  return <TaiChinhNhap />;
+}
+
+/**
+ * `GET /people/{id}/finance`, printed.
+ *
+ * No arithmetic: the route's own docstring says `settled + outstanding == spend`
+ * is guaranteed by the ledger query that answers it, and deriving even one of
+ * the three here would be a second implementation of the same sum.
+ */
+function TaiChinhLive({ actorId, contextId }: { actorId: string; contextId: string }) {
+  const router = useRouter();
+  const { colors } = useRudiTheme();
+  const [du, setDu] = useState<Finance | null>(null);
+  const [loi, setLoi] = useState<string | null>(null);
+
+  useEffect(() => {
+    let song = true;
+    void layTaiChinh(actorId)
+      .then((ketQua) => {
+        if (song) setDu(ketQua);
+      })
+      .catch((error: unknown) => {
+        if (!song) return;
+        setLoi(error instanceof Error ? error.message : `Không đọc được tài chính tại ${BASE_URL}.`);
+      });
+    return () => {
+      song = false;
+    };
+  }, [actorId]);
+
+  if (loi !== null) {
+    return (
+      <RudiScreen tone="split" testID="finance-screen">
+        <TopBar title="Tài chính của tôi" />
+        <Card>
+          <Text style={[typography.title, { color: colors.warn }]}>Chưa đọc được sổ</Text>
+          <Text style={[typography.caption, { color: colors.inkSoft }]}>{loi}</Text>
+        </Card>
+      </RudiScreen>
+    );
+  }
+  if (du === null) {
+    return (
+      <RudiScreen tone="split" testID="finance-screen">
+        <TopBar title="Tài chính của tôi" />
+        <Text style={[typography.caption, { color: colors.inkFaint }]}>Đang đọc sổ…</Text>
+      </RudiScreen>
+    );
+  }
+  return (
+    <RudiScreen tone="split" testID="finance-screen">
+      <TopBar title="Tài chính của tôi" />
+      <Card style={styles.financeHero} tone="split">
+        <View style={styles.financeHeroTop}>
+          <View>
+            <Text style={[typography.caption, { color: colors.inkFaint }]}>Bạn đã chi</Text>
+            <Text style={[styles.financeMoney, { color: colors.ink }]}>{formatVnd(du.spend_vnd)}</Text>
+          </View>
+          <View style={[styles.walletIcon, { backgroundColor: colors.split }]}>
+            <Ionicons color={colors.splitInk} name="wallet" size={25} />
+          </View>
+        </View>
+        <Text style={[typography.caption, { color: colors.inkSoft }]}>
+          {du.expense_count} khoản chi trong {du.group_count} nhóm. Máy chủ tính lại từ sổ mỗi lần hỏi.
+        </Text>
+      </Card>
+      <Inline gap={10}>
+        <Card style={styles.financeMini}>
+          <View style={[styles.miniIcon, { backgroundColor: colors.accentSoft }]}>
+            <Ionicons color={colors.accent} name="arrow-up" size={19} />
+          </View>
+          <Text style={[typography.caption, { color: colors.inkFaint }]}>Còn phải trả</Text>
+          <Text style={[typography.money, { color: colors.warn }]}>{formatVnd(du.outstanding_vnd)}</Text>
+          <Text style={[typography.caption, { color: colors.inkFaint }]}>Đã trả {formatVnd(du.settled_vnd)}</Text>
+        </Card>
+        <Card style={styles.financeMini}>
+          <View style={[styles.miniIcon, { backgroundColor: colors.splitSoft }]}>
+            <Ionicons color={colors.split} name="arrow-down" size={19} />
+          </View>
+          <Text style={[typography.caption, { color: colors.inkFaint }]}>Sẽ nhận</Text>
+          <Text style={[typography.money, { color: colors.split }]}>{formatVnd(du.receivable_vnd)}</Text>
+          <Text style={[typography.caption, { color: colors.inkFaint }]}>Bạn đã ứng trước</Text>
+        </Card>
+      </Inline>
+      <View>
+        <SectionHeader
+          action="Xem quyết toán"
+          onAction={() => router.push(("/settlements/" + contextId) as never)}
+          title="Chi theo nhóm"
+        />
+      </View>
+      <Card style={styles.financeFootnote}>
+        <Ionicons color={colors.split} name="calculator-outline" size={20} />
+        <Text style={[typography.caption, styles.flex, { color: colors.inkSoft }]}>
+          {tinhTrangNo(du).cau} Số này đọc từ sổ cái, không phải số dư ngân hàng.
+        </Text>
+      </Card>
+    </RudiScreen>
+  );
+}
+
+function TaiChinhNhap() {
   const router = useRouter();
   const { colors } = useRudiTheme();
   const session = useRudiSession();

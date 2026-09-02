@@ -16,6 +16,7 @@ import {
 import { dangCoPhien, datPhienBearer, datXuLyMatPhien } from "../api";
 import { docPhienThoAsync, docTokenAsync, ghiPhienThoAsync, xoaPhienAsync, xoaTokenAsync } from "./kho";
 import { dongGoi, moGoi } from "./luu-tru";
+import { nguonHienTai, type Nguon } from "./nguon";
 import { draftPicture, type DraftPicture } from "./money";
 import { visibleVoteTallies } from "./vote";
 
@@ -95,6 +96,14 @@ type RudiSessionApi = RudiSession & {
    * IS a token, and the copy says so.
    */
   cheDo: "live" | "trai-nghiem";
+  /**
+   * The same decision with its reason attached, and the identity to read with.
+   *
+   * `cheDo` is what a badge needs; this is what a screen that actually loads
+   * data needs. Both come from `nguonHienTai`, so a screen cannot end up live
+   * while the badge says demo.
+   */
+  nguon: Nguon;
   /** Still reading the disk. Screens must not write over what has not arrived. */
   dangNapPhien: boolean;
   /**
@@ -142,7 +151,11 @@ const RudiSessionContext = createContext<RudiSessionApi | null>(null);
 export function RudiSessionProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<RudiSession>(seed);
   const [dangNapPhien, setDangNapPhien] = useState(true);
-  const [cheDo, setCheDo] = useState<"live" | "trai-nghiem">("trai-nghiem");
+  const [coPhien, setCoPhien] = useState(false);
+  // One decision, derived once. `cheDo` used to be its own piece of state,
+  // which is how a badge and a data loader end up disagreeing.
+  const nguon = useMemo(() => nguonHienTai(coPhien), [coPhien]);
+  const cheDo = nguon.kieu === "live" ? "live" : "trai-nghiem";
   const [luuTruSong, setLuuTruSong] = useState(false);
   const hen = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -171,11 +184,11 @@ export function RudiSessionProvider({ children }: { children: ReactNode }) {
     void docTokenAsync().then((token) => {
       if (!song) return;
       datPhienBearer(token);
-      setCheDo(token === null ? "trai-nghiem" : "live");
+      setCoPhien(token !== null);
     });
     datXuLyMatPhien(() => {
       void xoaTokenAsync();
-      setCheDo("trai-nghiem");
+      setCoPhien(false);
     });
     return () => {
       song = false;
@@ -222,6 +235,7 @@ export function RudiSessionProvider({ children }: { children: ReactNode }) {
   const api: RudiSessionApi = useMemo(() => ({
     ...state,
     cheDo,
+    nguon,
     dangNapPhien,
     luuTruSong,
     money,
@@ -348,7 +362,7 @@ export function RudiSessionProvider({ children }: { children: ReactNode }) {
     setProfileNotice: (profileNotice) => setState((current) => ({ ...current, profileNotice })),
     setInboxOpen: (inboxOpen) => setState((current) => ({ ...current, inboxOpen })),
     tripPath: (suffix) => `/trips/${DEMO_GROUP.id}${suffix}` as const,
-  }), [state, money, voteTallies, cheDo, dangNapPhien, luuTruSong]);
+  }), [state, money, voteTallies, cheDo, nguon, dangNapPhien, luuTruSong]);
 
   return <RudiSessionContext.Provider value={api}>{children}</RudiSessionContext.Provider>;
 }

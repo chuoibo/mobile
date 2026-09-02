@@ -96,3 +96,24 @@ test("nếu có profile đi http thì app.json phải khai cleartext, không đ�
     `${httpProfiles.join(", ")} đi http nhưng app.json chưa khai usesCleartextTraffic`,
   );
 });
+
+/* `EXPO_PUBLIC_RUDI_ACTOR` / `EXPO_PUBLIC_RUDI_CONTEXT` pin the app to ONE
+ * person in ONE group. They exist so a developer can point the RuDi screens at
+ * a seeded group on their own machine (`src/rudi/nguon.ts`), and they are
+ * inlined at bundle time -- so a build profile carrying them ships an app that
+ * shows everybody the same stranger's money.
+ *
+ * There is no legitimate value for them in a shippable profile, so unlike the
+ * API URL above this is not a "recorded gap" but a flat refusal. */
+test("không profile nào được ghim danh tính dev vào bản dựng", () => {
+  for (const profile of Object.keys(eas.build)) {
+    const env = eas.build[profile]?.env ?? {};
+    for (const bien of ["EXPO_PUBLIC_RUDI_ACTOR", "EXPO_PUBLIC_RUDI_CONTEXT"]) {
+      assert.equal(
+        bien in env,
+        false,
+        `${profile} ghim ${bien}: bản dựng sẽ hiện tiền của một người lạ cho mọi người`,
+      );
+    }
+  }
+});

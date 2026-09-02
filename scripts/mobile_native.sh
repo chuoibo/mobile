@@ -37,6 +37,9 @@ API_PORT="${MOBILE_API_PORT_NATIVE:-}"
 SERIAL="${ANDROID_SERIAL:-}"
 FLOWS=".maestro"
 KEEP=0
+LIVE=0
+ACTOR=""
+CONTEXT=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -45,9 +48,19 @@ while [ $# -gt 0 ]; do
     --serial) SERIAL="$2"; shift 2 ;;
     --flows) FLOWS="$2"; shift 2 ;;
     --keep) KEEP=1; shift ;;
+    --live) LIVE=1; shift ;;
+    --actor) ACTOR="$2"; shift 2 ;;
+    --context) CONTEXT="$2"; shift 2 ;;
     *) echo "tham số lạ: $1" >&2; exit 64 ;;
   esac
 done
+
+if [ "$LIVE" = 1 ]; then
+  [ -n "$ACTOR" ] && [ -n "$CONTEXT" ] \
+    || { echo "--live cần --actor <uuid> --context <uuid>" >&2; exit 64; }
+  [ -n "$API_PORT" ] \
+    || { echo "--live cần --api-port <cổng của API đã seed>" >&2; exit 64; }
+fi
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP="$REPO/apps/mobile"
@@ -138,6 +151,13 @@ fi
   if [ -n "$API_PORT" ]; then
     export EXPO_PUBLIC_API_URL="http://localhost:$API_PORT"
   fi
+  # Dev-actor mode. Inlined at bundle time, which is why it is set HERE and
+  # never in eas.json -- `tests/cau-hinh-ban-dung.test.mjs` refuses it there,
+  # because a shipped build carrying it shows everybody the same stranger's money.
+  if [ "$LIVE" = 1 ]; then
+    export EXPO_PUBLIC_RUDI_ACTOR="$ACTOR"
+    export EXPO_PUBLIC_RUDI_CONTEXT="$CONTEXT"
+  fi
   npx expo start --localhost --port "$PORT" > "$LOG" 2>&1
 ) &
 METRO_PID=$!
@@ -186,16 +206,53 @@ cd "$APP"
 BANG=0
 DA_CHAY=0
 DO_LIST=""
+HA_TANG=""
+
+# Một flow đỏ vì máy ảo rụng KHÔNG phải một flow đỏ vì app sai, và cổng nào
+# không phân biệt được hai cái đó sẽ dạy người đọc bỏ qua màu đỏ của nó.
+#
+# Đo ngày 2026-09-03: bốn flow liên tiếp đỏ với `io.grpc.StatusRuntimeException:
+# UNAVAILABLE` và `Command failed (tcp:46293): closed` — kết nối adb của Maestro
+# đứt giữa lượt, không có bước nào chạy, rồi những flow sau lại chạy bình thường.
+# Máy ảo này dùng chung với lane khác. Thử lại một lần; vẫn hạ tầng thì lượt đo
+# HẾT HẠN (mã 2), không phải đỏ.
+LOI_HA_TANG='StatusRuntimeException|Command failed \(tcp:|UNAVAILABLE|no devices/emulators found|device .* not found'
+
+chay_flow() {
+  local f="$1" ra rc
+  ra="$(mktemp)"
+  set +e; maestro test "$f" > "$ra" 2>&1; rc=$?; set -e
+  cat "$ra"
+  if [ "$rc" -ne 0 ] && grep -qE "$LOI_HA_TANG" "$ra"; then
+    rm -f "$ra"; return 99
+  fi
+  rm -f "$ra"; return "$rc"
+}
+
 for f in "$FLOWS"/*.yaml; do
   ten="$(basename "$f")"
   case "$ten" in
     _*)          continue ;;  # subflow, chạy qua runFlow chứ không tự chạy
     09-canary-*) continue ;;  # chạy riêng ở dưới, và nó PHẢI đỏ
+    # 20-* đọc dữ liệu THẬT: cần database đã seed và một danh tính được ghim.
+    # Bảng mặc định cố ý không có hai thứ đó, nên chạy nó ở đây sẽ đỏ vì thiếu
+    # môi trường chứ không phải vì app sai. `--live` chạy đúng và chỉ nhóm này.
+    20-*)        [ "$LIVE" = 1 ] || continue ;;
+    *)           [ "$LIVE" = 1 ] && continue ;;
   esac
   DA_CHAY=$((DA_CHAY + 1))
-  set +e; maestro test "$f"; rc=$?; set -e
+  set +e; chay_flow "$f"; rc=$?; set -e
+  if [ "$rc" -eq 99 ]; then
+    echo "  hạ tầng rụng ở $ten, thử lại một lần"
+    set +e; chay_flow "$f"; rc=$?; set -e
+  fi
+  if [ "$rc" -eq 99 ]; then HA_TANG="$HA_TANG $ten"; continue; fi
   if [ "$rc" -ne 0 ]; then BANG=1; DO_LIST="$DO_LIST $ten"; fi
 done
+
+# Nêu tên trước khi phán quyết: một flow không đo được mà im lặng thì bảng xanh
+# ở dưới đang nói về ít flow hơn người đọc tưởng.
+[ -z "$HA_TANG" ] || khong_do_duoc "máy ảo rụng ở:$HA_TANG (đã thử lại). Lượt đo này không kết luận được."
 
 # Danh sách nguồn RỖNG làm cổng tự tháo trong im lặng: không flow nào chạy thì
 # không flow nào đỏ, và vòng lặp ở trên đi qua sạch sẽ.

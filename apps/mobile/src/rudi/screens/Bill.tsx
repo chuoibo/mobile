@@ -3,10 +3,11 @@ import * as ImagePicker from "expo-image-picker";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ApiError, BASE_URL, scanReceipt } from "../../api";
+import { docQuyetToanLive, tenCua, type QuyetToanLive } from "../doc-live";
 import { DEMO_PEOPLE } from "../../navigation/nhom-demo";
 import { BILL_ITEMS, COLLECTOR_INDEX, DEMO_GROUP, PEOPLE, demoAssets, formatVnd } from "../fixtures";
 import { noiLuuNgan } from "../luu-tru";
@@ -254,7 +255,121 @@ export function OcrAssignmentScreen() {
   );
 }
 
+/**
+ * Two screens behind one name, and the switch is `nguon`, never a probe.
+ *
+ * The draft below is a picture of a fixture; the live one is a picture of a
+ * ledger. Deciding between them by asking whether a server happens to answer
+ * would let the two swap places with no action by the person holding the phone,
+ * which is the failure this whole seam exists to prevent. See `src/rudi/nguon.ts`.
+ */
 export function SettlementScreen() {
+  const session = useRudiSession();
+  if (session.nguon.kieu === "live") {
+    return <QuyetToanLive actorId={session.nguon.actorId} contextId={session.nguon.contextId} />;
+  }
+  return <QuyetToanNhap />;
+}
+
+/**
+ * The settlement as the ledger has it.
+ *
+ * Nothing here computes money. `/contexts/{id}/balances` recomputes the net and
+ * the minimal transfer set per request, and re-deriving either on the phone
+ * would be the second allocator this repo has already thrown out once.
+ */
+function QuyetToanLive({ actorId, contextId }: { actorId: string; contextId: string }) {
+  const { colors } = useRudiTheme();
+  const [du, setDu] = useState<QuyetToanLive | null>(null);
+  const [loi, setLoi] = useState<string | null>(null);
+
+  useEffect(() => {
+    let song = true;
+    void docQuyetToanLive(actorId, contextId, BASE_URL)
+      .then((ketQua) => {
+        if (song) setDu(ketQua);
+      })
+      .catch((error: unknown) => {
+        // The real sentence from the real failure. Falling back to the fixture
+        // here would answer a broken request with somebody else's money.
+        if (!song) return;
+        setLoi(
+          error instanceof ApiError
+            ? error.message
+            : `Không đọc được quyết toán tại ${BASE_URL}.`,
+        );
+      });
+    return () => {
+      song = false;
+    };
+  }, [actorId, contextId]);
+
+  if (loi !== null) {
+    return (
+      <RudiScreen tone="split" testID="settlement-screen">
+        <TopBar title="Quyết toán chuyến đi" />
+        <Card>
+          <Text style={[typography.title, { color: colors.warn }]}>Chưa đọc được sổ</Text>
+          <Text style={[typography.caption, { color: colors.inkSoft }]}>{loi}</Text>
+        </Card>
+      </RudiScreen>
+    );
+  }
+  if (du === null) {
+    return (
+      <RudiScreen tone="split" testID="settlement-screen">
+        <TopBar title="Quyết toán chuyến đi" />
+        <Text style={[typography.caption, { color: colors.inkFaint }]}>Đang đọc sổ…</Text>
+      </RudiScreen>
+    );
+  }
+  return (
+    <RudiScreen tone="split" testID="settlement-screen">
+      <TopBar title="Quyết toán chuyến đi" />
+      <Card style={styles.settlementHero} tone="split">
+        <View style={[styles.balanceIcon, { backgroundColor: colors.split }]}>
+          <Ionicons color={colors.splitInk} name="wallet" size={26} />
+        </View>
+        <Text style={[typography.caption, { color: colors.inkFaint }]}>
+          Tổng chi tiêu ({du.nguoi.length} người)
+        </Text>
+        <Text style={[styles.bigMoney, { color: colors.ink }]}>
+          {du.tongChuyen === null ? "Chưa có số" : formatVnd(du.tongChuyen)}
+        </Text>
+        <Text style={[typography.caption, { color: colors.inkSoft }]}>
+          {du.tongChuyen === null
+            ? "Máy chủ chưa có tổng cho nhóm này. Chuyến chưa kết thúc thì chưa vào recap, và chưa có số không phải là 0đ."
+            : "Số này máy chủ tính lại từ sổ mỗi lần hỏi."}
+        </Text>
+      </Card>
+      <SectionHeader title="Các khoản chuyển" />
+      <View style={styles.transferList}>
+        {du.chuyenTien.map((row) => (
+          <Card key={`${row.fromId}-${row.toId}`} style={styles.transfer}>
+            <View style={styles.flex}>
+              <Text style={[typography.label, { color: colors.ink }]}>
+                {tenCua(du.nguoi, row.fromId)} → {tenCua(du.nguoi, row.toId)}
+              </Text>
+              <Text style={[typography.caption, { color: colors.inkFaint }]}>Đề xuất, chưa phải nghĩa vụ</Text>
+            </View>
+            <Text style={[typography.money, { color: colors.split }]}>{formatVnd(row.amountVnd)}</Text>
+          </Card>
+        ))}
+      </View>
+      <Card style={styles.safetyNote}>
+        <Ionicons color={colors.warn} name="shield-checkmark-outline" size={21} />
+        <Text style={[typography.caption, styles.flex, { color: colors.inkSoft }]}>
+          {du.toiThieu
+            ? "Máy chủ chứng minh đây là danh sách chuyển ngắn nhất."
+            : "Danh sách này chưa được chứng minh là ngắn nhất."}{" "}
+          Nghĩa vụ chỉ tồn tại sau khi một đợt thu được publish.
+        </Text>
+      </Card>
+    </RudiScreen>
+  );
+}
+
+function QuyetToanNhap() {
   const { colors } = useRudiTheme();
   const session = useRudiSession();
   const picture = session.money;

@@ -262,6 +262,10 @@
     // dây mới trả lời được. Kèm cả cái seam chưa hiện thực, để «chưa làm» là
     // một sự thật có cổng gác chứ không phải một dòng TODO.
     "src/rudi/phien.ts",
+    // Màn này đọc số của ai. Compile vì luật nó mang là: chế độ live KHÔNG BAO
+    // GIỜ tự tới — phải có người gõ cấu hình vào. Một cổng đọc nguồn không phân
+    // biệt được "không thăm dò máy chủ" với "chưa kịp viết đoạn thăm dò".
+    "src/rudi/nguon.ts",
     "src/rudi/money.ts",
     "src/rudi/places.ts",
     "src/rudi/vote.ts"

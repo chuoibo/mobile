@@ -355,6 +355,15 @@ mobile-native: ## Lái app trên máy ảo Android thật qua Expo Go — PORT=,
 	  $(if $(PORT),--port $(PORT)) $(if $(SERIAL),--serial $(SERIAL)) \
 	  $(if $(API),--api-port $(API)) $(if $(KEEP),--keep)
 
+mobile-native-live: ## Như trên nhưng đọc DỮ LIỆU THẬT — cần ACTOR=, CONTEXT=, API= của một database đã seed
+	@# Bảng mặc định đo app với fixture, tức là app tự nhất quán. Lượt này ghim
+	@# một danh tính vào bundle rồi đối chiếu số trên màn với chính câu trả lời
+	@# của máy chủ. Hai biến EXPO_PUBLIC_RUDI_* chỉ sống ở đây; eas.json bị cấm
+	@# mang chúng, xem tests/cau-hinh-ban-dung.test.mjs.
+	@scripts/mobile_native.sh --live \
+	  --actor $(ACTOR) --context $(CONTEXT) --api-port $(API) \
+	  $(if $(PORT),--port $(PORT)) $(if $(SERIAL),--serial $(SERIAL)) $(if $(KEEP),--keep)
+
 bundle-check: ## Cây đang đứng có khớp origin/main không — hỏi TRƯỚC khi xuất bundle
 	@python3 scripts/check_tree_matches_main.py \
 	  $(if $(TREE),--tree $(TREE)) $(if $(REF),--ref $(REF)) \

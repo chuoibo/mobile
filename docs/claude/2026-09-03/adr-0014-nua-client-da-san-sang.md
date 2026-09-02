@@ -75,11 +75,29 @@ Ca âm bắt buộc phía server: phiên `member` gửi header hoặc body tự 
 
 ---
 
-## 4. Cảnh báo: có token chưa làm cho màn thành thật
+## 4. Cảnh báo: có token chưa làm cho MỌI màn thành thật
 
-`cheDo === "live"` hôm nay mới chỉ tắt cái nhãn. **Các màn RuDi vẫn đọc `fixtures.ts`.** Nối chúng vào 77 route đang chạy là việc riêng (M2 trong kế hoạch nhánh này), và nó phải đi **cùng** hoặc **sau** phiên, không trước — vì gần như mọi route đòi actor.
+**Đã nối (M2):** Quyết toán và Tài chính. Hai màn này ở chế độ live đọc
+`GET /contexts/{id}/balances`, `GET /contexts/{id}/recap`,
+`GET /contexts/{id}/members` và `GET /people/{id}/finance`, và không chạm
+`fixtures.ts` một dòng nào. Đo trên máy: `make mobile-native-live` với một
+database seed riêng — màn hiện `6.785.000đ` (chính `split_total_vnd` của máy chủ,
+không phải tổng do app cộng), `Ngọc → Minh 453.666đ`, `7 người`, và **không** có
+`3.840.000đ`, `Xóm Lèo`, `Minh Anh` hay nhãn «Dữ liệu demo».
 
-Nếu phiên vào trước mà màn chưa nối, hệ quả là màn bỏ nhãn «Dữ liệu demo» trong khi số vẫn là fixture. Đó là một lời nói dối mới, đúng loại mà cả nhánh này đang gỡ. **Cổng để chặn:** đừng để `DemoBadge` biến mất trên một màn chưa đọc máy chủ — hoặc nối màn trước, hoặc giữ nhãn theo từng màn thay vì theo `cheDo` toàn cục.
+**Chưa nối:** 19 màn còn lại. Khám phá, Lên plan, Tin nhắn, Bình chọn, Kỷ niệm,
+Album, Check-in, Thành tích vẫn đọc fixture ở cả hai chế độ.
+
+Đây chính là cái bẫy phải nhớ. Ngay trong lượt đo M2 nó đã xảy ra một lần: khi
+mới nối Quyết toán mà chưa nối Tài chính, cùng một lần mở app có màn hiện
+`6.785.000đ` của nhóm seed và màn kia hiện `3.840.000đ` của fixture — **đúng cái
+defect PR #512 được mở ra để sửa, chỉ quay ngược hướng.** Flow
+`20-du-lieu-that.yaml` giờ đi qua **cả hai** màn tiền trong một lượt vì lý do đó.
+
+**Luật cho người nối tiếp:** nối màn nào thì thêm assertion cho màn đó vào flow
+20 trong cùng một commit. Một màn tiền ở chế độ live mà vẫn đọc fixture là một
+lời nói dối, và nhãn «Dữ liệu demo» đã bị tắt nên không còn gì cảnh báo người
+đọc nữa.
 
 ---
 
