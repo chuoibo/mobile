@@ -170,7 +170,7 @@ Auth không được thành đường ghi tiền thứ hai.
 
 ## Hệ quả
 
-- Lead chấp nhận → Codex mở nhánh hiện thực (Work ID Lead đặt), PR riêng. Claude review theo ranh giới sở hữu; **không** tự review PR của chính mình. ADR-0007: verdict sống trên GitHub PR.
+- Lead chấp nhận → Codex mở nhánh hiện thực (Work ID Lead đặt), PR riêng. Verdict ADR-0007 sống trên GitHub PR; **không** tự review. Claude không đụng `api/` / `db/`.
 - Claude không gắn SecureStore / Bearer trước khi route cấp token có trên nhánh Codex đã merge hoặc đang review với contract đóng băng.
 - Pha C (API public TLS + EAS preview) phụ thuộc Pha B **đã có đổi-invite-đích-danh**, danh sách mời đóng. Không đẩy C xuống sau OAuth. Public + header giả vẫn ăn thì mở lỗ ra internet.
 - ADR-0006 không đổi: test xanh không phải bằng chứng hành vi người thật.
