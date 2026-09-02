@@ -3,10 +3,22 @@ import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { useState } from "react";
-import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { useRef, useState } from "react";
+import {
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from "react-native";
 
+import { chuanHoaSo } from "../../screens/vao-cua/danh-tinh";
 import { demoAssets } from "../fixtures";
+import { probeLedger } from "../ledger";
+import { useRudiSession } from "../session";
 import { typography, useRudiTheme } from "../theme";
 import {
   Card,
@@ -16,7 +28,6 @@ import {
   Heading,
   Inline,
   Logo,
-  Photo,
   ProgressBar,
   RudiButton,
   RudiScreen,
@@ -24,8 +35,44 @@ import {
   TopBar,
 } from "../ui";
 
+const WELCOME_PAGES = [
+  {
+    title: "Hẹn hội bạn. Rủ Đi lo phần còn lại.",
+    body: "Khám phá, lên plan, chia bill và giữ trọn mọi kỷ niệm trong một nơi.",
+  },
+  {
+    title: "Tìm nơi hợp cả hội",
+    body: "Gợi ý theo gu nhóm, khoảng cách và ngân sách. Bạn luôn được sửa trước khi chốt.",
+  },
+  {
+    title: "Chia bill từng đồng",
+    body: "Gán món, xem ai nợ ai. Số trên quyết toán và tài chính phải cùng một nguồn — không bịa sổ cái.",
+  },
+  {
+    title: "Giữ kỷ niệm của hội",
+    body: "Tường riêng, album chuyến đi, check-in khi tới nơi. Đây là không gian của nhóm bạn, không phải mạng xã hội mở.",
+  },
+] as const;
+
 export function WelcomeScreen() {
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const pager = useRef<ScrollView>(null);
+  const [page, setPage] = useState(0);
+  const copy = WELCOME_PAGES[page];
+
+  const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const next = Math.round(event.nativeEvent.contentOffset.x / Math.max(width, 1));
+    if (next !== page && next >= 0 && next < WELCOME_PAGES.length) setPage(next);
+  };
+
+  const learnMore = () => {
+    if (page < WELCOME_PAGES.length - 1) {
+      pager.current?.scrollTo({ x: (page + 1) * width, animated: true });
+      return;
+    }
+    pager.current?.scrollTo({ x: 0, animated: true });
+  };
 
   return (
     <RudiScreen bottomInset={0} contentStyle={styles.welcome} padded={false} scroll={false} testID="welcome-screen">
@@ -54,24 +101,35 @@ export function WelcomeScreen() {
           <View style={styles.taglineStroke} />
         </View>
         <View style={styles.welcomeBottom}>
-          <Text style={styles.heroTitle}>Hẹn hội bạn. Rủ Đi lo phần còn lại.</Text>
-          <Text style={styles.heroSubtitle}>
-            Khám phá, lên plan, chia bill và giữ trọn mọi kỷ niệm trong một nơi.
-          </Text>
-          <RudiButton icon="arrow-forward" label="Rủ Đi thôi!" onPress={() => router.push("/login")} />
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.replace("/explore")}
-            style={({ pressed }) => [styles.previewLink, pressed && styles.pressed]}
-        >
-            <Text style={styles.previewText}>Tìm hiểu thêm</Text>
-            <Ionicons color="#FFFFFF" name="chevron-forward" size={18} />
-        </Pressable>
-          <View style={styles.pager}>
-            <View style={styles.pagerActive} />
-            <View style={styles.pagerDot} />
-            <View style={styles.pagerDot} />
-            <View style={styles.pagerDot} />
+          <ScrollView
+            ref={pager}
+            horizontal
+            onMomentumScrollEnd={onScroll}
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+          >
+            {WELCOME_PAGES.map((item) => (
+              <View key={item.title} style={{ width, paddingHorizontal: 18 }}>
+                <Text style={styles.heroTitle}>{item.title}</Text>
+                <Text style={styles.heroSubtitle}>{item.body}</Text>
+              </View>
+            ))}
+          </ScrollView>
+          <View style={styles.welcomeActions}>
+            <RudiButton icon="arrow-forward" label="Rủ Đi thôi!" onPress={() => router.push("/login")} />
+            <Pressable
+              accessibilityRole="button"
+              onPress={learnMore}
+              style={({ pressed }) => [styles.previewLink, pressed && styles.pressed]}
+            >
+              <Text style={styles.previewText}>{page < WELCOME_PAGES.length - 1 ? "Tìm hiểu thêm" : "Xem lại từ đầu"}</Text>
+              <Ionicons color="#FFFFFF" name="chevron-forward" size={18} />
+            </Pressable>
+            <View style={styles.pager}>
+              {WELCOME_PAGES.map((item, index) => (
+                <View key={item.title} style={index === page ? styles.pagerActive : styles.pagerDot} />
+              ))}
+            </View>
           </View>
         </View>
       </View>
@@ -82,9 +140,47 @@ export function WelcomeScreen() {
 export function LoginScreen() {
   const router = useRouter();
   const { colors } = useRudiTheme();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const session = useRudiSession();
+  const [phone, setPhone] = useState("");
+  const [otp, setOtp] = useState("");
+  const [otpSent, setOtpSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [providerNotice, setProviderNotice] = useState<string | null>(null);
+
+  const normalized = chuanHoaSo(phone);
+
+  const sendOtp = async () => {
+    setError(null);
+    setProviderNotice(null);
+    if (!normalized) {
+      setError("Nhập số điện thoại di động Việt Nam hợp lệ.");
+      return;
+    }
+    setBusy(true);
+    const probe = await probeLedger();
+    setBusy(false);
+    setOtpSent(true);
+    if (!probe.connected) {
+      setError(probe.message + " Không gửi được OTP.");
+      return;
+    }
+    setError("Máy chủ đang chạy nhưng chưa phát OTP. Dùng bản trải nghiệm bên dưới, hoặc đợi nhà cung cấp (Pha D).");
+  };
+
+  const verifyOtp = () => {
+    setProviderNotice(null);
+    if (!otp.trim()) {
+      setError("Nhập mã OTP khi nhà cung cấp đã kết nối.");
+      return;
+    }
+    setError("OTP nhà cung cấp chưa kết nối. Không thể xác thực số thật trên bản này.");
+  };
+
+  const enterDemo = () => {
+    session.enterDemo();
+    router.push("/personalization");
+  };
 
   return (
     <RudiScreen contentStyle={styles.formScreen} testID="login-screen">
@@ -93,75 +189,77 @@ export function LoginScreen() {
         <Logo />
         <Heading
           align="center"
-          title="Chào mừng bạn quay lại"
-          subtitle="Đăng nhập để tiếp tục những cuộc vui còn dang dở."
+          title="Chào bạn"
+          subtitle="Đăng nhập bằng Google, Apple hoặc số điện thoại. Tài khoản nhà cung cấp chưa gắn — đừng nhầm với bản trải nghiệm."
         />
       </View>
       <Card style={styles.loginCard}>
-        <Field
-          autoCapitalize="none"
-          autoComplete="email"
-          icon="mail-outline"
-          keyboardType="email-address"
-          label="Email"
-          onChangeText={setEmail}
-          placeholder="Địa chỉ email"
-          value={email}
-        />
-        <Field
-          autoCapitalize="none"
-          icon="lock-closed-outline"
-          label="Mật khẩu"
-          onChangeText={setPassword}
-          placeholder="Ít nhất 8 ký tự"
-          secureTextEntry={!showPassword}
-          trailing={
-            <Pressable
-              accessibilityLabel={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
-              hitSlop={10}
-              onPress={() => setShowPassword((value) => !value)}
-            >
-              <Ionicons color={colors.inkFaint} name={showPassword ? "eye-off-outline" : "eye-outline"} size={21} />
-            </Pressable>
-          }
-          value={password}
-        />
-        <Pressable accessibilityRole="button" style={styles.forgotLink}>
-          <Text style={[typography.caption, { color: colors.accent }]}>Quên mật khẩu?</Text>
-        </Pressable>
         <RudiButton
-          disabled={!email || password.length < 3}
-          label="Đăng nhập"
-          onPress={() => router.push("/personalization")}
+          icon="logo-google"
+          label="Tiếp tục với Google"
+          onPress={() => {
+            setError(null);
+            setProviderNotice("Google chưa kết nối. Cần tài khoản OAuth (Pha D).");
+          }}
+          variant="outline"
+        />
+        <RudiButton
+          icon="logo-apple"
+          label="Tiếp tục với Apple"
+          onPress={() => {
+            setError(null);
+            setProviderNotice("Apple chưa kết nối. Trên iOS sẽ hiện sau khi có chứng chỉ.");
+          }}
+          variant="outline"
         />
         <View style={styles.orRow}>
           <View style={[styles.orLine, { backgroundColor: colors.line }]} />
-          <Text style={[typography.caption, { color: colors.inkFaint }]}>hoặc tiếp tục với</Text>
+          <Text style={[typography.caption, { color: colors.inkFaint }]}>hoặc số điện thoại</Text>
           <View style={[styles.orLine, { backgroundColor: colors.line }]} />
         </View>
-        <Inline gap={10}>
-          <RudiButton
-            full={false}
-            icon="logo-google"
-            label="Google"
-            style={styles.buttonRowItem}
-            variant="outline"
+        <Field
+          autoCapitalize="none"
+          icon="call-outline"
+          keyboardType="phone-pad"
+          label="Số điện thoại"
+          onChangeText={setPhone}
+          placeholder="Nhập số di động"
+          value={phone}
+        />
+        {otpSent ? (
+          <Field
+            icon="keypad-outline"
+            keyboardType="number-pad"
+            label="Mã OTP"
+            onChangeText={setOtp}
+            placeholder="6 số từ nhà cung cấp"
+            value={otp}
           />
-          <RudiButton
-            full={false}
-            icon="logo-apple"
-            label="Apple"
-            style={styles.buttonRowItem}
-            variant="outline"
-          />
-        </Inline>
+        ) : null}
+        <RudiButton
+          disabled={busy}
+          label={otpSent ? "Xác nhận OTP" : "Gửi OTP"}
+          loading={busy}
+          onPress={() => void (otpSent ? verifyOtp() : sendOtp())}
+        />
+        {error ? <Text style={[typography.caption, styles.authError, { color: colors.warn }]}>{error}</Text> : null}
+        {providerNotice ? (
+          <Text style={[typography.caption, { color: colors.inkSoft }]}>{providerNotice}</Text>
+        ) : null}
+        <Pressable accessibilityRole="button" onPress={() => setError("Khôi phục mật khẩu cần nhà cung cấp OTP — chưa kết nối.")}>
+          <Text style={[typography.caption, { color: colors.accent }]}>Quên mật khẩu?</Text>
+        </Pressable>
       </Card>
+      <RudiButton label="Vào bản trải nghiệm Team Đà Lạt" onPress={enterDemo} variant="soft" />
       <Inline style={styles.signupRow}>
         <Text style={[typography.label, { color: colors.inkSoft }]}>Chưa có tài khoản?</Text>
-        <Pressable accessibilityRole="button">
-          <Text style={[typography.label, { color: colors.accent }]}>Đăng ký ngay</Text>
+        <Pressable accessibilityRole="button" onPress={enterDemo}>
+          <Text style={[typography.label, { color: colors.accent }]}>Tạo ngay — bản trải nghiệm</Text>
         </Pressable>
       </Inline>
+      <Text style={[typography.caption, styles.privacyText, { color: colors.inkFaint }]}>
+        Tiếp tục nghĩa là bạn đồng ý Điều khoản và Chính sách bảo mật. Bản trải nghiệm không tạo tài khoản thật.
+      </Text>
     </RudiScreen>
   );
 }
@@ -180,8 +278,7 @@ const VIBES = ["Yên bình", "Náo nhiệt", "Ngoài trời", "Có gu", "Tiết 
 export function PersonalizationScreen() {
   const router = useRouter();
   const { colors } = useRudiTheme();
-  const [interests, setInterests] = useState<string[]>(["Ăn ngon", "Cafe chill", "Khám phá"]);
-  const [vibes, setVibes] = useState<string[]>(["Ngoài trời", "Có gu"]);
+  const session = useRudiSession();
 
   const toggle = (value: string, values: string[], setValues: (next: string[]) => void) => {
     void Haptics.selectionAsync();
@@ -193,21 +290,21 @@ export function PersonalizationScreen() {
       <TopBar right={<Text style={[typography.caption, { color: colors.inkFaint }]}>1/1</Text>} />
       <ProgressBar value={100} />
       <Heading
-        title="Cho RuDi biết gu của bạn"
-        subtitle="Chọn ít nhất 3 sở thích. Bạn luôn có thể thay đổi sau."
+        title="Cho Rủ Đi biết gu của bạn"
+        subtitle="Chọn ít nhất 3 sở thích. Lựa chọn lưu trên máy cho bản trải nghiệm này."
       />
       <Card style={styles.preferenceCard}>
         <Text style={[typography.title, { color: colors.ink }]}>Bạn thường mê gì?</Text>
         <Text style={[typography.caption, { color: colors.inkFaint }]}>Chọn mọi thứ khiến bạn muốn xách balo lên.</Text>
         <View style={styles.interestGrid}>
           {INTERESTS.map(([icon, label]) => {
-            const selected = interests.includes(label);
+            const selected = session.interests.includes(label);
             return (
               <Pressable
                 key={label}
                 accessibilityRole="checkbox"
                 aria-checked={selected}
-                onPress={() => toggle(label, interests, setInterests)}
+                onPress={() => toggle(label, session.interests, session.setInterests)}
                 style={({ pressed }) => [
                   styles.interest,
                   {
@@ -234,43 +331,43 @@ export function PersonalizationScreen() {
             <Chip
               key={vibe}
               label={vibe}
-              onPress={() => toggle(vibe, vibes, setVibes)}
-              selected={vibes.includes(vibe)}
+              onPress={() => toggle(vibe, session.vibes, session.setVibes)}
+              selected={session.vibes.includes(vibe)}
             />
           ))}
         </Inline>
       </View>
       <Spacer size={4} />
       <RudiButton
-        disabled={interests.length < 3}
+        disabled={session.interests.length < 3}
         icon="sparkles"
         label="Tạo không gian của tôi"
         onPress={() => router.replace("/explore")}
       />
       <Text style={[typography.caption, styles.privacyText, { color: colors.inkFaint }]}>
-        RuDi chỉ dùng lựa chọn này để cá nhân hóa gợi ý. Bạn kiểm soát dữ liệu của mình.
+        Rủ Đi chỉ dùng lựa chọn này để cá nhân hóa gợi ý trên máy. Chưa gửi lên máy chủ.
       </Text>
     </RudiScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  buttonRowItem: { flex: 1 },
   welcome: { flex: 1, paddingTop: 0 },
-  welcomeContent: { flex: 1, justifyContent: "space-between", paddingHorizontal: 18, paddingTop: 14, paddingBottom: 18 },
-  welcomeTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  welcomeContent: { flex: 1, justifyContent: "space-between", paddingTop: 14, paddingBottom: 18 },
+  welcomeTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 18 },
   welcomeLogo: { flexDirection: "row", alignItems: "center", gap: 8 },
   welcomeWordmark: { flexDirection: "row", alignItems: "center", gap: 4 },
   welcomeLogoMark: { width: 40, height: 40, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.18)", borderWidth: 1, borderColor: "rgba(255,255,255,0.34)", alignItems: "center", justifyContent: "center" },
   welcomeLogoMarkType: { color: "#FFFFFF", fontSize: 12, lineHeight: 11, fontStyle: "italic", fontWeight: "900", letterSpacing: -0.7, textAlign: "center" },
   welcomeLogoType: { color: "#FFFFFF", fontSize: 25, lineHeight: 30, fontStyle: "italic", fontWeight: "900", letterSpacing: -1.2 },
-  welcomeCenter: { alignItems: "center", marginTop: -15 },
+  welcomeCenter: { alignItems: "center", marginTop: -15, paddingHorizontal: 18 },
   welcomeBrand: { color: "#FFFFFF", fontSize: 76, lineHeight: 64, fontStyle: "italic", fontWeight: "900", letterSpacing: -4, textAlign: "center", transform: [{ rotate: "-4deg" }] },
   welcomeTagline: { color: "#FFFFFF", fontSize: 20, lineHeight: 25, fontWeight: "800", textAlign: "center", marginTop: 17 },
   taglineStroke: { width: 120, height: 4, borderRadius: 9, backgroundColor: "#FF9F1C", marginTop: 11, transform: [{ rotate: "-4deg" }] },
   welcomeBottom: { gap: 10 },
-  heroTitle: { color: "#FFFFFF", fontSize: 28, lineHeight: 33, fontWeight: "900", letterSpacing: -0.8 },
-  heroSubtitle: { color: "rgba(255,255,255,0.84)", fontSize: 14, lineHeight: 20, fontWeight: "600", maxWidth: 520, marginBottom: 3 },
+  welcomeActions: { paddingHorizontal: 18, gap: 10 },
+  heroTitle: { color: "#FFFFFF", fontSize: 28, lineHeight: 33, fontWeight: "900", letterSpacing: -0.8, minHeight: 70 },
+  heroSubtitle: { color: "rgba(255,255,255,0.84)", fontSize: 14, lineHeight: 20, fontWeight: "600", maxWidth: 520, marginBottom: 3, minHeight: 60 },
   previewLink: { minHeight: 50, borderWidth: 1, borderColor: "rgba(255,255,255,0.72)", borderRadius: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   previewText: { color: "#FFFFFF", fontSize: 14, fontWeight: "800" },
   pager: { flexDirection: "row", justifyContent: "center", gap: 7, paddingTop: 4 },
@@ -280,10 +377,10 @@ const styles = StyleSheet.create({
   formScreen: { gap: 20 },
   loginBrand: { alignItems: "center", gap: 20, marginTop: 3 },
   loginCard: { gap: 14, maxWidth: 560, width: "100%", alignSelf: "center" },
-  forgotLink: { alignSelf: "flex-end", minHeight: 30, justifyContent: "center" },
   orRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   orLine: { flex: 1, height: StyleSheet.hairlineWidth },
   signupRow: { justifyContent: "center", gap: 5 },
+  authError: { lineHeight: 18 },
   personalization: { maxWidth: 760 },
   preferenceCard: { gap: 8 },
   interestGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 7 },

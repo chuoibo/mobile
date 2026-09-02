@@ -623,7 +623,7 @@ export function AiNote({ children }: { children: ReactNode }) {
         <Ionicons color={colors.aiInk} name="sparkles" size={17} />
       </View>
       <View style={styles.flex}>
-        <Text style={[typography.caption, { color: colors.ai }]}>RuDi AI gợi ý</Text>
+        <Text style={[typography.caption, { color: colors.ai }]}>Rủ Đi AI gợi ý</Text>
         <Text style={[typography.label, styles.aiText, { color: colors.ink }]}>{children}</Text>
       </View>
     </View>

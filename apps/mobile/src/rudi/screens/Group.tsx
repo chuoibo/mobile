@@ -4,7 +4,8 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { DEMO_GROUP, ITINERARY, PEOPLE, PLACES } from "../fixtures";
+import { DEMO_GROUP, PEOPLE, PLACES, VOTE_PLACE_IDS } from "../fixtures";
+import { useRudiSession } from "../session";
 import { typography, useRudiTheme } from "../theme";
 import {
   AiNote,
@@ -62,14 +63,14 @@ function ChatBubble({
 export function GroupChatScreen({ embeddedInTabs = false }: { embeddedInTabs?: boolean } = {}) {
   const router = useRouter();
   const { colors } = useRudiTheme();
+  const session = useRudiSession();
   const [draft, setDraft] = useState("");
   const [attachmentOpen, setAttachmentOpen] = useState(false);
-  const [sentMessages, setSentMessages] = useState<string[]>([]);
 
   const sendMessage = () => {
     const message = draft.trim();
     if (!message) return;
-    setSentMessages((items) => [...items, message]);
+    session.sendChat(message);
     setDraft("");
     setAttachmentOpen(false);
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -135,7 +136,7 @@ export function GroupChatScreen({ embeddedInTabs = false }: { embeddedInTabs?: b
           />
         }
       />
-      <Card onPress={() => router.push(("/trips/" + DEMO_GROUP.id + "/timeline") as never)} style={styles.tripPin}>
+      <Card onPress={() => router.push(session.tripPath("/timeline") as never)} style={styles.tripPin}>
         <Photo height={74} radius={14} source={PLACES[2].image} style={styles.tripPinPhoto} />
         <View style={styles.tripPinText}>
           <Text style={[typography.caption, { color: colors.accent }]}>CHUYẾN ĐI SẮP TỚI</Text>
@@ -152,14 +153,14 @@ export function GroupChatScreen({ embeddedInTabs = false }: { embeddedInTabs?: b
       <View style={styles.messages}>
         <ChatBubble person={PEOPLE[1]} time="09:42">Cuối tuần tháng 10 đi Đà Lạt không mọi người?</ChatBubble>
         <ChatBubble person={PEOPLE[2]} time="09:44">Đi chứ! Tớ vote săn mây với BBQ nha 🌤️</ChatBubble>
-        <ChatBubble person={PEOPLE[0]} time="09:46" own>Để RuDi gom gu rồi lên lịch trình thử nhé.</ChatBubble>
+        <ChatBubble person={PEOPLE[0]} time="09:46" own>Để Rủ Đi gom gu rồi lên lịch trình thử nhé.</ChatBubble>
         <Card style={styles.aiChatCard} tone="ai">
           <View style={styles.aiChatHeader}>
             <View style={[styles.aiOrb, { backgroundColor: colors.ai }]}>
               <Ionicons color={colors.aiInk} name="sparkles" size={18} />
             </View>
             <View style={styles.flex}>
-              <Text style={[typography.title, { color: colors.ink }]}>RuDi đã phác một plan</Text>
+              <Text style={[typography.title, { color: colors.ink }]}>Rủ Đi đã phác một plan</Text>
               <Text style={[typography.caption, { color: colors.inkFaint }]}>3 ngày 2 đêm · trong ngân sách</Text>
             </View>
             <DemoBadge label="AI nháp" />
@@ -187,7 +188,7 @@ export function GroupChatScreen({ embeddedInTabs = false }: { embeddedInTabs?: b
             <RudiButton
               full={false}
               label="Xem lịch trình"
-              onPress={() => router.push(("/trips/" + DEMO_GROUP.id + "/itinerary") as never)}
+              onPress={() => router.push(session.tripPath("/itinerary") as never)}
               style={styles.flex}
               tone="ai"
             />
@@ -200,7 +201,7 @@ export function GroupChatScreen({ embeddedInTabs = false }: { embeddedInTabs?: b
           </Inline>
         </Card>
         <ChatBubble person={PEOPLE[3]} time="09:51">Plan xịn đó, mình bình chọn chỗ BBQ trước đi.</ChatBubble>
-        {sentMessages.map((message, index) => (
+        {session.chatMessages.map((message, index) => (
           <ChatBubble key={`${message}-${index}`} person={PEOPLE[0]} time="Bây giờ" own>
             {message}
           </ChatBubble>
@@ -213,7 +214,10 @@ export function GroupChatScreen({ embeddedInTabs = false }: { embeddedInTabs?: b
 export function AiItineraryScreen() {
   const router = useRouter();
   const { colors } = useRudiTheme();
+  const session = useRudiSession();
   const [activeDay, setActiveDay] = useState(0);
+  const days = session.itinerary;
+  const day = days[activeDay] ?? days[0];
 
   return (
     <RudiScreen tone="ai" testID="ai-itinerary-screen">
@@ -224,18 +228,18 @@ export function AiItineraryScreen() {
             <Ionicons color={colors.aiInk} name="map" size={25} />
           </View>
           <View style={styles.flex}>
-            <Text style={[typography.h2, { color: colors.ink }]}>{DEMO_GROUP.tripName}</Text>
+            <Text style={[typography.h2, { color: colors.ink }]}>{session.tripName}</Text>
             <Text style={[typography.caption, { color: colors.inkFaint }]}>17–19/10/2026 · 3 ngày 2 đêm</Text>
           </View>
         </Inline>
         <AiNote>
-          Lịch trình được xếp theo quãng đường và gu nhóm. Hãy chỉnh rồi xác nhận trước khi dùng.
+          Lịch trình xếp theo quãng đường. Chỉnh bằng nút lên/xuống hoặc xoá slot — không kéo thả.
         </AiNote>
       </Card>
       <View style={styles.dayTabs}>
-        {ITINERARY.map((day, index) => (
+        {days.map((item, index) => (
           <Chip
-            key={day.day}
+            key={item.day}
             label={"Ngày " + (index + 1)}
             onPress={() => setActiveDay(index)}
             selected={activeDay === index}
@@ -245,28 +249,36 @@ export function AiItineraryScreen() {
       </View>
       <Heading
         size="h2"
-        title={ITINERARY[activeDay].day}
-        subtitle={activeDay === 0 ? "Di chuyển nhẹ nhàng, dành nhiều thời gian bên nhau." : "Có thể kéo thả để đổi thứ tự."}
+        title={day.day}
+        subtitle={session.itineraryEditing ? "Đang chỉnh: lên, xuống hoặc xoá." : "Xem trước. Bấm Chỉnh lịch trình để sửa."}
       />
       <Card style={styles.timelineCard}>
-        {ITINERARY[activeDay].items.map(([time, title, icon, color], index) => (
-          <View key={time + title} style={styles.timelineItem}>
+        {day.items.map((slot, index) => (
+          <View key={slot.time + slot.title + index} style={styles.timelineItem}>
             <View style={styles.timelineRail}>
-              <View style={[styles.timelineDot, { backgroundColor: color }]}>
-                <Ionicons color="#FFFFFF" name={icon} size={16} />
+              <View style={[styles.timelineDot, { backgroundColor: slot.color }]}>
+                <Ionicons color="#FFFFFF" name={slot.icon as never} size={16} />
               </View>
-              {index < ITINERARY[activeDay].items.length - 1 ? (
+              {index < day.items.length - 1 ? (
                 <View style={[styles.timelineLine, { backgroundColor: colors.line }]} />
               ) : null}
             </View>
-            <Text style={[typography.caption, styles.timelineTime, { color: colors.inkFaint }]}>{time}</Text>
+            <Text style={[typography.caption, styles.timelineTime, { color: colors.inkFaint }]}>{slot.time}</Text>
             <View style={styles.timelineCopy}>
-              <Text style={[typography.label, { color: colors.ink }]}>{title}</Text>
+              <Text style={[typography.label, { color: colors.ink }]}>{slot.title}</Text>
               <Text style={[typography.caption, { color: colors.inkFaint }]}>
-                {index % 2 === 0 ? "Đã kiểm tra thời gian di chuyển" : "Có thể thay đổi"}
+                {slot.placeId ? "Đã gắn địa điểm" : "Có thể thay đổi"}
               </Text>
             </View>
-            <Ionicons color={colors.inkFaint} name="reorder-three-outline" size={21} />
+            {session.itineraryEditing ? (
+              <Inline gap={4}>
+                <IconButton accessibilityLabel="Lên" icon="chevron-up" onPress={() => session.moveItinerarySlot(activeDay, index, -1)} quiet />
+                <IconButton accessibilityLabel="Xuống" icon="chevron-down" onPress={() => session.moveItinerarySlot(activeDay, index, 1)} quiet />
+                <IconButton accessibilityLabel="Xóa" icon="trash-outline" onPress={() => session.removeItinerarySlot(activeDay, index)} quiet />
+              </Inline>
+            ) : (
+              <Ionicons color={colors.inkFaint} name="reorder-three-outline" size={21} />
+            )}
           </View>
         ))}
       </Card>
@@ -276,7 +288,7 @@ export function AiItineraryScreen() {
           <Text style={[typography.money, { color: colors.ink }]}>2.100.000đ</Text>
         </View>
         <View style={styles.budgetRight}>
-          <Text style={[typography.caption, { color: colors.ai }]}>Còn 400.000đ</Text>
+          <Text style={[typography.caption, { color: colors.ai }]}>Còn 400.000đ ngân sách</Text>
           <ProgressBar tone="ai" value={84} />
         </View>
       </Card>
@@ -284,7 +296,8 @@ export function AiItineraryScreen() {
         <RudiButton
           full={false}
           icon="create-outline"
-          label="Chỉnh lịch trình"
+          label={session.itineraryEditing ? "Xong chỉnh" : "Chỉnh lịch trình"}
+          onPress={() => session.setItineraryEditing(!session.itineraryEditing)}
           style={styles.flex}
           tone="ai"
           variant="outline"
@@ -293,7 +306,10 @@ export function AiItineraryScreen() {
           full={false}
           icon="checkmark-circle-outline"
           label="Dùng plan này"
-          onPress={() => router.replace(("/trips/" + DEMO_GROUP.id + "/timeline") as never)}
+          onPress={() => {
+            session.setItineraryEditing(false);
+            router.replace(session.tripPath("/timeline") as never);
+          }}
           style={styles.flex}
           tone="ai"
         />
@@ -302,36 +318,35 @@ export function AiItineraryScreen() {
   );
 }
 
-const VOTE_OPTIONS = [
-  { place: PLACES[0], votes: [0, 1, 2, 3], percent: 50 },
-  { place: PLACES[1], votes: [4, 5, 6], percent: 38 },
-  { place: PLACES[2], votes: [7], percent: 12 },
-];
+const VOTE_OPTIONS = VOTE_PLACE_IDS.map((id) => PLACES.find((place) => place.id === id)!);
 
 export function VotingScreen() {
   const { colors } = useRudiTheme();
-  const [selected, setSelected] = useState(0);
+  const session = useRudiSession();
+  const totalVotes = session.voteTallies.reduce((sum, n) => sum + n, 0);
 
   return (
     <RudiScreen testID="voting-screen">
       <TopBar title="Bình chọn" right={<DemoBadge />} />
       <Heading
         title="BBQ tối thứ Bảy ở đâu?"
-        subtitle="Mỗi người chọn một nơi. Bình chọn kết thúc lúc 20:00 hôm nay."
+        subtitle="Mỗi người chọn một nơi. Kết quả chỉ hiện sau khi bạn xác nhận."
       />
       <Inline gap={8}>
         <Chip icon="people-outline" label="8 đã xem" />
         <Chip icon="time-outline" label="Còn 3 giờ" selected />
       </Inline>
       <View style={styles.voteList}>
-        {VOTE_OPTIONS.map(({ place, votes, percent }, index) => {
-          const active = selected === index;
+        {VOTE_OPTIONS.map((place, index) => {
+          const active = session.voteChoice === index;
+          const votes = session.voteTallies[index];
+          const percent = session.voteConfirmed && totalVotes > 0 ? (votes * 100) / totalVotes : 0;
           return (
             <Pressable
               key={place.id}
               accessibilityRole="radio"
               aria-checked={active}
-              onPress={() => setSelected(index)}
+              onPress={() => session.setVoteChoice(index)}
               style={({ pressed }) => [
                 styles.voteOption,
                 {
@@ -350,26 +365,40 @@ export function VotingScreen() {
                   </View>
                   <Ionicons color={active ? colors.accent : colors.lineStrong} name={active ? "checkmark-circle" : "ellipse-outline"} size={25} />
                 </View>
-                <ProgressBar value={percent} />
-                <View style={styles.voteMeta}>
-                  <AvatarStack max={4} people={votes.map((vote) => PEOPLE[vote])} />
-                  <Text style={[typography.caption, { color: colors.inkSoft }]}>{votes.length} phiếu</Text>
-                </View>
+                {session.voteConfirmed ? (
+                  <>
+                    <ProgressBar value={percent} />
+                    <View style={styles.voteMeta}>
+                      <Text style={[typography.caption, { color: colors.inkSoft }]}>{votes} phiếu của bạn trên bản này</Text>
+                    </View>
+                  </>
+                ) : (
+                  <Text style={[typography.caption, { color: colors.inkFaint }]}>
+                    Kết quả ẩn đến khi xác nhận. Bản trải nghiệm chỉ ghi phiếu của bạn.
+                  </Text>
+                )}
               </View>
             </Pressable>
           );
         })}
       </View>
-      <Card style={styles.voteSummary}>
-        <View style={[styles.trophy, { backgroundColor: colors.accentSoft }]}>
-          <Ionicons color={colors.accent} name="trophy" size={25} />
-        </View>
-        <View style={styles.flex}>
-          <Text style={[typography.title, { color: colors.ink }]}>Tiệm Nướng Xóm Lèo đang dẫn đầu</Text>
-          <Text style={[typography.caption, { color: colors.inkFaint }]}>4/8 thành viên đã chọn phương án này.</Text>
-        </View>
-      </Card>
-      <RudiButton icon="checkmark" label="Xác nhận lựa chọn của tôi" />
+      {session.voteConfirmed && session.voteChoice !== null ? (
+        <Card style={styles.voteSummary}>
+          <View style={[styles.trophy, { backgroundColor: colors.accentSoft }]}>
+            <Ionicons color={colors.accent} name="trophy" size={25} />
+          </View>
+          <View style={styles.flex}>
+            <Text style={[typography.title, { color: colors.ink }]}>Bạn đã chọn {VOTE_OPTIONS[session.voteChoice].name}</Text>
+            <Text style={[typography.caption, { color: colors.inkFaint }]}>Phiếu lưu trên máy. Chưa gửi lên máy chủ.</Text>
+          </View>
+        </Card>
+      ) : null}
+      <RudiButton
+        disabled={session.voteChoice === null}
+        icon="checkmark"
+        label={session.voteConfirmed ? "Đã xác nhận" : "Xác nhận lựa chọn của tôi"}
+        onPress={() => session.confirmVote()}
+      />
     </RudiScreen>
   );
 }

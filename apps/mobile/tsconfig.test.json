@@ -245,6 +245,9 @@
     // prints "..." in every cell, and a detector would measure a screen caught
     // mid-flight while the report calls it the settled one. See
     // `tests/fixture-hai-man-giua.test.mjs`.
-    "src/fixtures/thanh-toan-demo.ts"
+    "src/fixtures/thanh-toan-demo.ts",
+    "src/rudi/money.ts",
+    "src/rudi/places.ts",
+    "src/rudi/vote.ts"
   ]
 }

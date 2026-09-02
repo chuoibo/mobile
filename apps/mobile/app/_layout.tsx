@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { Linking, Platform } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { RudiSessionProvider } from "../src/rudi/session";
 import { useRudiTheme } from "../src/rudi/theme";
 
 const LEGACY_FRAGMENT_ROUTES: Record<string, string> = {
@@ -43,6 +44,7 @@ export default function RootLayout() {
   // treatment that could blur the boundary between demo and live money data.
   return (
     <SafeAreaProvider>
+      <RudiSessionProvider>
       <StatusBar style={dark ? "light" : "dark"} />
       <LegacyFragmentAdapter />
       <Stack
@@ -66,6 +68,7 @@ export default function RootLayout() {
           options={{ animation: "slide_from_bottom", presentation: "modal" }}
         />
       </Stack>
+      </RudiSessionProvider>
     </SafeAreaProvider>
   );
 }

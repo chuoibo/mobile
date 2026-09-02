@@ -3,7 +3,8 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 
-import { DEMO_GROUP, PEOPLE, demoAssets } from "../fixtures";
+import { DEMO_GROUP, MEMORY_PHOTOS, MEMORY_VIDEO_INDEXES, PEOPLE, demoAssets } from "../fixtures";
+import { useRudiSession } from "../session";
 import { typography, useRudiTheme } from "../theme";
 import {
   Avatar,
@@ -12,7 +13,6 @@ import {
   Chip,
   DemoBadge,
   Field,
-  Heading,
   IconButton,
   Inline,
   Photo,
@@ -24,17 +24,6 @@ import {
   TopBar,
   widthPercent,
 } from "../ui";
-
-const MEMORY_PHOTOS = [
-  demoAssets.dalatFriends,
-  demoAssets.cafe,
-  demoAssets.road,
-  demoAssets.friends,
-  demoAssets.cafe,
-  demoAssets.dalatFriends,
-  demoAssets.friends,
-  demoAssets.road,
-];
 
 function FeedPost({
   personIndex,
@@ -100,6 +89,20 @@ function FeedPost({
 export function GroupWallScreen() {
   const router = useRouter();
   const { colors } = useRudiTheme();
+  const session = useRudiSession();
+  const [tab, setTab] = useState(0);
+
+  const onTab = (index: number) => {
+    if (index === 1) {
+      router.push(session.tripPath("/album") as never);
+      return;
+    }
+    if (index === 2) {
+      router.push(session.tripPath("/itinerary") as never);
+      return;
+    }
+    setTab(index);
+  };
 
   return (
     <RudiScreen testID="group-wall-screen">
@@ -119,54 +122,70 @@ export function GroupWallScreen() {
               <Text style={styles.wallTitle}>Team Đà Lạt</Text>
               <View style={styles.wallMeta}>
                 <AvatarStack max={5} people={PEOPLE} />
-                <Text style={styles.wallMetaText}>8 thành viên · 3 chuyến đi</Text>
+                <Text style={styles.wallMetaText}>
+                  {PEOPLE.length} thành viên · 1 chuyến đi
+                </Text>
               </View>
             </View>
           </PhotoShade>
         }
       />
+      <Segmented items={["Tường", "Album", "Kế hoạch", "Thành viên"]} onSelect={onTab} selected={tab} />
       <Card style={styles.memorySummary}>
-        <Pressable onPress={() => router.push(("/trips/" + DEMO_GROUP.id + "/album") as never)} style={styles.summaryItem}>
-          <Text style={[typography.money, { color: colors.accent }]}>{DEMO_GROUP.photos}</Text>
+        <Pressable onPress={() => router.push(session.tripPath("/album") as never)} style={styles.summaryItem}>
+          <Text style={[typography.money, { color: colors.accent }]}>{String(session.photoCount)}</Text>
           <Text style={[typography.caption, { color: colors.inkFaint }]}>ảnh</Text>
         </Pressable>
         <View style={[styles.verticalLine, { backgroundColor: colors.line }]} />
-        <Pressable onPress={() => router.push(("/trips/" + DEMO_GROUP.id + "/album") as never)} style={styles.summaryItem}>
-          <Text style={[typography.money, { color: colors.ai }]}>{DEMO_GROUP.videos}</Text>
+        <Pressable onPress={() => router.push(session.tripPath("/album") as never)} style={styles.summaryItem}>
+          <Text style={[typography.money, { color: colors.ai }]}>{String(session.videoCount)}</Text>
           <Text style={[typography.caption, { color: colors.inkFaint }]}>video</Text>
         </Pressable>
         <View style={[styles.verticalLine, { backgroundColor: colors.line }]} />
         <View style={styles.summaryItem}>
-          <Text style={[typography.money, { color: colors.split }]}>{DEMO_GROUP.checkIns}</Text>
+          <Text style={[typography.money, { color: colors.split }]}>{String(session.checkInCount)}</Text>
           <Text style={[typography.caption, { color: colors.inkFaint }]}>check-in</Text>
         </View>
       </Card>
-      <Card onPress={() => router.push("/moments/new")} style={styles.sharePrompt}>
-        <Avatar person={PEOPLE[0]} size={43} />
-        <View style={[styles.promptField, { backgroundColor: colors.ground, borderColor: colors.line }]}>
-          <Text style={[typography.label, { color: colors.inkFaint }]}>Chia sẻ khoảnh khắc với cả nhóm...</Text>
-        </View>
-        <View style={[styles.photoAction, { backgroundColor: colors.accentSoft }]}>
-          <Ionicons color={colors.accent} name="images-outline" size={21} />
-        </View>
-      </Card>
-      <SectionHeader
-        action="Mở album"
-        onAction={() => router.push(("/trips/" + DEMO_GROUP.id + "/album") as never)}
-        title="Chuyện của hội mình"
-      />
-      <FeedPost
-        caption="Sáng Đà Lạt lạnh nhưng cả hội vẫn dậy đúng giờ săn mây. Xứng đáng ghê! ☁️"
-        imageIndex={2}
-        personIndex={2}
-        time="2 giờ"
-      />
-      <FeedPost
-        caption="Một chiếc ảnh đủ 8 người sau bao lần hẹn mãi mới đủ mặt 🌿"
-        imageIndex={0}
-        personIndex={1}
-        time="Hôm qua"
-      />
+      {tab === 3 ? (
+        <Card style={styles.post}>
+          {PEOPLE.map((person) => (
+            <View key={person.id} style={styles.postHeader}>
+              <Avatar person={person} size={43} />
+              <Text style={[typography.label, { color: colors.ink }]}>{person.name}</Text>
+            </View>
+          ))}
+        </Card>
+      ) : (
+        <>
+          <Card onPress={() => router.push("/moments/new")} style={styles.sharePrompt}>
+            <Avatar person={PEOPLE[0]} size={43} />
+            <View style={[styles.promptField, { backgroundColor: colors.ground, borderColor: colors.line }]}>
+              <Text style={[typography.label, { color: colors.inkFaint }]}>Chia sẻ khoảnh khắc với cả nhóm...</Text>
+            </View>
+            <View style={[styles.photoAction, { backgroundColor: colors.accentSoft }]}>
+              <Ionicons color={colors.accent} name="images-outline" size={21} />
+            </View>
+          </Card>
+          <SectionHeader
+            action="Mở album"
+            onAction={() => router.push(session.tripPath("/album") as never)}
+            title="Chuyện của hội mình"
+          />
+          <FeedPost
+            caption="Sáng Đà Lạt lạnh nhưng cả hội vẫn dậy đúng giờ săn mây. Xứng đáng ghê! ☁️"
+            imageIndex={2}
+            personIndex={2}
+            time="2 giờ"
+          />
+          <FeedPost
+            caption="Một chiếc ảnh đủ 8 người sau bao lần hẹn mãi mới đủ mặt 🌿"
+            imageIndex={0}
+            personIndex={1}
+            time="Hôm qua"
+          />
+        </>
+      )}
     </RudiScreen>
   );
 }
@@ -175,12 +194,13 @@ export function TripAlbumScreen() {
   const router = useRouter();
   const { colors } = useRudiTheme();
   const { width } = useWindowDimensions();
+  const session = useRudiSession();
   const [segment, setSegment] = useState(0);
   const [newestFirst, setNewestFirst] = useState(false);
   const [selecting, setSelecting] = useState(false);
   const [selectedPhotos, setSelectedPhotos] = useState<number[]>([]);
   const columns = width >= 820 ? 4 : width >= 560 ? 3 : 2;
-  const videoIndexes = [2, 6];
+  const videoIndexes: readonly number[] = MEMORY_VIDEO_INDEXES;
   const visiblePhotos = MEMORY_PHOTOS.map((photo, originalIndex) => ({ photo, originalIndex }))
     .filter(({ originalIndex }) =>
       segment === 0 || (segment === 1 ? !videoIndexes.includes(originalIndex) : videoIndexes.includes(originalIndex)),
@@ -221,17 +241,17 @@ export function TripAlbumScreen() {
       />
       <Card style={styles.albumStats}>
         <View style={styles.summaryItem}>
-          <Text style={[typography.money, { color: colors.ink }]}>{DEMO_GROUP.photos}</Text>
+          <Text style={[typography.money, { color: colors.ink }]}>{String(session.photoCount)}</Text>
           <Text style={[typography.caption, { color: colors.inkFaint }]}>ảnh</Text>
         </View>
         <View style={[styles.verticalLine, { backgroundColor: colors.line }]} />
         <View style={styles.summaryItem}>
-          <Text style={[typography.money, { color: colors.ink }]}>{DEMO_GROUP.videos}</Text>
+          <Text style={[typography.money, { color: colors.ink }]}>{String(session.videoCount)}</Text>
           <Text style={[typography.caption, { color: colors.inkFaint }]}>video</Text>
         </View>
         <View style={[styles.verticalLine, { backgroundColor: colors.line }]} />
         <View style={styles.summaryItem}>
-          <Text style={[typography.money, { color: colors.ink }]}>{DEMO_GROUP.checkIns}</Text>
+          <Text style={[typography.money, { color: colors.ink }]}>{String(session.checkInCount)}</Text>
           <Text style={[typography.caption, { color: colors.inkFaint }]}>check-in</Text>
         </View>
       </Card>
