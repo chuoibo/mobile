@@ -10,9 +10,11 @@
 
 ## Bối cảnh
 
-`get_actor` đọc `X-Actor-ID` / `X-Actor-Roles` / `X-Actor-Contexts` và tin chúng. Comment trong `deps.py` nói rõ: *gateway tin cậy phải ghi đè, đây không phải auth production.* Gateway đó không tồn tại. Client Expo gửi header thẳng. RuDi login trên nhánh `claude/p0-w-rudi-human-loop` (PR mobie session) là skip có ghi nhãn «bản trải nghiệm». `PUT /people/{id}` và `POST /identity/...` mint person-id từ số điện thoại, không cấp phiên.
+`get_actor` đọc `X-Actor-ID` / `X-Actor-Roles` / `X-Actor-Contexts` và tin chúng. Comment trong `deps.py` nói rõ: *gateway tin cậy phải ghi đè, đây không phải auth production.* Gateway đó không tồn tại. Client Expo gửi header thẳng. RuDi login trên nhánh `claude/p0-w-rudi-human-loop` (PR session #512) là skip có ghi nhãn «bản trải nghiệm». `PUT /people/{id}` và route identity mint person-id từ số điện thoại, không cấp phiên.
 
 Pha A (Claude, `apps/mobile/`) cố ý **không** giả OAuth. Pha B là việc tiếp theo, và máy chủ phải có trước client khi đụng route mới.
+
+Đây **không** phải ADR-0011. ADR-0011 là nhận diện khuôn mặt. OAuth nhà cung cấp (Google / Apple / OTP SMS) là Pha D, sau khi phiên nội bộ đã tồn tại.
 
 ## Quyết định
 
