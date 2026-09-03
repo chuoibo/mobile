@@ -18,6 +18,7 @@
 #   MOBILE_DATABASE_URL=... make mobile-native-dangnhap API=<cổng>
 appId: host.exp.exponent
 ---
+- runFlow: _bo-qua-dev-menu.yaml
 - extendedWaitUntil:
     visible: "Bạn được rủ đi"
     timeout: 150000
@@ -30,10 +31,33 @@ appId: host.exp.exponent
     timeout: 60000
 # Hai câu, không phải một chữ «thành công». Đăng nhập KHÁC vào nhóm: người vừa
 # nhận lời mời đầu tiên là `invited`, và máy chủ còn từ chối dữ liệu nhóm của họ.
-- assertVisible: "Đã đăng nhập. Nhóm còn phải duyệt thì bạn mới xem được dữ liệu nhóm."
+- assertVisible: "Đã đăng nhập. Bạn được mời đích danh, nên chỉ cần bạn đồng ý là vào nhóm."
 - assertNotVisible: "Xong, bạn đã ở trong nhóm"
-- takeScreenshot: 21-da-dang-nhap-cho-duyet
-- tapOn: "Về trang đầu"
+# Và câu SAI cũ phải chết hẳn. Nó bảo người ta ngồi đợi một lượt duyệt không bao
+# giờ tới, ngay cạnh cái nút cho họ vào ngay.
+- assertNotVisible: "Nhóm còn phải duyệt"
+- takeScreenshot: 21-da-dang-nhap-cho-dong-y
+
+# Bước từng KHÔNG TỒN TẠI. Trước `membership_id`, người được mời dừng ở đây vĩnh
+# viễn: không màn nào biết tên cái thẻ thành viên để mà bấm. Đây là chỗ «đăng
+# nhập được» trở thành «dùng được».
+- assertVisible: "Đồng ý vào nhóm"
+- tapOn: "Đồng ý vào nhóm"
 - extendedWaitUntil:
-    visible: "Rủ Đi thôi!"
-    timeout: 30000
+    visible: "Xong, bạn đã ở trong nhóm"
+    timeout: 60000
+- assertVisible: "Đã đăng nhập. Bạn đã ở trong nhóm."
+- takeScreenshot: 21-da-vao-nhom
+
+# Và vào tới nơi thật. Nhóm này vừa được dựng qua HTTP nên nó RỖNG — đó chính là
+# điều đáng khẳng định: số của fixture không được phép xuất hiện ở đây. Một app
+# rơi về fixture sau khi đăng nhập trông y hệt một app chạy đúng, chỉ khác là nó
+# đang kể chuyện của tám người không có thật.
+- tapOn: "Vào nhóm"
+- extendedWaitUntil:
+    visible: "Khám phá"
+    timeout: 60000
+- assertNotVisible: "Dữ liệu demo"
+- assertNotVisible: "3.840.000đ"
+- assertNotVisible: "Xóm Lèo"
+- takeScreenshot: 21-trong-nhom-that

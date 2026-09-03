@@ -45,7 +45,7 @@
  */
 
 import { chiTietLoi } from "../../ui/loi-tren-man";
-import { headerNguoiGoi } from "../../api";
+import { headerNguoiGoi } from "../../danh-tinh";
 import { parsePlace, PLACES_BASE_URL, type Category, type Place } from "./places";
 
 /** The server's own cap (`app/places/search.py`, `MAX_QUERY_CHARS`). Mirrored,

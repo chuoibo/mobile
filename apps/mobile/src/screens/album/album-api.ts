@@ -18,7 +18,8 @@
  * before it looks an outing up, so a stranger gets the same 403 whether the
  * outing id is real or invented.
  */
-import { BASE_URL, headerNguoiGoi } from "../../api";
+import { BASE_URL } from "../../api";
+import { headerNguoiGoi } from "../../danh-tinh";
 
 /** One photograph inside an album, pointing at the memory wall's own URL.
  *

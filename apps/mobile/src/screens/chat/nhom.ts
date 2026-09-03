@@ -72,7 +72,7 @@
  * lands, `thanNhuSeed` should go and `JSON.stringify` should come back.
  */
 
-import { headerNguoiGoi } from "../../api";
+import { headerNguoiGoi } from "../../danh-tinh";
 import { chiTietLoi } from "../../ui/loi-tren-man";
 import {
   DEMO_GROUP_NAME,

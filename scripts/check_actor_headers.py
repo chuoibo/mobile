@@ -600,6 +600,29 @@ def build_graph(files: list[Path]) -> list[Region]:
                 local[localname] = (target, origin)
         scope[path] = local
 
+    # Đi xuyên RE-EXPORT, không chỉ import.
+    #
+    # `scope[f][ten]` trỏ tới `(file, ten)` mà `import` nói. Nếu file đó không
+    # ĐỊNH NGHĨA cái tên ấy mà chỉ chuyền tiếp — `import { x } from "./y";
+    # export { x };` — thì đích tra vào `index` là rỗng, cạnh không hình thành,
+    # và mọi hàm gọi `x` đọc thành "không gửi actor".
+    #
+    # Xảy ra thật ngày 2026-09-03: `headerNguoiGoi` phải rời `api.ts` sang một
+    # file lá `danh-tinh.ts` để gỡ vòng `api.ts -> participants.ts ->
+    # chat/tin-nhan.ts -> api.ts`, `api.ts` re-export nó, và cổng này buộc tội
+    # tám module một lúc — trong khi tất cả đều gửi đủ. Bám theo tới nơi định
+    # nghĩa thật, có chặn vòng để một chuỗi re-export vòng tròn không treo.
+    for f, ten_map in scope.items():
+        for ten, dich in list(ten_map.items()):
+            da_qua = {(f, ten)}
+            while dich not in index and dich[1] in scope.get(dich[0], {}):
+                tiep = scope[dich[0]][dich[1]]
+                if tiep == dich or tiep in da_qua:
+                    break
+                da_qua.add(dich)
+                dich = tiep
+            ten_map[ten] = dich
+
     all_regions = [r for regions in per_file.values() for r in regions]
 
     # Edges. A name is a callee when it appears in call position, which keeps
@@ -859,6 +882,39 @@ CANARY_GOOD = CANARY_BAD.replace(
 # Hình dạng ở đây được giữ ĐÚNG như bản gốc, kể cả thứ tự: hằng, rồi hàm dựng
 # header KHÔNG chứa dấu `=` nào, rồi một chữ ký có `=>`. Đổi thứ tự đó là canary
 # thôi tái lập.
+# Re-export phải đi xuyên được. Hai file, và cái thứ hai chỉ chuyền tiếp.
+#
+# Đo ngày 2026-09-03: `headerNguoiGoi` phải rời `api.ts` sang file lá
+# `danh-tinh.ts` để gỡ `Require cycle: api.ts -> participants.ts ->
+# chat/tin-nhan.ts -> api.ts`. `api.ts` re-export nó, mọi màn vẫn import từ
+# `./api` như cũ — và cổng này buộc tội tám module một lúc, vì `(api.ts,
+# headerNguoiGoi)` không còn là một vùng nào cả. Client đúng, cổng đỏ.
+CANARY_REEXPORT = {
+    "danh-tinh.ts": """
+export function headerNguoiGoi(actorId: string): Record<string, string> {
+  return { "X-Actor-ID": actorId };
+}
+""",
+    "api.ts": """
+import { headerNguoiGoi } from "./danh-tinh";
+export { headerNguoiGoi };
+""",
+    "man.ts": """
+import { headerNguoiGoi } from "./api";
+const BASE = "http://x";
+export async function docNhom(actorId: string, ctx: string): Promise<void> {
+  await fetch(`${BASE}/contexts/${ctx}/members`, { headers: headerNguoiGoi(actorId) });
+}
+""",
+}
+
+CANARY_REEXPORT_XAU = {
+    **CANARY_REEXPORT,
+    "man.ts": CANARY_REEXPORT["man.ts"].replace(
+        "headers: headerNguoiGoi(actorId)", "headers: { Accept: \"application/json\" }"
+    ),
+}
+
 CANARY_CONST_NUOT_HAM = """
 const BASE = "http://x";
 const SLUG = "minh";
@@ -948,6 +1004,8 @@ def selftest() -> int:
         ("canary mù/sạch", CANARY_GOOD, _blind_url, False),
         ("hằng nuốt hàm/sạch", CANARY_CONST_NUOT_HAM, _missing_actor_members, False),
         ("hằng nuốt hàm/xấu", CANARY_CONST_NUOT_HAM_XAU, _missing_actor_members, True),
+        ("re-export/sạch", CANARY_REEXPORT, _missing_actor_members, False),
+        ("re-export/xấu", CANARY_REEXPORT_XAU, _missing_actor_members, True),
     ):
         tmp = Path(tempfile.mkdtemp(prefix="actor-canary-"))
         # Cố ý KHÔNG ghi vào CLIENT_DIR. `build_graph` nhận thẳng danh sách file
@@ -955,10 +1013,15 @@ def selftest() -> int:
         # vào đó và cây client thật bẩn trong lúc mỗi lượt gate chạy, đủ để bộ
         # đọc của lane khác thấy và buộc tội sản phẩm. Thư mục tạm này vốn đã
         # được tạo sẵn ở dòng trên mà không ai dùng — đây là chỗ nó phải dùng.
-        target = tmp / "__actor_canary__.ts"
+        # `source` là một chuỗi (một file) hoặc dict {tên: nguồn} khi canary
+        # nói về QUAN HỆ giữa các file — re-export chẳng hạn, thứ không tồn tại
+        # bên trong một file đơn.
+        nguon = source if isinstance(source, dict) else {"__actor_canary__.ts": source}
+        targets = [tmp / ten for ten in nguon]
         try:
-            target.write_text(source, encoding="utf-8")
-            regions = build_graph([target])
+            for duong, than in zip(targets, nguon.values()):
+                duong.write_text(than, encoding="utf-8")
+            regions = build_graph(targets)
             got = probe(regions)
             mark = "ĐẠT" if got == want_violation else "HỎNG"
             if got != want_violation:
@@ -969,7 +1032,8 @@ def selftest() -> int:
                 f"(mong đợi {'có' if want_violation else 'không có'})"
             )
         finally:
-            target.unlink(missing_ok=True)
+            for duong in targets:
+                duong.unlink(missing_ok=True)
             shutil.rmtree(tmp, ignore_errors=True)
 
     print()

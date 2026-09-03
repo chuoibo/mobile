@@ -13,7 +13,8 @@
  * parts worth testing -- the date range, the stop summary, the failure text --
  * are testable here without rendering anything.
  */
-import { BASE_URL, headerNguoiGoi } from "../../api";
+import { BASE_URL } from "../../api";
+import { headerNguoiGoi } from "../../danh-tinh";
 import { DEMO_GROUP_NAME } from "../../navigation/nhom-demo";
 // Read from the chat lane's module, never edited here. It is the one place the
 // seed's `uuid5` key derivation is implemented on this side, and a second copy

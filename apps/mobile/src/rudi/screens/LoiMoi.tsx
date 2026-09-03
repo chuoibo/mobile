@@ -34,21 +34,27 @@ import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 
 import { ApiError, thongDiepNguoiDoc } from "../../api";
-import { doiLoiMoiLayPhien } from "../../phien";
+import { doiLoiMoiLayPhien, vaoNhom, type Phien } from "../../phien";
 import { cauSauKhiNhan } from "../../screens/len-plan/NhanLoiMoi";
 import { layLoiMoiDen } from "../loi-moi-den";
+import { useRudiSession } from "../session";
 import { typography, useRudiTheme } from "../theme";
 import { Card, Field, Heading, RudiButton, RudiScreen, TopBar } from "../ui";
 
 type Trang =
   | { pha: "cho-ma" }
   | { pha: "dang-doi" }
-  | { pha: "xong"; state: "invited" | "active" | "left" }
+  | { pha: "xong"; phien: Phien }
+  | { pha: "dang-vao" ; phien: Phien }
   | { pha: "hong"; loi: string };
 
 export function LoiMoiScreen() {
   const router = useRouter();
   const { colors } = useRudiTheme();
+  // Signing in writes the disk and the bearer; only the provider can put the
+  // session into force for the screens already mounted. Without this the
+  // person lands on the group and reads fixtures until they restart the app.
+  const { datPhien } = useRudiSession();
   const [ma, setMa] = useState("");
   const [trang, setTrang] = useState<Trang>({ pha: "cho-ma" });
 
@@ -68,7 +74,8 @@ export function LoiMoiScreen() {
     setTrang({ pha: "dang-doi" });
     try {
       const phien = await doiLoiMoiLayPhien(sach);
-      setTrang({ pha: "xong", state: phien.membership_state });
+      datPhien(phien);
+      setTrang({ pha: "xong", phien });
     } catch (error) {
       setTrang({
         pha: "hong",
@@ -77,22 +84,59 @@ export function LoiMoiScreen() {
     }
   };
 
-  if (trang.pha === "xong") {
+  const dongY = async (phien: Phien) => {
+    setTrang({ pha: "dang-vao", phien });
+    try {
+      // The screen re-reads the SERVER's answer rather than assuming the press
+      // worked. `vaoNhom` writes back whatever state came home, so a row the
+      // server declined to move leaves the person where they actually are
+      // instead of on a screen that says they are in.
+      const daVao = await vaoNhom(phien);
+      datPhien(daVao);
+      setTrang({ pha: "xong", phien: daVao });
+    } catch (error) {
+      setTrang({
+        pha: "hong",
+        loi: error instanceof ApiError ? error.message : thongDiepNguoiDoc(0, null),
+      });
+    }
+  };
+
+  if (trang.pha === "xong" || trang.pha === "dang-vao") {
     // `active` is in; anything else is signed in and still waiting. The
     // session is real either way, so the app reloads itself through the entry
     // screen rather than dropping somebody into a group they cannot read.
-    const daVao = trang.state === "active";
+    const daVao = trang.phien.membership_state === "active";
+    const dangVao = trang.pha === "dang-vao";
     return (
       <RudiScreen testID="loi-moi-screen">
         <TopBar title="Lời mời" />
         <Heading
           title={daVao ? "Xong, bạn đã ở trong nhóm" : "Đã đăng nhập"}
-          subtitle={cauSauKhiNhan(trang.state === "active" ? "active" : "invited", "phien")}
+          subtitle={cauSauKhiNhan(daVao ? "active" : "invited", "phien")}
         />
-        <RudiButton
-          label={daVao ? "Vào nhóm" : "Về trang đầu"}
-          onPress={() => router.replace(daVao ? "/explore" : "/welcome")}
-        />
+        {daVao ? (
+          <RudiButton label="Vào nhóm" onPress={() => router.replace("/explore")} />
+        ) : (
+          <>
+            {/* The step that used to be missing, and it is a step rather than
+                something done for somebody. A member chose this person by
+                name; what is left is this person saying yes, and saying yes is
+                a press. Doing it silently on their behalf would put somebody
+                in a group without ever asking. */}
+            <RudiButton
+              disabled={dangVao}
+              label="Đồng ý vào nhóm"
+              loading={dangVao}
+              onPress={() => void dongY(trang.phien)}
+            />
+            <RudiButton
+              label="Để sau"
+              onPress={() => router.replace("/welcome")}
+              variant="ghost"
+            />
+          </>
+        )}
       </RudiScreen>
     );
   }

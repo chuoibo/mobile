@@ -30,7 +30,7 @@
  */
 
 import { chiTietLoi } from "../../ui/loi-tren-man";
-import { headerNguoiGoi } from "../../api";
+import { headerNguoiGoi } from "../../danh-tinh";
 
 declare const process: { env: Record<string, string | undefined> };
 

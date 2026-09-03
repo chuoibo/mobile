@@ -12,7 +12,8 @@
  * Split out of the component so the parts worth testing can be tested without
  * rendering anything: the money formatter, the sign, and the failure text.
  */
-import { BASE_URL, headerNguoiGoi } from "../../api";
+import { BASE_URL } from "../../api";
+import { headerNguoiGoi } from "../../danh-tinh";
 
 /** One confirmed arrival, as the server describes it. */
 export type Movement = {

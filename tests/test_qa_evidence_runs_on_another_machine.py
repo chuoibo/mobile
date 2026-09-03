@@ -338,7 +338,28 @@ XUAT = re.compile(
 # blind in the PASS direction: every name would silently look unexported, or
 # worse, a re-exported name would look missing. So finding one is a finding,
 # not a shrug. `cong-api.ts`-style barrels are the likely first arrival.
-XUAT_KHONG_DOC_DUOC = re.compile(r"^[ \t]*export\s*(?:\{|\*)", re.M)
+# Hình dạng mà bộ đọc này TỪ CHỐI đọc, và nó đúng khi từ chối: `export * from`
+# và `export { a } from "./b"` đều chuyền tiếp tên của module khác, nên đọc
+# ngây thơ thì mọi tên hoá ra không được xuất, còn nhún vai trả về rỗng thì mọi
+# tên hoá ra hợp lệ. Cả hai đều sai; từ chối mới đúng.
+#
+# Nhưng `export { a, b };` KHÔNG kèm `from` thì không mơ hồ: đó là khai báo
+# xuất lại những tên có ngay trong file. `XUAT_CUC_BO` đọc chúng, và
+# `XUAT_KHONG_DOC_DUOC` chỉ còn giữ đúng hai hình dạng barrel thật.
+#
+# Có thật: `api.ts` chuyển chỗ dựng header danh tính sang file lá
+# `danh-tinh.ts` để gỡ vòng `api.ts -> participants.ts -> chat/tin-nhan.ts ->
+# api.ts`, rồi `import` + `export { datTokenPhien, tokenPhienHienTai };`. Bốn
+# script QA lập tức đọc thành «không đọc được danh sách export» — mù toàn bộ
+# `api.ts` vì một dòng không hề chuyền tiếp gì.
+XUAT_KHONG_DOC_DUOC = re.compile(
+    r"^[ \t]*export\s*\*"
+    r"|^[ \t]*export\s*\{[^}]*\}\s*from\b",
+    re.M,
+)
+
+# `export { a, b as c };` — tên XUẤT là `a` và `c`, không phải `b`.
+XUAT_CUC_BO = re.compile(r"^[ \t]*export\s*\{(?P<than>[^}]*)\}\s*;", re.M)
 
 DIST_TEST = "apps/mobile/dist-test/"
 
@@ -402,6 +423,20 @@ def xuat_cua(dich: pathlib.Path, chi_gia_tri: bool) -> set[str] | None:
             ten.add("default")
         elif not (chi_gia_tri and m.group("loai") in {"type", "interface"}):
             ten.add(m.group("ten"))
+    for m in XUAT_CUC_BO.finditer(text):
+        for mau in m.group("than").split(","):
+            mau = mau.strip()
+            if not mau:
+                continue
+            # `b as c` xuất ra `c`. Lấy tên bên phải, không lấy bên trái.
+            phan = mau.split(" as ")
+            ten_xuat = phan[-1].strip()
+            if ten_xuat.startswith("type "):
+                if chi_gia_tri:
+                    continue
+                ten_xuat = ten_xuat[5:].strip()
+            if ten_xuat:
+                ten.add(ten_xuat)
     return ten or None
 
 
@@ -569,6 +604,36 @@ def test_canary_bat_duoc_dung_hinh_dang_da_lam_chet_hero_walk(tmp_path):
     # is not.
     assert ten_duoc_nhap("{ translated }") - co == {"translated"}
     assert not ten_duoc_nhap("{ translatedAsActor }") - co
+
+
+def test_xuat_lai_cuc_bo_van_doc_duoc(tmp_path):
+    """`export { a };` without a `from` is not a barrel, and must be read.
+
+    The distinction is the whole of it. `export { a } from "./b"` forwards
+    somebody else's name and cannot be resolved from this file alone; `export
+    { a };` names something declared right here. Refusing the second went blind
+    to the ENTIRE module -- four QA scripts reported "cannot read the export
+    list of api.ts" the day `api.ts` re-exported two functions it had moved to
+    a leaf module to break a require cycle.
+    """
+    cuc_bo = tmp_path / "cuc-bo.mjs"
+    cuc_bo.write_text(
+        'function a() {}\nfunction b() {}\nexport { a, b as c };\n', encoding="utf-8"
+    )
+    assert xuat_cua(cuc_bo, chi_gia_tri=False) == {"a", "c"}
+
+    # Và hai hình dạng barrel vẫn phải bị từ chối, nếu không nới rộng ở trên
+    # đã nới luôn cái nó không được nới.
+    barrel = tmp_path / "barrel2.mjs"
+    barrel.write_text('export { a } from "./b.mjs";\n', encoding="utf-8")
+    assert xuat_cua(barrel, chi_gia_tri=False) is None
+
+    # Một file vừa có khai báo thật vừa có re-export cục bộ: đọc được cả hai.
+    ca_hai = tmp_path / "ca-hai.mjs"
+    ca_hai.write_text(
+        'export function x() {}\nfunction y() {}\nexport { y };\n', encoding="utf-8"
+    )
+    assert xuat_cua(ca_hai, chi_gia_tri=False) == {"x", "y"}
 
 
 def test_canary_khong_doc_duoc_thi_khong_phai_dat(tmp_path):

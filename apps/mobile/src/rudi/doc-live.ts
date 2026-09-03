@@ -29,7 +29,8 @@
  * roster does not know falls back to a neutral label -- never to the fixture
  * roster, which would put a demo person's name on a real person's debt.
  */
-import { ApiError, docSoDu, headerNguoiGoi, thongDiepNguoiDoc } from "../api";
+import { ApiError, docSoDu, thongDiepNguoiDoc } from "../api";
+import { headerNguoiGoi } from "../danh-tinh";
 import { moNhomDaCo, type NhomState } from "../screens/chat/nhom";
 
 /** A person the server named, or admitted it could not name. */

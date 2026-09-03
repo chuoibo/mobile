@@ -41,8 +41,16 @@ import { fileURLToPath } from "node:url";
 
 const SRC = fileURLToPath(new URL("../src", import.meta.url));
 
-/** `src/api.ts` là nơi được phép — nó LÀ chỗ dựng. */
-const CHU_NHA = "api.ts";
+/** Chỗ duy nhất được phép dựng: `src/danh-tinh.ts`.
+ *
+ * Không phải `api.ts`, dù nó là nơi chín module gọi tới. `api.ts` chỉ
+ * re-export; chỗ DỰNG nằm ở một file lá vì đặt nó trong `api.ts` sinh ra vòng
+ * `api.ts -> participants.ts -> chat/tin-nhan.ts -> api.ts`, và module nạp
+ * giữa vòng thấy `headerNguoiGoi` là `undefined`. Sau khi tách, `api.ts` không
+ * còn viết tên header ở đâu ngoài comment — nên nó không cần miễn trừ, và
+ * không được miễn trừ.
+ */
+const CHU_NHA = new Set(["danh-tinh.ts"]);
 
 // Cố ý rộng: chỉ cần NHẮC tới tên header là phạm. Bản hẹp đầu tiên viết
 // `/"Authorization"\s*:/` và mù ngay với chính `src/api.ts`, nơi bearer được
@@ -70,7 +78,7 @@ test("chỉ src/api.ts được dựng header danh tính", () => {
   const pham = [];
   for (const duong of nguon(SRC)) {
     const ten = relative(SRC, duong);
-    if (ten === CHU_NHA) continue;
+    if (CHU_NHA.has(ten)) continue;
     const than = boComment(readFileSync(duong, "utf8"));
     if (HEADER_DANH_TINH.test(than)) pham.push(ten);
   }
@@ -90,11 +98,24 @@ test("chỉ src/api.ts được tự gắn Authorization", () => {
   const pham = [];
   for (const duong of nguon(SRC)) {
     const ten = relative(SRC, duong);
-    if (ten === CHU_NHA) continue;
+    if (CHU_NHA.has(ten)) continue;
     const than = boComment(readFileSync(duong, "utf8"));
     if (BEARER.test(than)) pham.push(ten);
   }
   assert.deepEqual(pham, [], `tự gắn Authorization ngoài api.ts:\n  ${pham.join("\n  ")}`);
+});
+
+test("danh-tinh.ts là LÁ: không import gì trong src/", () => {
+  // Đây là điều kiện làm cho việc tách file có nghĩa. Một import về `./api`
+  // hay `./screens/...` dựng lại đúng cái vòng vừa gỡ, và triệu chứng sẽ không
+  // phải một cảnh báo vàng mà là `headerNguoiGoi` bằng `undefined` ở module
+  // nào xui nạp giữa vòng — tức crash trên đúng đường mà cả bản vá này sinh ra
+  // để chữa. Metro nói thẳng nó trên màn hình máy ảo ngày 2026-09-03.
+  const than = readFileSync(join(SRC, "danh-tinh.ts"), "utf8");
+  const noiBo = [...than.matchAll(/^\s*import\s[^;]*?from\s+["'](\.[^"']+)["']/gm)].map(
+    (m) => m[1],
+  );
+  assert.deepEqual(noiBo, [], `danh-tinh.ts phải là lá, nhưng import: ${noiBo.join(", ")}`);
 });
 
 test("phép quét thật sự đọc được cây nguồn", () => {
@@ -103,8 +124,8 @@ test("phép quét thật sự đọc được cây nguồn", () => {
   // dạng «xanh vì chẳng chạy gì» mà repo này viết cổng để chặn.
   const tep = nguon(SRC);
   assert.equal(tep.length > 100, true, `chỉ đọc được ${tep.length} file nguồn`);
-  const api = tep.filter((d) => relative(SRC, d) === CHU_NHA);
-  assert.equal(api.length, 1, "không thấy src/api.ts");
+  const api = tep.filter((d) => relative(SRC, d) === "danh-tinh.ts");
+  assert.equal(api.length, 1, "không thấy src/danh-tinh.ts");
   // Và chỗ được phép thì thật sự có header — nếu không, regex đã trôi.
   assert.equal(HEADER_DANH_TINH.test(boComment(readFileSync(api[0], "utf8"))), true);
   assert.equal(BEARER.test(boComment(readFileSync(api[0], "utf8"))), true);

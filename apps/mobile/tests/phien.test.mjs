@@ -23,6 +23,7 @@ import {
   doiLoiMoiLayPhien,
   khoTrongBoNho,
   khoiPhucPhien,
+  vaoNhom,
 } from "../dist-test/phien.js";
 
 const NGUOI = "2bb00000-bbbb-4bbb-8bbb-0000b0000001";
@@ -64,12 +65,15 @@ function than(goi) {
 
 const NHOM = "1aa00000-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
+const THE_THANH_VIEN = "2bb00000-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+
 const PHIEN = {
   token: "tok-abc",
   person_id: NGUOI,
   context_id: NHOM,
   expires_at: new Date(Date.now() + 86_400_000).toISOString(),
   membership_state: "invited",
+  membership_id: THE_THANH_VIEN,
 };
 
 test.afterEach(() => {
@@ -180,6 +184,55 @@ test("phiên còn hạn mang theo nhóm của nó", async () => {
   const phien = await khoiPhucPhien(kho);
 
   assert.equal(phien?.context_id, NHOM);
+});
+
+test("bản ghi cũ không có thẻ thành viên cũng bị từ chối", async () => {
+  // Cùng lý do với `context_id` ngay trên. Một bản ghi viết trước khi máy chủ
+  // trả `membership_id` không đưa người `invited` đi đâu được: nút «Đồng ý vào
+  // nhóm» cần đúng cái id đó, và route duy nhất liệt kê thẻ thành viên lại nằm
+  // SAU chính cái thẻ đang chờ đồng ý. Giữ bản ghi ấy là để người ta ngồi mãi
+  // ở màn có một nút không bao giờ chạy được.
+  const kho = khoTrongBoNho();
+  const { membership_id: _bo, ...cu } = PHIEN;
+  await kho.ghi("rudi.phien", JSON.stringify(cu));
+
+  assert.equal(await khoiPhucPhien(kho), null);
+  assert.equal(tokenPhienHienTai(), null);
+});
+
+test("vào nhóm ghi lại TRẠNG THÁI CỦA MÁY CHỦ, không tự đặt là active", async () => {
+  // Ca này đo phần dễ viết sai nhất: sau khi bấm đồng ý, cái được lưu phải là
+  // câu trả lời của máy chủ. Vá tại chỗ thành "active" cũng qua được một ca
+  // chỉ nhìn đường hạnh phúc — nên máy chủ ở đây cố tình trả `invited`, và bản
+  // ghi trên đĩa phải nói đúng như vậy.
+  const kho = khoTrongBoNho();
+  const { impl, daGoi } = fetchGiaLap([traLoi({ state: "invited" }, { status: 200 })]);
+  datTokenPhien(PHIEN.token);
+
+  const sau = await voiFetch(impl, () => vaoNhom(PHIEN, kho));
+
+  assert.equal(daGoi.length, 1);
+  assert.equal(daGoi[0].init.method, "POST");
+  assert.match(daGoi[0].url, new RegExp(`/memberships/${THE_THANH_VIEN}/accept$`));
+  assert.equal(sau.membership_state, "invited");
+  assert.equal(JSON.parse(await kho.doc("rudi.phien")).membership_state, "invited");
+});
+
+test("vào nhóm được thì cả bộ nhớ lẫn đĩa đều nói active", async () => {
+  const kho = khoTrongBoNho();
+  const { impl } = fetchGiaLap([traLoi({ state: "active" }, { status: 200 })]);
+  datTokenPhien(PHIEN.token);
+
+  const sau = await voiFetch(impl, () => vaoNhom(PHIEN, kho));
+
+  assert.equal(sau.membership_state, "active");
+  const tren_dia = JSON.parse(await kho.doc("rudi.phien"));
+  assert.equal(tren_dia.membership_state, "active");
+  // Phần còn lại của phiên phải đi qua nguyên vẹn: đổi một trường không được
+  // làm rơi ba trường kia.
+  assert.equal(tren_dia.membership_id, THE_THANH_VIEN);
+  assert.equal(tren_dia.context_id, NHOM);
+  assert.equal(tren_dia.token, PHIEN.token);
 });
 
 test("bản ghi hỏng là ứng dụng chưa đăng nhập, không phải ứng dụng vỡ", async () => {

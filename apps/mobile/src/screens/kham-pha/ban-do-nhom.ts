@@ -30,7 +30,7 @@
  * caveat.
  */
 import { chiTietLoi } from "../../ui/loi-tren-man";
-import { headerNguoiGoi } from "../../api";
+import { headerNguoiGoi } from "../../danh-tinh";
 import { CONTEXT_ID, PLACES_BASE_URL } from "./places";
 
 /* -------------------------------------------------------------------------

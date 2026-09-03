@@ -1,6 +1,6 @@
 /** Wire contract for the four group-understanding reads. */
 import { tienVnd } from "../len-plan/ngan-sach";
-import { headerNguoiGoi } from "../../api";
+import { headerNguoiGoi } from "../../danh-tinh";
 import { chiTietLoi } from "../../ui/loi-tren-man";
 
 declare const process: { env: Record<string, string | undefined> };
