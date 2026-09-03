@@ -567,3 +567,103 @@ def test_get_actor_is_the_dependency_every_route_shares(postgres_session: Sessio
     app = _prod_app(postgres_session)
     assert app.state.auth_mode == "prod"
     assert get_actor.__module__ == "app.api.deps"
+
+
+def test_the_session_names_the_group_the_invitation_belonged_to(
+    postgres_session: Session,
+):
+    """A session says WHICH group, and says the right one.
+
+    Without this the client is told who it is and nothing else, and there is no
+    second way to find out: `contexts.py` declares no route that lists a
+    person's contexts. The mobile app sat in fixture mode for exactly that
+    reason -- it could hold a valid session and still have no group to read.
+
+    The two-group shape is the point. With one group any answer looks correct,
+    including one that returns whatever context the reader happened to reach
+    first. Here the same person is invited to two trips in two groups, and the
+    session from the second invitation must name the second group -- naming the
+    first would hand somebody a group their invitation said nothing about.
+    """
+
+    world = World(postgres_session)
+
+    # Redeem the FIRST invitation, so the newcomer really holds a membership in
+    # group one by the time group two is asked about. Without this step the
+    # person is only ever in one group, and a service that answered from "the
+    # person's first membership" would pass by accident.
+    first_token = world.invite()
+    app_one = _prod_app(postgres_session)
+
+    async def redeem_first():
+        async with _client(app_one) as client:
+            return await client.post("/sessions", json={"invite_token": first_token})
+
+    first = anyio.run(redeem_first)
+    assert first.status_code == 201
+    assert first.json()["context_id"] == str(world.context.id)
+    assert world.membership_of(world.newcomer.id) is not None
+
+    # A second group, same owner, same newcomer, so the person really is in two.
+    other_context = Context(
+        id=uuid.uuid4(), display_name="Hội cà phê", created_by_id=world.owner.id
+    )
+    postgres_session.add(other_context)
+    postgres_session.flush()
+    postgres_session.add(
+        Membership(
+            id=uuid.uuid4(),
+            context_id=other_context.id,
+            person_id=world.owner.id,
+            state=MembershipState.ACTIVE,
+            role=MembershipRole.ADMIN,
+            origin=MembershipOrigin.NAMED,
+            invited_by_id=world.owner.id,
+            joined_at=datetime.now(UTC),
+        )
+    )
+    other_outing = Outing(
+        id=uuid.uuid4(),
+        context_id=other_context.id,
+        created_by_id=world.owner.id,
+        title="Cà phê sáng thứ Bảy",
+        starts_on=date(2030, 11, 7),
+        ends_on=date(2030, 11, 7),
+        headcount=4,
+        budget_per_person_vnd=200_000,
+    )
+    postgres_session.add(other_outing)
+    postgres_session.flush()
+
+    from app.api.deps import Actor
+    from app.api.schemas import OutingInviteCreateRequest
+
+    minted = ApiService(world.repository).create_outing_invite(
+        other_outing.id,
+        OutingInviteCreateRequest(source="friend", person_id=world.newcomer.id),
+        Actor(
+            id=world.owner.id,
+            roles=frozenset({"member", "group_admin"}),
+            context_ids=frozenset({other_context.id}),
+        ),
+    )
+    postgres_session.flush()
+    assert minted.invite_token is not None
+
+    app = _prod_app(postgres_session)
+
+    async def walk():
+        async with _client(app) as client:
+            return await client.post(
+                "/sessions", json={"invite_token": minted.invite_token}
+            )
+
+    created = anyio.run(walk)
+
+    assert created.status_code == 201
+    body = created.json()
+    assert body["context_id"] == str(other_context.id)
+    # Named explicitly rather than left to the equality above: the failure this
+    # guards is answering with the wrong group, not answering with none.
+    assert body["context_id"] != str(world.context.id)
+    assert body["person_id"] == str(world.newcomer.id)

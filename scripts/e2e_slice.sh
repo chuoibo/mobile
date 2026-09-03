@@ -271,6 +271,66 @@ mint_sessions() {
   return 0
 }
 
+# `POST /sessions` -- cua ma NGUOI THAT di qua, tren HTTP that, o che do prod.
+#
+# `mint_sessions` o tren di thang vao database vi vong cap phien khong co diem
+# vao tren mot database moi. Nhung the thi route bootstrap KHONG duoc lat cat nao
+# cham toi, va no la route duy nhat mot nguoi lam duoc trong doi that. Buoc nay
+# dong cho trong do: dung phien genesis de tao mot chuyen va mot loi moi DICH
+# DANH, roi doi loi moi do lay phien qua HTTP.
+#
+# Cai no gac, va la ly do buoc nay ton tai: phien tra ve phai noi ro NHOM nao.
+# Thieu `context_id` thi client biet minh la ai va khong biet doc gi -- khong co
+# route nao liet ke nhom cua mot nguoi -- nen man hinh dung o che do fixture.
+redeem_a_real_invite() {
+  local owner_id owner_token ctx_id outing_id invite_token body got_ctx
+  owner_id="$(python3 -c 'import json,sys;print(next(iter(json.load(open(sys.argv[1])))))' "$SESSION_FILE")" \
+    || { echo "khong doc duoc nguoi dau tien tu $SESSION_FILE" >&2; return 2; }
+  owner_token="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$SESSION_FILE" "$owner_id")" \
+    || return 2
+
+  ctx_id="$(curl -fsS -X POST "$API_URL/contexts" \
+      -H 'Content-Type: application/json' -H "Authorization: Bearer $owner_token" \
+      -H "Idempotency-Key: e2e-ctx-$owner_id" \
+      -d '{"display_name":"E2E cua vao"}' \
+    | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')" \
+    || { echo "khong tao duoc nhom cho buoc doi loi moi" >&2; return 2; }
+
+  outing_id="$(curl -fsS -X POST "$API_URL/contexts/$ctx_id/outings" \
+      -H 'Content-Type: application/json' -H "Authorization: Bearer $owner_token" \
+      -H "Idempotency-Key: e2e-outing-$owner_id" \
+      -d '{"title":"E2E cua vao","starts_on":"2030-10-17","ends_on":"2030-10-19","headcount":2,"budget_per_person_vnd":0}' \
+    | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')" \
+    || { echo "khong tao duoc chuyen" >&2; return 2; }
+
+  # Nguoi duoc moi: mot person moi, dat ten qua chinh duong app dat ten.
+  local guest_id="$(python3 -c 'import uuid;print(uuid.uuid4())')"
+  curl -fsS -X PUT "$API_URL/people/$guest_id" \
+      -H 'Content-Type: application/json' -H "Authorization: Bearer $owner_token" \
+      -d '{"display_name":"Khach e2e"}' >/dev/null \
+    || { echo "khong dat duoc ten nguoi duoc moi" >&2; return 2; }
+
+  invite_token="$(curl -fsS -X POST "$API_URL/outings/$outing_id/invites" \
+      -H 'Content-Type: application/json' -H "Authorization: Bearer $owner_token" \
+      -H "Idempotency-Key: e2e-invite-$guest_id" \
+      -d "{\"source\":\"friend\",\"person_id\":\"$guest_id\"}" \
+    | python3 -c 'import json,sys;print(json.load(sys.stdin)["invite_token"])')" \
+    || { echo "khong mint duoc loi moi dich danh" >&2; return 2; }
+
+  body="$(curl -fsS -X POST "$API_URL/sessions" \
+      -H 'Content-Type: application/json' \
+      -d "{\"invite_token\":\"$invite_token\"}")" \
+    || { echo "POST /sessions hong" >&2; return 2; }
+
+  got_ctx="$(printf '%s' "$body" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("context_id",""))')"
+  if [ "$got_ctx" != "$ctx_id" ]; then
+    echo "phien khong noi dung nhom: mong $ctx_id, nhan '${got_ctx:-<thieu>}'" >&2
+    return 1
+  fi
+  echo "--- POST /sessions tren HTTP that: phien tra dung context_id cua nhom trong loi moi"
+  return 0
+}
+
 # --- run ------------------------------------------------------------------
 
 command -v node >/dev/null 2>&1 || { echo "không có node" >&2; exit 2; }
@@ -281,6 +341,7 @@ command -v npm  >/dev/null 2>&1 || { echo "không có npm" >&2; exit 2; }
 provision_db || exit $?
 start_api || exit $?
 mint_sessions || exit $?
+redeem_a_real_invite || exit $?
 
 if [ "$KEEP" -eq 1 ]; then
   echo "--keep: giữ stack lại."
