@@ -1,5 +1,5 @@
 # PR claim: "«Thêm vào Đà Lạt cuối tuần» đổi 18:00 thành quán vừa chọn".
-appId: host.exp.exponent
+appId: com.lakiet.rudi
 ---
 - runFlow: _vao-app-sach.yaml
 - scrollUntilVisible:

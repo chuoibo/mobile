@@ -1,5 +1,5 @@
 # PR claim: "vote ẩn kết quả trước confirm" (audit defect 03.03).
-appId: host.exp.exponent
+appId: com.lakiet.rudi
 ---
 - runFlow: _vao-app-sach.yaml
 - tapOn: "Tin nhắn"

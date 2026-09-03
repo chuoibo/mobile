@@ -4,11 +4,12 @@
 #
 # With the shipping `rudi://` scheme this is every invite, share and push link,
 # so it is asserted on the device rather than only in duong-vao's unit tests.
-appId: host.exp.exponent
+appId: com.lakiet.rudi
 ---
 - stopApp
-- openLink: exp://localhost:8095/--/settlements/team-da-lat
-- openLink: exp://localhost:8095/--/settlements/team-da-lat
+- launchApp
+- runFlow: _bo-qua-dev-menu.yaml
+- openLink: rudi://settlements/team-da-lat
 - extendedWaitUntil:
     visible: "Quyết toán chuyến đi"
     timeout: 150000

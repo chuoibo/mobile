@@ -20,6 +20,7 @@ import { demoAssets } from "../fixtures";
 import { noiLuu } from "../luu-tru";
 import { useRudiSession } from "../session";
 import { typography, useRudiTheme } from "../theme";
+import { DAU_VAN_CAY } from "../dau-van-cay";
 import {
   Card,
   Chip,
@@ -130,6 +131,13 @@ export function WelcomeScreen() {
                 <View key={item.title} style={index === page ? styles.pagerActive : styles.pagerDot} />
               ))}
             </View>
+            {DAU_VAN_CAY ? (
+              // Native gate anchor (NEO 2b): the harness inlines a per-run value and
+              // asserts it on screen. Absent outside the harness, so nothing ships.
+              <Text accessibilityLabel="dau-van-cay" style={styles.dauVanCay}>
+                {DAU_VAN_CAY}
+              </Text>
+            ) : null}
           </View>
         </View>
       </View>
@@ -366,6 +374,7 @@ const styles = StyleSheet.create({
   pager: { flexDirection: "row", justifyContent: "center", gap: 7, paddingTop: 4 },
   pagerDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "rgba(255,255,255,0.48)" },
   pagerActive: { width: 18, height: 7, borderRadius: 4, backgroundColor: "#FFFFFF" },
+  dauVanCay: { color: "rgba(255,255,255,0.55)", fontSize: 12, textAlign: "center", paddingTop: 6 },
   pressed: { opacity: 0.7 },
   formScreen: { gap: 20 },
   loginBrand: { alignItems: "center", gap: 20, marginTop: 3 },

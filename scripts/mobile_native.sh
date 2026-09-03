@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Lái app RuDi trên máy ảo Android thật, qua Expo Go, và trả về một phán quyết.
+# Lái app RuDi trên máy ảo Android thật — qua development build (mặc định) hay
+# Expo Go (`--expo-go`) — và trả về một phán quyết.
 #
 # ## Vì sao có file này
 #
@@ -27,6 +28,11 @@
 #      minh gì: cổng bị lane khác chiếm cũng trả 200. Đo bằng `Android Bundled`.
 #   3. Con canary phải ĐỎ. Một bảng xanh mà không có ca nào biết đỏ thì không
 #      phân biệt được «đã gác» với «phép đo chết».
+#   2b. Màn hình phải hiện DẤU VÂN của lượt chạy này. Hai neo trên đọc log Metro;
+#      không neo nào nói màn đang hiện gì — launcher của dev client, hay bundle
+#      của lane khác, đều để hai neo xanh. Nên script inline một giá trị mỗi lượt
+#      (EXPO_PUBLIC_TREE_FINGERPRINT), app vẽ nó ở chân màn chào, flow 00 assert,
+#      và một canary chạy flow 00 với dấu vân SAI phải đỏ.
 #
 # Không đo được thì thoát mã 2 và NÓI RA. Bỏ qua im lặng là cổng chết —
 # `make smoke` trong repo này đã học bài đó rồi.
@@ -42,6 +48,8 @@ DANG_NHAP=0
 ACTOR=""
 CONTEXT=""
 MA_LOI_MOI=""
+MODE="dev-client"
+LAP=1
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -54,6 +62,8 @@ while [ $# -gt 0 ]; do
     --dang-nhap) DANG_NHAP=1; shift ;;
     --actor) ACTOR="$2"; shift 2 ;;
     --context) CONTEXT="$2"; shift 2 ;;
+    --expo-go) MODE="expo-go"; shift ;;
+    --lap) LAP="$2"; shift 2 ;;
     *) echo "tham số lạ: $1" >&2; exit 64 ;;
   esac
 done
@@ -70,6 +80,8 @@ if [ "$DANG_NHAP" = 1 ]; then
     || { echo "--dang-nhap cần --api-port <cổng của API chạy ở chế độ prod>" >&2; exit 64; }
   [ "$LIVE" = 0 ] \
     || { echo "--dang-nhap và --live loại trừ nhau: một cái ghim danh tính, cái kia đi lấy" >&2; exit 64; }
+  [ "$LAP" = 1 ] \
+    || { echo "--lap >1 chưa hỗ trợ cùng --dang-nhap: mỗi lượt cần xoá phiên và mint lời mời mới" >&2; exit 64; }
 fi
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -82,7 +94,7 @@ hong()          { echo "ĐỎ: $*" >&2; exit 1; }
 
 # --- công cụ ---------------------------------------------------------------
 export ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"
-export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$HOME/.maestro/bin:$PATH"
 
 command -v adb >/dev/null 2>&1 || khong_do_duoc "không có adb. Đặt ANDROID_HOME (mặc định ~/Android/Sdk)."
 command -v maestro >/dev/null 2>&1 || khong_do_duoc "không có maestro trên PATH. https://maestro.mobile.dev"
@@ -102,17 +114,51 @@ export ANDROID_SERIAL="$SERIAL"
 # bất kỳ máy nào đang sống. Nêu tên ra để phán quyết biết nó nói về máy nào.
 echo "máy: $ANDROID_SERIAL"
 
-timeout 30 adb shell pm list packages 2>/dev/null | grep -q "host.exp.exponent" \
-  || khong_do_duoc "máy $ANDROID_SERIAL chưa cài Expo Go (host.exp.exponent)."
+# Target ship là development build của CHÍNH app (com.lakiet.rudi), không phải
+# Expo Go: Google Sign-In là mã native mà Expo Go không nạp được, và launcher của
+# dev client mở lại bundle gần nhất nên flow chỉ cần `launchApp`. Expo Go còn
+# giữ sau `--expo-go` cho máy chưa dựng được APK.
+if [ "$MODE" = "dev-client" ]; then
+  APP_ID="com.lakiet.rudi"
+  timeout 30 adb shell pm list packages 2>/dev/null | grep -q "^package:$APP_ID\$" \
+    || khong_do_duoc "máy $ANDROID_SERIAL chưa cài dev client ($APP_ID). Dựng: cd apps/mobile && npx expo prebuild --platform android && (cd android && ./gradlew :app:assembleDebug -PreactNativeArchitectures=x86_64) rồi adb install -r."
+  APP_VER="$(timeout 30 adb shell dumpsys package "$APP_ID" 2>/dev/null \
+               | sed -n 's/.*versionName=\([^ ]*\).*/\1/p' | head -1)"
+  echo "dev client: $APP_ID ${APP_VER:-không đọc được}"
+  # Bản native có khớp cây không: package.json và app.json quyết định mã native
+  # (plugin, module). Đổi chúng mà không dựng lại thì APK trên máy là bản khác —
+  # và mọi assert sau đó nói về bản đó. Kiểm bằng dấu vân ghi lúc build.
+  FP_FILE="$APP/android/.rudi-native-fingerprint"
+  FP_NOW="$(cd "$APP" && git hash-object package.json app.json | tr '\n' ' ')"
+  if [ -f "$FP_FILE" ]; then
+    [ "$(cat "$FP_FILE")" = "$FP_NOW" ] \
+      || khong_do_duoc "dev client CŨ: package.json/app.json đã đổi sau lần build ghi ở $FP_FILE. Dựng lại, cài lại, rồi ghi: (cd apps/mobile && git hash-object package.json app.json | tr '\\n' ' ' > android/.rudi-native-fingerprint)"
+  else
+    echo "CHÚ Ý: chưa có $FP_FILE — không kiểm được APK trên máy có khớp package.json/app.json hiện tại."
+  fi
+  EXPO_VER="dev-client ${APP_VER:-?}"
+else
+  APP_ID="host.exp.exponent"
+  timeout 30 adb shell pm list packages 2>/dev/null | grep -q "host.exp.exponent" \
+    || khong_do_duoc "máy $ANDROID_SERIAL chưa cài Expo Go (host.exp.exponent)."
 
-EXPO_VER="$(timeout 30 adb shell dumpsys package host.exp.exponent 2>/dev/null \
-             | sed -n 's/.*versionName=\([0-9.]*\).*/\1/p' | head -1)"
-echo "Expo Go: ${EXPO_VER:-không đọc được}"
-case "$EXPO_VER" in
-  57.*) ;;
-  "")   khong_do_duoc "không đọc được phiên bản Expo Go." ;;
-  *)    hong "Expo Go $EXPO_VER không khớp SDK 57 của app. Bundle sẽ không nạp." ;;
-esac
+  EXPO_VER="$(timeout 30 adb shell dumpsys package host.exp.exponent 2>/dev/null \
+               | sed -n 's/.*versionName=\([0-9.]*\).*/\1/p' | head -1)"
+  echo "Expo Go: ${EXPO_VER:-không đọc được}"
+  case "$EXPO_VER" in
+    57.*) ;;
+    "")   khong_do_duoc "không đọc được phiên bản Expo Go." ;;
+    *)    hong "Expo Go $EXPO_VER không khớp SDK 57 của app. Bundle sẽ không nạp." ;;
+  esac
+fi
+
+# Dấu vân của lượt chạy (NEO 2b). Inline vào bundle lúc Metro khởi động, app vẽ
+# ở chân màn chào, flow assert qua -e TREE_FINGERPRINT. Có $$ để hai lượt cùng
+# giây trên cùng commit vẫn khác nhau.
+DAU_VAN="$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo nogit)-$$-$(date +%s)"
+ANH_DIR="$REPO/.impeccable/review/native/$(date +%Y%m%d-%H%M%S)-$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo nogit)"
+mkdir -p "$ANH_DIR"
+echo "dấu vân lượt này: $DAU_VAN — ảnh: $ANH_DIR"
 
 # Xoá dữ liệu Expo Go: phiên đã đăng nhập nằm trong AsyncStorage của nó.
 #
@@ -125,8 +171,11 @@ esac
 #    bước 1. Đo ngày 2026-09-03: đúng như vậy, và cổng đọc nó thành "canary đỏ
 #    đúng thiết kế" — hai lần liên tiếp, hai lý do khác nhau.
 xoa_du_lieu_app() {
-  timeout 60 adb shell pm clear host.exp.exponent >/dev/null 2>&1 \
-    || khong_do_duoc "không xoá được dữ liệu Expo Go trên $ANDROID_SERIAL."
+  timeout 60 adb shell pm clear "$APP_ID" >/dev/null 2>&1 \
+    || khong_do_duoc "không xoá được dữ liệu $APP_ID trên $ANDROID_SERIAL."
+  # Dev client: `pm clear` cũng xoá «bundle gần nhất», nên lần mở kế tiếp rơi vào
+  # launcher («Development servers»). Ai gọi hàm này phải mo_link lại rồi mới
+  # chạy flow; xem chỗ gọi.
 }
 
 # --- lời mời thật, cho lượt đăng nhập --------------------------------------
@@ -243,6 +292,7 @@ fi
   # That is exactly how the first run of this script failed, and the anchor
   # below caught it as "Metro is not serving this tree" -- which was true.
   export CI=1 EXPO_NO_TELEMETRY=1 EXPO_NO_DEPENDENCY_VALIDATION=1
+  export EXPO_PUBLIC_TREE_FINGERPRINT="$DAU_VAN"
   if [ -n "$API_PORT" ]; then
     export EXPO_PUBLIC_API_URL="http://localhost:$API_PORT"
   fi
@@ -253,7 +303,11 @@ fi
     export EXPO_PUBLIC_RUDI_ACTOR="$ACTOR"
     export EXPO_PUBLIC_RUDI_CONTEXT="$CONTEXT"
   fi
-  npx expo start --localhost --port "$PORT" > "$LOG" 2>&1
+  if [ "$MODE" = "dev-client" ]; then
+    npx expo start --dev-client --localhost --port "$PORT" > "$LOG" 2>&1
+  else
+    npx expo start --localhost --port "$PORT" > "$LOG" 2>&1
+  fi
 ) &
 METRO_PID=$!
 
@@ -275,7 +329,7 @@ timeout 20 adb reverse "tcp:$PORT" "tcp:$PORT" >/dev/null \
 [ -n "$API_PORT" ] && { timeout 20 adb reverse "tcp:$API_PORT" "tcp:$API_PORT" >/dev/null || true; }
 
 # --- thiết bị nạp bundle CỦA MÌNH ------------------------------------------
-timeout 30 adb shell am force-stop host.exp.exponent >/dev/null 2>&1 || true
+timeout 30 adb shell am force-stop "$APP_ID" >/dev/null 2>&1 || true
 sleep 2
 # Ở chế độ đăng nhập, chính cái link mời là thứ mở app — giống hệt lúc một
 # người bấm vào link bạn gửi. KHÔNG truyền mã qua biến của Maestro:
@@ -284,11 +338,32 @@ sleep 2
 # hiện đúng, kèm mã đã điền sẵn.
 mo_link() {
   timeout 30 adb shell am start -a android.intent.action.VIEW \
-    -d "$1" host.exp.exponent >/dev/null 2>&1 \
-    || khong_do_duoc "không mở được Expo Go trên $ANDROID_SERIAL."
+    -d "$1" "$APP_ID" >/dev/null 2>&1 \
+    || khong_do_duoc "không mở được $APP_ID trên $ANDROID_SERIAL."
 }
 
-if [ "$DANG_NHAP" = 1 ]; then
+# URL mở bundle của cây này. Dev client nhận địa chỉ Metro qua đường
+# `expo-development-client/?url=`; đường `/--/route` KHÔNG đi được qua đó (đo
+# 2026-09-03: launcher báo «There was a problem loading the project»), và một
+# link `rudi://route` LẠNH thì launcher nuốt. Nên với dev client, route đi sau,
+# khi bundle đã lên — link ẤM, qua Linking.addEventListener trong app/_layout.tsx.
+url_metro() {
+  if [ "$MODE" = "dev-client" ]; then
+    printf 'rudi://expo-development-client/?url=http%%3A%%2F%%2Flocalhost%%3A%s' "$PORT"
+  else
+    printf 'exp://localhost:%s' "$PORT"
+  fi
+}
+cho_bundle() {
+  local _i
+  for _i in $(seq 1 90); do
+    grep -q "Android Bundled" "$LOG" && return 0
+    sleep 2
+  done
+  return 1
+}
+
+if [ "$DANG_NHAP" = 1 ] && [ "$MODE" = "expo-go" ]; then
   # Hâm nóng TRƯỚC, rồi mới giao link mời.
   #
   # `pm clear` ở trên trả Expo Go về lần chạy đầu tiên, và lần chạy đầu tiên
@@ -310,14 +385,19 @@ if [ "$DANG_NHAP" = 1 ]; then
   sleep 2
 fi
 
-DUONG_MO="exp://localhost:$PORT"
-[ "$DANG_NHAP" = 1 ] && DUONG_MO="exp://localhost:$PORT/--/moi/$MA_LOI_MOI"
+DUONG_MO="$(url_metro)"
+if [ "$DANG_NHAP" = 1 ] && [ "$MODE" = "expo-go" ]; then
+  DUONG_MO="exp://localhost:$PORT/--/moi/$MA_LOI_MOI"
+fi
 mo_link "$DUONG_MO"
-
-for _ in $(seq 1 90); do
-  grep -q "Android Bundled" "$LOG" && break
+cho_bundle || true
+if [ "$DANG_NHAP" = 1 ] && [ "$MODE" = "dev-client" ]; then
+  # Bundle đã lên; giờ mới giao lời mời, ẤM. Đây vẫn là đường một người thật đi
+  # khi app đang mở và bạn gửi link — và là đường DUY NHẤT dev client cho phép.
+  sleep 3
+  mo_link "rudi://moi/$MA_LOI_MOI"
   sleep 2
-done
+fi
 # NEO 2. Không có dòng này thì màn hình đang hiện CÁI GÌ ĐÓ — màn chủ Expo Go,
 # bundle của lane khác, hoặc app cũ — và mọi assert sau đó nói về cái đó.
 grep -q "Android Bundled" "$LOG" \
@@ -341,7 +421,13 @@ echo "thiết bị đã nạp bundle của $APP"
 #
 # Nên bảng chạy từ một bản sao có cổng đã thay, và phép thay phải chứng minh nó
 # đã xảy ra: `sed` không đổi gì cũng trả về 0.
-if [ "$PORT" != 8095 ]; then
+if [ "$MODE" = "dev-client" ]; then
+  # Không còn URL nào trong flow để lệch với --port: flow dùng `launchApp`, và
+  # bundle nào đang là «gần nhất» là do script này quyết ở mo_link phía trên.
+  # Một flow ghi lại `exp://` hay Expo Go là quay về đúng cái bẫy đã tả bên dưới.
+  LOI_URL="$(grep -lE '^\s*-\s*openLink:\s*exp://|^appId:\s*host\.exp\.exponent' "$APP/$FLOWS"/*.yaml || true)"
+  [ -z "$LOI_URL" ] || hong "flow còn ghim Expo Go / exp:// trong khi đang lái dev client:$(printf ' %s' $LOI_URL)"
+elif [ "$PORT" != 8095 ]; then
   FLOWS_GOC="$FLOWS"
   FLOWS="$(mktemp -d)/maestro"
   cp -r "$APP/$FLOWS_GOC" "$FLOWS"
@@ -380,17 +466,37 @@ HA_TANG=""
 # HẾT HẠN (mã 2), không phải đỏ.
 LOI_HA_TANG='StatusRuntimeException|Command failed \(tcp:|UNAVAILABLE|no devices/emulators found|device .* not found'
 
+# Một flow đỏ phải in ra MÀN NÓ THẤY. Máy ảo bị lane khác cướp, launcher của dev
+# client, hay tờ dev-menu — tất cả đều làm assert đỏ với cùng một dòng «not
+# visible», và người đọc chép dòng đó thành «tính năng chưa có». Ảnh + chữ trên
+# màn lúc đỏ là thứ phân biệt hai chuyện đó.
+in_man_dang_thay() {
+  local ten="$1"
+  timeout 20 adb exec-out screencap -p > "$ANH_DIR/$ten-FAILED.png" 2>/dev/null || true
+  echo "--- màn đang thấy lúc $ten đỏ ($ANH_DIR/$ten-FAILED.png) ---"
+  timeout 20 adb exec-out uiautomator dump /dev/tty 2>/dev/null \
+    | grep -oE 'text="[^"]{2,80}"' | head -12 || true
+}
+
 chay_flow() {
   local f="$1" ra rc
   ra="$(mktemp)"
-  set +e; maestro test "$f" > "$ra" 2>&1; rc=$?; set -e
+  set +e
+  maestro test -e TREE_FINGERPRINT="$DAU_VAN" --test-output-dir "$ANH_DIR" "$f" > "$ra" 2>&1
+  rc=$?
+  set -e
   cat "$ra"
   if [ "$rc" -ne 0 ] && grep -qE "$LOI_HA_TANG" "$ra"; then
     rm -f "$ra"; return 99
   fi
+  [ "$rc" -eq 0 ] || in_man_dang_thay "$(basename "$f" .yaml)"
   rm -f "$ra"; return "$rc"
 }
 
+# `--lap N`: cả bảng chạy N lượt liên tiếp. Một bảng xanh một lần không phân biệt
+# được «đúng» với «may»; bộ nhớ dự án ghi cú bấm bị rơi ~1/4 lượt trên web.
+for lap in $(seq 1 "$LAP"); do
+[ "$LAP" -gt 1 ] && echo "=== lượt $lap/$LAP ==="
 for f in "$FLOWS"/*.yaml; do
   ten="$(basename "$f")"
   case "$ten" in
@@ -410,7 +516,8 @@ for f in "$FLOWS"/*.yaml; do
     set +e; chay_flow "$f"; rc=$?; set -e
   fi
   if [ "$rc" -eq 99 ]; then HA_TANG="$HA_TANG $ten"; continue; fi
-  if [ "$rc" -ne 0 ]; then BANG=1; DO_LIST="$DO_LIST $ten"; fi
+  if [ "$rc" -ne 0 ]; then BANG=1; DO_LIST="$DO_LIST $ten(lượt $lap)"; fi
+done
 done
 
 # Nêu tên trước khi phán quyết: một flow không đo được mà im lặng thì bảng xanh
@@ -422,14 +529,40 @@ done
 [ "$DA_CHAY" -gt 0 ] || hong "không có flow nào trong $FLOWS. Bảng RỖNG không phải bảng xanh."
 echo "đã chạy $DA_CHAY flow"
 
+# NEO 2b. Flow 00 vừa assert dấu vân THẬT ở trong bảng; giờ cùng flow với dấu vân
+# SAI phải đỏ, và đỏ đúng ở dòng đó. Không thì `assertVisible` của dấu vân là một
+# dòng trang trí và hai neo Metro ở trên lại là tất cả những gì ta có.
+if [ "$LIVE" = 0 ] && [ "$DANG_NHAP" = 0 ]; then
+  RA_2B="$(mktemp)"
+  set +e
+  maestro test -e TREE_FINGERPRINT="KHONG_CO_DAU_VAN_NAY" "$FLOWS/00-smoke-deeplink.yaml" > "$RA_2B" 2>&1
+  RC_2B=$?
+  set -e
+  DONG_2B="$(grep -n 'FAILED' "$RA_2B" | head -1 || true)"
+  if [ "$RC_2B" -eq 0 ]; then
+    hong "NEO 2b: flow 00 XANH với dấu vân SAI — assert dấu vân không cắn, màn có thể là bundle của cây khác."
+  fi
+  # Maestro in lại NGUYÊN VĂN YAML của bước đỏ — `${TREE_FINGERPRINT}` chưa thay —
+  # chứ không in giá trị. Nên nhận diện theo TÊN BƯỚC (assert dấu vân), không
+  # theo giá trị sai vừa truyền. Đo lượt 3 ngày 2026-09-03: khớp theo giá trị làm
+  # cổng đỏ giả ngay khi canary vừa làm đúng việc của nó.
+  case "$DONG_2B" in
+    *TREE_FINGERPRINT*) echo "NEO 2b: dấu vân sai → đỏ đúng ở bước assert dấu vân. Màn hình đang hiện bundle của lượt này." ;;
+    *) sed -n '1,30p' "$RA_2B" >&2; hong "NEO 2b: flow 00 đỏ nhưng không phải ở dòng dấu vân ($DONG_2B)." ;;
+  esac
+  rm -f "$RA_2B"
+fi
+
 RA_CANARY="$(mktemp)"
 # Canary chạy đường FIXTURE trên app CHƯA đăng nhập. Ở chế độ `--dang-nhap` thì
 # bảng vừa đăng nhập thật xong, nên phải trả máy về trạng thái đó trước.
 if [ "$DANG_NHAP" = 1 ]; then
   echo "xoá phiên trước khi chạy canary (canary đo đường chưa đăng nhập)"
   xoa_du_lieu_app
+  # Sau pm clear, dev client về launcher: nạp lại bundle rồi mới chạy canary.
+  mo_link "$(url_metro)"; cho_bundle || true; sleep 2
 fi
-set +e; maestro test "$FLOWS/09-canary-phai-do.yaml" 2>&1 | tee "$RA_CANARY"; CANARY=${PIPESTATUS[0]}; set -e
+set +e; maestro test -e TREE_FINGERPRINT="$DAU_VAN" "$FLOWS/09-canary-phai-do.yaml" 2>&1 | tee "$RA_CANARY"; CANARY=${PIPESTATUS[0]}; set -e
 
 [ "$BANG" -eq 0 ] || hong "flow đỏ:$DO_LIST"
 # NEO 3. Canary xanh nghĩa là phép đo không phân biệt được đúng với sai, nên cả
@@ -455,4 +588,4 @@ case "$DONG_DO_DAU" in
 esac
 rm -f "$RA_CANARY"
 
-echo "XANH: bảng qua, canary đỏ đúng thiết kế, trên $ANDROID_SERIAL / Expo Go $EXPO_VER"
+echo "XANH: bảng qua ($LAP lượt), NEO 2b cắn, canary đỏ đúng thiết kế, trên $ANDROID_SERIAL / $EXPO_VER / dấu vân $DAU_VAN"
