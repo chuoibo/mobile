@@ -298,8 +298,23 @@ export function ExploreScreen() {
       <SectionHeader
         action={filtering ? "Xóa lọc" : "Xem tất cả"}
         onAction={filtering ? resetFilters : () => setFiltersOpen(true)}
-        title={filtering ? `${visiblePlaces.length} kết quả phù hợp` : "Gần bạn, đúng gu"}
+        title={
+          filtering
+            ? `${visiblePlaces.length} kết quả phù hợp`
+            : song
+              ? "Mẫu minh hoạ, chưa phải gợi ý cho bạn"
+              : "Gần bạn, đúng gu"
+        }
       />
+      {song ? (
+        // The cards below carry distances, ratings and prices. For a real
+        // session those are sample numbers until M4 reads the catalogue from
+        // the server, and a number that looks measured must say it is not.
+        <Text style={[typography.caption, { color: colors.inkSoft }]}>
+          Khoảng cách, đánh giá và giá ở đây là số mẫu. Gợi ý thật cho khu vực của nhóm đến ở bản
+          sau.
+        </Text>
+      ) : null}
       {primaryPlaces.length ? (
         <ResponsiveRow minItemWidth={320}>
           {primaryPlaces.map((place, index) => (

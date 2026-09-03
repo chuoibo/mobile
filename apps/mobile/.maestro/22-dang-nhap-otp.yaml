@@ -74,5 +74,7 @@ appId: com.lakiet.rudi
 # điều đó bằng nhãn, và không được kể chuyện «Team Đà Lạt» cho nhóm vừa đặt tên.
 # M4 đảo hai dòng này (như flow 07 từng đổi cực) khi danh sách đến từ /places.
 - assertVisible: "Gợi ý mẫu.*"
+- assertVisible: "Mẫu minh hoạ.*"
 - assertNotVisible: ".*Team Đà Lạt.*"
+- assertNotVisible: "Gần bạn, đúng gu"
 - takeScreenshot: 22-trong-nhom-moi
