@@ -51,10 +51,40 @@ const NHAN_TRONG_BUNDLE = "H\\u1ecfi R\\u1ee7 \\u0110i AI";
 const CU = new Date("2020-01-01T00:00:00Z");
 
 const nhaTam = [];
+
+/** Trang nháp mà một ca KHÁC ghi vào cùng thư mục export.
+ *
+ * `duong-vao-mon-cua-toi.test.mjs` ghi `__mon-cua-toi-*.html` thẳng vào
+ * `.expo-build-check` — bắt buộc, vì chúng phải nạp bundle bằng đường tương
+ * đối từ chính gốc đó — rồi xoá đi khi xong. `node --test` chạy các file test
+ * SONG SONG, nên bản sao ở đây và cú xoá ở đó chạy cùng lúc trên một thư mục.
+ *
+ * Đo trên CI ngày 2026-09-03: `cpSync` đọc được tên trong `readdir` rồi
+ * `lstat` chính nó và ăn ENOENT — `no such file or directory, lstat
+ * '.../.expo-build-check/__mon-cua-toi-ma-tran.html'`. Cổng này đỏ vì một ca
+ * khác dọn dẹp đúng lúc, chứ không phải vì bản export sai.
+ *
+ * Bỏ qua chúng là đúng chứ không phải né: chúng KHÔNG thuộc bản export đang
+ * được xét. Cái cổng này hỏi là bản dựng có cũ hơn nguồn không, và một trang
+ * nháp của ca khác không trả lời câu đó.
+ */
+const TRANG_NHAP = /(^|[\\/])__[^\\/]*\.html$/;
+
 function banSaoCu(doi) {
   const dich = mkdtempSync(join(tmpdir(), "export-cu-"));
   nhaTam.push(dich);
-  cpSync(THAT, dich, { recursive: true });
+  // Thử lại một lần: `filter` chặn được những trang nháp đã biết tên, nhưng
+  // cuộc đua thì không chỉ có chúng — một file bất kỳ biến mất giữa `readdir`
+  // và `lstat` vẫn ném. Một lượt nữa trên một thư mục đã yên là đủ, và nếu
+  // vẫn ném thì để nó ném: che luôn lần hai là biến cổng thành đồ trang trí.
+  for (let lan = 0; ; lan++) {
+    try {
+      cpSync(THAT, dich, { recursive: true, filter: (tu) => !TRANG_NHAP.test(tu) });
+      break;
+    } catch (loi) {
+      if (loi.code !== "ENOENT" || lan > 0) throw loi;
+    }
+  }
   if (doi) doi(dich);
   luiGio(dich);
   return dich;
