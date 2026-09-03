@@ -244,6 +244,15 @@ function laBanGhi(v: unknown): v is Record<string, unknown> {
   return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 
+function chuoiNeuCo(v: unknown): string | undefined {
+  return typeof v === "string" ? v : undefined;
+}
+
+/** A stable list key per row; a message's key is prefixed so it is a key, not an id shown. */
+export function khoaHang(hang: HangHienThi): string {
+  return hang.loai === "tin" ? `tin-${hang.tin.id}` : hang.key;
+}
+
 /** Read a server card without trusting its shape. Anything odd is `khac`. */
 export function docTheAi(card: unknown): TheAi {
   if (!laBanGhi(card) || !laBanGhi(card.payload)) return { loai: "khac" };
@@ -267,9 +276,9 @@ export function docTheAi(card: unknown): TheAi {
             label: typeof d.label === "string" ? d.label : undefined,
             stops: Array.isArray(d.stops)
               ? d.stops.filter(laBanGhi).map((s) => ({
-                  time: typeof s.time === "string" ? s.time : undefined,
-                  name: typeof s.name === "string" ? s.name : undefined,
-                  place_id: typeof s.place_id === "string" ? s.place_id : undefined,
+                  time: chuoiNeuCo(s.time),
+                  name: chuoiNeuCo(s.name),
+                  place_id: chuoiNeuCo(s.place_id),
                 }))
               : [],
           }))

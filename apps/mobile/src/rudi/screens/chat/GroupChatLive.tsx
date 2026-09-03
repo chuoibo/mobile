@@ -35,6 +35,7 @@ import {
   docTheAi,
   gioPhut,
   glyphPhanUng,
+  khoaHang,
   nhomTheoNgay,
   type HangHienThi,
   type LoaiPhanUng,
@@ -223,7 +224,7 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
         contentContainerStyle={[styles.danhSach, { paddingHorizontal: space.md }]}
         data={hang}
         inverted
-        keyExtractor={(item) => (item.loai === "tin" ? item.tin.id : item.key)}
+        keyExtractor={khoaHang}
         ListEmptyComponent={
           chat.dangNap ? null : (
             <View style={styles.rong}>
