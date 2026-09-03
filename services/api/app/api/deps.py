@@ -268,3 +268,13 @@ def get_reeler() -> Reeler:
     from app.api.reel_gemini import gemini_reel
 
     return gemini_reel
+
+
+def get_sms_sender(request: Request):
+    """The SMS seam the application was built with (see `app.api.sms`)."""
+    return request.app.state.sms_sender
+
+
+def get_otp_debug_code(request: Request) -> str | None:
+    """The fixed OTP code, only ever set beside the log sender."""
+    return getattr(request.app.state, "otp_debug_code", None)

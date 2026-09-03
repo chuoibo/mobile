@@ -113,6 +113,16 @@
       "route": "/contexts/{context_id}/read-mark",
       "loai": "tinh-nang",
       "reason": "M3 (ADR-0016): màn chat vỏ RuDi gọi khi người dùng xem tới tin mới nhất để `unread_count` về 0. Gỡ pin ở PR client M3."
+    },
+    {
+      "route": "/auth/otp/request",
+      "loai": "tinh-nang",
+      "reason": "M1 (ADR-0016): màn Login của vỏ RuDi gọi khi bấm «Gửi OTP». Gỡ pin ở PR client M1."
+    },
+    {
+      "route": "/auth/otp/verify",
+      "loai": "tinh-nang",
+      "reason": "M1 (ADR-0016): màn Otp của vỏ RuDi gọi khi nhập đủ 6 số; trả SessionResponse. Gỡ pin ở PR client M1."
     }
   ]
 }

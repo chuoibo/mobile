@@ -654,6 +654,14 @@ class ProfileSummary(ApiModel):
     display_name: StrictStr
 
 
+class OtpRequestResponse(ApiModel):
+    """A challenge was issued. The code went to the phone, never into this body."""
+
+    challenge_id: UUID
+    expires_in_seconds: Annotated[int, Field(strict=True, gt=0)]
+    resend_after_seconds: Annotated[int, Field(strict=True, ge=0)]
+
+
 class SessionBootstrapRequest(ApiModel):
     """One field: the secret written on a named invitation.
 

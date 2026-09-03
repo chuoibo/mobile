@@ -21,6 +21,7 @@ from app.api.errors import RepositoryConflict
 from app.api.limits import OBJECTION_LIMIT, REPORT_LIMIT
 from app.api.schemas import ExpenseInput
 from app.db.models import (
+    AccountIdentity,
     AccountSession,
     AuditEvent,
     Bill,
@@ -58,6 +59,7 @@ from app.db.models import (
     MemoryReaction,
     Message,
     MessageKind,
+    OtpChallenge,
     Outing,
     OutingInvite,
     OutingInviteSource,
@@ -428,6 +430,27 @@ class PersonContextSummaryRecord:
     joined_at: datetime | None
     last_message: LastMessageRecord | None
     unread_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class OtpChallengeRecord:
+    id: uuid.UUID
+    phone_digest: bytes
+    code_digest: bytes
+    created_at: datetime
+    expires_at: datetime
+    attempts: int
+    consumed_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class AccountIdentityRecord:
+    id: uuid.UUID
+    person_id: uuid.UUID
+    provider: str
+    subject: str
+    created_at: datetime
+    last_login_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -1001,6 +1024,36 @@ class ApiRepository(Protocol):
     def count_unread_messages(
         self, context_id: uuid.UUID, person_id: uuid.UUID
     ) -> int: ...
+
+    def create_otp_challenge(
+        self,
+        *,
+        challenge_id: uuid.UUID,
+        phone_digest: bytes,
+        code_digest: bytes,
+        expires_at: datetime,
+        now: datetime,
+    ) -> OtpChallengeRecord: ...
+
+    def recent_otp_challenges(
+        self, phone_digest: bytes, since: datetime
+    ) -> list[OtpChallengeRecord]: ...
+
+    def get_otp_challenge(
+        self, challenge_id: uuid.UUID
+    ) -> OtpChallengeRecord | None: ...
+
+    def record_otp_attempt(
+        self, *, challenge_id: uuid.UUID, attempts: int, consumed: bool, now: datetime
+    ) -> OtpChallengeRecord | None: ...
+
+    def get_account_identity(
+        self, provider: str, subject: str
+    ) -> AccountIdentityRecord | None: ...
+
+    def upsert_account_identity(
+        self, *, person_id: uuid.UUID, provider: str, subject: str, now: datetime
+    ) -> AccountIdentityRecord: ...
 
     def ensure_invited_membership(
         self,
@@ -2719,6 +2772,112 @@ class SqlAlchemyApiRepository:
                 > tuple_(mark.last_read_at, mark.last_read_message_id)
             )
         return int(self.session.scalar(statement) or 0)
+
+    def create_otp_challenge(
+        self,
+        *,
+        challenge_id: uuid.UUID,
+        phone_digest: bytes,
+        code_digest: bytes,
+        expires_at: datetime,
+        now: datetime,
+    ) -> OtpChallengeRecord:
+        row = OtpChallenge(
+            id=challenge_id,
+            phone_digest=phone_digest,
+            code_digest=code_digest,
+            created_at=now,
+            expires_at=expires_at,
+            attempts=0,
+        )
+        self.session.add(row)
+        self.session.flush()
+        return self._otp_record(row)
+
+    def recent_otp_challenges(
+        self, phone_digest: bytes, since: datetime
+    ) -> list[OtpChallengeRecord]:
+        rows = self.session.scalars(
+            select(OtpChallenge)
+            .where(
+                OtpChallenge.phone_digest == phone_digest,
+                OtpChallenge.created_at > since,
+            )
+            .order_by(OtpChallenge.created_at.desc())
+        )
+        return [self._otp_record(row) for row in rows]
+
+    def get_otp_challenge(self, challenge_id: uuid.UUID) -> OtpChallengeRecord | None:
+        row = self.session.get(OtpChallenge, challenge_id)
+        return None if row is None else self._otp_record(row)
+
+    def record_otp_attempt(
+        self, *, challenge_id: uuid.UUID, attempts: int, consumed: bool, now: datetime
+    ) -> OtpChallengeRecord | None:
+        row = self.session.get(OtpChallenge, challenge_id)
+        if row is None:
+            return None
+        row.attempts = attempts
+        if consumed and row.consumed_at is None:
+            row.consumed_at = now
+        self.session.flush()
+        return self._otp_record(row)
+
+    def get_account_identity(
+        self, provider: str, subject: str
+    ) -> AccountIdentityRecord | None:
+        row = self.session.scalar(
+            select(AccountIdentity).where(
+                AccountIdentity.provider == provider, AccountIdentity.subject == subject
+            )
+        )
+        return None if row is None else self._identity_record(row)
+
+    def upsert_account_identity(
+        self, *, person_id: uuid.UUID, provider: str, subject: str, now: datetime
+    ) -> AccountIdentityRecord:
+        row = self.session.scalar(
+            select(AccountIdentity).where(
+                AccountIdentity.provider == provider, AccountIdentity.subject == subject
+            )
+        )
+        if row is None:
+            row = AccountIdentity(
+                person_id=person_id,
+                provider=provider,
+                subject=subject,
+                created_at=now,
+                last_login_at=now,
+            )
+            self.session.add(row)
+        else:
+            # The proof stays bound to the person it was first bound to; a
+            # re-login refreshes the timestamp and nothing else. Re-pointing a
+            # proof at another person would be an account merge by side effect.
+            row.last_login_at = now
+        self.session.flush()
+        return self._identity_record(row)
+
+    def _otp_record(self, row: OtpChallenge) -> OtpChallengeRecord:
+        return OtpChallengeRecord(
+            id=row.id,
+            phone_digest=bytes(row.phone_digest),
+            code_digest=bytes(row.code_digest),
+            created_at=row.created_at,
+            expires_at=row.expires_at,
+            attempts=row.attempts,
+            consumed_at=row.consumed_at,
+        )
+
+    def _identity_record(self, row: AccountIdentity) -> AccountIdentityRecord:
+        return AccountIdentityRecord(
+            id=row.id,
+            person_id=row.person_id,
+            provider=row.provider,
+            subject=row.subject,
+            created_at=row.created_at,
+            last_login_at=row.last_login_at,
+        )
 
     def _read_mark_record(self, row: ContextReadMark) -> ReadMarkRecord:
         return ReadMarkRecord(

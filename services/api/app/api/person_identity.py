@@ -163,6 +163,35 @@ def canonical_mobile(raw: str) -> str | None:
     return "84" + rest
 
 
+OTP_PHONE_DOMAIN = b"ru-di:otp-phone:v1:"
+OTP_CODE_DOMAIN = b"ru-di:otp-code:v1:"
+
+
+def derive_phone_digest(canonical: str, key: bytes) -> bytes:
+    """What `otp_challenges` stores instead of the number.
+
+    Same key and same domain-separation habit as `derive_person_id`, a
+    different domain so a phone digest can never be mistaken for, or turned
+    into, a person id. Reveals no more than `people.id` already does: both are
+    HMACs of the same number under the same key.
+    """
+    return hmac.new(
+        key, OTP_PHONE_DOMAIN + canonical.encode("ascii"), hashlib.sha256
+    ).digest()
+
+
+def derive_code_digest(challenge_id: UUID, code: str, key: bytes) -> bytes:
+    """The stored form of a one-time code, salted by the challenge it belongs to.
+
+    Six digits have a million values; an unsalted digest table would be a
+    lookup table. Binding the challenge id in means the same code on two
+    challenges stores two unrelated digests.
+    """
+    return hmac.new(
+        key, OTP_CODE_DOMAIN + challenge_id.bytes + code.encode("ascii"), hashlib.sha256
+    ).digest()
+
+
 def derive_person_id(canonical: str, key: bytes) -> UUID:
     """The person id for a canonical number under a key.
 

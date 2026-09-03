@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import pathlib
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -29,6 +30,7 @@ from app.api.idempotency import (
 )
 from app.api.routes import (
     albums,
+    auth,
     batches,
     bills,
     budget,
@@ -69,6 +71,7 @@ from app.api.search_rate_limit import (
     build_search_limiter,
     build_suggestion_limiter,
 )
+from app.api.sms import build_sms_sender, resolve_otp_debug_code
 from app.api.unit_of_work import install_commit_before_response
 from app.db.session import get_session_factory
 
@@ -110,6 +113,19 @@ def create_app(
         else resolve_auth_mode({AUTH_MODE_ENV_VAR: auth_mode})
     )
     application.state.auth_mode = resolved_auth_mode
+    # ADR-0016: how a one-time code leaves the server, and whether a fixed
+    # code is allowed. `resolve_otp_debug_code` raises when a debug code sits
+    # beside a real gateway, and the application refuses to start -- the same
+    # fail-closed shape as an unknown auth mode.
+    application.state.sms_sender = build_sms_sender(os.environ)
+    application.state.otp_debug_code = resolve_otp_debug_code(
+        os.environ, application.state.sms_sender
+    )
+    LOGGER.info(
+        "otp: sender=%s debug_code=%s",
+        type(application.state.sms_sender).__name__,
+        "set" if application.state.otp_debug_code else "unset",
+    )
     # Said out loud at startup because the dangerous configuration is the
     # silent one: a box that kept trusting `X-Actor-*` looks exactly like a box
     # that does not, until somebody sends a header.
@@ -179,6 +195,7 @@ def create_app(
     application.include_router(obligations.router)
     application.include_router(people.router)
     application.include_router(sessions.router)
+    application.include_router(auth.router)
     application.include_router(identity.router)
     application.include_router(places.router)
     application.include_router(finance.router)
