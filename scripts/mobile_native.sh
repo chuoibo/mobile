@@ -252,15 +252,18 @@ kiem_ma_debug() {
 # lần thay vì đọc nhịp chống dò thành «máy chủ hỏng».
 # Một phiên curl cho mỗi số trong một lượt. Hai kiểm máy chủ liền nhau trên
 # cùng số (24 rồi 25 với D) không xin mã hai lần: lần hai đã ăn nhịp 60 s của
-# lần một và đôi khi cả nhịp của máy. Thân phiên được cache là bản lúc đăng
-# nhập — `contexts` trong đó có thể cũ; kiểm nào cần trạng thái mới thì hỏi
-# máy chủ bằng token, đừng đọc lại thân.
-declare -A PHIEN_CURL=()
+# lần một. Thân phiên được cache là bản lúc đăng nhập — `contexts` trong đó có
+# thể cũ; kiểm nào cần trạng thái mới thì hỏi máy chủ bằng token, đừng đọc lại
+# thân. Cache là FILE (tên = sha256 của số, không phải số): hàm này luôn được
+# gọi trong `$(...)`, tức một subshell, nên một mảng bash gán ở đây không bao
+# giờ tới được người gọi — lượt 8 của M3 đã xin mã hai lần dù «có cache».
+PHIEN_CURL_DIR="$(mktemp -d)"
 
 dang_nhap_curl() {
-  local so="$1" goc id rc body lan tep ma
-  if [ -n "${PHIEN_CURL[$so]:-}" ]; then
-    printf '%s' "${PHIEN_CURL[$so]}"
+  local so="$1" goc id rc body lan tep ma khoa
+  khoa="$PHIEN_CURL_DIR/$(printf '%s' "$so" | sha256sum | cut -c1-32)"
+  if [ -s "$khoa" ]; then
+    cat "$khoa"
     return 0
   fi
   goc="http://127.0.0.1:$API_PORT"
@@ -269,8 +272,10 @@ dang_nhap_curl() {
     rc="$(curl -sS -o "$tep" -w '%{http_code}' -X POST "$goc/auth/otp/request" \
         -H 'Content-Type: application/json' -d "{\"phone\":\"$so\"}")"
     if [ "$rc" = "429" ] && [ "$lan" = 1 ]; then
+      # 60 s theo đồng hồ máy chủ; 61 s theo đồng hồ này đã hụt vài trăm ms
+      # (đồng hồ DB trong container lệch với WSL2). 66 s là đủ dư.
       echo "  (số đang trong nhịp gửi lại 60s, đợi rồi thử lại)" >&2
-      sleep 61
+      sleep 66
       continue
     fi
     if [ "$rc" != "202" ]; then
@@ -286,7 +291,7 @@ except Exception: print("(không phải JSON)")' "$tep" 2>/dev/null)"
     body="$(curl -sS -X POST "$goc/auth/otp/verify" -H 'Content-Type: application/json' \
         -d "{\"challenge_id\":\"$id\",\"phone\":\"$so\",\"code\":\"$OTP_CODE\"}")"
     rm -f "$tep"
-    PHIEN_CURL[$so]="$body"
+    printf '%s' "$body" > "$khoa"
     printf '%s' "$body"
     return 0
   done
@@ -812,7 +817,7 @@ if [ "$OTP" = 1 ]; then
   # Mỗi lượt BỐN người mới, mỗi flow một cặp số chưa ai dùng: người của flow
   # trước đã có nhóm (22) hoặc đã có tên «Thành viên mới» (23), và flow 24 khẳng
   # định cả «Chưa có nhóm nào» lẫn tên «Ban QA» do người mời đặt.
-  PHIEN_CURL=()
+  rm -rf "$PHIEN_CURL_DIR"; PHIEN_CURL_DIR="$(mktemp -d)"
   OTP_PHONE="$(sinh_so_di_dong)"; OTP_PHONE_B="$(sinh_so_di_dong)"
   OTP_PHONE_C="$(sinh_so_di_dong)"; OTP_PHONE_D="$(sinh_so_di_dong)"
 fi
