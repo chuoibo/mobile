@@ -169,7 +169,7 @@ function ThanChiTiet({
           <Ionicons color={colors.accent} name="star" size={14} />
           <Text style={[typography.label, { color: colors.ink }]}>{formatRating(place.rating, place.ratingCount)}</Text>
           <Text style={[typography.caption, { color: colors.inkSoft }]}>· {formatDistance(place.distanceKm)} ·</Text>
-          <Text style={[typography.caption, { color: place.openNow ? colors.accent : colors.split }]}>
+          <Text style={[typography.caption, styles.trangThai, { color: place.openNow ? colors.accent : colors.split }]}>
             {place.openNow ? "Đang mở" : "Đã đóng"}
           </Text>
         </Inline>
@@ -234,6 +234,7 @@ const styles = StyleSheet.create({
   hero: { gap: 12, padding: 18 },
   heroIcon: { width: 80, height: 80, borderRadius: 24, alignItems: "center", justifyContent: "center" },
   huyHieu: { flexDirection: "row" },
+  trangThai: { flexShrink: 0 },
   suKien: { paddingVertical: 5 },
   khoi: { gap: 8 },
   nhanXet: { gap: 2, paddingVertical: 6 },

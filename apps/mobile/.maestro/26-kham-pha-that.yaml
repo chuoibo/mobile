@@ -62,6 +62,13 @@ appId: com.lakiet.rudi
 - assertVisible: ".*một người"
 - assertVisible: "Lưu địa điểm"
 - takeScreenshot: 26-chi-tiet
+# Cuộn tới cuối: nhận xét phải lên khỏi footer ghim, và footer vẫn bấm được.
+- scrollUntilVisible:
+    element:
+      text: ".*nhận xét"
+    direction: DOWN
+    timeout: 20000
+- takeScreenshot: 26-chi-tiet-cuoi
 - tapOn: "Lưu địa điểm"
 - extendedWaitUntil:
     visible: "Đã lưu"
