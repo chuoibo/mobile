@@ -156,6 +156,10 @@ def create_app(
     # cadence and not a ceiling -- the caller lifts it by saying one more
     # thing -- so the turn needs a window like every other model route.
     application.state.companion_turn_limiter = build_companion_turn_limiter()
+    # M3: a slash command or mention in `POST /messages` reaches the companion
+    # too, through its own window -- same size, never the same object, so one
+    # route cannot drain the other's and the ownership gate can tell them apart.
+    application.state.message_intent_limiter = build_companion_turn_limiter()
     # And the proactive card, which had nothing at all in front of it: no
     # cache, no cadence, one model call per GET.
     application.state.suggestion_limiter = build_suggestion_limiter()

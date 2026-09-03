@@ -46,6 +46,7 @@ from app.api.repository import (
     PersonFinanceSummary,
     PersonRecord,
     PostRecord,
+    ReactionRecord,
     RecapOutingRecord,
     StopCheckinRecord,
     UploadedImageRecord,
@@ -123,6 +124,7 @@ from app.api.schemas import (
     MessageCreateRequest,
     MessageListResponse,
     MessageQuery,
+    MessageReactionsResponse,
     MessageResponse,
     ObligationResponse,
     OtpRequestResponse,
@@ -141,6 +143,7 @@ from app.api.schemas import (
     PersonMatchResponse,
     PersonPostListResponse,
     PostCreateRequest,
+    PostedMessageResponse,
     PostListResponse,
     PostResponse,
     PreferenceProfileResponse,
@@ -153,6 +156,8 @@ from app.api.schemas import (
     PublicPersonResponse,
     PublishedGuestLink,
     PublishedObligation,
+    ReactionRequest,
+    ReactionSummary,
     ReadMarkRequest,
     ReadMarkResponse,
     RecapOutingResponse,
@@ -175,6 +180,7 @@ from app.api.schemas import (
     VoteBallotResponse,
     VoteCreateRequest,
     VoteListResponse,
+    VoteOptionInput,
     VoteOptionResultResponse,
     VoteResponse,
     WidgetPhotoResponse,
@@ -187,6 +193,8 @@ from app.domain.allocator import allocate
 from app.domain.bill import BillError, allocator_input_from_bill
 from app.domain.budget import build_group_budget
 from app.domain.capability import CapabilityScopeError, capability_scope
+from app.domain.chat_expense import ChatExpenseError
+from app.domain.chat_intent import parse_intent, parse_vote
 from app.domain.collection import CollectionError, transition, unmet_publish_gates
 from app.domain.companion import CompanionError, ground_card, plan_turn
 from app.domain.contract import AllocationError
@@ -814,7 +822,9 @@ def _wire_outing_invite(
     )
 
 
-def _wire_message(record: MessageRecord) -> MessageResponse:
+def _wire_message(
+    record: MessageRecord, reactions: list[ReactionSummary] | None = None
+) -> MessageResponse:
     return MessageResponse(
         id=record.id,
         context_id=record.context_id,
@@ -825,7 +835,35 @@ def _wire_message(record: MessageRecord) -> MessageResponse:
         card=record.card,
         created_at=record.created_at,
         cursor=encode_cursor(record.created_at, record.id),
+        reactions=reactions or [],
     )
+
+
+def _summarise_reactions(
+    rows: list[ReactionRecord], reader_id: uuid.UUID
+) -> dict[uuid.UUID, list[ReactionSummary]]:
+    """Counts per (message, kind), and whether the reader is among them."""
+    counts: dict[tuple[uuid.UUID, str], int] = {}
+    mine: set[tuple[uuid.UUID, str]] = set()
+    order: list[tuple[uuid.UUID, str]] = []
+    for row in rows:
+        key = (row.message_id, row.kind)
+        if key not in counts:
+            counts[key] = 0
+            order.append(key)
+        counts[key] += 1
+        if row.person_id == reader_id:
+            mine.add(key)
+    out: dict[uuid.UUID, list[ReactionSummary]] = {}
+    for message_id, kind in order:
+        out.setdefault(message_id, []).append(
+            ReactionSummary(
+                kind=kind,
+                count=counts[(message_id, kind)],
+                mine=(message_id, kind) in mine,
+            )
+        )
+    return out
 
 
 def _group_budget_per_person_vnd() -> int | None:
@@ -2996,6 +3034,60 @@ class ApiService:
             saved_at=record.created_at,
         )
 
+    # --- reactions (M3) ------------------------------------------------------
+
+    def _message_in_context(self, context_id: uuid.UUID, message_id: uuid.UUID):
+        message = self.repository.get_message(message_id)
+        if message is None or message.context_id != context_id:
+            # Same answer for absent and cross-context: a guessed id must not
+            # learn that a message exists somewhere else.
+            raise ApiProblem(404, "message_not_found", "Message does not exist")
+        return message
+
+    def react_to_message(
+        self,
+        context_id: uuid.UUID,
+        message_id: uuid.UUID,
+        request: ReactionRequest,
+        actor: Actor,
+    ) -> MessageReactionsResponse:
+        _require_permission(
+            "react_to_message",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        self._message_in_context(context_id, message_id)
+        # Idempotent on purpose: two taps are one heart, and the answer is the
+        # same list either way.
+        self.repository.add_reaction(
+            message_id=message_id, person_id=actor.id, kind=request.kind, now=_now()
+        )
+        return self._reactions_response(message_id, actor)
+
+    def unreact_to_message(
+        self, context_id: uuid.UUID, message_id: uuid.UUID, kind: str, actor: Actor
+    ) -> MessageReactionsResponse:
+        _require_permission(
+            "react_to_message",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        self._message_in_context(context_id, message_id)
+        self.repository.remove_reaction(
+            message_id=message_id, person_id=actor.id, kind=kind
+        )
+        return self._reactions_response(message_id, actor)
+
+    def _reactions_response(
+        self, message_id: uuid.UUID, actor: Actor
+    ) -> MessageReactionsResponse:
+        summaries = _summarise_reactions(
+            self.repository.list_reactions([message_id]), actor.id
+        )
+        return MessageReactionsResponse(
+            message_id=message_id, reactions=summaries.get(message_id, [])
+        )
+
     def _session_response(
         self,
         raw_token: str,
@@ -3698,13 +3790,209 @@ class ApiService:
             )
 
         _require_photo_url_context(context_id, request.image_url)
+        card = request.card
+        if request.kind == "ai_card":
+            # A client may post a card, but only one the server would have
+            # written itself: known kind, every place in the catalogue, text
+            # bounded. The same whitelist that grounds the model grounds the
+            # client, so `poll` and `expense_draft` -- server-authored kinds --
+            # cannot be forged from a phone.
+            try:
+                card = ground_card(
+                    request.card, companion_places.load_place_catalogue()
+                )
+            except CompanionError as refused:
+                raise ApiProblem(
+                    422,
+                    "card_ungrounded",
+                    "Thẻ không hợp lệ: loại thẻ lạ hoặc nêu địa điểm không có trong danh mục.",
+                ) from refused
         record = self.repository.create_message(
             context_id=context_id,
             author_id=actor.id,
             kind=request.kind,
             body=request.body,
             image_url=request.image_url,
-            card=request.card,
+            card=card,
+            now=_now(),
+        )
+        return _wire_message(record)
+
+    def act_on_message_intent(
+        self,
+        context_id: uuid.UUID,
+        posted: MessageResponse,
+        actor: Actor,
+        *,
+        companion: Companion,
+        companion_limiter,
+        expense_reader: ChatExpenseReader | None = None,
+    ) -> PostedMessageResponse:
+        """What the stored message asked for, done after it is safely stored.
+
+        `/plan` and `@Rủ Đi` are a requested companion turn; `/vote` creates a
+        poll and a poll card in the caller's name; `/chia-bill` is answered
+        honestly as not available until the batch reader lands. Nothing here
+        raises after the store: a companion refused by the window becomes
+        `companion_rate_limited` in the body, because a 429 on a message the
+        server already kept would make the client retry into a duplicate.
+        """
+        base = posted.model_dump()
+        intent = parse_intent(posted.body) if posted.kind == "text" else None
+        if intent is None:
+            return PostedMessageResponse(**base)
+        name = intent["intent"]
+        if name in ("plan", "mention"):
+            try:
+                companion_limiter.check(actor.id)
+            except ApiProblem as limited:
+                if limited.status_code != 429:
+                    raise
+                return PostedMessageResponse(
+                    **base, intent=name, intent_error="companion_rate_limited"
+                )
+            turn = self.take_companion_turn(
+                context_id, actor, companion, requested=True
+            )
+            return PostedMessageResponse(**base, intent=name, companion=turn)
+        if name == "vote":
+            spec = parse_vote(intent["args"])
+            if spec is None:
+                return PostedMessageResponse(
+                    **base, intent="vote", intent_error="vote_malformed"
+                )
+            vote = self.create_vote(
+                context_id,
+                VoteCreateRequest(
+                    question=spec["question"],
+                    options=[VoteOptionInput(label=label) for label in spec["options"]],
+                ),
+                actor,
+            )
+            # The poll card is the PERSON's, not the companion's: authored by
+            # the caller, so the cadence does not read it as an AI turn and no
+            # ceiling is spent on it.
+            self.repository.create_message(
+                context_id=context_id,
+                author_id=actor.id,
+                kind="ai_card",
+                body=None,
+                image_url=None,
+                card={
+                    "kind": "poll",
+                    "payload": {
+                        "vote_id": str(vote.id),
+                        "question": vote.question,
+                        "options": [
+                            {"id": str(option.id), "label": option.label}
+                            for option in vote.options
+                        ],
+                    },
+                },
+                now=_now(),
+            )
+            return PostedMessageResponse(**base, intent="vote", vote=vote)
+        # `/chia-bill`: one companion slot for the whole batch, then read the
+        # recent human text with the same identity-free reader the per-message
+        # draft route uses. The model never sees who paid; the author of each
+        # message is who paid, and the active roster is who shares.
+        if expense_reader is None:
+            return PostedMessageResponse(
+                **base, intent="chia_bill", intent_error="chia_bill_not_available"
+            )
+        try:
+            companion_limiter.check(actor.id)
+        except ApiProblem as limited:
+            if limited.status_code != 429:
+                raise
+            return PostedMessageResponse(
+                **base, intent="chia_bill", intent_error="companion_rate_limited"
+            )
+        outcome = self._draft_expenses_from_chat(
+            context_id, actor, posted.id, expense_reader
+        )
+        if isinstance(outcome, str):
+            return PostedMessageResponse(
+                **base, intent="chia_bill", intent_error=outcome
+            )
+        return PostedMessageResponse(**base, intent="chia_bill", expense_card=outcome)
+
+    CHIA_BILL_WINDOW = 20
+    CHIA_BILL_MODEL_CALLS = 8
+
+    def _draft_expenses_from_chat(
+        self,
+        context_id: uuid.UUID,
+        actor: Actor,
+        command_id: uuid.UUID,
+        reader: ChatExpenseReader,
+    ) -> MessageResponse | str:
+        """Read recent human text into one `expense_draft` card, or say why not.
+
+        At most `CHIA_BILL_WINDOW` recent messages are considered and at most
+        `CHIA_BILL_MODEL_CALLS` of them reach the model: a command over a long
+        evening's chatter must cost a bounded number of model calls. A reading
+        that names a person sinks the whole batch -- the reader's contract says
+        it cannot, so one that does is not to be trusted for the others either.
+        Nothing here creates an expense: a card is a draft somebody confirms.
+        """
+        del actor  # the caller's membership was proved when the message was stored
+        page = self.repository.list_messages(context_id, limit=self.CHIA_BILL_WINDOW)
+        candidates = [
+            message
+            for message in page.messages
+            if message.id != command_id
+            and message.kind == "text"
+            and message.author_id is not None
+            and isinstance(message.body, str)
+            and message.body.strip()
+            and parse_intent(message.body) is None
+        ]
+        shared_by = sorted(
+            (
+                membership.person_id
+                for membership in self.repository.list_members(context_id)
+                if membership.state == "active"
+            ),
+            key=lambda person_id: person_id.bytes,
+        )
+        drafts: list[dict] = []
+        for message in candidates[: self.CHIA_BILL_MODEL_CALLS]:
+            try:
+                reading = run_chat_expense_skill(message.body, reader=reader)
+            except ChatExpenseError as refused:
+                if refused.code == "CHAT_READER_NOT_CONFIGURED":
+                    return "chia_bill_not_available"
+                if refused.code == "MODEL_NAMED_A_PERSON":
+                    logger.warning("chia-bill: reader named a person; batch sunk")
+                    return "chia_bill_refused"
+                continue  # unreadable: not an expense, move on
+            except RuntimeError as broken:
+                logger.warning("chia-bill: reader failed (%s)", type(broken).__name__)
+                return "chia_bill_not_available"
+            if not reading["is_expense"]:
+                continue
+            drafts.append(
+                {
+                    "title": reading["title"],
+                    "amount_vnd": int(reading["amount_vnd"]),
+                    "paid_by_id": str(message.author_id),
+                    "shared_by": [str(person_id) for person_id in shared_by],
+                    "source_message_id": str(message.id),
+                    "needs_review": True,
+                }
+            )
+        if not drafts:
+            return "chia_bill_no_expenses"
+        # Oldest first, the order they were spent in.
+        drafts.reverse()
+        record = self.repository.create_message(
+            context_id=context_id,
+            author_id=None,
+            kind="ai_card",
+            body=None,
+            image_url=None,
+            card={"kind": "expense_draft", "payload": {"drafts": drafts}},
             now=_now(),
         )
         return _wire_message(record)
@@ -3741,11 +4029,22 @@ class ApiService:
             before=before,
             after=after,
         )
-        messages = [_wire_message(record) for record in page.messages]
+        # One query for the page's reactions, not one per message.
+        summaries = _summarise_reactions(
+            self.repository.list_reactions([record.id for record in page.messages]),
+            actor.id,
+        )
+        messages = [
+            _wire_message(record, summaries.get(record.id)) for record in page.messages
+        ]
         return MessageListResponse(
             context_id=context_id,
             messages=messages,
-            next_cursor=messages[-1].cursor if messages else None,
+            # A forward poll that found nothing echoes its own cursor, so the
+            # client keeps polling from the same place instead of restarting
+            # from the top on every empty page. Backward and first pages keep
+            # `None`: there is nothing further to ask for.
+            next_cursor=messages[-1].cursor if messages else query.after,
             has_more=page.has_more,
         )
 
@@ -3848,7 +4147,13 @@ class ApiService:
         metadata = [
             {
                 "id": str(message.id),
-                "author_kind": "ai" if message.kind == "ai_card" else "human",
+                # A poll card is posted in a PERSON's name (`/vote`); only a
+                # card with no author is the companion speaking.
+                "author_kind": (
+                    "ai"
+                    if message.kind == "ai_card" and message.author_id is None
+                    else "human"
+                ),
                 "created_at": message.created_at.isoformat(),
             }
             for message in messages
@@ -3870,7 +4175,11 @@ class ApiService:
                 "author_id": (
                     str(message.author_id) if message.author_id is not None else None
                 ),
-                "author_kind": "ai" if message.kind == "ai_card" else "human",
+                "author_kind": (
+                    "ai"
+                    if message.kind == "ai_card" and message.author_id is None
+                    else "human"
+                ),
                 "kind": message.kind,
                 "body": message.body,
                 "image_url": message.image_url,

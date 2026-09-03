@@ -378,6 +378,12 @@ _TABLE: dict[str, dict] = {
         "roles": {"group_admin", "member"},
         "requires": ("is_group_member",),
     },
+    # A reaction is a message-sized write by a member; reading them rides on
+    # `view_group_messages`, which is why the list carries counts, not names.
+    "react_to_message": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
     "post_group_memory": {
         "roles": {"group_admin", "member"},
         "requires": ("is_group_member",),
