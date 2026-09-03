@@ -57,13 +57,25 @@ này không mô tả việc đã có người làm như thể còn nợ:
 | Việc | Ai | Trạng thái |
 |---|---|---|
 | PR-BE0 seed hỏng vì `/bank-recipients` (#519) | Claude | ĐÃ MERGE |
-| PR-BE2 `issued_via`, `GET /people/me/contexts`, `context_read_marks`, idempotency scope theo bearer — đóng luôn 0a «nhóm nào?» | Claude | M1, đang làm |
-| PR-BE3 OTP điện thoại (`/auth/otp/*`, `otp_challenges`, `account_identities`, SMS sender cắm được) | Claude | M1 |
-| PR-BE4 Google ID-token (`/auth/google`) | Claude | M1 |
-| PR-BE5 profile + saved places | Claude | M2 |
-| PR-BE6 slash/@mention, `message_reactions`, cursor echo, grounding card client | Claude | M3 |
-| PR-BE7 `seed_rudi_world.py` HTTP-only re-runnable — đóng 0c «seed ≠ fixture» | Claude | M7 |
+| PR-BE2 `issued_via`, `GET /people/me/contexts`, `context_read_marks`, idempotency scope theo bearer — đóng luôn 0a «nhóm nào?» | Claude | **#526** mở, agy PASS, chờ Lead chấp nhận ADR-0016 (#520) rồi merge đầu chuỗi |
+| PR-BE3 OTP điện thoại (`/auth/otp/*`, `otp_challenges`, `account_identities`, SMS sender cắm được) | Claude | **#529** mở, xếp trên #526 |
+| PR-BE4 Google ID-token (`/auth/google`) | Claude | **#530** mở, xếp trên #529; client id Google do Lead tạo (SHA-1 ở #527) |
+| PR-BE5 profile + saved places | Claude | **#532** mở, xếp trên #530 |
+| PR-BE6 slash/@mention, `message_reactions`, cursor echo, grounding card client, `/chia-bill` theo lô | Claude | **#534** mở, xếp trên #532 |
+| PR-BE7a `outing_stops.place_id` (chặng của kèo trỏ vào danh mục; giữ check-in khi gắn) | Claude | **#536** mở, xếp trên #534 (M4) |
+| PR-BE7 `seed_rudi_world.py` HTTP-only re-runnable — đóng 0c «seed ≠ fixture» | Claude | M7, chưa làm |
 | 0b `check_api_contract.py` mù `/healthz` | còn mở | sửa khi đụng `scripts/` |
+
+Phía client (vỏ RuDi, `apps/mobile/`, xếp chồng theo thứ tự, mỗi PR đã có agy PASS + APPROVE có điều kiện chuỗi và bằng chứng emulator trong thân PR):
+
+| PR | Mảng | Merge sau |
+|---|---|---|
+| **#531** | M1 đăng nhập OTP, màn Chưa có nhóm nào, tạo nhóm, phiên sống qua lần tắt | #529 |
+| **#533** | M2 ii-a Tin nhắn = nhóm thật, roster, mời theo số, hồ sơ sống | #531 và #532 |
+| **#535** | M2 ii-b Bạn bè, thêm bạn theo số điện thoại | #533 |
+| **#537** | M3 chat như messenger trên API thật, Rủ Đi AI là thành viên (`/plan` `/vote` `/chia-bill` `@Rủ Đi`), đo bàn phím | #535 và #534 |
+
+Thứ tự merge chờ Lead: #520 → #526 → #529 → #530 → #532 → #534 → #536 (máy chủ) và #531 → #533 → #535 → #537 (client), đổi base về `main` từng bước.
 | C1–C3 (OffsetProposal, phản đối dừng thu, bằng chứng che) | còn mở | chưa nằm trong lộ trình |
 
 ## A. REVIEW — 5 PR đang chờ bạn
