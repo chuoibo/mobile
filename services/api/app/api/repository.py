@@ -59,6 +59,7 @@ from app.db.models import (
     MemoryReaction,
     Message,
     MessageKind,
+    MessageReaction,
     OtpChallenge,
     Outing,
     OutingInvite,
@@ -454,6 +455,13 @@ class AccountIdentityRecord:
     subject: str
     created_at: datetime
     last_login_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ReactionRecord:
+    message_id: uuid.UUID
+    person_id: uuid.UUID
+    kind: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -1098,6 +1106,16 @@ class ApiRepository(Protocol):
     ) -> tuple[SavedPlaceRecord, bool]: ...
 
     def unsave_place(self, person_id: uuid.UUID, place_id: str) -> bool: ...
+
+    def add_reaction(
+        self, *, message_id: uuid.UUID, person_id: uuid.UUID, kind: str, now: datetime
+    ) -> bool: ...
+
+    def remove_reaction(
+        self, *, message_id: uuid.UUID, person_id: uuid.UUID, kind: str
+    ) -> bool: ...
+
+    def list_reactions(self, message_ids: list[uuid.UUID]) -> list[ReactionRecord]: ...
 
     def get_account_identity(
         self, provider: str, subject: str
@@ -3078,6 +3096,52 @@ class SqlAlchemyApiRepository:
             place_id=row.place_id,
             created_at=row.created_at,
         )
+
+    def add_reaction(
+        self, *, message_id: uuid.UUID, person_id: uuid.UUID, kind: str, now: datetime
+    ) -> bool:
+        """True when a row was added; False when this reaction already stood."""
+        row = MessageReaction(
+            message_id=message_id, person_id=person_id, kind=kind, created_at=now
+        )
+        try:
+            with self.session.begin_nested():
+                self.session.add(row)
+                self.session.flush()
+        except IntegrityError:
+            # The unique index says it is already there; two taps are one heart.
+            return False
+        return True
+
+    def remove_reaction(
+        self, *, message_id: uuid.UUID, person_id: uuid.UUID, kind: str
+    ) -> bool:
+        row = self.session.scalar(
+            select(MessageReaction).where(
+                MessageReaction.message_id == message_id,
+                MessageReaction.person_id == person_id,
+                MessageReaction.kind == kind,
+            )
+        )
+        if row is None:
+            return False
+        self.session.delete(row)
+        self.session.flush()
+        return True
+
+    def list_reactions(self, message_ids: list[uuid.UUID]) -> list[ReactionRecord]:
+        """Every reaction on these messages, one query for the whole page."""
+        if not message_ids:
+            return []
+        rows = self.session.scalars(
+            select(MessageReaction)
+            .where(MessageReaction.message_id.in_(message_ids))
+            .order_by(MessageReaction.created_at, MessageReaction.id)
+        ).all()
+        return [
+            ReactionRecord(message_id=r.message_id, person_id=r.person_id, kind=r.kind)
+            for r in rows
+        ]
 
     def get_account_identity(
         self, provider: str, subject: str

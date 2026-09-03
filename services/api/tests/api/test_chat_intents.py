@@ -25,10 +25,11 @@ from app.api.repository import (
     MembershipRecord,
     MessagePage,
     MessageRecord,
+    ReactionRecord,
     VoteOptionRecord,
     VoteRecord,
 )
-from app.api.routes.messages import get_companion_turn_limiter
+from app.api.routes.messages import get_message_intent_limiter
 from app.api.search_rate_limit import FixedWindowLimiter
 from app.domain.chat_expense import ChatExpenseError
 
@@ -57,6 +58,7 @@ class ChatRepository:
     def __init__(self) -> None:
         self.messages: list[MessageRecord] = []
         self.votes: dict[uuid.UUID, VoteRecord] = {}
+        self.reactions: dict[tuple[uuid.UUID, uuid.UUID, str], datetime] = {}
         self.clock = NOW
 
     def is_member(self, context_id, person_id):
@@ -112,6 +114,27 @@ class ChatRepository:
         )
         self.messages.append(record)
         return record
+
+    def get_message(self, message_id):
+        return next((m for m in self.messages if m.id == message_id), None)
+
+    def add_reaction(self, *, message_id, person_id, kind, now):
+        key = (message_id, person_id, kind)
+        if key in self.reactions:
+            return False
+        self.reactions[key] = now
+        return True
+
+    def remove_reaction(self, *, message_id, person_id, kind):
+        return self.reactions.pop((message_id, person_id, kind), None) is not None
+
+    def list_reactions(self, message_ids):
+        wanted = set(message_ids)
+        return [
+            ReactionRecord(message_id=m, person_id=p, kind=k)
+            for (m, p, k), _ in sorted(self.reactions.items(), key=lambda kv: kv[1])
+            if m in wanted
+        ]
 
     def create_vote(
         self, *, context_id, outing_id, created_by_id, question, options, now
@@ -190,7 +213,7 @@ def _client(repository, companion, monkeypatch, *, limiter=None, reader=None):
     app.dependency_overrides[get_repository] = lambda: repository
     app.dependency_overrides[get_companion] = lambda: companion
     if limiter is not None:
-        app.dependency_overrides[get_companion_turn_limiter] = lambda: limiter
+        app.dependency_overrides[get_message_intent_limiter] = lambda: limiter
     app.dependency_overrides[get_chat_expense_reader] = lambda: reader or TableReader(
         fail=ChatExpenseError("CHAT_READER_NOT_CONFIGURED")
     )
@@ -456,3 +479,80 @@ def test_a_forward_poll_that_finds_nothing_echoes_its_cursor(client, repository)
         f"/contexts/{CONTEXT_ID}/messages", headers=actor_headers(actor_id=MEMBER_ID)
     )
     assert first_page.json()["next_cursor"] is not None
+
+
+# ---- reactions (M3) -------------------------------------------------------
+
+OTHER_ID = uuid.UUID("5ee00000-eeee-4eee-8eee-0000e0000009")
+
+
+def _react(client, message_id, kind, who=MEMBER_ID):
+    return client.post(
+        f"/contexts/{CONTEXT_ID}/messages/{message_id}/reactions",
+        json={"kind": kind},
+        headers=actor_headers(actor_id=who),
+    )
+
+
+def test_a_reaction_is_idempotent_and_the_list_is_reader_aware(client, repository):
+    posted = _post(client, "đi thôi").json()
+    first = _react(client, posted["id"], "heart")
+    again = _react(client, posted["id"], "heart")
+    assert first.status_code == 201 and again.status_code == 201, (
+        first.text,
+        again.text,
+    )
+    assert again.json()["reactions"] == [{"kind": "heart", "count": 1, "mine": True}], (
+        "hai lần bấm là một tim"
+    )
+    theirs = _react(client, posted["id"], "heart", who=OTHER_ID).json()
+    assert theirs["reactions"] == [{"kind": "heart", "count": 2, "mine": True}]
+    page = client.get(
+        f"/contexts/{CONTEXT_ID}/messages", headers=actor_headers(actor_id=MEMBER_ID)
+    ).json()
+    assert page["messages"][0]["reactions"] == [
+        {"kind": "heart", "count": 2, "mine": True}
+    ]
+    stranger = uuid.uuid4()
+    page = client.get(
+        f"/contexts/{CONTEXT_ID}/messages", headers=actor_headers(actor_id=stranger)
+    ).json()
+    assert page["messages"][0]["reactions"] == [
+        {"kind": "heart", "count": 2, "mine": False}
+    ]
+    assert "person" not in str(page["messages"][0]["reactions"]), (
+        "danh sách là số đếm, không phải tên"
+    )
+
+
+def test_taking_a_reaction_back_returns_the_remaining_list(client, repository):
+    posted = _post(client, "đi thôi").json()
+    _react(client, posted["id"], "heart")
+    _react(client, posted["id"], "fire", who=OTHER_ID)
+    gone = client.delete(
+        f"/contexts/{CONTEXT_ID}/messages/{posted['id']}/reactions/heart",
+        headers=actor_headers(actor_id=MEMBER_ID),
+    )
+    assert gone.status_code == 200, gone.text
+    assert gone.json()["reactions"] == [{"kind": "fire", "count": 1, "mine": False}]
+    twice = client.delete(
+        f"/contexts/{CONTEXT_ID}/messages/{posted['id']}/reactions/heart",
+        headers=actor_headers(actor_id=MEMBER_ID),
+    )
+    assert twice.status_code == 200, "bỏ cái không còn vẫn là «không còn»"
+
+
+def test_unknown_kinds_and_foreign_messages_are_refused(client, repository):
+    posted = _post(client, "đi thôi").json()
+    assert _react(client, posted["id"], "poop").status_code == 422
+    missing = _react(client, uuid.uuid4(), "heart")
+    assert missing.status_code == 404 and missing.json()["code"] == "message_not_found"
+    other_context = client.post(
+        f"/contexts/{uuid.uuid4()}/messages/{posted['id']}/reactions",
+        json={"kind": "heart"},
+        headers=actor_headers(actor_id=MEMBER_ID),
+    )
+    assert other_context.status_code in (403, 404), (
+        "một nhóm khác không mượn được tin của nhóm này"
+    )
+    assert repository.reactions == {}

@@ -46,6 +46,7 @@ from app.api.repository import (
     PersonFinanceSummary,
     PersonRecord,
     PostRecord,
+    ReactionRecord,
     RecapOutingRecord,
     StopCheckinRecord,
     UploadedImageRecord,
@@ -123,6 +124,7 @@ from app.api.schemas import (
     MessageCreateRequest,
     MessageListResponse,
     MessageQuery,
+    MessageReactionsResponse,
     MessageResponse,
     ObligationResponse,
     OtpRequestResponse,
@@ -154,6 +156,8 @@ from app.api.schemas import (
     PublicPersonResponse,
     PublishedGuestLink,
     PublishedObligation,
+    ReactionRequest,
+    ReactionSummary,
     ReadMarkRequest,
     ReadMarkResponse,
     RecapOutingResponse,
@@ -818,7 +822,9 @@ def _wire_outing_invite(
     )
 
 
-def _wire_message(record: MessageRecord) -> MessageResponse:
+def _wire_message(
+    record: MessageRecord, reactions: list[ReactionSummary] | None = None
+) -> MessageResponse:
     return MessageResponse(
         id=record.id,
         context_id=record.context_id,
@@ -829,7 +835,35 @@ def _wire_message(record: MessageRecord) -> MessageResponse:
         card=record.card,
         created_at=record.created_at,
         cursor=encode_cursor(record.created_at, record.id),
+        reactions=reactions or [],
     )
+
+
+def _summarise_reactions(
+    rows: list[ReactionRecord], reader_id: uuid.UUID
+) -> dict[uuid.UUID, list[ReactionSummary]]:
+    """Counts per (message, kind), and whether the reader is among them."""
+    counts: dict[tuple[uuid.UUID, str], int] = {}
+    mine: set[tuple[uuid.UUID, str]] = set()
+    order: list[tuple[uuid.UUID, str]] = []
+    for row in rows:
+        key = (row.message_id, row.kind)
+        if key not in counts:
+            counts[key] = 0
+            order.append(key)
+        counts[key] += 1
+        if row.person_id == reader_id:
+            mine.add(key)
+    out: dict[uuid.UUID, list[ReactionSummary]] = {}
+    for message_id, kind in order:
+        out.setdefault(message_id, []).append(
+            ReactionSummary(
+                kind=kind,
+                count=counts[(message_id, kind)],
+                mine=(message_id, kind) in mine,
+            )
+        )
+    return out
 
 
 def _group_budget_per_person_vnd() -> int | None:
@@ -3000,6 +3034,60 @@ class ApiService:
             saved_at=record.created_at,
         )
 
+    # --- reactions (M3) ------------------------------------------------------
+
+    def _message_in_context(self, context_id: uuid.UUID, message_id: uuid.UUID):
+        message = self.repository.get_message(message_id)
+        if message is None or message.context_id != context_id:
+            # Same answer for absent and cross-context: a guessed id must not
+            # learn that a message exists somewhere else.
+            raise ApiProblem(404, "message_not_found", "Message does not exist")
+        return message
+
+    def react_to_message(
+        self,
+        context_id: uuid.UUID,
+        message_id: uuid.UUID,
+        request: ReactionRequest,
+        actor: Actor,
+    ) -> MessageReactionsResponse:
+        _require_permission(
+            "react_to_message",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        self._message_in_context(context_id, message_id)
+        # Idempotent on purpose: two taps are one heart, and the answer is the
+        # same list either way.
+        self.repository.add_reaction(
+            message_id=message_id, person_id=actor.id, kind=request.kind, now=_now()
+        )
+        return self._reactions_response(message_id, actor)
+
+    def unreact_to_message(
+        self, context_id: uuid.UUID, message_id: uuid.UUID, kind: str, actor: Actor
+    ) -> MessageReactionsResponse:
+        _require_permission(
+            "react_to_message",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        self._message_in_context(context_id, message_id)
+        self.repository.remove_reaction(
+            message_id=message_id, person_id=actor.id, kind=kind
+        )
+        return self._reactions_response(message_id, actor)
+
+    def _reactions_response(
+        self, message_id: uuid.UUID, actor: Actor
+    ) -> MessageReactionsResponse:
+        summaries = _summarise_reactions(
+            self.repository.list_reactions([message_id]), actor.id
+        )
+        return MessageReactionsResponse(
+            message_id=message_id, reactions=summaries.get(message_id, [])
+        )
+
     def _session_response(
         self,
         raw_token: str,
@@ -3941,7 +4029,14 @@ class ApiService:
             before=before,
             after=after,
         )
-        messages = [_wire_message(record) for record in page.messages]
+        # One query for the page's reactions, not one per message.
+        summaries = _summarise_reactions(
+            self.repository.list_reactions([record.id for record in page.messages]),
+            actor.id,
+        )
+        messages = [
+            _wire_message(record, summaries.get(record.id)) for record in page.messages
+        ]
         return MessageListResponse(
             context_id=context_id,
             messages=messages,

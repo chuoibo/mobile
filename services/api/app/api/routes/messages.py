@@ -29,7 +29,10 @@ from app.api.schemas import (
     MessageCreateRequest,
     MessageListResponse,
     MessageQuery,
+    MessageReactionsResponse,
     PostedMessageResponse,
+    ReactionKind,
+    ReactionRequest,
     ReadMarkRequest,
     ReadMarkResponse,
 )
@@ -79,6 +82,21 @@ def get_companion_turn_limiter(request: Request) -> FixedWindowLimiter:
     return request.app.state.companion_turn_limiter
 
 
+# The post-message route has its OWN window (M3): a slash command or mention
+# charges it before the companion is reached. Same size as the companion's,
+# never the same object -- a route wired to another route's window is what
+# `test_every_route_that_depends_on_a_limiter_has_one_of_its_own` refuses.
+def get_message_intent_limiter(request: Request) -> FixedWindowLimiter:
+    """Resolve the one companion-turn limiter owned by this application.
+
+    Read off the application rather than constructed here: a limiter built per
+    request counts to one and forgets, which is a limiter-shaped object that
+    limits nothing.
+    """
+
+    return request.app.state.message_intent_limiter
+
+
 @router.post(
     "/contexts/{context_id}/messages",
     response_model=PostedMessageResponse,
@@ -91,7 +109,7 @@ def post_context_message(
     actor: Annotated[Actor, Depends(get_actor)],
     repository: Annotated[ApiRepository, Depends(get_repository)],
     companion: Annotated[Companion, Depends(get_companion)],
-    limiter: Annotated[FixedWindowLimiter, Depends(get_companion_turn_limiter)],
+    limiter: Annotated[FixedWindowLimiter, Depends(get_message_intent_limiter)],
     reader: Annotated[ChatExpenseReader, Depends(get_chat_expense_reader)],
 ) -> PostedMessageResponse:
     """Store the message, then act on a slash command or mention in it.
@@ -128,6 +146,45 @@ def list_context_messages(
 ) -> MessageListResponse:
     query = MessageQuery(limit=limit, before=before, after=after)
     return ApiService(repository).list_context_messages(context_id, query, actor)
+
+
+@router.post(
+    "/contexts/{context_id}/messages/{message_id}/reactions",
+    response_model=MessageReactionsResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses=ERRORS,
+)
+def react_to_message(
+    context_id: UUID,
+    message_id: UUID,
+    request: ReactionRequest,
+    actor: Annotated[Actor, Depends(get_actor)],
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+) -> MessageReactionsResponse:
+    """Add one reaction of one kind; a second tap of the same kind is the same
+    heart. Answers the message's whole reaction list, reader-aware."""
+    return ApiService(repository).react_to_message(
+        context_id, message_id, request, actor
+    )
+
+
+@router.delete(
+    "/contexts/{context_id}/messages/{message_id}/reactions/{kind}",
+    response_model=MessageReactionsResponse,
+    responses=ERRORS,
+)
+def unreact_to_message(
+    context_id: UUID,
+    message_id: UUID,
+    kind: ReactionKind,
+    actor: Annotated[Actor, Depends(get_actor)],
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+) -> MessageReactionsResponse:
+    """Take one reaction back. 200 with the remaining list, so the bubble can
+    redraw from the server's answer rather than its own guess."""
+    return ApiService(repository).unreact_to_message(
+        context_id, message_id, kind, actor
+    )
 
 
 @router.post(

@@ -1281,6 +1281,27 @@ class MessageQuery(ApiModel):
     after: str | None = None
 
 
+ReactionKind = Literal["heart", "haha", "like", "wow", "sad", "fire"]
+
+
+class ReactionSummary(ApiModel):
+    """One kind of reaction on one message: how many, and whether the reader
+    is among them. Names are not listed; the count is what a chat shows."""
+
+    kind: ReactionKind
+    count: Annotated[int, Field(strict=True, ge=1)]
+    mine: StrictBool
+
+
+class ReactionRequest(ApiModel):
+    kind: ReactionKind
+
+
+class MessageReactionsResponse(ApiModel):
+    message_id: UUID
+    reactions: list[ReactionSummary]
+
+
 class MessageResponse(ApiModel):
     id: UUID
     context_id: UUID
@@ -1291,6 +1312,7 @@ class MessageResponse(ApiModel):
     card: dict | None
     created_at: datetime
     cursor: str
+    reactions: list[ReactionSummary] = []
 
 
 class ChatExpenseDraft(ApiModel):
