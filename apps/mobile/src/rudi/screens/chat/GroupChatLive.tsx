@@ -13,7 +13,7 @@
  * the emulator (flow 30 + `scripts/do_ban_phim.py`), not assumed from a prop.
  */
 import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
   KeyboardAvoidingView,
@@ -93,6 +93,11 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
   const hang = useMemo(() => nhomTheoNgay(chat.tin), [chat.tin]);
   const moLenh = nhap.startsWith("/") && !nhap.includes(" ") || nhap === "@";
 
+  // The list only auto-scrolls to new rows when the reader is already at the
+  // newest end (see autoscrollToTopThreshold); a message you just sent must
+  // always come into view, so the send jumps there explicitly.
+  const danhSachRef = useRef<FlatList<HangHienThi>>(null);
+
   const gui = async () => {
     const body = nhap.trim();
     if (!body || dangGui) return;
@@ -101,6 +106,7 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
     try {
       const daGui = await chat.gui(body);
       setNhap("");
+      danhSachRef.current?.scrollToOffset({ offset: 0, animated: true });
       setThongBao(cauYDinh(daGui));
     } catch (error) {
       setThongBao(error instanceof ApiError ? error.message : thongDiepNguoiDoc(0, null));
@@ -225,6 +231,7 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
         </Pressable>
       </View>
       <FlatList
+        ref={danhSachRef}
         contentContainerStyle={[styles.danhSach, { paddingHorizontal: space.md }]}
         data={hang}
         inverted
@@ -244,7 +251,11 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
             <Text style={[typography.caption, styles.giua, { color: colors.inkFaint }]}>Đang tải tin cũ...</Text>
           ) : null
         }
-        maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+        // Hold the reader's place while older pages load above, but when they
+        // are within a bubble of the newest end, new rows (own sends, the AI's
+        // answer, a friend's message) scroll into view instead of landing
+        // under the composer.
+        maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 120 }}
         onEndReached={() => void chat.napCuHon()}
         onEndReachedThreshold={0.6}
         renderItem={renderItem}
