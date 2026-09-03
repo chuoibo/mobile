@@ -63,19 +63,6 @@ _TABLE: dict[str, dict] = {
     # fail-closed; an unused parameter is the most convincing way to look like
     # it is while it is not.
     "view_collection_board": {"roles": {"member"}, "requires": ("is_group_member",)},
-    # --- bank recipient ------------------------------------------------
-    # Section 9.2: an admin may not add or change someone else's bank account,
-    # and an AdvancerApprovalCapability explicitly may not be used for this.
-    "set_bank_recipient": {
-        "roles": {"member"},
-        "requires": ("is_own_account", "is_authenticated_account"),
-    },
-    # Reading is narrower than writing, not wider. A bank destination is the one
-    # field an attacker most wants to read before replacing it, and there is no
-    # group-visibility case for it: the collection board shows what is owed, and
-    # a published envelope carries the frozen account to exactly the one sender
-    # who has to pay it.
-    "view_bank_recipient": {"roles": {"member"}, "requires": ("is_own_account",)},
     # --- batch ---------------------------------------------------------
     "create_batch": {"roles": {"member"}, "requires": ("is_group_member",)},
     "freeze_batch": {"roles": {"batch_owner"}, "requires": ("owns_batch",)},

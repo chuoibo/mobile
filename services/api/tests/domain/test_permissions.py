@@ -148,15 +148,6 @@ class GroupAdminIsLogisticsNotFinance(unittest.TestCase):
             "role_not_permitted",
         )
 
-    def test_cannot_set_someone_elses_bank_recipient(self):
-        self.assertEqual(
-            denial_reason(
-                "set_bank_recipient",
-                facts({"group_admin", "member"}, ["is_authenticated_account"]),
-            ),
-            "is_own_account",
-        )
-
     def test_cannot_remove_other_peoples_content(self):
         self.assertEqual(
             denial_reason("remove_others_content", facts({"group_admin"})),

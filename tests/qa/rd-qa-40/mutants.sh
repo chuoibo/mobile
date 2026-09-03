@@ -181,11 +181,10 @@ assert s.count(old) == 1, "confirm_bill_assignments call site is not unique"
 s = s.replace(old, "", 1)
 ' red
 
-mutant GATED "set_bank_recipient: is_own_account dropped" "$SERVICE" '
-old = """                \"is_own_account\": actor.id == request.recipient_id,"""
-assert s.count(old) == 1, "predicate not found"
-s = s.replace(old, """                \"is_own_account\": True,""", 1)
-' red
+# `set_bank_recipient: is_own_account dropped` used to sit here. Nothing to
+# mutate: ADR-0015 removed the route, the service method and the permission
+# entry with the payment rail. Left as a line rather than deleted quietly so
+# the count of holes in this file does not shrink without a reason on it.
 
 # The anchor carries the `try:` after it because `create_outing_invite` now
 # calls the same helper with the same argument, one indent level deeper -- and

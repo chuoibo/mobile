@@ -1,14 +1,12 @@
 /** F05, the showing half: the square a friend points a camera at.
  *
- * The encoder is `ui/qr.ts` -- the same one the VietQR card uses, and the
- * reason there is no second QR library in `package.json`. What is *not* shared
- * is `ui/MaVietQr.tsx`: that component parses EMVCo, masks an account number
- * and refuses when an amount disagrees with the row above it. None of that is
- * true of a friend code, and bending it into a general-purpose painter would
- * put a money component on the path of a screen that has nothing to do with
- * money. The run-drawing below is the same technique deliberately, and when
- * `src/ui/` grows a shared `MaQr` this file should call it instead -- that is
- * the frontend lane's to define, not this one's.
+ * The encoder is `ui/qr.ts`, and this is now its only caller. It used to be
+ * shared with `ui/MaVietQr.tsx`, the card on the money path, and this file
+ * deliberately did NOT share that component: it parsed EMVCo and masked an
+ * account number, none of which is true of a friend code. That card left with
+ * the payment rail (ADR-0015); the encoder stayed, because a friend code is
+ * not a payment. When `src/ui/` grows a shared `MaQr` this file should call it
+ * instead -- that is the frontend lane's to define, not this one's.
  *
  * The card states two things a demo audience would otherwise have to guess:
  * whether the square opens anything, and what is inside it. Both matter. A
