@@ -1165,6 +1165,10 @@ class OutingStop(Base):
     minute_of_day: Mapped[int] = mapped_column(Integer, nullable=False)
     label: Mapped[str] = mapped_column(Text, nullable=False)
     place_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Catalogue key of the place this stop is at (M4). Text, not a foreign key,
+    # while the catalogue is code; the service refuses a key it does not know.
+    # Optional: a stop may be somewhere the catalogue has never heard of.
+    place_id: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class OutingStopCheckin(Base):

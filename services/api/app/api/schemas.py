@@ -417,6 +417,9 @@ class OutingStopInput(ApiModel):
     ]
     label: Annotated[StrictStr, Field(min_length=1, max_length=200)]
     place_name: Annotated[StrictStr, Field(max_length=200)] | None = None
+    # Catalogue key (M4). Checked against the catalogue by the service; a stop
+    # may carry none and stay a free-text label.
+    place_id: Annotated[StrictStr, Field(min_length=1, max_length=80)] | None = None
 
     @field_validator("label")
     @classmethod
@@ -444,6 +447,7 @@ class OutingStopResponse(ApiModel):
     at: str
     label: str
     place_name: str | None
+    place_id: str | None = None
 
 
 class StopCheckinResponse(ApiModel):
