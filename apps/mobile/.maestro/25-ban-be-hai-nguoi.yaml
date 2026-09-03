@@ -128,7 +128,7 @@ appId: com.lakiet.rudi
 - extendedWaitUntil:
     visible: "Không có lời mời nào đang chờ"
     timeout: 30000
-- tapOn: "Bạn bè"
+- tapOn: "Đã là bạn"
 - extendedWaitUntil:
     visible: "An QA"
     timeout: 30000

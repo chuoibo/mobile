@@ -30,7 +30,7 @@ import { Card, Heading, RudiButton, RudiScreen, Segmented, TopBar } from "../../
 type Du = { ban: Ban[]; daNhan: LoiMoi[]; daGui: LoiMoi[] };
 type Trang = { pha: "dang-doc" } | { pha: "xong"; du: Du } | { pha: "hong"; loi: string };
 
-const MUC = ["Bạn bè", "Đã nhận", "Đã gửi"];
+const MUC = ["Đã là bạn", "Đã nhận", "Đã gửi"];
 
 function loiRaChu(error: unknown): string {
   return error instanceof ApiError ? error.message : thongDiepNguoiDoc(0, null);
