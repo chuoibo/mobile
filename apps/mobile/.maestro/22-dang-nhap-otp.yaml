@@ -70,11 +70,13 @@ appId: com.lakiet.rudi
 - assertNotVisible: "Dữ liệu demo"
 - assertNotVisible: "3.840.000đ"
 - assertNotVisible: "Xóm Lèo"
-# Khám phá còn đọc catalogue mẫu tới M4. Với một phiên THẬT nó phải nói thẳng
-# điều đó bằng nhãn, và không được kể chuyện «Team Đà Lạt» cho nhóm vừa đặt tên.
-# M4 đảo hai dòng này (như flow 07 từng đổi cực) khi danh sách đến từ /places.
-- assertVisible: "Gợi ý mẫu.*"
-- assertVisible: "Mẫu minh hoạ.*"
+# Từ M4 Khám phá của một phiên THẬT đọc danh mục từ GET /places: tên thật hiện,
+# nhãn «mẫu» và câu chuyện «Team Đà Lạt» của bản fixture không được hiện.
+- extendedWaitUntil:
+    visible: "Tiệm Nướng Xóm Lào"
+    timeout: 60000
+- assertNotVisible: "Gợi ý mẫu.*"
+- assertNotVisible: "Mẫu minh hoạ.*"
 - assertNotVisible: ".*Team Đà Lạt.*"
 - assertNotVisible: "Gần bạn, đúng gu"
 - takeScreenshot: 22-trong-nhom-moi

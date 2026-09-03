@@ -271,6 +271,9 @@
     "src/rudi/doc-live.ts",
     "src/rudi/money.ts",
     "src/rudi/places.ts",
+    // Khám phá trên danh mục thật (M4): compile để test chứng minh danh mục được
+    // đọc như người lạ KHÔNG mang context_id bịa và việc lưu đi với bearer.
+    "src/rudi/kham-pha/dia-diem.ts",
     "src/rudi/vote.ts"
   ]
 }

@@ -344,6 +344,26 @@ print("%s|%s|%s" % (c.get("friends"), c.get("contexts"), d.get("display_name", "
 
 # Sau flow 30: hỏi máy chủ với tư cách C — tin nhắn có thật, thẻ poll có thật,
 # phản ứng heart có thật. Màn hình chỉ là nơi bấm.
+# Sau flow 26: D bấm «Lưu địa điểm» trên máy → máy chủ giữ đúng một địa điểm đã
+# lưu cho D (GET /people/me/saved-places), và đó là chỗ flow đã mở.
+kiem_may_chu_sau_26() {
+  local goc body tok ket
+  goc="http://127.0.0.1:$API_PORT"
+  body="$(dang_nhap_curl "$OTP_PHONE_D")" \
+    || hong "sau flow 26: D không đăng nhập được qua curl."
+  tok="$(printf '%s' "$body" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("token",""))')"
+  [ -n "$tok" ] || hong "sau flow 26: D không có token."
+  ket="$(curl -sS "$goc/people/me/saved-places" -H "Authorization: Bearer $tok" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+ds = [s.get("place_id") for s in d.get("saved", [])]
+print("%d|%s" % (len(ds), ",".join(sorted(x for x in ds if isinstance(x, str)))))')"
+  IFS='|' read -r so_luu ids <<< "$ket"
+  [ "${so_luu:-0}" -eq 1 ] || hong "sau flow 26: máy chủ giữ $so_luu địa điểm đã lưu cho D, mong 1."
+  [ "$ids" = "p-tiem-nuong-xom-lao" ] || hong "sau flow 26: địa điểm đã lưu là '$ids', mong p-tiem-nuong-xom-lao."
+  echo "máy chủ xác nhận: D đã lưu đúng một địa điểm ($ids) từ chi tiết địa điểm"
+}
+
 kiem_may_chu_sau_30() {
   local goc body tok ctx ket
   goc="http://127.0.0.1:$API_PORT"
@@ -834,8 +854,12 @@ for f in "$FLOWS"/*.yaml; do
     # môi trường chứ không phải vì app sai. `--live` chạy đúng và chỉ nhóm này.
     20-*)        [ "$LIVE" = 1 ] || continue ;;
     21-*)        [ "$DANG_NHAP" = 1 ] || continue ;;
-    22-*|23-*|24-*|25-*|30-*|31-*) [ "$OTP" = 1 ] || continue ;;
-    40-*)        [ "$OTP" = 1 ] && [ "$AI" = 1 ] || continue ;;
+    22-*|23-*|24-*|25-*|26-*|31-*) [ "$OTP" = 1 ] || continue ;;
+    # Under the keyboard negative control the composer is meant to be covered,
+    # so a flow that has to tap it (30, 40) would only fail for the reason the
+    # probe already measures. The table for --tat-kav is the sign-in leg + 31.
+    30-*) [ "$OTP" = 1 ] && [ "$TAT_KAV" = 0 ] || continue ;;
+    40-*)        [ "$OTP" = 1 ] && [ "$AI" = 1 ] && [ "$TAT_KAV" = 0 ] || continue ;;
     *)           { [ "$LIVE" = 1 ] || [ "$DANG_NHAP" = 1 ] || [ "$OTP" = 1 ]; } && continue ;;
   esac
   DA_CHAY=$((DA_CHAY + 1))
@@ -903,8 +927,9 @@ fi
 if [ "$OTP" = 1 ]; then
   kiem_may_chu_sau_24
   kiem_may_chu_sau_25
-  kiem_may_chu_sau_30
-  [ "$AI" = 1 ] && kiem_may_chu_sau_40
+  kiem_may_chu_sau_26
+  [ "$TAT_KAV" = 1 ] || kiem_may_chu_sau_30
+  [ "$AI" = 1 ] && [ "$TAT_KAV" = 0 ] && kiem_may_chu_sau_40
   canary_otp
 else
 RA_CANARY="$(mktemp)"

@@ -1,0 +1,75 @@
+# Khám phá trên danh mục THẬT (M4): tab Khám phá đọc GET /places, lọc theo
+# category của máy chủ, mở chi tiết địa điểm từ danh mục, lưu địa điểm lên máy
+# chủ (PUT /people/me/saved-places/{id}). Chạy sau flow 25 (phiên của D còn
+# sống; nếu app ở màn chào thì đăng nhập lại bằng số D). Harness kiểm máy chủ
+# sau flow: D có đúng một địa điểm đã lưu.
+appId: com.lakiet.rudi
+---
+- stopApp
+- launchApp
+- runFlow: _bo-qua-dev-menu.yaml
+- extendedWaitUntil:
+    visible: "Rủ Đi thôi!|Khám phá|Chưa có nhóm nào"
+    timeout: 150000
+- runFlow:
+    when:
+      visible: "Rủ Đi thôi!"
+    file: _dang-nhap-d.yaml
+- extendedWaitUntil:
+    visible: "Khám phá"
+    timeout: 60000
+- tapOn: "Khám phá"
+# Danh mục của máy chủ, không phải fixture: tên thật xuất hiện, tên mẫu không.
+- extendedWaitUntil:
+    visible: "Tiệm Nướng Xóm Lào"
+    timeout: 60000
+- assertVisible: "12 nơi ở Đà Lạt"
+- assertNotVisible: "Xóm Lèo"
+- assertNotVisible: "Mẫu minh hoạ.*"
+- assertNotVisible: "Gợi ý mẫu.*"
+- takeScreenshot: 26-danh-muc-that
+# Lọc theo category của máy chủ.
+- tapOn: "Cafe"
+- extendedWaitUntil:
+    visible: "3 kết quả"
+    timeout: 30000
+- assertVisible: "Lưng Chừng Cafe"
+- assertNotVisible: "Tiệm Nướng Xóm Lào"
+- takeScreenshot: 26-loc-cafe
+- tapOn: "Xóa lọc"
+- extendedWaitUntil:
+    visible: "12 nơi ở Đà Lạt"
+    timeout: 30000
+# Gõ tên thì lọc ngay trên máy, không cần dấu («di be» ra «Dì Bé»).
+- tapOn: "Ô tìm địa điểm"
+- inputText: "di be"
+- hideKeyboard
+- extendedWaitUntil:
+    visible: "Quán Ốc Dì Bé"
+    timeout: 30000
+- assertVisible: "1 kết quả"
+- takeScreenshot: 26-tim-ten
+- tapOn: "Xóa lọc"
+# Mở chi tiết từ danh mục: địa chỉ, giờ, giá của máy chủ; nút chỉ đường; lưu.
+- extendedWaitUntil:
+    visible: "Tiệm Nướng Xóm Lào"
+    timeout: 30000
+- tapOn: "Mở Tiệm Nướng Xóm Lào"
+- extendedWaitUntil:
+    visible: "Chỉ đường"
+    timeout: 60000
+- assertVisible: "27/1 Yersin.*"
+- assertVisible: ".*một người"
+- assertVisible: "Lưu địa điểm"
+- takeScreenshot: 26-chi-tiet
+- tapOn: "Lưu địa điểm"
+- extendedWaitUntil:
+    visible: "Đã lưu"
+    timeout: 30000
+- takeScreenshot: 26-da-luu
+- tapOn: "Quay lại"
+- extendedWaitUntil:
+    visible: "12 nơi ở Đà Lạt"
+    timeout: 30000
+- assertVisible: "Bỏ lưu Tiệm Nướng Xóm Lào"
+- takeScreenshot: 26-danh-muc-da-luu
