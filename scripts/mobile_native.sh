@@ -637,10 +637,14 @@ chay_flow() {
           -e OTP_PHONE_C="$OTP_PHONE_C" -e OTP_PHONE_D="$OTP_PHONE_D" -e OTP_CODE="$OTP_CODE")
   fi
   ra="$(mktemp)"
+  # `set -e` là toàn cục, không theo hàm: bật lại ở đây là bật lại cho cả vòng
+  # lặp gọi hàm này, và `return "$rc"` khác 0 ngay sau đó giết cả script — bảng
+  # dừng ở flow đỏ đầu tiên, các flow sau không chạy, dòng tổng kết không in.
+  # Đo 2026-09-04 (M3 lượt 3: flow 30 đỏ, 31 và 40 biến mất, «đã chạy N flow»
+  # không có). Người gọi tự `set -e` lại sau khi đọc rc.
   set +e
   maestro test -e TREE_FINGERPRINT="$DAU_VAN" "${them[@]}" --test-output-dir "$ANH_DIR" "$f" > "$ra" 2>&1
   rc=$?
-  set -e
   cat "$ra"
   if [ "$rc" -ne 0 ] && grep -qE "$LOI_HA_TANG" "$ra"; then
     rm -f "$ra"; return 99
