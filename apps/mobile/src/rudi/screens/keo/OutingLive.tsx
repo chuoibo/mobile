@@ -15,7 +15,6 @@ import type { Phien } from "../../../phien";
 import type { Place } from "../../../screens/kham-pha/places";
 import {
   nhanKhoangNgay,
-  nhanNganSach,
   nhomCheckInTheoChang,
   tongDuKien,
   type BuoiDi,
@@ -203,8 +202,10 @@ export function OutingLiveScreen({ phien }: { phien: Phien }) {
           />
           <Card style={styles.tongQuan}>
             <View style={styles.oTong}>
-              <Text style={[typography.money, { color: colors.ink }]}>{nhanNganSach(trang.keo.budget_per_person_vnd)}</Text>
-              <Text style={[typography.caption, { color: colors.inkFaint }]}>một người</Text>
+              <Text numberOfLines={1} style={[typography.money, { color: colors.ink }]}>
+                {dinhDangTienVnd(trang.keo.budget_per_person_vnd)}
+              </Text>
+              <Text style={[typography.caption, { color: colors.inkFaint }]}>một người · tham chiếu</Text>
             </View>
             <View style={[styles.vach, { backgroundColor: colors.line }]} />
             <View style={styles.oTong}>
@@ -284,27 +285,39 @@ export function OutingLiveScreen({ phien }: { phien: Phien }) {
                       onPress={() => moHang(stop)}
                       style={styles.thanChang}
                     >
-                      <Text style={[typography.label, { color: colors.ink }]}>{stop.label}</Text>
-                      <Text style={[typography.caption, { color: stop.place_id === null ? colors.inkFaint : colors.accent }]}>
-                        {stop.place_name === null ? "Chưa gắn địa điểm · bấm để chọn" : stop.place_name}
-                      </Text>
+                      {stop.place_name === stop.label ? (
+                        // A stop named after its place says the name once, as the place link.
+                        <Text style={[typography.label, { color: colors.accent }]}>{stop.label}</Text>
+                      ) : (
+                        <>
+                          <Text style={[typography.label, { color: colors.ink }]}>{stop.label}</Text>
+                          <Text style={[typography.caption, { color: stop.place_id === null ? colors.inkFaint : colors.accent }]}>
+                            {stop.place_name === null ? "Chưa gắn địa điểm · bấm để chọn" : stop.place_name}
+                          </Text>
+                        </>
+                      )}
                       <Text style={[typography.caption, { color: colors.inkSoft }]}>{cauDaToi(daToi, phien.person_id)}</Text>
                     </Pressable>
-                    <RudiButton
-                      compact
-                      disabled={dangGhi || daToi.some((c) => c.person_id === phien.person_id)}
-                      full={false}
-                      label={daToi.some((c) => c.person_id === phien.person_id) ? "Đã tới" : "Tôi đã tới"}
-                      onPress={() => void daToiChang(trang.keo, stop)}
-                      variant={daToi.some((c) => c.person_id === phien.person_id) ? "soft" : "outline"}
-                    />
+                    {daToi.some((c) => c.person_id === phien.person_id) ? (
+                      // Arrived is a fact, not a control that went grey: a static badge.
+                      <Chip icon="checkmark" label="Đã tới" selected />
+                    ) : (
+                      <RudiButton
+                        compact
+                        disabled={dangGhi}
+                        full={false}
+                        label="Tôi đã tới"
+                        onPress={() => void daToiChang(trang.keo, stop)}
+                        variant="outline"
+                      />
+                    )}
                   </View>
                 );
               })}
             </Card>
           ) : (
             <Text style={[typography.caption, { color: colors.inkSoft }]}>
-              Chưa có chặng nào. Bấm «Thêm chặng», hoặc mở một địa điểm ở Khám phá rồi «Thêm vào kèo».
+              Bấm «Thêm chặng», hoặc mở một địa điểm ở Khám phá rồi «Thêm vào kèo».
             </Text>
           )}
         </>

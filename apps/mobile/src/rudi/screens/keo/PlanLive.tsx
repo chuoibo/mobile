@@ -10,7 +10,8 @@ import { StyleSheet, Text, View } from "react-native";
 
 import { ApiError, thongDiepNguoiDoc } from "../../../api";
 import type { Phien } from "../../../phien";
-import { nhanKhoangNgay, nhanNganSach, type BuoiDi } from "../../../screens/len-plan/buoi-di";
+import { dinhDangTienVnd } from "../../../screens/chat/ke-hoach";
+import { nhanKhoangNgay, type BuoiDi } from "../../../screens/len-plan/buoi-di";
 import { cauSoChang, docKeoCuaNhom } from "../../keo/keo";
 import { typography, useRudiTheme } from "../../theme";
 import { Card, Heading, RudiButton, RudiScreen } from "../../ui";
@@ -59,13 +60,11 @@ export function PlanLiveScreen({ phien }: { phien: Phien }) {
   }
 
   return (
-    <RudiScreen
-      bottomInset={112}
-      footer={<RudiButton icon="add" label="Tạo kèo" onPress={() => router.push("/outings/new")} />}
-      footerInset={92}
-      testID="plan-screen"
-    >
-      <Heading title="Lên plan" subtitle={`Kèo của ${tenNhom(phien)}, trên máy chủ`} />
+    <RudiScreen bottomInset={112} testID="plan-screen">
+      <Heading title="Lên plan" subtitle={`Kèo của ${tenNhom(phien)}`} />
+      {/* Not pinned: the tab bar's own create button sits where a footer would,
+          and one screen carries one create affordance. */}
+      <RudiButton icon="add" label="Tạo kèo" onPress={() => router.push("/outings/new")} variant="soft" />
       {trang.pha === "dang-doc" ? (
         <Text style={[typography.caption, { color: colors.inkSoft }]}>Đang đọc kèo từ máy chủ...</Text>
       ) : null}
@@ -94,7 +93,7 @@ export function PlanLiveScreen({ phien }: { phien: Phien }) {
                   {k.title}
                 </Text>
                 <Text numberOfLines={1} style={[typography.caption, { color: colors.inkSoft }]}>
-                  {nhanKhoangNgay(k.starts_on, k.ends_on)} · {k.headcount} người · {nhanNganSach(k.budget_per_person_vnd)} một người
+                  {nhanKhoangNgay(k.starts_on, k.ends_on)} · {k.headcount} người · {dinhDangTienVnd(k.budget_per_person_vnd)} một người
                 </Text>
                 <Text style={[typography.caption, { color: colors.inkFaint }]}>{cauSoChang(k.stops.length)}</Text>
               </View>

@@ -13,7 +13,22 @@ import type { Phien } from "../../../phien";
 import { kiemTraTaoBuoiDi } from "../../../screens/len-plan/buoi-di";
 import { homNayIso, taoKeo } from "../../keo/keo";
 import { typography, useRudiTheme } from "../../theme";
-import { Card, Field, Heading, RudiButton, RudiScreen, TopBar } from "../../ui";
+import { Card, Chip, Field, Heading, Inline, RudiButton, RudiScreen, TopBar } from "../../ui";
+import { dinhDangTienVnd } from "../../../screens/chat/ke-hoach";
+
+const MUC_NGAN_SACH = [
+  { nhan: "200 nghìn", dong: 200000 },
+  { nhan: "300 nghìn", dong: 300000 },
+  { nhan: "500 nghìn", dong: 500000 },
+  { nhan: "1 triệu", dong: 1000000 },
+] as const;
+
+/** What the digits typed mean in đồng, or nothing while they are not a whole number. */
+function tienDaGo(chu: string): string | null {
+  const t = chu.trim();
+  if (!/^[0-9]+$/.test(t)) return null;
+  return dinhDangTienVnd(Number(t));
+}
 
 function soThanhVien(phien: Phien): string {
   const nhom = phien.contexts?.find((n) => n.id === phien.context_id);
@@ -79,6 +94,14 @@ export function CreateOutingLiveScreen({ phien }: { phien: Phien }) {
           placeholder="Ví dụ: 250000"
           value={nganSach}
         />
+        <Inline gap={6} wrap>
+          {MUC_NGAN_SACH.map((m) => (
+            <Chip key={m.dong} label={m.nhan} onPress={() => setNganSach(String(m.dong))} selected={nganSach === String(m.dong)} />
+          ))}
+        </Inline>
+        {tienDaGo(nganSach) !== null ? (
+          <Text style={[typography.caption, { color: colors.inkSoft }]}>= {tienDaGo(nganSach)} một người</Text>
+        ) : null}
         {loi !== null ? <Text style={[typography.body, { color: colors.warn }]}>{loi}</Text> : null}
         <RudiButton disabled={dangTao} label="Tạo kèo" loading={dangTao} onPress={() => void tao()} />
       </Card>
