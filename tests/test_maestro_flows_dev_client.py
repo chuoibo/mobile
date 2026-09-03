@@ -132,9 +132,15 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
         script = (REPO_ROOT / "scripts" / "mobile_native.sh").read_text(
             encoding="utf-8"
         )
-        body = script[script.index("chay_flow() {") : script.index("\n}\n", script.index("chay_flow() {"))]
+        body = script[
+            script.index("chay_flow() {") : script.index(
+                "\n}\n", script.index("chay_flow() {")
+            )
+        ]
         self.assertIn("set +e", body)
-        self.assertNotIn("\n  set -e\n", body, "chay_flow bật lại set -e trước khi return rc")
+        self.assertNotIn(
+            "\n  set -e\n", body, "chay_flow bật lại set -e trước khi return rc"
+        )
         self.assertIn("kiem_may_chu_sau_24", script)
         self.assertIn("kiem_may_chu_sau_25", script)
 
