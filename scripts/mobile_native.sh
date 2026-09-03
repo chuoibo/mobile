@@ -313,14 +313,10 @@ print("%s|%s|%s" % (c.get("friends"), c.get("contexts"), d.get("display_name", "
 # Sau flow 30: hỏi máy chủ với tư cách C — tin nhắn có thật, thẻ poll có thật,
 # phản ứng heart có thật. Màn hình chỉ là nơi bấm.
 kiem_may_chu_sau_30() {
-  local goc id body tok ctx ket
+  local goc body tok ctx ket
   goc="http://127.0.0.1:$API_PORT"
-  id="$(curl -sS -X POST "$goc/auth/otp/request" -H 'Content-Type: application/json' \
-      -d "{\"phone\":\"$OTP_PHONE_C\"}" \
-    | python3 -c 'import json,sys;print(json.load(sys.stdin).get("challenge_id",""))' 2>/dev/null || true)"
-  [ -n "$id" ] || hong "sau flow 30: không xin được mã cho C."
-  body="$(curl -sS -X POST "$goc/auth/otp/verify" -H 'Content-Type: application/json' \
-      -d "{\"challenge_id\":\"$id\",\"phone\":\"$OTP_PHONE_C\",\"code\":\"$OTP_CODE\"}")"
+  body="$(dang_nhap_curl "$OTP_PHONE_C")" \
+    || hong "sau flow 30: C không đăng nhập được qua curl (429 hai lần hoặc lỗi)."
   tok="$(printf '%s' "$body" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("token",""))')"
   ctx="$(printf '%s' "$body" | python3 -c '
 import json, sys

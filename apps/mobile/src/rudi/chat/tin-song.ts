@@ -250,7 +250,8 @@ function chuoiNeuCo(v: unknown): string | undefined {
 
 /** A stable list key per row; a message's key is prefixed so it is a key, not an id shown. */
 export function khoaHang(hang: HangHienThi): string {
-  return hang.loai === "tin" ? `tin-${hang.tin.id}` : hang.key;
+  if (hang.loai === "ngay") return hang.key;
+  return `tin-${hang.tin.id}`;
 }
 
 /** Read a server card without trusting its shape. Anything odd is `khac`. */
