@@ -441,7 +441,8 @@ export function IconButton({
     <Pressable
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
-      accessibilityState={{ disabled: disabled || loading, busy: loading }}
+      aria-busy={loading}
+      aria-disabled={disabled || loading}
       aria-pressed={selected}
       disabled={disabled || loading}
       hitSlop={4}
