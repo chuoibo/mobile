@@ -12,6 +12,13 @@
  * yesterday under today.
  */
 import { type Attempt, newAttempt, translatedAsActor } from "../../api";
+import {
+  khoangGia,
+  theTuCard,
+  type DiaDiem,
+  type KeHoach,
+  type TheAi as TheKeHoach,
+} from "../../screens/chat/ke-hoach";
 
 export type LoaiPhanUng = "heart" | "haha" | "like" | "wow" | "sad" | "fire";
 
@@ -231,8 +238,8 @@ export function gioPhut(iso: string): string {
 
 export type TheAi =
   | { loai: "text"; text: string }
-  | { loai: "places"; title: string; items: { place_id: string; name?: string; reason?: string }[] }
-  | { loai: "itinerary"; title: string; days: { label?: string; stops: { time?: string; name?: string; place_id?: string }[] }[] }
+  | { loai: "places"; the: Extract<TheKeHoach, { kind: "places" }> }
+  | { loai: "itinerary"; the: KeHoach }
   | { loai: "poll"; vote_id: string; question: string; options: { id: string; label: string }[] }
   | {
       loai: "expense_draft";
@@ -261,30 +268,14 @@ export function docTheAi(card: unknown): TheAi {
   switch (card.kind) {
     case "text":
       return typeof p.text === "string" ? { loai: "text", text: p.text } : { loai: "khac" };
-    case "places": {
-      const items = Array.isArray(p.items)
-        ? p.items.filter(laBanGhi).map((i) => ({
-            place_id: String(i.place_id ?? ""),
-            name: typeof i.name === "string" ? i.name : undefined,
-            reason: typeof i.reason === "string" ? i.reason : undefined,
-          }))
-        : [];
-      return { loai: "places", title: typeof p.title === "string" ? p.title : "Gợi ý", items };
-    }
+    case "places":
     case "itinerary": {
-      const days = Array.isArray(p.days)
-        ? p.days.filter(laBanGhi).map((d) => ({
-            label: typeof d.label === "string" ? d.label : undefined,
-            stops: Array.isArray(d.stops)
-              ? d.stops.filter(laBanGhi).map((s) => ({
-                  time: chuoiNeuCo(s.time),
-                  name: chuoiNeuCo(s.name),
-                  place_id: chuoiNeuCo(s.place_id),
-                }))
-              : [],
-          }))
-        : [];
-      return { loai: "itinerary", title: typeof p.title === "string" ? p.title : "Lịch trình", days };
+      // Same wire shape App B drew (`ke-hoach.ts`): the server sends catalogue
+      // places, not a list the client invents. An unreadable card is `khac`.
+      const the = theTuCard(card);
+      if (the === null || the.kind === "text") return { loai: "khac" };
+      if (the.kind === "places") return { loai: "places", the };
+      return { loai: "itinerary", the };
     }
     case "poll": {
       const options = Array.isArray(p.options)
@@ -342,4 +333,14 @@ export function cauYDinh(gui: TinDaGui): string | null {
     }
   }
   return null;
+}
+
+/** One line under a place on an AI card: price band, hours, distance -- what is known. */
+export function moTaDiaDiem(d: DiaDiem): string {
+  const phan: string[] = [];
+  const gia = khoangGia(d);
+  if (gia !== null) phan.push(gia);
+  if (d.gioMo !== undefined) phan.push(`mở ${d.gioMo}`);
+  if (d.cachKm !== undefined) phan.push(`${d.cachKm} km`);
+  return phan.length === 0 ? "Trong danh mục Rủ Đi" : phan.join(" · ");
 }

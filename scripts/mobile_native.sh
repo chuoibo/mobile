@@ -397,17 +397,23 @@ ai = [m for m in ms if m.get("kind") == "ai_card" and m.get("author_id") is None
       and (m.get("card") or {}).get("kind") in ("text", "places", "itinerary")]
 places = {p.get("id") for p in get("/places").get("places", [])}
 la = 0
+mu = 0
 for m in ai:
     card = m["card"]; p = card.get("payload") or {}
-    ids = [i.get("place_id") for i in p.get("items", []) if isinstance(i, dict)]
-    for d in p.get("days", []) if isinstance(p.get("days"), list) else []:
-        ids += [s.get("place_id") for s in d.get("stops", []) if isinstance(s, dict)]
+    ids = [pl.get("id") for pl in p.get("places", []) if isinstance(pl, dict)]
+    ids += [(st.get("place") or {}).get("id") for st in p.get("stops", []) if isinstance(st, dict)]
+    if card.get("kind") in ("places", "itinerary") and not ids:
+        mu += 1
     la += sum(1 for i in ids if i and i not in places)
-print("%d|%d|%s" % (len(ai), la, ",".join(sorted({m["card"]["kind"] for m in ai}))))
+print("%d|%d|%d|%s" % (len(ai), la, mu, ",".join(sorted({m["card"]["kind"] for m in ai}))))
 PY2
 )"
-  IFS='|' read -r so_ai so_la loai <<< "$ket"
+  IFS='|' read -r so_ai so_la so_mu loai <<< "$ket"
   [ "${so_ai:-0}" -ge 1 ] || hong "sau flow 40: máy chủ không có thẻ AI nào (author null, kind text/places/itinerary)."
+  # A places/itinerary card the check read zero ids from is a blind check, not
+  # a grounded card: the keys drifted (that is exactly how the first version of
+  # this check passed for a week while reading `items`/`days` nobody sends).
+  [ "${so_mu:-1}" -eq 0 ] || hong "sau flow 40: $so_mu thẻ AI không đọc được place id nào — máy đo mù với hình dạng thẻ."
   [ "${so_la:-1}" -eq 0 ] || hong "sau flow 40: thẻ AI nêu $so_la place_id KHÔNG có trong GET /places — grounding thủng."
   echo "máy chủ xác nhận: $so_ai thẻ AI ($loai), mọi địa điểm đều trong catalogue"
 }

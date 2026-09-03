@@ -10,9 +10,10 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { cauBiCat } from "../../../screens/chat/ke-hoach";
 
 import { ApiError, boPhieu, docBinhChon, thongDiepNguoiDoc, type CuocBinhChonWire } from "../../../api";
-import { type TheAi } from "../../chat/tin-song";
+import { moTaDiaDiem, type TheAi } from "../../chat/tin-song";
 import { typography, useRudiTheme } from "../../theme";
 import { AiNote, Card } from "../../ui";
 
@@ -44,31 +45,34 @@ export function TheAiView({
       return (
         <Card tone="ai" style={styles.card}>
           <Text style={[typography.caption, { color: colors.ai }]}>Rủ Đi AI gợi ý</Text>
-          <Text style={[typography.title, { color: colors.ink }]}>{the.title}</Text>
-          {the.items.map((it) => (
-            <View key={it.place_id} style={styles.dong}>
-              <Text style={[typography.body, { color: colors.ink }]}>{it.name ?? "Địa điểm trong danh mục"}</Text>
-              {it.reason ? <Text style={[typography.caption, { color: colors.inkSoft }]}>{it.reason}</Text> : null}
+          {the.the.intro ? <Text style={[typography.body, { color: colors.ink }]}>{the.the.intro}</Text> : null}
+          {the.the.diaDiem.map((d) => (
+            <View key={d.id} style={styles.dong}>
+              <Text style={[typography.label, { color: colors.ink }]}>{d.ten}</Text>
+              <Text style={[typography.caption, { color: colors.inkSoft }]}>{moTaDiaDiem(d)}</Text>
             </View>
           ))}
+          {the.the.soChoBiCat !== undefined ? (
+            <Text style={[typography.caption, { color: colors.inkSoft }]}>{cauBiCat(the.the.soChoBiCat, "chỗ")[0]}</Text>
+          ) : null}
         </Card>
       );
     case "itinerary":
       return (
         <Card tone="ai" style={styles.card}>
           <Text style={[typography.caption, { color: colors.ai }]}>Rủ Đi AI phác lịch trình</Text>
-          <Text style={[typography.title, { color: colors.ink }]}>{the.title}</Text>
-          {the.days.map((d, i) => (
-            <View key={`${d.label ?? "ngay"}-${i}`} style={styles.dong}>
-              <Text style={[typography.label, { color: colors.ink }]}>{d.label ?? `Ngày ${i + 1}`}</Text>
-              {d.stops.map((s, j) => (
-                <Text key={`${s.place_id ?? s.name ?? j}`} style={[typography.caption, { color: colors.inkSoft }]}>
-                  {s.time ? `${s.time} · ` : ""}
-                  {s.name ?? "Chặng chưa có tên"}
-                </Text>
-              ))}
+          <Text style={[typography.title, { color: colors.ink }]}>{the.the.tieuDe}</Text>
+          {the.the.chang.map((c, i) => (
+            <View key={`${c.diaDiem.id}-${i}`} style={styles.dong}>
+              <Text style={[typography.label, { color: colors.ink }]}>
+                {c.gio} · {c.diaDiem.ten}
+              </Text>
+              {c.ghiChu ? <Text style={[typography.caption, { color: colors.inkSoft }]}>{c.ghiChu}</Text> : null}
             </View>
           ))}
+          {the.the.soChangBiCat !== undefined ? (
+            <Text style={[typography.caption, { color: colors.inkSoft }]}>{cauBiCat(the.the.soChangBiCat, "chặng")[0]}</Text>
+          ) : null}
           <AiNote>Bản nháp của AI. Nhóm sửa được trước khi chốt; không gì ở đây tự thành kèo.</AiNote>
         </Card>
       );

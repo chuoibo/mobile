@@ -17,6 +17,7 @@ import {
   cursorCuNhat,
   cursorMoiNhat,
   docTheAi,
+  moTaDiaDiem,
   docTrangTin,
   glyphPhanUng,
   gopTin,
@@ -85,6 +86,32 @@ test("docTheAi đọc năm loại thẻ và trả «khac» cho hình dạng lạ
   });
   assert.equal(nhap.loai, "expense_draft");
   assert.equal(nhap.drafts[0].amount_vnd, 180000);
+  const goiY = docTheAi({
+    kind: "places",
+    payload: {
+      intro: "Ba chỗ hợp tối nay",
+      places: [{ id: "p-1", name: "Quán A", price_min_vnd: 50000, price_max_vnd: 90000, open_hours: "10:00 - 22:00", distance_km: 1.2 }],
+      omitted_place_count: 2,
+    },
+  });
+  assert.equal(goiY.loai, "places");
+  assert.deepEqual(goiY.the.diaDiem.map((d) => d.id), ["p-1"]);
+  assert.equal(goiY.the.intro, "Ba chỗ hợp tối nay");
+  assert.equal(goiY.the.soChoBiCat, 2);
+  assert.equal(
+    docTheAi({ kind: "places", payload: { items: [{ place_id: "p-1", name: "x" }] } }).loai,
+    "khac",
+    "hình dạng tự bịa (items/place_id) không phải hợp đồng máy chủ: thẻ rỗng từng hiện «Gợi ý» không có gì",
+  );
+  const lich = docTheAi({
+    kind: "itinerary",
+    payload: { title: "Tối Đà Lạt", stops: [{ time_text: "18:00", note: "ăn nướng", place: { id: "p-1", name: "Quán A" } }] },
+  });
+  assert.equal(lich.loai, "itinerary");
+  assert.equal(lich.the.tieuDe, "Tối Đà Lạt");
+  assert.deepEqual(lich.the.chang.map((c) => [c.gio, c.diaDiem.ten, c.ghiChu]), [["18:00", "Quán A", "ăn nướng"]]);
+  assert.equal(moTaDiaDiem({ id: "p", ten: "x", giaMinVnd: 50000, giaMaxVnd: 90000, gioMo: "10:00 - 22:00", cachKm: 1.2 }), "50.000đ - 90.000đ · mở 10:00 - 22:00 · 1.2 km");
+  assert.equal(moTaDiaDiem({ id: "p", ten: "x" }), "Trong danh mục Rủ Đi");
   assert.equal(docTheAi(null).loai, "khac");
   assert.equal(docTheAi({ kind: "poll_vote", payload: {} }).loai, "khac");
   assert.equal(docTheAi("x").loai, "khac");
