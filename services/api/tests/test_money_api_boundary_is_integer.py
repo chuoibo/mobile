@@ -174,6 +174,7 @@ INEXACT_API_FIELDS_REVIEWED: dict[tuple[str, str], str] = {
 # money into HTML with no pydantic boundary at all.
 ROUTES_WITHOUT_RESPONSE_VALIDATION: dict[tuple[str, str], str] = {
     ("DELETE", "/contexts/{context_id}/members/{person_id}"): "204, no body",
+    ("DELETE", "/sessions/current"): "204, no body; signing out returns nothing",
     ("DELETE", "/contexts/{context_id}/memories/{memory_id}/reactions"): "204, no body",
     (
         "GET",

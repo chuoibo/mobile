@@ -233,6 +233,39 @@ export async function thuHoiLoiMoi(
   );
 }
 
+const XOAY_REFUSALS: Record<string, string> = {
+  invite_not_found: "Lời mời này không còn nữa.",
+  invite_not_named:
+    "Lời mời kiểu link không cấp lại mã được, chỉ lời mời đích danh thôi.",
+  permission_denied: "Chỉ thành viên của nhóm mới cấp lại mã được.",
+};
+
+/**
+ * Put a new secret on a named invitation, for somebody signing in again.
+ *
+ * This is the only way back in for a member who lost their phone. Inviting
+ * them a second time does not work and is not a bug: `uq_outing_invites_person`
+ * allows one named row per person per outing, so a second invitation is a 409.
+ * The row stays, the old secret dies, and the person it names does not change
+ * -- which is what keeps this from being a way to hand somebody's account to
+ * a third party.
+ *
+ * The reply carries the new token exactly once, like minting did.
+ */
+export async function xoayLoiMoi(
+  outingId: string,
+  inviteId: string,
+  actorId: string,
+  attempt: Attempt,
+  contextId: string,
+): Promise<LoiMoiBuoiDi> {
+  return translatedAsActor<LoiMoiBuoiDi>(
+    XOAY_REFUSALS,
+    `/outings/${outingId}/invites/${inviteId}/rotate`,
+    { method: "POST", actorId, attempt, contexts: contextId },
+  );
+}
+
 /* ------------------------------------------------------- rules, no fetch */
 
 /** This person's own membership row, or null if the roster does not hold one.
@@ -367,8 +400,10 @@ export function moTaHang(hang: ThanhVienChiTiet): string {
  *  such a link at `#moi=<token>`, which is what `lien-ket.ts` parses. Built
  *  from `invite_token` rather than by slicing the path, because a path shape
  *  is the server's to change and a token is the value both sides agreed on.
- *  Null for an invite that carries no token -- every `group` invite, and every
- *  revoke reply. */
+ *  Null for an invite that carries no token. Since ADR-0014 a named invite
+ *  carries one too -- it is what its holder exchanges for a session -- so the
+ *  null case is a reply that deliberately omits the secret, which is what
+ *  revoking answers with. */
 export function duongDanMoi(moi: LoiMoiBuoiDi, goc: string): string | null {
   if (!moi.invite_token) return null;
   return `${goc.replace(/\/$/, "")}/#moi=${moi.invite_token}`;

@@ -5,6 +5,21 @@
  * `active` means they are in. `invited` means the invite was taken and the
  * group still has to accept them. Those are two sentences, never one
  * "success".
+ *
+ * Since ADR-0014 there are two doors behind one button, chosen by whether this
+ * phone is signed in:
+ *
+ * - **Not signed in** -- the token is treated as a named invitation and
+ *   exchanged for a session at `POST /sessions`. Nobody is picked locally;
+ *   the server answers with whose session it is. This is the only way into a
+ *   production host, and it is why this screen no longer refuses with "chưa
+ *   chọn người" when there is no session: choosing a person locally is exactly
+ *   the claim that stopped being believed.
+ * - **Signed in** -- the token is treated as a forwardable link and redeemed
+ *   the old way, which needs an identity the app already has.
+ *
+ * A link token tried by somebody with no session gets the ordinary refusal.
+ * That is truthful: a link names nobody, so there is no account for it to be.
  */
 import React, { useRef, useState } from "react";
 import { Text, View } from "react-native";
@@ -13,8 +28,10 @@ import {
   newAttempt,
   nhanLoiMoiBuoiDi,
   thongDiepNguoiDoc,
+  tokenPhienHienTai,
   type Attempt,
 } from "../../api";
+import { doiLoiMoiLayPhien } from "../../phien";
 import type { DemoPerson } from "../../navigation/nhom-demo";
 import { type, usePalette } from "../../theme";
 import { Button, Card, Screen } from "../../ui/Kit";
@@ -22,7 +39,18 @@ import { Button, Card, Screen } from "../../ui/Kit";
 export const CAU_MOI_CHUA_BIET =
   "App chưa biết đây là buổi đi nào cho tới khi nhận.";
 
-export function cauSauKhiNhan(state: "invited" | "active"): string {
+export function cauSauKhiNhan(
+  state: "invited" | "active",
+  qua: "lien-ket" | "phien" = "lien-ket",
+): string {
+  // Signing in and joining are two different things and the screen must not
+  // merge them. Somebody redeeming their first invitation is signed in AND
+  // still waiting; somebody signing back in on a new phone is signed in and
+  // waiting on nobody.
+  if (qua === "phien") {
+    if (state === "active") return "Đã đăng nhập. Bạn đã ở trong nhóm.";
+    return "Đã đăng nhập. Nhóm còn phải duyệt thì bạn mới xem được dữ liệu nhóm.";
+  }
   if (state === "active") return "Bạn đã vào buổi đi.";
   return "Lời mời đã nhận, nhưng nhóm còn phải duyệt thì bạn mới vào được.";
 }
@@ -30,7 +58,7 @@ export function cauSauKhiNhan(state: "invited" | "active"): string {
 type Trang =
   | { pha: "chua-nhan" }
   | { pha: "dang-gui" }
-  | { pha: "xong"; state: "invited" | "active" }
+  | { pha: "xong"; state: "invited" | "active"; qua: "lien-ket" | "phien" }
   | { pha: "hong"; loi: string };
 
 export function NhanLoiMoi({
@@ -47,18 +75,29 @@ export function NhanLoiMoi({
   const lanBam = useRef<Attempt | null>(null);
 
   async function nhan() {
-    if (!nguoi) {
-      setTrang({
-        pha: "hong",
-        loi: "Chưa chọn người, nên chưa nhận được lời mời.",
-      });
-      return;
-    }
     const attempt = (lanBam.current ??= newAttempt());
     setTrang({ pha: "dang-gui" });
     try {
+      if (tokenPhienHienTai() === null) {
+        // The session door. No `nguoi` is read here on purpose: who this
+        // becomes is written on the invitation, server-side.
+        const phien = await doiLoiMoiLayPhien(token);
+        setTrang({
+          pha: "xong",
+          state: phien.membership_state === "active" ? "active" : "invited",
+          qua: "phien",
+        });
+        return;
+      }
+      if (!nguoi) {
+        setTrang({
+          pha: "hong",
+          loi: "Chưa chọn người, nên chưa nhận được lời mời.",
+        });
+        return;
+      }
       const wire = await nhanLoiMoiBuoiDi(token, nguoi.personId, attempt);
-      setTrang({ pha: "xong", state: wire.membership_state });
+      setTrang({ pha: "xong", state: wire.membership_state, qua: "lien-ket" });
     } catch (err) {
       setTrang({
         pha: "hong",
@@ -94,7 +133,7 @@ export function NhanLoiMoi({
 
           {trang.pha === "xong" ? (
             <Text style={{ ...type.body, color: c.ink }}>
-              {cauSauKhiNhan(trang.state)}
+              {cauSauKhiNhan(trang.state, trang.qua)}
             </Text>
           ) : null}
 

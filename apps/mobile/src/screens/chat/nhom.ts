@@ -72,6 +72,7 @@
  * lands, `thanNhuSeed` should go and `JSON.stringify` should come back.
  */
 
+import { tokenPhienHienTai } from "../../api";
 import { chiTietLoi } from "../../ui/loi-tren-man";
 import {
   DEMO_GROUP_NAME,
@@ -145,9 +146,18 @@ function headers(actorId: string, contextId?: string, key?: string): Record<stri
   const h: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: "application/json",
+    // Still sent, and ignored by a `prod` server since ADR-0014. Kept so one
+    // build works against the demo box and against a real host.
     "X-Actor-ID": actorId,
     "X-Actor-Roles": "group_admin,member",
   };
+  // This module builds its own headers rather than going through `api.ts`, so
+  // the bearer has to be attached here too. Without it every call on this
+  // path -- creating the group, inviting, accepting -- answers 401 on a
+  // production host while the expense path works, which is the confusing half
+  // of a half-authenticated client.
+  const token = tokenPhienHienTai();
+  if (token !== null) h["Authorization"] = `Bearer ${token}`;
   if (contextId) h["X-Actor-Contexts"] = contextId;
   if (key) h["Idempotency-Key"] = key;
   return h;

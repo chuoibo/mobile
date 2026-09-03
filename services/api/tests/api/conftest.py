@@ -23,6 +23,8 @@ from app.api.errors import RepositoryConflict
 from app.api.limits import OBJECTION_LIMIT, REPORT_LIMIT
 from app.api.main import create_app
 from app.api.repository import (
+    AccountSessionRecord,
+    ActorGrants,
     AllocationRow,
     BankRecipientRecord,
     BatchBoard,
@@ -123,6 +125,10 @@ class FakeRepository:
         self.friend_edges: dict[uuid.UUID, dict] = {}
         self.posts: dict[uuid.UUID, PostRecord] = {}
         self.memories: dict[uuid.UUID, MemoryRecord] = {}
+        self.account_sessions: dict[uuid.UUID, AccountSessionRecord] = {}
+        self.account_session_ids_by_digest: dict[bytes, uuid.UUID] = {}
+        self.left_memberships: set[tuple[uuid.UUID, uuid.UUID]] = set()
+        self.admin_memberships: set[tuple[uuid.UUID, uuid.UUID]] = set()
         self.leak_guest_input = False
 
     @staticmethod
@@ -360,6 +366,13 @@ class FakeRepository:
         )
         return MemoryPage(memories=tuple(rows[:limit]), has_more=len(rows) > limit)
 
+    def membership_role(self, context_id, person_id):
+        if (context_id, person_id) in self.admin_memberships:
+            return "admin"
+        if (context_id, person_id) in self.active_memberships:
+            return "member"
+        return None
+
     def is_member(self, context_id, person_id):
         return (context_id, person_id) in self.active_memberships
 
@@ -479,6 +492,130 @@ class FakeRepository:
         revoked = replace(invite, revoked_at=now)
         self.outing_invites[invite_id] = revoked
         return revoked
+
+    def rotate_outing_invite_digest(self, *, invite_id, token_digest, expires_at, now):
+        del now
+        invite = self.outing_invites.get(invite_id)
+        if invite is None:
+            raise RepositoryConflict("OUTING_INVITE_NOT_FOUND")
+        if invite.invited_person_id is None:
+            raise RepositoryConflict("OUTING_INVITE_NOT_NAMED")
+        if invite.revoked_at is not None:
+            raise RepositoryConflict("OUTING_INVITE_NOT_REDEEMABLE")
+        self.outing_invite_ids_by_digest = {
+            digest: held
+            for digest, held in self.outing_invite_ids_by_digest.items()
+            if held != invite_id
+        }
+        self.outing_invite_ids_by_digest[token_digest] = invite_id
+        rotated = replace(invite, expires_at=expires_at)
+        self.outing_invites[invite_id] = rotated
+        return rotated
+
+    def consume_named_invite_secret(
+        self, *, invite_id, token_digest, accepted_by_id, now
+    ):
+        invite = self.outing_invites.get(invite_id)
+        if invite is None:
+            raise RepositoryConflict("OUTING_INVITE_NOT_FOUND")
+        if invite.invited_person_id is None:
+            raise RepositoryConflict("OUTING_INVITE_NOT_NAMED")
+        if self.outing_invite_ids_by_digest.get(token_digest) != invite_id:
+            raise RepositoryConflict("OUTING_INVITE_NOT_REDEEMABLE")
+        if invite.revoked_at is not None or invite.expires_at <= now:
+            raise RepositoryConflict("OUTING_INVITE_NOT_REDEEMABLE")
+        # The digest leaves the table entirely, exactly as the real adapter
+        # nulls the column: a spent secret has nothing left to match against.
+        del self.outing_invite_ids_by_digest[token_digest]
+        if invite.accepted_at is None:
+            invite = replace(invite, accepted_at=now, accepted_by_id=accepted_by_id)
+            self.outing_invites[invite_id] = invite
+        return invite
+
+    def create_account_session(
+        self, *, person_id, token_digest, issued_from_invite_id, expires_at, now
+    ):
+        record = AccountSessionRecord(
+            id=uuid.uuid4(),
+            person_id=person_id,
+            issued_from_invite_id=issued_from_invite_id,
+            created_at=now,
+            expires_at=expires_at,
+            revoked_at=None,
+        )
+        self.account_sessions[record.id] = record
+        self.account_session_ids_by_digest[token_digest] = record.id
+        return record
+
+    def get_account_session_by_digest(self, token_digest):
+        session_id = self.account_session_ids_by_digest.get(token_digest)
+        if session_id is None:
+            return None
+        return self.account_sessions.get(session_id)
+
+    def revoke_account_session(self, *, session_id, now):
+        record = self.account_sessions.get(session_id)
+        if record is None:
+            return None
+        if record.revoked_at is None:
+            record = replace(record, revoked_at=now)
+            self.account_sessions[session_id] = record
+        return record
+
+    def actor_grants(self, person_id):
+        """The fake's copy of the roster rule, kept deliberately literal.
+
+        It mirrors `SqlAlchemyApiRepository.actor_grants` rather than being
+        clever: the four capability roles are granted to any known person
+        because every action that names them also proves a predicate, and
+        `platform_moderator` is never granted because nothing says who holds it.
+        """
+
+        if person_id not in self.people:
+            return ActorGrants(
+                person_exists=False, roles=frozenset(), context_ids=frozenset()
+            )
+        # No `group_admin` here on purpose, mirroring the real adapter: it is a
+        # fact about one group, and the service derives it per call.
+        roles = {"member", "advancer", "recipient", "sender", "creditor"}
+        context_ids = {
+            context_id
+            for context_id, held in self.active_memberships
+            if held == person_id
+        }
+        if any(held == person_id for _, held in self.left_memberships):
+            roles.add("former_member")
+        return ActorGrants(
+            person_exists=True,
+            roles=frozenset(roles),
+            context_ids=frozenset(context_ids),
+        )
+
+    def ensure_invited_membership(
+        self, *, context_id, person_id, invited_by_id, origin, now
+    ):
+        del now
+        # The real adapter returns an existing row untouched, which is what
+        # keeps an ACTIVE member from being demoted by signing in again.
+        state = (
+            "active"
+            if (context_id, person_id) in self.active_memberships
+            else "invited"
+        )
+        person = self.people.get(person_id)
+        return MembershipRecord(
+            id=uuid.uuid4(),
+            context_id=context_id,
+            person_id=person_id,
+            display_name="" if person is None else person.display_name,
+            state=state,
+            role="member",
+            origin=origin,
+            invited_by_id=invited_by_id,
+            joined_at=None,
+            left_at=None,
+            created_at=datetime(2030, 8, 27, 12, tzinfo=UTC),
+        )
 
     def create_bill(
         self,
@@ -1242,6 +1379,10 @@ def client(repository, monkeypatch):
     # ``asyncio.to_thread(lambda: 1)``. Execute Starlette's sync adapters inline
     # for the fake-only tests; production routes remain conventional sync routes.
     monkeypatch.setattr(anyio.to_thread, "run_sync", run_sync_inline)
-    app = create_app()
+    # Dev, explicitly. This suite asserts the header adapter, which is the
+    # mode that trusts `X-Actor-*`; `create_app()` with no argument is prod
+    # now, and a suite that quietly kept the old default would have been
+    # testing an adapter the product no longer ships.
+    app = create_app(auth_mode="dev")
     app.dependency_overrides[get_repository] = lambda: repository
     return ASGITestClient(app)

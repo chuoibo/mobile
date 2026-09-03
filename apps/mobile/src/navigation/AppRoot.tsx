@@ -8,7 +8,7 @@
  * A `#tab=...&nguoi=...` fragment may name where to open. See `lien-ket.ts`
  * for why that exists and why it is not a way past anything.
  */
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { MoDau } from "../screens/mo-dau/MoDau";
 import { DangKy } from "../screens/vao-cua/DangKy";
 import { VoTab } from "./VoTab";
@@ -16,6 +16,7 @@ import { DEFAULT_TAB } from "./tabs";
 import { diemDenHienTai } from "./lien-ket";
 import type { NguoiDung } from "./nhom-demo";
 import type { NhomPhien } from "../screens/chat/nhom";
+import { khoiPhucPhien } from "../phien";
 
 export function AppRoot({ renderKhoanChi }: {
   /** The third argument is the group this session opened, and it is not
@@ -28,6 +29,18 @@ export function AppRoot({ renderKhoanChi }: {
     nhomPhien: NhomPhien | null,
   ) => React.ReactNode;
 }) {
+  // A stored session is put back into force at mount, so a phone that was
+  // signed in last week is signed in now (ADR-0014). Fire-and-forget rather
+  // than a gate on rendering, and the trade is written down rather than
+  // hidden: a request fired in the first few milliseconds of a cold start can
+  // still go out without the bearer and answer 401. Holding the shell until
+  // the keychain answered would close that window and would also mean this
+  // app renders nothing at all under `renderToStaticMarkup`, where effects
+  // never run -- which is how every screen in this repo is measured.
+  useEffect(() => {
+    void khoiPhucPhien();
+  }, []);
+
   // Read once, at mount. Re-reading on every render would let a fragment
   // change yank somebody out of the screen they navigated to by hand.
   const [diemDen] = useState(diemDenHienTai);

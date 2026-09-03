@@ -40,6 +40,13 @@ import {
 } from "../../dist-test/api.js";
 import { khoiDongNhom } from "../../dist-test/screens/chat/nhom.js";
 import { DEMO_PEOPLE, personById } from "../../dist-test/navigation/nhom-demo.js";
+import { batPhienE2E } from "./phien-e2e.mjs";
+
+// The API this file talks to runs in `prod` and does not believe `X-Actor-ID`
+// (ADR-0014). `scripts/e2e_slice.sh` mints a real session per demo person and
+// names the file in MOBILE_E2E_SESSIONS; without it -- a `dev` server -- this
+// returns null and changes nothing.
+const NGUOI_DANG_NHAP = batPhienE2E(personById("minh")?.personId);
 
 /* Tự chứa, không dùng chung helper với `vertical-slice.test.mjs`.
  *

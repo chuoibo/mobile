@@ -21,6 +21,7 @@ from app.api.errors import RepositoryConflict
 from app.api.limits import OBJECTION_LIMIT, REPORT_LIMIT
 from app.api.schemas import ExpenseInput
 from app.db.models import (
+    AccountSession,
     AuditEvent,
     BankRecipient,
     BankRecipientSnapshot,
@@ -350,6 +351,33 @@ class OutingInviteRecord:
     created_at: datetime
     expires_at: datetime
     revoked_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class AccountSessionRecord:
+    """A stored session, without the secret that reaches it."""
+
+    id: uuid.UUID
+    person_id: uuid.UUID
+    issued_from_invite_id: uuid.UUID | None
+    created_at: datetime
+    expires_at: datetime
+    revoked_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class ActorGrants:
+    """What the roster says a person may claim, with nothing from the client.
+
+    `person_exists` is separate from an empty `roles`: a session whose person
+    row was deleted is an authentication failure, while a person with no
+    membership yet is a perfectly ordinary invitee who still has to be able to
+    accept the invitation that named them.
+    """
+
+    person_exists: bool
+    roles: frozenset[str]
+    context_ids: frozenset[uuid.UUID]
 
 
 @dataclass(frozen=True, slots=True)
@@ -889,12 +917,51 @@ class ApiRepository(Protocol):
         now: datetime,
     ) -> OutingInviteRecord: ...
 
+    def rotate_outing_invite_digest(
+        self,
+        *,
+        invite_id: uuid.UUID,
+        token_digest: bytes,
+        expires_at: datetime,
+        now: datetime,
+    ) -> OutingInviteRecord: ...
+
+    def consume_named_invite_secret(
+        self,
+        *,
+        invite_id: uuid.UUID,
+        token_digest: bytes,
+        accepted_by_id: uuid.UUID,
+        now: datetime,
+    ) -> OutingInviteRecord: ...
+
+    def create_account_session(
+        self,
+        *,
+        person_id: uuid.UUID,
+        token_digest: bytes,
+        issued_from_invite_id: uuid.UUID | None,
+        expires_at: datetime,
+        now: datetime,
+    ) -> AccountSessionRecord: ...
+
+    def get_account_session_by_digest(
+        self, token_digest: bytes
+    ) -> AccountSessionRecord | None: ...
+
+    def revoke_account_session(
+        self, *, session_id: uuid.UUID, now: datetime
+    ) -> AccountSessionRecord | None: ...
+
+    def actor_grants(self, person_id: uuid.UUID) -> ActorGrants: ...
+
     def ensure_invited_membership(
         self,
         *,
         context_id: uuid.UUID,
         person_id: uuid.UUID,
         invited_by_id: uuid.UUID,
+        origin: str,
         now: datetime,
     ) -> MembershipRecord: ...
 
@@ -2287,12 +2354,202 @@ class SqlAlchemyApiRepository:
         self.session.flush()
         return self._outing_invite_record(invite)
 
+    def rotate_outing_invite_digest(
+        self,
+        *,
+        invite_id: uuid.UUID,
+        token_digest: bytes,
+        expires_at: datetime,
+        now: datetime,
+    ) -> OutingInviteRecord:
+        """Put a new secret on a named row without resurrecting the old one.
+
+        `accepted_at` is deliberately left alone. Clearing it would be the
+        shortest way to make a spent invite usable again, and it would also
+        hand the link door a second redemption of a row it already consumed --
+        the two doors would be sharing one one-shot flag. Re-login replaces the
+        secret; it does not rewind the history of the invitation.
+        """
+
+        invite = self.session.scalar(
+            select(OutingInvite)
+            .where(OutingInvite.id == invite_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if invite is None:
+            raise RepositoryConflict("OUTING_INVITE_NOT_FOUND")
+        if invite.invited_person_id is None:
+            raise RepositoryConflict("OUTING_INVITE_NOT_NAMED")
+        if invite.revoked_at is not None:
+            raise RepositoryConflict("OUTING_INVITE_NOT_REDEEMABLE")
+        invite.token_digest = token_digest
+        invite.expires_at = expires_at
+        self.session.flush()
+        return self._outing_invite_record(invite)
+
+    def consume_named_invite_secret(
+        self,
+        *,
+        invite_id: uuid.UUID,
+        token_digest: bytes,
+        accepted_by_id: uuid.UUID,
+        now: datetime,
+    ) -> OutingInviteRecord:
+        """Spend the secret by removing it, under the row lock.
+
+        The digest presented is compared again after the lock rather than
+        trusted from the caller's earlier lookup: two requests arriving with
+        the same stolen token would otherwise both read a live row and both
+        mint a session. The second one now finds `token_digest IS NULL` and
+        loses.
+
+        Removing the digest, rather than marking a flag, is what makes the old
+        secret dead forever: there is no column left for it to match against.
+        """
+
+        invite = self.session.scalar(
+            select(OutingInvite)
+            .where(OutingInvite.id == invite_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if invite is None:
+            raise RepositoryConflict("OUTING_INVITE_NOT_FOUND")
+        if invite.invited_person_id is None:
+            raise RepositoryConflict("OUTING_INVITE_NOT_NAMED")
+        if invite.token_digest is None or invite.token_digest != token_digest:
+            raise RepositoryConflict("OUTING_INVITE_NOT_REDEEMABLE")
+        if invite.revoked_at is not None or invite.expires_at <= now:
+            raise RepositoryConflict("OUTING_INVITE_NOT_REDEEMABLE")
+        invite.token_digest = None
+        if invite.accepted_at is None:
+            invite.accepted_at = now
+            invite.accepted_by_id = accepted_by_id
+        self.session.flush()
+        return self._outing_invite_record(invite)
+
+    def create_account_session(
+        self,
+        *,
+        person_id: uuid.UUID,
+        token_digest: bytes,
+        issued_from_invite_id: uuid.UUID | None,
+        expires_at: datetime,
+        now: datetime,
+    ) -> AccountSessionRecord:
+        session_row = AccountSession(
+            person_id=person_id,
+            token_digest=token_digest,
+            issued_from_invite_id=issued_from_invite_id,
+            created_at=now,
+            expires_at=expires_at,
+        )
+        self.session.add(session_row)
+        self.session.flush()
+        return self._account_session_record(session_row)
+
+    def get_account_session_by_digest(
+        self, token_digest: bytes
+    ) -> AccountSessionRecord | None:
+        session_row = self.session.scalar(
+            select(AccountSession)
+            .where(AccountSession.token_digest == token_digest)
+            .limit(1)
+        )
+        return (
+            None if session_row is None else self._account_session_record(session_row)
+        )
+
+    def revoke_account_session(
+        self, *, session_id: uuid.UUID, now: datetime
+    ) -> AccountSessionRecord | None:
+        session_row = self.session.get(AccountSession, session_id)
+        if session_row is None:
+            return None
+        if session_row.revoked_at is None:
+            session_row.revoked_at = now
+            self.session.flush()
+        return self._account_session_record(session_row)
+
+    def actor_grants(self, person_id: uuid.UUID) -> ActorGrants:
+        """Roles and contexts for a session holder, read from the roster.
+
+        Which roles a session may carry was decided by reading the permission
+        table rather than by taste. Every action that names `advancer`,
+        `recipient`, `sender` or `creditor` also names a predicate the service
+        proves from the resource itself -- `is_named_advancer`,
+        `is_recipient_of_this_obligation`, `is_creditor_of_this_obligation`,
+        `is_own_capability`, `envelope_contains_own_account` -- so carrying
+        those four is worth no more than the right to be asked the real
+        question. They are granted to any authenticated person for that reason,
+        and for the reason that not granting them would 403 every receipt
+        confirmation in the product.
+
+        `platform_moderator` is not granted. Its three actions carry no
+        predicate at all, so the role alone would be sufficient, and there is
+        no table that says who holds it. No route reaches those three actions
+        today, so refusing it costs nothing and reserves the decision for the
+        migration that introduces a real grant.
+
+        `guest` is not granted either: that subject is a capability digest, not
+        a person, and it is built in `_guest_actor`.
+
+        `member` is granted before any membership exists, because being named
+        in an invitation is what an invitee has, and `accept_context_membership`
+        -- the one action that turns an invitation into a membership -- asks for
+        exactly that role plus `is_invitee`.
+        """
+
+        if self.session.get(Person, person_id) is None:
+            return ActorGrants(
+                person_exists=False, roles=frozenset(), context_ids=frozenset()
+            )
+
+        rows = self.session.execute(
+            select(Membership.context_id, Membership.role, Membership.state).where(
+                Membership.person_id == person_id
+            )
+        ).all()
+
+        roles = {"member", "advancer", "recipient", "sender", "creditor"}
+        context_ids: set[uuid.UUID] = set()
+        for context_id, role, state in rows:
+            # `role` is read for `context_ids` only. `group_admin` is NOT
+            # granted here: it is a fact about one membership row, and a flat
+            # role set has nowhere to say which group it means. The service
+            # derives it per call from the group being acted on -- see
+            # `ApiService._group_admin_role`.
+            del role
+            if state == MembershipState.ACTIVE:
+                context_ids.add(context_id)
+            elif state == MembershipState.LEFT:
+                roles.add("former_member")
+        return ActorGrants(
+            person_exists=True,
+            roles=frozenset(roles),
+            context_ids=frozenset(context_ids),
+        )
+
+    def _account_session_record(
+        self, session_row: AccountSession
+    ) -> AccountSessionRecord:
+        return AccountSessionRecord(
+            id=session_row.id,
+            person_id=session_row.person_id,
+            issued_from_invite_id=session_row.issued_from_invite_id,
+            created_at=session_row.created_at,
+            expires_at=session_row.expires_at,
+            revoked_at=session_row.revoked_at,
+        )
+
     def ensure_invited_membership(
         self,
         *,
         context_id: uuid.UUID,
         person_id: uuid.UUID,
         invited_by_id: uuid.UUID,
+        origin: str,
         now: datetime,
     ) -> MembershipRecord:
         existing = self.session.scalar(
@@ -2312,7 +2569,11 @@ class SqlAlchemyApiRepository:
             person_id=person_id,
             state=MembershipState.INVITED,
             role=MembershipRole.MEMBER,
-            origin=MembershipOrigin.LINK,
+            # Provenance is written from the door the request came through, not
+            # fixed here: `MembershipOrigin` exists to tell a bearer link apart
+            # from a member's named choice, and a constant would have recorded
+            # every named bootstrap as a forwarded link.
+            origin=MembershipOrigin(origin),
             invited_by_id=invited_by_id,
             joined_at=None,
             left_at=None,

@@ -725,7 +725,12 @@ CANARIES: list[tuple[str, str, int]] = [
         }
         export async function go(a: string) {
           const headers = actorHeaders(a);
-          headers["Authorization"] = "Bearer x";
+          // Được `X-Trace-Id` chứ không phải `Authorization`: từ ADR-0014,
+          // `Authorization` NẰM TRONG ALLOWED_HEADERS thật, nên canary dùng nó
+          // sẽ ra xanh và không còn chứng minh được điều nó sinh ra để chứng
+          // minh — rằng reader thấy được kiểu gán bằng ngoặc vuông. Cái đang
+          // được đo là CÁCH VIẾT, không phải tên header.
+          headers["X-Trace-Id"] = "x";
           return fetch("/x", { method: "POST", headers });
         }
         """,

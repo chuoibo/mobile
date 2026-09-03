@@ -7,8 +7,9 @@ from dataclasses import dataclass
 from typing import Annotated, Protocol
 from uuid import UUID
 
-from fastapi import Header, Request
+from fastapi import Depends, Header, Request
 
+from app.api.auth_mode import PROD, trusts_actor_headers
 from app.api.chat_expense_skill import ChatExpenseReader
 from app.api.errors import ApiProblem
 from app.api.receipt_skill import ReceiptReader
@@ -26,11 +27,13 @@ from app.media.storage import PhotoStorage
 
 @dataclass(frozen=True, slots=True)
 class Actor:
-    """Identity asserted by the upstream authentication boundary.
+    """Who the server is answering as, and what the roster says they may claim.
 
-    This slice has no account/session tables yet. The adapter therefore consumes
-    headers that a trusted gateway must overwrite, never append. The limitation is
-    recorded in the API implementation journal and is not a production auth claim.
+    Where this comes from depends on the mode this process runs in. Under
+    `prod` it is built from a session row the server issued and from the
+    memberships table -- nothing in it is copied from the request. Under `dev`
+    it is still read from `X-Actor-*`, which is a claim the client writes about
+    itself and is why the flag defaults the other way (ADR-0014).
     """
 
     id: UUID
@@ -87,11 +90,55 @@ def _csv(value: str | None) -> list[str]:
     return [part.strip() for part in value.split(",") if part.strip()]
 
 
+def bearer_token(authorization: str | None) -> str:
+    """The token out of an `Authorization` header, or 401.
+
+    A malformed header and a missing one answer identically. "Bearer" is
+    matched case-insensitively because RFC 7235 says the scheme is, and a
+    client that capitalises it differently is not an attacker.
+    """
+
+    if authorization is None:
+        raise ApiProblem(401, "authentication_required", "Missing bearer session")
+    scheme, _, value = authorization.partition(" ")
+    token = value.strip()
+    if scheme.lower() != "bearer" or not token:
+        raise ApiProblem(401, "authentication_required", "Missing bearer session")
+    return token
+
+
 def get_actor(
+    request: Request,
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
     actor_id: Annotated[str | None, Header(alias="X-Actor-ID")] = None,
     actor_roles: Annotated[str | None, Header(alias="X-Actor-Roles")] = None,
     actor_contexts: Annotated[str | None, Header(alias="X-Actor-Contexts")] = None,
 ) -> Actor:
+    """The identity for this request.
+
+    The mode is read off the application rather than the environment on every
+    call, so a test can build one app of each kind in one process and neither
+    can drift from what it was created as.
+
+    In `prod` the `X-Actor-*` parameters are still declared and still ignored.
+    Removing them would have been the tidier signature and the worse
+    behaviour: a client that keeps sending them gets a plain 401 rather than a
+    422 about an unexpected header, and the schema keeps saying they exist for
+    the mode where they still work.
+    """
+
+    mode = getattr(request.app.state, "auth_mode", PROD)
+    if not trusts_actor_headers(mode):
+        # Imported here because `app.api.service` imports this module for
+        # `Actor`; the auth check lives in the service so that the session
+        # rules have one implementation rather than two.
+        from app.api.service import ApiService
+
+        return ApiService(repository).actor_for_session_token(
+            bearer_token(authorization)
+        )
+
     if actor_id is None:
         raise ApiProblem(401, "authentication_required", "Missing X-Actor-ID")
     try:
