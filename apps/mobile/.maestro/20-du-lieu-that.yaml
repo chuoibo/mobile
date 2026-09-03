@@ -25,11 +25,12 @@
 # `scripts/mobile_native.sh` does not run this flow: it needs a seeded database
 # and a pinned identity, which the plain gate deliberately does not have. Run it
 # with `make mobile-native-live`.
-appId: host.exp.exponent
+appId: com.lakiet.rudi
 ---
 - stopApp
-- openLink: exp://localhost:8095
-- openLink: exp://localhost:8095
+- launchApp
+# Dev client: tờ «This is the developer menu» hiện ở lần mở lạnh, che app.
+- runFlow: _bo-qua-dev-menu.yaml
 - extendedWaitUntil:
     visible: "Rủ Đi thôi!"
     timeout: 150000

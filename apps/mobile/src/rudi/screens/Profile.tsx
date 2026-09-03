@@ -10,6 +10,7 @@ import { layTaiChinh, tinhTrangNo, type Finance } from "../../screens/ca-nhan/ta
 import { noiLuu, noiLuuNgan } from "../luu-tru";
 import { useRudiSession } from "../session";
 import { typography, useRudiTheme } from "../theme";
+import { DAU_VAN_CAY } from "../dau-van-cay";
 import {
   Avatar,
   Card,
@@ -62,6 +63,11 @@ export function ProfileScreen() {
         <Text style={[typography.caption, { color: colors.inkFaint }]}>
           Đăng xuất xoá mọi lựa chọn của lần mở app này rồi đưa về welcome. Phiên này không ký máy chủ.
         </Text>
+        {DAU_VAN_CAY ? (
+          <Text accessibilityLabel="dau-van-cay" style={[typography.caption, { color: colors.inkFaint }]}>
+            Bản dựng {DAU_VAN_CAY}
+          </Text>
+        ) : null}
         <RudiButton
           label="Đăng xuất bản trải nghiệm"
           onPress={() => {

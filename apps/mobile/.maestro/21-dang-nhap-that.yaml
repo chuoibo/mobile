@@ -16,7 +16,7 @@
 #
 # Chạy bằng:
 #   MOBILE_DATABASE_URL=... make mobile-native-dangnhap API=<cổng>
-appId: host.exp.exponent
+appId: com.lakiet.rudi
 ---
 - runFlow: _bo-qua-dev-menu.yaml
 - extendedWaitUntil:

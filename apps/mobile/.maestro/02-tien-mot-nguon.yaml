@@ -1,7 +1,7 @@
 # Core PR claim: settlement and finance derive from ONE integer-dong split.
 # Walked as a person walks it: tabs → Cá nhân → Tài chính → Quyết toán.
 # centerElement keeps the row clear of the bottom tab bar + FAB before tapping.
-appId: host.exp.exponent
+appId: com.lakiet.rudi
 ---
 - runFlow: _vao-app-sach.yaml
 - tapOn: "Cá nhân"

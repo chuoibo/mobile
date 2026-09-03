@@ -1,15 +1,20 @@
 # Cold start into the PR bundle through Expo Go.
 # stopApp first: launchApp lands on the Expo Go home and swallows the deep link.
-appId: host.exp.exponent
+appId: com.lakiet.rudi
 ---
 - stopApp
-- openLink: exp://localhost:8095
+- launchApp
+# Dev client: tờ «This is the developer menu» hiện ở lần mở lạnh, che app.
+- runFlow: _bo-qua-dev-menu.yaml
 # Fired twice: on this shared emulator the first VIEW intent is sometimes
 # dropped and Expo Go stays on its own home. The second is a no-op once the
 # app is up. Same reason as _vao-app.yaml.
-- openLink: exp://localhost:8095
 - extendedWaitUntil:
     visible: "Rủ Đi thôi!"
     timeout: 120000
 - assertVisible: "Hẹn hội bạn. Rủ Đi lo phần còn lại."
+# NEO 2b: dấu vân của lượt chạy, inline vào bundle bởi scripts/mobile_native.sh và
+# truyền vào đây qua `-e TREE_FINGERPRINT=`. Không có nó thì màn này có thể là
+# bundle của lane khác. Chạy flow này tay mà không -e thì dòng dưới đỏ — đúng.
+- assertVisible: ".*${TREE_FINGERPRINT}.*"
 - takeScreenshot: 00-welcome
