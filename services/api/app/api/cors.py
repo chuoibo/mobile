@@ -59,7 +59,8 @@ ALLOWED_HEADERS = [
 # the routers by a test that walks ``create_app().routes`` -- this list went
 # stale once already, when a PR that froze it and a PR that added a PUT route
 # merged forty seconds apart and neither diff was wrong on its own.
-ALLOWED_METHODS = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+# PATCH since M2: `PATCH /people/me` is the first partial update in the API.
+ALLOWED_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 
 PREFLIGHT_MAX_AGE_SECONDS = 600
 

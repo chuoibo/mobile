@@ -29,6 +29,11 @@ from app.api.schemas import (
     PersonContextListResponse,
     PersonRegistrationRequest,
     PersonResponse,
+    ProfileResponse,
+    ProfileUpdateRequest,
+    PublicPersonResponse,
+    SavedPlacesResponse,
+    SavedPlaceSummary,
 )
 from app.api.service import ApiService
 
@@ -50,6 +55,104 @@ def list_my_contexts(
     else. Declared before any `/people/{person_id}/...` route in this module so
     a literal `me` is never parsed as an id."""
     return ApiService(repository).list_my_contexts(actor)
+
+
+@router.get(
+    "/people/me",
+    response_model=ProfileResponse,
+    responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+def get_my_profile(
+    actor: Annotated[Actor, Depends(get_actor)],
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+) -> ProfileResponse:
+    """The caller's own profile with server-counted numbers (M2)."""
+    return ApiService(repository).get_my_profile(actor)
+
+
+@router.patch(
+    "/people/me",
+    response_model=ProfileResponse,
+    responses={
+        401: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+    },
+)
+def update_my_profile(
+    request: ProfileUpdateRequest,
+    actor: Annotated[Actor, Depends(get_actor)],
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+) -> ProfileResponse:
+    """Partial update: at least one of `display_name`, `bio`, `city`."""
+    return ApiService(repository).update_my_profile(request, actor)
+
+
+@router.get(
+    "/people/me/saved-places",
+    response_model=SavedPlacesResponse,
+    responses={401: {"model": ErrorResponse}},
+)
+def list_saved_places(
+    actor: Annotated[Actor, Depends(get_actor)],
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+) -> SavedPlacesResponse:
+    return ApiService(repository).list_saved_places(actor)
+
+
+@router.put(
+    "/people/me/saved-places/{place_id}",
+    response_model=SavedPlaceSummary,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        200: {"model": SavedPlaceSummary},
+        401: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
+)
+def save_place(
+    place_id: str,
+    response: Response,
+    actor: Annotated[Actor, Depends(get_actor)],
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+) -> SavedPlaceSummary:
+    """Bookmark a catalogue place. 201 the first time, 200 when it already was."""
+    summary, created = ApiService(repository).save_place(place_id, actor)
+    response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+    return summary
+
+
+@router.delete(
+    "/people/me/saved-places/{place_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+def unsave_place(
+    place_id: str,
+    actor: Annotated[Actor, Depends(get_actor)],
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+) -> Response:
+    ApiService(repository).unsave_place(place_id, actor)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get(
+    "/people/{person_id}",
+    response_model=PublicPersonResponse,
+    responses={
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
+)
+def get_person_profile(
+    person_id: UUID,
+    actor: Annotated[Actor, Depends(get_actor)],
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+) -> PublicPersonResponse:
+    """Somebody's public profile, for a friend or a groupmate. Declared after
+    every literal `/people/me/...` route so `me` is never parsed as an id."""
+    return ApiService(repository).get_person_profile(person_id, actor)
 
 
 @router.put(

@@ -959,6 +959,10 @@ class Person(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    # Profile text (M2). Written by the person about themself; nothing is
+    # derived from either, and neither is required.
+    bio: Mapped[str | None] = mapped_column(Text, nullable=True)
+    city: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -2020,6 +2024,35 @@ class OtpChallenge(Base):
         Integer, nullable=False, server_default="0", default=0
     )
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class SavedPlace(Base):
+    """A catalogue place one person bookmarked (M2).
+
+    `place_id` is the catalogue key (`app/places/catalog.py`): text rather than
+    a foreign key while the catalogue is code, and the service checks the key
+    exists before writing. Unique per (person, place): saving twice is one
+    bookmark, and the route answers 200 the second time rather than 409.
+    """
+
+    __tablename__ = "saved_places"
+    __table_args__ = (
+        UniqueConstraint("person_id", "place_id", name="uq_saved_places_person_place"),
+        Index("ix_saved_places_person", "person_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    person_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_saved_places_person"),
+        nullable=False,
+    )
+    place_id: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
 
 class AccountIdentity(Base):
