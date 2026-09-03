@@ -19,14 +19,17 @@ import test from "node:test";
 
 import { datTokenPhien, tokenPhienHienTai, translatedAsActor } from "../dist-test/api.js";
 import {
+  chonNhom,
   chonNhomMacDinh,
   dangXuat,
+  docHoSoToi,
   docNhomCuaToi,
   doiLoiMoiLayPhien,
   ganDanhSachNhom,
   guiOtp,
   khoTrongBoNho,
   khoiPhucPhien,
+  suaHoSoToi,
   vaoNhom,
   xacMinhOtp,
 } from "../dist-test/phien.js";
@@ -463,4 +466,54 @@ test("ganDanhSachNhom gán nhóm active vào phiên và ghi lại kho", async ()
   assert.equal(moi.context_id, NHOM_B);
   assert.equal(moi.membership_state, "active");
   assert.equal(JSON.parse(await kho.doc("rudi.phien")).context_id, NHOM_B);
+});
+
+/* ---- M2: picking a group, and the profile routes. ------------------------ */
+
+test("chonNhom chỉ nhận nhóm máy chủ đã liệt kê và đã active, rồi ghi lại kho", async () => {
+  const kho = khoTrongBoNho();
+  const phien = { ...PHIEN_OTP, contexts: [NHOM_MOI, NHOM_DANG_O] };
+
+  const moi = await chonNhom(phien, NHOM_B, kho);
+  assert.equal(moi.context_id, NHOM_B);
+  assert.equal(moi.membership_id, THE_B);
+  assert.equal(JSON.parse(await kho.doc("rudi.phien")).context_id, NHOM_B);
+
+  await assert.rejects(chonNhom(phien, NHOM, kho), /chưa đồng ý/);
+  await assert.rejects(chonNhom(phien, "5ee00000-eeee-4eee-8eee-eeeeeeeeeeee", kho), /không có trong danh sách/);
+});
+
+test("docHoSoToi: GET /people/me mang Bearer; suaHoSoToi: PATCH chỉ gửi trường được đổi, có Idempotency-Key", async () => {
+  const kho = khoTrongBoNho();
+  const hoSo = {
+    id: NGUOI,
+    display_name: "Tôi",
+    bio: null,
+    city: null,
+    created_at: PHIEN_OTP.expires_at,
+    counts: { friends: 1, contexts: 1, outings: 0, places_checked_in: 0, memories: 0 },
+    login_methods: ["phone"],
+  };
+  const { impl, daGoi } = fetchGiaLap([
+    traLoi(PHIEN_OTP, { status: 201 }),
+    traLoi(hoSo),
+    traLoi({ ...hoSo, bio: "Cafe sáng" }),
+  ]);
+
+  const ket = await voiFetch(impl, async () => {
+    await xacMinhOtp("ch-1", SO, "000000", kho);
+    const doc = await docHoSoToi(NGUOI);
+    const sua = await suaHoSoToi(NGUOI, { bio: "Cafe sáng" });
+    return { doc, sua };
+  });
+
+  assert.match(daGoi[1].url, /\/people\/me$/);
+  assert.equal(daGoi[1].init.method, "GET");
+  assert.equal(daGoi[1].init.headers["Authorization"], "Bearer tok-otp");
+  assert.equal(ket.doc.counts.friends, 1);
+  assert.match(daGoi[2].url, /\/people\/me$/);
+  assert.equal(daGoi[2].init.method, "PATCH");
+  assert.deepEqual(than(daGoi[2]), { bio: "Cafe sáng" });
+  assert.ok(daGoi[2].init.headers["Idempotency-Key"]);
+  assert.equal(ket.sua.bio, "Cafe sáng");
 });

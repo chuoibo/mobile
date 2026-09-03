@@ -234,6 +234,31 @@ kiem_ma_debug() {
   echo "API $API_PORT nhận mã debug: đối chứng dương môi trường qua"
 }
 
+# Sau flow 24: người được mời (OTP_PHONE_B) chưa từng mở app. Đăng nhập bằng số
+# đó qua curl và hỏi máy chủ nhóm nào đang chờ họ — nếu lời mời chỉ tồn tại trên
+# màn hình của người mời thì đây là chỗ nó lộ ra.
+kiem_may_chu_sau_24() {
+  local goc id body via ten
+  goc="http://127.0.0.1:$API_PORT"
+  id="$(curl -sS -X POST "$goc/auth/otp/request" -H 'Content-Type: application/json' \
+      -d "{\"phone\":\"$OTP_PHONE_B\"}" \
+    | python3 -c 'import json,sys;print(json.load(sys.stdin).get("challenge_id",""))' 2>/dev/null || true)"
+  [ -n "$id" ] || hong "sau flow 24: không xin được mã cho người được mời."
+  body="$(curl -sS -X POST "$goc/auth/otp/verify" -H 'Content-Type: application/json' \
+      -d "{\"challenge_id\":\"$id\",\"phone\":\"$OTP_PHONE_B\",\"code\":\"$OTP_CODE\"}")"
+  via="$(printf '%s' "$body" | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+moi=[c for c in d.get("contexts",[]) if c.get("my_state")=="invited"]
+print(f"{len(moi)}|{moi[0][\"display_name\"] if moi else \"\"}|{d.get(\"profile\",{}).get(\"display_name\",\"\")}")')"
+  IFS='|' read -r so_moi ten_nhom ten_nguoi <<< "$via"
+  [ "$so_moi" = "1" ] && [ "$ten_nhom" = "Hoi QA" ] \
+    || hong "sau flow 24: máy chủ không giữ lời mời cho người được mời (invited=$so_moi, nhóm='$ten_nhom')."
+  ten="$ten_nguoi"
+  [ "$ten" = "Ban QA" ] || hong "sau flow 24: người được mời phải mang tên người mời đặt ('Ban QA'), máy chủ trả '$ten'."
+  echo "máy chủ xác nhận: người được mời (số B) đăng nhập thấy đúng 1 lời mời vào «Hoi QA», tên «Ban QA» do người mời đặt"
+}
+
 # Canary cho chế độ --otp. Canary 09 đi đường fixture, mà ở đây cửa fixture tắt
 # có chủ ý — nó sẽ chết ở bước 1, tức chứng minh harness hỏng chứ không chứng
 # minh assert cắn. Đối chứng âm đúng của lượt này: chạy LẠI flow 22 với mã SAI
@@ -593,7 +618,7 @@ for f in "$FLOWS"/*.yaml; do
     # môi trường chứ không phải vì app sai. `--live` chạy đúng và chỉ nhóm này.
     20-*)        [ "$LIVE" = 1 ] || continue ;;
     21-*)        [ "$DANG_NHAP" = 1 ] || continue ;;
-    22-*|23-*)   [ "$OTP" = 1 ] || continue ;;
+    22-*|23-*|24-*) [ "$OTP" = 1 ] || continue ;;
     *)           { [ "$LIVE" = 1 ] || [ "$DANG_NHAP" = 1 ] || [ "$OTP" = 1 ]; } && continue ;;
   esac
   DA_CHAY=$((DA_CHAY + 1))
@@ -643,6 +668,7 @@ fi
 [ "$BANG" -eq 0 ] || hong "flow đỏ:$DO_LIST"
 
 if [ "$OTP" = 1 ]; then
+  kiem_may_chu_sau_24
   canary_otp
 else
 RA_CANARY="$(mktemp)"
