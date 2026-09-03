@@ -33,6 +33,14 @@ function loiRaChu(error: unknown): string {
   return error instanceof ApiError ? error.message : thongDiepNguoiDoc(0, null);
 }
 
+/** «Bạn» for the reader's own last message, the roster name for anyone else,
+ *  «Rủ Đi AI» for a card with no author -- the way a messenger reads. */
+function tenTacGia(tin: { author_id: string | null; author_display_name: string | null }, toi: string): string {
+  if (tin.author_id === null) return "Rủ Đi AI";
+  if (tin.author_id === toi) return "Bạn";
+  return tin.author_display_name ?? "Thành viên";
+}
+
 export function ConversationsScreen({ phien }: { phien: Phien }) {
   const router = useRouter();
   const { colors } = useRudiTheme();
@@ -133,7 +141,7 @@ export function ConversationsScreen({ phien }: { phien: Phien }) {
                   </Text>
                   <Text numberOfLines={1} style={[typography.caption, { color: colors.inkSoft }]}>
                     {nhom.last_message
-                      ? `${nhom.last_message.author_display_name ?? "Rủ Đi AI"}: ${nhom.last_message.preview}`
+                      ? `${tenTacGia(nhom.last_message, phien.person_id)}: ${nhom.last_message.preview}`
                       : "Chưa có tin nhắn nào."}
                   </Text>
                 </View>
