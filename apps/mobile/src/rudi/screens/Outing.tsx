@@ -4,7 +4,9 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { DEMO_GROUP, ITINERARY, PEOPLE, demoAssets, formatVnd } from "../fixtures";
+import { DEMO_GROUP, PEOPLE, demoAssets, formatVnd } from "../fixtures";
+import { noiLuu, noiLuuNgan } from "../luu-tru";
+import { useRudiSession } from "../session";
 import { typography, useRudiTheme } from "../theme";
 import {
   Avatar,
@@ -17,23 +19,17 @@ import {
   IconButton,
   Inline,
   Photo,
-  PhotoShade,
   ProgressBar,
   RudiButton,
   RudiScreen,
-  Segmented,
   TopBar,
 } from "../ui";
 
 export function CreateOutingScreen() {
   const router = useRouter();
   const { colors } = useRudiTheme();
-  const [tripName, setTripName] = useState(DEMO_GROUP.tripName);
-  const [selected, setSelected] = useState(PEOPLE.map((person) => person.id));
-
-  const toggleMember = (id: string) => {
-    setSelected((items) => (items.includes(id) ? items.filter((item) => item !== id) : [...items, id]));
-  };
+  const session = useRudiSession();
+  const selected = session.selectedMemberIds;
 
   return (
     <RudiScreen testID="create-outing-screen">
@@ -46,22 +42,23 @@ export function CreateOutingScreen() {
         <Field
           icon="sparkles-outline"
           label="Tên cuộc hẹn"
-          onChangeText={setTripName}
+          onChangeText={session.setTripName}
           placeholder="Ví dụ: Đà Lạt cuối tuần"
-          value={tripName}
+          value={session.tripName}
         />
         <Field
           icon="location-outline"
           label="Điểm đến"
+          onChangeText={session.setDestination}
           placeholder="Đà Lạt, Lâm Đồng"
-          value="Đà Lạt, Lâm Đồng"
+          value={session.destination}
         />
         <Inline gap={10}>
           <View style={styles.flex}>
-            <Field icon="calendar-outline" label="Ngày đi" value="17/10/2026" />
+            <Field icon="calendar-outline" label="Ngày đi" value={session.startDate} />
           </View>
           <View style={styles.flex}>
-            <Field icon="calendar-outline" label="Ngày về" value="19/10/2026" />
+            <Field icon="calendar-outline" label="Ngày về" value={session.endDate} />
           </View>
         </Inline>
         <Field
@@ -77,7 +74,7 @@ export function CreateOutingScreen() {
             <Text style={[typography.title, { color: colors.ink }]}>Rủ hội bạn</Text>
             <Text style={[typography.caption, { color: colors.inkFaint }]}>{selected.length}/8 thành viên được chọn</Text>
           </View>
-          <Pressable accessibilityRole="button">
+          <Pressable accessibilityRole="button" onPress={() => session.selectAllMembers()}>
             <Text style={[typography.label, { color: colors.accent }]}>Chọn tất cả</Text>
           </Pressable>
         </View>
@@ -89,7 +86,7 @@ export function CreateOutingScreen() {
                 key={person.id}
                 accessibilityRole="checkbox"
                 aria-checked={active}
-                onPress={() => toggleMember(person.id)}
+                onPress={() => session.toggleMember(person.id)}
                 style={({ pressed }) => [
                   styles.member,
                   {
@@ -118,18 +115,23 @@ export function CreateOutingScreen() {
           <Ionicons color={colors.ai} name="sparkles" size={22} />
         </View>
         <View style={styles.flex}>
-          <Text style={[typography.label, { color: colors.ink }]}>Nhờ RuDi gợi ý lịch trình</Text>
+          <Text style={[typography.label, { color: colors.ink }]}>Nhờ Rủ Đi gợi ý lịch trình</Text>
           <Text style={[typography.caption, { color: colors.inkFaint }]}>Dựa trên gu của {selected.length} thành viên</Text>
         </View>
-        <View style={[styles.toggle, { backgroundColor: colors.ai }]}>
-          <View style={styles.toggleThumb} />
-        </View>
+        <Pressable
+          accessibilityRole="switch"
+          aria-checked={session.aiSuggest}
+          onPress={() => session.setAiSuggest(!session.aiSuggest)}
+          style={[styles.toggle, { backgroundColor: session.aiSuggest ? colors.ai : colors.line }]}
+        >
+          <View style={[styles.toggleThumb, !session.aiSuggest && { alignSelf: "flex-start" }]} />
+        </Pressable>
       </Card>
       <RudiButton
-        disabled={!tripName || selected.length === 0}
+        disabled={!session.tripName || selected.length === 0}
         icon="arrow-forward"
         label="Tạo cuộc hẹn"
-        onPress={() => router.replace(("/trips/" + DEMO_GROUP.id + "/timeline") as never)}
+        onPress={() => router.replace(session.tripPath("/timeline") as never)}
       />
     </RudiScreen>
   );
@@ -138,7 +140,11 @@ export function CreateOutingScreen() {
 export function TripTimelineScreen() {
   const router = useRouter();
   const { colors } = useRudiTheme();
+  const session = useRudiSession();
   const [day, setDay] = useState(0);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const days = session.itinerary;
+  const current = days[day] ?? days[0];
 
   return (
     <RudiScreen bottomInset={112} testID="trip-timeline-screen">
@@ -146,8 +152,29 @@ export function TripTimelineScreen() {
         back={false}
         title={DEMO_GROUP.name}
         subtitle="17–19/10/2026"
-        right={<IconButton accessibilityLabel="Tùy chọn" icon="ellipsis-horizontal" />}
+        right={
+          <IconButton
+            accessibilityLabel="Tùy chọn"
+            icon="ellipsis-horizontal"
+            onPress={() => setMenuOpen((value) => !value)}
+          />
+        }
       />
+      {menuOpen ? (
+        <Card>
+          <RudiButton
+            label="Mở lịch trình AI"
+            onPress={() => router.push(session.tripPath("/itinerary") as never)}
+            variant="ghost"
+          />
+          <RudiButton label="Check-in nhóm" onPress={() => router.push("/check-ins/new")} variant="ghost" />
+          <RudiButton
+            label="Tường nhóm"
+            onPress={() => router.push(("/groups/" + DEMO_GROUP.id + "/wall") as never)}
+            variant="ghost"
+          />
+        </Card>
+      ) : null}
       <Photo
         height={245}
         radius={24}
@@ -161,7 +188,7 @@ export function TripTimelineScreen() {
             <View style={styles.tripHeroBadge}><DemoBadge /></View>
             <View style={styles.tripHeroCopy}>
               <Text style={styles.tripKicker}>CHUYẾN ĐI SẮP TỚI</Text>
-              <Text style={styles.tripTitle}>{DEMO_GROUP.tripName}</Text>
+              <Text style={styles.tripTitle}>{session.tripName}</Text>
               <Inline gap={12}>
                 <Inline gap={5}>
                   <Ionicons color="#FFFFFF" name="calendar-outline" size={15} />
@@ -169,7 +196,7 @@ export function TripTimelineScreen() {
                 </Inline>
                 <Inline gap={5}>
                   <Ionicons color="#FFFFFF" name="people-outline" size={15} />
-                  <Text style={styles.tripMeta}>8 người</Text>
+                  <Text style={styles.tripMeta}>{session.selectedMemberIds.length} người</Text>
                 </Inline>
               </Inline>
             </View>
@@ -184,7 +211,7 @@ export function TripTimelineScreen() {
         <View style={[styles.verticalLine, { backgroundColor: colors.line }]} />
         <View style={styles.overviewItem}>
           <AvatarStack max={4} people={PEOPLE} />
-          <Text style={[typography.caption, { color: colors.inkFaint }]}>8 đã tham gia</Text>
+          <Text style={[typography.caption, { color: colors.inkFaint }]}>{session.selectedMemberIds.length} đã tham gia</Text>
         </View>
         <View style={[styles.verticalLine, { backgroundColor: colors.line }]} />
         <View style={styles.overviewItem}>
@@ -193,36 +220,36 @@ export function TripTimelineScreen() {
         </View>
       </Card>
       <View style={styles.daySelector}>
-        {ITINERARY.map((item, index) => (
+        {days.map((item, index) => (
           <Chip key={item.day} label={"Ngày " + (index + 1)} onPress={() => setDay(index)} selected={day === index} />
         ))}
       </View>
       <View style={styles.sectionTitleRow}>
         <View>
-          <Text style={[typography.h2, { color: colors.ink }]}>{ITINERARY[day].day}</Text>
-          <Text style={[typography.caption, { color: colors.inkFaint }]}>{ITINERARY[day].items.length} hoạt động</Text>
+          <Text style={[typography.h2, { color: colors.ink }]}>{current.day}</Text>
+          <Text style={[typography.caption, { color: colors.inkFaint }]}>{current.items.length} hoạt động</Text>
         </View>
         <IconButton
           accessibilityLabel="Mở lịch trình AI"
           icon="sparkles"
-          onPress={() => router.push(("/trips/" + DEMO_GROUP.id + "/itinerary") as never)}
+          onPress={() => router.push(session.tripPath("/itinerary") as never)}
           selected
           tone="ai"
         />
       </View>
       <Card style={styles.scheduleCard}>
-        {ITINERARY[day].items.map(([time, title, icon, color], index) => (
-          <View key={time + title} style={styles.scheduleRow}>
+        {current.items.map((slot, index) => (
+          <View key={slot.time + slot.title + index} style={styles.scheduleRow}>
             <View style={styles.scheduleTime}>
-              <Text style={[typography.label, { color: colors.ink }]}>{time}</Text>
-              {index < ITINERARY[day].items.length - 1 ? <View style={[styles.scheduleLine, { backgroundColor: colors.line }]} /> : null}
+              <Text style={[typography.label, { color: colors.ink }]}>{slot.time}</Text>
+              {index < current.items.length - 1 ? <View style={[styles.scheduleLine, { backgroundColor: colors.line }]} /> : null}
             </View>
-            <View style={[styles.scheduleIcon, { backgroundColor: color + "1A" }]}>
-              <Ionicons color={color} name={icon} size={20} />
+            <View style={[styles.scheduleIcon, { backgroundColor: slot.color + "1A" }]}>
+              <Ionicons color={slot.color} name={slot.icon as never} size={20} />
             </View>
             <View style={styles.flex}>
-              <Text style={[typography.label, { color: colors.ink }]}>{title}</Text>
-              <Text style={[typography.caption, { color: colors.inkFaint }]}>{index % 2 ? "Cả nhóm" : "Đã xác nhận"}</Text>
+              <Text style={[typography.label, { color: colors.ink }]}>{slot.title}</Text>
+              <Text style={[typography.caption, { color: colors.inkFaint }]}>{slot.placeId ? "Đã gắn địa điểm" : "Cả nhóm"}</Text>
             </View>
             <Ionicons color={colors.inkFaint} name="chevron-forward" size={18} />
           </View>
@@ -245,74 +272,98 @@ export function TripTimelineScreen() {
 export function CheckInScreen() {
   const router = useRouter();
   const { colors } = useRudiTheme();
-  const [visibility, setVisibility] = useState(0);
-  const [caption, setCaption] = useState("Cả hội vừa chạm Đà Lạt rồi! 🌲");
+  const session = useRudiSession();
+  const arrived = session.checkedInIds.length;
+  const missing = PEOPLE.filter((person) => !session.checkedInIds.includes(person.id));
 
   return (
     <RudiScreen testID="check-in-screen">
-      <TopBar title="Check-in" right={<DemoBadge />} />
-      <Photo
-        height={315}
-        radius={24}
-        source={demoAssets.dalatFriends}
-        overlay={
-          <PhotoShade>
-            <View style={styles.locationCard}>
-              <View style={[styles.locationPin, { backgroundColor: colors.accent }]}>
-                <Ionicons color={colors.accentInk} name="location" size={19} />
-              </View>
-              <View style={styles.flex}>
-                <Text style={styles.locationTitle}>Quảng trường Lâm Viên</Text>
-                <Text style={styles.locationSubtitle}>Đà Lạt, Lâm Đồng · vừa xong</Text>
-              </View>
-              <Ionicons color="#FFFFFF" name="checkmark-circle" size={22} />
-            </View>
-          </PhotoShade>
-        }
-      />
-      <Field
-        label="Khoảnh khắc này có gì?"
-        multiline
-        onChangeText={setCaption}
-        placeholder="Kể hội bạn nghe..."
-        value={caption}
-      />
-      <Card style={styles.taggedCard}>
-        <View style={styles.sectionTitleRow}>
-          <View>
-            <Text style={[typography.label, { color: colors.ink }]}>Cùng với</Text>
-            <Text style={[typography.caption, { color: colors.inkFaint }]}>8 thành viên Team Đà Lạt</Text>
+      <TopBar title="Check-in nhóm" right={<DemoBadge />} />
+      <Card>
+        <Text style={[typography.h2, { color: colors.ink }]}>{arrived}/{PEOPLE.length} thành viên đã tới</Text>
+        <Text style={[typography.caption, { color: colors.inkFaint }]}>Quảng trường Lâm Viên · Đà Lạt</Text>
+        <AvatarStack max={8} people={PEOPLE.filter((person) => session.checkedInIds.includes(person.id))} />
+      </Card>
+      <Card style={session.locationSharing ? styles.shareOn : undefined}>
+        <Inline gap={10}>
+          <View style={styles.flex}>
+            <Text style={[typography.label, { color: colors.ink }]}>
+              {session.locationSharing ? "Đang chia sẻ vị trí đến 11:30" : "Chưa chia sẻ vị trí"}
+            </Text>
+            <Text style={[typography.caption, { color: colors.inkFaint }]}>
+              Opt-in, có hạn. Bản trải nghiệm không đọc GPS máy, trạng thái {noiLuu(session.luuTruSong)}.
+            </Text>
           </View>
-          <AvatarStack max={5} people={PEOPLE} />
-        </View>
+        </Inline>
+        <RudiButton
+          label={session.locationSharing ? "Dừng chia sẻ" : "Chia vị trí trực tiếp"}
+          onPress={() => session.setLocationSharing(!session.locationSharing)}
+          variant="outline"
+        />
+      </Card>
+      <Card style={styles.mapPlaceholder}>
+        <Ionicons color={colors.inkFaint} name="map-outline" size={36} />
+        <Text style={[typography.label, { color: colors.ink }]}>Bản đồ Quảng trường Lâm Viên</Text>
+        <Text style={[typography.caption, { color: colors.inkFaint }]}>Placeholder. GPS thật là Pha D.</Text>
       </Card>
       <View style={styles.section}>
-        <Text style={[typography.label, { color: colors.ink }]}>Ai có thể xem?</Text>
-        <Segmented
-          items={["Chỉ nhóm", "Bạn bè"]}
-          onSelect={setVisibility}
-          selected={visibility}
-        />
+        <Text style={[typography.title, { color: colors.ink }]}>Ai đã tới</Text>
+        {PEOPLE.map((person) => {
+          const here = session.checkedInIds.includes(person.id);
+          return (
+            <Pressable
+              key={person.id}
+              accessibilityRole="checkbox"
+              aria-checked={here}
+              onPress={() => session.toggleCheckIn(person.id)}
+              style={styles.checkRow}
+            >
+              <Avatar person={person} ring={here} size={40} />
+              <View style={styles.flex}>
+                <Text style={[typography.label, { color: colors.ink }]}>{person.name}</Text>
+                <Text style={[typography.caption, { color: colors.inkFaint }]}>{here ? "Đã check-in" : "Chưa tới"}</Text>
+              </View>
+              <Ionicons color={here ? colors.split : colors.inkFaint} name={here ? "checkmark-circle" : "ellipse-outline"} size={22} />
+            </Pressable>
+          );
+        })}
       </View>
+      {missing.length ? (
+        <Text style={[typography.caption, { color: colors.warn }]}>
+          {missing.map((person) => person.name).join(", ")} chưa check-in.
+        </Text>
+      ) : (
+        <Text style={[typography.caption, { color: colors.split }]}>Đủ 8 người.</Text>
+      )}
+      <Card>
+        <Text style={[typography.caption, { color: colors.inkFaint }]}>Điểm đến tiếp theo</Text>
+        <Text style={[typography.title, { color: colors.ink }]}>Still Cafe · 10:00</Text>
+      </Card>
       <Inline gap={10}>
         <RudiButton
           full={false}
-          icon="camera-outline"
-          label="Đổi ảnh"
+          icon="notifications-outline"
+          label="Nhắc thành viên"
+          onPress={() => session.remindPending()}
           style={styles.flex}
           variant="outline"
         />
         <RudiButton
           full={false}
-          icon="paper-plane-outline"
-          label="Đăng check-in"
-          onPress={() => router.replace(("/groups/" + DEMO_GROUP.id + "/wall") as never)}
+          icon="location"
+          label="Đánh dấu tôi đã tới"
+          onPress={() => {
+            session.checkInSelf();
+            router.replace(("/groups/" + DEMO_GROUP.id + "/wall") as never);
+          }}
           style={styles.flex}
         />
       </Inline>
-      <Text style={[typography.caption, styles.demoNote, { color: colors.inkFaint }]}>
-        Ảnh và vị trí trên màn này là dữ liệu minh họa, không phải vị trí thực.
-      </Text>
+      {session.remindedPending ? (
+        <Text style={[typography.caption, styles.demoNote, { color: colors.accent }]}>
+          Đã ghi nhắc {missing.length} người {noiLuuNgan(session.luuTruSong)}. Chưa gửi push.
+        </Text>
+      ) : null}
     </RudiScreen>
   );
 }
@@ -352,4 +403,7 @@ const styles = StyleSheet.create({
   locationSubtitle: { color: "rgba(255,255,255,0.75)", fontSize: 11, fontWeight: "600" },
   taggedCard: { gap: 10 },
   demoNote: { textAlign: "center", paddingHorizontal: 20 },
+  mapPlaceholder: { minHeight: 160, alignItems: "center", justifyContent: "center", gap: 8 },
+  checkRow: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: 10 },
+  shareOn: { borderColor: "rgba(0,117,107,0.35)" },
 });

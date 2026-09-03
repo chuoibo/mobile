@@ -1,0 +1,62 @@
+# The claim this PR exists for: editing who ate what must move the settlement.
+# Expected numbers were computed from dist-test/rudi/money.js, not eyeballed:
+#   before: collector receives 1.106.250đ, own spend 493.750đ
+#   after Minh Anh joins "Bò nướng" (560.000đ over 3):
+#          collector receives 919.583đ, own spend 680.417đ, bill total unchanged
+# 560.000 over 3 leaves two đồng. The server hands them to the largest
+# remainders, advancer first (allocator.py:254-267); the old client handed them
+# to array positions, which is the one-đồng difference this asserts away.
+appId: host.exp.exponent
+---
+- runFlow: _vao-app-sach.yaml
+- tapOn: "Tạo mới"
+- extendedWaitUntil:
+    visible: "Chia hóa đơn"
+    timeout: 30000
+- tapOn: "Chia hóa đơn"
+- extendedWaitUntil:
+    visible: "Xem lại hóa đơn"
+    timeout: 30000
+- scrollUntilVisible:
+    element:
+      text: "Dùng giấy mẫu"
+    direction: DOWN
+    centerElement: true
+    timeout: 30000
+- tapOn: "Dùng giấy mẫu"
+- extendedWaitUntil:
+    visible: "Ai dùng món nào?"
+    timeout: 30000
+- scrollUntilVisible:
+    element:
+      text: "Bò nướng"
+    direction: DOWN
+    centerElement: true
+    timeout: 30000
+- assertVisible:
+    text: "2 người"
+    below: "Bò nướng"
+- takeScreenshot: 10-assignment-before
+# Minh Anh ("MA") joins the Bò nướng line.
+- tapOn:
+    text: "MA"
+    below: "Bò nướng"
+- assertVisible:
+    text: "3 người"
+    below: "Bò nướng"
+- takeScreenshot: 10-assignment-after
+- scrollUntilVisible:
+    element:
+      text: "Xác nhận cách chia"
+    direction: DOWN
+    centerElement: true
+    timeout: 30000
+- tapOn: "Xác nhận cách chia"
+- extendedWaitUntil:
+    visible: "Quyết toán chuyến đi"
+    timeout: 30000
+# Bill total is untouched — Σ allocation = Σ bill still holds.
+- assertVisible: "Gồm bill Xóm Lèo 1.280.000đ và phần còn lại 2.560.000đ (homestay + xăng)."
+- assertVisible: "919.583đ"
+- assertNotVisible: "1.106.250đ"
+- takeScreenshot: 10-settlement-recomputed

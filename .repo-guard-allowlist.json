@@ -91,12 +91,12 @@
     },
     {
       "path": "apps/mobile/package-lock.json",
-      "sha256": "faeca2b01f5f0131419d9ee33b60da2836f249c2ee94a1c31b9e040c3e5535ff",
+      "sha256": "3fff44b6ee728dd356239f065e8227db889c01868cf84de9effaf3cc1193dd18",
       "rules": [
         "aggregate-base64-fragments",
         "long-number"
       ],
-      "reason": "Lockfile npm của ứng dụng mobile. Các chuỗi base64 là integrity digest của npm và số dài là metadata phiên bản; cả hai thuộc cấu trúc lockfile. Digest cập nhật lần gần nhất khi thêm `expo-secure-store` cho phiên đăng nhập (ADR-0014) — diff đúng 10 dòng, một khối `node_modules/expo-secure-store` và một dòng dependency. Ghim chính xác path và SHA-256 để thay đổi dependency tiếp theo phải được review lại."
+      "reason": "Lockfile npm của ứng dụng mobile. Các chuỗi base64 là integrity digest của npm và số dài là metadata phiên bản; cả hai thuộc cấu trúc lockfile. Ghim lại 2026-09-03 khi gộp hai nhánh cùng thêm phụ thuộc: `expo-secure-store` cho phiên đăng nhập (ADR-0014, PR #514) và `@react-native-async-storage/async-storage@2.2.0` cho lớp lưu trữ phiên nháp của RuDi, kéo theo is-plain-obj@2.1.0 và merge-options@3.0.4. Sau khi gộp đã chạy `npm install --package-lock-only` để lockfile khớp package.json, rồi mới tính digest — ghim một digest của cây gộp chưa chuẩn hoá là ghim một file không ai từng cài. Toàn bộ dòng thêm là version/resolved/integrity/license/engines từ registry.npmjs.org; không dòng nào mang dữ liệu người tham gia."
     },
     {
       "path": "docs/assets/bang-mau.svg",

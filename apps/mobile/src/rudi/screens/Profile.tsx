@@ -1,16 +1,21 @@
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { DEMO_GROUP, PEOPLE, demoAssets, formatVnd } from "../fixtures";
+import { COLLECTOR_INDEX, DEMO_GROUP, PEOPLE, demoAssets, formatVnd } from "../fixtures";
+import { BASE_URL } from "../../api";
+import { layTaiChinh, tinhTrangNo, type Finance } from "../../screens/ca-nhan/tai-chinh";
+import { noiLuu, noiLuuNgan } from "../luu-tru";
+import { useRudiSession } from "../session";
 import { typography, useRudiTheme } from "../theme";
 import {
   Avatar,
   Card,
   Chip,
   DemoBadge,
+  Field,
   Heading,
   IconButton,
   Inline,
@@ -21,7 +26,6 @@ import {
   RudiButton,
   RudiScreen,
   SectionHeader,
-  Segmented,
   TopBar,
   widthPercent,
 } from "../ui";
@@ -29,6 +33,73 @@ import {
 export function ProfileScreen() {
   const router = useRouter();
   const { colors } = useRudiTheme();
+  const session = useRudiSession();
+  const [panel, setPanel] = useState<"home" | "settings" | "account" | "edit" | "saved">("home");
+
+  if (panel === "settings") {
+    return (
+      <RudiScreen bottomInset={112} testID="profile-screen">
+        <Inline>
+          <IconButton accessibilityLabel="Quay lại" icon="chevron-back" onPress={() => setPanel("home")} />
+          <Text style={[typography.title, { color: colors.ink }]}>Cài đặt</Text>
+        </Inline>
+        <Heading
+          title="Bản trải nghiệm"
+          subtitle="Không có thông báo đẩy, không có sinh trắc, không có tài khoản máy chủ. Đây không phải cài đặt production."
+        />
+        <RudiButton label="Xong" onPress={() => setPanel("home")} />
+      </RudiScreen>
+    );
+  }
+  if (panel === "account") {
+    return (
+      <RudiScreen bottomInset={112} testID="profile-screen">
+        <Inline>
+          <IconButton accessibilityLabel="Quay lại" icon="chevron-back" onPress={() => setPanel("home")} />
+          <Text style={[typography.title, { color: colors.ink }]}>Tài khoản</Text>
+        </Inline>
+        <Text style={[typography.body, { color: colors.ink }]}>Đang xem với tư cách {session.displayName}.</Text>
+        <Text style={[typography.caption, { color: colors.inkFaint }]}>
+          Đăng xuất xoá mọi lựa chọn của lần mở app này rồi đưa về welcome. Phiên này không ký máy chủ.
+        </Text>
+        <RudiButton
+          label="Đăng xuất bản trải nghiệm"
+          onPress={() => {
+            session.resetSession();
+            router.replace("/welcome");
+          }}
+        />
+      </RudiScreen>
+    );
+  }
+  if (panel === "edit") {
+    return (
+      <RudiScreen bottomInset={112} testID="profile-screen">
+        <Inline>
+          <IconButton accessibilityLabel="Quay lại" icon="chevron-back" onPress={() => setPanel("home")} />
+          <Text style={[typography.title, { color: colors.ink }]}>Chỉnh hồ sơ</Text>
+        </Inline>
+        <Field label="Tên" onChangeText={session.setDisplayName} value={session.displayName} />
+        <Field label="Bio" multiline onChangeText={session.setBio} value={session.bio} />
+        <RudiButton label="Xong" onPress={() => setPanel("home")} />
+      </RudiScreen>
+    );
+  }
+  if (panel === "saved") {
+    return (
+      <RudiScreen bottomInset={112} testID="profile-screen">
+        <Inline>
+          <IconButton accessibilityLabel="Quay lại" icon="chevron-back" onPress={() => setPanel("home")} />
+          <Text style={[typography.title, { color: colors.ink }]}>Đã lưu</Text>
+        </Inline>
+        <Heading
+          title={`${session.savedPlaceIds.length} địa điểm`}
+          subtitle={`Danh sách ${noiLuu(session.luuTruSong)}. Mở Khám phá để thêm.`}
+        />
+        <RudiButton label="Mở Khám phá" onPress={() => router.push("/explore")} />
+      </RudiScreen>
+    );
+  }
 
   return (
     <RudiScreen bottomInset={112} testID="profile-screen">
@@ -39,9 +110,12 @@ export function ProfileScreen() {
         </View>
         <Inline gap={8}>
           <DemoBadge />
-          <IconButton accessibilityLabel="Cài đặt" icon="settings-outline" />
+          <IconButton accessibilityLabel="Cài đặt" icon="settings-outline" onPress={() => setPanel("settings")} />
         </Inline>
       </View>
+      {session.profileNotice ? (
+        <Text style={[typography.caption, { color: colors.accent }]}>{session.profileNotice}</Text>
+      ) : null}
       <Card style={styles.profileHero}>
         <LinearGradient
           colors={["rgba(252,123,55,0.16)", "rgba(131,80,246,0.12)"]}
@@ -56,41 +130,48 @@ export function ProfileScreen() {
             <Text style={styles.levelText}>12</Text>
           </View>
         </View>
-        <Text style={[typography.h1, { color: colors.ink }]}>Minh Anh</Text>
-        <Text style={[typography.body, { color: colors.inkSoft }]}>Đi để nhớ, tụ họp để thương 🌿</Text>
+        <Text style={[typography.h1, { color: colors.ink }]}>{session.displayName}</Text>
+        <Text style={[typography.body, { color: colors.inkSoft }]}>{session.bio}</Text>
         <Inline gap={7} wrap>
           <Chip icon="location-outline" label="TP. Hồ Chí Minh" />
           <Chip icon="calendar-outline" label="Thành viên từ 2026" />
         </Inline>
-        <RudiButton compact full={false} icon="create-outline" label="Chỉnh hồ sơ" variant="outline" />
+        <RudiButton
+          compact
+          full={false}
+          icon="create-outline"
+          label="Chỉnh hồ sơ"
+          onPress={() => setPanel("edit")}
+          variant="outline"
+        />
       </Card>
       <Card style={styles.profileStats}>
         <View style={styles.statItem}>
-          <Text style={[typography.money, { color: colors.accent }]}>12</Text>
+          <Text style={[typography.money, { color: colors.accent }]}>1</Text>
           <Text style={[typography.caption, { color: colors.inkFaint }]}>chuyến đi</Text>
         </View>
         <View style={[styles.verticalLine, { backgroundColor: colors.line }]} />
         <View style={styles.statItem}>
-          <Text style={[typography.money, { color: colors.ai }]}>6</Text>
-          <Text style={[typography.caption, { color: colors.inkFaint }]}>hội bạn</Text>
+          <Text style={[typography.money, { color: colors.ai }]}>{String(session.savedPlaceIds.length)}</Text>
+          <Text style={[typography.caption, { color: colors.inkFaint }]}>đã lưu</Text>
         </View>
         <View style={[styles.verticalLine, { backgroundColor: colors.line }]} />
         <View style={styles.statItem}>
-          <Text style={[typography.money, { color: colors.split }]}>{DEMO_GROUP.photos}</Text>
-          <Text style={[typography.caption, { color: colors.inkFaint }]}>kỷ niệm</Text>
+          <Text style={[typography.money, { color: colors.split }]}>{String(session.photoCount)}</Text>
+          <Text style={[typography.caption, { color: colors.inkFaint }]}>ảnh</Text>
         </View>
       </Card>
       <View>
         <SectionHeader title="Sắp tới" />
         <View style={styles.sectionGap} />
-        <Card onPress={() => router.push(("/trips/" + DEMO_GROUP.id + "/timeline") as never)} style={styles.upcoming}>
+        <Card onPress={() => router.push(session.tripPath("/timeline") as never)} style={styles.upcoming}>
           <Photo
             height={155}
             radius={17}
             source={demoAssets.road}
             overlay={
               <PhotoShade>
-                <Text style={styles.upcomingTitle}>{DEMO_GROUP.tripName}</Text>
+                <Text style={styles.upcomingTitle}>{session.tripName}</Text>
                 <Text style={styles.upcomingMeta}>17–19/10/2026 · Team Đà Lạt</Text>
               </PhotoShade>
             }
@@ -118,88 +199,250 @@ export function ProfileScreen() {
           tone="ai"
         />
         <View style={[styles.rowLine, { backgroundColor: colors.line }]} />
-        <ListRow icon="bookmark-outline" subtitle="18 địa điểm" title="Đã lưu" />
+        <ListRow
+          icon="bookmark-outline"
+          onPress={() => setPanel("saved")}
+          subtitle={`${session.savedPlaceIds.length} địa điểm ${noiLuuNgan(session.luuTruSong)}`}
+          title="Đã lưu"
+        />
         <View style={[styles.rowLine, { backgroundColor: colors.line }]} />
-        <ListRow icon="shield-checkmark-outline" subtitle="Quyền riêng tư và bảo mật" title="Tài khoản" />
+        <ListRow
+          icon="shield-checkmark-outline"
+          onPress={() => setPanel("account")}
+          subtitle="Quyền riêng tư và đăng xuất bản trải nghiệm"
+          title="Tài khoản"
+        />
       </Card>
     </RudiScreen>
   );
 }
 
-const TRANSACTIONS = [
-  { icon: "restaurant-outline", title: "Tiệm Nướng Xóm Lèo", detail: "Team Đà Lạt · 17/10", amount: -320_000, tone: "#F97316" },
-  { icon: "arrow-down-circle-outline", title: "Tuấn Kiệt đã trả", detail: "Quyết toán Đà Lạt", amount: 320_000, tone: "#00756B" },
-  { icon: "home-outline", title: "Homestay Pine Hill", detail: "Team Đà Lạt · đặt cọc", amount: -625_000, tone: "#7D49EF" },
-] as const;
-
+/**
+ * The finance screen, on the same switch as the settlement screen.
+ *
+ * These two are the pair the whole PR was about: they must never print two
+ * different totals for one trip. Wiring only ONE of them to the server would
+ * recreate exactly that defect, pointed the other way -- measured on the
+ * emulator, where the settlement screen showed the seeded group's 6.785.000đ
+ * while this one still showed the fixture's 3.840.000đ in the same launch.
+ */
 export function FinanceScreen() {
-  const { colors } = useRudiTheme();
-  const [period, setPeriod] = useState(0);
+  const session = useRudiSession();
+  if (session.nguon.kieu === "live") {
+    return <TaiChinhLive actorId={session.nguon.actorId} contextId={session.nguon.contextId} />;
+  }
+  return <TaiChinhNhap />;
+}
 
+/**
+ * `GET /people/{id}/finance`, printed.
+ *
+ * No arithmetic: the route's own docstring says `settled + outstanding == spend`
+ * is guaranteed by the ledger query that answers it, and deriving even one of
+ * the three here would be a second implementation of the same sum.
+ */
+function TaiChinhLive({ actorId, contextId }: { actorId: string; contextId: string }) {
+  const router = useRouter();
+  const { colors } = useRudiTheme();
+  const [du, setDu] = useState<Finance | null>(null);
+  const [loi, setLoi] = useState<string | null>(null);
+
+  useEffect(() => {
+    let song = true;
+    void layTaiChinh(actorId)
+      .then((ketQua) => {
+        if (song) setDu(ketQua);
+      })
+      .catch((error: unknown) => {
+        if (!song) return;
+        setLoi(error instanceof Error ? error.message : `Không đọc được tài chính tại ${BASE_URL}.`);
+      });
+    return () => {
+      song = false;
+    };
+  }, [actorId]);
+
+  if (loi !== null) {
+    return (
+      <RudiScreen tone="split" testID="finance-screen">
+        <TopBar title="Tài chính của tôi" />
+        <Card>
+          <Text style={[typography.title, { color: colors.warn }]}>Chưa đọc được sổ</Text>
+          <Text style={[typography.caption, { color: colors.inkSoft }]}>{loi}</Text>
+        </Card>
+      </RudiScreen>
+    );
+  }
+  if (du === null) {
+    return (
+      <RudiScreen tone="split" testID="finance-screen">
+        <TopBar title="Tài chính của tôi" />
+        <Text style={[typography.caption, { color: colors.inkFaint }]}>Đang đọc sổ…</Text>
+      </RudiScreen>
+    );
+  }
   return (
     <RudiScreen tone="split" testID="finance-screen">
-      <TopBar title="Tài chính của tôi" right={<DemoBadge />} />
-      <Segmented items={["Tháng này", "3 tháng", "Năm 2026"]} onSelect={setPeriod} selected={period} tone="split" />
+      <TopBar title="Tài chính của tôi" />
       <Card style={styles.financeHero} tone="split">
         <View style={styles.financeHeroTop}>
           <View>
-            <Text style={[typography.caption, { color: colors.inkFaint }]}>Tổng chi tháng 10</Text>
-            <Text style={[styles.financeMoney, { color: colors.ink }]}>{formatVnd(2_840_000)}</Text>
+            <Text style={[typography.caption, { color: colors.inkFaint }]}>Bạn đã chi</Text>
+            <Text style={[styles.financeMoney, { color: colors.ink }]}>{formatVnd(du.spend_vnd)}</Text>
           </View>
           <View style={[styles.walletIcon, { backgroundColor: colors.split }]}>
             <Ionicons color={colors.splitInk} name="wallet" size={25} />
           </View>
         </View>
-        <View style={styles.budgetCopy}>
-          <Text style={[typography.caption, { color: colors.inkFaint }]}>Ngân sách vui chơi</Text>
-          <Text style={[typography.caption, { color: colors.split }]}>71% của 4.000.000đ</Text>
-        </View>
-        <ProgressBar tone="split" value={71} />
+        <Text style={[typography.caption, { color: colors.inkSoft }]}>
+          {du.expense_count} khoản chi trong {du.group_count} nhóm. Máy chủ tính lại từ sổ mỗi lần hỏi.
+        </Text>
       </Card>
       <Inline gap={10}>
         <Card style={styles.financeMini}>
           <View style={[styles.miniIcon, { backgroundColor: colors.accentSoft }]}>
             <Ionicons color={colors.accent} name="arrow-up" size={19} />
           </View>
-          <Text style={[typography.caption, { color: colors.inkFaint }]}>Cần trả</Text>
-          <Text style={[typography.money, { color: colors.warn }]}>{formatVnd(200_000)}</Text>
-          <Text style={[typography.caption, { color: colors.inkFaint }]}>2 khoản</Text>
+          <Text style={[typography.caption, { color: colors.inkFaint }]}>Còn phải trả</Text>
+          <Text style={[typography.money, { color: colors.warn }]}>{formatVnd(du.outstanding_vnd)}</Text>
+          <Text style={[typography.caption, { color: colors.inkFaint }]}>Đã trả {formatVnd(du.settled_vnd)}</Text>
         </Card>
         <Card style={styles.financeMini}>
           <View style={[styles.miniIcon, { backgroundColor: colors.splitSoft }]}>
             <Ionicons color={colors.split} name="arrow-down" size={19} />
           </View>
           <Text style={[typography.caption, { color: colors.inkFaint }]}>Sẽ nhận</Text>
-          <Text style={[typography.money, { color: colors.split }]}>{formatVnd(780_000)}</Text>
-          <Text style={[typography.caption, { color: colors.inkFaint }]}>Từ 4 người</Text>
+          <Text style={[typography.money, { color: colors.split }]}>{formatVnd(du.receivable_vnd)}</Text>
+          <Text style={[typography.caption, { color: colors.inkFaint }]}>Bạn đã ứng trước</Text>
         </Card>
       </Inline>
       <View>
-        <SectionHeader action="Xem chi tiết" title="Chi theo nhóm" />
+        <SectionHeader
+          action="Xem quyết toán"
+          onAction={() => router.push(("/settlements/" + contextId) as never)}
+          title="Chi theo nhóm"
+        />
+      </View>
+      <Card style={styles.financeFootnote}>
+        <Ionicons color={colors.split} name="calculator-outline" size={20} />
+        <Text style={[typography.caption, styles.flex, { color: colors.inkSoft }]}>
+          {tinhTrangNo(du).cau} Số này đọc từ sổ cái, không phải số dư ngân hàng.
+        </Text>
+      </Card>
+    </RudiScreen>
+  );
+}
+
+function TaiChinhNhap() {
+  const router = useRouter();
+  const { colors } = useRudiTheme();
+  const session = useRudiSession();
+  const picture = session.money;
+  const mine = picture.spent[COLLECTOR_INDEX];
+  const budget = DEMO_GROUP.budgetPerPersonVnd;
+  // Bar width only, never a sentence. ADR-0009 decision 4 and the Lead note of
+  // 2026-08-29 ban telling somebody a percentage of their own money; they do not
+  // ban drawing one. `tests/receipt.test.mjs` reads copy for an interpolated
+  // percent sign, which is the distinction, and it went red on the version that
+  // printed this number as a sentence.
+  const budgetPct = budget === 0 ? 0 : (mine * 100 - ((mine * 100) % budget)) / budget;
+  const owe = picture.transfers
+    .filter((row) => row.fromIndex === COLLECTOR_INDEX)
+    .reduce((sum, row) => sum + row.amount, 0);
+  const receive = picture.collectorReceives;
+  const unpaid = picture.transfers.filter((row) => !session.paidFromIndexes.includes(row.fromIndex)).length;
+  const transactions = [
+    {
+      icon: "restaurant-outline" as const,
+      title: "Tiệm Nướng Xóm Lèo",
+      detail: "Phần bạn trong bill, cùng số với Quyết toán",
+      amount: -picture.shares[COLLECTOR_INDEX],
+      tone: "#F97316",
+    },
+    {
+      icon: "home-outline" as const,
+      title: "Homestay + xăng",
+      detail: "Phần bạn trong phần còn lại của chuyến",
+      amount: -picture.otherShares[COLLECTOR_INDEX],
+      tone: "#7D49EF",
+    },
+    {
+      icon: "arrow-down-circle-outline" as const,
+      title: `${PEOPLE[COLLECTOR_INDEX].name} sẽ thu (bill)`,
+      detail: "Nháp, chưa confirm sổ",
+      amount: receive,
+      tone: "#00756B",
+    },
+  ];
+
+  return (
+    <RudiScreen tone="split" testID="finance-screen">
+      <TopBar title="Tài chính của tôi" right={<DemoBadge />} />
+      <Card style={styles.financeHero} tone="split">
+        <View style={styles.financeHeroTop}>
+          <View>
+            <Text style={[typography.caption, { color: colors.inkFaint }]}>Chi của bạn trong chuyến này</Text>
+            <Text style={[styles.financeMoney, { color: colors.ink }]}>{formatVnd(mine)}</Text>
+          </View>
+          <View style={[styles.walletIcon, { backgroundColor: colors.split }]}>
+            <Ionicons color={colors.splitInk} name="wallet" size={25} />
+          </View>
+        </View>
+        <Text style={[typography.caption, { color: colors.inkSoft }]}>
+          Cả chuyến {formatVnd(picture.tripTotal)} · một bill Xóm Lèo {formatVnd(picture.billTotal)}. Không có dữ liệu tháng khác nên không hiện bộ lọc kỳ.
+        </Text>
+        <View style={styles.budgetCopy}>
+          <Text style={[typography.caption, { color: colors.inkFaint }]}>So với ngân sách vui chơi</Text>
+          <Text style={[typography.caption, { color: colors.split }]}>
+            {mine <= budget
+              ? `Còn ${formatVnd(budget - mine)} trong ${formatVnd(budget)}`
+              : `Vượt ${formatVnd(mine - budget)} so với ${formatVnd(budget)}`}
+          </Text>
+        </View>
+        <ProgressBar tone="split" value={budgetPct} />
+      </Card>
+      <Inline gap={10}>
+        <Card style={styles.financeMini}>
+          <View style={[styles.miniIcon, { backgroundColor: colors.accentSoft }]}>
+            <Ionicons color={colors.accent} name="arrow-up" size={19} />
+          </View>
+          <Text style={[typography.caption, { color: colors.inkFaint }]}>Cần trả (bill)</Text>
+          <Text style={[typography.money, { color: colors.warn }]}>{formatVnd(owe)}</Text>
+          <Text style={[typography.caption, { color: colors.inkFaint }]}>Bạn là người thu</Text>
+        </Card>
+        <Card style={styles.financeMini}>
+          <View style={[styles.miniIcon, { backgroundColor: colors.splitSoft }]}>
+            <Ionicons color={colors.split} name="arrow-down" size={19} />
+          </View>
+          <Text style={[typography.caption, { color: colors.inkFaint }]}>Sẽ nhận (bill)</Text>
+          <Text style={[typography.money, { color: colors.split }]}>{formatVnd(receive)}</Text>
+          <Text style={[typography.caption, { color: colors.inkFaint }]}>{String(unpaid)} người chưa trả</Text>
+        </Card>
+      </Inline>
+      <View>
+        <SectionHeader
+          action="Xem quyết toán"
+          onAction={() => router.push(("/settlements/" + DEMO_GROUP.id) as never)}
+          title="Chi theo nhóm"
+        />
         <View style={styles.sectionGap} />
         <Card style={styles.groupSpend}>
-          {[
-            ["Team Đà Lạt", 1_920_000, 68, colors.accent],
-            ["Hội cuối tuần", 610_000, 22, colors.ai],
-            ["Đồng nghiệp vui vẻ", 310_000, 10, colors.split],
-          ].map(([name, amount, percent, color]) => (
-            <View key={String(name)} style={styles.spendRow}>
-              <View style={styles.spendTitle}>
-                <Text style={[typography.label, { color: colors.ink }]}>{String(name)}</Text>
-                <Text style={[typography.caption, { color: colors.inkFaint }]}>{formatVnd(Number(amount))}</Text>
-              </View>
-              <View style={[styles.spendTrack, { backgroundColor: colors.line }]}>
-                <View style={[styles.spendFill, { backgroundColor: String(color), width: widthPercent(Number(percent)) }]} />
-              </View>
+          <View style={styles.spendRow}>
+            <View style={styles.spendTitle}>
+              <Text style={[typography.label, { color: colors.ink }]}>Team Đà Lạt</Text>
+              <Text style={[typography.caption, { color: colors.inkFaint }]}>{formatVnd(picture.tripTotal)}</Text>
             </View>
-          ))}
+            <View style={[styles.spendTrack, { backgroundColor: colors.line }]}>
+              <View style={[styles.spendFill, { backgroundColor: colors.accent, width: widthPercent(100) }]} />
+            </View>
+          </View>
         </Card>
       </View>
       <View>
-        <SectionHeader action="Tất cả" title="Giao dịch gần đây" />
+        <SectionHeader title="Giao dịch gần đây" />
         <View style={styles.sectionGap} />
         <Card style={styles.transactions}>
-          {TRANSACTIONS.map((transaction, index) => (
+          {transactions.map((transaction, index) => (
             <View key={transaction.title}>
               <View style={styles.transaction}>
                 <View style={[styles.transactionIcon, { backgroundColor: transaction.tone + "18" }]}>
@@ -210,10 +453,11 @@ export function FinanceScreen() {
                   <Text style={[typography.caption, { color: colors.inkFaint }]}>{transaction.detail}</Text>
                 </View>
                 <Text style={[typography.label, { color: transaction.amount > 0 ? colors.split : colors.ink }]}>
-                  {transaction.amount > 0 ? "+" : "−"}{formatVnd(Math.abs(transaction.amount))}
+                  {transaction.amount > 0 ? "+" : "−"}
+                  {formatVnd(transaction.amount > 0 ? transaction.amount : -transaction.amount)}
                 </Text>
               </View>
-              {index < TRANSACTIONS.length - 1 ? <View style={[styles.rowLine, { backgroundColor: colors.line }]} /> : null}
+              {index < transactions.length - 1 ? <View style={[styles.rowLine, { backgroundColor: colors.line }]} /> : null}
             </View>
           ))}
         </Card>
@@ -221,7 +465,7 @@ export function FinanceScreen() {
       <Card style={styles.financeFootnote}>
         <Ionicons color={colors.split} name="calculator-outline" size={20} />
         <Text style={[typography.caption, styles.flex, { color: colors.inkSoft }]}>
-          Số dư được tính lại từ sổ cái. Dữ liệu trên màn này chỉ là bản demo, không phải số dư ngân hàng.
+          Số trên màn này và Quyết toán cùng một phép tính nháp. Chưa confirm sổ cái. Đây không phải số dư ngân hàng.
         </Text>
       </Card>
     </RudiScreen>

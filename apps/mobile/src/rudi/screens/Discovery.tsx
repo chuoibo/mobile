@@ -2,9 +2,11 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { Pressable, Share, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 
-import { DEMO_GROUP, PEOPLE, PLACES, DemoPlace } from "../fixtures";
+import { PEOPLE, PLACES, DemoPlace } from "../fixtures";
+import { PLACE_CATEGORIES, filterPlaces, type PlaceCategory } from "../places";
+import { useRudiSession } from "../session";
 import { typography, useRudiTheme } from "../theme";
 import {
   AiNote,
@@ -27,13 +29,6 @@ import {
   Spacer,
   TopBar,
 } from "../ui";
-
-const CATEGORIES = [
-  ["restaurant-outline", "Quán ăn", "#F97316"],
-  ["cafe-outline", "Cafe", "#A16207"],
-  ["game-controller-outline", "Vui chơi", "#7D49EF"],
-  ["moon-outline", "Đi chơi đêm", "#0F766E"],
-] as const;
 
 function PlaceCard({
   place,
@@ -140,44 +135,34 @@ function PlaceCard({
 export function ExploreScreen() {
   const router = useRouter();
   const { colors } = useRudiTheme();
-  const [category, setCategory] = useState("Quán ăn");
-  const [saved, setSaved] = useState<string[]>(["still-cafe"]);
+  const session = useRudiSession();
+  const [category, setCategory] = useState<PlaceCategory | null>(null);
   const [query, setQuery] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [matchOnly, setMatchOnly] = useState(false);
   const [nearOnly, setNearOnly] = useState(false);
   const [savedOnly, setSavedOnly] = useState(false);
 
-  const visiblePlaces = useMemo(() => {
-    const needle = query
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .trim()
-      .toLowerCase();
+  const visiblePlaces = useMemo(
+    () =>
+      filterPlaces(PLACES, {
+        query,
+        category,
+        matchOnly,
+        nearOnly,
+        savedOnly,
+        savedIds: session.savedPlaceIds,
+      }),
+    [category, matchOnly, nearOnly, query, savedOnly, session.savedPlaceIds],
+  );
 
-    return PLACES.filter((place) => {
-      const haystack = [place.name, place.subtitle, ...place.tags]
-        .join(" ")
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase();
-      const numericDistance = Number(place.distance.replace(",", ".").replace(/[^0-9.]/g, ""));
-      const distanceKm = place.distance.includes("km") ? numericDistance : numericDistance / 1000;
-      return (
-        (!needle || haystack.includes(needle)) &&
-        (!matchOnly || place.match >= 90) &&
-        (!nearOnly || distanceKm <= 2) &&
-        (!savedOnly || saved.includes(place.id))
-      );
-    });
-  }, [matchOnly, nearOnly, query, saved, savedOnly]);
-
-  const filtering = Boolean(query.trim()) || matchOnly || nearOnly || savedOnly;
+  const filtering = Boolean(query.trim()) || matchOnly || nearOnly || savedOnly || category !== null;
   const primaryPlaces = filtering ? visiblePlaces : visiblePlaces.slice(0, 2);
   const moodPlaces = filtering ? [] : visiblePlaces.slice(2);
 
   const resetFilters = () => {
     setQuery("");
+    setCategory(null);
     setMatchOnly(false);
     setNearOnly(false);
     setSavedOnly(false);
@@ -185,7 +170,7 @@ export function ExploreScreen() {
 
   const toggleSaved = (id: string) => {
     void Haptics.selectionAsync();
-    setSaved((items) => (items.includes(id) ? items.filter((item) => item !== id) : [...items, id]));
+    session.toggleSaved(id);
   };
 
   return (
@@ -201,9 +186,20 @@ export function ExploreScreen() {
         </View>
         <Inline gap={8}>
           <DemoBadge />
-          <IconButton accessibilityLabel="Thông báo" icon="notifications-outline" />
+          <IconButton
+            accessibilityLabel="Thông báo"
+            icon="notifications-outline"
+            onPress={() => session.setInboxOpen(true)}
+            selected={session.inboxOpen}
+          />
         </Inline>
       </View>
+      {session.inboxOpen ? (
+        <Card>
+          <Heading size="h2" title="Thông báo" subtitle="Chưa có hộp thư máy chủ. Bản trải nghiệm không đẩy thông báo." />
+          <RudiButton label="Đóng" onPress={() => session.setInboxOpen(false)} variant="outline" />
+        </Card>
+      ) : null}
       <View style={styles.searchRow}>
         <View style={styles.flex}>
           <SearchField
@@ -242,20 +238,24 @@ export function ExploreScreen() {
         <View style={styles.flex}>
           <Text style={[typography.title, { color: colors.ink }]}>Match gu cả nhóm bằng AI</Text>
           <Text style={[typography.caption, { color: colors.inkSoft }]}>
-            RuDi đã tìm thấy 12 nơi hợp Team Đà Lạt.
+            Rủ Đi đã tìm thấy {PLACES.length} nơi hợp Team Đà Lạt.
           </Text>
         </View>
         <Ionicons color={colors.ai} name="arrow-forward-circle" size={27} />
       </Card>
       <View style={styles.categoryGrid}>
-        {CATEGORIES.map(([icon, label, color]) => {
+        {PLACE_CATEGORIES.map((label, index) => {
+          const icons = ["restaurant-outline", "cafe-outline", "game-controller-outline", "moon-outline"] as const;
+          const colorsChip = ["#F97316", "#A16207", "#7D49EF", "#0F766E"] as const;
+          const icon = icons[index];
+          const color = colorsChip[index];
           const active = category === label;
           return (
             <Pressable
               key={label}
               accessibilityRole="button"
               aria-pressed={active}
-              onPress={() => setCategory(label)}
+              onPress={() => setCategory(active ? null : label)}
               style={({ pressed }) => [
                 styles.category,
                 {
@@ -286,7 +286,7 @@ export function ExploreScreen() {
                 featured={index === 0}
                 onSave={() => toggleSaved(place.id)}
                 place={place}
-                saved={saved.includes(place.id)}
+                saved={session.savedPlaceIds.includes(place.id)}
               />
             </View>
           ))}
@@ -314,7 +314,7 @@ export function ExploreScreen() {
                 <PlaceCard
                   onSave={() => toggleSaved(place.id)}
                   place={place}
-                  saved={saved.includes(place.id)}
+                  saved={session.savedPlaceIds.includes(place.id)}
                 />
               </View>
             ))}
@@ -329,13 +329,24 @@ export function AiMatchScreen() {
   const router = useRouter();
   const { colors } = useRudiTheme();
   const [filter, setFilter] = useState("Tất cả");
+  const visible = filter === "Tất cả"
+    ? PLACES
+    : filter === "Dưới 250K"
+      ? PLACES.filter((place) => !place.price.includes("320K") && !place.price.includes("260K"))
+      : PLACES.filter((place) =>
+          filter === "Ăn uống"
+            ? place.category === "Quán ăn"
+            : filter === "Cafe"
+              ? place.category === "Cafe"
+              : place.category === "Vui chơi",
+        );
 
   return (
     <RudiScreen tone="ai" testID="ai-match-screen">
       <TopBar title="Match gu cả nhóm" right={<DemoBadge />} />
       <Heading
-        title="RuDi tìm được 12 nơi"
-        subtitle="Gợi ý dựa trên sở thích của 8 thành viên, ngân sách và khoảng cách hiện tại."
+        title={`Rủ Đi tìm được ${visible.length} nơi`}
+        subtitle={`Gợi ý từ ${PLACES.length} địa điểm fixture, sở thích 8 thành viên. Không phải kết quả LLM.`}
       />
       <Card style={styles.groupMatchCard} tone="ai">
         <View style={styles.groupMatchTop}>
@@ -361,7 +372,7 @@ export function AiMatchScreen() {
         ))}
       </Inline>
       <View style={styles.matchList}>
-        {PLACES.map((place, index) => (
+        {visible.map((place, index) => (
           <Card
             key={place.id}
             onPress={() => router.push(("/places/" + place.id) as never)}
@@ -391,7 +402,7 @@ export function AiMatchScreen() {
           </Card>
         ))}
       </View>
-      <AiNote>Đây là gợi ý có thể chỉnh. RuDi không tự thêm nơi vào kế hoạch của nhóm.</AiNote>
+      <AiNote>Đây là gợi ý có thể chỉnh. Rủ Đi không tự thêm nơi vào kế hoạch của nhóm.</AiNote>
     </RudiScreen>
   );
 }
@@ -401,11 +412,13 @@ export function PlaceDetailScreen() {
   const params = useLocalSearchParams<{ id?: string }>();
   const { colors } = useRudiTheme();
   const { width } = useWindowDimensions();
-  const [saved, setSaved] = useState(false);
+  const session = useRudiSession();
+  const [added, setAdded] = useState(false);
   const place = useMemo(
     () => PLACES.find((item) => item.id === params.id) ?? PLACES[0],
     [params.id],
   );
+  const saved = session.savedPlaceIds.includes(place.id);
 
   return (
     <RudiScreen padded={false} testID="place-detail-screen">
@@ -419,11 +432,19 @@ export function PlaceDetailScreen() {
               <View style={styles.detailTop}>
                 <IconButton accessibilityLabel="Quay lại" icon="chevron-back" onPress={() => router.back()} />
                 <Inline gap={8}>
-                  <IconButton accessibilityLabel="Chia sẻ" icon="share-social-outline" />
+                  <IconButton
+                    accessibilityLabel="Chia sẻ"
+                    icon="share-social-outline"
+                    onPress={() =>
+                      void Share.share({
+                        message: `${place.name}: ${place.subtitle}`,
+                      })
+                    }
+                  />
                   <IconButton
                     accessibilityLabel={saved ? "Bỏ lưu" : "Lưu địa điểm"}
                     icon={saved ? "heart" : "heart-outline"}
-                    onPress={() => setSaved((value) => !value)}
+                    onPress={() => session.toggleSaved(place.id)}
                     selected={saved}
                   />
                 </Inline>
@@ -479,8 +500,12 @@ export function PlaceDetailScreen() {
           </View>
           <RudiButton
             icon="add-circle-outline"
-            label={"Thêm vào " + DEMO_GROUP.tripName}
-            onPress={() => router.push(("/trips/" + DEMO_GROUP.id + "/itinerary") as never)}
+            label={added ? `Đã thêm vào ${session.tripName}` : `Thêm vào ${session.tripName}`}
+            onPress={() => {
+              const ok = session.addPlaceToTrip(place.id);
+              setAdded(ok);
+              router.push(session.tripPath("/itinerary") as never);
+            }}
           />
         </View>
       </View>

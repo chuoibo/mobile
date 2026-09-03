@@ -554,3 +554,82 @@ jobs:
       - if: steps.present.outputs.found == 'true'
         name: Propose, confirm, batch, publish, guest page, receipt
         run: scripts/e2e_slice.sh
+
+  # The only job in this file that touches the target this product ships.
+  #
+  # Everything else about the app is known through `react-native-web`: `npm
+  # test` renders through rnw in jsdom, and the QA image gates drive headless
+  # Chrome over `expo export --platform web`. That is a different target, and
+  # the project memory records four separate occasions where rnw answered a
+  # question about the web build as though it were an answer about the app.
+  #
+  # `docs/architecture/01-duong-toi-production.md` section 6 placed Maestro
+  # after milestone 3, assuming it needed an EAS build. It does not: Expo Go
+  # loads the bundle from Metro and Maestro drives that today. The flows in
+  # `apps/mobile/.maestro` were written and run that way before this job
+  # existed, which is why the script carries the anchors rather than the YAML.
+  #
+  # ## Why this can pass without measuring anything, and why that is stated
+  #
+  # No runner here has an Android emulator, and Actions has not started a job
+  # since 2026-08-29 (billing -- B0). A job that claimed to gate would be
+  # claiming something nobody has watched run. So `scripts/mobile_native.sh`
+  # exits 2 for "could not measure", and this job turns that into a WARNING
+  # while `vars.MOBILE_NATIVE_RUNNER` is unset -- and into a FAILURE the moment
+  # somebody sets it, because from then on an unmeasurable run means the runner
+  # that was promised is not delivering. Fail-closed once anyone claims to have
+  # a device, same shape as the flag default in ADR-0014.
+  mobile-native:
+    name: RuDi driven on a real Android emulator
+    runs-on: ${{ vars.MOBILE_NATIVE_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: present
+        # Same rule as the mobile job above: skip an absence, fail a defect.
+        run: |
+          if [ ! -d apps/mobile ]; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::apps/mobile is not on this branch, skipping"
+          elif [ -d apps/mobile/.maestro ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::apps/mobile exists but .maestro is missing -- refusing to skip"
+            exit 1
+          fi
+
+      - if: steps.present.outputs.found == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+
+      - if: steps.present.outputs.found == 'true'
+        run: npm --prefix apps/mobile ci
+
+      - if: steps.present.outputs.found == 'true'
+        name: Drive the flows on a device, or say out loud that it could not
+        env:
+          RUNNER_PROMISED: ${{ vars.MOBILE_NATIVE_RUNNER }}
+        run: |
+          set +e
+          scripts/mobile_native.sh
+          rc=$?
+          set -e
+          case "$rc" in
+            0)
+              echo "::notice::native gate xanh"
+              ;;
+            2)
+              if [ -n "$RUNNER_PROMISED" ]; then
+                echo "::error::runner '$RUNNER_PROMISED' được khai là có máy ảo nhưng không đo được"
+                exit 1
+              fi
+              echo "::warning::native gate CHƯA ĐO ĐƯỢC (runner không có máy ảo). Đây KHÔNG phải dấu xanh cho app."
+              ;;
+            *)
+              exit "$rc"
+              ;;
+          esac

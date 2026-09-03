@@ -1,5 +1,7 @@
 import { ImageSource } from "expo-image";
 
+import type { PlaceCategory } from "./places";
+
 export type DemoPerson = {
   id: string;
   name: string;
@@ -17,7 +19,21 @@ export type DemoPlace = {
   price: string;
   match: number;
   tags: string[];
+  category: PlaceCategory;
   image: ImageSource;
+};
+
+export type ItinerarySlot = {
+  time: string;
+  title: string;
+  icon: string;
+  color: string;
+  placeId?: string;
+};
+
+export type ItineraryDay = {
+  day: string;
+  items: ItinerarySlot[];
 };
 
 export const demoAssets = {
@@ -36,9 +52,6 @@ export const DEMO_GROUP = {
   budgetPerPersonVnd: 2_500_000,
   billTotalVnd: 1_280_000,
   tripTotalVnd: 3_840_000,
-  photos: 256,
-  videos: 18,
-  checkIns: 12,
 };
 
 export const PEOPLE: DemoPerson[] = [
@@ -52,6 +65,8 @@ export const PEOPLE: DemoPerson[] = [
   { id: "thanh-phuc", name: "Thanh Phúc", initials: "TP", color: "#2563EB" },
 ];
 
+export const COLLECTOR_INDEX = 0;
+
 export const PLACES: DemoPlace[] = [
   {
     id: "xom-leo",
@@ -63,7 +78,34 @@ export const PLACES: DemoPlace[] = [
     price: "150K - 250K/người",
     match: 95,
     tags: ["Chill", "View đẹp", "Nhóm đông"],
+    category: "Quán ăn",
     image: demoAssets.cafe,
+  },
+  {
+    id: "banh-can-le",
+    name: "Bánh căn Lệ",
+    subtitle: "Bánh căn nóng, hàng quen của dân địa phương",
+    rating: "4.6",
+    reviews: 188,
+    distance: "900 m",
+    price: "40K - 80K/người",
+    match: 86,
+    tags: ["Món local", "Bình dân"],
+    category: "Quán ăn",
+    image: demoAssets.dalatFriends,
+  },
+  {
+    id: "lau-ga-la-e",
+    name: "Lẩu gà lá é Gốc",
+    subtitle: "Lẩu gà đặc sản, đủ chỗ nhóm 8",
+    rating: "4.7",
+    reviews: 214,
+    distance: "1,6 km",
+    price: "180K - 260K/người",
+    match: 91,
+    tags: ["Lẩu", "Nhóm đông"],
+    category: "Quán ăn",
+    image: demoAssets.wood,
   },
   {
     id: "still-cafe",
@@ -75,7 +117,34 @@ export const PLACES: DemoPlace[] = [
     price: "120K - 200K/người",
     match: 92,
     tags: ["Cà phê", "Nhẹ nhàng", "Ngoài trời"],
+    category: "Cafe",
     image: demoAssets.dalatFriends,
+  },
+  {
+    id: "tiem-tra-suong",
+    name: "Tiệm trà Sương",
+    subtitle: "Trà thảo mộc, bàn dài ngoài trời",
+    rating: "4.5",
+    reviews: 143,
+    distance: "2,1 km",
+    price: "80K - 140K/người",
+    match: 81,
+    tags: ["Trà", "Ngoài trời"],
+    category: "Cafe",
+    image: demoAssets.cafe,
+  },
+  {
+    id: "the-coffee-hill",
+    name: "The Coffee Hill",
+    subtitle: "Espresso và bánh, nhìn ra thung lũng",
+    rating: "4.4",
+    reviews: 301,
+    distance: "2,4 km",
+    price: "90K - 160K/người",
+    match: 79,
+    tags: ["Cà phê", "View đẹp"],
+    category: "Cafe",
+    image: demoAssets.road,
   },
   {
     id: "puppy-farm",
@@ -87,7 +156,34 @@ export const PLACES: DemoPlace[] = [
     price: "100K - 180K/người",
     match: 88,
     tags: ["Outdoor", "Hoa", "Chụp ảnh"],
+    category: "Vui chơi",
     image: demoAssets.road,
+  },
+  {
+    id: "doi-thien-phuc",
+    name: "Đồi Thiên Phúc Đức",
+    subtitle: "Săn mây sáng sớm",
+    rating: "4.5",
+    reviews: 276,
+    distance: "3,1 km",
+    price: "0K - 50K/người",
+    match: 90,
+    tags: ["Săn mây", "Ngoài trời"],
+    category: "Vui chơi",
+    image: demoAssets.friends,
+  },
+  {
+    id: "thung-lung-tinh-yeu",
+    name: "Thung lũng Tình Yêu",
+    subtitle: "Vườn hoa, hồ, góc sống ảo",
+    rating: "4.3",
+    reviews: 620,
+    distance: "2,8 km",
+    price: "150K - 220K/người",
+    match: 77,
+    tags: ["Hoa", "Chụp ảnh"],
+    category: "Vui chơi",
+    image: demoAssets.dalatFriends,
   },
   {
     id: "cho-dem",
@@ -99,37 +195,67 @@ export const PLACES: DemoPlace[] = [
     price: "80K - 150K/người",
     match: 84,
     tags: ["Món local", "Đi đêm", "Nhộn nhịp"],
+    category: "Đi chơi đêm",
     image: demoAssets.friends,
+  },
+  {
+    id: "pho-di-bo-dem",
+    name: "Phố đi bộ đêm",
+    subtitle: "Nhạc sống, đèn, trà sữa",
+    rating: "4.2",
+    reviews: 190,
+    distance: "1,1 km",
+    price: "60K - 120K/người",
+    match: 76,
+    tags: ["Đi đêm", "Nhộn nhịp"],
+    category: "Đi chơi đêm",
+    image: demoAssets.cafe,
+  },
+  {
+    id: "ho-tuyen-lam-dem",
+    name: "Hồ Tuyền Lâm về đêm",
+    subtitle: "BBQ và lửa trại ven hồ",
+    rating: "4.6",
+    reviews: 155,
+    distance: "4,2 km",
+    price: "200K - 320K/người",
+    match: 89,
+    tags: ["BBQ", "Đi đêm"],
+    category: "Đi chơi đêm",
+    image: demoAssets.wood,
   },
 ];
 
-export const ITINERARY = [
+export const ITINERARY_SEED: ItineraryDay[] = [
   {
     day: "Ngày 1 - 17/10 (Thứ Bảy)",
     items: [
-      ["07:00", "Khởi hành từ TP.HCM", "car-outline", "#F97316"],
-      ["11:00", "Check-in homestay", "home-outline", "#7D49EF"],
-      ["12:30", "Ăn trưa - Bánh căn Lệ", "restaurant-outline", "#EA580C"],
-      ["14:30", "Ga Đà Lạt và Dinh Bảo Đại", "camera-outline", "#16A34A"],
-      ["18:00", "BBQ bên hồ Tuyền Lâm", "flame-outline", "#E11D48"],
-      ["20:00", "Chợ đêm Đà Lạt", "moon-outline", "#7D49EF"],
+      { time: "07:00", title: "Khởi hành từ TP.HCM", icon: "car-outline", color: "#F97316" },
+      { time: "11:00", title: "Check-in homestay", icon: "home-outline", color: "#7D49EF" },
+      { time: "12:30", title: "Ăn trưa - Bánh căn Lệ", icon: "restaurant-outline", color: "#EA580C", placeId: "banh-can-le" },
+      { time: "14:30", title: "Ga Đà Lạt và Dinh Bảo Đại", icon: "camera-outline", color: "#16A34A" },
+      { time: "18:00", title: "BBQ bên hồ Tuyền Lâm", icon: "flame-outline", color: "#E11D48", placeId: "ho-tuyen-lam-dem" },
+      { time: "20:00", title: "Chợ đêm Đà Lạt", icon: "moon-outline", color: "#7D49EF", placeId: "cho-dem" },
     ],
   },
   {
     day: "Ngày 2 - 18/10 (Chủ Nhật)",
     items: [
-      ["06:30", "Săn mây đồi Thiên Phúc Đức", "cloud-outline", "#0EA5E9"],
-      ["09:00", "Cafe sáng - Still Cafe", "cafe-outline", "#A16207"],
-      ["11:30", "Mua đặc sản", "bag-handle-outline", "#65A30D"],
-      ["15:00", "Picnic và chụp ảnh", "images-outline", "#EC4899"],
-      ["19:30", "Lẩu gà lá é", "restaurant-outline", "#F97316"],
+      { time: "06:30", title: "Săn mây đồi Thiên Phúc Đức", icon: "cloud-outline", color: "#0EA5E9", placeId: "doi-thien-phuc" },
+      { time: "09:00", title: "Cafe sáng - Still Cafe", icon: "cafe-outline", color: "#A16207", placeId: "still-cafe" },
+      { time: "11:30", title: "Mua đặc sản", icon: "bag-handle-outline", color: "#65A30D" },
+      { time: "15:00", title: "Picnic và chụp ảnh", icon: "images-outline", color: "#EC4899" },
+      { time: "19:30", title: "Lẩu gà lá é", icon: "restaurant-outline", color: "#F97316", placeId: "lau-ga-la-e" },
     ],
   },
   {
     day: "Ngày 3 - 19/10 (Thứ Hai)",
-    items: [["09:00", "Trả phòng và về lại Sài Gòn", "bus-outline", "#0D9488"]],
+    items: [{ time: "09:00", title: "Trả phòng và về lại Sài Gòn", icon: "bus-outline", color: "#0D9488" }],
   },
-] as const;
+];
+
+/** Kept as an alias so older imports keep compiling while screens move to the session clone. */
+export const ITINERARY = ITINERARY_SEED;
 
 export const BILL_ITEMS = [
   { name: "Lẩu gà lá é", amount: 450_000, people: [0, 1, 2, 3] },
@@ -139,5 +265,36 @@ export const BILL_ITEMS = [
   { name: "Khăn lạnh", amount: 20_000, people: [0, 1, 2, 3] },
   { name: "Phí phục vụ", amount: 130_000, people: [0, 1, 2, 3, 4, 5, 6, 7] },
 ] as const;
+
+/**
+ * The rest of the canonical trip (3.840.000 − 1.280.000). Not the Xóm Lèo bill.
+ * Split across all eight people so trip total and personal spend stay one story.
+ */
+export const OTHER_TRIP_ITEMS = [
+  { name: "Homestay Pine Hill", amount: 2_000_000, people: [0, 1, 2, 3, 4, 5, 6, 7] },
+  { name: "Xăng xe khứ hồi", amount: 560_000, people: [0, 1, 2, 3, 4, 5, 6, 7] },
+] as const;
+
+export const MEMORY_PHOTOS: ImageSource[] = [
+  demoAssets.dalatFriends,
+  demoAssets.cafe,
+  demoAssets.road,
+  demoAssets.friends,
+  demoAssets.cafe,
+  demoAssets.dalatFriends,
+  demoAssets.friends,
+  demoAssets.road,
+];
+
+export const MEMORY_VIDEO_INDEXES = [2, 6] as const;
+
+export const VOTE_PLACE_IDS = ["xom-leo", "still-cafe", "puppy-farm"] as const;
+
+export function cloneItinerary(source: ItineraryDay[] = ITINERARY_SEED): ItineraryDay[] {
+  return source.map((day) => ({
+    day: day.day,
+    items: day.items.map((item) => ({ ...item })),
+  }));
+}
 
 export const formatVnd = (value: number) => `${value.toLocaleString("vi-VN")}đ`;

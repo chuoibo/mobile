@@ -1,0 +1,63 @@
+# "Đăng xuất" used to be `router.replace("/welcome")` and nothing else, so the
+# next person to tap "Vào bản trải nghiệm" on the same process inherited the
+# previous person's name, chat, check-ins and saved places. Measured here first,
+# then fixed by `resetSession()` in src/rudi/session.tsx.
+appId: host.exp.exponent
+---
+- runFlow: _vao-app-sach.yaml
+- tapOn: "Cá nhân"
+- scrollUntilVisible:
+    element:
+      text: "Chỉnh hồ sơ"
+    direction: DOWN
+    centerElement: true
+    timeout: 30000
+- tapOn: "Chỉnh hồ sơ"
+- extendedWaitUntil:
+    visible: "Xong"
+    timeout: 20000
+- tapOn:
+    below: "Tên"
+    index: 0
+- eraseText: 30
+- inputText: "NGUOI LA KHAC"
+- tapOn: "Xong"
+- extendedWaitUntil:
+    visible: "NGUOI LA KHAC"
+    timeout: 20000
+- takeScreenshot: 11-name-changed
+- scrollUntilVisible:
+    element:
+      text: "Tài khoản"
+    direction: DOWN
+    centerElement: true
+    timeout: 30000
+- tapOn: "Tài khoản"
+- extendedWaitUntil:
+    visible: "Đăng xuất bản trải nghiệm"
+    timeout: 20000
+- tapOn: "Đăng xuất bản trải nghiệm"
+- extendedWaitUntil:
+    visible: "Rủ Đi thôi!"
+    timeout: 30000
+# Walk back in as a "new" person.
+- tapOn: "Rủ Đi thôi!"
+- extendedWaitUntil:
+    visible: "Vào bản trải nghiệm Team Đà Lạt"
+    timeout: 30000
+- tapOn: "Vào bản trải nghiệm Team Đà Lạt"
+- extendedWaitUntil:
+    visible: "Tạo không gian của tôi"
+    timeout: 30000
+- tapOn: "Tạo không gian của tôi"
+- extendedWaitUntil:
+    visible: "Khám phá"
+    timeout: 30000
+- tapOn: "Cá nhân"
+- extendedWaitUntil:
+    visible: "Không gian của riêng bạn"
+    timeout: 20000
+# The previous session is gone; the seed is back.
+- assertVisible: "Minh Anh"
+- assertNotVisible: "NGUOI LA KHAC"
+- takeScreenshot: 11-session-cleared-on-logout

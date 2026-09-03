@@ -1,0 +1,12 @@
+# PR claim: "Cafe lọc còn subset, không còn cả 12 quán".
+appId: host.exp.exponent
+---
+- runFlow: _vao-app-sach.yaml
+- takeScreenshot: 04-explore-before
+- tapOn: "Cafe"
+- extendedWaitUntil:
+    visible: "3 kết quả phù hợp"
+    timeout: 20000
+- assertNotVisible: "Tiệm Nướng Xóm Lèo"
+- assertVisible: "Still Cafe Đà Lạt"
+- takeScreenshot: 04-explore-cafe

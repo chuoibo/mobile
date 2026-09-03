@@ -1,0 +1,22 @@
+# PR claim: "vote ẩn kết quả trước confirm" (audit defect 03.03).
+appId: host.exp.exponent
+---
+- runFlow: _vao-app-sach.yaml
+- tapOn: "Tin nhắn"
+- scrollUntilVisible:
+    element:
+      text: "Xem lịch trình"
+    direction: DOWN
+    centerElement: true
+    timeout: 30000
+- tapOn: "Mở bình chọn"
+- extendedWaitUntil:
+    visible: "BBQ tối thứ Bảy ở đâu?"
+    timeout: 30000
+- assertVisible: "Kết quả ẩn đến khi xác nhận. Bản trải nghiệm chỉ ghi phiếu của bạn."
+- assertNotVisible: "1 phiếu của bạn trên bản này"
+- takeScreenshot: 06-vote-hidden-before-confirm
+# Pick an option: still hidden until confirm.
+- tapOn: "Tiệm Nướng Xóm Lèo"
+- assertVisible: "Kết quả ẩn đến khi xác nhận. Bản trải nghiệm chỉ ghi phiếu của bạn."
+- takeScreenshot: 06-vote-hidden-after-pick

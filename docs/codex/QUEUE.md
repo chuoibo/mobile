@@ -4,6 +4,40 @@
 
 ---
 
+## 0. MỚI 2026-09-03 — ba việc từ nhánh `claude/p0-w-rudi-du-lieu-that`
+
+### 0a. ĐÃ XONG — phiên đăng nhập ship ở #514. Còn một mảnh: nhóm nào?
+
+Mục này viết khi ADR-0014 còn ĐỀ XUẤT. Nó đã **ĐÃ CHẤP NHẬN VÀ ĐÃ HIỆN THỰC**
+(#514, `main` tại `6aad3cf`), nên nửa client tôi dựng song song đã bị **xoá** khi
+gộp — hai bản hiện thực của một credential là hình dạng làm cây không trả lời
+được «cái nào đang có hiệu lực».
+
+**Việc còn lại, và nó chặn màn RuDi đọc dữ liệu thật:** một phiên chưa cho biết
+NHÓM nào. `SessionResponse` không mang `context_id`, và `contexts.py` không có
+route nào liệt kê nhóm của một người (đo trên `main` tại `03eb05a`). Đề nghị
+thêm `context_id` vào `SessionResponse` — người ta đăng nhập bằng lời mời vào
+một chuyến, nên máy chủ đã biết nhóm ngay lúc cấp phiên. Chi tiết ở
+`docs/claude/2026-09-03/adr-0014-nua-client-da-san-sang.md` mục 3.
+
+### 0b. `scripts/check_api_contract.py` mù với route khai ngoài `routes/`
+
+`/healthz` khai ở `services/api/app/api/main.py:220` với `include_in_schema=False`.
+Cổng chỉ đọc `app/api/routes/*.py`, nên **bất kỳ** client nào gọi `/healthz` đều
+làm cổng đỏ — và cái đỏ đó chỉ sai địa chỉ, route có thật (đo được: API ở :8106
+trả 200). PR #512 dính đúng cái này. Tôi đã gỡ bằng cách xoá lời gọi thay vì vá
+cổng, vì `scripts/` là hạ tầng dùng chung.
+
+### 0c. Seed và fixture RuDi kể hai câu chuyện khác nhau
+
+`scripts/seed_demo_data.py` có «Team Đà Lạt» **7 người** (Minh, Trang, Hải, Ngọc,
+Đức, Linh, Quân); fixture RuDi có **8 người** (Minh Anh, Tuấn Kiệt, Thu Trang,
+Quang Huy, Lan Anh, Minh Khoa, Hải Yến, Thanh Phúc) với bill Xóm Lèo 1.280.000đ
+và tổng chuyến 3.840.000đ. Khi màn RuDi nối vào dữ liệu thật, số trên màn sẽ là
+số của seed. Muốn demo kể một câu chuyện thì seed phải đổi — lane của bạn.
+
+---
+
 ## A. REVIEW — 5 PR đang chờ bạn
 
 ### A1. PR #11 — hai luồng phản đối của khách *(mới, quan trọng)*

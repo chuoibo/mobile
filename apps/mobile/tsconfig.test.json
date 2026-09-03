@@ -245,6 +245,23 @@
     // prints "..." in every cell, and a detector would measure a screen caught
     // mid-flight while the report calls it the settled one. See
     // `tests/fixture-hai-man-giua.test.mjs`.
-    "src/fixtures/thanh-toan-demo.ts"
+    "src/fixtures/thanh-toan-demo.ts",
+    // The cold-start URL decision. Compiled rather than read as source because
+    // the rule it carries is a negative one -- a URL that already names a route
+    // produces no navigation -- and the version that lived inside a `useEffect`
+    // could only be measured by driving an emulator.
+    "src/rudi/duong-vao.ts",
+    // Đọc/ghi phiên. Compile chứ không đọc nguồn vì luật nó mang là luật PHỦ
+    // ĐỊNH: không blob nào, dù hỏng thế nào, được phép làm màn tiền ném. Một
+    // chỉ số người sai trong dữ liệu đã lưu là crash ở MỌI lần mở app, và chỉ
+    // có chạy hàm thật trên đúng những giá trị hỏng đó mới trả lời được.
+    "src/rudi/luu-tru.ts",
+    // Màn này đọc số của ai. Compile vì luật nó mang là: chế độ live KHÔNG BAO
+    // GIỜ tự tới — phải có người gõ cấu hình vào. Một cổng đọc nguồn không phân
+    // biệt được "không thăm dò máy chủ" với "chưa kịp viết đoạn thăm dò".
+    "src/rudi/nguon.ts",
+    "src/rudi/money.ts",
+    "src/rudi/places.ts",
+    "src/rudi/vote.ts"
   ]
 }

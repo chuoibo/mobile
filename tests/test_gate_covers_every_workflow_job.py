@@ -91,6 +91,15 @@ COVERED_BY: dict[str, tuple[str, ...]] = {
     # after a dependency install and a full pytest run, so a red suite would
     # stop it answering a question the suite has nothing to do with.
     "screens": ("screens",),
+    # The only job that runs on the target this product ships. Every other
+    # mobile job answers a question about `react-native-web` in jsdom or in
+    # headless Chrome, which is a different bundle: the project memory records
+    # four separate occasions where rnw answered as though it were the app.
+    # Its local stage needs hardware -- an emulator and maestro -- so it is the
+    # one stage that skips on most machines. That is why it is a stage at all
+    # rather than a step folded into `mobile`: a skip has to be visible and
+    # nameable, and `--strict` has to be able to turn it red before a merge.
+    "mobile-native": ("mobile-native",),
     # `pinned-import` has no job of its own because the `docker` job already
     # proves what it proves: it builds the image and starts the container, so
     # an app that cannot be imported under the pinned fastapi fails there too.
