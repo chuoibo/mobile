@@ -362,10 +362,11 @@ if [ "$OTP" = 1 ]; then kiem_ma_debug; fi
   # below caught it as "Metro is not serving this tree" -- which was true.
   export CI=1 EXPO_NO_TELEMETRY=1 EXPO_NO_DEPENDENCY_VALIDATION=1
   export EXPO_PUBLIC_TREE_FINGERPRINT="$DAU_VAN"
-  # Cửa «Vào bản trải nghiệm» chỉ tồn tại khi cờ này lên (và __DEV__). Bảng mặc
-  # định và --live đi qua cửa đó; --otp và --dang-nhap thì KHÔNG, để bản dựng có
-  # đúng hình dạng bản ship và flow 22 khẳng định được cửa ấy vắng.
-  if [ "$OTP" = 0 ] && [ "$DANG_NHAP" = 0 ]; then
+  # Cửa «Vào bản trải nghiệm» chỉ tồn tại khi cờ này lên (và __DEV__). Mọi chế
+  # độ trừ --otp đi qua cửa đó — canary 09 đi `_vao-app-sach`, kể cả ở
+  # --dang-nhap (đo 2026-09-04: tắt cờ ở --dang-nhap làm canary chết ở bước 1
+  # dù flow 21 xanh). Bằng chứng «bản ship không có cửa fixture» nằm ở flow 22.
+  if [ "$OTP" = 0 ]; then
     export EXPO_PUBLIC_RUDI_FIXTURE=1
   fi
   if [ -n "$API_PORT" ]; then

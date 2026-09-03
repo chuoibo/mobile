@@ -114,7 +114,7 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
         self.assertIn("/auth/otp/verify", script)
         self.assertIn('-e OTP_PHONE="$OTP_PHONE"', script)
         self.assertIn(
-            'if [ "$OTP" = 0 ] && [ "$DANG_NHAP" = 0 ]; then\n    export EXPO_PUBLIC_RUDI_FIXTURE=1',
+            'if [ "$OTP" = 0 ]; then\n    export EXPO_PUBLIC_RUDI_FIXTURE=1',
             script,
         )
         self.assertIn("canary_otp", script)
