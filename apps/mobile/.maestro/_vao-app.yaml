@@ -5,18 +5,20 @@
 # survived, which is 07 and only 07.
 # Deep links to inner routes do NOT work on native (see 91-deeplink-nuot.yaml),
 # so every flow walks the real path a person walks.
-appId: host.exp.exponent
+appId: com.lakiet.rudi
 ---
 - stopApp
-- openLink: exp://localhost:8095
+- launchApp
 # Shared emulator: the first VIEW intent is sometimes dropped and Expo Go
 # stays on its own home. Fire it twice; the second is a no-op when the app is up.
-- openLink: exp://localhost:8095
 # Sau khi mở app, KHÔNG phải trước. Tấm chắn dev menu của Expo Go chỉ tồn tại
 # khi app đang chạy; đặt nó ở đầu file thì nó chạy lúc app còn chưa mở, hai
 # nhánh điều kiện đều SKIPPED, rồi app mở lên kèm tờ giấy và phép chờ ngay dưới
 # đây đỏ. Đo ngày 2026-09-03: đúng trình tự đó.
 - runFlow: _bo-qua-dev-menu.yaml
+# Launcher của dev client («Development servers») nghĩa là KHÔNG có bundle nào
+# đang chạy — app chết, không phải thiếu tính năng. Nói ra ngay tại đây.
+- assertNotVisible: "Fetch development servers"
 - extendedWaitUntil:
     visible: "Rủ Đi thôi!"
     timeout: 150000

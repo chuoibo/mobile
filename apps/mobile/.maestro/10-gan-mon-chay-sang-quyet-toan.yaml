@@ -6,7 +6,7 @@
 # 560.000 over 3 leaves two đồng. The server hands them to the largest
 # remainders, advancer first (allocator.py:254-267); the old client handed them
 # to array positions, which is the one-đồng difference this asserts away.
-appId: host.exp.exponent
+appId: com.lakiet.rudi
 ---
 - runFlow: _vao-app-sach.yaml
 - tapOn: "Tạo mới"

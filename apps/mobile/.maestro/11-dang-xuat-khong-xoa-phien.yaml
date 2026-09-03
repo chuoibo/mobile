@@ -2,7 +2,7 @@
 # next person to tap "Vào bản trải nghiệm" on the same process inherited the
 # previous person's name, chat, check-ins and saved places. Measured here first,
 # then fixed by `resetSession()` in src/rudi/session.tsx.
-appId: host.exp.exponent
+appId: com.lakiet.rudi
 ---
 - runFlow: _vao-app-sach.yaml
 - tapOn: "Cá nhân"

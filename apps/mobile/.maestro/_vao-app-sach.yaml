@@ -13,16 +13,18 @@
 # Deliberately NOT `launchApp: clearState: true`: `appId` here is Expo Go, and
 # this emulator is shared with other lanes. Clearing it would take their
 # bundles and their history with it.
-appId: host.exp.exponent
+appId: com.lakiet.rudi
 ---
 - stopApp
-- openLink: exp://localhost:8095
-- openLink: exp://localhost:8095
+- launchApp
 # Sau khi mở app, KHÔNG phải trước. Tấm chắn dev menu của Expo Go chỉ tồn tại
 # khi app đang chạy; đặt nó ở đầu file thì nó chạy lúc app còn chưa mở, hai
 # nhánh điều kiện đều SKIPPED, rồi app mở lên kèm tờ giấy và phép chờ ngay dưới
 # đây đỏ. Đo ngày 2026-09-03: đúng trình tự đó.
 - runFlow: _bo-qua-dev-menu.yaml
+# Launcher của dev client («Development servers») nghĩa là KHÔNG có bundle nào
+# đang chạy — app chết, không phải thiếu tính năng. Nói ra ngay tại đây.
+- assertNotVisible: "Fetch development servers"
 - extendedWaitUntil:
     visible: "Rủ Đi thôi!"
     timeout: 150000
