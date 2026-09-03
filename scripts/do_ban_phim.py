@@ -47,8 +47,8 @@ def ime_top(serial: str) -> int | None:
         if "ime" not in line.lower() or "frame=[" not in line:
             continue
         for m in re.finditer(r"frame=\[(\d+),(\d+)\]\[(\d+),(\d+)\]", line):
-            l, t, r, b = map(int, m.groups())
-            if b - t > 0 and r - l > 0:
+            trai, t, r, b = map(int, m.groups())
+            if b - t > 0 and r - trai > 0:
                 tops.append(t)
     return min(tops) if tops else None
 
@@ -71,11 +71,15 @@ def main() -> int:
     ap.add_argument("--serial", default="")
     ap.add_argument("--composer", default="Ô soạn tin")
     ap.add_argument("--bubble-prefix", default="Tin nhắn: ")
-    ap.add_argument("--khe", type=int, default=8, help="khe tối thiểu giữa ô soạn và bàn phím (px)")
+    ap.add_argument(
+        "--khe", type=int, default=8, help="khe tối thiểu giữa ô soạn và bàn phím (px)"
+    )
     a = ap.parse_args()
 
     if not ime_shown(a.serial):
-        print("KHÔNG ĐO ĐƯỢC: bàn phím không đang hiện (mInputShown=false). Chạy flow 31 trước.")
+        print(
+            "KHÔNG ĐO ĐƯỢC: bàn phím không đang hiện (mInputShown=false). Chạy flow 31 trước."
+        )
         return 2
     top = ime_top(a.serial)
     if top is None:
@@ -95,10 +99,14 @@ def main() -> int:
         elif desc.startswith(a.bubble_prefix):
             bubbles.append(bounds_of(node))
     if composer is None:
-        print(f"KHÔNG ĐO ĐƯỢC: không thấy ô soạn (content-desc «{a.composer}») trong cây UI.")
+        print(
+            f"KHÔNG ĐO ĐƯỢC: không thấy ô soạn (content-desc «{a.composer}») trong cây UI."
+        )
         return 2
     bubble_bottom = max((b[3] for b in bubbles), default=None)
-    print(f"imeTop={top} composerBottom={composer[3]} lastBubbleBottom={bubble_bottom} khe={top - composer[3]}")
+    print(
+        f"imeTop={top} composerBottom={composer[3]} lastBubbleBottom={bubble_bottom} khe={top - composer[3]}"
+    )
     ok = composer[3] <= top - a.khe and (bubble_bottom is None or bubble_bottom <= top)
     if ok:
         print("ĐẠT: ô soạn và bong bóng cuối nằm trên mép bàn phím.")
