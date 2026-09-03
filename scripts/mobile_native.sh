@@ -54,6 +54,8 @@ OTP=0
 # Đối chứng âm cho phép đo bàn phím: tắt KeyboardAvoidingView trong bundle, và
 # do_ban_phim.py PHẢI hỏng. Xanh ở đây là thước đo mù.
 TAT_KAV=0
+# --ai (cùng --otp): API phải có khoá Gemini còn sống; chạy thêm flow 40 và kiểm thẻ AI grounded.
+AI=0
 # Mã debug của API ở chế độ --otp. CHỈ hợp lệ khi API dùng log sender
 # (MOBILE_OTP_DEBUG_CODE cạnh gateway thật làm create_app từ chối khởi động).
 OTP_CODE="000000"
@@ -77,6 +79,7 @@ while [ $# -gt 0 ]; do
     --lap) LAP="$2"; shift 2 ;;
     --otp) OTP=1; shift ;;
     --tat-kav) TAT_KAV=1; shift ;;
+    --ai) AI=1; shift ;;
     *) echo "tham số lạ: $1" >&2; exit 64 ;;
   esac
 done
@@ -97,6 +100,9 @@ if [ "$DANG_NHAP" = 1 ]; then
     || { echo "--lap >1 chưa hỗ trợ cùng --dang-nhap: mỗi lượt cần xoá phiên và mint lời mời mới" >&2; exit 64; }
 fi
 
+if [ "$AI" = 1 ] && [ "$OTP" = 0 ]; then
+  echo "--ai đi cùng --otp (flow 40 cần người và nhóm của flow 24)" >&2; exit 64
+fi
 if [ "$OTP" = 1 ]; then
   [ -n "$API_PORT" ] \
     || { echo "--otp cần --api-port <cổng API prod có MOBILE_OTP_DEBUG_CODE=$OTP_CODE và log sender>" >&2; exit 64; }
@@ -338,6 +344,73 @@ print("%d|%d|%d" % (len(texts), len(polls), hearts))')"
   echo "máy chủ xác nhận: nhóm của C có $so_text tin chữ, $so_poll thẻ bình chọn, $so_heart phản ứng ❤ — chat là thật"
 }
 
+# Khoá AI còn sống không — hỏi bằng đường sản phẩm, không hỏi biến môi trường.
+kiem_khoa_ai() {
+  local goc so body tok ctx ket
+  goc="http://127.0.0.1:$API_PORT"
+  so="$(sinh_so_di_dong)"
+  body="$(dang_nhap_curl "$so")" || khong_do_duoc "không đăng nhập được người thăm dò AI."
+  tok="$(printf '%s' "$body" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("token",""))')"
+  ctx="$(curl -sS -X POST "$goc/contexts" -H 'Content-Type: application/json' -H "Authorization: Bearer $tok" \
+      -H "Idempotency-Key: ai-probe-ctx-$so" -d '{"display_name":"Tham do AI"}' \
+    | python3 -c 'import json,sys;print(json.load(sys.stdin).get("id",""))')"
+  [ -n "$ctx" ] || khong_do_duoc "người thăm dò AI không mở được nhóm."
+  curl -sS -o /dev/null -X POST "$goc/contexts/$ctx/messages" -H 'Content-Type: application/json' \
+      -H "Authorization: Bearer $tok" -H "Idempotency-Key: ai-probe-msg-$so" \
+      -d '{"kind":"text","body":"Toi nay ca hoi di an o Da Lat, ngan sach vua, goi y giup","image_url":null,"card":null}'
+  ket="$(curl -sS -X POST "$goc/contexts/$ctx/ai-turn" -H 'Content-Type: application/json' \
+      -H "Authorization: Bearer $tok" -d '{"requested":true}' \
+    | python3 -c 'import json,sys;d=json.load(sys.stdin);print("%s|%s" % (d.get("spoke"), d.get("reason")))')"
+  case "$ket" in
+    True\|*) echo "khoá AI còn sống trên API $API_PORT (lượt thăm dò: mô hình đã trả lời)" ;;
+    *\|unavailable) hong "khoá AI CHẾT hoặc thiếu trên API $API_PORT (ai-turn: unavailable). Flow AI không chạy, và đó là màu đỏ." ;;
+    *\|ungrounded) echo "khoá AI sống nhưng lượt thăm dò trả thẻ không grounded ($ket) — vẫn đo tiếp" ;;
+    *) khong_do_duoc "ai-turn thăm dò trả «$ket», không kết luận được về khoá." ;;
+  esac
+}
+
+# Sau flow 40: thẻ AI có thật và GROUNDED — mọi place_id trong thẻ nằm trong
+# catalogue GET /places. Một thẻ nêu chỗ không có trong danh mục là thứ ground_card
+# phải chặn; ở đây đo lại từ ngoài.
+kiem_may_chu_sau_40() {
+  local goc body tok ctx ket
+  goc="http://127.0.0.1:$API_PORT"
+  body="$(dang_nhap_curl "$OTP_PHONE_C")" \
+    || hong "sau flow 40: C không đăng nhập được qua curl."
+  tok="$(printf '%s' "$body" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("token",""))')"
+  ctx="$(printf '%s' "$body" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+act = [c for c in d.get("contexts", []) if c.get("my_state") == "active"]
+print(act[0]["id"] if act else "")')"
+  [ -n "$tok" ] && [ -n "$ctx" ] || hong "sau flow 40: C không có nhóm."
+  ket="$(python3 - "$goc" "$tok" "$ctx" <<'PY2'
+import json, sys, urllib.request
+goc, tok, ctx = sys.argv[1:4]
+def get(path):
+    req = urllib.request.Request(goc + path, headers={"Authorization": "Bearer " + tok})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.load(r)
+ms = get(f"/contexts/{ctx}/messages?limit=50").get("messages", [])
+ai = [m for m in ms if m.get("kind") == "ai_card" and m.get("author_id") is None
+      and (m.get("card") or {}).get("kind") in ("text", "places", "itinerary")]
+places = {p.get("id") for p in get("/places").get("places", [])}
+la = 0
+for m in ai:
+    card = m["card"]; p = card.get("payload") or {}
+    ids = [i.get("place_id") for i in p.get("items", []) if isinstance(i, dict)]
+    for d in p.get("days", []) if isinstance(p.get("days"), list) else []:
+        ids += [s.get("place_id") for s in d.get("stops", []) if isinstance(s, dict)]
+    la += sum(1 for i in ids if i and i not in places)
+print("%d|%d|%s" % (len(ai), la, ",".join(sorted({m["card"]["kind"] for m in ai}))))
+PY2
+)"
+  IFS='|' read -r so_ai so_la loai <<< "$ket"
+  [ "${so_ai:-0}" -ge 1 ] || hong "sau flow 40: máy chủ không có thẻ AI nào (author null, kind text/places/itinerary)."
+  [ "${so_la:-1}" -eq 0 ] || hong "sau flow 40: thẻ AI nêu $so_la place_id KHÔNG có trong GET /places — grounding thủng."
+  echo "máy chủ xác nhận: $so_ai thẻ AI ($loai), mọi địa điểm đều trong catalogue"
+}
+
 # Canary cho chế độ --otp. Canary 09 đi đường fixture, mà ở đây cửa fixture tắt
 # có chủ ý — nó sẽ chết ở bước 1, tức chứng minh harness hỏng chứ không chứng
 # minh assert cắn. Đối chứng âm đúng của lượt này: chạy LẠI flow 22 với mã SAI
@@ -457,6 +530,13 @@ if command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | grep -qE "127\.0\.0\.1
 fi
 
 if [ "$OTP" = 1 ]; then kiem_ma_debug; fi
+# V4: khoá AI phải SỐNG trước khi đo AI, đo bằng chính đường sản phẩm: một người
+# thăm dò đăng nhập, mở nhóm, nhắn một câu, xin một lượt AI (requested=true).
+# `spoke=true` = khoá sống; `reason=unavailable` = khoá chết/thiếu → ĐỎ (một máy
+# có khoá mà không dùng được là lỗi phải thấy); `ungrounded` = mô hình trả lời
+# nhưng thẻ không đứng được → vẫn là khoá sống, ghi lại. check_demo_ai_key.py chỉ
+# đối chiếu container demo, không dùng cho uvicorn trần.
+if [ "$AI" = 1 ]; then kiem_khoa_ai; fi
 
 (
   cd "$APP"
@@ -705,6 +785,7 @@ for f in "$FLOWS"/*.yaml; do
     20-*)        [ "$LIVE" = 1 ] || continue ;;
     21-*)        [ "$DANG_NHAP" = 1 ] || continue ;;
     22-*|23-*|24-*|25-*|30-*|31-*) [ "$OTP" = 1 ] || continue ;;
+    40-*)        [ "$OTP" = 1 ] && [ "$AI" = 1 ] || continue ;;
     *)           { [ "$LIVE" = 1 ] || [ "$DANG_NHAP" = 1 ] || [ "$OTP" = 1 ]; } && continue ;;
   esac
   DA_CHAY=$((DA_CHAY + 1))
@@ -773,6 +854,7 @@ if [ "$OTP" = 1 ]; then
   kiem_may_chu_sau_24
   kiem_may_chu_sau_25
   kiem_may_chu_sau_30
+  [ "$AI" = 1 ] && kiem_may_chu_sau_40
   canary_otp
 else
 RA_CANARY="$(mktemp)"

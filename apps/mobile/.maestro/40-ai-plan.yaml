@@ -1,0 +1,51 @@
+# AI thật (V4, M3): `/plan` trong chat trên API có khoá Gemini → một thẻ của Rủ Đi
+# AI xuất hiện trong cuộc trò chuyện (text, gợi ý địa điểm hoặc lịch trình), KHÔNG
+# phải câu im lặng «chưa nối được mô hình». Chỉ chạy ở `--otp --ai`, sau khi
+# harness đã kiểm khoá còn sống bằng scripts/check_demo_ai_key.py (khoá chết là
+# ĐỎ, không phải bỏ qua). Chạy sau flow 24 trong cùng lượt: C có nhóm «Hoi QA».
+# Harness kiểm máy chủ sau flow: thẻ ai_card không tác giả, kind text|places|
+# itinerary, mọi place_id nằm trong GET /places (grounded).
+appId: com.lakiet.rudi
+---
+- stopApp
+- launchApp
+- runFlow: _bo-qua-dev-menu.yaml
+- extendedWaitUntil:
+    visible: "Rủ Đi thôi!|Khám phá|Chưa có nhóm nào"
+    timeout: 150000
+- runFlow: _dang-xuat-neu-co.yaml
+- tapOn: "Rủ Đi thôi!"
+- extendedWaitUntil:
+    visible: "Chào bạn"
+    timeout: 30000
+- tapOn: "Ô số điện thoại"
+- inputText: "${OTP_PHONE_C}"
+- hideKeyboard
+- tapOn: "Gửi mã"
+- extendedWaitUntil:
+    visible: "Nhập mã 6 số"
+    timeout: 60000
+- tapOn: "Ô nhập mã"
+- inputText: "${OTP_CODE}"
+- extendedWaitUntil:
+    visible: "Khám phá"
+    timeout: 60000
+- tapOn: "Tin nhắn"
+- extendedWaitUntil:
+    visible: "Hoi QA"
+    timeout: 60000
+- tapOn: "Hoi QA"
+- extendedWaitUntil:
+    visible: "Ô soạn tin"
+    timeout: 60000
+- tapOn: "Ô soạn tin"
+- inputText: "/plan toi nay ca hoi di an o Da Lat, ngan sach vua"
+- tapOn: "Gửi tin nhắn"
+# Mô hình cần thời gian; 120 s là trần cho một lượt.
+- extendedWaitUntil:
+    visible: "Rủ Đi AI|Rủ Đi AI gợi ý|Rủ Đi AI phác lịch trình"
+    timeout: 120000
+- assertNotVisible: "Rủ Đi AI chưa nối được mô hình trên máy chủ này."
+- assertNotVisible: ".*đang im lặng.*"
+- hideKeyboard
+- takeScreenshot: 40-ai-tra-loi
