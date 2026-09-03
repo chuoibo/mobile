@@ -265,6 +265,7 @@ class OutingStopRecord:
     minute_of_day: int
     label: str
     place_name: str | None
+    place_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1576,6 +1577,7 @@ class SqlAlchemyApiRepository:
             minute_of_day=stop.minute_of_day,
             label=stop.label,
             place_name=stop.place_name,
+            place_id=stop.place_id,
         )
 
     def _outing_record(self, outing: Outing) -> OutingRecord:
@@ -2342,6 +2344,9 @@ class SqlAlchemyApiRepository:
         self.session.flush()
         for position, row in kept:
             row.position = position
+            # Only the catalogue link may change on a kept row: its id, and so its
+            # check-ins, stay. Attaching a place is not a new stop.
+            row.place_id = stops[position].get("place_id")
         self.session.flush()
 
         self.session.add_all(
@@ -2352,6 +2357,7 @@ class SqlAlchemyApiRepository:
                     minute_of_day=stop["minute_of_day"],
                     label=stop["label"],
                     place_name=stop["place_name"],
+                    place_id=stop.get("place_id"),
                 )
                 for position, stop in added
             ]
