@@ -57,7 +57,6 @@ from app.api.deps import Actor
 from app.api.errors import ApiProblem
 from app.api.repository import SqlAlchemyApiRepository
 from app.api.schemas import (
-    BankRecipientRequest,
     BillCreateRequest,
     BillItemCreateRequest,
     ExpenseConfirmationRequest,
@@ -312,29 +311,13 @@ def test_assignment_participant_ids_are_checked_against_the_roster(client):
     assert response.json()["code"] == "participant_not_in_context"
 
 
-# --- 8. BankRecipientRequest.recipient_id -- GATED --------------------------
-
-
-def test_bank_recipient_id_from_the_body_must_be_the_caller(client):
-    """The one field where the check is identity, not membership, and it holds.
-
-    Spec 9.2 with no admin exception. Worth a row because it is the single
-    highest-value field in the inventory: it decides where a whole collection
-    round lands.
-    """
-    response = client.post(
-        "/bank-recipients",
-        headers=actor_headers(),
-        json={
-            "recipient_id": str(STRANGER),
-            "bank_bin": "970415",
-            "account_number": "0000000000TEST",
-            "account_name": "NGUOI LA",
-        },
-    )
-
-    assert response.status_code == 403
-    assert response.json()["code"] == "permission_denied"
+# --- 8. (rời khỏi kiểm kê) -------------------------------------------------
+#
+# Ô này từng là `BankRecipientRequest.recipient_id` -- trường tự-khai có giá trị
+# cao nhất trong cả bảng, vì nó quyết định cả một vòng thu tiền rơi vào đâu.
+# Sản phẩm bỏ đường thanh toán: không còn tài khoản để khai, nên không còn ô để
+# gác. Giữ lại dòng này thay vì xoá lặng, để bảng kiểm kê không tự ngắn đi mà
+# người đọc sau không biết vì sao.
 
 
 # --- 9. MembershipInviteRequest.person_id -- GATED (registration, not roster)
@@ -498,20 +481,6 @@ def test_live_paid_by_outsider_must_not_reach_the_ledger(postgres_session):
     elsewhere = _context(session, outsider.id, "Nhóm khác")
     _member(session, elsewhere, outsider.id)
 
-    # Their own account, set by themselves -- the one part of this that is
-    # entirely legitimate, and what makes the batch freeze instead of stalling
-    # on `recipient_setup_incomplete`.
-    service.set_bank_recipient(
-        BankRecipientRequest(
-            recipient_id=outsider.id,
-            bank_bin="970415",
-            account_number="0000000000TEST",
-            account_name="NGUOI NGOAI",
-        ),
-        _actor(outsider.id, elsewhere),
-    )
-    session.flush()
-
     expense_id = repository.create_expense(group).id
     with pytest.raises(ApiProblem) as refused:
         service.confirm_expense(
@@ -565,17 +534,6 @@ def test_live_recorded_by_outsider_must_not_reach_the_guest_page(postgres_sessio
     _member(session, group, binh.id)
     other = _context(session, outsider.id, "Nhóm khác")
     _member(session, other, outsider.id)
-
-    service.set_bank_recipient(
-        BankRecipientRequest(
-            recipient_id=nam.id,
-            bank_bin="970415",
-            account_number="0000000000TEST",
-            account_name="NAM",
-        ),
-        _actor(nam.id, group),
-    )
-    session.flush()
 
     expense_id = repository.create_expense(group).id
     with pytest.raises(ApiProblem) as refused:

@@ -461,6 +461,14 @@ DA_BIET_HONG = {
     "apps/mobile/src/api.ts xuat ra",
     "tests/qa/rd-qa-02/money-server-truth.mjs: `CONTEXT_ID` khong duoc "
     "apps/mobile/src/api.ts xuat ra",
+    # ADR-0015 go duong thanh toan: `saveBankRecipient` va route no goi khong
+    # con ton tai. Hai script nay di bo mot luong da bi xoa, nen chung la hien
+    # vat lich su chu khong phai phep do dang hong. Ghim thay vi sua ten: khong
+    # co ten nao dung de sua sang.
+    "tests/qa/qa-tt-0031/di-bo-hero-tren-demo.mjs: `saveBankRecipient` khong "
+    "duoc apps/mobile/src/api.ts xuat ra",
+    "tests/qa/rd-qa-21/tao-link-khach.mjs: `saveBankRecipient` khong duoc "
+    "apps/mobile/src/api.ts xuat ra",
 }
 
 

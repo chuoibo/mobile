@@ -34,11 +34,10 @@ import {
   proposeSplit,
   publishBatch,
   registerPeople,
-  saveBankRecipient,
 } from "../../dist-test/api.js";
 import { khoiDongNhom } from "../../dist-test/screens/chat/nhom.js";
 import { DEMO_PEOPLE, personById } from "../../dist-test/navigation/nhom-demo.js";
-import { banDoPhien, batPhienE2E, daVa, fetchTho } from "./phien-e2e.mjs";
+import { batPhienE2E, daVa, fetchTho } from "./phien-e2e.mjs";
 
 // The API this file talks to runs in `prod` and does not believe `X-Actor-ID`
 // (ADR-0014). `scripts/e2e_slice.sh` mints a real session per demo person and
@@ -134,11 +133,6 @@ async function moNhom() {
   return { contextId: state.contextId, nguoi };
 }
 
-/* Invented, and the repo guard is right to ask about a long digit run. Not a
- * real bank, not a real account, nobody's money behind it. */
-// repo-guard: allow=long-number reason=synthetic-test-account-number
-const SO_TAI_KHOAN = "0000000000TEST";
-
 async function serverIsUp() {
   try {
     const response = await fetch(`${BASE_URL}/healthz`);
@@ -148,64 +142,19 @@ async function serverIsUp() {
   }
 }
 
-/**
- * Whether this person already has a bank destination on the server.
+/* `daCoTaiKhoanNhan` and `doiDatabaseSach` used to sit here.
  *
- * Read rather than assumed: the tail of the slice below depends on the answer
- * and the two kinds of database this file can be pointed at disagree about it.
- * A fresh one says no; one where `scripts/seed_demo_data.py` has run says yes.
+ * They refused to run against a database that already held somebody's data,
+ * because two steps below only held on a fresh one: the server's refusal to
+ * open a batch for an advancer with no bank destination, and a write that
+ * REPLACED whatever destination was already on file. Neither exists now --
+ * there are no bank destinations -- so the guard has nothing to guard.
+ *
+ * `scripts/e2e_slice.sh` still provisions a throwaway PostgreSQL, and that is
+ * still the only supported way to run this file. What changed is that pointing
+ * it at a shared stack by hand now merely measures the wrong tree instead of
+ * damaging somebody's demo account.
  */
-async function daCoTaiKhoanNhan(personId) {
-  const res = await fetch(`${BASE_URL}/people/${personId}/bank-recipient`, {
-    // Built here rather than by the client, so the bearer is attached here
-    // too. Letting the wrapper repair it would count against `daVa`, which is
-    // meant to measure the CLIENT forgetting, not this file forgetting.
-    headers: {
-      "X-Actor-ID": personId,
-      "X-Actor-Roles": "group_admin,member",
-      ...(banDoPhien()?.[personId]
-        ? { Authorization: `Bearer ${banDoPhien()[personId]}` }
-        : {}),
-    },
-  });
-  if (res.status === 404) return false;
-  if (!res.ok) {
-    assert.fail(`khong doc duoc nguoi nhan cua ${personId}: HTTP ${res.status}`);
-  }
-  return true;
-}
-
-/**
- * Refuse to run against a database that already holds somebody's data.
- *
- * Said out loud here, before the first write, rather than discovered 200 lines
- * later. Two steps below only hold on a database nobody has used:
- *
- *   - the server's refusal to open a batch for an advancer with no bank
- *     destination (section 8.4). Where the advancer already has one, that
- *     assertion stops testing anything at all;
- *   - `saveBankRecipient`, which REPLACES the destination already on file. On
- *     the seeded demo group that overwrites a real demo account
- *     ("MINH - DU LIEU DEMO", VietinBank) with this file's synthetic one --
- *     a test quietly damaging the demo somebody else is about to give.
- *
- * `scripts/e2e_slice.sh` provisions a throwaway PostgreSQL for exactly this
- * reason, and is how `make gate ONLY=e2e` runs this file, so the gate always
- * takes the fresh-database branch and the refusal above is always exercised
- * there. Pointing `EXPO_PUBLIC_API_URL` at the shared 8099 stack by hand is
- * the case this guard catches.
- *
- * A failure and not a skip, on this file's own rule: a skip reads like a pass.
- */
-async function doiDatabaseSach(nguoiUngTien) {
-  if (!(await daCoTaiKhoanNhan(nguoiUngTien.id))) return;
-  assert.fail(
-    `${nguoiUngTien.name} da co tai khoan nhan tien tren ${BASE_URL}, nen day la ` +
-      `mot database DA CO DU LIEU. Lat cat doc se ghi de len tai khoan do va ` +
-      `bo qua cong "nguoi nhan chua san sang". Chay 'scripts/e2e_slice.sh' ` +
-      `(hoac 'make gate ONLY=e2e') -- no tu dung mot PostgreSQL dung mot lan.`,
-  );
-}
 
 /** Set to anything non-empty when a skip must be read as a failure. */
 const REQUIRED = Boolean(process.env.MOBILE_REQUIRE_E2E);
@@ -243,7 +192,6 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
   // creator. Named off the roster rather than hard-coded so this keeps working
   // if the demo group's first member ever changes.
   const ungTien = nguoi.find((n) => n.name === "Minh") ?? nguoi[0];
-  await doiDatabaseSach(ungTien);
   const draft = {
     participants: nguoi,
     totalVnd: 300_000,
@@ -285,48 +233,7 @@ test("một khoản chi đi hết đường tới link của khách", async (t) 
   // section 8.4 says an unready recipient is a decision somebody has to make
   // out loud. Asserted rather than assumed -- if this ever stops refusing, a
   // batch can freeze with nowhere to send the money.
-  await assert.rejects(
-    () =>
-      openBatch(
-        proposal,
-        written.expenseVersionId,
-        written.acknowledged,
-        attemptFor(lanBam, "mo-dot-thu"),
-        nguoi,
-      ),
-    (error) => error.code === "UNREADY_RECIPIENT_CHOICE_REQUIRED",
-    "may chu phai doi hoi quyet dinh ve nguoi nhan chua san sang",
-  );
-
-  // The half that used to be missing, and it is now the app doing it.
-  //
-  // This line was `seedBankRecipient(NAM.id)`: a Python script that reached
-  // past the API and INSERTed the row, because nothing the app could do
-  // produced a bank destination. The route existed the whole time; what did
-  // not exist was any screen calling it, so the end-to-end test had to fake
-  // the one step a person would actually perform. It now goes over the same
-  // HTTP as every other call in this file, through the same client the screen
-  // uses -- which means a client that drifts from the contract fails here
-  // rather than at a demo.
-  const saved = await saveBankRecipient(
-    ungTien.id,
-    { bankBin: "970418", accountNumber: SO_TAI_KHOAN, accountName: "NGUOI UNG TIEN" },
-    // The actor is the subject. Section 9.2 has no exception for an admin, so
-    // passing anybody else here is a 403 rather than a convenience.
-    ungTien.id,
-    attemptFor(lanBam, "tai-khoan-nhan"),
-  );
-  assert.equal(saved.bankName, "BIDV", "máy chủ gọi tên ngân hàng khác app");
-  assert.ok(saved.bankRecognised);
-  assert.ok(
-    !JSON.stringify(saved).includes(SO_TAI_KHOAN),
-    "số tài khoản đầy đủ đi ngược về phía client",
-  );
-
-  // The same attempt as the refused call above, deliberately. The server
-  // releases a key when its handler errors, so the retry after seeding must be
-  // allowed to run -- and this is the app's own behaviour, since `attemptFor`
-  // returns one attempt per thing being written.
+  // One attempt per thing being written, which is the app's own behaviour.
   const batch = await openBatch(
     proposal,
     written.expenseVersionId,

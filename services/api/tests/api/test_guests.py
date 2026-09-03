@@ -19,7 +19,11 @@ def test_guest_route_renders_only_closed_guest_view(client, repository):
 
     assert response.status_code == 200
     assert "Chỉ hiển thị phần của bạn" in response.text
-    assert "NGUYEN VAN NAM" in response.text
+    # The page names who is owed, from `people`. It used to name the holder of
+    # a bank account instead, which is what a bank prints rather than what the
+    # group calls somebody.
+    assert "Nam" in response.text
+    assert "RuDi chỉ tính phần của bạn" in response.text
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["referrer-policy"] == "no-referrer"
 

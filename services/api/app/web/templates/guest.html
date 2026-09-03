@@ -14,8 +14,8 @@
   is "shows more at once", never "cannot pay".
 
   An earlier version put `hidden` straight on the panel, which meant a guest
-  with scripting disabled could not reach the account number at all. Caught in
-  review by Codex.
+  with scripting disabled could not reach the detail underneath at all. Caught
+  in review by Codex, back when that detail was a bank account number.
 #}<!doctype html>
 <html lang="vi">
 <head>
@@ -53,8 +53,8 @@
     </h1>
 
     {# The amount is the button. It is the single thing they need to carry
-       into the bank app, and on a phone the biggest target should be the
-       most frequent action. #}
+       wherever they are going to pay, and on a phone the biggest target
+       should be the most frequent action. #}
     <button class="amount" type="button"
             data-copy="{{ block.amount_vnd }}"
             aria-label="Sao chép số tiền {{ block.amount_display }} đồng">
@@ -122,38 +122,16 @@
       </div>
     </div>
 
-    {# --- face two: how to transfer -------------------------------------- #}
+    {# --- face two: who this is owed to ----------------------------------
+       There used to be a bank account and a QR code here. There is not any
+       more: the product works out what each person's share is and says so,
+       and how the money actually moves is between the two people. Saying that
+       out loud beats showing an amount with no next step and letting somebody
+       wonder whether the page failed to load. #}
     <div class="transfer" data-transfer>
-      <p class="eyebrow">Chuyển tới</p>
-      <p class="recipient">{{ block.recipient_display_name }} · {{ block.bank_name }}</p>
-
-      <dl class="fields">
-        <div class="field">
-          <dt>Số tài khoản</dt>
-          <dd>
-            <span class="field__value">{{ block.account_number }}</span>
-            <button class="copy" type="button" data-copy="{{ block.account_number }}">chép</button>
-          </dd>
-        </div>
-        <div class="field">
-          <dt>Chủ tài khoản</dt>
-          <dd><span class="field__value">{{ block.account_holder_name }}</span></dd>
-        </div>
-        <div class="field">
-          <dt>Nội dung</dt>
-          <dd>
-            <span class="field__value">{{ block.transfer_note }}</span>
-            <button class="copy" type="button" data-copy="{{ block.transfer_note }}">chép</button>
-          </dd>
-        </div>
-      </dl>
-
-      {% if block.qr_image_data_uri %}
-      <figure class="qr">
-        <img src="{{ block.qr_image_data_uri }}" alt="Mã QR chuyển khoản" width="200" height="200">
-        <figcaption>Nhấn giữ để lưu ảnh, rồi mở app ngân hàng và chọn quét từ thư viện.</figcaption>
-      </figure>
-      {% endif %}
+      <p class="eyebrow">Trả cho</p>
+      <p class="recipient">{{ block.recipient_display_name }}</p>
+      <p class="note">RuDi chỉ tính phần của bạn. Chuyển bằng cách nào là chuyện giữa bạn và {{ block.recipient_display_name }}.</p>
 
       {% if block.receiver_confirmed %}
         <p class="status status--done">{{ block.recipient_display_name }} đã xác nhận nhận được.</p>

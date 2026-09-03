@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-from app.payments.vietqr import parse_tlv
-
 from .helpers import (
     OTHER_ID,
     actor_headers,
     create_batch,
     propose_and_confirm,
     publish_batch,
-    seed_bank_recipient,
 )
 
 
@@ -33,7 +30,16 @@ def test_batch_uses_domain_merge_for_same_sender_recipient_pair(client, reposito
     }
 
 
-def test_batch_requires_explicit_unready_recipient_handling(client, repository):
+def test_a_batch_freezes_without_anybody_registering_an_account(client, repository):
+    """This used to be 409 UNREADY_RECIPIENT_CHOICE_REQUIRED.
+
+    The organiser had to say out loud what to do about a recipient with no bank
+    account registered. There are no bank accounts: the product works out each
+    person's share and stops. So the same request that was refused now freezes,
+    and the case is kept in that direction rather than deleted -- a state that
+    used to block has to be shown not to block any more.
+    """
+
     propose_and_confirm(client)
     response = client.post(
         "/batches",
@@ -44,9 +50,8 @@ def test_batch_requires_explicit_unready_recipient_handling(client, repository):
         },
     )
 
-    assert response.status_code == 409
-    assert response.json()["code"] == "UNREADY_RECIPIENT_CHOICE_REQUIRED"
-    assert repository.batches == {}
+    assert response.status_code == 201, response.text
+    assert len(repository.batches) == 1
 
 
 def test_publish_checks_ack_gate_separately_from_expense_confirmation(
@@ -69,7 +74,16 @@ def test_publish_checks_ack_gate_separately_from_expense_confirmation(
     assert repository.links == {}
 
 
-def test_publish_creates_one_sender_scoped_link_and_vietqr(client, repository):
+def test_publish_creates_one_sender_scoped_link_carrying_only_the_amount(
+    client, repository
+):
+    """The link names the debt, not a way to settle it.
+
+    It used to carry a VietQR payload per obligation. The negative half is the
+    point now: an envelope that still shipped an account number would be
+    handing out a detail the product no longer collects.
+    """
+
     propose_and_confirm(client)
     batch = create_batch(client, repository)
     published = publish_batch(client, batch["batch_id"])
@@ -79,14 +93,15 @@ def test_publish_creates_one_sender_scoped_link_and_vietqr(client, repository):
     link = published["guest_links"][0]
     assert link["path"].startswith("/g/")
     assert len(repository.links) == 1
-    fields = parse_tlv(link["obligations"][0]["vietqr_payload"])
-    assert int(fields["54"]) == batch["obligations"][0]["amount_vnd"]
+    obligation = link["obligations"][0]
+    assert obligation["amount_vnd"] == batch["obligations"][0]["amount_vnd"]
+    for gone in ("vietqr_payload", "bank_bin", "account_number", "transfer_note"):
+        assert gone not in obligation, gone
 
 
 def test_non_owner_cannot_publish_even_with_batch_owner_role(client, repository):
     propose_and_confirm(client)
     batch = create_batch(client, repository)
-    seed_bank_recipient(repository)
 
     response = client.post(
         f"/batches/{batch['batch_id']}/publish",

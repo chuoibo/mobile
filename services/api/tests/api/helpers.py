@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import io
 import uuid
-from datetime import datetime
 
 from PIL import Image
 
@@ -100,21 +99,7 @@ def propose_and_confirm(
     return confirmation.json()
 
 
-def seed_bank_recipient(repository):
-    from app.api.repository import BankRecipientRecord
-
-    repository.bank_recipients[ADVANCER_ID] = BankRecipientRecord(
-        id=uuid.uuid4(),
-        recipient_id=ADVANCER_ID,
-        bank_bin="970415",
-        account_number="TESTACCOUNT1133",
-        account_name="NGUYEN VAN NAM",
-        confirmed_at=datetime.fromisoformat("2029-08-27T00:00:00+00:00"),
-    )
-
-
 def create_batch(client, repository, version_ids=None):
-    seed_bank_recipient(repository)
     response = client.post(
         "/batches",
         headers=actor_headers(),

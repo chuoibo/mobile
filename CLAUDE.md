@@ -51,17 +51,18 @@ command.upgrade(c,'head',sql=True)" >/dev/null && echo ok
 
 ## Kiến trúc
 
-Lát cắt dọc duy nhất đang chạy: `POST /expenses` → allocator chia tiền → `confirm` ghi vào sổ → `POST /batches` gom nghĩa vụ → `publish` sinh envelope + VietQR → `GET /g/{token}` trang khách → khách báo đã chuyển → người nhận `confirm-receipt`. Chưa có Home, chưa có tab (spec mục 14.3 cấm thiết kế Home trước khi biết hành động nào tồn tại).
+Lát cắt dọc duy nhất đang chạy: `POST /expenses` → allocator chia tiền → `confirm` ghi vào sổ → `POST /batches` gom nghĩa vụ → `publish` sinh envelope → `GET /g/{token}` trang khách → khách báo đã chuyển → người nhận `confirm-receipt`. Chưa có Home, chưa có tab (spec mục 14.3 cấm thiết kế Home trước khi biết hành động nào tồn tại).
 
 Tầng, từ trong ra ngoài:
 
-- `app/domain/` — thuần: `dict` vào, `dict` ra, ném `AllocationError`. **Không được import** `app.db`, `app.api`, `app.payments`, `sqlalchemy`, `fastapi`, `alembic`, `pydantic`. Cưỡng chế bằng `tests/test_import_boundary.py` (parse AST), không bằng lời hứa. Lý do là bất biến 3: số dư luôn tính lại được từ sổ.
+- `app/domain/` — thuần: `dict` vào, `dict` ra, ném `AllocationError`. **Không được import** `app.db`, `app.api`, `sqlalchemy`, `fastapi`, `alembic`, `pydantic`. Cưỡng chế bằng `tests/test_import_boundary.py` (parse AST), không bằng lời hứa. Lý do là bất biến 3: số dư luôn tính lại được từ sổ.
 - `app/api/service.py` — workflow: gọi domain trước, rồi mới gọi repository. Repository không bao giờ tự chế allocation hay tự lưu trạng thái nghĩa vụ.
 - `app/api/repository.py` — `ApiRepository` (Protocol) + `SqlAlchemyApiRepository`. Trạng thái nghĩa vụ **suy ra từ event** (`ReceiptConfirmation`), không đọc cột đã lưu; xem `app/db/repository.py` cho dạng aggregate đúng.
 - `app/web/guest_view.py` — biên rò rỉ của trang khách. Template chỉ render đúng view model module này trả về; test rò rỉ nằm ở đây chứ không nằm trong file Jinja. Khách thấy envelope của chính mình, không bao giờ thấy số dư nhóm / lịch sử / allocation của người khác.
-- `app/payments/vietqr.py` — chỉ dựng chuỗi EMVCo + CRC. Sản phẩm không giữ tiền, không chuyển tiền.
 
-Auth hiện tại là header `X-Actor-ID` / `X-Actor-Roles` / `X-Actor-Contexts` do gateway tin cậy **ghi đè** (`app/api/deps.py`). Đây là chỗ tạm cho lát cắt dọc, không phải auth production — đừng xây thêm gì dựa trên giả định nó an toàn.
+**Sản phẩm dừng ở chỗ nói mỗi người phải bỏ ra bao nhiêu và vì những khoản nào.** Chuyển tiền bằng cách nào là việc giữa hai người. `app/payments/` (VietQR EMVCo + CRC) và hai bảng tài khoản ngân hàng đã bị gỡ — đừng dựng lại mà không mở ADR trước.
+
+Auth: cờ `MOBILE_AUTH_MODE`, **vắng mặt là `prod`** (ADR-0014). Ở `prod`, `get_actor` đọc `Authorization: Bearer` từ bảng `account_sessions` và **không tin** `X-Actor-*`; thiếu phiên là 401. Ở `dev` (compose local bật rõ) thì giữ header cũ để test và máy demo còn chạy. Phiên đầu tiên trên host sạch lấy bằng `scripts/genesis_session.py`; sau đó đổi lời mời đích danh lấy phiên qua `POST /sessions`.
 
 `/healthz` cố ý **không** chạm database: restart API không sửa được Postgres.
 
@@ -94,7 +95,7 @@ SQLite bị từ chối có chủ ý: schema production dựa vào JSONB, partia
 
 Nguồn sự thật: `docs/team/charter.md`, `docs/decisions/ADR-*.md`, `docs/architecture/00-layout-va-so-huu.md`. Đọc trước khi đổi hành vi.
 
-- **Ranh giới sở hữu** (chốt 2026-08-27): Claude giữ `app/web/` (template, câu chữ, style) và `apps/mobile/`. Codex giữ `db/`, `api/`, `payments/`, `domain/` và test backend. Ở trang khách: route và truy cập dữ liệu là của Codex, template không bao giờ tự query.
+- **Ranh giới sở hữu** (chốt 2026-08-27): Claude giữ `app/web/` (template, câu chữ, style) và `apps/mobile/`. Codex giữ `db/`, `api/`, `domain/` và test backend. Ở trang khách: route và truy cập dữ liệu là của Codex, template không bao giờ tự query.
 - **Nhánh**: `<owner>/p0-w<N>-<slug>`, slug phải là Work ID cụ thể — `backend`/`research` là sai.
 - **PR (ADR-0007)**: review sống trên GitHub PR, không phải file. Verdict đúng ba giá trị: `APPROVE` / `REQUEST_CHANGES` / `REJECT`. `APPROVE` → merge ngay, ai bấm nút không quan trọng. `REQUEST_CHANGES` → trả về cho tác giả, không thương lượng qua comment rồi merge lén. **Không tự review PR của chính mình.** Leader chỉ đọc `main`, nên mô tả PR phải nói *cái gì đổi và vì sao*, đừng bắt người đọc suy từ diff.
 - **Blocker chỉ hợp lệ** khi thuộc 5 loại: vi phạm spec/cổng · sai tiền · quyền riêng tư/bảo mật/consent · hỏng tính hợp lệ thí nghiệm · không tái lập được. Đặt tên, phong cách, "tôi thích cách kia hơn" là suggestion. Blocker phải kèm dẫn chứng · hậu quả · tiêu chí gỡ chặn.
