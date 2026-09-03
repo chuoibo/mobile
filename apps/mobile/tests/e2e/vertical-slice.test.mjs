@@ -36,6 +36,9 @@ import {
   registerPeople,
 } from "../../dist-test/api.js";
 import { khoiDongNhom } from "../../dist-test/screens/chat/nhom.js";
+import { layTaiChinh } from "../../dist-test/screens/ca-nhan/tai-chinh.js";
+import { layKyUc } from "../../dist-test/screens/ky-niem/ky-uc.js";
+import { docQuyetToanLive } from "../../dist-test/rudi/doc-live.js";
 import { DEMO_PEOPLE, personById } from "../../dist-test/navigation/nhom-demo.js";
 import { batPhienE2E, daVa, fetchTho } from "./phien-e2e.mjs";
 
@@ -433,6 +436,61 @@ test("client tự gắn Bearer cho người đang đăng nhập, harness không 
     "harness phải vá Bearer cho chính người đang đăng nhập, tức src/api.ts " +
       "đã thôi tự gắn — trên máy thật thì đó là 401 ở mọi màn",
   );
+});
+
+test("mọi màn đọc dữ liệu nhóm đều tự mang bearer, không chỉ đường khoản chi", async (t) => {
+  if (NGUOI_DANG_NHAP === null) return;
+
+  /* Ca trên đo `src/api.ts`. Ca này đo CHÍN module không đi qua nó.
+   *
+   * Cho tới hôm nay, `layTaiChinh`, `layKyUc` và bảy module nữa dựng lấy
+   * `X-Actor-ID` của riêng chúng, mỗi cái một hàm `headers()` — di sản từ hồi
+   * danh tính LÀ cái header. Không cái nào gắn bearer, nên trên máy chủ `prod`
+   * cả chín trả 401, và màn Tài chính lẫn màn Quyết toán — hai màn vừa được
+   * nối vào dữ liệu thật — hỏng trên host thật.
+   *
+   * Bộ e2e này xanh suốt thời gian đó vì hai lý do cùng lúc, và cả hai đều
+   * đáng ghi lại:
+   *
+   *  1. Không ca nào GỌI chín module ấy. `daVa(NGUOI_DANG_NHAP) === 0` ở ca
+   *     dưới đúng theo nghĩa rỗng — không có request nào để mà vá.
+   *  2. Và nếu có gọi, `phien-e2e.mjs` sẽ **tự sửa** request: wrapper thấy
+   *     `X-Actor-ID` thiếu bearer thì gắn vào rồi mới gửi. Đó là cái giá của
+   *     việc lái ba người qua một tiến trình, và docstring của nó đã nói thẳng
+   *     rằng nếu client thôi tự gắn bearer thì harness sẽ che mất.
+   *
+   * Nên ca này gọi thật ba hàm đọc — qua đúng cửa màn hình gọi — rồi hỏi
+   * `daVa` xem harness có phải sửa hộ lần nào không. Không phải: 0 nghĩa là
+   * chính client đã mang bearer. Bản trước bản vá trả 3.
+   */
+  const { contextId } = await moNhom();
+  const toi = NGUOI_DANG_NHAP;
+
+  const tienCuaToi = await layTaiChinh(toi);
+  assert.equal(typeof tienCuaToi.spend_vnd, "number", "màn Tài chính không đọc được sổ");
+  assert.equal(tienCuaToi.person_id, toi, "màn Tài chính đọc được sổ của NGƯỜI KHÁC");
+
+  const kyUc = await layKyUc(contextId, toi);
+  assert.ok(kyUc, "màn Kỷ niệm không đọc được nhóm");
+
+  const quyetToan = await docQuyetToanLive(toi, contextId, BASE_URL);
+  assert.ok(Array.isArray(quyetToan.nguoi), "màn Quyết toán không đọc được danh sách người");
+  // `tongChuyen === null` là trạng thái thứ ba hợp lệ (nhóm chưa có tổng), nên
+  // nó KHÔNG được dùng làm dấu hiệu ở đây. Cái phải đúng là: đọc được, và
+  // không phải nhờ harness vá.
+  assert.notEqual(
+    quyetToan.nguoi.length,
+    0,
+    "đọc được nhưng danh sách rỗng — recap 401 bị nuốt thành «nhóm chưa có tổng»",
+  );
+
+  assert.equal(
+    daVa(toi),
+    0,
+    `harness phải vá bearer ${daVa(toi)} lần cho ${toi}: có màn tự dựng header ` +
+      "danh tính mà không mang bearer, tức 401 trên host prod",
+  );
+  t.diagnostic(`3 màn đọc thật, harness vá 0 lần`);
 });
 
 test("máy chủ prod từ chối X-Actor-ID giả khi không có phiên", async () => {

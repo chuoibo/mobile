@@ -116,6 +116,21 @@ type RudiSessionApi = RudiSession & {
    * when a write fails on a full or restricted device.
    */
   luuTruSong: boolean;
+  /**
+   * A session that just arrived, put into force without a relaunch.
+   *
+   * `src/phien.ts` owns the disk and the bearer, so signing in already writes
+   * both. What it cannot do is tell this provider, and this provider is what
+   * `nguon` is derived from -- so before this existed, somebody could redeem a
+   * real invitation, land on the group, and read FIXTURES until they killed
+   * the app and opened it again. Two copies of "who is signed in", which is
+   * the same fault every other screen on this branch was built to stop.
+   *
+   * Takes the whole record rather than a flag, so accepting a membership
+   * (`membership_state` goes `invited` -> `active`) travels through the same
+   * one door as signing in.
+   */
+  datPhien: (phien: Phien) => void;
   resetSession: () => void;
   setDisplayName: (value: string) => void;
   setBio: (value: string) => void;
@@ -254,6 +269,13 @@ export function RudiSessionProvider({ children }: { children: ReactNode }) {
     // previous person's name, chat, check-ins and saved places. Measured on the
     // emulator before this line existed. Seeding fresh is the whole of logout
     // while there is no server session to end.
+    datPhien: (moi: Phien) => {
+      // `datTokenPhien` too, not just the state: `phien.ts` already set it on
+      // the way in, but a caller that reached here with a record read from
+      // somewhere else must not leave the bearer pointing at the old one.
+      datTokenPhien(moi.token);
+      setPhien(moi);
+    },
     resetSession: () => {
       setState(seed());
       // The debounced write above would land on the seed anyway; this is for

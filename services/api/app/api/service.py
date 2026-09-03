@@ -2562,6 +2562,11 @@ class ApiService:
             context_id=outing.context_id,
             expires_at=record.expires_at,
             membership_state=membership.state,
+            # The row this person may accept for themselves. Named here
+            # because it is nameable here and nowhere else the client can
+            # reach: the roster route that would list it is itself behind the
+            # membership.
+            membership_id=membership.id,
         )
 
     def actor_for_session_token(self, token: str) -> Actor:

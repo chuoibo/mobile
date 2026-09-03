@@ -72,7 +72,7 @@
  * lands, `thanNhuSeed` should go and `JSON.stringify` should come back.
  */
 
-import { tokenPhienHienTai } from "../../api";
+import { headerNguoiGoi } from "../../danh-tinh";
 import { chiTietLoi } from "../../ui/loi-tren-man";
 import {
   DEMO_GROUP_NAME,
@@ -143,24 +143,20 @@ export function cauBuocNhom(buoc: string): string {
 const MINH_SLUG = "minh";
 
 function headers(actorId: string, contextId?: string, key?: string): Record<string, string> {
-  const h: Record<string, string> = {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-    // Still sent, and ignored by a `prod` server since ADR-0014. Kept so one
-    // build works against the demo box and against a real host.
-    "X-Actor-ID": actorId,
-    "X-Actor-Roles": "group_admin,member",
-  };
-  // This module builds its own headers rather than going through `api.ts`, so
-  // the bearer has to be attached here too. Without it every call on this
-  // path -- creating the group, inviting, accepting -- answers 401 on a
-  // production host while the expense path works, which is the confusing half
-  // of a half-authenticated client.
-  const token = tokenPhienHienTai();
-  if (token !== null) h["Authorization"] = `Bearer ${token}`;
-  if (contextId) h["X-Actor-Contexts"] = contextId;
-  if (key) h["Idempotency-Key"] = key;
-  return h;
+  // This module used to attach the bearer itself, with a comment saying that a
+  // module building its own headers has to. It was right, and it was the only
+  // one of nine that did -- so eight others answered 401 on a production host
+  // while this path worked. `headerNguoiGoi` is that comment turned into one
+  // place, and `tests/mot-cho-dung-danh-tinh.test.mjs` keeps it the only one.
+  // `|| undefined`, not `contextId`: the version this replaced wrote the
+  // header under `if (contextId)`, so an empty string sent nothing. Passing it
+  // straight through would send `X-Actor-Contexts: ""` -- a claim of membership
+  // in no group, which is a different sentence from making no claim.
+  return headerNguoiGoi(actorId, {
+    roles: "group_admin,member",
+    contexts: contextId || undefined,
+    key,
+  });
 }
 
 function goc(base: string): string {

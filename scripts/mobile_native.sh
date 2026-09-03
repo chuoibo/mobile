@@ -114,6 +114,21 @@ case "$EXPO_VER" in
   *)    hong "Expo Go $EXPO_VER không khớp SDK 57 của app. Bundle sẽ không nạp." ;;
 esac
 
+# Xoá dữ liệu Expo Go: phiên đã đăng nhập nằm trong AsyncStorage của nó.
+#
+# Cần ở HAI chỗ, và cả hai đều là chuyện thật:
+#
+#  - Trước bảng ở chế độ `--dang-nhap`: một phiên còn sót từ lượt trước làm
+#    flow 21 bắt đầu từ app ĐÃ đăng nhập, tức nó không còn đo cửa vào nữa.
+#  - Trước canary ở cùng chế độ: sau flow 21 máy đang đăng nhập THẬT, nên màn
+#    chào không còn nút «Vào bản trải nghiệm Team Đà Lạt» và con canary chết ở
+#    bước 1. Đo ngày 2026-09-03: đúng như vậy, và cổng đọc nó thành "canary đỏ
+#    đúng thiết kế" — hai lần liên tiếp, hai lý do khác nhau.
+xoa_du_lieu_app() {
+  timeout 60 adb shell pm clear host.exp.exponent >/dev/null 2>&1 \
+    || khong_do_duoc "không xoá được dữ liệu Expo Go trên $ANDROID_SERIAL."
+}
+
 # --- lời mời thật, cho lượt đăng nhập --------------------------------------
 #
 # Cả bảng mặc định lẫn `--live` đều đi vòng qua cửa đăng nhập: một cái dùng
@@ -203,6 +218,10 @@ don_dep() {
 trap don_dep EXIT
 
 if [ "$DANG_NHAP" = 1 ]; then
+  # Trước khi mint bất cứ thứ gì: một phiên còn sót từ lượt trước làm flow 21
+  # bắt đầu từ app ĐÃ đăng nhập, và lúc đó nó không đo cửa vào nữa mà đo một
+  # app đang mở sẵn — vẫn xanh, vẫn vô nghĩa.
+  xoa_du_lieu_app
   dung_loi_moi
 fi
 
@@ -263,11 +282,37 @@ sleep 2
 # `${...}` trong `openLink` không được thay, và `$`/`{`/`}` trong URL làm app
 # đứng ở màn lỗi. Đo được: cùng flow đó với một mã thật thì màn nhận lời mời
 # hiện đúng, kèm mã đã điền sẵn.
+mo_link() {
+  timeout 30 adb shell am start -a android.intent.action.VIEW \
+    -d "$1" host.exp.exponent >/dev/null 2>&1 \
+    || khong_do_duoc "không mở được Expo Go trên $ANDROID_SERIAL."
+}
+
+if [ "$DANG_NHAP" = 1 ]; then
+  # Hâm nóng TRƯỚC, rồi mới giao link mời.
+  #
+  # `pm clear` ở trên trả Expo Go về lần chạy đầu tiên, và lần chạy đầu tiên
+  # của Expo Go KHÔNG phải lần chạy đầu tiên của app này: nó có màn riêng của
+  # nó, và cái link mời giao vào lúc đó thì rơi vào đấy chứ không tới
+  # `duong-vao.ts`. Đo ngày 2026-09-03: flow 21 đỏ ngay ở «Bạn được rủ đi»,
+  # trong khi đúng flow ấy xanh khi Expo Go đã chạy trước đó ít nhất một lần.
+  #
+  # Nên: mở trắng cho Expo Go qua lần đầu và nạp bundle, force-stop, rồi mới
+  # giao link. App vẫn KHỞI ĐỘNG LẠNH cùng cái link — đúng đường một người bấm
+  # link bạn gửi — chỉ khác là cái nhận link là app chứ không phải màn chào của
+  # Expo Go.
+  mo_link "exp://localhost:$PORT"
+  for _ in $(seq 1 90); do
+    grep -q "Android Bundled" "$LOG" && break
+    sleep 2
+  done
+  timeout 30 adb shell am force-stop host.exp.exponent >/dev/null 2>&1 || true
+  sleep 2
+fi
+
 DUONG_MO="exp://localhost:$PORT"
 [ "$DANG_NHAP" = 1 ] && DUONG_MO="exp://localhost:$PORT/--/moi/$MA_LOI_MOI"
-timeout 30 adb shell am start -a android.intent.action.VIEW \
-  -d "$DUONG_MO" host.exp.exponent >/dev/null 2>&1 \
-  || khong_do_duoc "không mở được Expo Go trên $ANDROID_SERIAL."
+mo_link "$DUONG_MO"
 
 for _ in $(seq 1 90); do
   grep -q "Android Bundled" "$LOG" && break
@@ -279,6 +324,40 @@ grep -q "Android Bundled" "$LOG" \
   || { echo "--- log Metro ---" >&2; tail -20 "$LOG" >&2; \
        hong "thiết bị không nạp bundle từ Metro của cây này."; }
 echo "thiết bị đã nạp bundle của $APP"
+
+# --- flow phải nói cùng CỔNG với Metro vừa dựng ----------------------------
+#
+# `_vao-app.yaml` và `_vao-app-sach.yaml` viết thẳng `exp://localhost:8095`,
+# còn `--port` cho phép đổi cổng — một máy ảo dùng chung sáu lane thì đổi cổng
+# là chuyện thường. Hai thứ đó lệch nhau im lặng, và kiểu hỏng thì tệ hơn là đỏ:
+#
+#   - Đo ngày 2026-09-03 với `--port 8096`: bảng đi qua (script tự giao deep
+#     link nên không cần `_vao-app`), rồi canary đỏ vì mở 8095 — TRỐNG. Cổng in
+#     "canary đỏ đúng thiết kế" cho một con canary chết vì sai địa chỉ, chứ
+#     không phải vì điều kiện nó được viết ra để bắt.
+#   - Và nếu 8095 KHÔNG trống — lane khác đang chạy Metro ở đó, đúng cái mặc
+#     định — thì mọi flow dùng `_vao-app` lái BUNDLE CỦA HỌ, trong khi hai neo
+#     ở trên vẫn xanh vì chúng đọc log Metro của cây NÀY.
+#
+# Nên bảng chạy từ một bản sao có cổng đã thay, và phép thay phải chứng minh nó
+# đã xảy ra: `sed` không đổi gì cũng trả về 0.
+if [ "$PORT" != 8095 ]; then
+  FLOWS_GOC="$FLOWS"
+  FLOWS="$(mktemp -d)/maestro"
+  cp -r "$APP/$FLOWS_GOC" "$FLOWS"
+  DA_THAY=0
+  for f in "$FLOWS"/*.yaml; do
+    truoc="$(grep -c 'localhost:8095' "$f" || true)"
+    [ "$truoc" -gt 0 ] || continue
+    sed -i "s|localhost:8095|localhost:$PORT|g" "$f"
+    DA_THAY=$((DA_THAY + truoc))
+  done
+  [ "$DA_THAY" -gt 0 ] \
+    || hong "chạy ở cổng $PORT nhưng không flow nào ghi localhost:8095 — bản sao không sửa được gì, flow đang trỏ đi đâu không rõ."
+  grep -rq 'localhost:8095' "$FLOWS" \
+    && hong "còn flow trỏ về 8095 sau khi thay."
+  echo "flow chạy từ bản sao đã đổi sang cổng $PORT ($DA_THAY chỗ)"
+fi
 
 # --- chạy bảng, rồi chạy canary --------------------------------------------
 # Duyệt từng file thay vì `maestro test <thư mục> --exclude-tags=canary`: đo
@@ -343,11 +422,37 @@ done
 [ "$DA_CHAY" -gt 0 ] || hong "không có flow nào trong $FLOWS. Bảng RỖNG không phải bảng xanh."
 echo "đã chạy $DA_CHAY flow"
 
-set +e; maestro test "$FLOWS/09-canary-phai-do.yaml"; CANARY=$?; set -e
+RA_CANARY="$(mktemp)"
+# Canary chạy đường FIXTURE trên app CHƯA đăng nhập. Ở chế độ `--dang-nhap` thì
+# bảng vừa đăng nhập thật xong, nên phải trả máy về trạng thái đó trước.
+if [ "$DANG_NHAP" = 1 ]; then
+  echo "xoá phiên trước khi chạy canary (canary đo đường chưa đăng nhập)"
+  xoa_du_lieu_app
+fi
+set +e; maestro test "$FLOWS/09-canary-phai-do.yaml" 2>&1 | tee "$RA_CANARY"; CANARY=${PIPESTATUS[0]}; set -e
 
 [ "$BANG" -eq 0 ] || hong "flow đỏ:$DO_LIST"
 # NEO 3. Canary xanh nghĩa là phép đo không phân biệt được đúng với sai, nên cả
 # bảng xanh ở trên không chứng minh gì.
 [ "$CANARY" -ne 0 ] || hong "canary XANH. Bảng trên không chứng minh gì."
+
+# NEO 3b. Và nó phải đỏ Ở BƯỚC CUỐI. Docstring của chính flow 09 nói thẳng điều
+# này — «a red canary that dies early proves the harness is broken, not that the
+# assertions bite» — nhưng cho tới hôm nay không có gì cưỡng chế nó, nên bất kỳ
+# màu đỏ nào cũng được đọc thành «canary đỏ đúng thiết kế».
+#
+# Đã xảy ra thật, ngày 2026-09-03, chạy `--port 8096`: canary chết ngay ở bước 1
+# vì `_vao-app-sach.yaml` mở `exp://localhost:8095` — một cổng TRỐNG. Không một
+# assert nào của nó được thực thi, và cổng vẫn in dòng XANH ở cuối. Cùng lỗi ấy
+# với 8095 KHÔNG trống thì tệ hơn nữa: canary lái bundle của lane khác.
+CHUOI_CANARY="KHONG_BAO_GIO_CO_CHUOI_NAY_TREN_MAN"
+DONG_DO_DAU="$(grep -n 'FAILED' "$RA_CANARY" | head -1 || true)"
+case "$DONG_DO_DAU" in
+  *"$CHUOI_CANARY"*) ;;
+  "") hong "canary thoát khác 0 mà không có bước nào FAILED — nó chết trước khi chạy, không phải vì assert cắn." ;;
+  *) echo "--- canary ---" >&2; sed -n '1,40p' "$RA_CANARY" >&2
+     hong "canary đỏ ở bước KHÁC bước cuối ($DONG_DO_DAU). Nó chết vì hạ tầng, nên bảng trên vẫn chưa chứng minh gì." ;;
+esac
+rm -f "$RA_CANARY"
 
 echo "XANH: bảng qua, canary đỏ đúng thiết kế, trên $ANDROID_SERIAL / Expo Go $EXPO_VER"

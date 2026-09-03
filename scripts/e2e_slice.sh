@@ -328,6 +328,36 @@ redeem_a_real_invite() {
     return 1
   fi
   echo "--- POST /sessions tren HTTP that: phien tra dung context_id cua nhom trong loi moi"
+
+  # Va cai id ma nguoi do se bam. `context_id` noi HO O NHOM NAO; `membership_id`
+  # la thu duy nhat bien `invited` thanh `active` duoc, va no chi lay duoc o day:
+  # route liet ke thanh vien nam SAU chinh cai the dang cho dong y.
+  local mem_id state
+  mem_id="$(printf '%s' "$body" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("membership_id",""))')"
+  if [ -z "$mem_id" ]; then
+    echo "phien khong mang membership_id: nguoi duoc moi khong co nut nao bam duoc" >&2
+    return 1
+  fi
+  state="$(printf '%s' "$body" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("membership_state",""))')"
+  if [ "$state" != "invited" ]; then
+    echo "vua doi loi moi ma da '$state' — buoc dong y bi bo qua" >&2
+    return 1
+  fi
+
+  # Bam bang chinh bearer cua phien vua duoc cap, khong phai bang token chu nhom.
+  # Do la ca ADR-0014 muc 8 noi: nguoi duoc goi ten tu dong y, khong phai duoc
+  # duyet. Dung token chu nhom o day se xanh ma khong chung minh gi.
+  local guest_token accepted
+  guest_token="$(printf '%s' "$body" | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])')"
+  accepted="$(curl -fsS -X POST "$API_URL/memberships/$mem_id/accept" \
+      -H "Authorization: Bearer $guest_token" \
+    | python3 -c 'import json,sys;print(json.load(sys.stdin).get("state",""))')" \
+    || { echo "nguoi duoc moi khong tu dong y duoc: POST /memberships/$mem_id/accept hong" >&2; return 1; }
+  if [ "$accepted" != "active" ]; then
+    echo "dong y xong van '$accepted', chua vao duoc nhom" >&2
+    return 1
+  fi
+  echo "--- nguoi duoc moi tu dong y bang bearer cua chinh minh: invited -> active"
   return 0
 }
 

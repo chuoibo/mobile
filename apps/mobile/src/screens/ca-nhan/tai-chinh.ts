@@ -13,6 +13,7 @@
  * rendering anything: the money formatter, the sign, and the failure text.
  */
 import { BASE_URL } from "../../api";
+import { headerNguoiGoi } from "../../danh-tinh";
 
 /** One confirmed arrival, as the server describes it. */
 export type Movement = {
@@ -221,11 +222,7 @@ export async function layTaiChinh(
   let response: Response;
   try {
     response = await fetchImpl(`${BASE_URL}/people/${personId}/finance`, {
-      headers: {
-        "X-Actor-ID": personId,
-        "X-Actor-Roles": "member",
-        Accept: "application/json",
-      },
+      headers: headerNguoiGoi(personId, { roles: "member" }),
     });
   } catch {
     // Names the address it tried. "Không kết nối được" on its own sends

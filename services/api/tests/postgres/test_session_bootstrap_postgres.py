@@ -667,3 +667,63 @@ def test_the_session_names_the_group_the_invitation_belonged_to(
     # guards is answering with the wrong group, not answering with none.
     assert body["context_id"] != str(world.context.id)
     assert body["person_id"] == str(world.newcomer.id)
+
+
+def test_phien_mang_dung_membership_va_nguoi_do_tu_dong_y_duoc(postgres_session):
+    """A session names the row its person may accept, and accepting works.
+
+    Two claims, and the second is the one that matters. `membership_id` is only
+    worth carrying if the client can *do* something with it, and what it must
+    be able to do is exactly one thing: consent for itself. ADR-0014 s8 says a
+    named invitation carries an existing member's choice, so the invitee
+    consents rather than waits -- `accept_context_membership` requires only
+    `is_invitee`.
+
+    Before this field the product had a door that opened onto a wall. Somebody
+    could redeem a real invitation over real HTTP, hold a real session, and
+    then sit at `invited` with no reachable button: `POST /memberships/{id}/
+    accept` needs an id, and the only route that lists memberships is behind
+    the membership being accepted.
+
+    The acceptance is driven THROUGH HTTP with the session's own bearer, not
+    through the service object. A service-level call proves the domain rule and
+    nothing about whether the token this route just minted is accepted by the
+    route the screen calls next -- which is the whole of what a phone does.
+    """
+
+    world = World(postgres_session)
+    token = world.invite()
+    app = _prod_app(postgres_session)
+
+    async def redeem_then_accept():
+        async with _client(app) as client:
+            created = await client.post("/sessions", json={"invite_token": token})
+            if created.status_code != 201:
+                return created, None
+            phien = created.json()
+            accepted = await client.post(
+                f"/memberships/{phien['membership_id']}/accept",
+                headers={"Authorization": f"Bearer {phien['token']}"},
+            )
+            return created, accepted
+
+    created, accepted = anyio.run(redeem_then_accept)
+
+    assert created.status_code == 201
+    phien = created.json()
+    assert phien["membership_state"] == "invited"
+
+    row = world.membership_of(world.newcomer.id)
+    assert row is not None
+    assert phien["membership_id"] == str(row.id)
+    # The owner's row is in the same group, so "any membership here" passes the
+    # line above only if it happens to pick the right one. Say which is wrong.
+    owner_row = world.membership_of(world.owner.id)
+    assert owner_row is not None
+    assert phien["membership_id"] != str(owner_row.id)
+
+    assert accepted is not None
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["state"] == "active"
+    postgres_session.expire_all()
+    assert world.membership_of(world.newcomer.id).state is MembershipState.ACTIVE

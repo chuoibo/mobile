@@ -49,7 +49,15 @@ export function cauSauKhiNhan(
   // waiting on nobody.
   if (qua === "phien") {
     if (state === "active") return "Đã đăng nhập. Bạn đã ở trong nhóm.";
-    return "Đã đăng nhập. Nhóm còn phải duyệt thì bạn mới xem được dữ liệu nhóm.";
+    // NOT "the group still has to approve you". This door is only ever reached
+    // by a NAMED invitation -- `bootstrap_session_from_invite` answers 404 to a
+    // link token, because a link names nobody to issue a session to -- and a
+    // named invitation already carries a member's choice. What is left is this
+    // person's own yes (ADR-0014 s8; `accept_context_membership` asks only
+    // `is_invitee`). The old sentence sent somebody off to wait for an approval
+    // that was never going to come, next to a button that would have let them
+    // in immediately.
+    return "Đã đăng nhập. Bạn được mời đích danh, nên chỉ cần bạn đồng ý là vào nhóm.";
   }
   if (state === "active") return "Bạn đã vào buổi đi.";
   return "Lời mời đã nhận, nhưng nhóm còn phải duyệt thì bạn mới vào được.";

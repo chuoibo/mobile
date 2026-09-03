@@ -1,0 +1,31 @@
+# Tấm chắn của Expo Go, không phải của app này.
+#
+# Lần đầu Expo Go chạy sau khi bị xoá dữ liệu (`adb shell pm clear`, đúng cái
+# `mobile_native.sh --dang-nhap` làm để mỗi lượt bắt đầu từ máy chưa đăng nhập)
+# nó bật một tờ «This is the developer menu» đè lên toàn màn hình. App phía sau
+# render ĐÚNG — ảnh chụp lượt đo 2026-09-03 cho thấy màn nhận lời mời đầy đủ,
+# mã đã điền sẵn — nhưng `assertVisible` vẫn đỏ vì chữ nằm sau tờ đó.
+#
+# Đây đúng kiểu hỏng mà một bộ test chỉ chạy trên máy đã dùng rồi sẽ không bao
+# giờ gặp, và một máy CI sạch thì gặp mọi lượt.
+appId: host.exp.exponent
+---
+# `.*` hai đầu: Maestro khớp text bằng regex TOÀN CHUỖI, nên một mẩu giữa câu
+# đọc thành «không thấy» và bước điều kiện SKIPPED trong khi tờ giấy vẫn nằm đó.
+# Đo ngày 2026-09-03: đúng như vậy — SKIPPED, rồi assert tiếp theo đỏ, kèm ảnh
+# chụp có cả tờ dev menu lẫn màn hình đúng ở phía sau.
+- runFlow:
+    when:
+      visible: ".*This is the developer menu.*"
+    commands:
+      - tapOn: "Continue"
+# «Continue» chỉ đóng tờ giới thiệu; ngay dưới nó là CHÍNH cái dev menu (Reload
+# / Go home / Toggle performance monitor…), vẫn phủ kín màn. Nên bước hai, và nó
+# là một điều kiện RIÊNG chứ không nằm trong nhánh trên: dev menu cũng bật lên
+# ở những lượt không có tờ giới thiệu, và một `pressKey: Back` vô điều kiện thì
+# lượt nào không có nó sẽ bấm Back vào chính app.
+- runFlow:
+    when:
+      visible: ".*Toggle performance monitor.*"
+    commands:
+      - pressKey: Back

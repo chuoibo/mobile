@@ -201,10 +201,25 @@ PATH_SHAPE = re.compile(r"^/[a-z][A-Za-z0-9/_{}.-]*$")
 
 # Top-level declarations. Column 0 only: everything nested inside a function
 # belongs to that function's region, which is exactly what we want.
+#
+# `[^=;]` and not `[^=]` in the arrow-const branch, and the `;` is the whole
+# point. A character class excluding only `=` crosses newlines, so a plain
+# `const MINH_SLUG = "minh";` kept scanning forward for an `=>` and found one
+# three functions later, in a type annotation (`json: () => Promise<unknown>`).
+# The const then claimed all three as its own region: `headers`, `goc` and
+# `docLoi` in `screens/chat/nhom.ts` vanished from the graph, and every route
+# reached through them read as "gọi mà không gửi actor" -- fifteen false
+# accusations at once.
+#
+# What kept it hidden is worth writing down: the swallow only happens when no
+# bare `=` appears before the first `=>`. `headers()` used to open with
+# `const h: Record<string, string> = {`, so the scan stopped one line in and
+# the bug was invisible. Deleting that line -- while making the client MORE
+# correct -- is what exposed it. `CANARY_CONST_NUOT_HAM` pins it.
 DECL = re.compile(
     r"^(?:export\s+)?(?:default\s+)?"
     r"(?:async\s+)?function\s+(?P<fn>[A-Za-z_$][\w$]*)"
-    r"|^(?:export\s+)?const\s+(?P<cn>[A-Za-z_$][\w$]*)\s*[:=][^=]*=>",
+    r"|^(?:export\s+)?const\s+(?P<cn>[A-Za-z_$][\w$]*)\s*[:=][^=;]*=>",
     re.MULTILINE,
 )
 
@@ -585,6 +600,29 @@ def build_graph(files: list[Path]) -> list[Region]:
                 local[localname] = (target, origin)
         scope[path] = local
 
+    # Đi xuyên RE-EXPORT, không chỉ import.
+    #
+    # `scope[f][ten]` trỏ tới `(file, ten)` mà `import` nói. Nếu file đó không
+    # ĐỊNH NGHĨA cái tên ấy mà chỉ chuyền tiếp — `import { x } from "./y";
+    # export { x };` — thì đích tra vào `index` là rỗng, cạnh không hình thành,
+    # và mọi hàm gọi `x` đọc thành "không gửi actor".
+    #
+    # Xảy ra thật ngày 2026-09-03: `headerNguoiGoi` phải rời `api.ts` sang một
+    # file lá `danh-tinh.ts` để gỡ vòng `api.ts -> participants.ts ->
+    # chat/tin-nhan.ts -> api.ts`, `api.ts` re-export nó, và cổng này buộc tội
+    # tám module một lúc — trong khi tất cả đều gửi đủ. Bám theo tới nơi định
+    # nghĩa thật, có chặn vòng để một chuỗi re-export vòng tròn không treo.
+    for f, ten_map in scope.items():
+        for ten, dich in list(ten_map.items()):
+            da_qua = {(f, ten)}
+            while dich not in index and dich[1] in scope.get(dich[0], {}):
+                tiep = scope[dich[0]][dich[1]]
+                if tiep == dich or tiep in da_qua:
+                    break
+                da_qua.add(dich)
+                dich = tiep
+            ten_map[ten] = dich
+
     all_regions = [r for regions in per_file.values() for r in regions]
 
     # Edges. A name is a callee when it appears in call position, which keeps
@@ -833,6 +871,74 @@ CANARY_GOOD = CANARY_BAD.replace(
 # gate: the path lives in a lookup table, so the URL is `${base}${expr}` and the
 # reader cannot name the route. Measured on main 7adf961, this file passed with
 # exit 0 while CANARY_BAD failed with exit 1 -- identical bug, two verdicts.
+# Một hằng ở cấp ngoài cùng KHÔNG được nuốt các hàm đứng sau nó.
+#
+# Đo trên chính cây này ngày 2026-09-03: `const MINH_SLUG = "minh";` trong
+# `screens/chat/nhom.ts` quét tiếp qua ba hàm để tìm `=>` và gặp nó ở
+# `json: () => Promise<unknown>` trong chữ ký `docLoi`. Ba hàm — trong đó có
+# `headers()`, chỗ dựng header của cả file — biến mất khỏi đồ thị, và 15 lời
+# gọi bị buộc tội "không gửi actor" trong khi chúng gửi đủ.
+#
+# Hình dạng ở đây được giữ ĐÚNG như bản gốc, kể cả thứ tự: hằng, rồi hàm dựng
+# header KHÔNG chứa dấu `=` nào, rồi một chữ ký có `=>`. Đổi thứ tự đó là canary
+# thôi tái lập.
+# Re-export phải đi xuyên được. Hai file, và cái thứ hai chỉ chuyền tiếp.
+#
+# Đo ngày 2026-09-03: `headerNguoiGoi` phải rời `api.ts` sang file lá
+# `danh-tinh.ts` để gỡ `Require cycle: api.ts -> participants.ts ->
+# chat/tin-nhan.ts -> api.ts`. `api.ts` re-export nó, mọi màn vẫn import từ
+# `./api` như cũ — và cổng này buộc tội tám module một lúc, vì `(api.ts,
+# headerNguoiGoi)` không còn là một vùng nào cả. Client đúng, cổng đỏ.
+CANARY_REEXPORT = {
+    "danh-tinh.ts": """
+export function headerNguoiGoi(actorId: string): Record<string, string> {
+  return { "X-Actor-ID": actorId };
+}
+""",
+    "api.ts": """
+import { headerNguoiGoi } from "./danh-tinh";
+export { headerNguoiGoi };
+""",
+    "man.ts": """
+import { headerNguoiGoi } from "./api";
+const BASE = "http://x";
+export async function docNhom(actorId: string, ctx: string): Promise<void> {
+  await fetch(`${BASE}/contexts/${ctx}/members`, { headers: headerNguoiGoi(actorId) });
+}
+""",
+}
+
+CANARY_REEXPORT_XAU = {
+    **CANARY_REEXPORT,
+    "man.ts": CANARY_REEXPORT["man.ts"].replace(
+        "headers: headerNguoiGoi(actorId)", 'headers: { Accept: "application/json" }'
+    ),
+}
+
+CANARY_CONST_NUOT_HAM = """
+const BASE = "http://x";
+const SLUG = "minh";
+
+function headers(actorId: string): Record<string, string> {
+  return { "X-Actor-ID": actorId };
+}
+
+function docLoi(res: { json: () => Promise<unknown> }): string {
+  return "x";
+}
+
+export async function docNhom(actorId: string, ctx: string): Promise<void> {
+  await fetch(`${BASE}/contexts/${ctx}/members`, { headers: headers(actorId) });
+}
+"""
+
+# Cặp đỏ của canary trên, dưới cùng phép đo. Không có nó, một `_missing_actor`
+# luôn trả False cũng "đạt" canary sạch — và cái file này tồn tại là để chặn
+# đúng kiểu xanh đó.
+CANARY_CONST_NUOT_HAM_XAU = CANARY_CONST_NUOT_HAM.replace(
+    "{ headers: headers(actorId) }", '{ headers: { Accept: "application/json" } }'
+)
+
 CANARY_BLIND = """
 const BASE = "http://x";
 const ENDPOINTS = { search: "/places/search" };
@@ -850,6 +956,20 @@ def _missing_actor(regions: list[Region]) -> bool:
     """A call site naming `/places/search` and sending no actor header."""
     return any(
         r.requester and "/places/search" in r.paths and not r.actor for r in regions
+    )
+
+
+def _missing_actor_members(regions: list[Region]) -> bool:
+    """A call site naming `/contexts/{}/members` and sending no actor header.
+
+    A second probe rather than a second path in `_missing_actor`, because the
+    pair it reads has to fail for its OWN reason. Widening the existing probe
+    would have made the const-swallow canary pass on the strength of
+    `/places/search`, which is not the route it is about.
+    """
+    return any(
+        r.requester and "/contexts/{}/members" in r.paths and not r.actor
+        for r in regions
     )
 
 
@@ -882,6 +1002,10 @@ def selftest() -> int:
         ("canary sạch", CANARY_GOOD, _missing_actor, False),
         ("canary mù", CANARY_BLIND, _blind_url, True),
         ("canary mù/sạch", CANARY_GOOD, _blind_url, False),
+        ("hằng nuốt hàm/sạch", CANARY_CONST_NUOT_HAM, _missing_actor_members, False),
+        ("hằng nuốt hàm/xấu", CANARY_CONST_NUOT_HAM_XAU, _missing_actor_members, True),
+        ("re-export/sạch", CANARY_REEXPORT, _missing_actor_members, False),
+        ("re-export/xấu", CANARY_REEXPORT_XAU, _missing_actor_members, True),
     ):
         tmp = Path(tempfile.mkdtemp(prefix="actor-canary-"))
         # Cố ý KHÔNG ghi vào CLIENT_DIR. `build_graph` nhận thẳng danh sách file
@@ -889,10 +1013,15 @@ def selftest() -> int:
         # vào đó và cây client thật bẩn trong lúc mỗi lượt gate chạy, đủ để bộ
         # đọc của lane khác thấy và buộc tội sản phẩm. Thư mục tạm này vốn đã
         # được tạo sẵn ở dòng trên mà không ai dùng — đây là chỗ nó phải dùng.
-        target = tmp / "__actor_canary__.ts"
+        # `source` là một chuỗi (một file) hoặc dict {tên: nguồn} khi canary
+        # nói về QUAN HỆ giữa các file — re-export chẳng hạn, thứ không tồn tại
+        # bên trong một file đơn.
+        nguon = source if isinstance(source, dict) else {"__actor_canary__.ts": source}
+        targets = [tmp / ten for ten in nguon]
         try:
-            target.write_text(source, encoding="utf-8")
-            regions = build_graph([target])
+            for duong, than in zip(targets, nguon.values()):
+                duong.write_text(than, encoding="utf-8")
+            regions = build_graph(targets)
             got = probe(regions)
             mark = "ĐẠT" if got == want_violation else "HỎNG"
             if got != want_violation:
@@ -903,7 +1032,8 @@ def selftest() -> int:
                 f"(mong đợi {'có' if want_violation else 'không có'})"
             )
         finally:
-            target.unlink(missing_ok=True)
+            for duong in targets:
+                duong.unlink(missing_ok=True)
             shutil.rmtree(tmp, ignore_errors=True)
 
     print()

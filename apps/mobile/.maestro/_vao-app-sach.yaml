@@ -18,6 +18,11 @@ appId: host.exp.exponent
 - stopApp
 - openLink: exp://localhost:8095
 - openLink: exp://localhost:8095
+# Sau khi mở app, KHÔNG phải trước. Tấm chắn dev menu của Expo Go chỉ tồn tại
+# khi app đang chạy; đặt nó ở đầu file thì nó chạy lúc app còn chưa mở, hai
+# nhánh điều kiện đều SKIPPED, rồi app mở lên kèm tờ giấy và phép chờ ngay dưới
+# đây đỏ. Đo ngày 2026-09-03: đúng trình tự đó.
+- runFlow: _bo-qua-dev-menu.yaml
 - extendedWaitUntil:
     visible: "Rủ Đi thôi!"
     timeout: 150000

@@ -29,7 +29,8 @@
  * roster does not know falls back to a neutral label -- never to the fixture
  * roster, which would put a demo person's name on a real person's debt.
  */
-import { docSoDu } from "../api";
+import { ApiError, docSoDu, thongDiepNguoiDoc } from "../api";
+import { headerNguoiGoi } from "../danh-tinh";
 import { moNhomDaCo, type NhomState } from "../screens/chat/nhom";
 
 /** A person the server named, or admitted it could not name. */
@@ -84,13 +85,15 @@ function tongTuRecap(wire: unknown): number | null {
 async function docTongChuyen(contextId: string, actorId: string, base: string): Promise<number | null> {
   try {
     const res = await fetch(`${base}/contexts/${contextId}/recap`, {
-      headers: {
-        "Content-Type": "application/json",
-        "X-Actor-ID": actorId,
-        "X-Actor-Roles": "member",
-        "X-Actor-Contexts": contextId,
-      },
+      headers: headerNguoiGoi(actorId, { roles: "member", contexts: contextId }),
     });
+    // 401 is not "the server has no total for this group". It is "this request
+    // was not signed in", and printing the first sentence for the second fact
+    // is the exact lie this branch exists to remove -- it is how the missing
+    // bearer stayed invisible in the first place. Let it travel.
+    if (res.status === 401) {
+      throw new ApiError(401, "unauthorized", thongDiepNguoiDoc(401, null));
+    }
     if (!res.ok) return null;
     return tongTuRecap(await res.json());
   } catch {

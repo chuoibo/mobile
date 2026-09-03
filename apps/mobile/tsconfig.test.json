@@ -260,6 +260,12 @@
     // GIỜ tự tới — phải có người gõ cấu hình vào. Một cổng đọc nguồn không phân
     // biệt được "không thăm dò máy chủ" với "chưa kịp viết đoạn thăm dò".
     "src/rudi/nguon.ts",
+    // Đường tiền của màn Quyết toán ở chế độ live. Compile chứ không đọc
+    // nguồn vì luật nó mang chỉ đo được trên một máy chủ THẬT ở chế độ prod:
+    // request phải tự mang bearer. Đọc nguồn thấy `headerNguoiGoi(...)` là
+    // xong, nhưng đó là đo cách viết; cái hỏng là 401 trên host thật, và chỉ
+    // `tests/e2e/vertical-slice.test.mjs` gọi được nó qua HTTP để biết.
+    "src/rudi/doc-live.ts",
     "src/rudi/money.ts",
     "src/rudi/places.ts",
     "src/rudi/vote.ts"

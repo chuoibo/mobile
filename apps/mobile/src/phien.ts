@@ -55,6 +55,15 @@ export type Phien = {
    *  on nobody. Without this the screen would have to pick one sentence and be
    *  wrong for half the people reading it. */
   membership_state: "invited" | "active" | "left";
+  /** The membership row this person may accept for themselves.
+   *
+   *  A named invitation is an existing member's choice, so the person named in
+   *  it consents rather than waits (ADR-0014 s8). Consenting means calling
+   *  `POST /memberships/{id}/accept`, and until the server answered with this
+   *  id there was no way to name the row: the roster route that lists it is
+   *  behind the very membership being accepted. Without it `invited` was a
+   *  dead end -- signed in, and nothing on the screen could ever change it. */
+  membership_id: string;
 };
 
 /** Where a secret is kept between launches. */
@@ -135,12 +144,20 @@ function docPhien(thoLuu: string | null): Phien | null {
     if (typeof parsed.context_id !== "string" || parsed.context_id === "") return null;
     if (typeof parsed.expires_at !== "string") return null;
     if (typeof parsed.membership_state !== "string") return null;
+    // Same reasoning as `context_id` above: a record written before the server
+    // named the membership row cannot take an `invited` person any further, so
+    // it is refused rather than kept. Signing back in is recoverable; a button
+    // that can never work is not.
+    if (typeof parsed.membership_id !== "string" || parsed.membership_id === "") {
+      return null;
+    }
     return {
       token: parsed.token,
       person_id: parsed.person_id,
       context_id: parsed.context_id,
       expires_at: parsed.expires_at,
       membership_state: parsed.membership_state,
+      membership_id: parsed.membership_id,
     };
   } catch {
     // A corrupted record is a signed-out app, not a crashed one.
@@ -167,6 +184,44 @@ export async function doiLoiMoiLayPhien(
   });
   await ghiNho(phien, kho);
   return phien;
+}
+
+const LOI_VAO_NHOM: Record<string, string> = {
+  // The row is gone, or was never this person's. Both read the same from here.
+  http_404: "Lời mời này không còn hiệu lực. Nhờ người trong nhóm mời lại.",
+  // Somebody already accepted, or the row moved on. Not an error worth a
+  // scary sentence -- the next screen will show where they actually stand.
+  http_409: "Trạng thái nhóm vừa đổi. Mở lại màn hình để xem hiện tại.",
+};
+
+/**
+ * Consent to the membership this session was issued for, and remember it.
+ *
+ * Why the invitee presses this at all: a named invitation carries an existing
+ * member's choice of a person, so the remaining question is that person's own
+ * consent, not a second approval (ADR-0014 s8, `accept_context_membership`
+ * requires `is_invitee`). A link invitation is the other shape and is not this
+ * function's business -- there a member who is already in must approve.
+ *
+ * The stored record is rewritten from the SERVER's answer rather than being
+ * patched to `"active"` locally. The two differ whenever the server declined
+ * to move the row, and a local patch would leave the phone believing it is in
+ * a group it is not -- which `nguon.ts` reads as permission to show group
+ * money.
+ */
+export async function vaoNhom(phien: Phien, kho?: KhoAnToan): Promise<Phien> {
+  const wire = await translatedAsActor<{ state: "invited" | "active" | "left" }>(
+    LOI_VAO_NHOM,
+    `/memberships/${phien.membership_id}/accept`,
+    // No `contexts` claim. The route reads `membership_id` and asks only
+    // `is_invitee`; claiming membership of a group this person has not joined
+    // yet would be a false sentence on a `dev` host and ignored on a `prod`
+    // one, so it is worth nothing and costs a lie.
+    { method: "POST", actorId: phien.person_id },
+  );
+  const moi: Phien = { ...phien, membership_state: wire.state };
+  await ghiNho(moi, kho);
+  return moi;
 }
 
 /** Put a session into force for this process, and onto the device. */

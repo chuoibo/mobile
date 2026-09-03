@@ -1,5 +1,6 @@
 /** Wire contract for the four group-understanding reads. */
 import { tienVnd } from "../len-plan/ngan-sach";
+import { headerNguoiGoi } from "../../danh-tinh";
 import { chiTietLoi } from "../../ui/loi-tren-man";
 
 declare const process: { env: Record<string, string | undefined> };
@@ -152,21 +153,15 @@ async function goiRoute<T>(
   try {
     response = await fetchImpl(url, {
       method: "GET",
-      headers: {
-        "X-Actor-ID": actorId,
-        // All four permissions in `app/domain/permissions.py` --
-        // view_group_preference_profile, view_group_suggestion,
-        // view_contextual_suggestion, view_group_budget -- read
-        // `"roles": {"group_admin", "member"}`, so the id alone is refused:
-        // measured against the live stack, X-Actor-ID on its own returns 403
-        // `role_not_permitted` on every one of them. The same pair the
-        // neighbouring group screens send (`chat/nhom.ts`, `chat/tin-nhan.ts`),
-        // and no wider: these are reads, and membership is still checked
-        // server-side against the rows, so a claimed role buys a non-member
-        // nothing.
-        "X-Actor-Roles": "group_admin,member",
-        Accept: "application/json",
-      },
+      // All four permissions in `app/domain/permissions.py` --
+      // view_group_preference_profile, view_group_suggestion,
+      // view_contextual_suggestion, view_group_budget -- read
+      // `"roles": {"group_admin", "member"}`, so the id alone is refused in
+      // `dev`: measured against the live stack, X-Actor-ID on its own returns
+      // 403 `role_not_permitted` on every one of them. In `prod` the roles come
+      // from the session and this claim is ignored, which is why the builder
+      // drops it there rather than each caller deciding.
+      headers: headerNguoiGoi(actorId, { roles: "group_admin,member" }),
     });
   } catch (problem) {
     return {

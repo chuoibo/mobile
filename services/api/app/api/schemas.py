@@ -635,6 +635,29 @@ class SessionResponse(ApiModel):
     #: is `invited` and still waiting on a member, while somebody signing back
     #: in on a new phone is `active` and is not waiting on anybody.
     membership_state: Literal["invited", "active", "left"]
+    #: The membership row this session's person may consent for.
+    #:
+    #: Carried for the same reason as `context_id` one field up, and it closes
+    #: the same kind of gap. A named invitation means an existing member chose
+    #: this person BY NAME, so ADR-0014 s8 lets the invitee consent for
+    #: themselves -- `accept_context_membership` requires only `is_invitee`.
+    #: But consenting means calling `POST /memberships/{membership_id}/accept`,
+    #: and a client that is told only who it is and which group cannot name the
+    #: row: `GET /contexts/{id}/members` is behind the very membership being
+    #: accepted, so the id is unreachable until after it is no longer needed.
+    #:
+    #: Without this field the product had a door that opened onto a wall.
+    #: Somebody could redeem a real invitation, get a real session, and then
+    #: sit at `invited` forever with no button that could work.
+    #:
+    #: Free of charge: `ensure_invited_membership` returns the row, so this is
+    #: a field on an object already in hand rather than a second query.
+    #:
+    #: `OutingInviteAcceptResponse` has answered with `membership_id` all
+    #: along -- the LINK door has always named the row. The named door was the
+    #: one that did not, which is the same asymmetry `context_id` fixed one
+    #: field up, found the same way.
+    membership_id: UUID
 
 
 class MembershipInviteRequest(ApiModel):
