@@ -654,6 +654,70 @@ class ProfileSummary(ApiModel):
     display_name: StrictStr
 
 
+class ProfileCountsResponse(ApiModel):
+    friends: int
+    contexts: int
+    outings: int
+    places_checked_in: int
+    memories: int
+
+
+class ProfileResponse(ApiModel):
+    """The caller's own profile: text they wrote, numbers the server counted,
+    and which doors they have signed in through."""
+
+    id: UUID
+    display_name: StrictStr
+    bio: StrictStr | None
+    city: StrictStr | None
+    created_at: datetime
+    counts: ProfileCountsResponse
+    login_methods: list[StrictStr]
+
+
+class ProfileUpdateRequest(ApiModel):
+    """A partial update. At least one field, and no field this model does not
+    name (`extra=forbid` on `ApiModel`). Empty `bio`/`city` clears the field."""
+
+    display_name: Annotated[StrictStr, Field(min_length=1, max_length=200)] | None = (
+        None
+    )
+    bio: Annotated[StrictStr, Field(max_length=500)] | None = None
+    city: Annotated[StrictStr, Field(max_length=120)] | None = None
+
+    @model_validator(mode="after")
+    def _something_to_change(self) -> ProfileUpdateRequest:
+        if self.display_name is None and self.bio is None and self.city is None:
+            raise ValueError("cần ít nhất một trường để sửa")
+        if self.display_name is not None and not self.display_name.strip():
+            raise ValueError("tên hiển thị không được rỗng")
+        return self
+
+
+class PublicPersonResponse(ApiModel):
+    """What a friend or a groupmate may see of somebody. No counts, no login
+    methods, no telephone number -- the profile is the person's, the view is
+    the reader's."""
+
+    id: UUID
+    display_name: StrictStr
+    bio: StrictStr | None
+    city: StrictStr | None
+    created_at: datetime
+    relation: Literal["self", "friend", "groupmate"]
+
+
+class SavedPlaceSummary(ApiModel):
+    place_id: StrictStr
+    name: StrictStr
+    category: StrictStr
+    saved_at: datetime
+
+
+class SavedPlacesResponse(ApiModel):
+    saved: list[SavedPlaceSummary]
+
+
 class OtpRequestResponse(ApiModel):
     """A challenge was issued. The code went to the phone, never into this body."""
 

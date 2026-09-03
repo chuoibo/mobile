@@ -147,7 +147,11 @@ from app.api.schemas import (
     PreferenceProfileResponse,
     PreferenceSection,
     PreferenceTaste,
+    ProfileCountsResponse,
+    ProfileResponse,
     ProfileSummary,
+    ProfileUpdateRequest,
+    PublicPersonResponse,
     PublishedGuestLink,
     PublishedObligation,
     ReadMarkRequest,
@@ -157,6 +161,8 @@ from app.api.schemas import (
     ReceiptConfirmationResponse,
     ReelPick,
     ReelResponse,
+    SavedPlacesResponse,
+    SavedPlaceSummary,
     SessionResponse,
     SettlementTransferProposal,
     SocialMapResponse,
@@ -2851,6 +2857,147 @@ class ApiService:
         )
         return self._session_response(
             raw_token, record, person_id=person_id, is_new_person=is_new
+        )
+
+    # --- profile and bookmarks (M2) -----------------------------------------
+
+    def get_my_profile(self, actor: Actor) -> ProfileResponse:
+        _require_permission("view_own_profile", actor, {"is_self": True})
+        person = self.repository.get_person(actor.id)
+        if person is None:
+            raise ApiProblem(
+                404, "person_not_found", "Chưa có hồ sơ cho tài khoản này."
+            )
+        return self._profile_response(person)
+
+    def update_my_profile(
+        self, request: ProfileUpdateRequest, actor: Actor
+    ) -> ProfileResponse:
+        """Partial update of the caller's own text. `display_name` is trimmed
+        and never blank (the schema refuses blank); an empty `bio`/`city`
+        clears the field, which is the only way to take a sentence back."""
+        _require_permission("edit_own_profile", actor, {"is_self": True})
+        changes: dict[str, str | None] = {}
+        if request.display_name is not None:
+            changes["display_name"] = request.display_name.strip()
+        if request.bio is not None:
+            changes["bio"] = request.bio.strip() or None
+        if request.city is not None:
+            changes["city"] = request.city.strip() or None
+        person = self.repository.update_person_profile(actor.id, changes=changes)
+        if person is None:
+            raise ApiProblem(
+                404, "person_not_found", "Chưa có hồ sơ cho tài khoản này."
+            )
+        return self._profile_response(person)
+
+    def _profile_response(self, person: PersonRecord) -> ProfileResponse:
+        counts = self.repository.profile_counts(person.id)
+        return ProfileResponse(
+            id=person.id,
+            display_name=person.display_name,
+            bio=person.bio,
+            city=person.city,
+            created_at=person.created_at,
+            counts=ProfileCountsResponse(
+                friends=counts.friends,
+                contexts=counts.contexts,
+                outings=counts.outings,
+                places_checked_in=counts.places_checked_in,
+                memories=counts.memories,
+            ),
+            login_methods=self.repository.list_login_providers(person.id),
+        )
+
+    def get_person_profile(
+        self, person_id: uuid.UUID, actor: Actor
+    ) -> PublicPersonResponse:
+        """Somebody's public profile, for a friend or a groupmate.
+
+        The relation is proved from the friend graph and the roster BEFORE the
+        person row is read, and an id nobody may see answers 403
+        `person_not_visible` whether or not it exists. Reading the row first
+        would make the 404/403 split an oracle for which ids are people.
+        """
+        if person_id == actor.id:
+            relation = "self"
+        elif self.repository.are_friends(actor.id, person_id):
+            relation = "friend"
+        elif self.repository.share_active_context(actor.id, person_id):
+            relation = "groupmate"
+        else:
+            relation = None
+        try:
+            _require_permission(
+                "view_person_profile",
+                actor,
+                {
+                    "is_visible_person": relation is not None,
+                    "resource_id": str(person_id),
+                },
+            )
+        except ApiProblem as denied:
+            raise ApiProblem(
+                403, "person_not_visible", "Không xem được hồ sơ này."
+            ) from denied
+        assert relation is not None
+        person = self.repository.get_person(person_id)
+        if person is None:
+            # Only reachable for `self` without a people row: the other two
+            # relations are proved from rows that reference this person.
+            raise ApiProblem(
+                404, "person_not_found", "Chưa có hồ sơ cho tài khoản này."
+            )
+        return PublicPersonResponse(
+            id=person.id,
+            display_name=person.display_name,
+            bio=person.bio,
+            city=person.city,
+            created_at=person.created_at,
+            relation=relation,
+        )
+
+    def list_saved_places(self, actor: Actor) -> SavedPlacesResponse:
+        _require_permission("manage_saved_places", actor, {"is_self": True})
+        saved = []
+        for record in self.repository.list_saved_places(actor.id):
+            place = find_place(record.place_id)
+            # A bookmark whose catalogue row is gone is not shown rather than
+            # shown with a made-up name; the row stays for when it comes back.
+            if place is not None:
+                saved.append(self._saved_place_summary(record, place))
+        return SavedPlacesResponse(saved=saved)
+
+    def save_place(self, place_id: str, actor: Actor) -> tuple[SavedPlaceSummary, bool]:
+        _require_permission("manage_saved_places", actor, {"is_self": True})
+        place = self._known_place(place_id)
+        record, created = self.repository.save_place(actor.id, place_id, _now())
+        return self._saved_place_summary(record, place), created
+
+    def unsave_place(self, place_id: str, actor: Actor) -> None:
+        """Idempotent: removing a bookmark that is not there is still «not
+        there», so the route answers 204 either way. An unknown catalogue key is
+        the one thing refused, because it can only be a client bug."""
+        _require_permission("manage_saved_places", actor, {"is_self": True})
+        self._known_place(place_id)
+        self.repository.unsave_place(actor.id, place_id)
+
+    @staticmethod
+    def _known_place(place_id: str) -> dict:
+        place = find_place(place_id)
+        if place is None:
+            raise ApiProblem(
+                404, "place_not_found", "Không có địa điểm này trong danh mục."
+            )
+        return place
+
+    @staticmethod
+    def _saved_place_summary(record, place: dict) -> SavedPlaceSummary:
+        return SavedPlaceSummary(
+            place_id=record.place_id,
+            name=place["name"],
+            category=place["category"],
+            saved_at=record.created_at,
         )
 
     def _session_response(
