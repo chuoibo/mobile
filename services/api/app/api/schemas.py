@@ -599,6 +599,69 @@ class OutingInviteAcceptResponse(ApiModel):
     membership_state: Literal["invited", "active"]
 
 
+class ContextLastMessage(ApiModel):
+    """The newest message of a group, reduced to what a list row shows."""
+
+    id: UUID
+    kind: Literal["text", "image", "ai_card"]
+    preview: StrictStr
+    author_id: UUID | None
+    author_display_name: StrictStr | None
+    created_at: datetime
+
+
+class ContextSummary(ApiModel):
+    """One group in a person's conversation list.
+
+    `my_state` is `invited` or `active` only -- a group you left is not a
+    conversation you are in. `membership_id` is here so an invitee can consent
+    for themselves (`POST /memberships/{id}/accept`, ADR-0014 s8) without a
+    roster route that is itself behind the membership. `unread_count` is
+    derived from `context_read_marks` and the feed on every read; nothing
+    stores it.
+    """
+
+    id: UUID
+    display_name: StrictStr
+    member_count: Annotated[int, Field(strict=True, ge=0)]
+    my_role: Literal["member", "admin"]
+    my_state: Literal["invited", "active"]
+    membership_id: UUID
+    joined_at: datetime | None
+    last_message: ContextLastMessage | None
+    unread_count: Annotated[int, Field(strict=True, ge=0)]
+
+
+class PersonContextListResponse(ApiModel):
+    contexts: list[ContextSummary]
+
+
+class ReadMarkRequest(ApiModel):
+    """The message the reader has seen up to; the mark never moves backwards."""
+
+    message_id: UUID
+
+
+class ReadMarkResponse(ApiModel):
+    context_id: UUID
+    last_read_message_id: UUID
+    unread_count: Annotated[int, Field(strict=True, ge=0)]
+
+
+class ProfileSummary(ApiModel):
+    """What a session holder is called. Nothing else is derived from it."""
+
+    display_name: StrictStr
+
+
+class OtpRequestResponse(ApiModel):
+    """A challenge was issued. The code went to the phone, never into this body."""
+
+    challenge_id: UUID
+    expires_in_seconds: Annotated[int, Field(strict=True, gt=0)]
+    resend_after_seconds: Annotated[int, Field(strict=True, ge=0)]
+
+
 class SessionBootstrapRequest(ApiModel):
     """One field: the secret written on a named invitation.
 
@@ -617,7 +680,19 @@ class SessionResponse(ApiModel):
     token: str
     person_id: UUID
     expires_at: datetime
-    #: The group the invitation belonged to.
+    #: Which door minted this session (ADR-0016): `invite` for a redeemed
+    #: named invitation, `otp` / `google` for the two self-serve doors,
+    #: `genesis` for the out-of-band first session on a clean host.
+    issued_via: Literal["invite", "otp", "google", "genesis"]
+    #: True when this door just created the `people` row -- the client sends
+    #: the person to name themselves instead of into a group they do not have.
+    is_new_person: StrictBool = False
+    profile: ProfileSummary
+    #: Every group this person is in or invited to, so a client told who it is
+    #: is also told where it may go. Same rows as `GET /people/me/contexts`.
+    contexts: list[ContextSummary]
+    #: The group the invitation belonged to. `None` for doors that are not an
+    #: invitation (OTP, Google): those sessions may belong to no group yet.
     #:
     #: Carried because a session without it is a session that cannot show
     #: anybody anything. Signing in happens by redeeming an invitation to a
@@ -628,13 +703,13 @@ class SessionResponse(ApiModel):
     #:
     #: `OutingInviteAcceptResponse` already answers with `context_id` for the
     #: link door. This makes the two doors say the same thing.
-    context_id: UUID
+    context_id: UUID | None
     #: Where this person stands in the group the invitation belonged to.
     #: Carried so the screen can say one true sentence instead of guessing:
     #: signing in is not joining, and somebody redeeming their first invitation
     #: is `invited` and still waiting on a member, while somebody signing back
     #: in on a new phone is `active` and is not waiting on anybody.
-    membership_state: Literal["invited", "active", "left"]
+    membership_state: Literal["invited", "active", "left"] | None
     #: The membership row this session's person may consent for.
     #:
     #: Carried for the same reason as `context_id` one field up, and it closes
@@ -656,8 +731,8 @@ class SessionResponse(ApiModel):
     #: `OutingInviteAcceptResponse` has answered with `membership_id` all
     #: along -- the LINK door has always named the row. The named door was the
     #: one that did not, which is the same asymmetry `context_id` fixed one
-    #: field up, found the same way.
-    membership_id: UUID
+    #: field up, found the same way. `None` when the door was not an invitation.
+    membership_id: UUID | None
 
 
 class MembershipInviteRequest(ApiModel):

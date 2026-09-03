@@ -1746,6 +1746,45 @@ class Message(Base):
     )
 
 
+class ContextReadMark(Base):
+    """How far one person has read in one group's conversation.
+
+    One row per (context, person), moved only forward. The mark stores the
+    `created_at` of the last read message beside its id so "newer than the
+    mark" is the same keyset comparison the message feed already uses, with no
+    join back into `messages`. `updated_at` is when the person moved it;
+    `last_read_at` is the message's own time -- two clocks, kept apart.
+
+    Unread counts are DERIVED from this row and the feed, never stored: a
+    stored counter is a second source of truth that drifts the first time a
+    message is written without touching it.
+    """
+
+    __tablename__ = "context_read_marks"
+
+    context_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("contexts.id", name="fk_context_read_marks_context"),
+        primary_key=True,
+    )
+    person_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_context_read_marks_person"),
+        primary_key=True,
+    )
+    last_read_message_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("messages.id", name="fk_context_read_marks_message"),
+        nullable=False,
+    )
+    last_read_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class FriendRequestState(StrEnum):
     """F04's four states, spelled the way the spec spells them.
 
@@ -1944,6 +1983,82 @@ class Post(Base):
     )
 
 
+class OtpChallenge(Base):
+    """One code sent to one phone, and how it was spent (ADR-0016).
+
+    Neither the number nor the code is stored: `phone_digest` is an HMAC of the
+    canonical number under `MOBILE_PERSON_ID_KEY` (the same key `people.id` is
+    derived from, so it reveals nothing that table does not), and `code_digest`
+    is an HMAC salted by this row's own id. A dump of this table is a table of
+    digests, not of numbers.
+
+    `attempts` is written on every wrong guess and the row is `consumed_at` on
+    success or on the guess that burns it, so a challenge cannot be replayed
+    across processes -- the fixed-window limiters are per process, this is
+    not.
+    """
+
+    __tablename__ = "otp_challenges"
+    __table_args__ = (
+        CheckConstraint("expires_at > created_at", name="expiry_after_creation"),
+        CheckConstraint("attempts >= 0", name="attempts_not_negative"),
+        Index("ix_otp_challenges_phone_recent", "phone_digest", desc("created_at")),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    phone_digest: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
+    code_digest: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0", default=0
+    )
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AccountIdentity(Base):
+    """One external proof of identity bound to one person (ADR-0016).
+
+    `provider` = `phone` (subject: hex of the phone digest) or `google`
+    (subject: Google's `sub`). Unique per (provider, subject) so a proof can
+    belong to one person only. Nothing here ever merges two people: a Google
+    `sub` seen for the first time creates a new person; linking a phone to a
+    Google-born account is a separate, consented flow that does not exist yet.
+    """
+
+    __tablename__ = "account_identities"
+    __table_args__ = (
+        CheckConstraint("provider IN ('phone', 'google')", name="provider_known"),
+        UniqueConstraint(
+            "provider", "subject", name="uq_account_identities_provider_subject"
+        ),
+        Index("ix_account_identities_person", "person_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    person_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_account_identities_person"),
+        nullable=False,
+    )
+    provider: Mapped[str] = mapped_column(String(16), nullable=False)
+    subject: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    last_login_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
 class AccountSession(Base):
     """A bearer session for a person; only a SHA-256 token digest is persisted.
 
@@ -1962,6 +2077,17 @@ class AccountSession(Base):
     __tablename__ = "account_sessions"
     __table_args__ = (
         CheckConstraint("expires_at > created_at", name="expiry_after_creation"),
+        # ADR-0016: every session says which door minted it, and the invite
+        # door is the only one that carries an invite id. Two rules, both in
+        # the database, so a row cannot claim one provenance and carry another.
+        CheckConstraint(
+            "issued_via IN ('invite', 'otp', 'google', 'genesis')",
+            name="issued_via_known",
+        ),
+        CheckConstraint(
+            "(issued_via = 'invite') = (issued_from_invite_id IS NOT NULL)",
+            name="invite_matches_via",
+        ),
         Index("ix_account_sessions_person", "person_id"),
     )
 
@@ -1980,6 +2106,14 @@ class AccountSession(Base):
         UUID(as_uuid=True),
         ForeignKey("outing_invites.id", name="fk_account_sessions_invite"),
         nullable=True,
+    )
+    #: How the holder proved who they are: `invite` (a member named them and
+    #: they redeemed the secret), `otp` / `google` (ADR-0016 doors), `genesis`
+    #: (seeded out of band on a clean host). Kept beside `issued_from_invite_id`
+    #: rather than replacing it: the id says WHICH invitation, this says WHAT KIND
+    #: of proof, and an audit wants both.
+    issued_via: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="invite", default="invite"
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

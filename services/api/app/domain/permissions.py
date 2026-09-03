@@ -181,6 +181,10 @@ _TABLE: dict[str, dict] = {
     # Reading your own graph. `is_self` keeps one member from listing another
     # member's friends -- the social graph is the person's, not the group's.
     "view_own_friends": {"roles": {"member"}, "requires": ("is_self",)},
+    # A person's own conversation list. `member` is granted to every signed-in
+    # person before any membership exists (see `actor_grants`), so a brand-new
+    # OTP account may ask and be told "no groups yet" rather than 403.
+    "view_own_contexts": {"roles": {"member"}, "requires": ("is_self",)},
     # Resolving a telephone number the caller already holds to a person id.
     # No predicate beyond membership of the product, because the caller is
     # asking about a number they typed. What keeps this from being a directory

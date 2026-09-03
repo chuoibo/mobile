@@ -21,6 +21,7 @@ from app.api.errors import RepositoryConflict
 from app.api.limits import OBJECTION_LIMIT, REPORT_LIMIT
 from app.api.schemas import ExpenseInput
 from app.db.models import (
+    AccountIdentity,
     AccountSession,
     AuditEvent,
     Bill,
@@ -37,6 +38,7 @@ from app.db.models import (
     CollectionObligationSource,
     ConfirmedAllocation,
     Context,
+    ContextReadMark,
     Expense,
     ExpenseDiscount,
     ExpenseItem,
@@ -57,6 +59,7 @@ from app.db.models import (
     MemoryReaction,
     Message,
     MessageKind,
+    OtpChallenge,
     Outing,
     OutingInvite,
     OutingInviteSource,
@@ -356,6 +359,8 @@ class AccountSessionRecord:
     id: uuid.UUID
     person_id: uuid.UUID
     issued_from_invite_id: uuid.UUID | None
+    #: `invite` | `otp` | `google` | `genesis` -- which door minted it (ADR-0016).
+    issued_via: str
     created_at: datetime
     expires_at: datetime
     revoked_at: datetime | None
@@ -392,6 +397,68 @@ class MessageRecord:
 class MessagePage:
     messages: tuple[MessageRecord, ...]
     has_more: bool
+
+
+@dataclass(frozen=True, slots=True)
+class LastMessageRecord:
+    """The newest message of a group, as a conversation list shows it."""
+
+    id: uuid.UUID
+    kind: str
+    preview: str
+    author_id: uuid.UUID | None
+    author_display_name: str | None
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class PersonContextSummaryRecord:
+    """One group as seen from one person's conversation list.
+
+    `my_state` is `invited` or `active`, never `left`: a group somebody left is
+    not a conversation they are in. `membership_id` is carried so an invitee
+    can consent for themselves (ADR-0014 s8) without a roster route that is
+    itself behind the membership.
+    """
+
+    id: uuid.UUID
+    display_name: str
+    member_count: int
+    my_role: str
+    my_state: str
+    membership_id: uuid.UUID
+    joined_at: datetime | None
+    last_message: LastMessageRecord | None
+    unread_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class OtpChallengeRecord:
+    id: uuid.UUID
+    phone_digest: bytes
+    code_digest: bytes
+    created_at: datetime
+    expires_at: datetime
+    attempts: int
+    consumed_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class AccountIdentityRecord:
+    id: uuid.UUID
+    person_id: uuid.UUID
+    provider: str
+    subject: str
+    created_at: datetime
+    last_login_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ReadMarkRecord:
+    context_id: uuid.UUID
+    person_id: uuid.UUID
+    last_read_message_id: uuid.UUID
+    last_read_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -924,6 +991,7 @@ class ApiRepository(Protocol):
         issued_from_invite_id: uuid.UUID | None,
         expires_at: datetime,
         now: datetime,
+        issued_via: str | None = None,
     ) -> AccountSessionRecord: ...
 
     def get_account_session_by_digest(
@@ -935,6 +1003,57 @@ class ApiRepository(Protocol):
     ) -> AccountSessionRecord | None: ...
 
     def actor_grants(self, person_id: uuid.UUID) -> ActorGrants: ...
+
+    def list_person_context_summaries(
+        self, person_id: uuid.UUID
+    ) -> list[PersonContextSummaryRecord]: ...
+
+    def get_read_mark(
+        self, context_id: uuid.UUID, person_id: uuid.UUID
+    ) -> ReadMarkRecord | None: ...
+
+    def set_read_mark(
+        self,
+        *,
+        context_id: uuid.UUID,
+        person_id: uuid.UUID,
+        message: MessageRecord,
+        now: datetime,
+    ) -> ReadMarkRecord: ...
+
+    def count_unread_messages(
+        self, context_id: uuid.UUID, person_id: uuid.UUID
+    ) -> int: ...
+
+    def create_otp_challenge(
+        self,
+        *,
+        challenge_id: uuid.UUID,
+        phone_digest: bytes,
+        code_digest: bytes,
+        expires_at: datetime,
+        now: datetime,
+    ) -> OtpChallengeRecord: ...
+
+    def recent_otp_challenges(
+        self, phone_digest: bytes, since: datetime
+    ) -> list[OtpChallengeRecord]: ...
+
+    def get_otp_challenge(
+        self, challenge_id: uuid.UUID
+    ) -> OtpChallengeRecord | None: ...
+
+    def record_otp_attempt(
+        self, *, challenge_id: uuid.UUID, attempts: int, consumed: bool, now: datetime
+    ) -> OtpChallengeRecord | None: ...
+
+    def get_account_identity(
+        self, provider: str, subject: str
+    ) -> AccountIdentityRecord | None: ...
+
+    def upsert_account_identity(
+        self, *, person_id: uuid.UUID, provider: str, subject: str, now: datetime
+    ) -> AccountIdentityRecord: ...
 
     def ensure_invited_membership(
         self,
@@ -1281,6 +1400,24 @@ class ApiRepository(Protocol):
     ) -> list[FriendEdgeRecord]: ...
 
     def list_friends(self, person_id: uuid.UUID) -> list[FriendEdgeRecord]: ...
+
+
+def _message_preview(kind, body, card) -> str:
+    """One line a conversation list can show without reading the message."""
+    kind_value = kind.value if hasattr(kind, "value") else str(kind)
+    if kind_value == "image":
+        return "[Ảnh]"
+    if kind_value == "ai_card":
+        card_kind = (card or {}).get("kind") if isinstance(card, dict) else None
+        labels = {
+            "itinerary": "[Rủ Đi AI: lịch trình]",
+            "places": "[Rủ Đi AI: gợi ý địa điểm]",
+            "poll": "[Bình chọn]",
+            "expense_draft": "[Rủ Đi AI: bản nháp khoản chi]",
+        }
+        return labels.get(card_kind or "", "[Rủ Đi AI]")
+    text = (body or "").strip().replace("\n", " ")
+    return text if len(text) <= 80 else text[:79] + "…"
 
 
 class SqlAlchemyApiRepository:
@@ -2387,11 +2524,17 @@ class SqlAlchemyApiRepository:
         issued_from_invite_id: uuid.UUID | None,
         expires_at: datetime,
         now: datetime,
+        issued_via: str | None = None,
     ) -> AccountSessionRecord:
+        # Unnamed provenance falls back to the fact the old schema encoded: a
+        # session with no invitation behind it was seeded out of band.
+        if issued_via is None:
+            issued_via = "invite" if issued_from_invite_id is not None else "genesis"
         session_row = AccountSession(
             person_id=person_id,
             token_digest=token_digest,
             issued_from_invite_id=issued_from_invite_id,
+            issued_via=issued_via,
             created_at=now,
             expires_at=expires_at,
         )
@@ -2481,6 +2624,269 @@ class SqlAlchemyApiRepository:
             context_ids=frozenset(context_ids),
         )
 
+    def list_person_context_summaries(
+        self, person_id: uuid.UUID
+    ) -> list[PersonContextSummaryRecord]:
+        """Every group this person is in or invited to, newest conversation first.
+
+        Four small queries rather than one wide join: memberships+contexts,
+        active head-count per group, newest message per group (DISTINCT ON),
+        then unread per group. A single chain of outer joins here multiplied
+        rows the first time it was tried on the memories wall, and a count that
+        multiplies is a lie that looks like a number.
+        """
+        rows = self.session.execute(
+            select(Membership, Context)
+            .join(Context, Context.id == Membership.context_id)
+            .where(
+                Membership.person_id == person_id,
+                Membership.state != MembershipState.LEFT,
+            )
+        ).all()
+        if not rows:
+            return []
+        context_ids = [membership.context_id for membership, _ in rows]
+        counts = dict(
+            self.session.execute(
+                select(Membership.context_id, func.count())
+                .where(
+                    Membership.context_id.in_(context_ids),
+                    Membership.state == MembershipState.ACTIVE,
+                )
+                .group_by(Membership.context_id)
+            ).all()
+        )
+        newest = list(
+            self.session.scalars(
+                select(Message)
+                .where(Message.context_id.in_(context_ids))
+                .distinct(Message.context_id)
+                .order_by(
+                    Message.context_id, Message.created_at.desc(), Message.id.desc()
+                )
+            )
+        )
+        author_ids = {m.author_id for m in newest if m.author_id is not None}
+        names = (
+            dict(
+                self.session.execute(
+                    select(Person.id, Person.display_name).where(
+                        Person.id.in_(author_ids)
+                    )
+                ).all()
+            )
+            if author_ids
+            else {}
+        )
+        last_by_context = {
+            m.context_id: LastMessageRecord(
+                id=m.id,
+                kind=m.kind.value if hasattr(m.kind, "value") else str(m.kind),
+                preview=_message_preview(m.kind, m.body, m.card),
+                author_id=m.author_id,
+                author_display_name=names.get(m.author_id) if m.author_id else None,
+                created_at=m.created_at,
+            )
+            for m in newest
+        }
+        out: list[PersonContextSummaryRecord] = []
+        for membership, context in rows:
+            out.append(
+                PersonContextSummaryRecord(
+                    id=context.id,
+                    display_name=context.display_name,
+                    member_count=int(counts.get(context.id, 0)),
+                    my_role=membership.role.value,
+                    my_state=membership.state.value,
+                    membership_id=membership.id,
+                    joined_at=membership.joined_at,
+                    last_message=last_by_context.get(context.id),
+                    unread_count=self.count_unread_messages(context.id, person_id),
+                )
+            )
+        # Newest conversation first; groups with no message yet sort last, then
+        # by name so the order is stable rather than insertion-dependent.
+        out.sort(
+            key=lambda r: (
+                r.last_message is None,
+                -(r.last_message.created_at.timestamp()) if r.last_message else 0,
+                r.display_name,
+            )
+        )
+        return out
+
+    def get_read_mark(
+        self, context_id: uuid.UUID, person_id: uuid.UUID
+    ) -> ReadMarkRecord | None:
+        row = self.session.get(ContextReadMark, (context_id, person_id))
+        return None if row is None else self._read_mark_record(row)
+
+    def set_read_mark(
+        self,
+        *,
+        context_id: uuid.UUID,
+        person_id: uuid.UUID,
+        message: MessageRecord,
+        now: datetime,
+    ) -> ReadMarkRecord:
+        """Move the mark to `message`, never backwards.
+
+        A stale client replaying an older position must not un-read messages a
+        newer client already read; the keyset comparison is the same one the
+        feed pages by, so "older" means what the feed means.
+        """
+        row = self.session.get(ContextReadMark, (context_id, person_id))
+        if row is None:
+            row = ContextReadMark(
+                context_id=context_id,
+                person_id=person_id,
+                last_read_message_id=message.id,
+                last_read_at=message.created_at,
+                updated_at=now,
+            )
+            self.session.add(row)
+        elif (message.created_at, message.id.bytes) > (
+            row.last_read_at,
+            row.last_read_message_id.bytes,
+        ):
+            row.last_read_message_id = message.id
+            row.last_read_at = message.created_at
+            row.updated_at = now
+        self.session.flush()
+        return self._read_mark_record(row)
+
+    def count_unread_messages(self, context_id: uuid.UUID, person_id: uuid.UUID) -> int:
+        statement = (
+            select(func.count())
+            .select_from(Message)
+            .where(
+                Message.context_id == context_id,
+                # Your own messages are never unread; the AI's (author NULL) are.
+                (Message.author_id.is_(None)) | (Message.author_id != person_id),
+            )
+        )
+        mark = self.session.get(ContextReadMark, (context_id, person_id))
+        if mark is not None:
+            statement = statement.where(
+                tuple_(Message.created_at, Message.id)
+                > tuple_(mark.last_read_at, mark.last_read_message_id)
+            )
+        return int(self.session.scalar(statement) or 0)
+
+    def create_otp_challenge(
+        self,
+        *,
+        challenge_id: uuid.UUID,
+        phone_digest: bytes,
+        code_digest: bytes,
+        expires_at: datetime,
+        now: datetime,
+    ) -> OtpChallengeRecord:
+        row = OtpChallenge(
+            id=challenge_id,
+            phone_digest=phone_digest,
+            code_digest=code_digest,
+            created_at=now,
+            expires_at=expires_at,
+            attempts=0,
+        )
+        self.session.add(row)
+        self.session.flush()
+        return self._otp_record(row)
+
+    def recent_otp_challenges(
+        self, phone_digest: bytes, since: datetime
+    ) -> list[OtpChallengeRecord]:
+        rows = self.session.scalars(
+            select(OtpChallenge)
+            .where(
+                OtpChallenge.phone_digest == phone_digest,
+                OtpChallenge.created_at > since,
+            )
+            .order_by(OtpChallenge.created_at.desc())
+        )
+        return [self._otp_record(row) for row in rows]
+
+    def get_otp_challenge(self, challenge_id: uuid.UUID) -> OtpChallengeRecord | None:
+        row = self.session.get(OtpChallenge, challenge_id)
+        return None if row is None else self._otp_record(row)
+
+    def record_otp_attempt(
+        self, *, challenge_id: uuid.UUID, attempts: int, consumed: bool, now: datetime
+    ) -> OtpChallengeRecord | None:
+        row = self.session.get(OtpChallenge, challenge_id)
+        if row is None:
+            return None
+        row.attempts = attempts
+        if consumed and row.consumed_at is None:
+            row.consumed_at = now
+        self.session.flush()
+        return self._otp_record(row)
+
+    def get_account_identity(
+        self, provider: str, subject: str
+    ) -> AccountIdentityRecord | None:
+        row = self.session.scalar(
+            select(AccountIdentity).where(
+                AccountIdentity.provider == provider, AccountIdentity.subject == subject
+            )
+        )
+        return None if row is None else self._identity_record(row)
+
+    def upsert_account_identity(
+        self, *, person_id: uuid.UUID, provider: str, subject: str, now: datetime
+    ) -> AccountIdentityRecord:
+        row = self.session.scalar(
+            select(AccountIdentity).where(
+                AccountIdentity.provider == provider, AccountIdentity.subject == subject
+            )
+        )
+        if row is None:
+            row = AccountIdentity(
+                person_id=person_id,
+                provider=provider,
+                subject=subject,
+                created_at=now,
+                last_login_at=now,
+            )
+            self.session.add(row)
+        else:
+            # The proof stays bound to the person it was first bound to; a
+            # re-login refreshes the timestamp and nothing else. Re-pointing a
+            # proof at another person would be an account merge by side effect.
+            row.last_login_at = now
+        self.session.flush()
+        return self._identity_record(row)
+
+    def _otp_record(self, row: OtpChallenge) -> OtpChallengeRecord:
+        return OtpChallengeRecord(
+            id=row.id,
+            phone_digest=bytes(row.phone_digest),
+            code_digest=bytes(row.code_digest),
+            created_at=row.created_at,
+            expires_at=row.expires_at,
+            attempts=row.attempts,
+            consumed_at=row.consumed_at,
+        )
+
+    def _identity_record(self, row: AccountIdentity) -> AccountIdentityRecord:
+        return AccountIdentityRecord(
+            id=row.id,
+            person_id=row.person_id,
+            provider=row.provider,
+            subject=row.subject,
+            created_at=row.created_at,
+            last_login_at=row.last_login_at,
+        )
+
+    def _read_mark_record(self, row: ContextReadMark) -> ReadMarkRecord:
+        return ReadMarkRecord(
+            context_id=row.context_id,
+            person_id=row.person_id,
+            last_read_message_id=row.last_read_message_id,
+            last_read_at=row.last_read_at,
+        )
+
     def _account_session_record(
         self, session_row: AccountSession
     ) -> AccountSessionRecord:
@@ -2488,6 +2894,7 @@ class SqlAlchemyApiRepository:
             id=session_row.id,
             person_id=session_row.person_id,
             issued_from_invite_id=session_row.issued_from_invite_id,
+            issued_via=session_row.issued_via,
             created_at=session_row.created_at,
             expires_at=session_row.expires_at,
             revoked_at=session_row.revoked_at,

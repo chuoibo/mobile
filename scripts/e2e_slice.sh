@@ -201,6 +201,8 @@ s.close()")" || { echo "không tìm được cổng trống" >&2; return 2; }
     MOBILE_DATABASE_URL="$DATABASE_URL" \
     MOBILE_MEDIA_ROOT="$WORK_DIR/media" \
     MOBILE_PERSON_ID_KEY="$id_key" \
+    MOBILE_OTP_DEBUG_CODE="000000" \
+    MOBILE_OTP_LOG_CODES="1" \
       python3 -m uvicorn app.api.main:app \
         --host 127.0.0.1 --port "$port" --log-level warning
   ) >"$API_LOG" 2>&1 &
@@ -361,6 +363,46 @@ redeem_a_real_invite() {
   return 0
 }
 
+# --- OTP: the first door that needs nobody's invitation ----------------------
+#
+# ADR-0016. The API above runs the log sender (no gateway configured) with a
+# fixed debug code, which is the ONLY pairing `resolve_otp_debug_code` allows;
+# the same env on a host with a real gateway refuses to boot. So this stage
+# proves the whole door in prod mode -- request, verify, a bearer that a real
+# route accepts -- without a telephone in the loop. The number is synthetic and
+# built at run time: the repo guard refuses a literal one, rightly.
+login_by_otp() {
+  local phone challenge body token via
+  phone="09$(printf '%08d' 1)"
+  challenge="$(curl -fsS -X POST "$API_URL/auth/otp/request" \
+      -H 'Content-Type: application/json' -d "{\"phone\":\"$phone\"}" \
+    | python3 -c 'import json,sys;print(json.load(sys.stdin)["challenge_id"])')" \
+    || { echo "OTP: khong xin duoc challenge" >&2; return 2; }
+  body="$(curl -fsS -X POST "$API_URL/auth/otp/verify" \
+      -H 'Content-Type: application/json' \
+      -d "{\"challenge_id\":\"$challenge\",\"phone\":\"$phone\",\"code\":\"000000\"}")" \
+    || { echo "OTP: verify khong tra 2xx" >&2; return 2; }
+  via="$(printf '%s' "$body" | python3 -c 'import json,sys;print(json.load(sys.stdin)["issued_via"])')"
+  [ "$via" = "otp" ] || { echo "OTP: issued_via=$via, mong 'otp'" >&2; return 2; }
+  token="$(printf '%s' "$body" | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])')"
+  # A wrong code on a fresh challenge must be a 422 with the attempts left, and
+  # the bearer just minted must open a real door. Two claims, both cheap.
+  challenge="$(curl -fsS -X POST "$API_URL/auth/otp/request" \
+      -H 'Content-Type: application/json' -d "{\"phone\":\"09$(printf '%08d' 2)\"}" \
+    | python3 -c 'import json,sys;print(json.load(sys.stdin)["challenge_id"])')" || return 2
+  local wrong
+  wrong="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API_URL/auth/otp/verify" \
+      -H 'Content-Type: application/json' \
+      -d "{\"challenge_id\":\"$challenge\",\"phone\":\"09$(printf '%08d' 2)\",\"code\":\"111111\"}")"
+  [ "$wrong" = "422" ] || { echo "OTP: ma sai tra $wrong, mong 422" >&2; return 2; }
+  local mine
+  mine="$(curl -s -o /dev/null -w '%{http_code}' "$API_URL/people/me/contexts" \
+      -H "Authorization: Bearer $token")"
+  [ "$mine" = "200" ] || { echo "OTP: bearer moi mint bi tu choi ($mine)" >&2; return 2; }
+  echo "--- OTP: xin ma -> verify -> bearer mo duoc GET /people/me/contexts (che do prod, ma debug chi hop le voi log sender)"
+  return 0
+}
+
 # --- run ------------------------------------------------------------------
 
 command -v node >/dev/null 2>&1 || { echo "không có node" >&2; exit 2; }
@@ -372,6 +414,7 @@ provision_db || exit $?
 start_api || exit $?
 mint_sessions || exit $?
 redeem_a_real_invite || exit $?
+login_by_otp || exit $?
 
 if [ "$KEEP" -eq 1 ]; then
   echo "--keep: giữ stack lại."

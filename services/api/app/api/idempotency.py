@@ -88,6 +88,7 @@ _MAX_POLL_SECONDS = 0.1
 
 _HEADER_BYTES = IDEMPOTENCY_HEADER.lower().encode("latin-1")
 _ACTOR_HEADER_BYTES = b"x-actor-id"
+_AUTH_HEADER_BYTES = b"authorization"
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,9 +135,7 @@ class IdempotencyStore(Protocol):
         legacy_fingerprint: str | None = None,
     ) -> Outcome: ...
 
-    def complete(
-        self, *, scope: str, key: str, response: StoredResponse
-    ) -> None: ...
+    def complete(self, *, scope: str, key: str, response: StoredResponse) -> None: ...
 
     def release(self, *, scope: str, key: str) -> None: ...
 
@@ -325,6 +324,17 @@ class _CapturedResponse:
         return b"".join(self.chunks)
 
 
+def _bearer_scope(authorization: str | None) -> str | None:
+    """`bearer:<sha256>` for an `Authorization: Bearer x` header, else None."""
+    if not authorization:
+        return None
+    scheme, _, value = authorization.partition(" ")
+    token = value.strip()
+    if scheme.lower() != "bearer" or not token:
+        return None
+    return "bearer:" + hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 def _header(headers: list[tuple[bytes, bytes]], name: bytes) -> str | None:
     for raw_name, raw_value in headers:
         if raw_name.lower() == name:
@@ -412,8 +422,14 @@ class IdempotencyMiddleware:
             return
 
         body = await _drain(receive)
+        # Scope by WHO is writing. Under `prod` nobody sends `X-Actor-ID`, so the
+        # old actor-only scope collapsed every bearer holder into "anonymous" and
+        # two people reusing the same client-minted key collided. The bearer is
+        # digested, never stored raw, for the same reason `account_sessions`
+        # stores a digest.
+        bearer = _bearer_scope(_header(headers, _AUTH_HEADER_BYTES))
         actor = _header(headers, _ACTOR_HEADER_BYTES)
-        key_scope = actor if actor else ANONYMOUS_SCOPE
+        key_scope = bearer or actor or ANONYMOUS_SCOPE
         parts = {
             "method": scope["method"],
             "path": scope["path"],

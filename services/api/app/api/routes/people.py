@@ -24,10 +24,32 @@ from fastapi import APIRouter, Depends, Response, status
 
 from app.api.deps import Actor, get_actor, get_repository
 from app.api.repository import ApiRepository
-from app.api.schemas import ErrorResponse, PersonRegistrationRequest, PersonResponse
+from app.api.schemas import (
+    ErrorResponse,
+    PersonContextListResponse,
+    PersonRegistrationRequest,
+    PersonResponse,
+)
 from app.api.service import ApiService
 
 router = APIRouter(tags=["people"])
+
+
+@router.get(
+    "/people/me/contexts",
+    response_model=PersonContextListResponse,
+    responses={401: {"model": ErrorResponse}},
+)
+def list_my_contexts(
+    actor: Annotated[Actor, Depends(get_actor)],
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+) -> PersonContextListResponse:
+    """The caller's groups, invited and active, with the newest message and an
+    unread count. `me` on purpose: a session already says who is asking, and a
+    person id in the path would be either redundant or a claim about somebody
+    else. Declared before any `/people/{person_id}/...` route in this module so
+    a literal `me` is never parsed as an id."""
+    return ApiService(repository).list_my_contexts(actor)
 
 
 @router.put(
@@ -54,9 +76,7 @@ def register_person(
     # 201 when this id became a person, 200 when it already was one. A client
     # retrying a lost response needs to be able to tell those apart without
     # the answer changing under it.
-    response.status_code = (
-        status.HTTP_201_CREATED if created else status.HTTP_200_OK
-    )
+    response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
     return PersonResponse(
         id=record.id,
         display_name=record.display_name,

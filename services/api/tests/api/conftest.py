@@ -23,6 +23,7 @@ from app.api.errors import RepositoryConflict
 from app.api.limits import OBJECTION_LIMIT, REPORT_LIMIT
 from app.api.main import create_app
 from app.api.repository import (
+    AccountIdentityRecord,
     AccountSessionRecord,
     ActorGrants,
     AllocationRow,
@@ -44,18 +45,22 @@ from app.api.repository import (
     FrozenObligation,
     GuestEnvelopeRecord,
     GuestLinkDraft,
+    LastMessageRecord,
     MembershipRecord,
     MemoryPage,
     MemoryRecord,
     MessageRecord,
     ObligationDraft,
+    OtpChallengeRecord,
     OutingInviteRecord,
     PaymentReportRecord,
     PaymentReportTarget,
+    PersonContextSummaryRecord,
     PersonFinanceSummary,
     PersonRecord,
     PostRecord,
     PublishObligation,
+    ReadMarkRecord,
     ReceiptRecord,
     ReceiptTarget,
     StoredGuestLink,
@@ -123,6 +128,10 @@ class FakeRepository:
         self.posts: dict[uuid.UUID, PostRecord] = {}
         self.memories: dict[uuid.UUID, MemoryRecord] = {}
         self.account_sessions: dict[uuid.UUID, AccountSessionRecord] = {}
+        self.invited_memberships: set[tuple[uuid.UUID, uuid.UUID]] = set()
+        self.read_marks: dict[tuple[uuid.UUID, uuid.UUID], ReadMarkRecord] = {}
+        self.otp_challenges: dict[uuid.UUID, OtpChallengeRecord] = {}
+        self.account_identities: dict[tuple[str, str], AccountIdentityRecord] = {}
         self.account_session_ids_by_digest: dict[bytes, uuid.UUID] = {}
         self.left_memberships: set[tuple[uuid.UUID, uuid.UUID]] = set()
         self.admin_memberships: set[tuple[uuid.UUID, uuid.UUID]] = set()
@@ -530,12 +539,22 @@ class FakeRepository:
         return invite
 
     def create_account_session(
-        self, *, person_id, token_digest, issued_from_invite_id, expires_at, now
+        self,
+        *,
+        person_id,
+        token_digest,
+        issued_from_invite_id,
+        expires_at,
+        now,
+        issued_via=None,
     ):
+        if issued_via is None:
+            issued_via = "invite" if issued_from_invite_id is not None else "genesis"
         record = AccountSessionRecord(
             id=uuid.uuid4(),
             person_id=person_id,
             issued_from_invite_id=issued_from_invite_id,
+            issued_via=issued_via,
             created_at=now,
             expires_at=expires_at,
             revoked_at=None,
@@ -588,6 +607,166 @@ class FakeRepository:
             context_ids=frozenset(context_ids),
         )
 
+    def _membership_id_for(self, context_id, person_id):
+        return uuid.uuid5(uuid.NAMESPACE_URL, f"{context_id}/{person_id}")
+
+    def _messages_in(self, context_id):
+        return sorted(
+            (m for m in self.messages.values() if m.context_id == context_id),
+            key=lambda m: (m.created_at, m.id.bytes),
+        )
+
+    def count_unread_messages(self, context_id, person_id):
+        mark = self.read_marks.get((context_id, person_id))
+        total = 0
+        for m in self._messages_in(context_id):
+            if m.author_id == person_id:
+                continue
+            if mark is not None and (m.created_at, m.id.bytes) <= (
+                mark.last_read_at,
+                mark.last_read_message_id.bytes,
+            ):
+                continue
+            total += 1
+        return total
+
+    def list_person_context_summaries(self, person_id):
+        pairs = {
+            (c, p)
+            for c, p in self.active_memberships | self.invited_memberships
+            if p == person_id and (c, p) not in self.left_memberships
+        }
+        out = []
+        for context_id, _ in pairs:
+            context = self.contexts.get(context_id)
+            if context is None:
+                continue
+            state = (
+                "active"
+                if (context_id, person_id) in self.active_memberships
+                else "invited"
+            )
+            role = self.membership_role(context_id, person_id) or "member"
+            newest = self._messages_in(context_id)
+            last = None
+            if newest:
+                m = newest[-1]
+                author = self.people.get(m.author_id) if m.author_id else None
+                last = LastMessageRecord(
+                    id=m.id,
+                    kind=m.kind,
+                    preview=(m.body or "")[:80]
+                    if m.kind == "text"
+                    else ("[Ảnh]" if m.kind == "image" else "[Rủ Đi AI]"),
+                    author_id=m.author_id,
+                    author_display_name=author.display_name if author else None,
+                    created_at=m.created_at,
+                )
+            out.append(
+                PersonContextSummaryRecord(
+                    id=context_id,
+                    display_name=context.display_name,
+                    member_count=sum(
+                        1 for c, _ in self.active_memberships if c == context_id
+                    ),
+                    my_role=role,
+                    my_state=state,
+                    membership_id=self._membership_id_for(context_id, person_id),
+                    joined_at=datetime(2030, 8, 27, 12, tzinfo=UTC)
+                    if state == "active"
+                    else None,
+                    last_message=last,
+                    unread_count=self.count_unread_messages(context_id, person_id),
+                )
+            )
+        out.sort(
+            key=lambda r: (
+                r.last_message is None,
+                -(r.last_message.created_at.timestamp()) if r.last_message else 0,
+                r.display_name,
+            )
+        )
+        return out
+
+    def get_read_mark(self, context_id, person_id):
+        return self.read_marks.get((context_id, person_id))
+
+    def set_read_mark(self, *, context_id, person_id, message, now):
+        del now
+        current = self.read_marks.get((context_id, person_id))
+        if current is None or (message.created_at, message.id.bytes) > (
+            current.last_read_at,
+            current.last_read_message_id.bytes,
+        ):
+            current = ReadMarkRecord(
+                context_id=context_id,
+                person_id=person_id,
+                last_read_message_id=message.id,
+                last_read_at=message.created_at,
+            )
+            self.read_marks[(context_id, person_id)] = current
+        return current
+
+    def create_otp_challenge(
+        self, *, challenge_id, phone_digest, code_digest, expires_at, now
+    ):
+        record = OtpChallengeRecord(
+            id=challenge_id,
+            phone_digest=phone_digest,
+            code_digest=code_digest,
+            created_at=now,
+            expires_at=expires_at,
+            attempts=0,
+            consumed_at=None,
+        )
+        self.otp_challenges[challenge_id] = record
+        return record
+
+    def recent_otp_challenges(self, phone_digest, since):
+        return sorted(
+            (
+                r
+                for r in self.otp_challenges.values()
+                if r.phone_digest == phone_digest and r.created_at > since
+            ),
+            key=lambda r: r.created_at,
+            reverse=True,
+        )
+
+    def get_otp_challenge(self, challenge_id):
+        return self.otp_challenges.get(challenge_id)
+
+    def record_otp_attempt(self, *, challenge_id, attempts, consumed, now):
+        record = self.otp_challenges.get(challenge_id)
+        if record is None:
+            return None
+        record = replace(
+            record,
+            attempts=attempts,
+            consumed_at=(record.consumed_at or now) if consumed else record.consumed_at,
+        )
+        self.otp_challenges[challenge_id] = record
+        return record
+
+    def get_account_identity(self, provider, subject):
+        return self.account_identities.get((provider, subject))
+
+    def upsert_account_identity(self, *, person_id, provider, subject, now):
+        existing = self.account_identities.get((provider, subject))
+        if existing is None:
+            existing = AccountIdentityRecord(
+                id=uuid.uuid4(),
+                person_id=person_id,
+                provider=provider,
+                subject=subject,
+                created_at=now,
+                last_login_at=now,
+            )
+        else:
+            existing = replace(existing, last_login_at=now)
+        self.account_identities[(provider, subject)] = existing
+        return existing
+
     def ensure_invited_membership(
         self, *, context_id, person_id, invited_by_id, origin, now
     ):
@@ -599,6 +778,8 @@ class FakeRepository:
             if (context_id, person_id) in self.active_memberships
             else "invited"
         )
+        if state == "invited":
+            self.invited_memberships.add((context_id, person_id))
         person = self.people.get(person_id)
         return MembershipRecord(
             id=uuid.uuid4(),

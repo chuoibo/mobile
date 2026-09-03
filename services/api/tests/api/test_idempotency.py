@@ -197,6 +197,31 @@ def test_the_key_is_scoped_to_the_actor(client, repository):
     assert len(repository.expenses) == 2
 
 
+def test_the_key_is_scoped_to_the_bearer_when_one_is_sent(client, repository):
+    """Under `prod` nobody sends `X-Actor-ID`, so an actor-only scope collapsed
+    every bearer holder into one namespace and two phones reusing the same
+    client-minted key collided. The middleware scopes by the bearer's digest
+    first; `dev` mode still identifies the caller through the headers, so the
+    same key with two different bearers must reserve twice."""
+    payload = expense_payload()
+    mine = {**_key_headers(**actor_headers()), "Authorization": "Bearer phone-one"}
+    theirs = {**_key_headers(**actor_headers()), "Authorization": "Bearer phone-two"}
+
+    first = client.post("/expenses", json=payload, headers=mine)
+    second = client.post("/expenses", json=payload, headers=theirs)
+
+    assert first.status_code == 201, first.text
+    assert second.status_code == 201, second.text
+    assert first.json() != second.json()
+    assert len(repository.expenses) == 2
+
+    # And the same bearer, same key, replays rather than writing again.
+    third = client.post("/expenses", json=payload, headers=mine)
+    assert third.status_code == 201, third.text
+    assert third.json() == first.json()
+    assert len(repository.expenses) == 2
+
+
 def test_the_middleware_is_installed_on_the_application():
     app = create_app()
     installed = [entry.cls for entry in app.user_middleware]
