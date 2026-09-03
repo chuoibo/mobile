@@ -240,18 +240,41 @@ kiem_ma_debug() {
   echo "API $API_PORT nhận mã debug: đối chứng dương môi trường qua"
 }
 
+# Đăng nhập một số qua curl với mã debug; in thân SessionResponse ra stdout.
+# Mỗi số có nhịp gửi lại 60s và trần 5 mã/15 phút — các bước kiểm sau flow đăng
+# nhập lại đúng những số flow vừa dùng, nên gặp 429 thì đợi 61s và thử lại MỘT
+# lần thay vì đọc nhịp chống dò thành «máy chủ hỏng».
+dang_nhap_curl() {
+  local so="$1" goc id rc body lan tep
+  goc="http://127.0.0.1:$API_PORT"
+  tep="$(mktemp)"
+  for lan in 1 2; do
+    rc="$(curl -sS -o "$tep" -w '%{http_code}' -X POST "$goc/auth/otp/request" \
+        -H 'Content-Type: application/json' -d "{\"phone\":\"$so\"}")"
+    if [ "$rc" = "429" ] && [ "$lan" = 1 ]; then
+      echo "  (số đang trong nhịp gửi lại 60s, đợi rồi thử lại)" >&2
+      sleep 61
+      continue
+    fi
+    [ "$rc" = "202" ] || { rm -f "$tep"; return 1; }
+    id="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("challenge_id",""))' "$tep")"
+    body="$(curl -sS -X POST "$goc/auth/otp/verify" -H 'Content-Type: application/json' \
+        -d "{\"challenge_id\":\"$id\",\"phone\":\"$so\",\"code\":\"$OTP_CODE\"}")"
+    rm -f "$tep"
+    printf '%s' "$body"
+    return 0
+  done
+  rm -f "$tep"
+  return 1
+}
+
 # Sau flow 24: người được mời (OTP_PHONE_D) chưa từng mở app. Đăng nhập bằng số
 # đó qua curl và hỏi máy chủ nhóm nào đang chờ họ — nếu lời mời chỉ tồn tại trên
 # màn hình của người mời thì đây là chỗ nó lộ ra.
 kiem_may_chu_sau_24() {
-  local goc id body via ten
-  goc="http://127.0.0.1:$API_PORT"
-  id="$(curl -sS -X POST "$goc/auth/otp/request" -H 'Content-Type: application/json' \
-      -d "{\"phone\":\"$OTP_PHONE_D\"}" \
-    | python3 -c 'import json,sys;print(json.load(sys.stdin).get("challenge_id",""))' 2>/dev/null || true)"
-  [ -n "$id" ] || hong "sau flow 24: không xin được mã cho người được mời."
-  body="$(curl -sS -X POST "$goc/auth/otp/verify" -H 'Content-Type: application/json' \
-      -d "{\"challenge_id\":\"$id\",\"phone\":\"$OTP_PHONE_D\",\"code\":\"$OTP_CODE\"}")"
+  local body via ten
+  body="$(dang_nhap_curl "$OTP_PHONE_D")" \
+    || hong "sau flow 24: người được mời (số D) không đăng nhập được qua curl (429 hai lần hoặc lỗi)."
   via="$(printf '%s' "$body" | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
@@ -270,14 +293,10 @@ print("%d|%s|%s" % (len(moi), ten_nhom, ten_nguoi))')"
 # Sau flow 25: D (số D) vừa đồng ý vào «Hoi QA» và đồng ý kết bạn với C trên máy.
 # Hỏi máy chủ với tư cách D: một bạn, một nhóm — không đọc từ màn hình.
 kiem_may_chu_sau_25() {
-  local goc id body tok ket
+  local goc body tok ket
   goc="http://127.0.0.1:$API_PORT"
-  id="$(curl -sS -X POST "$goc/auth/otp/request" -H 'Content-Type: application/json' \
-      -d "{\"phone\":\"$OTP_PHONE_D\"}" \
-    | python3 -c 'import json,sys;print(json.load(sys.stdin).get("challenge_id",""))' 2>/dev/null || true)"
-  [ -n "$id" ] || hong "sau flow 25: không xin được mã cho D."
-  body="$(curl -sS -X POST "$goc/auth/otp/verify" -H 'Content-Type: application/json' \
-      -d "{\"challenge_id\":\"$id\",\"phone\":\"$OTP_PHONE_D\",\"code\":\"$OTP_CODE\"}")"
+  body="$(dang_nhap_curl "$OTP_PHONE_D")" \
+    || hong "sau flow 25: D không đăng nhập được qua curl (429 hai lần hoặc lỗi)."
   tok="$(printf '%s' "$body" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("token",""))')"
   [ -n "$tok" ] || hong "sau flow 25: D không đăng nhập được."
   ket="$(curl -sS "$goc/people/me" -H "Authorization: Bearer $tok" | python3 -c '
