@@ -12,6 +12,7 @@
 import { Redirect, useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState, type ReactNode } from "react";
 import { StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ApiError, newAttempt, thongDiepNguoiDoc } from "../../../api";
 import {
@@ -46,7 +47,11 @@ function DanhSach({ hang }: { hang: ReactNode[] }) {
     <Card style={styles.danhSach}>
       {hang.map((h, i) => (
         <View key={i}>
-          {i > 0 ? <Divider /> : null}
+          {i > 0 ? (
+            <View style={styles.vach}>
+              <Divider />
+            </View>
+          ) : null}
           {h}
         </View>
       ))}
@@ -57,6 +62,9 @@ function DanhSach({ hang }: { hang: ReactNode[] }) {
 export function FriendsScreen() {
   const router = useRouter();
   const { colors } = useRudiTheme();
+  // The pinned footer must clear the gesture bar: the screen shell only pads
+  // top/left/right, so the bottom inset is this screen's to add.
+  const { bottom: menDuoi } = useSafeAreaInsets();
   const { phien, phienDaDoc } = useRudiSession();
   const [muc, setMuc] = useState(0);
   const [trang, setTrang] = useState<Trang>({ pha: "dang-doc" });
@@ -114,7 +122,7 @@ export function FriendsScreen() {
           onPress={() => router.push("/friends/add")}
         />
       }
-      footerInset={14}
+      footerInset={14 + menDuoi}
       testID="friends-screen"
     >
       <TopBar title="Bạn bè" />
@@ -193,4 +201,6 @@ export function FriendsScreen() {
 
 const styles = StyleSheet.create({
   danhSach: { paddingVertical: 6 },
+  // Hairline starts at the text column, like the Profile menu card (tile 40 + gap 12).
+  vach: { marginLeft: 52 },
 });
