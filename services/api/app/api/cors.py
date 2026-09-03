@@ -40,8 +40,16 @@ LOOPBACK_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
 # all. A test derives this list from the server rather than trusting the memory
 # of whoever edits it next.
 ALLOWED_HEADERS = [
+    # The bearer session (ADR-0014). It arrives on every authenticated request
+    # once the API runs in `prod`, and a browser that cannot send it at the
+    # preflight cannot send it at all -- the same failure the idempotency key
+    # had, one line above, for the same reason.
+    "authorization",
     "content-type",
     "idempotency-key",
+    # Still allowed because `dev` still reads them. They are ignored in `prod`
+    # rather than rejected, so a client that keeps sending them meets a plain
+    # 401 instead of a preflight that never explains itself.
     "x-actor-id",
     "x-actor-roles",
     "x-actor-contexts",

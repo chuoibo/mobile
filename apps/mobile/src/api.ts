@@ -241,6 +241,31 @@ export function thongDiepNguoiDoc(status: number, detail: unknown): string {
   return "Chưa làm được việc này. Thử lại sau một chút.";
 }
 
+/** The session this app is signed in with, or `null`.
+ *
+ * Module state rather than a parameter threaded through ninety call sites,
+ * and that is deliberate: a session is a property of the app, not of a
+ * request. Threading it would mean every new call site is a chance to forget,
+ * and forgetting means a 401 that reads like a server fault -- the exact
+ * failure `ActorCallOptions` was reshaped to prevent for `actorId`.
+ *
+ * Written from `phien.ts`, which owns reading and storing it. Nothing here
+ * touches SecureStore: this module is imported by the node test suite, which
+ * has no native modules, and pulling one in would make the whole API layer
+ * unloadable there.
+ */
+let tokenPhien: string | null = null;
+
+/** Sign in (a token) or sign out (`null`). */
+export function datTokenPhien(token: string | null): void {
+  tokenPhien = token;
+}
+
+/** What `phien.ts` stored, for the sign-out call that has to send it itself. */
+export function tokenPhienHienTai(): string | null {
+  return tokenPhien;
+}
+
 function actorHeaders(
   actorId: string,
   roles = "member,advancer,recipient,batch_owner",
@@ -248,13 +273,19 @@ function actorHeaders(
 ): Record<string, string> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    // A trusted gateway is supposed to write these; there is no gateway yet,
-    // so the app writes them. That is exactly why this must not be reachable
-    // from the internet as it stands -- anybody who can set a header can be
-    // anybody. Said here rather than left to be discovered.
+    // Still sent, and no longer what a production server believes. Since
+    // ADR-0014 `get_actor` reads these only when the host is explicitly in
+    // `dev`; in `prod` they are ignored and the `Authorization` header below
+    // is the whole of the answer. Both are sent so that one build works
+    // against the demo box and against a real host without a flag.
     "X-Actor-ID": actorId,
     "X-Actor-Roles": roles,
   };
+  // Every identified request goes through here -- including the four
+  // multipart calls that build their headers from this function and then use
+  // `fetch` directly, which is why the bearer is attached here rather than in
+  // `send`. A route added later cannot forget it.
+  if (tokenPhien !== null) headers["Authorization"] = `Bearer ${tokenPhien}`;
   // Omitted rather than defaulted. The default used to be the synthetic
   // `CONTEXT_ID`, which meant every person-scoped call claimed membership of a
   // group that did not exist, and -- worse -- a group-scoped call that forgot

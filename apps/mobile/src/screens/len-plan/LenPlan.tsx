@@ -34,6 +34,7 @@ import { layKyUc } from "../ky-niem/ky-uc";
 import {
   taoLoiMoiBuoiDi,
   thuHoiLoiMoi,
+  xoayLoiMoi,
   type LoiMoiBuoiDi,
 } from "../quan-tri/quan-tri";
 import { danhSachThanhVien } from "../vao-cua/cong-api";
@@ -317,6 +318,37 @@ export function LenPlan({ nguoi, nhomPhien }: {
     }
   }
 
+  /** Give somebody a new sign-in code for the invitation that names them.
+   *
+   *  The way back for a member who lost their phone. Inviting them again is a
+   *  409 by design (one named row per person per outing), so this is not a
+   *  convenience -- it is the only route. */
+  async function xoay(moi: LoiMoiBuoiDi) {
+    if (!nguoi || !contextId) return;
+    setBusy(true);
+    setLoiGhi(null);
+    setTinNhan(null);
+    try {
+      const sau = await xoayLoiMoi(
+        moi.outing_id,
+        moi.id,
+        nguoi.personId,
+        attemptFor(soLanThu.current, `xoay:${moi.id}`),
+        contextId,
+      );
+      setDaMoi((truoc) => gopLoiMoi(truoc, sau));
+      setTinNhan("Đã cấp mã mới. Mã cũ không dùng được nữa.");
+    } catch (err) {
+      setLoiGhi(
+        err instanceof ApiError
+          ? err.message
+          : "Chưa cấp lại được mã. Thử lại sau một chút.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function tao(body: BodyTaoBuoiDi) {
     if (!nguoi || nhom.kind !== "xong") return;
     setBusy(true);
@@ -456,6 +488,7 @@ export function LenPlan({ nguoi, nhomPhien }: {
         onMoiThanhVien={(personId) => void moiThanhVien(personId)}
         onTaoLink={() => void taoLink()}
         onThuHoi={(moi) => void thuHoi(moi)}
+        onXoay={(moi) => void xoay(moi)}
         onTaiLaiRoster={taiRoster}
         onQuayLai={() => {
           setLoiGhi(null);

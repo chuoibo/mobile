@@ -599,6 +599,32 @@ class OutingInviteAcceptResponse(ApiModel):
     membership_state: Literal["invited", "active"]
 
 
+class SessionBootstrapRequest(ApiModel):
+    """One field: the secret written on a named invitation.
+
+    There is deliberately no `person_id`. Whose session this becomes is read
+    from `outing_invites.invited_person_id`, because a caller allowed to name
+    the person they are about to become is a caller who may be anybody -- the
+    `X-Actor-ID` hole with a token wrapped around it.
+    """
+
+    invite_token: Annotated[StrictStr, Field(min_length=1, max_length=512)]
+
+
+class SessionResponse(ApiModel):
+    """The raw token, handed over once; only its digest is persisted."""
+
+    token: str
+    person_id: UUID
+    expires_at: datetime
+    #: Where this person stands in the group the invitation belonged to.
+    #: Carried so the screen can say one true sentence instead of guessing:
+    #: signing in is not joining, and somebody redeeming their first invitation
+    #: is `invited` and still waiting on a member, while somebody signing back
+    #: in on a new phone is `active` and is not waiting on anybody.
+    membership_state: Literal["invited", "active", "left"]
+
+
 class MembershipInviteRequest(ApiModel):
     person_id: UUID
 

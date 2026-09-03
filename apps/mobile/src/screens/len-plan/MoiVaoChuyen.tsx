@@ -65,6 +65,7 @@ export function MoiVaoChuyen({
   onMoiThanhVien,
   onTaoLink,
   onThuHoi,
+  onXoay,
   onTaiLaiRoster,
   onQuayLai,
 }: {
@@ -84,6 +85,7 @@ export function MoiVaoChuyen({
   onMoiThanhVien: (personId: string) => void;
   onTaoLink: () => void;
   onThuHoi: (moi: LoiMoiBuoiDi) => void;
+  onXoay: (moi: LoiMoiBuoiDi) => void;
   onTaiLaiRoster: () => void;
   onQuayLai: () => void;
 }) {
@@ -185,6 +187,7 @@ export function MoiVaoChuyen({
               bayGio={bayGio}
               busy={busy}
               onThuHoi={() => onThuHoi(moi)}
+              onXoay={() => onXoay(moi)}
             />
           ))}
         </Card>
@@ -242,12 +245,14 @@ function HangLoiMoi({
   bayGio,
   busy,
   onThuHoi,
+  onXoay,
 }: {
   moi: LoiMoiBuoiDi;
   ten: string;
   bayGio: number;
   busy?: boolean;
   onThuHoi: () => void;
+  onXoay: () => void;
 }) {
   const c = usePalette();
   const duong = duongDanMoi(moi, BASE_URL);
@@ -280,8 +285,7 @@ function HangLoiMoi({
         </Text>
       ) : (
         <Text style={{ ...type.micro, color: c.inkFaint }}>
-          Lời mời cho một người trong nhóm không có link; máy chủ không phát
-          token cho nó.
+          Lời mời này không kèm mã. Đáp án của thu hồi cố ý không mang bí mật.
         </Text>
       )}
       {conDung ? (
@@ -295,6 +299,21 @@ function HangLoiMoi({
           <Text style={{ ...type.micro, color: c.inkFaint }}>
             Thu hồi xong không mời lại người đó vào chuyến này được nữa.
           </Text>
+          {moi.invited_person_id ? (
+            <>
+              <Button
+                label="Cấp lại mã"
+                tone="quiet"
+                disabled={busy}
+                onPress={onXoay}
+              />
+              <Text style={{ ...type.micro, color: c.inkFaint }}>
+                Dùng khi người đó mất máy hoặc cài lại app. Mời lần hai
+                không được, vì máy chủ chỉ cho mỗi người một lời mời cho mỗi
+                chuyến, nên cấp lại mã là đường về duy nhất. Mã cũ chết ngay.
+              </Text>
+            </>
+          ) : null}
         </>
       ) : null}
     </View>

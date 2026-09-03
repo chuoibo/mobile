@@ -468,7 +468,11 @@ def test_the_timeline_keeps_the_order_the_group_built_it_in(
     put, listed = anyio.run(exchange)
 
     assert put.status_code == 200, put.text
-    assert [stop["label"] for stop in put.json()["stops"]] == ["Bar", "Cafe", "Sightseeing"]
+    assert [stop["label"] for stop in put.json()["stops"]] == [
+        "Bar",
+        "Cafe",
+        "Sightseeing",
+    ]
     assert [stop["at"] for stop in put.json()["stops"]] == ["21:00", "08:00", "14:00"]
     assert [stop["position"] for stop in put.json()["stops"]] == [0, 1, 2]
 
@@ -635,8 +639,11 @@ def test_a_member_invites_from_the_group_and_from_their_friends(
     assert from_group.json()["source"] == "group"
     assert from_group.json()["invited_person_id"] == str(inside.id)
     assert from_group.json()["invited_by_id"] == str(owner.id)
-    # Only a link invite carries a token, and only once.
-    assert from_group.json()["invite_token"] is None
+    # Both kinds carry a secret since ADR-0014: a named invitation is what its
+    # holder exchanges for a session. What stays link-only is `invite_path` --
+    # a named secret is spent at `POST /sessions`, not by opening a url.
+    assert from_group.json()["invite_token"]
+    assert from_group.json()["invite_path"] is None
 
     assert from_friends.status_code == 201, from_friends.text
     assert from_friends.json()["source"] == "friend"
@@ -799,7 +806,7 @@ def test_a_forged_or_reused_invite_link_is_refused(
 def test_headcount_is_a_plan_and_not_a_door_policy(
     postgres_session: Session, monkeypatch: pytest.MonkeyPatch
 ):
-    """"Participants: 8" is what the group wrote down, not a capacity check.
+    """ "Participants: 8" is what the group wrote down, not a capacity check.
 
     A ninth friend turning up is normal. Refusing them is the product deciding
     who may come, which is not its job.

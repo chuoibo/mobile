@@ -1633,7 +1633,7 @@ const THANH_VIEN_QUET: HangThanhVien[] = [
 
 const MOI_QUET: LoiMoiBuoiDi[] = [
   { id: "i1", outing_id: CHUYEN_QUET, source: "link", invited_person_id: null, invited_by_id: NGUOI_QUET, created_at: "2026-08-31T00:00:00Z", expires_at: "2026-09-07T00:00:00Z", revoked_at: null, invite_token: "quet-khong-phai-token-that", invite_path: "/outing-invites/quet-khong-phai-token-that" },
-  { id: "i2", outing_id: CHUYEN_QUET, source: "group", invited_person_id: "e3e3e3e3-cccc-4ccc-8ccc-e3e3e3e3e3e3", invited_by_id: NGUOI_QUET, created_at: "2026-08-31T00:00:00Z", expires_at: "2026-09-07T00:00:00Z", revoked_at: null, invite_token: null, invite_path: null },
+  { id: "i2", outing_id: CHUYEN_QUET, source: "group", invited_person_id: "e3e3e3e3-cccc-4ccc-8ccc-e3e3e3e3e3e3", invited_by_id: NGUOI_QUET, created_at: "2026-08-31T00:00:00Z", expires_at: "2026-09-07T00:00:00Z", revoked_at: null, invite_token: "quet-ma-dich-danh-khong-phai-that", invite_path: null },
   { id: "i3", outing_id: CHUYEN_QUET, source: "group", invited_person_id: "e4e4e4e4-dddd-4ddd-8ddd-e4e4e4e4e4e4", invited_by_id: NGUOI_QUET, created_at: "2026-08-31T00:00:00Z", expires_at: "2026-09-07T00:00:00Z", revoked_at: "2026-08-31T00:10:00Z", invite_token: null, invite_path: null },
 ];
 
@@ -1665,6 +1665,7 @@ function XemMoiVaoChuyen() {
         onMoiThanhVien={() => {}}
         onTaoLink={() => {}}
         onThuHoi={() => {}}
+        onXoay={() => {}}
         onTaiLaiRoster={() => {}}
         onQuayLai={() => {}}
       />

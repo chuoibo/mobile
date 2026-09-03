@@ -65,7 +65,9 @@ class PermissiveInviteRepository:
         self.accept_calls.append(invite_id)
         return replace(self.invite, accepted_at=now, accepted_by_id=accepted_by_id)
 
-    def ensure_invited_membership(self, *, context_id, person_id, invited_by_id, now):
+    def ensure_invited_membership(
+        self, *, context_id, person_id, invited_by_id, origin, now
+    ):
         self.membership_calls.append(person_id)
         return MembershipRecord(
             id=uuid.uuid4(),
@@ -74,7 +76,7 @@ class PermissiveInviteRepository:
             display_name="Hà",
             state="invited",
             role="member",
-            origin="invite_link",
+            origin=origin,
             invited_by_id=invited_by_id,
             joined_at=None,
             left_at=None,

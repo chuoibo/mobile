@@ -133,7 +133,24 @@ def revoke_outing_invite(
     actor: Annotated[Actor, Depends(get_actor)],
     repository: Annotated[ApiRepository, Depends(get_repository)],
 ) -> OutingInviteResponse:
-    return ApiService(repository).revoke_outing_invite(
+    return ApiService(repository).revoke_outing_invite(outing_id, invite_id, actor)
+
+
+@router.post(
+    "/outings/{outing_id}/invites/{invite_id}/rotate",
+    response_model=OutingInviteResponse,
+    responses=ERRORS,
+)
+def rotate_outing_invite(
+    outing_id: UUID,
+    invite_id: UUID,
+    actor: Annotated[Actor, Depends(get_actor)],
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+) -> OutingInviteResponse:
+    # How a member who lost their phone gets back in. Not a second invitation:
+    # the partial unique index allows one named row per person per outing, so
+    # the way back is a new secret on the row that already names them.
+    return ApiService(repository).rotate_outing_invite_secret(
         outing_id, invite_id, actor
     )
 

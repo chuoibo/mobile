@@ -140,6 +140,7 @@ from app.api.schemas import (
     ReceiptConfirmationResponse,
     ReelPick,
     ReelResponse,
+    SessionResponse,
     SettlementTransferProposal,
     SocialMapResponse,
     StopCheckinResponse,
@@ -241,6 +242,13 @@ CONVERSATION_WINDOW = 60
 #: as truncated rather than as small.
 ALBUM_MEMORY_LIMIT = 400
 OUTING_INVITE_TTL = timedelta(days=7)
+
+# Long enough that a phone which sits in a drawer over a holiday is still
+# signed in when it comes out, short enough that a device lost and never
+# reported stops being a way in within the month. Revocation is the answer to
+# a device known to be lost; this number is the answer to the ones nobody
+# tells us about.
+ACCOUNT_SESSION_TTL = timedelta(days=30)
 
 #: How many check-ins one page of the F43/F44 scan pulls. Matches the ceiling
 #: `GET /contexts/{id}/memories` already allows, so the aggregation places no
@@ -762,7 +770,15 @@ def _wire_outing_invite(
         expires_at=record.expires_at,
         revoked_at=record.revoked_at,
         invite_token=raw_token,
-        invite_path=f"/outing-invites/{raw_token}" if raw_token is not None else None,
+        # Only a link has a path to open. A named invitation is spent by
+        # posting its token to `/sessions`, and printing an `/outing-invites`
+        # url beside it would invite exactly the mix-up the two doors exist to
+        # prevent -- one of them consumes the row without issuing a session.
+        invite_path=(
+            f"/outing-invites/{raw_token}"
+            if raw_token is not None and record.source == "link"
+            else None
+        ),
     )
 
 
@@ -869,6 +885,20 @@ class ApiService:
             person_id, movement_limit=self.FINANCE_MOVEMENT_LIMIT
         )
 
+    def _group_admin_role(self, context_id: uuid.UUID, actor: Actor) -> frozenset[str]:
+        """`{"group_admin"}` when this person runs THIS group, else empty.
+
+        Being an admin is a fact about one membership row. The session cannot
+        carry it: `actor_grants` deliberately does not grant it, because a flat
+        set of roles has nowhere to say *which* group it is about, and the
+        version that said nothing let an admin of one group act as an admin in
+        every group they belonged to.
+        """
+
+        if self.repository.membership_role(context_id, actor.id) == "admin":
+            return frozenset({"group_admin"})
+        return frozenset()
+
     def _require_registered_person(self, person_id: uuid.UUID) -> None:
         """Refuse before the foreign key does.
 
@@ -922,6 +952,14 @@ class ApiService:
             "invite_context_member",
             actor,
             {"is_group_member": self.repository.is_member(context_id, actor.id)},
+            # Derived from THIS group's roster, not carried on the session.
+            # `group_admin` is a fact about a person inside one group, and a
+            # session that carried it would let an admin of one group invite
+            # people into another where they are only a member -- this entry
+            # asks for `is_group_member`, not `is_group_admin`, so the role is
+            # the whole of the check. Same shape as `batch_owner`: a role the
+            # service derives from the resource, never read from a request.
+            extra_roles=self._group_admin_role(context_id, actor),
         )
         self._require_registered_person(request.person_id)
         try:
@@ -2332,12 +2370,13 @@ class ApiService:
             {"is_group_member": self.repository.is_member(outing.context_id, actor.id)},
         )
 
-        raw_token: str | None = None
-        digest: bytes | None = None
+        # Both kinds carry a secret now. A named invitation is what somebody
+        # exchanges for their first session, so it needs one; before ADR-0014
+        # only links did, and the check constraint said so.
+        raw_token = secrets.token_urlsafe(32)
+        digest = token_digest(raw_token)
         invited_person_id = request.person_id
         if request.source == "link":
-            raw_token = secrets.token_urlsafe(32)
-            digest = token_digest(raw_token)
             invited_person_id = None
         else:
             # `_require_permission` above proved the ACTOR belongs to this
@@ -2397,6 +2436,15 @@ class ApiService:
         invite = self.repository.get_outing_invite_by_digest(token_digest(token))
         if invite is None:
             raise ApiProblem(404, "invite_not_found", "Invite link is not valid")
+        if invite.invited_person_id is not None:
+            # A named invitation is the other door's credential. Accepting it
+            # here would spend the row that somebody's session was going to
+            # come from, and would do it on behalf of whoever happened to be
+            # holding the token rather than the person the invitation names.
+            # Answered as "not valid" rather than "wrong door" for the reason
+            # every other refusal on this route is: the token must not report
+            # what it found.
+            raise ApiProblem(404, "invite_not_found", "Invite link is not valid")
         if invite.accepted_at is not None:
             raise ApiProblem(
                 409,
@@ -2440,6 +2488,7 @@ class ApiService:
             context_id=outing.context_id,
             person_id=actor.id,
             invited_by_id=invite.invited_by_id,
+            origin="link",
             now=now,
         )
         return OutingInviteAcceptResponse(
@@ -2449,6 +2498,169 @@ class ApiService:
             membership_id=membership.id,
             membership_state=membership.state,
         )
+
+    def bootstrap_session_from_invite(self, token: str) -> SessionResponse:
+        """Exchange a named invitation for a session. No actor required.
+
+        This is the only route in the product that answers without an identity,
+        because it is the route where an identity is obtained -- asking for one
+        here would be asking for the thing being requested, the same shape as
+        the identity route's own docstring.
+
+        What makes it safe is that the caller says nothing about who they are.
+        The session is issued to `invited_person_id`, which an existing member
+        wrote when they named the invitation, so possession of the secret is a
+        claim about a person somebody already vouched for rather than a claim
+        the holder makes about themselves.
+
+        What it does not do is make anybody a member. The membership created
+        here is `INVITED`, exactly as the link door leaves it; group data stays
+        behind the existing approval.
+        """
+
+        digest = token_digest(token)
+        invite = self.repository.get_outing_invite_by_digest(digest)
+        # A link's secret is not accepted here for the mirror of the reason a
+        # named secret is refused at the link door: the two doors must not
+        # share a redemption. A link names nobody, so there is no person for
+        # this route to issue a session to.
+        #
+        # `consume_named_invite_secret` refuses the same row, so this line is
+        # a fail-fast rather than the only guard -- deleting it does not turn
+        # any test red on its own. Kept because reaching the repository with
+        # `person_id=None` in hand is a worse way to find that out.
+        if invite is None or invite.invited_person_id is None:
+            raise ApiProblem(404, "invite_not_found", "Invite link is not valid")
+        now = _now()
+        if invite.revoked_at is not None or invite.expires_at <= now:
+            raise ApiProblem(404, "invite_not_found", "Invite link is not valid")
+        outing = self.repository.get_outing(invite.outing_id)
+        if outing is None:
+            # Same capability boundary the link door keeps: a token must not
+            # reveal whether the thing behind it exists.
+            raise ApiProblem(404, "invite_not_found", "Invite link is not valid")
+
+        person_id = invite.invited_person_id
+        try:
+            self.repository.consume_named_invite_secret(
+                invite_id=invite.id,
+                token_digest=digest,
+                accepted_by_id=person_id,
+                now=now,
+            )
+        except RepositoryConflict as exc:
+            raise ApiProblem(
+                404, "invite_not_found", "Invite link is not valid"
+            ) from exc
+
+        membership = self.repository.ensure_invited_membership(
+            context_id=outing.context_id,
+            person_id=person_id,
+            invited_by_id=invite.invited_by_id,
+            # Named, because a member chose this person by name. The row this
+            # writes is what `accept_context_membership` later reads to decide
+            # whether the invitee may consent for themselves.
+            origin="named",
+            now=now,
+        )
+
+        raw_token = secrets.token_urlsafe(32)
+        record = self.repository.create_account_session(
+            person_id=person_id,
+            token_digest=token_digest(raw_token),
+            issued_from_invite_id=invite.id,
+            expires_at=now + ACCOUNT_SESSION_TTL,
+            now=now,
+        )
+        return SessionResponse(
+            token=raw_token,
+            person_id=person_id,
+            expires_at=record.expires_at,
+            membership_state=membership.state,
+        )
+
+    def actor_for_session_token(self, token: str) -> Actor:
+        """Who the server will answer as, for one bearer token.
+
+        Every refusal here is the same 401 with the same sentence. A token that
+        never existed, one that expired, one revoked an hour ago and one whose
+        person row was deleted are four different facts, and telling them apart
+        is worth more to somebody testing stolen tokens than to the person who
+        simply has to sign in again.
+        """
+
+        record = self.repository.get_account_session_by_digest(token_digest(token))
+        now = _now()
+        if record is None or record.revoked_at is not None or record.expires_at <= now:
+            raise ApiProblem(401, "authentication_required", "Session is not valid")
+        grants = self.repository.actor_grants(record.person_id)
+        if not grants.person_exists:
+            raise ApiProblem(401, "authentication_required", "Session is not valid")
+        return Actor(
+            id=record.person_id,
+            roles=grants.roles,
+            context_ids=grants.context_ids,
+        )
+
+    def revoke_session_token(self, token: str) -> None:
+        """Sign out. Answers the same way whether or not the token was live.
+
+        A caller holding a token learns nothing from this route, and a caller
+        holding a guess learns nothing either.
+        """
+
+        record = self.repository.get_account_session_by_digest(token_digest(token))
+        if record is None:
+            return
+        self.repository.revoke_account_session(session_id=record.id, now=_now())
+
+    def rotate_outing_invite_secret(
+        self,
+        outing_id: uuid.UUID,
+        invite_id: uuid.UUID,
+        actor: Actor,
+    ) -> OutingInviteResponse:
+        """Put a fresh secret on a named invitation, for somebody signing in again.
+
+        A second named row for the same person and outing cannot exist -- the
+        partial unique index refuses it -- so re-inviting is not the way back
+        in for a member who lost their phone. Rotating is: the row stays, the
+        old secret is overwritten and can never be presented again, and the
+        person the invitation names is unchanged, which is what keeps this from
+        becoming a way to hand somebody else's account to a third party.
+        """
+
+        outing = self.repository.get_outing(outing_id)
+        invite = self.repository.get_outing_invite(invite_id)
+        if outing is None or invite is None or invite.outing_id != outing_id:
+            raise ApiProblem(404, "invite_not_found", "Invite link is not valid")
+
+        _require_permission(
+            "invite_to_outing",
+            actor,
+            {"is_group_member": self.repository.is_member(outing.context_id, actor.id)},
+        )
+        if invite.invited_person_id is None:
+            raise ApiProblem(
+                409,
+                "invite_not_named",
+                "Only a named invitation can be rotated",
+            )
+
+        now = _now()
+        raw_token = secrets.token_urlsafe(32)
+        try:
+            record = self.repository.rotate_outing_invite_digest(
+                invite_id=invite.id,
+                token_digest=token_digest(raw_token),
+                expires_at=now + OUTING_INVITE_TTL,
+                now=now,
+            )
+        except RepositoryConflict as exc:
+            raise ApiProblem(
+                404, "invite_not_found", "Invite link is not valid"
+            ) from exc
+        return _wire_outing_invite(record, raw_token)
 
     def revoke_outing_invite(
         self,
@@ -3241,6 +3453,7 @@ class ApiService:
                 "is_group_admin": self.repository.membership_role(context_id, actor.id)
                 == "admin"
             },
+            extra_roles=self._group_admin_role(context_id, actor),
         )
         membership = self.repository.set_membership_role(
             context_id, person_id, request.role
@@ -3952,13 +4165,21 @@ class ApiService:
         batch = self.repository.load_batch_for_publish(batch_id)
         if batch is None:
             raise ApiProblem(404, "batch_not_found", "Batch does not exist")
+        owns_batch = actor.id == batch.owner_id
         _require_permission(
             "publish_batch",
             actor,
             {
-                "owns_batch": actor.id == batch.owner_id,
+                "owns_batch": owns_batch,
                 "all_recipients_eligible": batch.all_recipients_eligible,
             },
+            # Derived from the batch, exactly like `freeze_batch` above. This
+            # role used to arrive in `X-Actor-Roles`, so the check passed
+            # because the client asserted it; on a `prod` host nobody asserts
+            # anything and publishing answered 403 to the person who owns the
+            # batch -- the hero path, dead. Found by the prod-mode e2e slice
+            # and by nothing else: every unit test here sends the header.
+            extra_roles=frozenset({"batch_owner"}) if owns_batch else frozenset(),
         )
         now = _now()
         if request.guest_link_expires_at <= now:

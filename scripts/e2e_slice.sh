@@ -231,6 +231,46 @@ s.close()")" || { echo "không tìm được cổng trống" >&2; return 2; }
   return 2
 }
 
+# --- sessions -------------------------------------------------------------
+
+# The API above runs with no MOBILE_AUTH_MODE, so it runs in `prod` (ADR-0014):
+# it does not believe `X-Actor-ID`. That is deliberate and is the point of this
+# stage. Running the slice in `dev` would keep it green and would stop it
+# saying anything about the adapter the product actually ships.
+#
+# So the three demo people need real sessions. They are minted the way a real
+# host mints its first one -- `scripts/genesis_session.py`, straight at the
+# database, no HTTP -- because the HTTP route that issues a session requires an
+# invitation, and issuing an invitation requires a session. On a fresh database
+# that loop has no entry point, which is exactly why that script exists.
+mint_sessions() {
+  local people
+  people="$(python3 "$REPO_ROOT/scripts/e2e_demo_people.py" \
+              "$REPO_ROOT/apps/mobile/src/navigation/nhom-demo.ts")" \
+    || { echo "khong lay duoc danh sach nguoi demo" >&2; return 2; }
+
+  SESSION_FILE="$WORK_DIR/sessions.json"
+  local first=1
+  printf '{' >"$SESSION_FILE"
+  while IFS=$'\t' read -r pid name; do
+    [ -n "$pid" ] || continue
+    local line token
+    line="$(
+      MOBILE_DATABASE_URL="$DATABASE_URL" python3 "$REPO_ROOT/scripts/genesis_session.py" \
+        --person-id "$pid" --display-name "$name" --group "E2E genesis" --json
+    )" || { echo "genesis_session.py hong cho $name" >&2; return 2; }
+    token="$(printf '%s' "$line" | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])')" \
+      || { echo "khong doc duoc token cho $name" >&2; return 2; }
+    [ "$first" -eq 1 ] || printf ',' >>"$SESSION_FILE"
+    first=0
+    printf '"%s":"%s"' "$pid" "$token" >>"$SESSION_FILE"
+  done <<<"$people"
+  printf '}' >>"$SESSION_FILE"
+
+  echo "--- phien that cho 3 nguoi demo (che do prod, khong tin X-Actor-ID)"
+  return 0
+}
+
 # --- run ------------------------------------------------------------------
 
 command -v node >/dev/null 2>&1 || { echo "không có node" >&2; exit 2; }
@@ -240,6 +280,7 @@ command -v npm  >/dev/null 2>&1 || { echo "không có npm" >&2; exit 2; }
 
 provision_db || exit $?
 start_api || exit $?
+mint_sessions || exit $?
 
 if [ "$KEEP" -eq 1 ]; then
   echo "--keep: giữ stack lại."
@@ -261,6 +302,7 @@ echo "--- npm run test:e2e (EXPO_PUBLIC_API_URL=$API_URL, MOBILE_REQUIRE_E2E=1)"
   cd "$REPO_ROOT/apps/mobile" || exit 2
   EXPO_PUBLIC_API_URL="$API_URL" \
   MOBILE_REQUIRE_E2E=1 \
+  MOBILE_E2E_SESSIONS="$SESSION_FILE" \
     npm run --silent test:e2e ${TEST_ARGS[0]+-- "${TEST_ARGS[@]}"}
 )
 rc=$?
