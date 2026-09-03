@@ -18,6 +18,7 @@ from app.api.chat_expense_skill import ChatExpenseReader, run_chat_expense_skill
 from app.api.cursors import CursorError, decode_cursor, encode_cursor
 from app.api.deps import Actor, Companion, ContextualSuggester, Reeler, Suggester
 from app.api.errors import ApiProblem, RepositoryConflict
+from app.api.google_identity import GoogleTokenInvalid, GoogleTokenVerifier
 from app.api.limits import OBJECTION_KINDS, QUOTA_CONSUMING_OBJECTIONS
 from app.api.person_identity import (
     PersonIdKeyMissing,
@@ -2774,6 +2775,75 @@ class ApiService:
             expires_at=now + ACCOUNT_SESSION_TTL,
             now=now,
             issued_via="otp",
+        )
+        return self._session_response(
+            raw_token, record, person_id=person_id, is_new_person=is_new
+        )
+
+    def login_with_google(
+        self, id_token: object, *, verifier: GoogleTokenVerifier | None
+    ) -> SessionResponse:
+        """A Google ID token for a session (ADR-0016). The e-mail never gets here.
+
+        Order matters and is the whole of the security argument: a host with
+        no client ids refuses before it reads the token (503); a token the
+        verifier does not vouch for is one 401 whatever the reason; and the
+        `sub` is looked up in `account_identities` and nowhere else -- a first
+        `sub` is a NEW person even if a person with the same e-mail exists,
+        because `GoogleClaims` does not carry the e-mail to make that choice.
+        """
+        if verifier is None:
+            raise ApiProblem(
+                503,
+                "google_not_configured",
+                "Máy chủ chưa cấu hình đăng nhập Google.",
+            )
+        if not isinstance(id_token, str) or not id_token.strip():
+            raise ApiProblem(422, "id_token_required", "Thiếu id_token.")
+        try:
+            claims = verifier.verify(id_token.strip())
+        except GoogleTokenInvalid as broken:
+            raise ApiProblem(
+                401,
+                "google_token_invalid",
+                "Google không xác nhận lượt đăng nhập này. Thử lại.",
+            ) from broken
+        now = _now()
+        existing = self.repository.get_account_identity("google", claims.subject)
+        if existing is None:
+            person_id = uuid.uuid4()
+            is_new = True
+            try:
+                self.repository.create_person_with_identity(
+                    person_id=person_id,
+                    display_name=claims.display_name or self.NEW_PERSON_NAME,
+                    provider="google",
+                    subject=claims.subject,
+                    now=now,
+                )
+            except RepositoryConflict:
+                # Two first logins raced on one `sub`. The repository rolled the
+                # loser's person row back with the failed binding, so re-read
+                # the winner and sign in as that person.
+                won = self.repository.get_account_identity("google", claims.subject)
+                if won is None:
+                    raise
+                person_id = won.person_id
+                is_new = False
+        else:
+            person_id = existing.person_id
+            is_new = False
+            self.repository.upsert_account_identity(
+                person_id=person_id, provider="google", subject=claims.subject, now=now
+            )
+        raw_token = secrets.token_urlsafe(32)
+        record = self.repository.create_account_session(
+            person_id=person_id,
+            token_digest=token_digest(raw_token),
+            issued_from_invite_id=None,
+            expires_at=now + ACCOUNT_SESSION_TTL,
+            now=now,
+            issued_via="google",
         )
         return self._session_response(
             raw_token, record, person_id=person_id, is_new_person=is_new

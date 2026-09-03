@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api.auth_mode import AUTH_MODE_ENV_VAR, resolve_auth_mode
 from app.api.cors import install_cors
 from app.api.errors import GUEST_LINK_NOT_FOUND, ApiProblem
+from app.api.google_identity import build_google_verifier
 from app.api.guest_privacy import (
     GuestPrivacyHeadersMiddleware,
     guest_aware_server_error_response,
@@ -125,6 +126,13 @@ def create_app(
         "otp: sender=%s debug_code=%s",
         type(application.state.sms_sender).__name__,
         "set" if application.state.otp_debug_code else "unset",
+    )
+    # ADR-0016, second door. No client ids means no verifier, and the route
+    # answers 503 rather than accepting anything.
+    application.state.google_verifier = build_google_verifier(os.environ)
+    LOGGER.info(
+        "google: verifier=%s",
+        "configured" if application.state.google_verifier is not None else "absent",
     )
     # Said out loud at startup because the dangerous configuration is the
     # silent one: a box that kept trusting `X-Actor-*` looks exactly like a box

@@ -751,6 +751,16 @@ class FakeRepository:
     def get_account_identity(self, provider, subject):
         return self.account_identities.get((provider, subject))
 
+    def create_person_with_identity(
+        self, *, person_id, display_name, provider, subject, now
+    ):
+        if (provider, subject) in self.account_identities:
+            raise RepositoryConflict("IDENTITY_ALREADY_BOUND")
+        self.create_person(person_id, display_name)
+        return self.upsert_account_identity(
+            person_id=person_id, provider=provider, subject=subject, now=now
+        )
+
     def upsert_account_identity(self, *, person_id, provider, subject, now):
         existing = self.account_identities.get((provider, subject))
         if existing is None:

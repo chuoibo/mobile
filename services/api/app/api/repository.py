@@ -1047,6 +1047,16 @@ class ApiRepository(Protocol):
         self, *, challenge_id: uuid.UUID, attempts: int, consumed: bool, now: datetime
     ) -> OtpChallengeRecord | None: ...
 
+    def create_person_with_identity(
+        self,
+        *,
+        person_id: uuid.UUID,
+        display_name: str,
+        provider: str,
+        subject: str,
+        now: datetime,
+    ) -> AccountIdentityRecord: ...
+
     def get_account_identity(
         self, provider: str, subject: str
     ) -> AccountIdentityRecord | None: ...
@@ -2822,6 +2832,42 @@ class SqlAlchemyApiRepository:
             row.consumed_at = now
         self.session.flush()
         return self._otp_record(row)
+
+    def create_person_with_identity(
+        self,
+        *,
+        person_id: uuid.UUID,
+        display_name: str,
+        provider: str,
+        subject: str,
+        now: datetime,
+    ) -> AccountIdentityRecord:
+        """A new person and the proof that created them, or neither.
+
+        One savepoint around both rows: when two first logins race on the same
+        proof, the unique index fails the loser's binding and the savepoint
+        takes the loser's `people` row with it. Without that, every lost race
+        would leave a nameless orphan person nobody can ever sign in as.
+        """
+        try:
+            with self.session.begin_nested():
+                self.session.add(Person(id=person_id, display_name=display_name))
+                # Flushed on its own first: the two models share a ForeignKey
+                # but no relationship(), so the unit of work does not know the
+                # order and can emit the binding before the person it points at.
+                self.session.flush()
+                row = AccountIdentity(
+                    person_id=person_id,
+                    provider=provider,
+                    subject=subject,
+                    created_at=now,
+                    last_login_at=now,
+                )
+                self.session.add(row)
+                self.session.flush()
+        except IntegrityError as exc:
+            raise RepositoryConflict("IDENTITY_ALREADY_BOUND") from exc
+        return self._identity_record(row)
 
     def get_account_identity(
         self, provider: str, subject: str
