@@ -1,1 +1,1 @@
-export { LoginScreen as default } from "../src/rudi/screens/Onboarding";
+export { LoginScreen as default } from "../src/rudi/screens/auth/Login";

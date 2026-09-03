@@ -19,11 +19,16 @@ import test from "node:test";
 
 import { datTokenPhien, tokenPhienHienTai, translatedAsActor } from "../dist-test/api.js";
 import {
+  chonNhomMacDinh,
   dangXuat,
+  docNhomCuaToi,
   doiLoiMoiLayPhien,
+  ganDanhSachNhom,
+  guiOtp,
   khoTrongBoNho,
   khoiPhucPhien,
   vaoNhom,
+  xacMinhOtp,
 } from "../dist-test/phien.js";
 
 const NGUOI = "2bb00000-bbbb-4bbb-8bbb-0000b0000001";
@@ -157,24 +162,32 @@ test("phiên đã hết hạn bị bỏ tại chỗ, không gửi lên để nh�
   assert.equal(await kho.doc("rudi.phien"), null, "bản ghi chết phải bị xoá");
 });
 
-test("bản ghi cũ không có nhóm thì bị từ chối, không phải đăng nhập nửa vời", async () => {
-  // A record written before the server answered with `context_id`. Keeping it
-  // would sign somebody in with nothing to read: there is no route that lists
-  // a person's contexts, so the app would show a live-looking shell with no
-  // group behind it. Refusing signs them out, and signing back in is one tap.
+test("bản ghi không có nhóm là phiên hợp lệ CHƯA CÓ NHÓM, không bị đăng xuất (ADR-0016)", async () => {
+  // This case used to assert the opposite: a record without `context_id` was
+  // refused, because there was no route listing a person's groups and keeping
+  // it would have signed somebody into a live-looking shell with nothing to
+  // read. `GET /people/me/contexts` and the «Chưa có nhóm nào» screen exist
+  // now, and the OTP door mints exactly this record for a new person -- so
+  // refusing it would sign every new person out on their second launch.
   const kho = khoTrongBoNho();
-  const { context_id: _bo, ...cu } = PHIEN;
+  const { context_id: _bo, membership_state: _bo2, ...cu } = PHIEN;
   await kho.ghi("rudi.phien", JSON.stringify(cu));
 
-  assert.equal(await khoiPhucPhien(kho), null);
-  assert.equal(tokenPhienHienTai(), null);
+  const phien = await khoiPhucPhien(kho);
+
+  assert.ok(phien);
+  assert.equal(phien.context_id, null);
+  assert.equal(phien.membership_state, null);
+  assert.equal(tokenPhienHienTai(), "tok-abc");
 });
 
-test("nhóm rỗng cũng là bản ghi không dùng được", async () => {
+test("nhóm rỗng đọc thành null, không thành một nhóm tên là chuỗi rỗng", async () => {
   const kho = khoTrongBoNho();
   await kho.ghi("rudi.phien", JSON.stringify({ ...PHIEN, context_id: "" }));
 
-  assert.equal(await khoiPhucPhien(kho), null);
+  const phien = await khoiPhucPhien(kho);
+
+  assert.equal(phien?.context_id, null);
 });
 
 test("phiên còn hạn mang theo nhóm của nó", async () => {
@@ -186,18 +199,22 @@ test("phiên còn hạn mang theo nhóm của nó", async () => {
   assert.equal(phien?.context_id, NHOM);
 });
 
-test("bản ghi cũ không có thẻ thành viên cũng bị từ chối", async () => {
-  // Cùng lý do với `context_id` ngay trên. Một bản ghi viết trước khi máy chủ
-  // trả `membership_id` không đưa người `invited` đi đâu được: nút «Đồng ý vào
-  // nhóm» cần đúng cái id đó, và route duy nhất liệt kê thẻ thành viên lại nằm
-  // SAU chính cái thẻ đang chờ đồng ý. Giữ bản ghi ấy là để người ta ngồi mãi
-  // ở màn có một nút không bao giờ chạy được.
+test("không có thẻ thành viên thì vaoNhom từ chối tại chỗ, không gửi PUT /memberships/null", async () => {
+  // Same shift as above: the record is kept (`membership_id: null`), and the
+  // thing that must not happen moves one step later -- the «Đồng ý» press. A
+  // session with no membership card has nothing to accept, and saying so on
+  // the phone beats a 404 from `/memberships/null` dressed as a server fault.
   const kho = khoTrongBoNho();
   const { membership_id: _bo, ...cu } = PHIEN;
   await kho.ghi("rudi.phien", JSON.stringify(cu));
 
-  assert.equal(await khoiPhucPhien(kho), null);
-  assert.equal(tokenPhienHienTai(), null);
+  const phien = await khoiPhucPhien(kho);
+  assert.ok(phien);
+  assert.equal(phien.membership_id, null);
+
+  const { impl, daGoi } = fetchGiaLap([]);
+  await assert.rejects(voiFetch(impl, () => vaoNhom(phien, kho)), /không mang thẻ thành viên/);
+  assert.equal(daGoi.length, 0, "đã gửi một request cho một thẻ không tồn tại");
 });
 
 test("vào nhóm ghi lại TRẠNG THÁI CỦA MÁY CHỦ, không tự đặt là active", async () => {
@@ -279,4 +296,171 @@ test("máy chủ từ chối đăng xuất thì máy vẫn quên phiên", async 
   // trả lời thế nào. Hàng trên máy chủ vẫn hết hạn theo TTL của nó.
   assert.equal(tokenPhienHienTai(), null);
   assert.equal(await kho.doc("rudi.phien"), null);
+});
+
+/* ---- The OTP door (ADR-0016). --------------------------------------------
+ *
+ * Same discipline as `POST /sessions` above: the bodies are pinned key by key,
+ * because the tempting extra field (`person_id`) is the one that hands the
+ * client back the right to say who it is. And the number travels in ONE body
+ * and nowhere else -- never a path, never a header, never a log line here.
+ */
+const NHOM_B = "3cc00000-cccc-4ccc-8ccc-cccccccccccc";
+const THE_B = "4dd00000-dddd-4ddd-8ddd-dddddddddddd";
+// Few digits on purpose: the repo guard reads nine digits in a row as a phone
+// number, and it is right to.
+const SO = "09 345 678";
+
+const PHIEN_OTP = {
+  token: "tok-otp",
+  person_id: NGUOI,
+  context_id: null,
+  membership_state: null,
+  membership_id: null,
+  expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+  issued_via: "otp",
+  is_new_person: true,
+  profile: { display_name: "Thành viên mới" },
+  contexts: [],
+};
+
+const NHOM_MOI = {
+  id: NHOM,
+  display_name: "Được mời",
+  my_state: "invited",
+  membership_id: THE_THANH_VIEN,
+  member_count: 2,
+  unread_count: 0,
+};
+const NHOM_DANG_O = {
+  id: NHOM_B,
+  display_name: "Đang ở",
+  my_state: "active",
+  membership_id: THE_B,
+  member_count: 3,
+  unread_count: 1,
+};
+
+test("guiOtp: POST /auth/otp/request, thân chỉ có phone, không Bearer, không actor", async () => {
+  const { impl, daGoi } = fetchGiaLap([
+    traLoi({ challenge_id: "ch-1", expires_in_seconds: 300, resend_after_seconds: 60 }, { status: 202 }),
+  ]);
+
+  const ra = await voiFetch(impl, () => guiOtp(SO));
+
+  assert.equal(daGoi.length, 1);
+  assert.match(daGoi[0].url, /\/auth\/otp\/request$/);
+  assert.equal(daGoi[0].init.method, "POST");
+  assert.deepEqual(than(daGoi[0]), { phone: SO });
+  assert.equal(daGoi[0].init.headers["Authorization"], undefined);
+  assert.equal(daGoi[0].init.headers["X-Actor-ID"], undefined);
+  assert.equal(ra.resend_after_seconds, 60);
+});
+
+test("guiOtp dịch mã từ chối của máy chủ thành câu người đọc", async () => {
+  const { impl } = fetchGiaLap([
+    traLoi({ code: "otp_resend_too_soon", detail: "x" }, { ok: false, status: 429 }),
+  ]);
+
+  await assert.rejects(
+    voiFetch(impl, () => guiOtp(SO)),
+    (loi) => loi.code === "otp_resend_too_soon" && loi.message === "Mã vừa được gửi. Đợi một chút rồi gửi lại.",
+  );
+});
+
+test("xacMinhOtp: thân là {challenge_id, phone, code} có Idempotency-Key; phiên được ghi, Bearer được đặt", async () => {
+  const kho = khoTrongBoNho();
+  const { impl, daGoi } = fetchGiaLap([traLoi(PHIEN_OTP, { status: 201 }), traLoi({ ok: true })]);
+
+  const phien = await voiFetch(impl, async () => {
+    const ra = await xacMinhOtp("ch-1", SO, "000000", kho);
+    await translatedAsActor({}, "/contexts/x", { method: "GET", actorId: NGUOI });
+    return ra;
+  });
+
+  assert.match(daGoi[0].url, /\/auth\/otp\/verify$/);
+  assert.deepEqual(than(daGoi[0]), { challenge_id: "ch-1", phone: SO, code: "000000" });
+  assert.ok(daGoi[0].init.headers["Idempotency-Key"], "verify là một cú ghi: mất đáp án phải replay được");
+  assert.equal(daGoi[1].init.headers["Authorization"], "Bearer tok-otp");
+  // No group known: the session says so instead of inventing one.
+  assert.equal(phien.context_id, null);
+  assert.equal(phien.issued_via, "otp");
+  const luu = JSON.parse(await kho.doc("rudi.phien"));
+  assert.equal(luu.token, "tok-otp");
+  assert.equal(luu.context_id, null);
+});
+
+test("xacMinhOtp chọn nhóm ACTIVE đầu tiên máy chủ liệt kê, bỏ qua nhóm chỉ mới được mời", async () => {
+  const { impl } = fetchGiaLap([
+    traLoi({ ...PHIEN_OTP, contexts: [NHOM_MOI, NHOM_DANG_O] }, { status: 201 }),
+  ]);
+
+  const phien = await voiFetch(impl, () => xacMinhOtp("ch-1", SO, "000000", khoTrongBoNho()));
+
+  assert.equal(phien.context_id, NHOM_B);
+  assert.equal(phien.membership_state, "active");
+  assert.equal(phien.membership_id, THE_B);
+});
+
+test("chonNhomMacDinh để yên phiên đã có nhóm, và để yên phiên chỉ có lời mời", () => {
+  assert.equal(chonNhomMacDinh(PHIEN).context_id, NHOM);
+  const chiMoi = { ...PHIEN_OTP, contexts: [NHOM_MOI] };
+  assert.equal(chonNhomMacDinh(chiMoi).context_id, null);
+  assert.equal(chonNhomMacDinh(chiMoi).membership_id, null);
+});
+
+test("mã sai: câu của máy chủ (còn mấy lần) đi thẳng tới màn, không bị thay bằng chữ cứng", async () => {
+  const { impl } = fetchGiaLap([
+    traLoi({ code: "otp_code_invalid", detail: "Mã chưa đúng. Còn 4 lần thử." }, { ok: false, status: 422 }),
+  ]);
+
+  await assert.rejects(
+    voiFetch(impl, () => xacMinhOtp("ch-1", SO, "111111", khoTrongBoNho())),
+    (loi) => loi.code === "otp_code_invalid" && loi.message === "Mã chưa đúng. Còn 4 lần thử.",
+  );
+  // And nothing was remembered from a refused code.
+  assert.equal(tokenPhienHienTai(), null);
+});
+
+test("khoiPhucPhien đọc được phiên OTP không có nhóm thay vì coi bản ghi là hỏng", async () => {
+  const kho = khoTrongBoNho();
+  await kho.ghi("rudi.phien", JSON.stringify(PHIEN_OTP));
+
+  const phien = await khoiPhucPhien(kho);
+
+  assert.ok(phien, "phiên hợp lệ bị đọc thành null: người đã đăng nhập bị đăng xuất mỗi lần mở app");
+  assert.equal(phien.context_id, null);
+  assert.equal(phien.membership_state, null);
+  assert.equal(phien.membership_id, null);
+  assert.equal(phien.issued_via, "otp");
+  assert.equal(tokenPhienHienTai(), "tok-otp");
+});
+
+test("docNhomCuaToi: GET /people/me/contexts mang Bearer của phiên", async () => {
+  const kho = khoTrongBoNho();
+  const { impl, daGoi } = fetchGiaLap([
+    traLoi(PHIEN_OTP, { status: 201 }),
+    traLoi({ contexts: [NHOM_DANG_O] }),
+  ]);
+
+  const ds = await voiFetch(impl, async () => {
+    await xacMinhOtp("ch-1", SO, "000000", kho);
+    return docNhomCuaToi(NGUOI);
+  });
+
+  assert.match(daGoi[1].url, /\/people\/me\/contexts$/);
+  assert.equal(daGoi[1].init.method, "GET");
+  assert.equal(daGoi[1].init.headers["Authorization"], "Bearer tok-otp");
+  assert.equal(ds.length, 1);
+  assert.equal(ds[0].id, NHOM_B);
+});
+
+test("ganDanhSachNhom gán nhóm active vào phiên và ghi lại kho", async () => {
+  const kho = khoTrongBoNho();
+
+  const moi = await ganDanhSachNhom(PHIEN_OTP, [NHOM_DANG_O], kho);
+
+  assert.equal(moi.context_id, NHOM_B);
+  assert.equal(moi.membership_state, "active");
+  assert.equal(JSON.parse(await kho.doc("rudi.phien")).context_id, NHOM_B);
 });

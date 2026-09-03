@@ -19,7 +19,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { diemVaoTuUrl } from "../dist-test/rudi/duong-vao.js";
+import { diemVaoTuUrl, manDau } from "../dist-test/rudi/duong-vao.js";
 
 test("the reproduced link is left alone", () => {
   assert.deepEqual(diemVaoTuUrl("exp://localhost:8095/--/settlements/team-da-lat"), {
@@ -131,4 +131,18 @@ test("the web QA harness's own addresses are not touched", () => {
   ]) {
     assert.deepEqual(diemVaoTuUrl(url), { kieu: "giu-nguyen" }, url);
   }
+});
+
+/* The second half of the cold-start decision: the session, not the URL. Before
+ * `manDau` a person who signed in with a code saw the welcome carousel on every
+ * launch, because `diemVaoTuUrl(null)` is right about the URL and knows nothing
+ * about the disk. */
+test("manDau: không phiên → welcome; nhóm active → explore; còn lại → danh sách nhóm", () => {
+  assert.equal(manDau(null), "/welcome");
+  assert.equal(manDau({ context_id: "ctx", membership_state: "active" }), "/explore");
+  assert.equal(manDau({ context_id: null, membership_state: null }), "/groups/empty");
+  // Signed in is not joined: the invitee still has to press «Đồng ý», and that
+  // button lives on the group list, not on a tab that would invent its numbers.
+  assert.equal(manDau({ context_id: "ctx", membership_state: "invited" }), "/groups/empty");
+  assert.equal(manDau({ context_id: "ctx", membership_state: "left" }), "/groups/empty");
 });

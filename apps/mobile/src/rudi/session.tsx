@@ -107,6 +107,10 @@ type RudiSessionApi = RudiSession & {
   nguon: Nguon;
   /** Still reading the disk. Screens must not write over what has not arrived. */
   dangNapPhien: boolean;
+  /** The bearer session as restored or just minted; `null` while signed out. */
+  phien: Phien | null;
+  /** Whether SecureStore has answered. Until then `phien === null` means nothing. */
+  phienDaDoc: boolean;
   /**
    * Whether the last write reached the disk.
    *
@@ -168,6 +172,9 @@ export function RudiSessionProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<RudiSession>(seed);
   const [dangNapPhien, setDangNapPhien] = useState(true);
   const [phien, setPhien] = useState<Phien | null>(null);
+  // SecureStore and AsyncStorage are two reads; `dangNapPhien` above covers the
+  // draft blob only. The entry decision (`manDau`) needs THIS one.
+  const [phienDaDoc, setPhienDaDoc] = useState(false);
   // One decision, derived once. `cheDo` used to be its own piece of state,
   // which is how a badge and a data loader end up disagreeing.
   const nguon = useMemo(() => nguonHienTai(phien), [phien]);
@@ -206,11 +213,14 @@ export function RudiSessionProvider({ children }: { children: ReactNode }) {
         if (!song) return;
         if (phien !== null) datTokenPhien(phien.token);
         setPhien(phien);
+        setPhienDaDoc(true);
       })
       .catch(() => {
         // An unreadable store is indistinguishable from a first launch, and
         // both answers are the same: no session, experience build.
-        if (song) setPhien(null);
+        if (!song) return;
+        setPhien(null);
+        setPhienDaDoc(true);
       });
     return () => {
       song = false;
@@ -258,6 +268,8 @@ export function RudiSessionProvider({ children }: { children: ReactNode }) {
     cheDo,
     nguon,
     dangNapPhien,
+    phien,
+    phienDaDoc,
     luuTruSong,
     money,
     photoCount: MEMORY_PHOTOS.length,
@@ -399,7 +411,7 @@ export function RudiSessionProvider({ children }: { children: ReactNode }) {
     setProfileNotice: (profileNotice) => setState((current) => ({ ...current, profileNotice })),
     setInboxOpen: (inboxOpen) => setState((current) => ({ ...current, inboxOpen })),
     tripPath: (suffix) => `/trips/${DEMO_GROUP.id}${suffix}` as const,
-  }), [state, money, voteTallies, cheDo, nguon, phien, dangNapPhien, luuTruSong]);
+  }), [state, money, voteTallies, cheDo, nguon, phien, phienDaDoc, dangNapPhien, luuTruSong]);
 
   return <RudiSessionContext.Provider value={api}>{children}</RudiSessionContext.Provider>;
 }

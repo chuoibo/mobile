@@ -121,3 +121,25 @@ export function diemVaoTuUrl(url: string | null | undefined): DiemVao {
   const toi = LEGACY_FRAGMENT_ROUTES[manh];
   return toi === undefined ? WELCOME : { kieu: "doi-huong", toi };
 }
+
+/**
+ * Where a launch with no URL opens, as a function of the stored session.
+ *
+ * `diemVaoTuUrl(null)` says "/welcome" and is right about the URL; it knows
+ * nothing about the disk. Before this existed a person who had signed in with
+ * a code saw the welcome carousel on every cold start and had to find the door
+ * again. Kept apart from `diemVaoTuUrl` so the URL decision stays a pure
+ * function of the URL, and this one a pure function of the session -- both
+ * testable without a device.
+ *
+ * `invited` is not `active`: somebody with a pending invitation and no group
+ * they can read lands on the group list, where the "Đồng ý" button lives, not
+ * on a Khám phá tab that would have to invent its numbers.
+ */
+export function manDau(
+  phien: { context_id: string | null; membership_state: string | null } | null,
+): "/welcome" | "/explore" | "/groups/empty" {
+  if (phien === null) return "/welcome";
+  if (phien.context_id !== null && phien.membership_state === "active") return "/explore";
+  return "/groups/empty";
+}

@@ -1,12 +1,12 @@
 import { Stack, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Linking, LogBox, Platform } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
-import { diemVaoTuUrl } from "../src/rudi/duong-vao";
+import { diemVaoTuUrl, manDau } from "../src/rudi/duong-vao";
 import { datLoiMoiDen } from "../src/rudi/loi-moi-den";
-import { RudiSessionProvider } from "../src/rudi/session";
+import { RudiSessionProvider, useRudiSession } from "../src/rudi/session";
 import { useRudiTheme } from "../src/rudi/theme";
 
 // Module level, before the first frame: `index.ts` never runs under
@@ -33,15 +33,27 @@ LogBox.ignoreAllLogs();
  *            tabular-nums for money, motion <= 220ms.
  * FINISH: the shipped screens are reviewed on the emulator, not on the web export.
  */
-/** Translates a legacy `#fragment` entry, and nothing else.
+/** Decides the first screen of a cold start, and routes warm links.
  *
- * The decision lives in `src/rudi/duong-vao.ts` so it can be tested without a
- * device; see the docstring there for the deep link this used to swallow. */
+ * The URL decision lives in `src/rudi/duong-vao.ts` so it can be tested
+ * without a device; see the docstring there for the deep link this used to
+ * swallow. The session decision (`manDau`) lives beside it for the same
+ * reason: a pathless launch means «welcome» only for somebody signed out. */
 function LegacyFragmentAdapter() {
   const router = useRouter();
+  const { phien, phienDaDoc } = useRudiSession();
+  // Once. The effect below re-runs when the session changes (sign-in, sign-out)
+  // and must not replay the cold-start redirect on top of wherever the person
+  // navigated to since.
+  const daQuyetDinh = useRef(false);
 
   useEffect(() => {
     if (Platform.OS === "web") return;
+    // Not before the disk has answered: deciding on `phien === null` while
+    // SecureStore is still reading would send every signed-in person to the
+    // welcome screen on every launch.
+    if (!phienDaDoc || daQuyetDinh.current) return;
+    daQuyetDinh.current = true;
     let live = true;
     void Linking.getInitialURL().then((url) => {
       // Re-checked after the await, not before it. The guard that was only
@@ -57,13 +69,24 @@ function LegacyFragmentAdapter() {
         return;
       }
       if (diem.kieu !== "doi-huong") return;
-      router.replace(diem.toi as never);
+      // «welcome» from the URL alone becomes «back where you were» when a
+      // session survived the restart. Same function `app/index.tsx` uses.
+      const toi = diem.toi === "/welcome" ? manDau(phien) : diem.toi;
+      router.replace(toi as never);
     });
+    return () => {
+      live = false;
+    };
+  }, [router, phien, phienDaDoc]);
+
+  useEffect(() => {
+    if (Platform.OS === "web") return;
     // Warm links: the app is already open when a friend's invite arrives, or
     // when the dev client (whose launcher swallows cold `rudi://` links) hands
     // one over after the bundle is up. Same decision function, same routes.
+    // A separate effect with its own lifetime: the cold-start one above ends
+    // after a single decision, and this listener must outlive it.
     const sub = Linking.addEventListener("url", ({ url }) => {
-      if (!live) return;
       const diem = diemVaoTuUrl(url);
       if (diem.kieu === "loi-moi") {
         datLoiMoiDen(diem.ma);
@@ -72,10 +95,7 @@ function LegacyFragmentAdapter() {
       }
       if (diem.kieu === "doi-huong") router.replace(diem.toi as never);
     });
-    return () => {
-      live = false;
-      sub.remove();
-    };
+    return () => sub.remove();
   }, [router]);
 
   return null;

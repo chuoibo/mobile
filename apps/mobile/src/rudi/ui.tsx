@@ -478,6 +478,66 @@ export function SearchField({ placeholder = "Tìm địa điểm, món ăn...", 
   return <Field {...props} icon="search-outline" placeholder={placeholder} returnKeyType="search" />;
 }
 
+/**
+ * Six boxes for a one-time code, one real input behind them.
+ *
+ * The boxes are paint; the `TextInput` stretched over them is what has focus,
+ * receives the SMS autofill (`autoComplete="sms-otp"` / `oneTimeCode`) and
+ * what a driver types into. One input rather than six keeps paste, autofill and
+ * backspace ordinary, and keeps the value a single string the caller submits
+ * when it reaches `length`. Its text is transparent, not its opacity: an
+ * element with opacity 0 is also invisible to the accessibility tree.
+ */
+export function OtpBoxes({
+  value,
+  onChange,
+  length = 6,
+  disabled = false,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  length?: number;
+  disabled?: boolean;
+}) {
+  const { colors, radius } = useRudiTheme();
+  const oHienTai = Math.min(value.length, length - 1);
+  return (
+    <View style={styles.otpWrap}>
+      <View pointerEvents="none" style={styles.otpRow}>
+        {Array.from({ length }, (_, i) => (
+          <View
+            key={i}
+            style={[
+              styles.otpBox,
+              {
+                backgroundColor: colors.card,
+                borderColor: i === oHienTai && !disabled ? colors.accent : colors.lineStrong,
+                borderRadius: radius.control,
+              },
+            ]}
+          >
+            <Text style={[typography.title, { color: colors.ink }]}>{value[i] ?? ""}</Text>
+          </View>
+        ))}
+      </View>
+      <TextInput
+        accessibilityLabel="Ô nhập mã"
+        autoComplete="sms-otp"
+        autoFocus
+        caretHidden
+        editable={!disabled}
+        keyboardType="number-pad"
+        maxLength={length}
+        onChangeText={(text) => onChange(text.replace(/\D/g, "").slice(0, length))}
+        style={styles.otpInput}
+        testID="otp-input"
+        textContentType="oneTimeCode"
+        value={value}
+      />
+    </View>
+  );
+}
+
 export function Chip({
   label,
   icon,
@@ -785,6 +845,19 @@ export function widthPercent(value: number): DimensionValue {
 }
 
 const styles = StyleSheet.create({
+  otpWrap: { position: "relative", alignSelf: "center" },
+  otpRow: { flexDirection: "row", gap: 8, justifyContent: "center" },
+  otpBox: { width: 44, height: 54, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
+  otpInput: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    color: "transparent",
+    backgroundColor: "transparent",
+    fontSize: 1,
+  },
   flex: { flex: 1 },
   safeArea: { flex: 1, overflow: "hidden" },
   screenInner: { width: "100%", gap: 18, paddingTop: 8 },

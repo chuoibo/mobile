@@ -1,5 +1,6 @@
-# PR claim: "welcome → «Tìm hiểu thêm» không skip auth, Google báo chưa kết nối,
-# «Vào bản trải nghiệm» vào được".
+# PR claim: "welcome → «Tìm hiểu thêm» không skip auth, Google nói thật là chưa
+# cấu hình, «Vào bản trải nghiệm» vào được (bảng mặc định chạy với
+# EXPO_PUBLIC_RUDI_FIXTURE=1; flow 22 khẳng định cửa đó VẮNG khi không có cờ)".
 appId: com.lakiet.rudi
 ---
 - stopApp
@@ -25,7 +26,9 @@ appId: com.lakiet.rudi
     visible: "Chào bạn"
     timeout: 30000
 - tapOn: "Tiếp tục với Google"
-- assertVisible: "Google chưa kết nối. Cần tài khoản OAuth (Pha D)."
+# Thật thà cho tới khi có client id (PR-BE4 + Google Cloud của Lead): nút nói
+# nó chờ cấu hình, và chỉ đường sang số điện thoại — cửa đang mở.
+- assertVisible: "Đăng nhập Google mở sau khi đội cấu hình OAuth. Số điện thoại dùng được ngay."
 - takeScreenshot: 01-login-google-honest
 - tapOn: "Vào bản trải nghiệm Team Đà Lạt"
 - extendedWaitUntil:

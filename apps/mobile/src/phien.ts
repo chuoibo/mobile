@@ -37,33 +37,32 @@ import {
 } from "./api";
 
 /** What the server hands back once, and what we keep. */
+export type NhomTomTat = {
+  id: string;
+  display_name: string;
+  my_state: "invited" | "active";
+  membership_id: string;
+  member_count: number;
+  unread_count: number;
+};
+
 export type Phien = {
   token: string;
   person_id: string;
-  /** The group the invitation belonged to.
-   *
-   *  A session that says only who you are is a session with nothing to read:
-   *  there is no route that lists a person's contexts, so this is the only way
-   *  the app learns which group to ask about. `src/rudi/nguon.ts` stayed in
-   *  fixture mode until the server started answering with it. */
-  context_id: string;
   expires_at: string;
-  /** Where this person stands in the group the invitation belonged to.
-   *
-   *  Signing in is not joining. A first invitation lands `invited` and still
-   *  waits on a member; signing back in on a new phone is `active` and waits
-   *  on nobody. Without this the screen would have to pick one sentence and be
-   *  wrong for half the people reading it. */
-  membership_state: "invited" | "active" | "left";
-  /** The membership row this person may accept for themselves.
-   *
-   *  A named invitation is an existing member's choice, so the person named in
-   *  it consents rather than waits (ADR-0014 s8). Consenting means calling
-   *  `POST /memberships/{id}/accept`, and until the server answered with this
-   *  id there was no way to name the row: the roster route that lists it is
-   *  behind the very membership being accepted. Without it `invited` was a
-   *  dead end -- signed in, and nothing on the screen could ever change it. */
-  membership_id: string;
+  /** `null` for a session minted by a door that is not an invitation (OTP,
+   *  Google): the person may belong to no group yet. The invite door and
+   *  `chonNhomMacDinh` fill it whenever a group is known. */
+  context_id: string | null;
+  membership_state: "invited" | "active" | "left" | null;
+  membership_id: string | null;
+  /** Which door minted this session (ADR-0016). Absent on rows stored before
+   *  the field existed. */
+  issued_via?: "invite" | "otp" | "google" | "genesis";
+  is_new_person?: boolean;
+  profile?: { display_name: string };
+  /** Every group the person is in or invited to, as the server listed them. */
+  contexts?: NhomTomTat[];
 };
 
 /** Where a secret is kept between launches. */
@@ -131,33 +130,39 @@ export async function khoAnToanMacDinh(): Promise<KhoAnToan> {
   return khoMacDinh;
 }
 
+/** A non-empty string, or `null`. An empty id is an absent id, not a group named "". */
+function chuoiHayNull(gia: unknown): string | null {
+  return typeof gia === "string" && gia !== "" ? gia : null;
+}
+
 function docPhien(thoLuu: string | null): Phien | null {
   if (thoLuu === null) return null;
   try {
     const parsed = JSON.parse(thoLuu) as Partial<Phien>;
     if (typeof parsed.token !== "string" || parsed.token === "") return null;
     if (typeof parsed.person_id !== "string") return null;
-    // A record written before the server answered with a group is a record
-    // this build cannot use: it would sign somebody in with nothing to read.
-    // Refusing it signs them out, which is recoverable; keeping it would put
-    // them on a live-looking screen with no group behind it.
-    if (typeof parsed.context_id !== "string" || parsed.context_id === "") return null;
     if (typeof parsed.expires_at !== "string") return null;
-    if (typeof parsed.membership_state !== "string") return null;
-    // Same reasoning as `context_id` above: a record written before the server
-    // named the membership row cannot take an `invited` person any further, so
-    // it is refused rather than kept. Signing back in is recoverable; a button
-    // that can never work is not.
-    if (typeof parsed.membership_id !== "string" || parsed.membership_id === "") {
-      return null;
-    }
+    // The group triple is nullable since ADR-0016: a session from the OTP or
+    // Google door may belong to no group yet, and that is a person who should
+    // land on "chưa có nhóm nào", not be signed out. A row written before the
+    // fields existed still carries all three as strings and reads unchanged.
+    const state =
+      parsed.membership_state === "invited" ||
+      parsed.membership_state === "active" ||
+      parsed.membership_state === "left"
+        ? parsed.membership_state
+        : null;
     return {
       token: parsed.token,
       person_id: parsed.person_id,
-      context_id: parsed.context_id,
+      context_id: chuoiHayNull(parsed.context_id),
       expires_at: parsed.expires_at,
-      membership_state: parsed.membership_state,
-      membership_id: parsed.membership_id,
+      membership_state: state,
+      membership_id: chuoiHayNull(parsed.membership_id),
+      issued_via: parsed.issued_via,
+      is_new_person: parsed.is_new_person,
+      profile: parsed.profile,
+      contexts: Array.isArray(parsed.contexts) ? parsed.contexts : undefined,
     };
   } catch {
     // A corrupted record is a signed-out app, not a crashed one.
@@ -210,6 +215,9 @@ const LOI_VAO_NHOM: Record<string, string> = {
  * money.
  */
 export async function vaoNhom(phien: Phien, kho?: KhoAnToan): Promise<Phien> {
+  if (phien.membership_id === null) {
+    throw new Error("Phiên này không mang thẻ thành viên nào để đồng ý.");
+  }
   const wire = await translatedAsActor<{ state: "invited" | "active" | "left" }>(
     LOI_VAO_NHOM,
     `/memberships/${phien.membership_id}/accept`,
@@ -225,6 +233,110 @@ export async function vaoNhom(phien: Phien, kho?: KhoAnToan): Promise<Phien> {
 }
 
 /** Put a session into force for this process, and onto the device. */
+export type OtpDaGui = {
+  challenge_id: string;
+  expires_in_seconds: number;
+  resend_after_seconds: number;
+};
+
+// Keyed by the server's own codes (`viDich` looks the code up, not the
+// status). `otp_code_invalid` is deliberately absent: its server sentence
+// carries how many tries are left, and a fixed one here would hide that.
+const LOI_OTP_GUI: Record<string, string> = {
+  phone_required: "Nhập số điện thoại.",
+  phone_not_mobile: "Chưa đúng dạng số di động Việt Nam.",
+  otp_resend_too_soon: "Mã vừa được gửi. Đợi một chút rồi gửi lại.",
+  otp_too_many_requests: "Số này vừa nhận nhiều mã. Thử lại sau ít phút.",
+  rate_limited: "Thử lại sau một phút.",
+  identity_key_missing: "Máy chủ chưa sẵn sàng cho đăng nhập.",
+  sms_unavailable: "Chưa gửi được tin nhắn lúc này, thử lại sau.",
+};
+
+const LOI_OTP_XAC_MINH: Record<string, string> = {
+  otp_challenge_not_found: "Mã không còn hiệu lực. Xin mã mới.",
+  otp_too_many_attempts: "Sai quá nhiều lần. Xin mã mới.",
+  challenge_id_invalid: "Lượt xin mã bị lỗi. Xin mã mới.",
+  rate_limited: "Thử lại sau một phút.",
+  identity_key_missing: "Máy chủ chưa sẵn sàng cho đăng nhập.",
+};
+
+/** Ask the server to send a code. The number goes in the body, never a path. */
+export async function guiOtp(phone: string): Promise<OtpDaGui> {
+  return translatedAnonymous<OtpDaGui>(LOI_OTP_GUI, "/auth/otp/request", {
+    method: "POST",
+    body: { phone },
+    attempt: newAttempt(),
+  });
+}
+
+/**
+ * A session with a group to stand in, when the server knows one.
+ *
+ * The OTP door answers with `context_id: null` and the full `contexts` list;
+ * the screens that already read live money (`nguon.ts`) need one group on the
+ * session. The first ACTIVE membership is that group -- a person with several
+ * picks another from the conversation list (M2). Pure, so it can be tested.
+ */
+export function chonNhomMacDinh(phien: Phien): Phien {
+  if (phien.context_id !== null) return phien;
+  const active = phien.contexts?.find((nhom) => nhom.my_state === "active");
+  if (active === undefined) return phien;
+  return {
+    ...phien,
+    context_id: active.id,
+    membership_state: "active",
+    membership_id: active.membership_id,
+  };
+}
+
+/**
+ * Every group this person is in or invited to, as the server lists them.
+ *
+ * `GET /people/me/contexts` (ADR-0016) is how a session minted by a door that
+ * knows no group finds one. Read as the actor only for the `X-Actor-ID` header
+ * a dev-mode server still looks at; in `prod` the bearer decides who "me" is.
+ */
+export async function docNhomCuaToi(personId: string): Promise<NhomTomTat[]> {
+  const wire = await translatedAsActor<{ contexts: NhomTomTat[] }>({}, "/people/me/contexts", {
+    method: "GET",
+    actorId: personId,
+  });
+  return wire.contexts;
+}
+
+/**
+ * A fresh group list on an existing session, written back to the disk.
+ *
+ * Used right after a group is created or accepted: the server already knows,
+ * and the phone must not keep saying "chưa có nhóm nào" until the next launch.
+ */
+export async function ganDanhSachNhom(
+  phien: Phien,
+  contexts: NhomTomTat[],
+  kho?: KhoAnToan,
+): Promise<Phien> {
+  const moi = chonNhomMacDinh({ ...phien, contexts });
+  await ghiNho(moi, kho);
+  return moi;
+}
+
+/** Spend the code for a session, remember it, and hand the bearer to `api.ts`. */
+export async function xacMinhOtp(
+  challengeId: string,
+  phone: string,
+  code: string,
+  kho?: KhoAnToan,
+): Promise<Phien> {
+  const wire = await translatedAnonymous<Phien>(LOI_OTP_XAC_MINH, "/auth/otp/verify", {
+    method: "POST",
+    body: { challenge_id: challengeId, phone, code },
+    attempt: newAttempt(),
+  });
+  const phien = chonNhomMacDinh(wire);
+  await ghiNho(phien, kho);
+  return phien;
+}
+
 export async function ghiNho(phien: Phien, kho?: KhoAnToan): Promise<void> {
   datTokenPhien(phien.token);
   const store = kho ?? (await khoAnToanMacDinh());

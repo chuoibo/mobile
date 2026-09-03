@@ -59,9 +59,13 @@ export function ProfileScreen() {
           <IconButton accessibilityLabel="Quay lại" icon="chevron-back" onPress={() => setPanel("home")} />
           <Text style={[typography.title, { color: colors.ink }]}>Tài khoản</Text>
         </Inline>
-        <Text style={[typography.body, { color: colors.ink }]}>Đang xem với tư cách {session.displayName}.</Text>
+        <Text style={[typography.body, { color: colors.ink }]}>
+          Đang xem với tư cách {session.phien?.profile?.display_name ?? session.displayName}.
+        </Text>
         <Text style={[typography.caption, { color: colors.inkFaint }]}>
-          Đăng xuất xoá mọi lựa chọn của lần mở app này rồi đưa về welcome. Phiên này không ký máy chủ.
+          {session.phien !== null
+            ? "Đăng xuất kết thúc phiên trên máy chủ, xoá lựa chọn trên máy này rồi đưa về màn chào."
+            : "Đăng xuất xoá mọi lựa chọn của lần mở app này rồi đưa về welcome. Phiên này không ký máy chủ."}
         </Text>
         {DAU_VAN_CAY ? (
           <Text accessibilityLabel="dau-van-cay" style={[typography.caption, { color: colors.inkFaint }]}>
@@ -69,7 +73,7 @@ export function ProfileScreen() {
           </Text>
         ) : null}
         <RudiButton
-          label="Đăng xuất bản trải nghiệm"
+          label={session.phien !== null ? "Đăng xuất" : "Đăng xuất bản trải nghiệm"}
           onPress={() => {
             session.resetSession();
             router.replace("/welcome");
