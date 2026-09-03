@@ -14,7 +14,7 @@ import {
   type ItineraryDay,
 } from "./fixtures";
 import { datTokenPhien } from "../api";
-import { khoiPhucPhien, type Phien } from "../phien";
+import { dangXuat, khoiPhucPhien, type Phien } from "../phien";
 import { docPhienThoAsync, ghiPhienThoAsync, xoaPhienAsync } from "./kho";
 import { dongGoi, moGoi } from "./luu-tru";
 import { nguonHienTai, type Nguon } from "./nguon";
@@ -155,7 +155,7 @@ export function RudiSessionProvider({ children }: { children: ReactNode }) {
   const [phien, setPhien] = useState<Phien | null>(null);
   // One decision, derived once. `cheDo` used to be its own piece of state,
   // which is how a badge and a data loader end up disagreeing.
-  const nguon = useMemo(() => nguonHienTai(phien !== null), [phien]);
+  const nguon = useMemo(() => nguonHienTai(phien), [phien]);
   const cheDo = nguon.kieu === "live" ? "live" : "trai-nghiem";
   const [luuTruSong, setLuuTruSong] = useState(false);
   const hen = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -260,6 +260,15 @@ export function RudiSessionProvider({ children }: { children: ReactNode }) {
       // the case where the app is killed inside those 400ms. "Đăng xuất xoá
       // mọi lựa chọn" has to be true even then.
       void xoaPhienAsync();
+      // And the session itself. `dangXuat` calls the server FIRST and forgets
+      // locally in a `finally`, which is the order that matters: a session only
+      // the phone forgets is still a live credential on the server, and a phone
+      // somebody else is holding is exactly when that matters. Clearing local
+      // state here regardless is right for the same reason -- somebody who
+      // pressed sign-out has said what they want.
+      const dangCo = phien;
+      setPhien(null);
+      if (dangCo !== null) void dangXuat(dangCo.person_id);
     },
     setDisplayName: (displayName) => setState((current) => ({ ...current, displayName })),
     setBio: (bio) => setState((current) => ({ ...current, bio })),
@@ -368,7 +377,7 @@ export function RudiSessionProvider({ children }: { children: ReactNode }) {
     setProfileNotice: (profileNotice) => setState((current) => ({ ...current, profileNotice })),
     setInboxOpen: (inboxOpen) => setState((current) => ({ ...current, inboxOpen })),
     tripPath: (suffix) => `/trips/${DEMO_GROUP.id}${suffix}` as const,
-  }), [state, money, voteTallies, cheDo, nguon, dangNapPhien, luuTruSong]);
+  }), [state, money, voteTallies, cheDo, nguon, phien, dangNapPhien, luuTruSong]);
 
   return <RudiSessionContext.Provider value={api}>{children}</RudiSessionContext.Provider>;
 }

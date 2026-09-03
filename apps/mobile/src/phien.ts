@@ -40,6 +40,13 @@ import {
 export type Phien = {
   token: string;
   person_id: string;
+  /** The group the invitation belonged to.
+   *
+   *  A session that says only who you are is a session with nothing to read:
+   *  there is no route that lists a person's contexts, so this is the only way
+   *  the app learns which group to ask about. `src/rudi/nguon.ts` stayed in
+   *  fixture mode until the server started answering with it. */
+  context_id: string;
   expires_at: string;
   /** Where this person stands in the group the invitation belonged to.
    *
@@ -121,11 +128,17 @@ function docPhien(thoLuu: string | null): Phien | null {
     const parsed = JSON.parse(thoLuu) as Partial<Phien>;
     if (typeof parsed.token !== "string" || parsed.token === "") return null;
     if (typeof parsed.person_id !== "string") return null;
+    // A record written before the server answered with a group is a record
+    // this build cannot use: it would sign somebody in with nothing to read.
+    // Refusing it signs them out, which is recoverable; keeping it would put
+    // them on a live-looking screen with no group behind it.
+    if (typeof parsed.context_id !== "string" || parsed.context_id === "") return null;
     if (typeof parsed.expires_at !== "string") return null;
     if (typeof parsed.membership_state !== "string") return null;
     return {
       token: parsed.token,
       person_id: parsed.person_id,
+      context_id: parsed.context_id,
       expires_at: parsed.expires_at,
       membership_state: parsed.membership_state,
     };

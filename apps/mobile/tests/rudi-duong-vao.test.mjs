@@ -75,6 +75,54 @@ test("an entry that names no route still lands on welcome", () => {
   });
 });
 
+test("một link mang lời mời thì mang được mã đi nguyên vẹn", () => {
+  // This is how a real person gets in: somebody sends them a link. It only
+  // works at all because the previous round fixed the swallow that sent every
+  // deep link to /welcome.
+  for (const url of [
+    "rudi://moi/abc123",
+    "exp://localhost:8095/--/moi/abc123",
+    "rudi:///moi/abc123",
+  ]) {
+    assert.deepEqual(diemVaoTuUrl(url), { kieu: "loi-moi", ma: "abc123" }, url);
+  }
+});
+
+test("mã lời mời không bị cắt bởi ký tự cần thoát", () => {
+  // `secrets.token_urlsafe` yields `-` and `_`, and a link that has been
+  // through a chat app may arrive percent-encoded. A token silently truncated
+  // is a person who cannot sign in and no sentence saying why.
+  assert.deepEqual(diemVaoTuUrl("rudi://moi/aB-9_x.Y~z"), {
+    kieu: "loi-moi",
+    ma: "aB-9_x.Y~z",
+  });
+  assert.deepEqual(diemVaoTuUrl("rudi://moi/a%2Fb"), { kieu: "loi-moi", ma: "a/b" });
+});
+
+test("một link KHÔNG mang lời mời thì không dựng ra màn nhận rỗng", () => {
+  // The failure this refuses: a screen that asks somebody to accept an
+  // invitation it does not have.
+  for (const url of [
+    "rudi://moi",
+    "rudi://moi/",
+    "rudi://settlements/team-da-lat",
+    "exp://localhost:8095",
+    "rudi://",
+  ]) {
+    assert.notEqual(diemVaoTuUrl(url).kieu, "loi-moi", url);
+  }
+});
+
+test("phần sau dấu gạch chéo thứ hai không lọt vào mã", () => {
+  // A token is one opaque string. Accepting `moi/<token>/anything` would take
+  // a malformed link and send its first half to the server as though it were
+  // whole.
+  assert.deepEqual(diemVaoTuUrl("rudi://moi/abc123/them"), {
+    kieu: "loi-moi",
+    ma: "abc123",
+  });
+});
+
 test("the web QA harness's own addresses are not touched", () => {
   for (const url of [
     "http://localhost:8081/?man=quyet-toan",

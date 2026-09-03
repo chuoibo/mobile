@@ -1,0 +1,39 @@
+# Cửa vào thật, trên giao diện thật, ở chế độ prod.
+#
+# Mọi flow khác trong thư mục này đi vòng qua cửa đăng nhập: bảng mặc định dùng
+# fixture, còn `20-du-lieu-that` ghim sẵn một danh tính vào bundle bằng
+# `EXPO_PUBLIC_RUDI_*`. Không cái nào chạm đường mà NGƯỜI THẬT đi.
+#
+# Lượt này không ghim gì. `scripts/mobile_native.sh --dang-nhap` mint phiên đầu
+# tiên bằng `genesis_session.py`, tạo nhóm + chuyến + một lời mời ĐÍCH DANH qua
+# HTTP, rồi MỞ APP BẰNG CHÍNH CÁI LINK MỜI — giống hệt lúc một người bấm vào
+# link bạn gửi. API chạy KHÔNG có `MOBILE_AUTH_MODE`, tức `prod`: nó không tin
+# `X-Actor-*`, nên nếu app chưa thật sự cầm bearer thì mọi thứ sau đây là 401.
+#
+# Flow không tự mở link: `${...}` trong `openLink` không được Maestro thay, và
+# `$`/`{`/`}` trong URL đẩy app vào màn lỗi. Hệ điều hành giao link, Maestro chỉ
+# khẳng định.
+#
+# Chạy bằng:
+#   MOBILE_DATABASE_URL=... make mobile-native-dangnhap API=<cổng>
+appId: host.exp.exponent
+---
+- extendedWaitUntil:
+    visible: "Bạn được rủ đi"
+    timeout: 150000
+# Mã đi theo link, người dùng không phải gõ lại.
+- assertVisible: "Nhận lời mời"
+- takeScreenshot: 21-man-nhan-loi-moi
+- tapOn: "Nhận lời mời"
+- extendedWaitUntil:
+    visible: "Đã đăng nhập"
+    timeout: 60000
+# Hai câu, không phải một chữ «thành công». Đăng nhập KHÁC vào nhóm: người vừa
+# nhận lời mời đầu tiên là `invited`, và máy chủ còn từ chối dữ liệu nhóm của họ.
+- assertVisible: "Đã đăng nhập. Nhóm còn phải duyệt thì bạn mới xem được dữ liệu nhóm."
+- assertNotVisible: "Xong, bạn đã ở trong nhóm"
+- takeScreenshot: 21-da-dang-nhap-cho-duyet
+- tapOn: "Về trang đầu"
+- extendedWaitUntil:
+    visible: "Rủ Đi thôi!"
+    timeout: 30000

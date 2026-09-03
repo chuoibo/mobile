@@ -238,6 +238,11 @@ export function LoginScreen() {
           <Text style={[typography.caption, { color: colors.accent }]}>Quên mật khẩu?</Text>
         </Pressable>
       </Card>
+      <RudiButton
+        icon="mail-open-outline"
+        label="Tôi có lời mời"
+        onPress={() => router.push("/moi")}
+      />
       <RudiButton label="Vào bản trải nghiệm Team Đà Lạt" onPress={enterDemo} variant="soft" />
       <Inline style={styles.signupRow}>
         <Text style={[typography.label, { color: colors.inkSoft }]}>Chưa có tài khoản?</Text>
