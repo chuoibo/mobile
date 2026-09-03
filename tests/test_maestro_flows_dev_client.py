@@ -94,6 +94,7 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
             "24-nhom-thanh-vien-va-ho-so.yaml",
             "25-ban-be-hai-nguoi.yaml",
             "30-chat-that.yaml",
+            "31-ban-phim-mo.yaml",
         ):
             text = (FLOWS / name).read_text(encoding="utf-8")
             self.assertRegex(text, r"\$\{OTP_PHONE(_[BCD])?\}", name)
@@ -124,7 +125,8 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
             script,
         )
         self.assertIn("canary_otp", script)
-        self.assertIn('22-*|23-*|24-*|25-*|30-*) [ "$OTP" = 1 ] || continue', script)
+        self.assertIn('22-*|23-*|24-*|25-*|30-*|31-*) [ "$OTP" = 1 ] || continue', script)
+        self.assertIn("do_ban_phim.py", script)
         self.assertIn("kiem_may_chu_sau_30", script)
         self.assertIn("kiem_may_chu_sau_24", script)
         self.assertIn("kiem_may_chu_sau_25", script)

@@ -682,7 +682,7 @@ for f in "$FLOWS"/*.yaml; do
     # môi trường chứ không phải vì app sai. `--live` chạy đúng và chỉ nhóm này.
     20-*)        [ "$LIVE" = 1 ] || continue ;;
     21-*)        [ "$DANG_NHAP" = 1 ] || continue ;;
-    22-*|23-*|24-*|25-*|30-*) [ "$OTP" = 1 ] || continue ;;
+    22-*|23-*|24-*|25-*|30-*|31-*) [ "$OTP" = 1 ] || continue ;;
     *)           { [ "$LIVE" = 1 ] || [ "$DANG_NHAP" = 1 ] || [ "$OTP" = 1 ]; } && continue ;;
   esac
   DA_CHAY=$((DA_CHAY + 1))
@@ -693,6 +693,17 @@ for f in "$FLOWS"/*.yaml; do
   fi
   if [ "$rc" -eq 99 ]; then HA_TANG="$HA_TANG $ten"; continue; fi
   if [ "$rc" -ne 0 ]; then BANG=1; DO_LIST="$DO_LIST $ten(lượt $lap)"; fi
+  # V3: flow 31 để bàn phím mở rồi dừng; đo hình học ngay khi màn còn nguyên.
+  # Exit 2 của script là «không đo được» — cũng đỏ, vì một lượt --otp không đo
+  # được bàn phím là một lượt thiếu bằng chứng, không phải một lượt xanh.
+  case "$ten" in
+    31-*)
+      if [ "$rc" -eq 0 ]; then
+        set +e; python3 "$REPO/scripts/do_ban_phim.py" --serial "$ANDROID_SERIAL"; rc_bp=$?; set -e
+        [ "$rc_bp" -eq 0 ] || { BANG=1; DO_LIST="$DO_LIST do_ban_phim(lượt $lap, rc=$rc_bp)"; }
+      fi
+      ;;
+  esac
 done
 done
 
