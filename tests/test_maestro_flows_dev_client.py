@@ -129,6 +129,17 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
         self.assertIn('22-*|23-*|24-*|25-*|30-*|31-*) [ "$OTP" = 1 ] || continue', script)
         self.assertIn("do_ban_phim.py", script)
         self.assertIn("kiem_khoa_ai", script)
+
+    def test_a_red_flow_does_not_end_the_table(self) -> None:
+        # `chay_flow` must not turn errexit back on before returning a non-zero
+        # rc: set -e is global, so the caller's `set +e` would be undone and the
+        # table would stop at the first red flow with no summary line.
+        script = (REPO_ROOT / "scripts" / "mobile_native.sh").read_text(
+            encoding="utf-8"
+        )
+        body = script[script.index("chay_flow() {") : script.index("\n}\n", script.index("chay_flow() {"))]
+        self.assertIn("set +e", body)
+        self.assertNotIn("\n  set -e\n", body, "chay_flow bật lại set -e trước khi return rc")
         self.assertIn('40-*)        [ "$OTP" = 1 ] && [ "$AI" = 1 ] || continue', script)
         self.assertIn("kiem_may_chu_sau_30", script)
         self.assertIn("kiem_may_chu_sau_24", script)
