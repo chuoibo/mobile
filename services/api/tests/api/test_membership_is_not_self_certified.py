@@ -57,7 +57,6 @@ from .helpers import (
     actor_headers,
     expense_payload,
     propose_and_confirm,
-    seed_bank_recipient,
 )
 
 # `OTHER_ID` is seeded into no context by `conftest.repository`; helpers.py
@@ -164,7 +163,6 @@ def test_an_outsider_cannot_open_a_collection_batch_on_someone_elses_group(
     """
 
     propose_and_confirm(client)
-    seed_bank_recipient(repository)
 
     response = client.post(
         "/batches",

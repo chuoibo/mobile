@@ -27,7 +27,6 @@ import {
   confirmExpense,
   confirmReceipt,
   docSoDu,
-  isBankRecipientMissing,
   loadBoard,
   luuGanMon,
   openBatch,
@@ -35,7 +34,6 @@ import {
   proposeSplit,
   publishBatch,
   registerPeople,
-  saveBankRecipient,
   scanReceipt,
   quetAnhChupMan,
   type ScreenshotScanWire,
@@ -45,7 +43,6 @@ import {
   type PendingProposal,
   BASE_URL,
   type PublishGates,
-  type SavedBankRecipient,
   type SplitPreview,
   type CuocBinhChonWire,
 } from "./src/api";
@@ -92,13 +89,10 @@ import { KetQuaQuetAnh } from "./src/screens/KetQuaQuetAnh";
 import { GoiYChia } from "./src/screens/GoiYChia";
 import { KetQuaNhanDien } from "./src/screens/KetQuaNhanDien";
 import { KetQuaThanhToan } from "./src/screens/KetQuaThanhToan";
-import { MaVietQr } from "./src/ui/MaVietQr";
 import { ChiaSe, type Envelope } from "./src/screens/ChiaSe";
 import { DeXuat, type Proposal } from "./src/screens/DeXuat";
 import { DotThu, type Obligation } from "./src/screens/DotThu";
 import { Draft, NhapKhoanChi } from "./src/screens/NhapKhoanChi";
-import { TaiKhoanNhan } from "./src/screens/tai-khoan/TaiKhoanNhan";
-import { FORM_TRONG } from "./src/screens/tai-khoan/kiem-tra";
 import {
   EMPTY_FORM,
   addMember,
@@ -145,7 +139,6 @@ type Step =
   // Not a step on the line. A detour off "de-xuat", reached only when the
   // server refuses to open a round for want of somewhere to send the money,
   // and it returns to exactly where it was called from.
-  | "tai-khoan-nhan"
   | "dot-thu"
   | "ket-qua-tt"
   | "chia-se";
@@ -290,14 +283,6 @@ function LuongKhoanChi({ onExit, nguoi, nhomPhien }: {
   const [error, setError] = useState<string | null>(null);
   // Whether the failure on screen is the one a person can actually do something
   // about from here. Kept beside `error` rather than parsed out of it: the
-  // sentence is written for a reader and will be reworded, and a screen that
-  // decides whether to offer a way out by matching words in a message breaks
-  // the next time somebody improves the wording.
-  const [thieuTaiKhoanNhan, setThieuTaiKhoanNhan] = useState(false);
-  // Set once the destination is stored, and shown back masked. Only so the
-  // proposal screen can say the blocker is gone -- pressing the same button
-  // again with no acknowledgement reads as pressing it and hoping.
-  const [taiKhoanNhan, setTaiKhoanNhan] = useState<SavedBankRecipient | null>(null);
   const [busy, setBusy] = useState(false);
   // One attempt per thing being written, minted on the first press and kept.
   //
@@ -446,7 +431,6 @@ function LuongKhoanChi({ onExit, nguoi, nhomPhien }: {
 
   async function guard(work: () => Promise<void>) {
     setError(null);
-    setThieuTaiKhoanNhan(false);
     setBusy(true);
     try {
       await work();
@@ -460,10 +444,6 @@ function LuongKhoanChi({ onExit, nguoi, nhomPhien }: {
       // The non-Error half is `moTaLoi`'s now: `String()` of a thrown DOM node
       // put `[object HTMLCanvasElement]` on this screen (bug-010822).
       setError(moTaLoi(problem));
-      // A sentence explaining a refusal is not the same as a way past it. This
-      // is the one refusal on the flow whose fix is a screen in this app, so it
-      // is the one that gets a button -- see `isBankRecipientMissing`.
-      setThieuTaiKhoanNhan(isBankRecipientMissing(problem));
     } finally {
       setBusy(false);
     }
@@ -934,11 +914,6 @@ function LuongKhoanChi({ onExit, nguoi, nhomPhien }: {
           // Same reason the batch board below gets it: the odd dong is assigned
           // by the server, against the roster the server holds.
           nhom={nguoiTrongNhom}
-          taiKhoanNhan={
-            taiKhoanNhan === null
-              ? null
-              : `${taiKhoanNhan.bankName} ${taiKhoanNhan.accountMasked}`
-          }
           onBack={() => setStep("nhap")}
           onConfirm={() => guard(async () => {
             // Confirm writes the split into the ledger and tells us whether
@@ -1028,27 +1003,6 @@ function LuongKhoanChi({ onExit, nguoi, nhomPhien }: {
           itemCount={reading === null ? 0 : reading.lines.length}
           nguoiDangChon={nguoiDangChon}
           onChonNguoi={setNguoiDangChon}
-          renderMaQr={(senderId) => {
-            const envelope = envelopes.find((e) => e.senderId === senderId);
-            if (envelope === undefined) return null;
-            // One card per debt. A sender with two recipients gets two codes,
-            // each labelled with who it pays, because scanning the wrong one
-            // sends the right amount to the wrong person.
-            return envelope.obligations.map((debt) => (
-              <MaVietQr
-                key={debt.obligationId}
-                payload={debt.vietqrPayload}
-                // The amount from the obligation list, not from the payload.
-                // Passing the payload's own number would make the check inside
-                // `MaVietQr` compare a value against itself and always agree.
-                expectedAmountVnd={debt.amountVnd}
-                recipientName={
-                  obligations.find((o) => o.id === debt.obligationId)?.recipient ??
-                  "người nhận"
-                }
-              />
-            ));
-          }}
           onShare={() => setStep("chia-se")}
           onDone={() => setStep("dot-thu")}
           onBack={() => setStep("dot-thu")}
@@ -1059,53 +1013,9 @@ function LuongKhoanChi({ onExit, nguoi, nhomPhien }: {
         <ChiaSe envelopes={envelopes} onDone={() => setStep("dot-thu")} />
       )}
 
-      {/* The detour. `actorId` is the advancer's own id, because the server
-          only ever lets a person write their own destination -- section 9.2,
-          and the one rule in the spec with no exception for an admin. On this
-          phone the organiser and the advancer are the same person; the day
-          they stop being, this call starts failing loudly rather than quietly
-          writing into somebody else's row. */}
-      {step === "tai-khoan-nhan" && proposal && (
-        <TaiKhoanNhan
-          nguoiNhan={{ id: proposal.advancerId, name: tenNguoiUngTien }}
-          busy={busy}
-          onBack={() => { setError(null); setStep("de-xuat"); }}
-          onLuu={(dichDen) => guard(async () => {
-            const saved = await saveBankRecipient(
-              proposal.advancerId,
-              dichDen,
-              proposal.advancerId,
-              // Filed under the destination, not under the person. Re-sending
-              // the same digits after a dropped reply has to reuse the key so
-              // the server replays; correcting a typo and sending again is a
-              // different write and must mint a new one, or it collides with
-              // the old body and earns a 422.
-              attemptFor(
-                attempts.current,
-                `tai-khoan-nhan:${proposal.advancerId}:${dichDen.bankBin}:${dichDen.accountNumber}`,
-              ),
-            );
-            setTaiKhoanNhan(saved);
-            // Back to where the refusal happened, with the button that was
-            // refused still under the thumb.
-            setStep("de-xuat");
-          })}
-        />
-      )}
-
       {error && (
         <View style={{ padding: space.md, backgroundColor: c.card, borderTopColor: c.warn, borderTopWidth: 2, gap: space.sm }}>
           <Text style={{ ...type.label, color: c.warn }}>{error}</Text>
-          {/* The half that was missing. The sentence above was already right
-              about why the round could not open; what QA found was that every
-              control still on screen led back into the same wall. A refusal
-              this app can fix gets a door next to it. */}
-          {thieuTaiKhoanNhan && proposal ? (
-            <Button
-              label={`Ghi tài khoản nhận cho ${tenNguoiUngTien}`}
-              onPress={() => { setError(null); setThieuTaiKhoanNhan(false); setStep("tai-khoan-nhan"); }}
-            />
-          ) : null}
         </View>
       )}
 
@@ -1241,21 +1151,6 @@ function XemKetQuaThanhToan() {
         itemCount={DEMO_ITEM_COUNT}
         nguoiDangChon={nguoiDangChon}
         onChonNguoi={setNguoiDangChon}
-        renderMaQr={(senderId) => {
-          const envelope = DEMO_ENVELOPES.find((e) => e.senderId === senderId);
-          if (envelope === undefined) return null;
-          return envelope.obligations.map((debt) => (
-            <MaVietQr
-              key={debt.obligationId}
-              payload={debt.vietqrPayload}
-              expectedAmountVnd={debt.amountVnd}
-              recipientName={
-                DEMO_OBLIGATIONS.find((o) => o.id === debt.obligationId)?.recipient ??
-                "người nhận"
-              }
-            />
-          ));
-        }}
         onShare={() => {}}
         onDone={() => {}}
         onBack={() => {}}
@@ -1314,48 +1209,6 @@ function XemDocBill() {
 
 /* A destination that is not one. Invented digits, no bank behind them, and the
  * only place they are ever rendered is a scan target that writes nothing. */
-// repo-guard: allow=long-number reason=synthetic-scan-fixture-account-number
-const SO_TAI_KHOAN_DO = "1904567890123";
-
-/**
- * The bank-destination screen at both of its steps, from a URL, web only.
- *
- * Same reason as `XemTrangThai` above, and the sharper version of it. This
- * screen is where somebody commits money to a destination that cannot be
- * verified by anybody, and it sits four fields and a press past a live server,
- * a 409, and eight presses of the flow. Without this it never gets scanned,
- * and the review step -- the half that actually guards the money -- never gets
- * scanned at all.
- *
- * `?man=tai-khoan-nhan` is the empty form, `?man=tai-khoan-nhan-duyet` is the
- * review step. Nothing here writes: `onLuu` and `onBack` are empty, and there
- * is no route from this page to anything that touches a server.
- */
-function XemTaiKhoanNhan() {
-  const c = usePalette();
-  const duyet = manThamSo() === "tai-khoan-nhan-duyet";
-  return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: c.ground }}>
-      <StatusBar style="dark" />
-      <TaiKhoanNhan
-        nguoiNhan={{ id: "p1", name: "Hà" }}
-        banDau={{
-          dangDuyet: duyet,
-          form: duyet
-            ? {
-                bin: "970436",
-                soTaiKhoan: SO_TAI_KHOAN_DO,
-                nhapLai: SO_TAI_KHOAN_DO,
-                tenChuTaiKhoan: "NGUYEN THI HA",
-              }
-            : FORM_TRONG,
-        }}
-        onLuu={() => {}}
-        onBack={() => {}}
-      />
-    </SafeAreaView>
-  );
-}
 
 /**
  * The two screens between the photograph and the money, from a URL, web only.
@@ -1786,7 +1639,6 @@ export default function App() {
   if (manThamSo() === "nhap-khoan-chi") return <XemNhapKhoanChi />;
   if (manThamSo()?.startsWith("dot-thu")) return <XemDotThu />;
   if (manThamSo()?.startsWith("doc-bill")) return <XemDocBill />;
-  if (manThamSo()?.startsWith("tai-khoan-nhan")) return <XemTaiKhoanNhan />;
   return (
     <AppRoot
       renderKhoanChi={(onExit, nguoi, nhomPhien) => (

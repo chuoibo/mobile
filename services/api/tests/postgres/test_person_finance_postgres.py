@@ -45,7 +45,6 @@ from app.api.repository import (
     SqlAlchemyApiRepository,
 )
 from app.api.service import ExpenseInput
-from app.db.models import BankRecipient
 
 from .conftest import seed_context
 
@@ -55,7 +54,6 @@ NOW = datetime(2030, 8, 29, 12, 0, tzinfo=UTC)
 # be read without arithmetic getting in the way of what is being asserted.
 TOTAL_VND = 300_000
 SHARE_VND = 150_000
-KNOWN_BANK_BIN = "970415"
 
 
 class Slice:
@@ -137,17 +135,6 @@ class Slice:
             for row in inputs.expenses[0].allocations
             if row.participant_id == self.sender_id
         )
-        self.session.add(
-            BankRecipient(
-                recipient_id=self.payer_id,
-                bank_bin=KNOWN_BANK_BIN,
-                account_number="DEMOFINANCE",
-                account_name="NGUOI NHAN - DU LIEU DEMO",
-                confirmed_by_recipient_at=NOW,
-                created_at=NOW,
-            )
-        )
-        self.session.flush()
         frozen = self.repository.save_frozen_batch(
             context_id=self.context_id,
             owner_id=self.payer_id,
@@ -160,9 +147,6 @@ class Slice:
                     source_expense_version_ids=(expense_version_id,),
                     sources=(source,),
                 ),
-            ),
-            bank_recipients=self.repository.load_bank_recipients(
-                frozenset({self.payer_id})
             ),
             now=NOW + timedelta(minutes=1),
         )

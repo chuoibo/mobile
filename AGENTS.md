@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Product code lives under `services/api/app/`: `domain/` holds pure rules, `db/` holds SQLAlchemy and Alembic, `api/` exposes FastAPI routes, `payments/` builds VietQR payloads, and `web/` serves guests. Layer-aligned tests live in `services/api/tests/`; root `tests/` covers the repo guard. Consult `docs/decisions/` before behavior changes and `docs/architecture/` before boundary changes. `phase0/` and `docs/protocol/v1/` are frozen. CI treats currently absent `apps/mobile/` and `packages/shared/` as conditional.
+Product code lives under `services/api/app/`: `domain/` holds pure rules, `db/` holds SQLAlchemy and Alembic, `api/` exposes FastAPI routes, and `web/` serves guests. There is no payment rail: the product names each person's share and stops, so bank accounts and VietQR left the codebase. Layer-aligned tests live in `services/api/tests/`; root `tests/` covers the repo guard. Consult `docs/decisions/` before behavior changes and `docs/architecture/` before boundary changes. `phase0/` and `docs/protocol/v1/` are frozen. CI treats currently absent `apps/mobile/` and `packages/shared/` as conditional.
 
 ## Build, Test, and Development Commands
 
@@ -83,7 +83,7 @@ Four members: leader (human) plus three agents.
 
 | Role | Who | Owns |
 |---|---|---|
-| Leader | product owner | Gate decisions. The only one who can point a real banking app at a QR code |
+| Leader | product owner | Gate decisions |
 | Engineer | Claude | `app/web/`, `apps/mobile/` |
 | Engineer | Codex | `db/`, `api/`, `payments/`, `domain/`, backend tests |
 | QA | agy (Gemini) | Product testing — visual, exploratory, API, regression. **Files findings, not diffs. Owns no product source file.** |
@@ -115,7 +115,7 @@ reviewing/checking someone else's work. Never sequential, never queued.
 | `tests/api/` with the fake repository | HTTP ↔ domain orchestration | Any SQL, index, view, or trigger |
 | `tests/postgres/` | The real `SqlAlchemyApiRepository` after Alembic migrates a dedicated schema | Every method, every race, every query plan |
 | `tests/db/test_migration_matches_models.py` | Migration matches models, no DB needed | — |
-| Visual + exploratory QA (agy) | The page renders, reads, and leaks nothing, in the states and viewports **actually scanned** | **Whether a real banking app can scan the QR** · whether a real person understands it · which cells went unscanned · that agy did not fake the green |
+| Visual + exploratory QA (agy) | The page renders, reads, and leaks nothing, in the states and viewports **actually scanned** | Whether a real person understands it · which cells went unscanned · that agy did not fake the green |
 
 SQLite is refused on purpose: the production schema depends on JSONB, partial
 unique indexes, views, and append-only triggers. New persistence behaviour needs

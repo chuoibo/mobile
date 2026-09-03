@@ -601,86 +601,15 @@ class CollectionBatchVersion(Base):
     )
 
 
-class BankRecipient(Base):
-    """Recipient-confirmed bank destination; not proof of bank-account ownership."""
-
-    __tablename__ = "bank_recipients"
-    __table_args__ = (
-        CheckConstraint("bank_bin ~ '^[0-9]{6}$'", name="bank_bin_format"),
-        CheckConstraint(
-            "account_number ~ '^[A-Za-z0-9]{1,19}$'", name="account_number_format"
-        ),
-        Index(
-            "uq_bank_recipients_active_recipient",
-            "recipient_id",
-            unique=True,
-            postgresql_where=text("revoked_at IS NULL"),
-        ),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    recipient_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), nullable=False, index=True
-    )
-    bank_bin: Mapped[str] = mapped_column(String(6), nullable=False)
-    account_number: Mapped[str] = mapped_column(String(19), nullable=False)
-    account_name: Mapped[str | None] = mapped_column(String(255))
-    confirmed_by_recipient_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-
-
-class BankRecipientSnapshot(Base):
-    """Immutable bank destination frozen into one batch composition version."""
-
-    __tablename__ = "bank_recipient_snapshots"
-    __table_args__ = (
-        UniqueConstraint(
-            "id", "batch_version_id", name="uq_bank_snapshots_id_batch_version"
-        ),
-        UniqueConstraint(
-            "batch_version_id",
-            "recipient_id",
-            name="uq_bank_snapshots_batch_recipient",
-        ),
-        CheckConstraint("bank_bin ~ '^[0-9]{6}$'", name="bank_bin_format"),
-        CheckConstraint(
-            "account_number ~ '^[A-Za-z0-9]{1,19}$'", name="account_number_format"
-        ),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    batch_version_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("collection_batch_versions.id"),
-        nullable=False,
-        index=True,
-    )
-    bank_recipient_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("bank_recipients.id"), nullable=False
-    )
-    recipient_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    bank_bin: Mapped[str] = mapped_column(String(6), nullable=False)
-    account_number: Mapped[str] = mapped_column(String(19), nullable=False)
-    account_name: Mapped[str | None] = mapped_column(String(255))
-    confirmed_by_recipient_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
-    snapshotted_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-
-
 class CollectionObligation(Base):
-    """One sender-to-recipient edge with its own due date and frozen destination."""
+    """One sender-to-recipient edge with its own due date.
+
+    It used to carry a frozen bank destination as well. It does not any more:
+    the product says who owes whom how much, and how that money actually moves
+    is between the two people. Everything needed to state the debt --
+    `sender_id`, `recipient_id`, `amount_vnd`, `due_at` -- is still here, which
+    is why dropping the destination cost the row no meaning.
+    """
 
     __tablename__ = "collection_obligations"
     __table_args__ = (
@@ -689,14 +618,6 @@ class CollectionObligation(Base):
             "sender_id",
             "recipient_id",
             name="uq_obligations_batch_sender_recipient",
-        ),
-        ForeignKeyConstraint(
-            ["bank_recipient_snapshot_id", "batch_version_id"],
-            [
-                "bank_recipient_snapshots.id",
-                "bank_recipient_snapshots.batch_version_id",
-            ],
-            name="fk_obligations_snapshot_same_batch_version",
         ),
         CheckConstraint("sender_id <> recipient_id", name="different_parties"),
         CheckConstraint("amount_vnd > 0", name="amount_positive"),
@@ -715,9 +636,6 @@ class CollectionObligation(Base):
     recipient_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
     due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    bank_recipient_snapshot_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), nullable=False
-    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -948,8 +866,6 @@ class AuditEvent(Base):
 
 __all__ = [
     "AuditEvent",
-    "BankRecipient",
-    "BankRecipientSnapshot",
     "CollectionBatch",
     "CollectionBatchStatus",
     "CollectionBatchVersion",

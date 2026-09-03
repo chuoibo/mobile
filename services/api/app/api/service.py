@@ -21,7 +21,6 @@ from app.api.limits import OBJECTION_KINDS, QUOTA_CONSUMING_OBJECTIONS
 from app.api.repository import (
     WALL_CLOCK_ZONE,
     ApiRepository,
-    BankRecipientRecord,
     BillRecord,
     FriendEdgeRecord,
     GuestLinkDraft,
@@ -48,8 +47,6 @@ from app.api.schemas import (
     AlbumSummary,
     AllocationProposal,
     AreaSummary,
-    BankRecipientRequest,
-    BankRecipientResponse,
     BatchCreateRequest,
     BatchCreateResponse,
     BatchObligationsResponse,
@@ -161,7 +158,6 @@ from app.api.schemas import (
 from app.domain import permissions, post_audience
 from app.domain.album import build_album
 from app.domain.allocator import allocate
-from app.domain.bank_account import BankAccountError, normalise_destination
 from app.domain.bill import BillError, allocator_input_from_bill
 from app.domain.budget import build_group_budget
 from app.domain.capability import CapabilityScopeError, capability_scope
@@ -201,8 +197,6 @@ from app.domain.vote import tally
 from app.media.face_detection import FaceDetector, FaceDetectorUnavailable
 from app.media.images import ImageRejected, sanitize_image
 from app.media.storage import PhotoStorage, new_storage_key
-from app.payments.banks import describe_bank
-from app.payments.vietqr import VietQRError, build_payload
 from app.places import social_map
 from app.places.areas import area_summary, find_area
 from app.places.catalog import GROUP, PLACES, find_place
@@ -473,20 +467,6 @@ def _stored_image_bytes(
     if not content:
         raise ApiProblem(404, code, message)
     return content
-
-
-def _bank_recipient_response(record: BankRecipientRecord) -> BankRecipientResponse:
-    bank = describe_bank(record.bank_bin)
-    return BankRecipientResponse(
-        id=record.id,
-        recipient_id=record.recipient_id,
-        bank_bin=record.bank_bin,
-        bank_name=bank.name,
-        bank_recognised=bank.recognised,
-        account_number=record.account_number,
-        account_name=record.account_name,
-        confirmed_at=record.confirmed_at,
-    )
 
 
 def _allocator_input(proposal: ExpenseInput) -> dict:
@@ -4095,26 +4075,11 @@ class ApiService:
                 409, "no_obligations", "The selected allocations owe no money"
             )
 
-        recipient_ids = frozenset(uuid.UUID(item["recipient_id"]) for item in merged)
-        bank_recipients = self.repository.load_bank_recipients(recipient_ids)
-        missing_recipients = recipient_ids - set(bank_recipients)
-        freeze_context = {
-            "obligations": merged,
-            "has_unready_recipient": bool(missing_recipients),
-            "unready_recipient_choice": request.unready_recipient_choice,
-        }
+        freeze_context = {"obligations": merged}
         try:
             frozen_state = transition("accruing", "freeze", freeze_context)
         except CollectionError as exc:
             raise ApiProblem(409, exc.code, "Batch cannot be frozen") from exc
-        if missing_recipients:
-            # The current schema requires a snapshot on every obligation and has
-            # no blocked-recipient batch type. Do not silently omit a debt.
-            raise ApiProblem(
-                409,
-                "recipient_setup_incomplete",
-                "A recipient must finish bank setup before this batch can be created",
-            )
         if frozen_state != "frozen":
             raise ApiProblem(
                 500, "unexpected_batch_state", "Domain returned an invalid state"
@@ -4141,7 +4106,6 @@ class ApiService:
             owner_id=actor.id,
             due_at=request.due_at,
             obligations=drafts,
-            bank_recipients=bank_recipients,
             now=now,
         )
         return BatchCreateResponse(
@@ -4176,7 +4140,6 @@ class ApiService:
             actor,
             {
                 "owns_batch": owns_batch,
-                "all_recipients_eligible": batch.all_recipients_eligible,
             },
             # Derived from the batch, exactly like `freeze_batch` above. This
             # role used to arrive in `X-Actor-Roles`, so the check passed
@@ -4195,7 +4158,6 @@ class ApiService:
             )
         gate_context = {
             "advancer_acknowledged": batch.advancer_acknowledged,
-            "bank_recipient_snapshot_valid": batch.bank_recipient_snapshot_valid,
             "delivery_method_chosen": bool(request.delivery_method),
         }
         unmet = unmet_publish_gates(gate_context)
@@ -4249,18 +4211,12 @@ class ApiService:
                             PublishedObligation(
                                 obligation_id=item.id,
                                 amount_vnd=item.amount_vnd,
-                                vietqr_payload=build_payload(
-                                    bank_bin=item.bank_bin,
-                                    account_number=item.account_number,
-                                    amount_vnd=item.amount_vnd,
-                                    note=f"TT {item.id.hex[:8]}",
-                                ),
                             )
                             for item in obligations
                         ],
                     )
                 )
-        except (CapabilityScopeError, VietQRError) as exc:
+        except CapabilityScopeError as exc:
             raise ApiProblem(
                 409, exc.code, "A guest capability cannot be built"
             ) from exc
@@ -4500,67 +4456,6 @@ class ApiService:
             amount_vnd=record.amount_vnd,
             obligation_status=status,
         )
-
-    def set_bank_recipient(
-        self, request: BankRecipientRequest, actor: Actor
-    ) -> tuple[BankRecipientResponse, bool]:
-        """Register where this person's money should land.
-
-        Returns the destination and whether it changed anything, because the
-        route answers 201 for a new or replaced destination and 200 for a retry
-        that re-sent the same digits.
-        """
-
-        # Section 9.2, and one of the few rules in the spec with no exception
-        # for an admin: nobody adds or changes another person's bank account.
-        # Getting this wrong redirects a whole collection round into whichever
-        # account the attacker named. Checked before validation, so a malformed
-        # body never tells an outsider anything about somebody else's setup.
-        _require_permission(
-            "set_bank_recipient",
-            actor,
-            {
-                "is_own_account": actor.id == request.recipient_id,
-                # A bearer token is a capability, not an identity. Section 9.2
-                # rules out using one for this action by name.
-                "is_authenticated_account": "guest" not in actor.roles,
-            },
-        )
-        try:
-            destination = normalise_destination(
-                {
-                    "bank_bin": request.bank_bin,
-                    "account_number": request.account_number,
-                    "account_name": request.account_name,
-                }
-            )
-        except BankAccountError as exc:
-            raise ApiProblem(422, exc.code, "Bank destination is malformed") from exc
-
-        record, created = self.repository.save_bank_recipient(
-            recipient_id=request.recipient_id,
-            bank_bin=destination["bank_bin"],
-            account_number=destination["account_number"],
-            account_name=destination["account_name"],
-            actor_id=actor.id,
-            now=_now(),
-        )
-        return _bank_recipient_response(record), created
-
-    def get_bank_recipient(
-        self, recipient_id: uuid.UUID, actor: Actor
-    ) -> BankRecipientResponse:
-        _require_permission(
-            "view_bank_recipient", actor, {"is_own_account": actor.id == recipient_id}
-        )
-        record = self.repository.get_active_bank_recipient(recipient_id)
-        if record is None:
-            raise ApiProblem(
-                404,
-                "bank_recipient_not_found",
-                "No bank destination is registered for this person",
-            )
-        return _bank_recipient_response(record)
 
     def confirm_receipt(
         self,

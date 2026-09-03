@@ -242,7 +242,7 @@ Bấm phải phản hồi trong một khung hình: `press` 100ms · `fade` 160ms
 |---|---|---|
 | Số tiền mỗi người tô màu theo từng người (đỏ, tím, teal) | Toàn bộ dùng teal | Màu ở đây phải mang nghĩa "tiền", không phải mã định danh người. Bốn màu trong một cột tiền làm người đọc đi tìm nghĩa không tồn tại |
 | Avatar là ảnh người thật | Vòng tròn chữ cái đầu | Không đưa ảnh và tên người tham gia thật vào Git |
-| Khung ảnh QR có branding VietQR / napas | Ô QR trơn, ghi rõ là mẫu | Mã trong màn mẫu không quét được, nên không được trông như mã thật |
+| Bất kỳ ô nào trông như mã chuyển khoản | Không vẽ | Sản phẩm không có đường thanh toán: nói phần của mỗi người rồi dừng |
 
 ## Cổng phải xanh trước khi đổi hệ này
 

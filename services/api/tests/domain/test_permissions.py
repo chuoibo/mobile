@@ -57,18 +57,26 @@ class FactsAreTheTrustBoundary(unittest.TestCase):
         """An unattributed fact cannot be audited later, and the whole point of
         one permission table is that every decision can be explained."""
         with self.assertRaises(PermissionError_) as caught:
-            AuthorizationFacts(actor_id="u1", roles=frozenset({"member"}), resource_id="r1")
+            AuthorizationFacts(
+                actor_id="u1", roles=frozenset({"member"}), resource_id="r1"
+            )
         self.assertEqual(caught.exception.code, "FACTS_WITHOUT_PROVENANCE")
 
     def test_anonymous_actor_is_refused(self):
         with self.assertRaises(PermissionError_) as caught:
-            AuthorizationFacts(actor_id="", roles=frozenset(), resource_id=None, provenance="x")
+            AuthorizationFacts(
+                actor_id="", roles=frozenset(), resource_id=None, provenance="x"
+            )
         self.assertEqual(caught.exception.code, "ANONYMOUS_ACTOR")
 
     def test_unknown_role_is_refused(self):
         with self.assertRaises(PermissionError_) as caught:
-            AuthorizationFacts(actor_id="u1", roles=frozenset({"superuser"}),
-                               resource_id=None, provenance="x")
+            AuthorizationFacts(
+                actor_id="u1",
+                roles=frozenset({"superuser"}),
+                resource_id=None,
+                provenance="x",
+            )
         self.assertEqual(caught.exception.code, "UNKNOWN_ROLE")
 
 
@@ -80,14 +88,23 @@ class BatchOwnerIsNotOmnipotent(unittest.TestCase):
         self.assertTrue(can("freeze_batch", facts({"batch_owner"}, proven)))
         self.assertTrue(can("publish_batch", facts({"batch_owner"}, proven)))
 
-    def test_may_not_publish_until_every_recipient_is_eligible(self):
+    def test_owning_the_batch_is_now_the_whole_of_publishing(self):
+        """`all_recipients_eligible` went with the payment rail.
+
+        It meant "every recipient has a usable bank account". There are no
+        accounts, so the predicate could only ever be true, and a requirement
+        that cannot fail is a line that reads like protection.
+        """
+        self.assertTrue(can("publish_batch", facts({"batch_owner"}, ["owns_batch"])))
         self.assertEqual(
-            denial_reason("publish_batch", facts({"batch_owner"}, ['owns_batch'])),
-            "all_recipients_eligible",
+            denial_reason("publish_batch", facts({"batch_owner"})),
+            "owns_batch",
         )
 
     def test_may_not_freeze_someone_elses_batch(self):
-        self.assertEqual(denial_reason("freeze_batch", facts({"batch_owner"})), "owns_batch")
+        self.assertEqual(
+            denial_reason("freeze_batch", facts({"batch_owner"})), "owns_batch"
+        )
 
     def test_may_not_cancel_an_obligation_alone(self):
         self.assertEqual(
@@ -98,17 +115,28 @@ class BatchOwnerIsNotOmnipotent(unittest.TestCase):
     def test_nobody_may_delete_payment_or_receipt_events(self):
         """Deleting these would let the ledger be rewritten to suit whoever
         holds the button."""
-        for action in ("delete_payment_report", "delete_receipt_confirmation", "delete_audit_history"):
+        for action in (
+            "delete_payment_report",
+            "delete_receipt_confirmation",
+            "delete_audit_history",
+        ):
             for roles in ({"batch_owner"}, {"group_admin"}, {"platform_moderator"}):
                 with self.subTest(action=action, roles=roles):
-                    self.assertEqual(denial_reason(action, facts(roles)), "action_permitted_to_nobody")
+                    self.assertEqual(
+                        denial_reason(action, facts(roles)),
+                        "action_permitted_to_nobody",
+                    )
 
 
 class GroupAdminIsLogisticsNotFinance(unittest.TestCase):
     """Section 9.2."""
 
     def test_can_do_membership_logistics(self):
-        for action in ("manage_members_and_invites", "remove_member_from_group", "transfer_group_admin"):
+        for action in (
+            "manage_members_and_invites",
+            "remove_member_from_group",
+            "transfer_group_admin",
+        ):
             with self.subTest(action=action):
                 self.assertTrue(can(action, facts({"group_admin"})))
 
@@ -122,12 +150,18 @@ class GroupAdminIsLogisticsNotFinance(unittest.TestCase):
 
     def test_cannot_set_someone_elses_bank_recipient(self):
         self.assertEqual(
-            denial_reason("set_bank_recipient", facts({"group_admin", "member"}, ['is_authenticated_account'])),
+            denial_reason(
+                "set_bank_recipient",
+                facts({"group_admin", "member"}, ["is_authenticated_account"]),
+            ),
             "is_own_account",
         )
 
     def test_cannot_remove_other_peoples_content(self):
-        self.assertEqual(denial_reason("remove_others_content", facts({"group_admin"})), "role_not_permitted")
+        self.assertEqual(
+            denial_reason("remove_others_content", facts({"group_admin"})),
+            "role_not_permitted",
+        )
 
 
 class WaiverBelongsToTheCreditor(unittest.TestCase):
@@ -139,7 +173,10 @@ class WaiverBelongsToTheCreditor(unittest.TestCase):
 
     def test_creditor_of_this_receivable_can(self):
         self.assertTrue(
-            can("waive_obligation", facts({"creditor"}, ['is_creditor_of_this_obligation']))
+            can(
+                "waive_obligation",
+                facts({"creditor"}, ["is_creditor_of_this_obligation"]),
+            )
         )
 
     def test_creditor_of_a_different_receivable_cannot(self):
@@ -152,14 +189,29 @@ class WaiverBelongsToTheCreditor(unittest.TestCase):
 class RevocationFollowsRisk(unittest.TestCase):
     """Section 9.1: whoever holds data or risk in a capability may pull it back."""
 
-    def test_three_subjects_three_scopes(self):
-        self.assertTrue(can("revoke_capability_whole_batch", facts({"batch_owner"}, ['owns_batch'])))
-        self.assertTrue(can("revoke_capability_own_recipient_account", facts({"recipient"}, ['envelope_contains_own_account'])))
-        self.assertTrue(can("revoke_capability_own_envelope", facts({"sender"}, ['is_own_capability'])))
+    def test_two_subjects_two_scopes(self):
+        """There were three. The recipient-account scope had no account left.
+
+        `revoke_capability_own_recipient_account` let a recipient pull back a
+        capability because it carried THEIR bank details. With no bank details
+        in an envelope there is no such risk and no such subject, so the entry
+        is gone rather than left declaring a scope nobody can be in.
+        """
+        self.assertTrue(
+            can("revoke_capability_whole_batch", facts({"batch_owner"}, ["owns_batch"]))
+        )
+        self.assertTrue(
+            can(
+                "revoke_capability_own_envelope",
+                facts({"sender"}, ["is_own_capability"]),
+            )
+        )
 
     def test_a_sender_cannot_revoke_the_whole_batch(self):
         self.assertEqual(
-            denial_reason("revoke_capability_whole_batch", facts({"sender"}, ['owns_batch'])),
+            denial_reason(
+                "revoke_capability_whole_batch", facts({"sender"}, ["owns_batch"])
+            ),
             "role_not_permitted",
         )
 
@@ -172,7 +224,9 @@ class AdvancerAcknowledgement(unittest.TestCase):
             denial_reason("acknowledge_advancer_role", facts({"advancer"})),
             "is_named_advancer",
         )
-        self.assertTrue(can("acknowledge_advancer_role", facts({"advancer"}, ['is_named_advancer'])))
+        self.assertTrue(
+            can("acknowledge_advancer_role", facts({"advancer"}, ["is_named_advancer"]))
+        )
 
 
 if __name__ == "__main__":

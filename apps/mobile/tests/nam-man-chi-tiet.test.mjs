@@ -20,8 +20,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { parsePlaceDetail, loiChiTiet, placeDetailUrl, fetchPlaceDetail } from "../dist-test/screens/kham-pha/chi-tiet-dia-diem.js";
-import { docChiaBill, docTaiKhoanNhan } from "../dist-test/api.js";
-import { ngayGio } from "../dist-test/screens/tai-khoan/TaiKhoanNhan.js";
+import { docChiaBill } from "../dist-test/api.js";
 
 /* ---------------------------------------------------------------- fixtures */
 
@@ -79,19 +78,6 @@ const CHIA_THAT = {
   assignment_state: "confirmed",
   suggested_item_keys: [],
   total_amount_vnd: 745000,
-};
-
-/** `GET /bank-recipients/{id}`, exactly as answered. */
-const TAI_KHOAN_THAT = {
-  id: "8f12f5cb-3e23-447f-a5d9-59a646703f45",
-  recipient_id: "b2331f3e-1d88-8969-bd27-330b62e31747",
-  bank_bin: "970415",
-  bank_name: "VietinBank",
-  bank_recognised: true,
-  // repo-guard: allow=long-number reason=synthetic-placeholder-account-number
-  account_number: "0011002200330044",
-  account_name: "AN - THU NGHIEM",
-  confirmed_at: "2026-08-30T14:50:29.436153Z",
 };
 
 /** A fetch that answers one body and records what it was asked. */
@@ -216,36 +202,10 @@ test("chia bill: thân yêu cầu không mang danh tính ai cả", async () => {
   assert.equal(daGoi[0].headers["Idempotency-Key"], "k");
 });
 
-/* ------------------------------------- 5. GET /bank-recipients/{recipient_id} */
-
-test("tài khoản nhận: đọc lại được, và số về tới màn hình đã che", async () => {
-  const { doFetch, daGoi } = mayChu(TAI_KHOAN_THAT);
-  globalThis.fetch = doFetch;
-  const r = await docTaiKhoanNhan(TAI_KHOAN_THAT.recipient_id, TAI_KHOAN_THAT.recipient_id);
-
-  assert.equal(r.bankName, "VietinBank");
-  assert.equal(r.bankRecognised, true);
-  assert.equal(r.confirmedAt, "2026-08-30T14:50:29.436153Z");
-  // The number must not survive the read path in full. This is the assertion
-  // that would catch somebody "helpfully" passing `account_number` through.
-  assert.ok(!JSON.stringify(r).includes(TAI_KHOAN_THAT.account_number));
-  assert.match(r.accountMasked, /^•+/);
-  assert.equal(daGoi[0].method, "GET");
-});
-
-test("tài khoản nhận: chưa có tài khoản là null, không phải lỗi", async () => {
-  const { doFetch } = mayChu({ code: "bank_recipient_not_found", detail: "x" }, { status: 404 });
-  globalThis.fetch = doFetch;
-  assert.equal(await docTaiKhoanNhan("ai-do", "ai-do"), null);
-});
-
-test("tài khoản nhận: 403 vẫn ném, chỉ 404 mới là 'chưa có'", async () => {
-  const { doFetch } = mayChu({ code: "permission_denied", detail: "is_own_account" }, { status: 403 });
-  globalThis.fetch = doFetch;
-  await assert.rejects(() => docTaiKhoanNhan("nguoi-khac", "toi"));
-});
-
-test("tài khoản nhận: mốc lưu đọc được là giờ và ngày", () => {
-  assert.match(ngayGio("2026-08-30T14:50:29.436153Z"), /^\d{2}:\d{2} ngày \d+\/\d+$/);
-  assert.equal(ngayGio("khong-phai-ngay"), "");
-});
+/* -------------------------------------------------- 5. (rời khỏi bộ năm màn)
+ *
+ * Ô thứ năm từng là `GET /bank-recipients/{recipient_id}`: đọc lại tài khoản
+ * nhận, và chứng minh số về tới màn hình đã bị che. Cả route lẫn màn đi cùng
+ * đường thanh toán -- sản phẩm nói phần của mỗi người rồi dừng. Giữ dòng này
+ * thay vì xoá lặng, để bộ "năm màn" không tự ngắn đi mà người đọc sau không
+ * biết vì sao. */

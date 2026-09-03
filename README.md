@@ -45,7 +45,7 @@ với app, không phải một hệ thứ hai.
 ## Vòng lặp sản phẩm
 
 <div align="center">
-<img src="docs/assets/so-do-1-vong-lap.svg" alt="Vòng lặp sản phẩm: trước buổi đi là khám phá, nhóm chat, bình chọn, đi chơi; sau bữa ăn là chụp bill, chia tiền, VietQR, kỷ niệm" width="100%">
+<img src="docs/assets/so-do-1-vong-lap.svg" alt="Vòng lặp sản phẩm: trước buổi đi là khám phá, nhóm chat, bình chọn, đi chơi; sau bữa ăn là chụp bill, chia tiền, kỷ niệm" width="100%">
 
 <sub>Và vòng khép lại: xong một chuyến, AI biết thêm nhóm này thích gì và ai đã trả cho ai, nên lần gợi ý sau khá hơn lần trước.</sub>
 </div>
@@ -64,7 +64,7 @@ flowchart TB
     subgraph SAU["Sau bữa ăn"]
         direction LR
         E["Chụp bill<br/>AI đọc từng món"] --> F["Chia tiền<br/>gán món cho người"]
-        F --> G["VietQR<br/>thu tiền về"]
+        F --> G["Ai trả bao nhiêu<br/>và vì món nào"]
         G --> H["Kỷ niệm<br/>tường nhóm"]
     end
     TRUOC --> SAU
@@ -137,7 +137,7 @@ sequenceDiagram
     T->>API: confirm
     API->>S: ghi event, không ghi đè
     T->>API: POST /batches rồi publish
-    API-->>T: envelope kèm chuỗi VietQR
+    API-->>T: envelope: ai nợ ai bao nhiêu
     K->>API: GET /g/{token}
     API-->>K: trang khách, chỉ envelope của chính mình
     K->>API: tôi đã chuyển rồi
@@ -165,7 +165,7 @@ Vài điều cố ý, đừng đọc nhầm thành thiếu sót:
   không allocation của người khác.
 
 <div align="center">
-<img src="docs/assets/luong-chia-tien.jpg" alt="Bốn bước chia bill: chụp bill, AI nhận diện món, gán món cho người, kết quả thanh toán kèm VietQR" width="78%">
+<img src="docs/assets/luong-chia-tien.jpg" alt="Bốn bước chia bill: chụp bill, AI nhận diện món, gán món cho người, kết quả ai trả bao nhiêu" width="78%">
 </div>
 
 <sub>Bốn bước của chặng chia bill trong mockup. **AI có mặt thì phải nói rõ là AI**: mọi kết quả máy đọc ra đều sửa được bằng tay trước khi chốt, và không có bước nào AI tự quyết chuyện tiền thay người dùng.</sub>
@@ -223,7 +223,7 @@ flowchart TB
         W["app/web<br/>trang khách, render từ server"]
     end
     subgraph SH["Dùng chung"]
-        P["packages/shared<br/>tokens.json · money.mjs · banks.json"]
+        P["packages/shared<br/>tokens.json · money.mjs"]
     end
     subgraph BE["services/api"]
         A["app/api<br/>FastAPI · service · repository"]
@@ -264,11 +264,10 @@ actor dưới đáy sơ đồ tuần tự.
 
 | Tầng | Việc của nó | Ràng buộc cứng |
 |---|---|---|
-| `app/domain/` | Tiền, sổ, đợt thu, quyền, hiển thị | 🚫 **Không được import** `app.db`, `app.api`, `app.payments`, `sqlalchemy`, `fastapi`, `alembic`, `pydantic` |
+| `app/domain/` | Tiền, sổ, đợt thu, quyền, hiển thị | 🚫 **Không được import** `app.db`, `app.api`, `sqlalchemy`, `fastapi`, `alembic`, `pydantic` |
 | `app/api/service.py` | Workflow: gọi domain trước, rồi mới gọi repository | Repository không bao giờ tự chế allocation |
 | `app/api/repository.py` | `ApiRepository` (Protocol) + bản SQLAlchemy | Trạng thái nghĩa vụ **suy ra từ event**, không đọc cột đã lưu |
 | `app/web/guest_view.py` | Biên rò rỉ của trang khách | Template **không bao giờ tự query**, chỉ render view model |
-| `app/payments/vietqr.py` | Dựng chuỗi EMVCo + CRC | Không giữ tiền, không chuyển tiền |
 
 Ranh giới `domain/` không phải lời hứa: `tests/test_import_boundary.py` parse AST và
 cưỡng chế nó. Lý do là luật tiền số 3 ở trên.
@@ -511,9 +510,8 @@ services/api/app/domain/     thuần: tiền, sổ, đợt thu, quyền, hiển 
 services/api/app/db/         SQLAlchemy + Alembic
 services/api/app/api/        FastAPI, 90 route trên 28 module
 services/api/app/web/        trang khách, render từ server
-services/api/app/payments/   chuỗi VietQR EMVCo + CRC
 apps/mobile/                 Expo + TypeScript (104 file, ~28.3k dòng)
-packages/shared/             token thiết kế, định dạng tiền, danh sách ngân hàng
+packages/shared/             token thiết kế, định dạng tiền
 docs/assets/                 ảnh của README, pin sha256 trong repo guard allowlist
 docs/decisions/              ADR — đọc trước khi đổi hành vi
 phase0/  docs/protocol/v1/   ĐÓNG BĂNG tại chỗ, không sửa, không xoá
@@ -558,8 +556,10 @@ Phần quan trọng nhất của README này. Đọc trước khi tin bất cứ
   Đừng xây thêm gì dựa trên giả định nó an toàn.
 - ❌ **Chưa có người dùng thật**, chưa có testimonial, chưa có số liệu tăng trưởng,
   chưa có app trên store. Mọi con số trong mockup (4.9 sao, "AI MATCH 95%", tên
-  Minh Anh / Quang Huy, số tài khoản) là **dữ liệu trình diễn**.
-- ❌ **Không giữ tiền, không chuyển tiền.** Chỉ sinh chuỗi VietQR.
+  Minh Anh / Quang Huy) là **dữ liệu trình diễn**.
+- ❌ **Không giữ tiền, không chuyển tiền, và không nói chuyển vào đâu.** Sản phẩm
+  nói mỗi người phải bỏ ra bao nhiêu và vì những khoản nào, rồi dừng. Chuyển bằng
+  cách nào là chuyện giữa hai người.
 - ❌ **Chưa quyết Home và cấu trúc tab.** Spec mục 14.3 cấm thiết kế Home trước khi
   biết hành động nào tồn tại.
 - ⚠️ **Branch protection chưa bật** (GitHub free + repo private không cho), nên mọi

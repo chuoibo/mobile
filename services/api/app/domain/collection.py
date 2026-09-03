@@ -23,10 +23,6 @@ __all__ = [
     "counts_toward_collection_rate",
 ]
 
-# Section 8.4 offers exactly two answers, so an arbitrary truthy string is not
-# one of them. Accepting "anything" let a batch freeze on a choice nobody made.
-UNREADY_CHOICES = ("wait_for_all_recipients", "split_blocked_recipient_setup")
-
 STATES = (
     "accruing",
     "frozen",
@@ -58,34 +54,36 @@ class CollectionError(Exception):
 
 
 def unmet_freeze_requirements(context: dict) -> list[str]:
-    """Section 8.4: an unready recipient must be handled explicitly.
+    """One requirement now: a batch has to owe somebody something.
 
-    The organiser has to choose out loud -- wait for everyone, or move the
-    unready obligations into a separate `blocked_recipient_setup` batch.
-    Blocked obligations must never be quietly slipped into an envelope that has
-    already gone out.
+    Section 8.4 also made the organiser choose out loud what to do about an
+    "unready recipient" -- somebody with no bank account registered yet. There
+    are no bank accounts, so there is no such state and no choice to make. The
+    rule left with the payment rail rather than staying as a branch that can
+    never be taken.
     """
     unmet = []
-    if context.get("has_unready_recipient"):
-        if context.get("unready_recipient_choice") not in UNREADY_CHOICES:
-            unmet.append("unready_recipient_choice_required")
     if not context.get("obligations"):
         unmet.append("no_obligations")
     return unmet
 
 
 def unmet_publish_gates(context: dict) -> list[str]:
-    """The three gates of section 8.3.
+    """The gates of section 8.3 that still exist.
 
     Gate 1 (the caller confirmed the expense) happens upstream, before the
     expense reaches a batch, and does NOT substitute for gate 2. If it did, a
     malicious member could raise collections in someone else's name.
+
+    There were three. `valid_bank_recipient_snapshot_required` is gone with the
+    payment rail: the product tells each person what their share is and stops
+    there, so there is no account to snapshot and nothing for the gate to
+    check. A gate that always passes is worse than no gate -- it reads like
+    protection in every list that names it.
     """
     unmet = []
     if not context.get("advancer_acknowledged"):
         unmet.append("advancer_acknowledgement_required")
-    if not context.get("bank_recipient_snapshot_valid"):
-        unmet.append("valid_bank_recipient_snapshot_required")
     if not context.get("delivery_method_chosen"):
         unmet.append("delivery_method_required")
     return unmet
@@ -168,7 +166,8 @@ def progress(obligations: list[dict]) -> dict:
         by_person.setdefault(obligation["sender_id"], []).append(obligation["status"])
     people_total = len(by_person)
     people_done = sum(
-        1 for statuses in by_person.values()
+        1
+        for statuses in by_person.values()
         if all(s in nothing_left_to_do for s in statuses)
     )
     return {
@@ -179,14 +178,18 @@ def progress(obligations: list[dict]) -> dict:
     }
 
 
-def is_stale(now: datetime, due_at: datetime, last_meaningful_activity_at: datetime) -> bool:
+def is_stale(
+    now: datetime, due_at: datetime, last_meaningful_activity_at: datetime
+) -> bool:
     """Section 8.9: past due by 14 days AND quiet for 7. Both, not either.
 
     `stale` is a UI label derived from time. It is not `archived` (hidden but
     the ledger unchanged) and not `abandoned` (an audited business outcome).
     Any real action clears it, so this is a pure function of timestamps.
     """
-    return (now - due_at) > timedelta(days=14) and (now - last_meaningful_activity_at) > timedelta(days=7)
+    return (now - due_at) > timedelta(days=14) and (
+        now - last_meaningful_activity_at
+    ) > timedelta(days=7)
 
 
 def counts_toward_collection_rate(batch: dict) -> bool:

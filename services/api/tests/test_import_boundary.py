@@ -15,7 +15,18 @@ import pathlib
 import unittest
 
 APP = pathlib.Path(__file__).resolve().parents[1] / "app"
-FORBIDDEN_FOR_DOMAIN = ("app.db", "app.api", "app.payments", "sqlalchemy", "fastapi", "alembic", "pydantic")
+# `app.payments` is kept after the package was deleted with the payment rail.
+# It costs nothing and it is the cheap half of the rule: if anybody rebuilds a
+# payments package, the domain still may not reach into it.
+FORBIDDEN_FOR_DOMAIN = (
+    "app.db",
+    "app.api",
+    "app.payments",
+    "sqlalchemy",
+    "fastapi",
+    "alembic",
+    "pydantic",
+)
 
 
 def imported_modules(path: pathlib.Path) -> set[str]:
@@ -38,7 +49,8 @@ class DomainIsPure(unittest.TestCase):
                 for imported in imported_modules(path):
                     for forbidden in FORBIDDEN_FOR_DOMAIN:
                         self.assertFalse(
-                            imported == forbidden or imported.startswith(forbidden + "."),
+                            imported == forbidden
+                            or imported.startswith(forbidden + "."),
                             f"{path.name} imports {imported}",
                         )
 
@@ -50,7 +62,9 @@ class DomainIsPure(unittest.TestCase):
         for path in sorted(payments.glob("*.py")):
             with self.subTest(module=path.name):
                 for imported in imported_modules(path):
-                    self.assertFalse(imported.startswith("app.db"), f"{path.name} imports {imported}")
+                    self.assertFalse(
+                        imported.startswith("app.db"), f"{path.name} imports {imported}"
+                    )
 
 
 if __name__ == "__main__":

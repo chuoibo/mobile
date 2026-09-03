@@ -16,8 +16,6 @@ services/api/                       FastAPI, Python 3.12+
       models.py · migrations/ · repository.py
     api/                            ← CODEX
       routes/ · deps.py · main.py
-    payments/
-      vietqr.py                     ← CODEX (EMVCo + CRC)
   tests/
     domain/                         ← CLAUDE
     db/ · api/                      ← CODEX
@@ -67,7 +65,7 @@ Domain là **thuần**: nhận `dict`, trả `dict`, ném `AllocationError`. Cod
 POST /expenses          tạo khoản chi, gọi allocator, trả đề xuất
 POST /expenses/{id}/confirm    xác nhận → ghi ConfirmedAllocation vào sổ
 POST /batches           gom nghĩa vụ chưa thanh toán thành đợt thu
-POST /batches/{id}/publish     freeze → publish → sinh envelope + VietQR
+POST /batches/{id}/publish     freeze → publish → sinh envelope
 GET  /g/{token}         trang cho khách, KHÔNG cần cài app
 POST /g/{token}/report  khách báo đã chuyển
 POST /obligations/{id}/confirm-receipt   người nhận xác nhận
@@ -84,6 +82,6 @@ POST /obligations/{id}/confirm-receipt   người nhận xác nhận
 | Số dư **tính lại được** từ sổ; cache không phải nguồn sự thật | bất biến 3 |
 | Sửa khoản chi tạo **phiên bản mới**, không ghi đè | mục 4 |
 | `receiver_confirmed` **không phải** bằng chứng ngân hàng | mục 8, 15 |
-| Không giữ tiền, không làm ví — chỉ sinh VietQR | mục 14.1 |
+| Không giữ tiền, không làm ví, và không nói chuyển vào đâu | mục 14.1 |
 | `completed` chỉ do domain transition sinh ra, không có nút "đánh dấu xong" | bất biến 7 |
 | Ghi riêng `recorded_by` · `paid_by/advancer` · `payer_acknowledgement` | mục 3 |

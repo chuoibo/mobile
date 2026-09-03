@@ -1191,7 +1191,6 @@ class BatchCreateRequest(ApiModel):
     context_id: UUID
     expense_version_ids: list[UUID] | None = None
     due_at: datetime
-    unready_recipient_choice: Literal["wait", "split_to_blocked_batch"] | None = None
 
     _due_at_has_timezone = field_validator("due_at")(_require_timezone)
 
@@ -1222,7 +1221,6 @@ class BatchPublishRequest(ApiModel):
 class PublishedObligation(ApiModel):
     obligation_id: UUID
     amount_vnd: PositiveMoneyVnd
-    vietqr_payload: StrictStr
 
 
 class PublishedGuestLink(ApiModel):
@@ -1303,52 +1301,6 @@ class ReceiptConfirmationResponse(ApiModel):
     obligation_status: Literal[
         "outstanding", "partially_confirmed", "confirmed", "over_confirmed"
     ]
-
-
-class BankRecipientRequest(ApiModel):
-    """Where a recipient wants their money to land.
-
-    The three destination fields are plain strings on purpose. Shape is decided
-    by `app.domain.bank_account`, so a malformed bank code comes back as a 422
-    carrying `INVALID_BANK_BIN` -- a code the caller can branch on. Encoding the
-    same rules as pydantic constraints would answer with FastAPI's generic
-    validation body instead, which has no such code in it.
-    """
-
-    recipient_id: UUID
-    bank_bin: StrictStr
-    account_number: StrictStr
-    account_name: StrictStr | None = None
-
-
-class PersonBankRecipientRequest(ApiModel):
-    """The same destination, for the route that names its subject in the path.
-
-    Deliberately without `recipient_id`. On `POST /bank-recipients` the subject
-    is a body field, so "change my account" and "change somebody else's" are one
-    request with one field different and the permission check is the only thing
-    between them. Here the subject is part of the address, so the narrower
-    request cannot be widened by a stray field -- and `extra="forbid"` means
-    sending one is a 422 rather than a silently ignored second opinion about who
-    this is for.
-    """
-
-    bank_bin: StrictStr
-    account_number: StrictStr
-    account_name: StrictStr | None = None
-
-
-class BankRecipientResponse(ApiModel):
-    id: UUID
-    recipient_id: UUID
-    bank_bin: StrictStr
-    # A routing code nobody can act on, plus the name they will actually look
-    # for in their banking app, plus whether we recognised it at all.
-    bank_name: StrictStr
-    bank_recognised: StrictBool
-    account_number: StrictStr
-    account_name: StrictStr | None
-    confirmed_at: datetime
 
 
 class BatchObligationView(ApiModel):

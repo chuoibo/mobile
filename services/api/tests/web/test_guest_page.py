@@ -39,22 +39,24 @@ def envelope(*, obligation_overrides=None, **overrides):
         "recorded_by_display_name": "Nam",
         "claimed_person_display_name": "Hà",
         "link_state": "active",
-        "obligations": [{
-            "obligation_id": "o1",
-            "occasion_label": "bữa lẩu tối thứ bảy",
-            "amount_vnd": 82000,
-            "recipient_display_name": "Nam",
-            "bank_name": "Techcombank",
-            "bank_bin": "970407",
-            # repo-guard: allow=long-number reason=synthetic-test-fixture-never-real-participant-data
-            "account_number": "19036812345678",
-            "account_holder_name": "NGUYEN VAN NAM",
-            "transfer_note": "Bua lau",
-            "qr_payload": "00020101",
-            "objections_used": 0,
-            "objections_allowed": OBJECTION_LIMIT,
-            **(obligation_overrides or {}),
-        }],
+        "obligations": [
+            {
+                "obligation_id": "o1",
+                "occasion_label": "bữa lẩu tối thứ bảy",
+                "amount_vnd": 82000,
+                "recipient_display_name": "Nam",
+                "bank_name": "Techcombank",
+                "bank_bin": "970407",
+                # repo-guard: allow=long-number reason=synthetic-test-fixture-never-real-participant-data
+                "account_number": "19036812345678",
+                "account_holder_name": "NGUYEN VAN NAM",
+                "transfer_note": "Bua lau",
+                "qr_payload": "00020101",
+                "objections_used": 0,
+                "objections_allowed": OBJECTION_LIMIT,
+                **(obligation_overrides or {}),
+            }
+        ],
         "reports_used": 0,
         "reports_allowed": REPORT_LIMIT,
         "objections_used": 0,
@@ -66,7 +68,9 @@ def envelope(*, obligation_overrides=None, **overrides):
 
 def render(view, token="tok"):
     env = Environment(loader=FileSystemLoader(str(WEB / "templates")), autoescape=True)
-    return env.get_template("guest.html").render(view=view, preview=NEUTRAL_PREVIEW, token=token)
+    return env.get_template("guest.html").render(
+        view=view, preview=NEUTRAL_PREVIEW, token=token
+    )
 
 
 class Formatting(unittest.TestCase):
@@ -86,8 +90,14 @@ class LeakGuard(unittest.TestCase):
     def test_group_data_in_the_input_is_an_error_not_a_silent_drop(self):
         """Upstream handing us a group balance is a bug in the caller. Dropping
         it quietly would let the same bug reach a surface that does render it."""
-        for field in ("group_balance", "group_history", "other_allocations",
-                      "invocation_thread", "original_bill_url", "member_list"):
+        for field in (
+            "group_balance",
+            "group_history",
+            "other_allocations",
+            "invocation_thread",
+            "original_bill_url",
+            "member_list",
+        ):
             with self.subTest(field=field):
                 with self.assertRaises(GuestViewError) as caught:
                     build_guest_view(envelope(**{field: "anything"}))
@@ -235,10 +245,30 @@ class DesignDiscipline(unittest.TestCase):
         js = (WEB / "static/guest.js").read_text(encoding="utf-8")
         self.assertNotIn("panel.hidden = true", js, "hiding must not live in script")
 
-    def test_the_rendered_account_number_is_present_without_running_script(self):
-        """Server-rendered, so it is in the HTML the browser receives."""
-        # repo-guard: allow=long-number reason=synthetic-test-fixture-never-real-participant-data
-        self.assertIn("19036812345678", self.html)
+    def test_the_second_face_is_server_rendered_not_injected(self):
+        """Whatever is behind the reveal arrives in the HTML, not from script.
+
+        This used to assert an account number was in the markup. There is no
+        account number: the product names each person's share and stops, and
+        how the money moves is between the two people. The assertion that
+        survives is the one that was actually load-bearing -- a guest with
+        scripting off can still read the second face -- so it is now made
+        against the content that is there.
+        """
+        self.assertIn("data-transfer", self.html)
+        self.assertIn("Trả cho", self.html)
+        # And the page says so rather than showing a number with no next step.
+        self.assertIn("RuDi chỉ tính phần của bạn", self.html)
+
+    def test_no_bank_detail_survives_anywhere_on_the_page(self):
+        """The removal, asserted rather than assumed.
+
+        A template still carrying `account_number` in a hidden field, or a view
+        model still passing one through, would keep leaking a detail the
+        product no longer collects.
+        """
+        for gone in ("account_number", "qr_payload", "transfer_note", "bank_bin"):
+            self.assertNotIn(gone, self.html, gone)
 
 
 if __name__ == "__main__":
