@@ -238,7 +238,6 @@ flowchart TB
     W -.-> P
     A --> DOM
     A --> DB
-    A --> PAY
     DB --> PG
 
     classDef brand fill:#fff0ea,stroke:#c93900,stroke-width:2px,color:#1f2230
@@ -246,7 +245,7 @@ flowchart TB
     classDef money fill:#d5f5f0,stroke:#00756b,stroke-width:2px,color:#1f2230
     class M,W brand
     class P ai
-    class A,DOM,DB,PAY,PG money
+    class A,DOM,DB,PG money
     style BM fill:#ffffff,stroke:#e7dace,color:#4e5563
     style SH fill:#ffffff,stroke:#e7dace,color:#4e5563
     style BE fill:#ffffff,stroke:#e7dace,color:#4e5563
