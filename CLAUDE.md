@@ -104,7 +104,7 @@ Nguồn sự thật: `docs/team/charter.md`, `docs/decisions/ADR-*.md`, `docs/ar
 
 ## Bẫy đã biết
 
-- **`apps/mobile/` và `packages/shared/` không có trên `main`** dù README nói tới. Hai job `shared` và `mobile` trong `.github/workflows/test.yml` tự phát hiện và skip có ghi log; đừng "sửa" chúng thành vô điều kiện — làm thế CI đỏ ngay trên main.
+- **`apps/mobile/` (378 file) và `packages/shared/` ĐÃ ở trên `main`** từ 2026-08-30; dòng cũ nói ngược là sai. Hai job `shared` và `mobile` trong `.github/workflows/test.yml` vẫn tự phát hiện thư mục trước khi chạy — giữ nguyên cách đó, đừng "sửa" thành vô điều kiện. **Và `apps/mobile/` chứa HAI app**: vỏ RuDi expo-router (`app/**` → `src/rudi/`, cái ship) và cây legacy (`App.tsx` → `src/screens/**`, chỉ tới qua `/legacy`); ADR-0016 quyết hội tụ về vỏ RuDi và xoá legacy theo từng mảng.
 - **`phase0/` và `docs/protocol/v1/` đóng băng tại chỗ.** Không sửa, không xoá. `protocol_version` là snapshot bất biến: cần đổi thì ADR cho phép tạo `v2`, không sửa `v1`.
 - **Repo guard fail closed** với binary, file text > 2 MiB, symlink, gitlink mới. Muốn thêm artifact thì pin `path` + `sha256` + `rules` + `reason` vào `.repo-guard-allowlist.json` — đổi một byte là phải review lại.
 - **Không bao giờ đưa vào Git**: ảnh bill, số tài khoản, tên người tham gia, transcript thô, file export, `.env` thật. `.gitignore` không phải nơi lưu an toàn; dữ liệu thật nằm ngoài repo và ngoài mọi worktree.
