@@ -29,7 +29,7 @@ from app.api.schemas import (
     MessageCreateRequest,
     MessageListResponse,
     MessageQuery,
-    MessageResponse,
+    PostedMessageResponse,
     ReadMarkRequest,
     ReadMarkResponse,
 )
@@ -81,7 +81,7 @@ def get_companion_turn_limiter(request: Request) -> FixedWindowLimiter:
 
 @router.post(
     "/contexts/{context_id}/messages",
-    response_model=MessageResponse,
+    response_model=PostedMessageResponse,
     status_code=status.HTTP_201_CREATED,
     responses=ERRORS,
 )
@@ -90,8 +90,21 @@ def post_context_message(
     request: MessageCreateRequest,
     actor: Annotated[Actor, Depends(get_actor)],
     repository: Annotated[ApiRepository, Depends(get_repository)],
-) -> MessageResponse:
-    return ApiService(repository).post_context_message(context_id, request, actor)
+    companion: Annotated[Companion, Depends(get_companion)],
+    limiter: Annotated[FixedWindowLimiter, Depends(get_companion_turn_limiter)],
+) -> PostedMessageResponse:
+    """Store the message, then act on a slash command or mention in it.
+
+    The companion window is charged only when the text asks for a turn
+    (`/plan`, `@Rủ Đi`), and a refusal by the window is reported in the body
+    rather than as 429: the message is already stored, and a 429 would make the
+    client retry it into a duplicate.
+    """
+    service = ApiService(repository)
+    posted = service.post_context_message(context_id, request, actor)
+    return service.act_on_message_intent(
+        context_id, posted, actor, companion=companion, companion_limiter=limiter
+    )
 
 
 @router.get(

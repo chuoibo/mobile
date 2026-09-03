@@ -141,6 +141,7 @@ from app.api.schemas import (
     PersonMatchResponse,
     PersonPostListResponse,
     PostCreateRequest,
+    PostedMessageResponse,
     PostListResponse,
     PostResponse,
     PreferenceProfileResponse,
@@ -169,6 +170,7 @@ from app.api.schemas import (
     VoteBallotResponse,
     VoteCreateRequest,
     VoteListResponse,
+    VoteOptionInput,
     VoteOptionResultResponse,
     VoteResponse,
     WidgetPhotoResponse,
@@ -181,6 +183,7 @@ from app.domain.allocator import allocate
 from app.domain.bill import BillError, allocator_input_from_bill
 from app.domain.budget import build_group_budget
 from app.domain.capability import CapabilityScopeError, capability_scope
+from app.domain.chat_intent import parse_intent, parse_vote
 from app.domain.collection import CollectionError, transition, unmet_publish_gates
 from app.domain.companion import CompanionError, ground_card, plan_turn
 from app.domain.contract import AllocationError
@@ -3551,16 +3554,110 @@ class ApiService:
             )
 
         _require_photo_url_context(context_id, request.image_url)
+        card = request.card
+        if request.kind == "ai_card":
+            # A client may post a card, but only one the server would have
+            # written itself: known kind, every place in the catalogue, text
+            # bounded. The same whitelist that grounds the model grounds the
+            # client, so `poll` and `expense_draft` -- server-authored kinds --
+            # cannot be forged from a phone.
+            try:
+                card = ground_card(
+                    request.card, companion_places.load_place_catalogue()
+                )
+            except CompanionError as refused:
+                raise ApiProblem(
+                    422,
+                    "card_ungrounded",
+                    "Thẻ không hợp lệ: loại thẻ lạ hoặc nêu địa điểm không có trong danh mục.",
+                ) from refused
         record = self.repository.create_message(
             context_id=context_id,
             author_id=actor.id,
             kind=request.kind,
             body=request.body,
             image_url=request.image_url,
-            card=request.card,
+            card=card,
             now=_now(),
         )
         return _wire_message(record)
+
+    def act_on_message_intent(
+        self,
+        context_id: uuid.UUID,
+        posted: MessageResponse,
+        actor: Actor,
+        *,
+        companion: Companion,
+        companion_limiter,
+    ) -> PostedMessageResponse:
+        """What the stored message asked for, done after it is safely stored.
+
+        `/plan` and `@Rủ Đi` are a requested companion turn; `/vote` creates a
+        poll and a poll card in the caller's name; `/chia-bill` is answered
+        honestly as not available until the batch reader lands. Nothing here
+        raises after the store: a companion refused by the window becomes
+        `companion_rate_limited` in the body, because a 429 on a message the
+        server already kept would make the client retry into a duplicate.
+        """
+        base = posted.model_dump()
+        intent = parse_intent(posted.body) if posted.kind == "text" else None
+        if intent is None:
+            return PostedMessageResponse(**base)
+        name = intent["intent"]
+        if name in ("plan", "mention"):
+            try:
+                companion_limiter.check(actor.id)
+            except ApiProblem as limited:
+                if limited.status_code != 429:
+                    raise
+                return PostedMessageResponse(
+                    **base, intent=name, intent_error="companion_rate_limited"
+                )
+            turn = self.take_companion_turn(
+                context_id, actor, companion, requested=True
+            )
+            return PostedMessageResponse(**base, intent=name, companion=turn)
+        if name == "vote":
+            spec = parse_vote(intent["args"])
+            if spec is None:
+                return PostedMessageResponse(
+                    **base, intent="vote", intent_error="vote_malformed"
+                )
+            vote = self.create_vote(
+                context_id,
+                VoteCreateRequest(
+                    question=spec["question"],
+                    options=[VoteOptionInput(label=label) for label in spec["options"]],
+                ),
+                actor,
+            )
+            # The poll card is the PERSON's, not the companion's: authored by
+            # the caller, so the cadence does not read it as an AI turn and no
+            # ceiling is spent on it.
+            self.repository.create_message(
+                context_id=context_id,
+                author_id=actor.id,
+                kind="ai_card",
+                body=None,
+                image_url=None,
+                card={
+                    "kind": "poll",
+                    "payload": {
+                        "vote_id": str(vote.id),
+                        "question": vote.question,
+                        "options": [
+                            {"id": str(option.id), "label": option.label}
+                            for option in vote.options
+                        ],
+                    },
+                },
+                now=_now(),
+            )
+            return PostedMessageResponse(**base, intent="vote", vote=vote)
+        return PostedMessageResponse(
+            **base, intent="chia_bill", intent_error="chia_bill_not_available"
+        )
 
     def list_context_messages(
         self,
@@ -3598,7 +3695,11 @@ class ApiService:
         return MessageListResponse(
             context_id=context_id,
             messages=messages,
-            next_cursor=messages[-1].cursor if messages else None,
+            # A forward poll that found nothing echoes its own cursor, so the
+            # client keeps polling from the same place instead of restarting
+            # from the top on every empty page. Backward and first pages keep
+            # `None`: there is nothing further to ask for.
+            next_cursor=messages[-1].cursor if messages else query.after,
             has_more=page.has_more,
         )
 
@@ -3701,7 +3802,13 @@ class ApiService:
         metadata = [
             {
                 "id": str(message.id),
-                "author_kind": "ai" if message.kind == "ai_card" else "human",
+                # A poll card is posted in a PERSON's name (`/vote`); only a
+                # card with no author is the companion speaking.
+                "author_kind": (
+                    "ai"
+                    if message.kind == "ai_card" and message.author_id is None
+                    else "human"
+                ),
                 "created_at": message.created_at.isoformat(),
             }
             for message in messages
@@ -3723,7 +3830,11 @@ class ApiService:
                 "author_id": (
                     str(message.author_id) if message.author_id is not None else None
                 ),
-                "author_kind": "ai" if message.kind == "ai_card" else "human",
+                "author_kind": (
+                    "ai"
+                    if message.kind == "ai_card" and message.author_id is None
+                    else "human"
+                ),
                 "kind": message.kind,
                 "body": message.body,
                 "image_url": message.image_url,

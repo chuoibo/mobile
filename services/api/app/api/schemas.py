@@ -1285,6 +1285,24 @@ class MessageListResponse(ApiModel):
     has_more: bool
 
 
+class PostedMessageResponse(MessageResponse):
+    """`POST /messages` answers with the stored message and what the server did
+    about a slash command or mention in it (M3, `app/domain/chat_intent.py`).
+
+    The message is ALWAYS stored first; the companion, the vote or a refusal
+    ride along in the same answer so a rate-limited or refused intent never
+    turns into a lost message and a retried duplicate.
+    """
+
+    intent: Literal["plan", "chia_bill", "vote", "mention"] | None = None
+    companion: CompanionTurnResponse | None = None
+    vote: VoteResponse | None = None
+    intent_error: (
+        Literal["vote_malformed", "chia_bill_not_available", "companion_rate_limited"]
+        | None
+    ) = None
+
+
 class BatchCreateRequest(ApiModel):
     context_id: UUID
     expense_version_ids: list[UUID] | None = None
