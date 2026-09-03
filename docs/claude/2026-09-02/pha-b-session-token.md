@@ -6,7 +6,9 @@
 - **PR này (docs, ĐỀ XUẤT):** https://github.com/chuoibo/ru-di-app/pull/513
 - **PR mobile Pha A (không lẫn):** https://github.com/chuoibo/ru-di-app/pull/512
 
-Hợp đồng: [ADR-0014](../../decisions/ADR-0014-phien-dang-nhap-thay-header-actor.md). Trạng thái **ĐỀ XUẤT** đến khi Lead chấp nhận. Đầu vào cùng lane với tác giả **không** phải verdict ADR-0007.
+> **XONG 2026-09-03.** Bản bàn giao này giữ nguyên để đọc lại lý do, nhưng việc đã làm rồi: Lead chấp nhận ADR-0014 và uỷ quyền cho Claude làm cả server lẫn client trong PR #514 (merge vào `main` tại `6aad3cf`), có điều kiện e2e thật ở chế độ production. Cái gì thực sự được dựng, và bốn chỗ hợp đồng đổi so với bản duyệt, nằm ở [pha-b-hien-thuc.md](../2026-09-03/pha-b-hien-thuc.md).
+
+Hợp đồng: [ADR-0014](../../decisions/ADR-0014-phien-dang-nhap-thay-header-actor.md).
 
 Không viết code `api/` hay `db/` trên nhánh Claude. Không OAuth / OTP SMS trong PR hiện thực ADR này. Không đổi tên remote của #513.
 
