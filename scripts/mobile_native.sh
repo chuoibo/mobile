@@ -354,7 +354,10 @@ kiem_may_chu_sau_30() {
 import json, sys
 d = json.load(sys.stdin)
 act = [c for c in d.get("contexts", []) if c.get("my_state") == "active"]
-print(act[0]["id"] if act else "")')"
+# Flow 40 adds «Plan QA» to C before these checks run; the flow-30 traffic
+# (text, poll, heart) lives in «Hoi QA», so pick it by name, not by position.
+hoi = [c for c in act if c.get("display_name") == "Hoi QA"]
+print((hoi or act)[0]["id"] if act else "")')"
   [ -n "$tok" ] && [ -n "$ctx" ] || hong "sau flow 30: C không đăng nhập được hoặc không có nhóm."
   ket="$(curl -sS "$goc/contexts/$ctx/messages?limit=50" -H "Authorization: Bearer $tok" | python3 -c '
 import json, sys
