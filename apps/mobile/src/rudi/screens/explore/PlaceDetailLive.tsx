@@ -121,6 +121,7 @@ export function PlaceDetailLiveScreen({ phien }: { phien: Phien }) {
           </View>
         ) : null
       }
+      bottomInset={110}
       footerInset={14 + menDuoi}
       testID="place-detail-screen"
     >
@@ -152,21 +153,31 @@ function ThanChiTiet({
   thongBao: string | null;
   onChiDuong: () => void;
 }) {
-  const { colors } = useRudiTheme();
+  const { colors, radius } = useRudiTheme();
   const hop = matchLabel(place.match);
   const coMatch = place.match !== null && place.match.source === "ai";
   return (
     <>
-      <View style={styles.hero}>
-        <View style={[styles.heroIcon, { backgroundColor: colors.accentSoft }]}>
-          <Ionicons color={colors.accent} name={bieuTuongLoai(place.category)} size={30} />
+      {/* The screen's one hero moment: a full-width band in the leading tone,
+          glyph at focal size, then the facts as one line of text. */}
+      <View style={[styles.hero, { backgroundColor: colors.accentSoft, borderRadius: radius.base }]}>
+        <View style={[styles.heroIcon, { backgroundColor: colors.card }]}>
+          <Ionicons color={colors.accent} name={bieuTuongLoai(place.category)} size={40} />
         </View>
         <Heading title={place.name} subtitle={dongPhu(place)} />
-        <Inline gap={8} wrap>
-          <Chip icon="star" label={formatRating(place.rating, place.ratingCount)} selected />
-          <Chip label={place.openNow ? "Đang mở" : "Đã đóng"} selected={place.openNow} tone={place.openNow ? "accent" : "split"} />
-          {hop !== null && hop.real ? <Chip icon="sparkles-outline" label={hop.text} selected tone="ai" /> : null}
+        <Inline gap={6} wrap>
+          <Ionicons color={colors.accent} name="star" size={14} />
+          <Text style={[typography.label, { color: colors.ink }]}>{formatRating(place.rating, place.ratingCount)}</Text>
+          <Text style={[typography.caption, { color: colors.inkSoft }]}>· {formatDistance(place.distanceKm)} ·</Text>
+          <Text style={[typography.caption, { color: place.openNow ? colors.accent : colors.split }]}>
+            {place.openNow ? "Đang mở" : "Đã đóng"}
+          </Text>
         </Inline>
+        {hop !== null && hop.real ? (
+          <View style={styles.huyHieu}>
+            <Chip icon="sparkles-outline" label={hop.text} selected tone="ai" />
+          </View>
+        ) : null}
       </View>
       {place.description ? <Text style={[typography.body, { color: colors.ink }]}>{place.description}</Text> : null}
       <Card style={styles.suKien}>
@@ -220,8 +231,9 @@ function ThanChiTiet({
 }
 
 const styles = StyleSheet.create({
-  hero: { gap: 12 },
-  heroIcon: { width: 60, height: 60, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  hero: { gap: 12, padding: 18 },
+  heroIcon: { width: 80, height: 80, borderRadius: 24, alignItems: "center", justifyContent: "center" },
+  huyHieu: { flexDirection: "row" },
   suKien: { paddingVertical: 5 },
   khoi: { gap: 8 },
   nhanXet: { gap: 2, paddingVertical: 6 },

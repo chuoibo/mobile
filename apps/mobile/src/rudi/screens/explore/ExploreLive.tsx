@@ -198,7 +198,7 @@ export function ExploreLiveScreen({ phien }: { phien: Phien }) {
                   <View style={[styles.oLoaiIcon, { backgroundColor: chon ? colors.card : colors.accentSoft }]}>
                     <Ionicons color={colors.accent} name={bieuTuongLoai(c.id)} size={22} />
                   </View>
-                  <Text numberOfLines={2} style={[typography.caption, styles.giua, { color: chon ? colors.accent : colors.ink }]}>
+                  <Text numberOfLines={2} style={[typography.caption, styles.nhanLoai, { color: chon ? colors.accent : colors.ink }]}>
                     {c.label}
                   </Text>
                 </Pressable>
@@ -296,11 +296,15 @@ function TheDiaDiem({
             <Ionicons color={colors.inkFaint} name="wallet-outline" size={13} />
             <Text style={[typography.caption, { color: colors.inkFaint }]}>{formatPriceBand(place.priceMinVnd, place.priceMaxVnd)}</Text>
           </Inline>
+          <Text style={[typography.caption, { color: place.openNow ? colors.accent : colors.split }]}>
+            {place.openNow ? "Đang mở" : "Đã đóng"}
+          </Text>
         </Inline>
-        <Inline gap={6} wrap>
-          <Chip label={place.openNow ? "Đang mở" : "Đã đóng"} selected={place.openNow} tone={place.openNow ? "accent" : "split"} />
-          {hop !== null && hop.real ? <Chip icon="sparkles-outline" label={hop.text} selected tone="ai" /> : null}
-        </Inline>
+        {hop !== null && hop.real ? (
+          <View style={styles.huyHieu}>
+            <Chip icon="sparkles-outline" label={hop.text} selected tone="ai" />
+          </View>
+        ) : null}
       </View>
       <IconButton
         accessibilityLabel={daLuu ? `Bỏ lưu ${place.name}` : `Lưu ${place.name}`}
@@ -320,7 +324,11 @@ const styles = StyleSheet.create({
   theAi: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14 },
   theAiIcon: { width: 44, height: 44, borderRadius: 15, alignItems: "center", justifyContent: "center" },
   luoiLoai: { flexDirection: "row", gap: 9 },
-  oLoai: { flex: 1, minWidth: 70, minHeight: 92, borderRadius: 17, borderWidth: 1, alignItems: "center", justifyContent: "center", gap: 8, padding: 8 },
+  // Glyphs share one baseline whatever the label does: the label slot is always
+  // two caption lines tall, so «Quán ăn local» wrapping does not lift its tile.
+  oLoai: { flex: 1, minWidth: 70, borderRadius: 17, borderWidth: 1, alignItems: "center", justifyContent: "flex-start", gap: 8, paddingHorizontal: 6, paddingTop: 10, paddingBottom: 8 },
+  nhanLoai: { textAlign: "center", minHeight: 32 },
+  huyHieu: { flexDirection: "row" },
   oLoaiIcon: { width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   giua: { textAlign: "center" },
   bam: { opacity: 0.72, transform: [{ scale: 0.98 }] },
