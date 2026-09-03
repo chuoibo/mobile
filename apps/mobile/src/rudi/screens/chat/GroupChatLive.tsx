@@ -74,7 +74,9 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
   // for a command) until the server's rows replace them.
   const [dangGuiThan, setDangGuiThan] = useState<string | null>(null);
   const [banPhimMo, setBanPhimMo] = useState(false);
-  const [thongBao, setThongBao] = useState<string | null>(null);
+  // What the server said about the last command, drawn as a row in the thread
+  // (where the pending card promised it), signed by who is speaking.
+  const [thongBao, setThongBao] = useState<{ tu: string; cau: string; luc: string } | null>(null);
   const [dangChonPhanUng, setDangChonPhanUng] = useState<string | null>(null);
   const [tenTheoId, setTenTheoId] = useState<Record<string, string>>({});
 
@@ -128,11 +130,17 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
     try {
       const daGui = await chat.gui(body);
       danhSachRef.current?.scrollToOffset({ offset: 0, animated: true });
-      setThongBao(cauYDinh(daGui));
+      const cau = cauYDinh(daGui);
+      const tuAi = daGui.companion !== null && daGui.companion !== undefined && !daGui.companion.spoke;
+      setThongBao(cau === null ? null : { tu: tuAi ? "Rủ Đi AI" : "Rủ Đi", cau, luc: new Date().toISOString() });
     } catch (error) {
       // Give the words back: a failed send must not eat what was typed.
       setNhap(body);
-      setThongBao(error instanceof ApiError ? error.message : thongDiepNguoiDoc(0, null));
+      setThongBao({
+        tu: "Rủ Đi",
+        cau: error instanceof ApiError ? error.message : thongDiepNguoiDoc(0, null),
+        luc: new Date().toISOString(),
+      });
     } finally {
       setDangGui(false);
       setDangGuiThan(null);
@@ -145,7 +153,11 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
     try {
       await chat.doiPhanUng(tin.id, kind, cuaToi);
     } catch (error) {
-      setThongBao(error instanceof ApiError ? error.message : thongDiepNguoiDoc(0, null));
+      setThongBao({
+        tu: "Rủ Đi",
+        cau: error instanceof ApiError ? error.message : thongDiepNguoiDoc(0, null),
+        luc: new Date().toISOString(),
+      });
     }
   };
 
@@ -282,7 +294,17 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
         // Inverted, so the header sits at the newest end: what is being sent
         // shows there at once, and a command shows the model is being asked.
         ListHeaderComponent={
-          dangGuiThan !== null ? (
+          dangGuiThan === null && thongBao !== null ? (
+            <View style={styles.hang}>
+              <View style={[styles.khoi, styles.khoiAi]}>
+                <Card tone="ai" style={styles.choAi}>
+                  <Text style={[typography.caption, { color: colors.ai }]}>{thongBao.tu}</Text>
+                  <Text style={[typography.body, { color: colors.ink }]}>{thongBao.cau}</Text>
+                </Card>
+                <Text style={[typography.caption, { color: colors.inkFaint }]}>{gioPhut(thongBao.luc)}</Text>
+              </View>
+            </View>
+          ) : dangGuiThan !== null ? (
             <View style={styles.choGui}>
               <View style={[styles.hang, styles.hangToi]}>
                 <View style={[styles.khoi, styles.khoiToi, styles.mo]}>
@@ -324,9 +346,6 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
       />
       {chat.loi ? (
         <Text style={[typography.caption, { color: colors.warn, paddingHorizontal: space.md }]}>{chat.loi}</Text>
-      ) : null}
-      {thongBao ? (
-        <Text style={[typography.caption, { color: colors.inkSoft, paddingHorizontal: space.md }]}>{thongBao}</Text>
       ) : null}
       {moLenh ? (
         <View style={[styles.lenh, { backgroundColor: colors.card, borderColor: colors.line, marginHorizontal: space.md }]}>
