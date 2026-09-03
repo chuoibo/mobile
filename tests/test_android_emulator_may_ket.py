@@ -93,7 +93,7 @@ def _fake_sdk(root: Path, *, adb_lists_device: bool) -> Path:
             case "$args" in
               *"shell getprop"*) sleep {ADB_HANG_SECONDS}; exit 1 ;;
               devices*)          {devices_body}; exit 0 ;;
-              *"emu avd name"*)  printf "rudi\\n"; exit 0 ;;
+              *"emu avd name"*)  printf "{AVD_TEST}\\n"; exit 0 ;;
               *"emu kill"*)      exit 0 ;;
             esac
             exit 0
@@ -107,10 +107,10 @@ def _fake_sdk(root: Path, *, adb_lists_device: bool) -> Path:
     emulator = sdk / "emulator" / "emulator"
     emulator.write_text(
         textwrap.dedent(
-            """\
+            f"""\
             #!/usr/bin/env bash
             case "$*" in
-              *-list-avds*) printf "rudi\\n"; exit 0 ;;
+              *-list-avds*) printf "{AVD_TEST}\\n"; exit 0 ;;
             esac
             echo "$@" >> "$RD_EMULATOR_LOG"
             sleep 600
@@ -151,13 +151,24 @@ def may_ket(tmp_path: Path):
         proc.wait(timeout=10)
 
 
+# The AVD name every case below uses. It is deliberately NOT the name of a real
+# AVD on this machine: `down` falls back to scanning the real /proc for a qemu
+# process whose argv carries `-avd <name>`, so a test that names the developer's
+# own AVD while that emulator is running kills the real one as collateral. It
+# happened twice on 2026-09-03: the AVD shut down gracefully mid-measurement
+# while this file was running, and nobody had typed a command. A per-run name
+# keeps the case meaningful -- the scan still walks the real /proc -- and makes
+# the only thing it can find the fake this test spawned.
+AVD_TEST = f"rd-test-{os.getpid()}"
+
+
 def _run(script_args, tmp_path: Path, sdk: Path, *, extra_env=None, timeout=90):
     env = dict(os.environ)
     env.update(
         {
             "ANDROID_HOME": str(sdk),
             "XDG_RUNTIME_DIR": str(tmp_path / "xdg"),
-            "RD_AVD": "rudi",
+            "RD_AVD": AVD_TEST,
             "RD_ADB_LOG": str(tmp_path / "adb.log"),
             "RD_EMULATOR_LOG": str(tmp_path / "emulator.log"),
             "RD_BOOT_TIMEOUT": "3",
@@ -180,7 +191,7 @@ def test_down_tat_duoc_may_dang_ket(may_ket):
     """Máy sống-nhưng-chưa-boot-xong phải bị TẮT, không phải bị gọi là 'không chạy'."""
     proc, tmp_path = may_ket
     sdk = _fake_sdk(tmp_path, adb_lists_device=True)
-    _advertise(tmp_path / "xdg", proc.pid, "rudi")
+    _advertise(tmp_path / "xdg", proc.pid, AVD_TEST)
 
     result = _run(["down"], tmp_path, sdk)
 
@@ -235,7 +246,7 @@ def test_up_khong_bat_instance_thu_hai_len_AVD_dang_bi_giu(may_ket):
     """
     proc, tmp_path = may_ket
     sdk = _fake_sdk(tmp_path, adb_lists_device=True)
-    _advertise(tmp_path / "xdg", proc.pid, "rudi")
+    _advertise(tmp_path / "xdg", proc.pid, AVD_TEST)
 
     result = _run(["up"], tmp_path, sdk)
 
@@ -277,7 +288,7 @@ def test_down_tat_duoc_may_KHONG_co_file_khai(tmp_path: Path):
             "-c",
             "import time; time.sleep(600)",
             "-avd",
-            "rudi",
+            AVD_TEST,
             "-port",
             "5554",
         ],
@@ -319,7 +330,7 @@ def test_down_khong_tu_giet_chinh_no(tmp_path: Path):
     impostor.write_text("#!/usr/bin/env bash\nsleep 600\n")
     impostor.chmod(0o755)
     proc = subprocess.Popen(
-        [str(impostor), "-avd", "rudi"],
+        [str(impostor), "-avd", AVD_TEST],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
@@ -350,7 +361,7 @@ def test_down_khong_treo_khi_adb_khong_tra_loi(may_ket):
     """
     proc, tmp_path = may_ket
     sdk = _fake_sdk(tmp_path, adb_lists_device=True)
-    _advertise(tmp_path / "xdg", proc.pid, "rudi")
+    _advertise(tmp_path / "xdg", proc.pid, AVD_TEST)
 
     start = time.monotonic()
     _run(["down"], tmp_path, sdk, timeout=ADB_HANG_SECONDS + 30)

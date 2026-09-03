@@ -391,34 +391,31 @@ serial_candidates_for_avd() {
     done
 }
 
-# Serial của máy ảo đang boot xong. In ra rỗng nếu không có cái nào.
+# KHÔNG có hàm "máy nào boot xong cũng được", và đó là chủ ý.
 #
-# ANDROID_SERIAL được tôn trọng và CHỈ nó được xét khi đã đặt. Máy này chạy năm
-# worktree của cùng một repo và có lúc hai emulator cùng sống; "lấy cái đầu
-# danh sách" thì lane A đo lên máy của lane B mà cả hai đều thấy màu xanh. Một
-# phép đo không nói được nó đo CÁI NÀO thì không gác được gì.
-booted_serial() {
-    local candidates s
-    if [ -n "${ANDROID_SERIAL:-}" ]; then
-        candidates="$ANDROID_SERIAL"
-    else
-        # Gắn trước khi hỏi. Không có dòng này thì trên máy có loopback hút SYN
-        # máy ảo KHÔNG BAO GIỜ xuất hiện trong `adb devices`: máy quét của adb
-        # server không tới được nó, và ta thì chưa gắn tay. `check` khi đó chết
-        # ở "không có máy ảo nào boot xong" trong khi máy đang chạy rất tốt.
-        attach_avd_transports "$AVD_NAME"
-        # Cả hai dạng tên: máy quét tìm ra thì `emulator-NNNN`, gắn tay thì
-        # `127.0.0.1:NNNN`. Xem chú thích ở serial_for_avd.
-        candidates="$(adbq devices 2>/dev/null \
-            | awk '/^(emulator-[0-9]+|127\.0\.0\.1:[0-9]+)\tdevice$/{print $1}')"
-    fi
-    for s in $candidates; do
-        if [ "$(boot_completed "$s")" = "1" ]; then
-            printf '%s\n' "$s"; return 0
-        fi
-    done
-    return 1
-}
+# Bản trước có `booted_serial()`: nó trả về emulator ĐẦU TIÊN trong `adb devices`
+# có sys.boot_completed=1, không lọc theo AVD. `check`, `doctor` và `install-expo`
+# đều hỏi qua nó, nên trên máy có hai emulator, cả ba lệnh trả lời về máy của
+# lane khác trong khi người gọi đang hỏi về máy của mình. Đo được (FAIL #505):
+#
+#     ./android_emulator.sh check                          -> EXIT=0, emulator-5554
+#     RD_AVD=avd-khong-he-ton-tai ./android_emulator.sh check -> EXIT=0, emulator-5554
+#     diff hai đầu ra -> GIỐNG HỆT NHAU TỪNG BYTE
+#
+# Tức là cái cổng cho cùng một câu trả lời cho hai câu hỏi khác nhau, kể cả khi
+# AVD được hỏi KHÔNG TỒN TẠI. Hệ quả tệ nhất không phải màu đỏ giả mà màu xanh
+# giả: cùng MỘT máy ảo hỏng, một mình thì ĐỎ, đứng cạnh máy lane khác thì XANH.
+# Máy hỏng không đổi — chỉ hàng xóm đổi.
+#
+# Nên hàm đó bị xoá thay vì được vá thêm người gọi: chừng nào còn một hàm trả
+# lời "có máy nào không", người viết lệnh tiếp theo sẽ lại gọi nó. Câu hỏi hợp
+# lệ duy nhất trong file này là "có ĐÚNG máy tôi hỏi không" — `serial_for_avd`.
+#
+# ANDROID_SERIAL không còn là nguồn danh tính. `serial_for_avd` nhận diện máy
+# theo CẤU TẠO (tên AVD qua `adb emu avd name`, hoặc cổng console đọc từ
+# pid/ini/argv của chính AVD đó), và cách đó đúng hơn một biến môi trường mà
+# bất kỳ ai cũng có thể để sót lại từ lệnh trước. `up` vẫn export nó cho tiện
+# khi bạn gõ `adb` tay, nhưng script thì không tin nó.
 
 # AVD nào đang chạy sau serial này. Cần vì `emulator-5554` không tự nói nó là
 # máy của ai.
@@ -569,6 +566,10 @@ cmd_up() {
         say "  chờ sys.boot_completed=1 (tối đa ${BOOT_TIMEOUT}s)…"
         serial="$(wait_boot "$AVD_NAME")" || die "quá ${BOOT_TIMEOUT}s mà sys.boot_completed vẫn chưa =1.
   Đọc /tmp/rd-emulator-$AVD_NAME.log — đừng đọc 'tiến trình còn sống' thành 'đã boot'."
+        # Đường boot mới cũng phải ghim serial, y như nhánh RD_EMU_PORT ở trên.
+        # Thiếu dòng này thì `adb` bạn gõ tay ngay sau `up` lại rơi vào "máy đầu
+        # danh sách" — cùng lớp lỗi, chỉ khác chỗ đứng.
+        export ANDROID_SERIAL="$serial"
     fi
 
     # Metro thì THẬT SỰ cần reverse: Expo Go tải bundle từ máy bạn qua 8081.
@@ -587,8 +588,10 @@ cmd_check() {
     # lúc 02:5x ngày 01/09: `check` thoát 1 với stdout rỗng và stderr rỗng,
     # trong khi máy ảo đang chạy tốt. Một lệnh chẩn đoán im lặng còn tệ hơn một
     # lệnh sai, vì không ai biết bắt đầu tìm từ đâu.
-    serial="$(booted_serial || true)"
-    [ -n "$serial" ] || die "không có máy ảo nào boot xong. Chạy: $0 up"
+    serial="$(serial_for_avd "$AVD_NAME" || true)"
+    [ -n "$serial" ] || die "AVD '$AVD_NAME' chưa boot xong (hoặc không chạy). Chạy: $0 up
+  Máy ảo của AVD KHÁC đang chạy không tính — cổng này chỉ trả lời về '$AVD_NAME'.
+  Xem đội hình hiện có: $0 adb"
 
     say "== máy ảo =="
     say "  serial            $serial"
@@ -633,8 +636,10 @@ cmd_check() {
 }
 
 cmd_install_expo() {
-    local serial; serial="$(booted_serial || true)"  # xem chú thích ở cmd_check
-    [ -n "$serial" ] || die "chưa có máy ảo boot xong. Chạy: $0 up"
+    # `serial_for_avd`, không phải "máy nào cũng được": cài Expo Go lên máy của
+    # lane khác thì vừa vô ích cho mình vừa đụng vào máy đang chạy của họ.
+    local serial; serial="$(serial_for_avd "$AVD_NAME" || true)"  # xem chú thích ở cmd_check
+    [ -n "$serial" ] || die "AVD '$AVD_NAME' chưa boot xong (hoặc không chạy). Chạy: $0 up"
     if adbq -s "$serial" shell pm list packages 2>/dev/null | grep -q host.exp.exponent; then
         say "Expo Go đã có sẵn — không cài lại."; return 0
     fi
@@ -723,7 +728,11 @@ cmd_doctor() {
         elif kvm_in_etc_group; then echo 'CHƯA mở được, nhưng đã ở /etc/group -> script tự dùng sg kvm'; \
         else echo "CHƯA có quyền -> sudo usermod -aG kvm $(id -un)"; fi)"
     say "AVD có sẵn     $("$EMULATOR" -list-avds 2>/dev/null | tr '\n' ' ')"
-    say "máy đã boot    $(booted_serial || true)"
+    # Nhãn nói rõ dòng này về AVD NÀO. Bản trước in "máy đã boot <serial>" từ
+    # `booted_serial`, và trên máy hai emulator nó in serial của lane khác dưới
+    # một cái nhãn nghe như đang nói về máy của bạn — chẩn đoán sai còn tốn hơn
+    # không chẩn đoán. Đội hình đầy đủ vẫn xem được ở `cmd_adb` phía dưới.
+    say "'$AVD_NAME' đã boot  $(serial_for_avd "$AVD_NAME" || true)"
     # Hai dòng này KHÁC nhau, và chỗ chúng khác nhau chính là chỗ hỏng: một máy
     # kẹt giữ AVD mà không bao giờ boot xong thì dòng trên rỗng còn dòng dưới có
     # pid. Trước bản vá, script chỉ biết dòng trên.
