@@ -80,7 +80,7 @@ export function LoginScreen() {
         <Heading
           align="center"
           title="Chào bạn"
-          subtitle="Nhập số điện thoại để nhận mã. Chưa có tài khoản thì Rủ Đi tạo luôn, không cần mật khẩu."
+          subtitle="Nhập số di động để nhận mã 6 số qua tin nhắn. Chưa có tài khoản thì Rủ Đi tạo luôn, không cần mật khẩu."
         />
       </View>
       <Card style={styles.card}>
@@ -99,12 +99,9 @@ export function LoginScreen() {
           textContentType="telephoneNumber"
           value={phone}
         />
-        <Text style={[typography.caption, { color: colors.inkFaint }]}>
-          Số di động Việt Nam. Mã 6 số đến bằng tin nhắn, có hiệu lực 5 phút.
-        </Text>
         <RudiButton disabled={dangGui} label="Gửi mã" loading={dangGui} onPress={() => void gui()} />
         {trang.pha === "hong" ? (
-          <Text style={[typography.caption, styles.loi, { color: colors.warn }]}>{trang.loi}</Text>
+          <Text style={[typography.body, { color: colors.warn }]}>{trang.loi}</Text>
         ) : null}
       </Card>
       <View style={styles.orRow}>
@@ -134,7 +131,7 @@ export function LoginScreen() {
           variant="outline"
         />
         {thongBao ? (
-          <Text style={[typography.caption, styles.loi, { color: colors.inkSoft }]}>{thongBao}</Text>
+          <Text style={[typography.caption, { color: colors.inkSoft }]}>{thongBao}</Text>
         ) : null}
       </View>
       {CUA_FIXTURE_DEV ? (
@@ -149,9 +146,10 @@ export function LoginScreen() {
           />
         </View>
       ) : null}
+      {/* No Terms/Privacy claim until those pages exist to link to: a sentence
+          that names documents nobody can open is a claim, not a footer. */}
       <Text style={[typography.caption, styles.phapLy, { color: colors.inkFaint }]}>
-        Tiếp tục nghĩa là bạn đồng ý Điều khoản và Chính sách bảo mật. Số điện thoại chỉ dùng để
-        gửi mã và không hiển thị cho người khác.
+        Số điện thoại chỉ dùng để gửi mã và không hiển thị cho người khác.
       </Text>
     </RudiScreen>
   );
@@ -165,6 +163,5 @@ const styles = StyleSheet.create({
   orLine: { flex: 1, height: StyleSheet.hairlineWidth },
   khac: { gap: 10 },
   cuaDev: { gap: 8, alignItems: "center" },
-  loi: { lineHeight: 18 },
   phapLy: { textAlign: "center", paddingHorizontal: 18 },
 });

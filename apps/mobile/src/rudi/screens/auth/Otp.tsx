@@ -117,15 +117,24 @@ export function OtpScreen() {
           <Text style={[typography.caption, { color: colors.inkSoft }]}>Đang kiểm mã...</Text>
         ) : null}
         {trang.pha === "hong" ? (
-          <Text style={[typography.caption, styles.loi, { color: colors.warn }]}>{trang.loi}</Text>
+          // Body size, not caption: this is the one line that carries the
+          // retry count, and it must not sit at the 12sp floor under a control.
+          <Text style={[typography.body, { color: colors.warn }]}>{trang.loi}</Text>
         ) : null}
         <RudiButton
           disabled={ban || conLai > 0}
-          label={conLai > 0 ? `Gửi lại sau ${conLai}s` : "Gửi lại mã"}
+          label="Gửi lại mã"
           loading={trang.pha === "dang-gui-lai"}
           onPress={() => void guiLai()}
           variant="outline"
         />
+        {conLai > 0 ? (
+          // Live information stays readable: a disabled button's label is pale
+          // by design, so the countdown lives in ink beneath it instead.
+          <Text style={[typography.caption, styles.demNguoc, { color: colors.inkSoft }]}>
+            Gửi lại được sau {conLai} giây.
+          </Text>
+        ) : null}
       </Card>
       <RudiButton
         disabled={ban}
@@ -143,5 +152,5 @@ export function OtpScreen() {
 const styles = StyleSheet.create({
   screen: { gap: 20 },
   card: { gap: 16, maxWidth: 560, width: "100%", alignSelf: "center" },
-  loi: { lineHeight: 18 },
+  demNguoc: { textAlign: "center" },
 });

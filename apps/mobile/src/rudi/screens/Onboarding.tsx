@@ -19,6 +19,7 @@ import { demoAssets } from "../fixtures";
 import { noiLuu } from "../luu-tru";
 import { useRudiSession } from "../session";
 import { typography, useRudiTheme } from "../theme";
+import { CUA_FIXTURE_DEV } from "../cua-fixture";
 import { DAU_VAN_CAY } from "../dau-van-cay";
 import {
   Card,
@@ -91,7 +92,9 @@ export function WelcomeScreen() {
               <Text style={styles.welcomeLogoType}>Đi</Text>
             </View>
           </View>
-          <DemoBadge label="Bản trải nghiệm" />
+          {/* Only a dev build with the fixture door is an «experience build»;
+              a shipped build must not call itself one. */}
+          {CUA_FIXTURE_DEV ? <DemoBadge label="Bản trải nghiệm" /> : null}
         </View>
         <View style={styles.welcomeCenter}>
           <Text style={styles.welcomeBrand}>Rủ{"\n"}Đi</Text>

@@ -41,7 +41,9 @@ export function GroupsEmptyScreen() {
   }
 
   const loiMoi = (phien.contexts ?? []).filter((nhom) => nhom.my_state === "invited");
-  const ten = phien.profile?.display_name ?? "bạn";
+  // «Thành viên mới» is the server's placeholder for somebody who has not
+  // chosen a name yet; greeting a person by it reads like a stranger's name.
+  const ten = phien.is_new_person ? "bạn" : (phien.profile?.display_name ?? "bạn");
 
   const dongY = async (nhom: NhomTomTat) => {
     setTrang({ pha: "dang-vao", id: nhom.id });
