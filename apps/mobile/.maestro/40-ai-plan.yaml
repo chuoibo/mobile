@@ -2,7 +2,8 @@
 # AI xuất hiện trong cuộc trò chuyện (text, gợi ý địa điểm hoặc lịch trình), KHÔNG
 # phải câu im lặng «chưa nối được mô hình». Chỉ chạy ở `--otp --ai`, sau khi
 # harness đã kiểm khoá còn sống bằng scripts/check_demo_ai_key.py (khoá chết là
-# ĐỎ, không phải bỏ qua). Chạy sau flow 25 trong cùng lượt: C và D cùng nhóm «Hoi QA».
+# ĐỎ, không phải bỏ qua). Chạy sau flow 25 trong cùng lượt; tự tạo nhóm «Plan QA»
+# để thẻ AI đầu tiên trong chat là của /plan.
 # Harness kiểm máy chủ sau flow: thẻ ai_card không tác giả, kind text|places|
 # itinerary, mọi place_id nằm trong GET /places (grounded).
 appId: com.lakiet.rudi
@@ -27,10 +28,28 @@ appId: com.lakiet.rudi
 - extendedWaitUntil:
     visible: "Hoi QA"
     timeout: 60000
-- tapOn: "Hoi QA"
+# Một nhóm MỚI, chưa có thẻ AI nào: thẻ «Rủ Đi AI…» đầu tiên trong chat này chắc
+# chắn là câu trả lời cho /plan, không phải thẻ của flow 30 còn trên màn.
+- tapOn: "Tạo nhóm"
+- extendedWaitUntil:
+    visible: "Đặt tên cho hội"
+    timeout: 30000
+- tapOn: "Ô tên nhóm"
+- inputText: "Plan QA"
+- hideKeyboard
+- tapOn: "Mở nhóm"
+- extendedWaitUntil:
+    visible: "Khám phá"
+    timeout: 60000
+- tapOn: "Tin nhắn"
+- extendedWaitUntil:
+    visible: "Plan QA"
+    timeout: 60000
+- tapOn: "Plan QA"
 - extendedWaitUntil:
     visible: "Ô soạn tin"
     timeout: 60000
+- assertNotVisible: "Rủ Đi AI.*"
 - tapOn: "Ô soạn tin"
 - inputText: "/plan toi nay ca hoi di an o Da Lat, ngan sach vua"
 - tapOn: "Gửi tin nhắn"

@@ -376,15 +376,23 @@ kiem_khoa_ai() {
 kiem_may_chu_sau_40() {
   local goc body tok ctx ket
   goc="http://127.0.0.1:$API_PORT"
-  body="$(dang_nhap_curl "$OTP_PHONE_C")" \
-    || hong "sau flow 40: C không đăng nhập được qua curl."
-  tok="$(printf '%s' "$body" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("token",""))')"
-  ctx="$(printf '%s' "$body" | python3 -c '
+  # Flow 40 keeps whichever session flow 31 left (C, or D after a fallback
+  # sign-in) and creates «Plan QA» there; find that group through the live
+  # contexts list, not the cached sign-in body.
+  local so
+  tok=""; ctx=""
+  for so in "$OTP_PHONE_C" "$OTP_PHONE_D"; do
+    body="$(dang_nhap_curl "$so")" || continue
+    tok="$(printf '%s' "$body" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("token",""))')"
+    [ -n "$tok" ] || continue
+    ctx="$(curl -sS "$goc/people/me/contexts" -H "Authorization: Bearer $tok" | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
-act = [c for c in d.get("contexts", []) if c.get("my_state") == "active"]
-print(act[0]["id"] if act else "")')"
-  [ -n "$tok" ] && [ -n "$ctx" ] || hong "sau flow 40: C không có nhóm."
+hit = [c for c in d.get("contexts", []) if c.get("display_name") == "Plan QA" and c.get("my_state") == "active"]
+print(hit[0]["id"] if hit else "")')"
+    [ -n "$ctx" ] && break
+  done
+  [ -n "$tok" ] && [ -n "$ctx" ] || hong "sau flow 40: không thấy nhóm «Plan QA» của C hay D trên máy chủ."
   ket="$(python3 - "$goc" "$tok" "$ctx" <<'PY2'
 import json, sys, urllib.request
 goc, tok, ctx = sys.argv[1:4]
@@ -415,7 +423,7 @@ PY2
   # this check passed for a week while reading `items`/`days` nobody sends).
   [ "${so_mu:-1}" -eq 0 ] || hong "sau flow 40: $so_mu thẻ AI không đọc được place id nào — máy đo mù với hình dạng thẻ."
   [ "${so_la:-1}" -eq 0 ] || hong "sau flow 40: thẻ AI nêu $so_la place_id KHÔNG có trong GET /places — grounding thủng."
-  echo "máy chủ xác nhận: $so_ai thẻ AI ($loai), mọi địa điểm đều trong catalogue"
+  echo "máy chủ xác nhận: nhóm «Plan QA» có $so_ai thẻ AI ($loai), mọi địa điểm đều trong catalogue"
 }
 
 # Canary cho chế độ --otp. Canary 09 đi đường fixture, mà ở đây cửa fixture tắt
