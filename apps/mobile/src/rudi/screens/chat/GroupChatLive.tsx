@@ -40,6 +40,7 @@ import {
   type LoaiPhanUng,
   type Tin,
 } from "../../chat/tin-song";
+import { TAT_KAV_QA } from "../../chat/qa-ban-phim";
 import { useTinNhan } from "../../chat/useTinNhan";
 import { useRudiSession } from "../../session";
 import { typography, useRudiTheme } from "../../theme";
@@ -201,6 +202,8 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : "height"}
+      // Off only under the QA negative control; see `qa-ban-phim.ts`.
+      enabled={!TAT_KAV_QA}
       style={[styles.man, { backgroundColor: colors.ground, paddingTop: insets.top }]}
     >
       <View style={{ paddingHorizontal: space.md }}>

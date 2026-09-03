@@ -51,6 +51,9 @@ MA_LOI_MOI=""
 MODE="dev-client"
 LAP=1
 OTP=0
+# Đối chứng âm cho phép đo bàn phím: tắt KeyboardAvoidingView trong bundle, và
+# do_ban_phim.py PHẢI hỏng. Xanh ở đây là thước đo mù.
+TAT_KAV=0
 # Mã debug của API ở chế độ --otp. CHỈ hợp lệ khi API dùng log sender
 # (MOBILE_OTP_DEBUG_CODE cạnh gateway thật làm create_app từ chối khởi động).
 OTP_CODE="000000"
@@ -73,6 +76,7 @@ while [ $# -gt 0 ]; do
     --expo-go) MODE="expo-go"; shift ;;
     --lap) LAP="$2"; shift 2 ;;
     --otp) OTP=1; shift ;;
+    --tat-kav) TAT_KAV=1; shift ;;
     *) echo "tham số lạ: $1" >&2; exit 64 ;;
   esac
 done
@@ -455,6 +459,9 @@ if [ "$OTP" = 1 ]; then kiem_ma_debug; fi
   if [ "$OTP" = 0 ]; then
     export EXPO_PUBLIC_RUDI_FIXTURE=1
   fi
+  if [ "$TAT_KAV" = 1 ]; then
+    export EXPO_PUBLIC_QA_TAT_KAV=1
+  fi
   if [ -n "$API_PORT" ]; then
     export EXPO_PUBLIC_API_URL="http://localhost:$API_PORT"
   fi
@@ -700,7 +707,12 @@ for f in "$FLOWS"/*.yaml; do
     31-*)
       if [ "$rc" -eq 0 ]; then
         set +e; python3 "$REPO/scripts/do_ban_phim.py" --serial "$ANDROID_SERIAL"; rc_bp=$?; set -e
-        [ "$rc_bp" -eq 0 ] || { BANG=1; DO_LIST="$DO_LIST do_ban_phim(lượt $lap, rc=$rc_bp)"; }
+        if [ "$TAT_KAV" = 1 ]; then
+          # Đối chứng âm: KAV tắt thì bàn phím PHẢI che (rc 1). rc 0 = thước đo mù.
+          [ "$rc_bp" -eq 1 ] || { BANG=1; DO_LIST="$DO_LIST doi_chung_ban_phim(lượt $lap, rc=$rc_bp, mong 1)"; }
+        else
+          [ "$rc_bp" -eq 0 ] || { BANG=1; DO_LIST="$DO_LIST do_ban_phim(lượt $lap, rc=$rc_bp)"; }
+        fi
       fi
       ;;
   esac
