@@ -92,6 +92,7 @@ def post_context_message(
     repository: Annotated[ApiRepository, Depends(get_repository)],
     companion: Annotated[Companion, Depends(get_companion)],
     limiter: Annotated[FixedWindowLimiter, Depends(get_companion_turn_limiter)],
+    reader: Annotated[ChatExpenseReader, Depends(get_chat_expense_reader)],
 ) -> PostedMessageResponse:
     """Store the message, then act on a slash command or mention in it.
 
@@ -103,7 +104,12 @@ def post_context_message(
     service = ApiService(repository)
     posted = service.post_context_message(context_id, request, actor)
     return service.act_on_message_intent(
-        context_id, posted, actor, companion=companion, companion_limiter=limiter
+        context_id,
+        posted,
+        actor,
+        companion=companion,
+        companion_limiter=limiter,
+        expense_reader=reader,
     )
 
 

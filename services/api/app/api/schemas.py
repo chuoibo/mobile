@@ -1297,8 +1297,16 @@ class PostedMessageResponse(MessageResponse):
     intent: Literal["plan", "chia_bill", "vote", "mention"] | None = None
     companion: CompanionTurnResponse | None = None
     vote: VoteResponse | None = None
+    # `/chia-bill`: one server-authored `expense_draft` card, or nothing.
+    expense_card: MessageResponse | None = None
     intent_error: (
-        Literal["vote_malformed", "chia_bill_not_available", "companion_rate_limited"]
+        Literal[
+            "vote_malformed",
+            "companion_rate_limited",
+            "chia_bill_not_available",
+            "chia_bill_no_expenses",
+            "chia_bill_refused",
+        ]
         | None
     ) = None
 

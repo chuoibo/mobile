@@ -183,6 +183,7 @@ from app.domain.allocator import allocate
 from app.domain.bill import BillError, allocator_input_from_bill
 from app.domain.budget import build_group_budget
 from app.domain.capability import CapabilityScopeError, capability_scope
+from app.domain.chat_expense import ChatExpenseError
 from app.domain.chat_intent import parse_intent, parse_vote
 from app.domain.collection import CollectionError, transition, unmet_publish_gates
 from app.domain.companion import CompanionError, ground_card, plan_turn
@@ -3590,6 +3591,7 @@ class ApiService:
         *,
         companion: Companion,
         companion_limiter,
+        expense_reader: ChatExpenseReader | None = None,
     ) -> PostedMessageResponse:
         """What the stored message asked for, done after it is safely stored.
 
@@ -3655,9 +3657,110 @@ class ApiService:
                 now=_now(),
             )
             return PostedMessageResponse(**base, intent="vote", vote=vote)
-        return PostedMessageResponse(
-            **base, intent="chia_bill", intent_error="chia_bill_not_available"
+        # `/chia-bill`: one companion slot for the whole batch, then read the
+        # recent human text with the same identity-free reader the per-message
+        # draft route uses. The model never sees who paid; the author of each
+        # message is who paid, and the active roster is who shares.
+        if expense_reader is None:
+            return PostedMessageResponse(
+                **base, intent="chia_bill", intent_error="chia_bill_not_available"
+            )
+        try:
+            companion_limiter.check(actor.id)
+        except ApiProblem as limited:
+            if limited.status_code != 429:
+                raise
+            return PostedMessageResponse(
+                **base, intent="chia_bill", intent_error="companion_rate_limited"
+            )
+        outcome = self._draft_expenses_from_chat(
+            context_id, actor, posted.id, expense_reader
         )
+        if isinstance(outcome, str):
+            return PostedMessageResponse(
+                **base, intent="chia_bill", intent_error=outcome
+            )
+        return PostedMessageResponse(**base, intent="chia_bill", expense_card=outcome)
+
+    CHIA_BILL_WINDOW = 20
+    CHIA_BILL_MODEL_CALLS = 8
+
+    def _draft_expenses_from_chat(
+        self,
+        context_id: uuid.UUID,
+        actor: Actor,
+        command_id: uuid.UUID,
+        reader: ChatExpenseReader,
+    ) -> MessageResponse | str:
+        """Read recent human text into one `expense_draft` card, or say why not.
+
+        At most `CHIA_BILL_WINDOW` recent messages are considered and at most
+        `CHIA_BILL_MODEL_CALLS` of them reach the model: a command over a long
+        evening's chatter must cost a bounded number of model calls. A reading
+        that names a person sinks the whole batch -- the reader's contract says
+        it cannot, so one that does is not to be trusted for the others either.
+        Nothing here creates an expense: a card is a draft somebody confirms.
+        """
+        del actor  # the caller's membership was proved when the message was stored
+        page = self.repository.list_messages(context_id, limit=self.CHIA_BILL_WINDOW)
+        candidates = [
+            message
+            for message in page.messages
+            if message.id != command_id
+            and message.kind == "text"
+            and message.author_id is not None
+            and isinstance(message.body, str)
+            and message.body.strip()
+            and parse_intent(message.body) is None
+        ]
+        shared_by = sorted(
+            (
+                membership.person_id
+                for membership in self.repository.list_members(context_id)
+                if membership.state == "active"
+            ),
+            key=lambda person_id: person_id.bytes,
+        )
+        drafts: list[dict] = []
+        for message in candidates[: self.CHIA_BILL_MODEL_CALLS]:
+            try:
+                reading = run_chat_expense_skill(message.body, reader=reader)
+            except ChatExpenseError as refused:
+                if refused.code == "CHAT_READER_NOT_CONFIGURED":
+                    return "chia_bill_not_available"
+                if refused.code == "MODEL_NAMED_A_PERSON":
+                    logger.warning("chia-bill: reader named a person; batch sunk")
+                    return "chia_bill_refused"
+                continue  # unreadable: not an expense, move on
+            except RuntimeError as broken:
+                logger.warning("chia-bill: reader failed (%s)", type(broken).__name__)
+                return "chia_bill_not_available"
+            if not reading["is_expense"]:
+                continue
+            drafts.append(
+                {
+                    "title": reading["title"],
+                    "amount_vnd": int(reading["amount_vnd"]),
+                    "paid_by_id": str(message.author_id),
+                    "shared_by": [str(person_id) for person_id in shared_by],
+                    "source_message_id": str(message.id),
+                    "needs_review": True,
+                }
+            )
+        if not drafts:
+            return "chia_bill_no_expenses"
+        # Oldest first, the order they were spent in.
+        drafts.reverse()
+        record = self.repository.create_message(
+            context_id=context_id,
+            author_id=None,
+            kind="ai_card",
+            body=None,
+            image_url=None,
+            card={"kind": "expense_draft", "payload": {"drafts": drafts}},
+            now=_now(),
+        )
+        return _wire_message(record)
 
     def list_context_messages(
         self,
