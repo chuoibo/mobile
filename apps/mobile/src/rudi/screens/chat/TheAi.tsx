@@ -26,11 +26,14 @@ export function TheAiView({
   contextId,
   personId,
   tenNguoi,
+  tacGia,
 }: {
   the: TheAi;
   contextId: string;
   personId: string;
   tenNguoi: (id: string | null) => string;
+  /** Who the card speaks for on the poll's author line (roster name or «Bạn»). */
+  tacGia: string;
 }) {
   const { colors } = useRudiTheme();
   switch (the.loai) {
@@ -77,7 +80,7 @@ export function TheAiView({
         </Card>
       );
     case "poll":
-      return <ThePoll the={the} contextId={contextId} personId={personId} />;
+      return <ThePoll the={the} contextId={contextId} personId={personId} tacGia={tacGia} />;
     case "expense_draft":
       return (
         <Card tone="split" style={styles.card}>
@@ -110,10 +113,12 @@ function ThePoll({
   the,
   contextId,
   personId,
+  tacGia,
 }: {
   the: Extract<TheAi, { loai: "poll" }>;
   contextId: string;
   personId: string;
+  tacGia: string;
 }) {
   const { colors } = useRudiTheme();
   const [ketQua, setKetQua] = useState<CuocBinhChonWire | null>(null);
@@ -150,7 +155,7 @@ function ThePoll({
 
   return (
     <Card style={styles.card}>
-      <Text style={[typography.caption, { color: colors.accent }]}>Bình chọn</Text>
+      <Text style={[typography.caption, { color: colors.inkSoft }]}>{tacGia} tạo bình chọn</Text>
       <Text style={[typography.title, { color: colors.ink }]}>{the.question}</Text>
       {the.options.map((o) => {
         const cuaToi = ketQua?.my_option_id === o.id;

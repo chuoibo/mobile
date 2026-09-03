@@ -106,8 +106,12 @@ export function ConversationsScreen({ phien }: { phien: Phien }) {
           <Text style={[typography.h1, { color: colors.ink }]}>Tin nhắn</Text>
           <Text style={[typography.caption, { color: colors.inkFaint }]}>Nhóm của bạn trên máy chủ</Text>
         </View>
-        <RudiButton compact full={false} icon="add" label="Tạo nhóm" onPress={() => router.push("/groups/new")} />
       </View>
+      {/* Not in the top-right corner: on the development build the
+          dev-launcher's floating gear covers it, so a tap there opens the dev
+          menu instead of this. A full row under the title is reachable on the
+          build we test on and reads as the tab's one action. */}
+      <RudiButton icon="add" label="Tạo nhóm" onPress={() => router.push("/groups/new")} variant="soft" />
       {trang.pha === "dang-doc" ? (
         <Text style={[typography.caption, { color: colors.inkSoft }]}>Đang đọc danh sách nhóm...</Text>
       ) : null}

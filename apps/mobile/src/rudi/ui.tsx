@@ -403,6 +403,10 @@ export function IconButton({
   accessibilityLabel,
   selected = false,
   quiet = false,
+  solid = false,
+  dim = false,
+  loading = false,
+  disabled = false,
   tone = "accent",
 }: {
   icon: IconName;
@@ -410,28 +414,45 @@ export function IconButton({
   accessibilityLabel: string;
   selected?: boolean;
   quiet?: boolean;
+  /** The surface's primary action: tone fill, ink-on-tone glyph. */
+  solid?: boolean;
+  /** Nothing to act on yet: faint glyph, no border. */
+  dim?: boolean;
+  loading?: boolean;
+  disabled?: boolean;
   tone?: RudiTone;
 }) {
   const { colors } = useRudiTheme();
-  const background = selected
-    ? toneSoftColor(colors, tone)
-    : quiet
-      ? "transparent"
-      : colors.card;
+  const background = solid
+    ? toneColor(colors, tone)
+    : selected
+      ? toneSoftColor(colors, tone)
+      : quiet || dim
+        ? "transparent"
+        : colors.card;
+  const glyph = solid
+    ? colors[`${tone}Ink` as const]
+    : selected
+      ? toneColor(colors, tone)
+      : dim
+        ? colors.inkFaint
+        : colors.ink;
   return (
     <Pressable
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
+      accessibilityState={{ disabled: disabled || loading, busy: loading }}
       aria-pressed={selected}
+      disabled={disabled || loading}
       hitSlop={4}
       onPress={onPress}
       style={({ pressed }) => [
         styles.iconButton,
-        { backgroundColor: background, borderColor: quiet ? "transparent" : colors.line },
-        pressed && styles.buttonPressed,
+        { backgroundColor: background, borderColor: quiet || dim || solid ? "transparent" : colors.line },
+        pressed && !disabled && styles.buttonPressed,
       ]}
     >
-      <Ionicons color={selected ? toneColor(colors, tone) : colors.ink} name={icon} size={22} />
+      {loading ? <ActivityIndicator color={glyph} size="small" /> : <Ionicons color={glyph} name={icon} size={22} />}
     </Pressable>
   );
 }

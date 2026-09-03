@@ -16,6 +16,7 @@ import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -45,7 +46,7 @@ import { TAT_KAV_QA } from "../../chat/qa-ban-phim";
 import { useTinNhan } from "../../chat/useTinNhan";
 import { useRudiSession } from "../../session";
 import { typography, useRudiTheme } from "../../theme";
-import { IconButton, TopBar } from "../../ui";
+import { Card, IconButton, TopBar } from "../../ui";
 import { TheAiView } from "./TheAi";
 
 const LENH = [
@@ -54,6 +55,11 @@ const LENH = [
   { nhan: "/chia-bill", goiY: "/chia-bill", moTa: "Đọc các khoản chi trong tin gần đây" },
   { nhan: "@Rủ Đi", goiY: "@Rủ Đi ", moTa: "Hỏi Rủ Đi AI một câu" },
 ] as const;
+
+/** A body that calls on the model (not `/vote`, which the server answers itself). */
+function goiMoHinh(body: string): boolean {
+  return /^\/(plan|chia-?bill)\b/i.test(body) || /@(rủ đi|ru di|rudi)/i.test(body);
+}
 
 export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
   const router = useRouter();
@@ -64,11 +70,24 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
   const chat = useTinNhan(contextId, personId);
   const [nhap, setNhap] = useState("");
   const [dangGui, setDangGui] = useState(false);
+  // The words in flight: drawn as a pending own bubble (and a pending AI row
+  // for a command) until the server's rows replace them.
+  const [dangGuiThan, setDangGuiThan] = useState<string | null>(null);
+  const [banPhimMo, setBanPhimMo] = useState(false);
   const [thongBao, setThongBao] = useState<string | null>(null);
   const [dangChonPhanUng, setDangChonPhanUng] = useState<string | null>(null);
   const [tenTheoId, setTenTheoId] = useState<Record<string, string>>({});
 
   const tenNhom = phien?.contexts?.find((n) => n.id === contextId)?.display_name ?? "Nhóm";
+
+  useEffect(() => {
+    const hien = Keyboard.addListener("keyboardDidShow", () => setBanPhimMo(true));
+    const an = Keyboard.addListener("keyboardDidHide", () => setBanPhimMo(false));
+    return () => {
+      hien.remove();
+      an.remove();
+    };
+  }, []);
 
   useEffect(() => {
     let song = true;
@@ -91,6 +110,7 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
   );
 
   const hang = useMemo(() => nhomTheoNgay(chat.tin), [chat.tin]);
+  const coChu = nhap.trim().length > 0;
   const moLenh = nhap.startsWith("/") && !nhap.includes(" ") || nhap === "@";
 
   // The list only auto-scrolls to new rows when the reader is already at the
@@ -102,16 +122,20 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
     const body = nhap.trim();
     if (!body || dangGui) return;
     setDangGui(true);
+    setDangGuiThan(body);
+    setNhap("");
     setThongBao(null);
     try {
       const daGui = await chat.gui(body);
-      setNhap("");
       danhSachRef.current?.scrollToOffset({ offset: 0, animated: true });
       setThongBao(cauYDinh(daGui));
     } catch (error) {
+      // Give the words back: a failed send must not eat what was typed.
+      setNhap(body);
       setThongBao(error instanceof ApiError ? error.message : thongDiepNguoiDoc(0, null));
     } finally {
       setDangGui(false);
+      setDangGuiThan(null);
     }
   };
 
@@ -151,7 +175,13 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
             <Text style={[typography.caption, { color: colors.inkSoft }]}>{tenNguoi(tin.author_id)}</Text>
           ) : null}
           {laAi ? (
-            <TheAiView the={docTheAi(tin.card)} contextId={contextId} personId={personId} tenNguoi={tenNguoi} />
+            <TheAiView
+              the={docTheAi(tin.card)}
+              contextId={contextId}
+              personId={personId}
+              tenNguoi={tenNguoi}
+              tacGia={tenNguoi(tin.author_id)}
+            />
           ) : (
             <Pressable
               accessibilityLabel={`Tin nhắn: ${tin.body ?? ""}`}
@@ -172,6 +202,7 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
             {chips.map((r) => (
               <Pressable
                 accessibilityLabel={`${r.count} ${glyphPhanUng(r.kind)}`}
+                hitSlop={8}
                 key={r.kind}
                 onPress={() => void phanUng(tin, r.kind)}
                 style={[
@@ -213,7 +244,9 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
       enabled={!TAT_KAV_QA}
       style={[styles.man, { backgroundColor: colors.ground, paddingTop: insets.top }]}
     >
-      <View style={{ paddingHorizontal: space.md }}>
+      {/* A bar with an edge: scrolled rows disappear under a defined line, not
+          into bare ground. */}
+      <View style={[styles.dau, { paddingHorizontal: space.md, borderBottomColor: colors.line }]}>
         <TopBar title={tenNhom} />
         {/* The roster lives under the title, not in the top-right corner: on a
             development build the dev-launcher's floating gear covers that
@@ -230,21 +263,49 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
           </Text>
         </Pressable>
       </View>
+      {/* Drawn outside the inverted list: the list flips its own children
+          back upright, and an extra flip here once mirrored this copy. */}
+      {!chat.dangNap && chat.tin.length === 0 && dangGuiThan === null ? (
+        <View style={[styles.rong, { paddingHorizontal: space.md }]}>
+          <Text style={[typography.title, { color: colors.ink }]}>Chưa có tin nhắn nào</Text>
+          <Text style={[typography.caption, styles.giua, { color: colors.inkSoft }]}>
+            Nhắn gì đó cho hội, hoặc gõ / để rủ Rủ Đi AI vào.
+          </Text>
+        </View>
+      ) : null}
       <FlatList
         ref={danhSachRef}
         contentContainerStyle={[styles.danhSach, { paddingHorizontal: space.md }]}
         data={hang}
         inverted
         keyExtractor={khoaHang}
-        ListEmptyComponent={
-          chat.dangNap ? null : (
-            <View style={styles.rong}>
-              <Text style={[typography.title, { color: colors.ink }]}>Chưa có tin nhắn nào</Text>
-              <Text style={[typography.caption, { color: colors.inkSoft }]}>
-                Nhắn gì đó cho hội, hoặc gõ / để rủ Rủ Đi AI vào.
-              </Text>
+        // Inverted, so the header sits at the newest end: what is being sent
+        // shows there at once, and a command shows the model is being asked.
+        ListHeaderComponent={
+          dangGuiThan !== null ? (
+            <View style={styles.choGui}>
+              <View style={[styles.hang, styles.hangToi]}>
+                <View style={[styles.khoi, styles.khoiToi, styles.mo]}>
+                  <View style={[styles.bong, { backgroundColor: colors.accent, borderColor: colors.accent }]}>
+                    <Text style={[typography.body, { color: colors.accentInk }]}>{dangGuiThan}</Text>
+                  </View>
+                  <Text style={[typography.caption, { color: colors.inkFaint }]}>Đang gửi...</Text>
+                </View>
+              </View>
+              {goiMoHinh(dangGuiThan) ? (
+                <View style={styles.hang}>
+                  <View style={[styles.khoi, styles.khoiAi]}>
+                    <Card tone="ai" style={styles.choAi}>
+                      <Text style={[typography.caption, { color: colors.ai }]}>Đang hỏi Rủ Đi AI...</Text>
+                      <Text style={[typography.caption, { color: colors.inkSoft }]}>
+                        Câu trả lời sẽ hiện ở đây trong vài giây, hoặc lý do nó không trả lời.
+                      </Text>
+                    </Card>
+                  </View>
+                </View>
+              ) : null}
             </View>
-          )
+          ) : null
         }
         ListFooterComponent={
           chat.dangNapCu ? (
@@ -284,24 +345,31 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
             backgroundColor: colors.card,
             borderColor: colors.line,
             marginHorizontal: space.md,
-            marginBottom: Math.max(insets.bottom, 8),
+            // With the keyboard up the IME covers the navigation bar, so the
+            // bottom inset would only float the composer above the keys.
+            marginBottom: banPhimMo ? 6 : Math.max(insets.bottom, 8),
           },
         ]}
       >
         <TextInput
           accessibilityLabel="Ô soạn tin"
+          cursorColor={colors.accent}
           multiline
           onChangeText={setNhap}
           placeholder="Nhắn cho hội, hoặc gõ / để gọi Rủ Đi AI"
           placeholderTextColor={colors.inkFaint}
+          selectionColor={colors.accentSoft}
           style={[typography.body, styles.oNhap, { color: colors.ink }]}
           value={nhap}
         />
         <IconButton
           accessibilityLabel="Gửi tin nhắn"
+          dim={!coChu && !dangGui}
+          disabled={!coChu && !dangGui}
           icon="arrow-up"
+          loading={dangGui}
           onPress={() => void gui()}
-          selected={nhap.trim().length > 0 && !dangGui}
+          solid={coChu || dangGui}
         />
       </View>
     </KeyboardAvoidingView>
@@ -322,11 +390,15 @@ const styles = StyleSheet.create({
   chuDau: { width: 30, height: 30, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   bong: { borderWidth: 1, borderRadius: 17, paddingHorizontal: 13, paddingVertical: 10 },
   duoiBong: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
-  chip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
+  chip: { minHeight: 32, justifyContent: "center", borderWidth: 1, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
   thanhPhanUng: { flexDirection: "row", gap: 4, borderWidth: 1, borderRadius: 999, padding: 4, alignSelf: "flex-start" },
-  nutPhanUng: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  nutPhanUng: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   glyph: { fontSize: 20 },
-  rong: { alignItems: "center", gap: 6, paddingVertical: 40, transform: [{ scaleY: -1 }] },
+  dau: { paddingBottom: 10, borderBottomWidth: StyleSheet.hairlineWidth },
+  rong: { alignItems: "center", gap: 6, paddingVertical: 40 },
+  choGui: { gap: 12 },
+  mo: { opacity: 0.62 },
+  choAi: { gap: 4 },
   giua: { textAlign: "center", paddingVertical: 8 },
   lenh: { borderWidth: 1, borderRadius: 16, padding: 6, gap: 2 },
   lenhHang: { paddingHorizontal: 10, paddingVertical: 8, gap: 1 },
