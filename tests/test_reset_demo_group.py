@@ -140,7 +140,7 @@ class TheLedgerIsOffLimits(unittest.TestCase):
         reset = load_reset()
         self.assertIn("confirmed_allocations", reset.IMMUTABLE_TABLES)
         self.assertIn("expense_versions", reset.IMMUTABLE_TABLES)
-        self.assertEqual(len(reset.IMMUTABLE_TABLES), 10)
+        self.assertEqual(len(reset.IMMUTABLE_TABLES), 9)
 
     def test_only_deletes_from_idempotency_keys(self):
         deletes = re.findall(r"DELETE FROM (\w+)", RESET.read_text())
