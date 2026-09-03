@@ -47,7 +47,7 @@ export function TheAiView({
           <Text style={[typography.title, { color: colors.ink }]}>{the.title}</Text>
           {the.items.map((it) => (
             <View key={it.place_id} style={styles.dong}>
-              <Text style={[typography.body, { color: colors.ink }]}>{it.name ?? it.place_id}</Text>
+              <Text style={[typography.body, { color: colors.ink }]}>{it.name ?? "Địa điểm trong danh mục"}</Text>
               {it.reason ? <Text style={[typography.caption, { color: colors.inkSoft }]}>{it.reason}</Text> : null}
             </View>
           ))}
@@ -64,7 +64,7 @@ export function TheAiView({
               {d.stops.map((s, j) => (
                 <Text key={`${s.place_id ?? s.name ?? j}`} style={[typography.caption, { color: colors.inkSoft }]}>
                   {s.time ? `${s.time} · ` : ""}
-                  {s.name ?? s.place_id ?? "Chặng"}
+                  {s.name ?? "Chặng chưa có tên"}
                 </Text>
               ))}
             </View>
