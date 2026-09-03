@@ -219,6 +219,19 @@ def _match_brace(blank: str, open_idx: int) -> int:
     return -1
 
 
+def _match_paren(blank: str, open_idx: int) -> int:
+    """Index just past the `)` closing the `(` at `open_idx`, or -1."""
+    depth = 0
+    for i in range(open_idx, len(blank)):
+        if blank[i] == "(":
+            depth += 1
+        elif blank[i] == ")":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+    return -1
+
+
 _KEY = re.compile(
     r"""^\s*(?:"(?P<dq>[^"]+)"|'(?P<sq>[^']+)'|(?P<bare>[A-Za-z_$][\w$]*))\s*:"""
 )
@@ -273,6 +286,16 @@ def _literal_keys(
 _HEADERS_PROP = re.compile(r"(?<![\w$.])headers\s*(?P<sep>:|,|\})")
 # A function whose name ends in `headers`/`Headers`: it exists to build them.
 _HEADERS_FN = re.compile(r"(?<![\w$])function\s+(?P<name>[\w$]*[Hh]eaders)\s*\(")
+# An EXPORTED function returning `Record<string, string>`, whatever it is
+# called. Read across the whole tree by `_builders_across_tree` so that a
+# builder living in another file resolves instead of reading as a blind spot.
+_EXPORTED_FN = re.compile(
+    r"(?<![\w$])export\s+(?:async\s+)?function\s+(?P<name>[\w$]+)\s*\("
+)
+# `import { a, b } from "..."` -- the names this file took from elsewhere.
+_IMPORT_NAMES = re.compile(r"(?<![\w$])import\s*\{(?P<names>[^}]*)\}\s*from")
+# A literal this tree only writes when it is building an identity header.
+_HEADER_LITERAL = re.compile(r"[\"'](?:X-Actor-[\w-]+|Authorization|Idempotency-Key)[\"']")
 # `h["Idempotency-Key"] = ...` / `headers["X"] = ...`
 _BRACKET_SET = re.compile(
     r"(?<![\w$.])(?P<obj>[\w$]+)\s*\[\s*[\"'](?P<key>[\w-]+)[\"']\s*\]\s*="
@@ -348,9 +371,58 @@ def _source_files(root: Path) -> list[Path]:
     return out
 
 
+def _builders_across_tree(root: Path) -> set[str]:
+    """Exported functions anywhere under `root` that build a header object.
+
+    The per-file pass decides what a `headers:` position resolves to by NAME,
+    within one file. That was true while every module built its own headers,
+    and it stopped being true the day the nine hand-rolled `headers()` copies
+    collapsed into one exported `headerNguoiGoi` in `src/api.ts` -- the fix for
+    a real defect (nine modules sending `X-Actor-*` with no bearer, hence 401
+    on any `prod` host per ADR-0014). Every converted call site then read as
+    "không truy được về chỗ dựng header nào trong file này": the gate went
+    blind at exactly the moment the client got more correct, which is the worst
+    possible time for a gate to go quiet.
+
+    So the builder set is collected once over the tree, structurally rather
+    than by name: an exported function whose body writes one of the identity
+    header literals. A name the gate has never heard of resolves; a function
+    that merely sounds like one does not.
+    """
+    names: set[str] = set()
+    for path in _source_files(root):
+        blank = _strip_to_spaces(path.read_text(encoding="utf-8", errors="replace"))
+        named = _strip_to_spaces(
+            path.read_text(encoding="utf-8", errors="replace"), blank_strings=False
+        )
+        for m in _EXPORTED_FN.finditer(blank):
+            # Skip the PARAMETER list before looking for the body. The first
+            # `{` after the name is `opts: { roles?: ... } = {}` for exactly
+            # the builder this exists to find, so a naive `find("{")` matches
+            # the parameter object, `_match_brace` closes it there, and the
+            # body is never read -- a blind spot shaped precisely like the one
+            # being fixed.
+            close_paren = _match_paren(blank, m.end() - 1)
+            if close_paren == -1:
+                continue
+            open_idx = blank.find("{", close_paren)
+            if open_idx == -1:
+                continue
+            end = _match_brace(blank, open_idx)
+            if end == -1:
+                continue
+            # Names come from `named` (strings intact); the span comes from
+            # `blank` (braces trustworthy). Same split the rest of this file
+            # uses, for the same reason.
+            if _HEADER_LITERAL.search(named[open_idx:end]):
+                names.add(m.group("name"))
+    return names
+
+
 def read_client(root: Path) -> ClientFacts:
     """Header names and methods `root` puts on requests."""
     facts = ClientFacts()
+    tree_builders = _builders_across_tree(root)
     for path in _source_files(root):
         src = path.read_text(encoding="utf-8", errors="replace")
         # Structure comes from `blank` (strings gone, braces trustworthy);
@@ -368,6 +440,14 @@ def read_client(root: Path) -> ClientFacts:
         # `headers,` shorthand can be resolved instead of reported.
         producers = {m.group("name") for m in _HEADERS_FN.finditer(blank)}
         producers.add("headers")
+        # Plus anything this file IMPORTED that the tree pass identified as a
+        # builder. Restricted to what is actually imported here, so a builder
+        # in a far-off module cannot silently resolve a name in this one.
+        for m in _IMPORT_NAMES.finditer(named):
+            for raw in m.group("names").split(","):
+                ten = raw.split(" as ")[-1].strip()
+                if ten in tree_builders:
+                    producers.add(ten)
         bound: set[str] = set()
         for m in re.finditer(
             r"(?<![\w$])(?:const|let|var)\s+(?P<lhs>[^=;]+)=(?P<rhs>[^;\n]*)", blank

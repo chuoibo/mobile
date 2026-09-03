@@ -201,10 +201,25 @@ PATH_SHAPE = re.compile(r"^/[a-z][A-Za-z0-9/_{}.-]*$")
 
 # Top-level declarations. Column 0 only: everything nested inside a function
 # belongs to that function's region, which is exactly what we want.
+#
+# `[^=;]` and not `[^=]` in the arrow-const branch, and the `;` is the whole
+# point. A character class excluding only `=` crosses newlines, so a plain
+# `const MINH_SLUG = "minh";` kept scanning forward for an `=>` and found one
+# three functions later, in a type annotation (`json: () => Promise<unknown>`).
+# The const then claimed all three as its own region: `headers`, `goc` and
+# `docLoi` in `screens/chat/nhom.ts` vanished from the graph, and every route
+# reached through them read as "gọi mà không gửi actor" -- fifteen false
+# accusations at once.
+#
+# What kept it hidden is worth writing down: the swallow only happens when no
+# bare `=` appears before the first `=>`. `headers()` used to open with
+# `const h: Record<string, string> = {`, so the scan stopped one line in and
+# the bug was invisible. Deleting that line -- while making the client MORE
+# correct -- is what exposed it. `CANARY_CONST_NUOT_HAM` pins it.
 DECL = re.compile(
     r"^(?:export\s+)?(?:default\s+)?"
     r"(?:async\s+)?function\s+(?P<fn>[A-Za-z_$][\w$]*)"
-    r"|^(?:export\s+)?const\s+(?P<cn>[A-Za-z_$][\w$]*)\s*[:=][^=]*=>",
+    r"|^(?:export\s+)?const\s+(?P<cn>[A-Za-z_$][\w$]*)\s*[:=][^=;]*=>",
     re.MULTILINE,
 )
 
@@ -833,6 +848,41 @@ CANARY_GOOD = CANARY_BAD.replace(
 # gate: the path lives in a lookup table, so the URL is `${base}${expr}` and the
 # reader cannot name the route. Measured on main 7adf961, this file passed with
 # exit 0 while CANARY_BAD failed with exit 1 -- identical bug, two verdicts.
+# Một hằng ở cấp ngoài cùng KHÔNG được nuốt các hàm đứng sau nó.
+#
+# Đo trên chính cây này ngày 2026-09-03: `const MINH_SLUG = "minh";` trong
+# `screens/chat/nhom.ts` quét tiếp qua ba hàm để tìm `=>` và gặp nó ở
+# `json: () => Promise<unknown>` trong chữ ký `docLoi`. Ba hàm — trong đó có
+# `headers()`, chỗ dựng header của cả file — biến mất khỏi đồ thị, và 15 lời
+# gọi bị buộc tội "không gửi actor" trong khi chúng gửi đủ.
+#
+# Hình dạng ở đây được giữ ĐÚNG như bản gốc, kể cả thứ tự: hằng, rồi hàm dựng
+# header KHÔNG chứa dấu `=` nào, rồi một chữ ký có `=>`. Đổi thứ tự đó là canary
+# thôi tái lập.
+CANARY_CONST_NUOT_HAM = """
+const BASE = "http://x";
+const SLUG = "minh";
+
+function headers(actorId: string): Record<string, string> {
+  return { "X-Actor-ID": actorId };
+}
+
+function docLoi(res: { json: () => Promise<unknown> }): string {
+  return "x";
+}
+
+export async function docNhom(actorId: string, ctx: string): Promise<void> {
+  await fetch(`${BASE}/contexts/${ctx}/members`, { headers: headers(actorId) });
+}
+"""
+
+# Cặp đỏ của canary trên, dưới cùng phép đo. Không có nó, một `_missing_actor`
+# luôn trả False cũng "đạt" canary sạch — và cái file này tồn tại là để chặn
+# đúng kiểu xanh đó.
+CANARY_CONST_NUOT_HAM_XAU = CANARY_CONST_NUOT_HAM.replace(
+    "{ headers: headers(actorId) }", "{ headers: { Accept: \"application/json\" } }"
+)
+
 CANARY_BLIND = """
 const BASE = "http://x";
 const ENDPOINTS = { search: "/places/search" };
@@ -850,6 +900,20 @@ def _missing_actor(regions: list[Region]) -> bool:
     """A call site naming `/places/search` and sending no actor header."""
     return any(
         r.requester and "/places/search" in r.paths and not r.actor for r in regions
+    )
+
+
+def _missing_actor_members(regions: list[Region]) -> bool:
+    """A call site naming `/contexts/{}/members` and sending no actor header.
+
+    A second probe rather than a second path in `_missing_actor`, because the
+    pair it reads has to fail for its OWN reason. Widening the existing probe
+    would have made the const-swallow canary pass on the strength of
+    `/places/search`, which is not the route it is about.
+    """
+    return any(
+        r.requester and "/contexts/{}/members" in r.paths and not r.actor
+        for r in regions
     )
 
 
@@ -882,6 +946,8 @@ def selftest() -> int:
         ("canary sạch", CANARY_GOOD, _missing_actor, False),
         ("canary mù", CANARY_BLIND, _blind_url, True),
         ("canary mù/sạch", CANARY_GOOD, _blind_url, False),
+        ("hằng nuốt hàm/sạch", CANARY_CONST_NUOT_HAM, _missing_actor_members, False),
+        ("hằng nuốt hàm/xấu", CANARY_CONST_NUOT_HAM_XAU, _missing_actor_members, True),
     ):
         tmp = Path(tempfile.mkdtemp(prefix="actor-canary-"))
         # Cố ý KHÔNG ghi vào CLIENT_DIR. `build_graph` nhận thẳng danh sách file

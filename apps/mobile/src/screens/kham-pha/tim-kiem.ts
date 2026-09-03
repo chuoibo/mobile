@@ -45,6 +45,7 @@
  */
 
 import { chiTietLoi } from "../../ui/loi-tren-man";
+import { headerNguoiGoi } from "../../api";
 import { parsePlace, PLACES_BASE_URL, type Category, type Place } from "./places";
 
 /** The server's own cap (`app/places/search.py`, `MAX_QUERY_CHARS`). Mirrored,
@@ -220,16 +221,12 @@ export async function askSearch(
   try {
     res = await doFetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        // Who is spending the quota. rd-be-13 meters this route at 12 calls per
-        // minute *per actor*, so the header is what keeps one person's burst
-        // from being everybody's outage. Deliberately the only actor header
-        // sent: `search_places` reads `actor.id` and authorises nothing, and a
-        // role claimed here would be a claim this screen does not need.
-        "X-Actor-ID": opts.actorId,
-      },
+      // Who is spending the quota. rd-be-13 meters this route at 12 calls per
+      // minute *per actor*, so identity is what keeps one person's burst from
+      // being everybody's outage. `search_places` reads `actor.id` and
+      // authorises nothing, so no role is claimed -- and in `prod` the actor
+      // comes off the session, which is the only claim the server believes.
+      headers: headerNguoiGoi(opts.actorId, { roles: null }),
       // The sentence, alone, as its own field. See the module header.
       body: JSON.stringify({ query: trimmed }),
     });

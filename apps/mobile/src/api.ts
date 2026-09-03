@@ -295,6 +295,51 @@ function actorHeaders(
   return headers;
 }
 
+/**
+ * Identity headers for a module that runs its own `fetch`.
+ *
+ * ## Why this is exported
+ *
+ * Nine modules build `X-Actor-ID` by hand -- `screens/chat/tin-nhan.ts`,
+ * `screens/ca-nhan/tai-chinh.ts`, `screens/album/album-api.ts` and six more --
+ * because they predate `callAsActor` or need a shape it does not have
+ * (multipart, query strings, cursors). Each grew its own private `headers()`.
+ *
+ * That was harmless while identity WAS the header. Since ADR-0014 it is not:
+ * a production server ignores `X-Actor-*` and reads `Authorization`, so every
+ * one of those nine modules got 401 on a real host while `src/api.ts` worked.
+ * Measured against a `prod` server on 2026-09-03: `GET /people/{id}/finance`,
+ * `GET /contexts/{id}/recap` and `GET /contexts/{id}/messages` all answered 401
+ * to a request carrying only the header trio.
+ *
+ * The failure was invisible in the worst way. `doc-live.ts` swallowed the recap
+ * 401 into "no total available", so the settlement screen printed *«máy chủ
+ * chưa có tổng cho nhóm này»* -- a sentence that was false, on a screen this
+ * whole branch exists to stop lying.
+ *
+ * So there is one builder again, and `tests/mot-cho-dung-danh-tinh.test.mjs`
+ * refuses a second one.
+ */
+export function headerNguoiGoi(
+  actorId: string,
+  opts: { roles?: string | null; contexts?: string; key?: string } = {},
+): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    ...actorHeaders(actorId, opts.roles ?? undefined, opts.contexts),
+  };
+  // `roles: null` means "claim nothing", and it is not the same as leaving
+  // `roles` out: leaving it out takes `actorHeaders`'s four-role default.
+  // `POST /places/search` reads `actor.id` and nothing else, so four roles
+  // there is a claim the screen does not need -- and the same header trio
+  // reaches every other route, where the claim would still be asserted.
+  // `tests/tim-dia-diem.test.mjs` pins that, and caught this exact regression
+  // the first time these headers were routed through here.
+  if (opts.roles === null) delete headers["X-Actor-Roles"];
+  if (opts.key) headers["Idempotency-Key"] = opts.key;
+  return headers;
+}
+
 /** The parts of a request that do not depend on who is making it. */
 type RequestShape = {
   method?: string;

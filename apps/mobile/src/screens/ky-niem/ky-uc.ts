@@ -13,7 +13,7 @@
  * parts worth testing -- the date range, the stop summary, the failure text --
  * are testable here without rendering anything.
  */
-import { BASE_URL } from "../../api";
+import { BASE_URL, headerNguoiGoi } from "../../api";
 import { DEMO_GROUP_NAME } from "../../navigation/nhom-demo";
 // Read from the chat lane's module, never edited here. It is the one place the
 // seed's `uuid5` key derivation is implemented on this side, and a second copy
@@ -150,13 +150,10 @@ export async function timNhomDemo(
   try {
     response = await fetchImpl(`${BASE_URL}/contexts`, {
       method: "POST",
-      headers: {
-        "X-Actor-ID": personId,
-        "X-Actor-Roles": "group_admin,member",
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        "Idempotency-Key": khoaGhi("context"),
-      },
+      headers: headerNguoiGoi(personId, {
+        roles: "group_admin,member",
+        key: khoaGhi("context"),
+      }),
       body: JSON.stringify({ display_name: DEMO_GROUP_NAME }),
     });
   } catch {
@@ -201,12 +198,7 @@ export async function layKyUc(
   let response: Response;
   try {
     response = await fetchImpl(`${BASE_URL}/contexts/${contextId}/recap`, {
-      headers: {
-        "X-Actor-ID": personId,
-        "X-Actor-Roles": "member",
-        "X-Actor-Contexts": contextId,
-        Accept: "application/json",
-      },
+      headers: headerNguoiGoi(personId, { roles: "member", contexts: contextId }),
     });
   } catch {
     // Names the address it tried. "Không kết nối được" on its own sends

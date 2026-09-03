@@ -18,7 +18,7 @@
  * before it looks an outing up, so a stranger gets the same 403 whether the
  * outing id is real or invented.
  */
-import { BASE_URL } from "../../api";
+import { BASE_URL, headerNguoiGoi } from "../../api";
 
 /** One photograph inside an album, pointing at the memory wall's own URL.
  *
@@ -159,12 +159,7 @@ export class AlbumError extends Error {
  * on a call that in fact sends all three. It also collided with `tieuDe` in
  * `AlbumChuyenDi.tsx`, which means the screen's TITLE, not an HTTP header. */
 function headers(contextId: string, personId: string): Record<string, string> {
-  return {
-    "X-Actor-ID": personId,
-    "X-Actor-Roles": "member",
-    "X-Actor-Contexts": contextId,
-    Accept: "application/json",
-  };
+  return headerNguoiGoi(personId, { roles: "member", contexts: contextId });
 }
 
 /** One GET, with the refusal turned into a sentence a person can act on.

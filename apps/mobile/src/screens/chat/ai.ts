@@ -67,6 +67,7 @@
  */
 
 import { chiTietLoi } from "../../ui/loi-tren-man";
+import { headerNguoiGoi } from "../../api";
 import { parseMessage, type MessageWire } from "./tin-nhan";
 
 declare const process: { env: Record<string, string | undefined> };
@@ -231,15 +232,11 @@ export function aiTurnUrl(base: string, contextId: string): string {
 }
 
 function headers(actorId: string, contextId: string, key?: string): Record<string, string> {
-  const h: Record<string, string> = {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-    "X-Actor-ID": actorId,
-    "X-Actor-Roles": "group_admin,member",
-    "X-Actor-Contexts": contextId,
-  };
-  if (key) h["Idempotency-Key"] = key;
-  return h;
+  return headerNguoiGoi(actorId, {
+    roles: "group_admin,member",
+    contexts: contextId,
+    key,
+  });
 }
 
 async function docLoi(res: {

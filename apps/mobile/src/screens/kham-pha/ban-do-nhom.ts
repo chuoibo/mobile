@@ -30,6 +30,7 @@
  * caveat.
  */
 import { chiTietLoi } from "../../ui/loi-tren-man";
+import { headerNguoiGoi } from "../../api";
 import { CONTEXT_ID, PLACES_BASE_URL } from "./places";
 
 /* -------------------------------------------------------------------------
@@ -358,8 +359,7 @@ async function goi<T>(
     res = await doFetch(url, {
       ...init,
       headers: {
-        Accept: "application/json",
-        "X-Actor-ID": opts.personId,
+        ...headerNguoiGoi(opts.personId, { roles: null }),
         ...(init.headers ?? {}),
       },
     });
