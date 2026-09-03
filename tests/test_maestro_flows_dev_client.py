@@ -94,7 +94,7 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
             "24-nhom-thanh-vien-va-ho-so.yaml",
         ):
             text = (FLOWS / name).read_text(encoding="utf-8")
-            self.assertRegex(text, r"\$\{OTP_PHONE(_B)?\}", name)
+            self.assertRegex(text, r"\$\{OTP_PHONE(_[BCD])?\}", name)
             self.assertIn("${OTP_CODE}", text, name)
             # A phone number in a flow file is a phone number in Git.
             self.assertIsNone(

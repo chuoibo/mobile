@@ -2,8 +2,10 @@
 # gọi đúng mình là quản trị, mời một người bằng số điện thoại (lời mời chờ họ
 # đăng nhập bằng đúng số đó), và tab Cá nhân đọc hồ sơ thật rồi sửa được tên.
 #
-# Số điện thoại và mã đi qua `-e` như flow 22/23. `${OTP_PHONE_B}` là người được
-# mời; harness `--otp` đăng nhập bằng số đó qua curl SAU flow để chứng minh máy
+# Số điện thoại và mã đi qua `-e` như flow 22/23, nhưng là CẶP SỐ RIÊNG (C tạo
+# nhóm, D được mời): số của flow 22 đã có nhóm, số của flow 23 đã có tên, nên
+# dùng lại thì «Chưa có nhóm nào» và «Ban QA» đều sai vì lý do không phải app.
+# Harness `--otp` đăng nhập bằng số D qua curl SAU flow để chứng minh máy
 # chủ thật sự giữ lời mời (`kiem_may_chu_sau_24`).
 appId: com.lakiet.rudi
 ---
@@ -20,7 +22,7 @@ appId: com.lakiet.rudi
     visible: "Chào bạn"
     timeout: 30000
 - tapOn: "Ô số điện thoại"
-- inputText: "${OTP_PHONE}"
+- inputText: "${OTP_PHONE_C}"
 - hideKeyboard
 - tapOn: "Gửi mã"
 - extendedWaitUntil:
@@ -64,7 +66,7 @@ appId: com.lakiet.rudi
     visible: "Ô số điện thoại người được mời"
     timeout: 30000
 - tapOn: "Ô số điện thoại người được mời"
-- inputText: "${OTP_PHONE_B}"
+- inputText: "${OTP_PHONE_D}"
 - hideKeyboard
 - tapOn: "Ô tên người được mời"
 - inputText: "Ban QA"
