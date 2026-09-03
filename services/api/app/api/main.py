@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import pathlib
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -12,6 +13,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.api.auth_mode import AUTH_MODE_ENV_VAR, resolve_auth_mode
 from app.api.cors import install_cors
 from app.api.errors import GUEST_LINK_NOT_FOUND, ApiProblem
 from app.api.guest_privacy import (
@@ -50,6 +52,7 @@ from app.api.routes import (
     recap,
     receipts,
     screenshots,
+    sessions,
     social_map,
     suggestions,
     votes,
@@ -87,12 +90,31 @@ def sqlalchemy_store_factory() -> Iterator[IdempotencyStore]:
         yield SqlAlchemyIdempotencyStore(session)
 
 
+LOGGER = logging.getLogger("app.api")
+
+
 def create_app(
     *,
+    auth_mode: str | None = None,
     idempotency_store_factory: IdempotencyStoreFactory | None = None,
     idempotency_in_flight_wait_seconds: float | None = None,
 ) -> FastAPI:
     application = FastAPI(title="Group Expense API", version="0.1.0")
+
+    # Resolved once, here, and read off the app afterwards. An environment
+    # consulted per request could answer differently halfway through the life
+    # of a process, and a test could not hold one app of each kind at once.
+    # `None` means "ask the environment", where absent means prod.
+    resolved_auth_mode = (
+        resolve_auth_mode()
+        if auth_mode is None
+        else resolve_auth_mode({AUTH_MODE_ENV_VAR: auth_mode})
+    )
+    application.state.auth_mode = resolved_auth_mode
+    # Said out loud at startup because the dangerous configuration is the
+    # silent one: a box that kept trusting `X-Actor-*` looks exactly like a box
+    # that does not, until somebody sends a header.
+    LOGGER.info("auth mode: %s", resolved_auth_mode)
 
     # Per application, not per module: `POST /places/search` spends real model
     # quota, and the window that caps it has to outlive a request while not
@@ -158,6 +180,7 @@ def create_app(
     application.include_router(obligations.router)
     application.include_router(bank_recipients.router)
     application.include_router(people.router)
+    application.include_router(sessions.router)
     application.include_router(identity.router)
     application.include_router(places.router)
     application.include_router(finance.router)

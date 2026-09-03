@@ -719,25 +719,18 @@ CANARIES: list[tuple[str, str, int]] = [
     ),
     (
         "header-la-gan-bang-ngoac-vuong",
-        # The header here must be one ALLOWED_HEADERS will never grow, because
-        # this canary is about the SYNTAX -- can the reader see a header
-        # assigned through bracket notation -- and not about which header it is.
-        #
-        # It used to say `Authorization`, and on 2026-09-03 that stopped working
-        # for a reason worth writing down: ADR-0014 needs the client to send
-        # `Authorization`, so the header joined ALLOWED_HEADERS, and this
-        # canary's deliberate violation became legal. The gate returned 0
-        # findings, the canary read that as "the gate went blind", and a
-        # perfectly correct change to a list three files away turned a working
-        # gate red. A canary that names a real header is a canary with a
-        # dependency on policy it is not testing.
         """
         function actorHeaders(a: string): Record<string, string> {
           return { "X-Actor-ID": a };
         }
         export async function go(a: string) {
           const headers = actorHeaders(a);
-          headers["X-Canary-Khong-Bao-Gio-Duoc-Phep"] = "1";
+          // Được `X-Trace-Id` chứ không phải `Authorization`: từ ADR-0014,
+          // `Authorization` NẰM TRONG ALLOWED_HEADERS thật, nên canary dùng nó
+          // sẽ ra xanh và không còn chứng minh được điều nó sinh ra để chứng
+          // minh — rằng reader thấy được kiểu gán bằng ngoặc vuông. Cái đang
+          // được đo là CÁCH VIẾT, không phải tên header.
+          headers["X-Trace-Id"] = "x";
           return fetch("/x", { method: "POST", headers });
         }
         """,

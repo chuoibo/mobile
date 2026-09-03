@@ -90,10 +90,23 @@ def _imports_model(call) -> bool:
 
 
 def _resolve_state_guard(call, app):
-    """Resolve only dependencies that explicitly read an app-state object."""
+    """Resolve only dependencies that explicitly read an app-state object.
+
+    Reading `request.app.state` stopped being enough on its own once
+    `get_actor` began reading the auth mode from there (ADR-0014). A model-door
+    guard is resolvable from the request and nothing else, so a dependency that
+    also needs a repository or a header is not one -- and calling it with a
+    bare namespace would raise rather than answer.
+    """
 
     source = _source(call)
     if "request.app.state" not in source:
+        return None
+    try:
+        parameters = inspect.signature(call).parameters
+    except (TypeError, ValueError):
+        return None
+    if len(parameters) != 1:
         return None
     return call(SimpleNamespace(app=app))
 

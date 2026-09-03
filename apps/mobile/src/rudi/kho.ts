@@ -8,20 +8,19 @@
  * is tested against deliberately corrupt input. This file is the part a test
  * could only re-assert by mocking, which proves nothing.
  *
- * Two stores, not one, and the split is not stylistic:
+ * `AsyncStorage` and nothing else, on purpose. What this holds is a draft over
+ * a fixture -- a trip nobody took, a display name somebody typed, which places
+ * they tapped a heart on. None of it is a credential.
  *
- *   - `AsyncStorage` for the draft session. Plain, unencrypted, and correct for
- *     what it holds -- a fixture trip, a display name somebody typed, which
- *     places they tapped a heart on.
- *   - `SecureStore` for the session token, per ADR-0014 section 9. A bearer in
- *     `AsyncStorage` is a bearer in a world-readable file on a rooted device.
- *     Nothing calls the token half yet; it is the address the token will have.
+ * The session bearer lives in `src/phien.ts` (ADR-0014, shipped in PR #514),
+ * which keeps it in SecureStore and imports that native module dynamically so
+ * the node test suite can still load the API layer. An earlier draft of this
+ * file grew a second token store beside it; two places holding one credential
+ * is one place too many, and it was deleted rather than merged.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as SecureStore from "expo-secure-store";
 
 const KHOA_PHIEN = "rudi.phien.v1";
-const KHOA_TOKEN = "rudi.token";
 
 /** Whether the last write reached the disk. `null` means nothing tried yet. */
 export type KetQuaGhi = { ok: true } | { ok: false; ly_do: string };
@@ -59,32 +58,5 @@ export async function xoaPhienAsync(): Promise<void> {
   } catch {
     // Logging out cannot fail into a state where the person is still logged in
     // from the screen's point of view; the in-memory reset has already happened.
-  }
-}
-
-/** ADR-0014 section 9. Nothing calls these until the session route exists. */
-export async function docTokenAsync(): Promise<string | null> {
-  try {
-    return await SecureStore.getItemAsync(KHOA_TOKEN);
-  } catch {
-    return null;
-  }
-}
-
-export async function ghiTokenAsync(token: string): Promise<KetQuaGhi> {
-  try {
-    await SecureStore.setItemAsync(KHOA_TOKEN, token);
-    return { ok: true };
-  } catch (error) {
-    return { ok: false, ly_do: error instanceof Error ? error.message : String(error) };
-  }
-}
-
-export async function xoaTokenAsync(): Promise<void> {
-  try {
-    await SecureStore.deleteItemAsync(KHOA_TOKEN);
-  } catch {
-    // A token that cannot be deleted is a token that will be rejected by the
-    // server on its next use; the 401 path handles that.
   }
 }

@@ -42,6 +42,13 @@ x-api-env: &api-env
   # Tên host là `postgres` — tên service trong mạng compose. `localhost` ở đây
   # trỏ vào chính container, đó là lỗi số một khi bê URL từ .env của máy sang.
   MOBILE_DATABASE_URL: postgresql+psycopg://mobile:mobile-dev-only@postgres:5432/mobile
+  # ADR-0014: `get_actor` mặc định KHÔNG tin `X-Actor-*` nữa. Stack này là máy
+  # dev trên máy của chính mình, và `scripts/seed_dev_data.py` gọi API bằng
+  # header actor, nên nó bật lại chế độ cũ — bật RÕ, ở đúng một chỗ, không phải
+  # bằng cách để trống biến. Host phục vụ người thật không có dòng này và vì
+  # thế chạy `prod`; đổi dòng này thành `prod` ở đây thì seed sẽ 401, đó là
+  # hành vi đúng chứ không phải hỏng.
+  MOBILE_AUTH_MODE: dev
 
 services:
   postgres:

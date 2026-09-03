@@ -1324,8 +1324,12 @@ class OutingInvite(Base):
 
     __tablename__ = "outing_invites"
     __table_args__ = (
+        # Was an equality, which forbade a secret on the named rows. A named
+        # invite is now also the credential a person exchanges for their first
+        # session (ADR-0014), so only the surviving half is enforced: a link
+        # without a digest cannot be redeemed by anybody and is a broken row.
         CheckConstraint(
-            "(source = 'link') = (token_digest IS NOT NULL)",
+            "source <> 'link' OR token_digest IS NOT NULL",
             name="link_carries_digest",
         ),
         CheckConstraint(
@@ -2022,3 +2026,49 @@ class Post(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class AccountSession(Base):
+    """A bearer session for a person; only a SHA-256 token digest is persisted.
+
+    Same shape as `GuestLink`, for the same reason: the raw token is handed to
+    its holder exactly once and a stolen database gives an attacker digests
+    rather than credentials. What differs is the subject. A guest link names a
+    capability and deliberately never says who is holding it; a row here says
+    which `person_id` the server will answer as, which is the whole point --
+    `X-Actor-ID` let a client say that itself.
+
+    `issued_from_invite_id` records what proved the holder was that person.
+    NULL means the row was seeded out of band (the genesis session), and that
+    is exactly the case an audit most wants to be able to find.
+    """
+
+    __tablename__ = "account_sessions"
+    __table_args__ = (
+        CheckConstraint("expires_at > created_at", name="expiry_after_creation"),
+        Index("ix_account_sessions_person", "person_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    person_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_account_sessions_person"),
+        nullable=False,
+    )
+    token_digest: Mapped[bytes] = mapped_column(
+        LargeBinary(32), nullable=False, unique=True
+    )
+    issued_from_invite_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("outing_invites.id", name="fk_account_sessions_invite"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

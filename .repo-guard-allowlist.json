@@ -96,7 +96,7 @@
         "aggregate-base64-fragments",
         "long-number"
       ],
-      "reason": "Lockfile npm của ứng dụng mobile. Các chuỗi base64 là integrity digest của npm và số dài là metadata phiên bản; cả hai thuộc cấu trúc lockfile. Ghim lại 2026-09-03 (dba73d95c41e -> 3fff44b6ee72) sau khi thêm @react-native-async-storage/async-storage@2.2.0 và expo-secure-store@57.0.3 cho lớp lưu trữ phiên, kéo theo hai phụ thuộc bắc cầu is-plain-obj@2.1.0 và merge-options@3.0.4. Diff đã đọc từng dòng: 44 dòng thêm, 0 dòng bớt, đều là version/resolved/integrity/license/engines từ registry.npmjs.org. Không dòng nào mang dữ liệu người tham gia."
+      "reason": "Lockfile npm của ứng dụng mobile. Các chuỗi base64 là integrity digest của npm và số dài là metadata phiên bản; cả hai thuộc cấu trúc lockfile. Ghim lại 2026-09-03 khi gộp hai nhánh cùng thêm phụ thuộc: `expo-secure-store` cho phiên đăng nhập (ADR-0014, PR #514) và `@react-native-async-storage/async-storage@2.2.0` cho lớp lưu trữ phiên nháp của RuDi, kéo theo is-plain-obj@2.1.0 và merge-options@3.0.4. Sau khi gộp đã chạy `npm install --package-lock-only` để lockfile khớp package.json, rồi mới tính digest — ghim một digest của cây gộp chưa chuẩn hoá là ghim một file không ai từng cài. Toàn bộ dòng thêm là version/resolved/integrity/license/engines từ registry.npmjs.org; không dòng nào mang dữ liệu người tham gia."
     },
     {
       "path": "docs/assets/bang-mau.svg",

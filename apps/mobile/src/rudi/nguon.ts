@@ -21,19 +21,24 @@
  * story and a real group's money would swap places silently. So live is
  * entered deliberately, and `viSao` records why it was not.
  *
- * ## Why a bearer is not yet enough
+ * ## Why a bearer is still not enough
  *
- * ADR-0014 mints a session bound to a person. It does not tell the client WHICH
- * GROUP that person is in, and there is no route that does: `contexts.py`
- * declares `POST /contexts`, `GET /contexts/{id}`, members and balances, and no
- * way to list the contexts a person belongs to. The legacy tree works around it
- * by replaying `POST /contexts` under a derived idempotency key, which reaches
- * the demo group and would be wrong for a real one -- it would name a second
- * group beside the one they are looking at.
+ * ADR-0014 shipped in PR #514: `POST /sessions` exists, `src/phien.ts` redeems
+ * a named invitation for one, and `src/api.ts` puts the bearer on every
+ * identified request. So a session is real now. It is still not a group.
  *
- * So today a session alone lands in `trai-nghiem` with that stated as the
- * reason. The fix is a line in the bootstrap response, and it is written down
- * in `docs/claude/2026-09-03/adr-0014-nua-client-da-san-sang.md`.
+ * `SessionResponse` carries `token`, `person_id`, `expires_at` and
+ * `membership_state` -- and no `context_id`. `contexts.py` declares `POST
+ * /contexts`, `GET /contexts/{id}`, members, balances and membership accept,
+ * and nothing that lists the contexts a person belongs to. Re-checked against
+ * `origin/main` at 03eb05a, after #514 merged.
+ *
+ * The legacy tree works around it by replaying `POST /contexts` under a derived
+ * idempotency key. That reaches the demo group and would be wrong for a real
+ * one: it would name a second group beside the one somebody is looking at.
+ *
+ * So a session alone still lands in `trai-nghiem`, with that stated as the
+ * reason rather than left for a reader to discover from an empty screen.
  */
 
 /** UUID as the server writes them. Same shape `navigation/lien-ket.ts` enforces. */
@@ -93,8 +98,9 @@ export function nguonHienTai(
     return {
       kieu: "trai-nghiem",
       viSao:
-        "Có phiên nhưng chưa biết nhóm nào: máy chủ chưa có route liệt kê context của một người. " +
-        "Xem docs/claude/2026-09-03/adr-0014-nua-client-da-san-sang.md.",
+        "Đã đăng nhập, nhưng chưa biết nhóm nào: SessionResponse không mang context_id và " +
+        "máy chủ chưa có route liệt kê nhóm của một người. Xem " +
+        "docs/claude/2026-09-03/adr-0014-nua-client-da-san-sang.md.",
     };
   }
   return { kieu: "trai-nghiem", viSao: "Chưa đăng nhập. Đây là bản trải nghiệm Team Đà Lạt." };

@@ -28,11 +28,12 @@ test("không cấu hình gì thì là bản trải nghiệm, dù có phiên hay 
 });
 
 test("một phiên thôi CHƯA đủ, và lý do nói ra đúng chỗ thiếu", () => {
-  // ADR-0014 mints a session bound to a person. It does not say which group,
-  // and `contexts.py` declares no route that lists them.
+  // ADR-0014 shipped in #514, so a session is real. It still does not say WHICH
+  // GROUP: `SessionResponse` carries no `context_id` and `contexts.py` declares
+  // no route that lists a person's. Re-checked on origin/main at 03eb05a.
   const nguon = nguonHienTai(true, {});
   assert.equal(nguon.kieu, "trai-nghiem");
-  assert.match(nguon.viSao, /route liệt kê context/);
+  assert.match(nguon.viSao, /route liệt kê nhóm/);
 });
 
 test("đủ cả hai nửa và đúng hình dạng thì mới live", () => {

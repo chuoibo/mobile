@@ -6,13 +6,19 @@
 
 ## 0. MỚI 2026-09-03 — ba việc từ nhánh `claude/p0-w-rudi-du-lieu-that`
 
-### 0a. Route cấp phiên (ADR-0014) — client đã dựng xong nửa của nó
+### 0a. ĐÃ XONG — phiên đăng nhập ship ở #514. Còn một mảnh: nhóm nào?
 
-Hợp đồng đầy đủ ở `docs/claude/2026-09-03/adr-0014-nua-client-da-san-sang.md`.
-Tóm tắt: `actorHeaders` trong `src/api.ts` đã bỏ hẳn `X-Actor-ID`/`X-Actor-Roles`/
-`X-Actor-Contexts` khi có bearer, 401 đã xoá token, và `src/rudi/phien.ts` là
-seam **ném** `ChuaCoRouteError` — không path literal nào, nên cổng hợp đồng vẫn
-xanh. Ship route trước, client theo sau. ADR-0014 vẫn cần Lead nhận.
+Mục này viết khi ADR-0014 còn ĐỀ XUẤT. Nó đã **ĐÃ CHẤP NHẬN VÀ ĐÃ HIỆN THỰC**
+(#514, `main` tại `6aad3cf`), nên nửa client tôi dựng song song đã bị **xoá** khi
+gộp — hai bản hiện thực của một credential là hình dạng làm cây không trả lời
+được «cái nào đang có hiệu lực».
+
+**Việc còn lại, và nó chặn màn RuDi đọc dữ liệu thật:** một phiên chưa cho biết
+NHÓM nào. `SessionResponse` không mang `context_id`, và `contexts.py` không có
+route nào liệt kê nhóm của một người (đo trên `main` tại `03eb05a`). Đề nghị
+thêm `context_id` vào `SessionResponse` — người ta đăng nhập bằng lời mời vào
+một chuyến, nên máy chủ đã biết nhóm ngay lúc cấp phiên. Chi tiết ở
+`docs/claude/2026-09-03/adr-0014-nua-client-da-san-sang.md` mục 3.
 
 ### 0b. `scripts/check_api_contract.py` mù với route khai ngoài `routes/`
 

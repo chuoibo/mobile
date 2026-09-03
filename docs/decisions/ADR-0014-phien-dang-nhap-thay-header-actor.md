@@ -1,15 +1,16 @@
 # ADR-0014 — Phiên đăng nhập thay header `X-Actor-ID` khi chạy production
 
-- **Trạng thái:** 🟡 **ĐỀ XUẤT** 2026-09-02 — **Lead chấp nhận rồi Codex mới viết `api/` / `db/`**
-- **Sửa:** 2026-09-03 — cấp phiên bằng lời mời đích danh, không đổi person-id; re-login xoay digest
-- **DRI đề xuất:** Claude (lane `apps/mobile/`) · **Hiện thực server:** Codex · **Cổng ADR:** Lead
-- **Review chính thức (ADR-0007):** Codex hoặc Lead trên GitHub PR — **không** phải Claude cùng lane với tác giả. Đầu vào cùng lane là comment, không phải `APPROVE` / `REQUEST_CHANGES` / `REJECT`.
+- **Trạng thái:** 🟢 **ĐÃ CHẤP NHẬN VÀ ĐÃ HIỆN THỰC** 2026-09-03 — Lead chấp nhận, và cho phép Claude vượt ranh giới sở hữu sang `api/` + `db/` cho lượt này thay vì chờ Codex.
+- **Hiện thực:** PR #514, merge vào `main` tại `6aad3cf`. Đọc `docs/claude/2026-09-03/pha-b-hien-thuc.md` trước khi đụng lại `api/` / `db/`: ở đó có bảng đột biến, các chỗ hợp đồng đổi, và **một đột biến còn sống**.
+- **Sửa:** 2026-09-02 cấp phiên bằng lời mời đích danh, không đổi person-id; re-login xoay digest. 2026-09-03 ghi lại bốn chỗ hợp đồng đổi khi hiện thực (mục "Đã hiện thực" ở cuối).
+- **DRI:** Claude (lane `apps/mobile/`) · **Hiện thực server:** Claude, được Lead uỷ quyền · **Cổng ADR:** Lead
+- **Review chính thức (ADR-0007):** Lead uỷ quyền merge #514 cho Claude **với điều kiện có e2e thật ở chế độ production**, không phải smoke test. Điều kiện đó được đáp bằng `scripts/e2e_slice.sh` chạy uvicorn ở `prod` với phiên thật (9/9, chạy trong CI). Ghi lại vì đây là ngoại lệ có điều kiện, không phải luật mới.
 - **Nguồn:** QA native 2026-09-02 · `app/api/deps.py` · `OutingInvite` · `GuestLink` · `ROLES` trong `permissions.py`
 - **Chặn:** một người lạ gửi header giả và được đối xử như thành viên nhóm
 
 > **Không viết bảng session, không đổi `get_actor`, không gắn OAuth trước khi ADR này đóng băng.** Hợp đồng sai ở đây không làm lệch allocator, nhưng làm rò dữ liệu nhóm khác.
 
-Nhánh GitHub hiện tại (`claude/p0-w-rudi-session-adr`, PR #513) thiếu số Work ID `p0-w<N>`. **Không đổi tên remote** — gãy PR. Work ID do Lead đặt khi mở nhánh hiện thực.
+Hai nhánh đều thiếu số Work ID `p0-w<N>` (`claude/p0-w-rudi-session-adr` → #513, `claude/p0-w-rudi-session-impl` → #514). Không đổi tên vì đổi là gãy PR; ghi lại để lần sau đặt đúng ngay từ đầu.
 
 ## Bối cảnh
 
@@ -81,20 +82,19 @@ Cùng một digest đổi lần hai → **409**. Xoay **cấp digest mới**; di
 
 | Role trong `ROLES` | Nguồn server-side bắt buộc | Có nguồn hôm nay? |
 |---|---|---|
-| `member` | hàng `memberships` trạng thái ACTIVE, `role=member` (hoặc tương đương) | Có |
-| `group_admin` | `memberships.role == admin` — map tên DB `admin` → role domain `group_admin` | Có (cần map; literal `admin` không nằm trong `ROLES`) |
-| `former_member` | `memberships.state == left` | Có |
-| `batch_owner` | `extra_roles` **tại action**, suy từ resource (pattern `service.py` lúc tạo batch: *resource-derived, never read from a request body*). **Không** sticky trên Bearer | Có, một call site |
-| `guest` | digest `GuestLink` → `Actor(roles={guest})` như `_guest_actor`. **Không** phải phiên người | Có |
-| `advancer` | sự kiện sổ / nghĩa vụ tại action + predicate `requires` trong `_TABLE` | **Chưa** trên phiên; không copy header |
-| `recipient` | như trên | **Chưa** trên phiên |
-| `sender` | như trên | **Chưa** trên phiên |
-| `creditor` | như trên | **Chưa** trên phiên |
-| `platform_moderator` | bảng/grant riêng khi có. Chưa có thì prod **không** cấp role này | **Chưa có bảng** |
+| `member` | cấp cho **mọi phiên hợp lệ**, kể cả người chưa có membership nào | Đã dựng |
+| `former_member` | `memberships.state == left` | Đã dựng |
+| `advancer` · `recipient` · `sender` · `creditor` | cấp cho mọi phiên hợp lệ, vì **mọi** action cần chúng đều kèm predicate chứng minh từ resource | Đã dựng |
+| `group_admin` | **`extra_roles` tại action**, suy từ `memberships.role` của **đúng nhóm đang bị tác động** (`ApiService._group_admin_role`). **Không** cấp trên phiên | Đã dựng, hai call site |
+| `batch_owner` | `extra_roles` tại action, suy từ resource. **Không** sticky trên Bearer | Đã dựng, hai call site |
+| `guest` | digest `GuestLink` → `Actor(roles={guest})` như `_guest_actor`. **Không** phải phiên người | Đã có sẵn |
+| `platform_moderator` | bảng/grant riêng khi có. Chưa có thì prod **không** cấp | **Chưa có bảng**, và không route nào gọi ba action của nó |
 
 `context_ids` trên Actor prod: các context mà người phiên có membership (predicate tương đương `is_group_member` / hàng membership), **không** copy `X-Actor-Contexts`.
 
-Role **chưa có nguồn trên phiên** (nêu tên): `advancer`, `recipient`, `sender`, `creditor`, `platform_moderator`. Với mỗi role đó Codex viết **một ca prod**: cấp đúng từ nguồn tại action, hoặc **403** nếu chưa có nguồn — không 200 với role đó từ header. `batch_owner` có nguồn resource: ca prod chứng minh lấy từ resource, không từ header, không gắn sẵn lên session.
+**Vì sao bốn role `advancer` / `recipient` / `sender` / `creditor` được cấp thẳng trên phiên** — quyết định bằng cách đọc `_TABLE`, không bằng khẩu vị: cả năm mục cần chúng đều có predicate server chứng minh (`is_named_advancer`, `is_recipient_of_this_obligation`, `is_creditor_of_this_obligation`, `is_own_capability`, `envelope_contains_own_account`), nên mang role chỉ đáng giá bằng "quyền được hỏi câu hỏi thật". Không cấp thì 403 mọi lần xác nhận đã nhận tiền. `member` cấp cả khi chưa có membership vì `accept_context_membership` đòi đúng role đó cộng `is_invitee` — không cấp thì người vừa bootstrap không tự đồng ý nổi lời mời của chính mình.
+
+**Cổng cấu trúc thay cho việc nhớ:** `services/api/tests/api/test_roles_have_a_server_side_source.py` đọc `_TABLE` cùng `service.py` và từ chối call site nào phụ thuộc một role phiên không cấp mà cũng không tự suy; action chưa có route phải khai trong `UNREACHABLE` kèm lý do, và một action mọc route sau này không được nấp ở đó.
 
 **Ca âm bắt buộc:** phiên `member` gửi header hoặc body tự xưng `creditor` hoặc `platform_moderator` → Actor **không** mang role đó.
 
@@ -117,6 +117,8 @@ Membership **tạo mới** qua bootstrap đích danh ghi `NAMED`. Hệ quả đ�
 Auth không được thành đường ghi tiền thứ hai.
 
 ## Tiêu chí ra (Pha B xong)
+
+> **Trạng thái 2026-09-03: đã đạt hết.** Ca tương ứng nằm ở `tests/api/test_auth_mode.py`, `tests/api/test_prod_session_auth.py`, `tests/postgres/test_session_bootstrap_postgres.py` (13 ca, HTTP thật trên PostgreSQL thật) và `tests/postgres/test_genesis_session_postgres.py`. Hai hàng đọc khác bản viết ban đầu — xem mục "Bốn chỗ hợp đồng đổi" ở cuối file.
 
 | Phép đo | Kết quả bắt buộc |
 |---|---|
@@ -170,8 +172,8 @@ Auth không được thành đường ghi tiền thứ hai.
 
 ## Hệ quả
 
-- Lead chấp nhận → Codex mở nhánh hiện thực (Work ID Lead đặt), PR riêng. Verdict ADR-0007 sống trên GitHub PR; **không** tự review. Claude không đụng `api/` / `db/`.
-- Claude không gắn SecureStore / Bearer trước khi route cấp token có trên nhánh Codex đã merge hoặc đang review với contract đóng băng.
+- ~~Lead chấp nhận → Codex mở nhánh hiện thực~~ — Lead uỷ quyền cho Claude làm cả server lẫn client trong một PR (#514), có điều kiện e2e prod. Ranh giới sở hữu 2026-08-27 **không đổi**: đây là một ngoại lệ được ghi, không phải luật mới.
+- ~~Claude không gắn SecureStore / Bearer trước khi route cấp token đã merge~~ — cùng PR, nên contract không kịp trôi giữa hai bên.
 - Pha C (API public TLS + EAS preview) phụ thuộc Pha B **đã có đổi-invite-đích-danh**, danh sách mời đóng. Không đẩy C xuống sau OAuth. Public + header giả vẫn ăn thì mở lỗ ra internet.
 - ADR-0006 không đổi: test xanh không phải bằng chứng hành vi người thật.
 
@@ -182,3 +184,37 @@ Tắt chế độ prod → `get_actor` trở lại header. Bảng session **đ�
 **Ai được tắt:** chỉ **Lead**, trên host đang phục vụ người thật (hoặc staging được Lead chỉ định). Không phải «ai SSH / sửa `.env` trên máy mình cũng được».
 
 **Ghi lại ở đâu:** mỗi lần tắt (và mỗi lần bật lại prod trên host đó) = một PR hoặc issue Lead đóng, ghi **ngày**, **host**, **lý do**. Không tắt bằng biến env không có dấu vết review.
+
+---
+
+## Đã hiện thực (2026-09-03, PR #514 → `main` `6aad3cf`)
+
+### Mục 11 — Genesis: phiên đầu tiên trên một host sạch
+
+Thiếu ở bản đề xuất, và nếu thiếu thật thì sản phẩm không vào được. Vòng lặp tự đóng: phiên đến từ lời mời, lời mời do người **có phiên** phát, host sạch không ai có phiên. Mọi cửa HTTP đóng đúng, và không ai đăng nhập được lần đầu.
+
+`scripts/genesis_session.py` là cửa duy nhất ngoài HTTP: tạo người + nhóm + membership ACTIVE `admin`, mint một phiên, in token **đúng một lần**. Uỷ quyền của nó là quyền truy cập database — mạnh sẵn rồi, nên không mở thêm bề mặt nào so với `psql`. Nó **không** tắt chế độ prod: host cần phiên thì được cấp phiên, không được cấp một cửa sổ tin header.
+
+```bash
+python3 scripts/genesis_session.py --display-name 'Tên' --group 'Tên nhóm'   # --json cho harness
+```
+
+### Bốn chỗ hợp đồng đổi so với bản đã duyệt
+
+1. **Bootstrap lần hai trả 404, không 409.** ADR viết 409. 409 nói cho kẻ đang thử token trộm biết token đó *từng* thật; 404 không nói gì. Hàng «409» ở bảng tiêu chí vẫn đúng cho **cửa link** (`accept_outing_invite` giữ nguyên `invite_already_accepted`).
+2. **`SessionResponse` có thêm `membership_state`.** Không có nó thì màn hình phải đoán giữa «đã đăng nhập, còn chờ duyệt» và «đã đăng nhập, đã ở trong nhóm», và sẽ nói sai với một nửa người đọc.
+3. **Genesis là script chạm DB, không phải route** (mục 11 trên).
+4. **`group_admin` không cấp trên phiên.** Bản đầu cấp nó khi người đó là admin của **bất kỳ** nhóm nào — và `invite_context_member` đòi `group_admin` + `is_group_member`, **không** đòi `is_group_admin`, nên role trên phiên là toàn bộ phép kiểm: admin nhóm A thêm được người vào nhóm B nơi họ chỉ là thành viên. Giờ suy theo đúng nhóm đang bị tác động. Bảng ở mục 7 đã sửa theo.
+
+### Lỗ mà chỉ e2e chế độ prod mới thấy
+
+`publish_batch` chứng minh `owns_batch` từ resource nhưng **để role `batch_owner` tới từ `X-Actor-Roles`**. Ở prod không ai khai role, nên người **sở hữu** đợt thu bị 403 chính đợt thu của mình — đường hero chết. 2915 ca unit đều xanh, vì tất cả đều gửi header. Chỉ `scripts/e2e_slice.sh` chạy ở `prod` mới thấy.
+
+Rút ra, và đã dựng thành cổng: một bộ test mà **mọi** ca đều gửi header thì không nói được gì về chế độ không đọc header. Đó là lý do `e2e_slice.sh` giờ dựng uvicorn ở `prod` và mint phiên thật, và lý do có `test_roles_have_a_server_side_source.py`.
+
+### Bằng chứng lúc merge
+
+2915 ca python · `postgres_tier.sh` ĐẠT cả `tests/postgres` lẫn `tests/qa` · 1048 ca mobile · **`e2e_slice.sh` 9/9 trên uvicorn chế độ prod với phiên thật** · ba workflow CI xanh trên `main`.
+
+**Vẫn không chứng minh:** chưa ai chạy trên máy thật, chưa có build EAS, e2e chạy `fetch` của node nên không có CORS thật, và một đột biến còn sống (bỏ dòng chặn lời mời link ở tầng service vẫn xanh vì repository chặn cùng luật — chi tiết ở `docs/claude/2026-09-03/pha-b-hien-thuc.md`).
+

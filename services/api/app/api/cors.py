@@ -39,26 +39,17 @@ LOOPBACK_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
 # preflight, so the web build could not name a person or file an expense at
 # all. A test derives this list from the server rather than trusting the memory
 # of whoever edits it next.
-# `authorization` is here for a header the server does not read yet.
-#
-# ADR-0014 section 9 has the client send `Authorization: Bearer …` once a
-# session exists, and `apps/mobile/src/api.ts` already does when it is holding
-# one. A header the client sends and this list omits is not ignored by the
-# browser -- it is a preflight the browser cancels, so the request never
-# arrives at all, and only the web build can see it. `scripts/check_cors_
-# contract.py` is the gate that caught exactly that on the client PR.
-#
-# Allowing it costs nothing today: no route reads it, and `allow_credentials`
-# stays False just below, so no ambient browser credential rides along.
-#
-# LANE: `api/` is Codex's. Changed from the mobile lane because the gate is
-# cross-cutting by construction -- the client cannot ship the header until this
-# list has it, and this list has no reason to grow until the client sends it.
-# Named in the PR and in docs/codex/QUEUE.md rather than slipped in.
 ALLOWED_HEADERS = [
+    # The bearer session (ADR-0014). It arrives on every authenticated request
+    # once the API runs in `prod`, and a browser that cannot send it at the
+    # preflight cannot send it at all -- the same failure the idempotency key
+    # had, one line above, for the same reason.
     "authorization",
     "content-type",
     "idempotency-key",
+    # Still allowed because `dev` still reads them. They are ignored in `prod`
+    # rather than rejected, so a client that keeps sending them meets a plain
+    # 401 instead of a preflight that never explains itself.
     "x-actor-id",
     "x-actor-roles",
     "x-actor-contexts",

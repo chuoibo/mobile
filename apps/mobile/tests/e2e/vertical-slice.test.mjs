@@ -38,6 +38,13 @@ import {
 } from "../../dist-test/api.js";
 import { khoiDongNhom } from "../../dist-test/screens/chat/nhom.js";
 import { DEMO_PEOPLE, personById } from "../../dist-test/navigation/nhom-demo.js";
+import { banDoPhien, batPhienE2E, daVa, fetchTho } from "./phien-e2e.mjs";
+
+// The API this file talks to runs in `prod` and does not believe `X-Actor-ID`
+// (ADR-0014). `scripts/e2e_slice.sh` mints a real session per demo person and
+// names the file in MOBILE_E2E_SESSIONS; without it -- a `dev` server -- this
+// returns null and changes nothing.
+const NGUOI_DANG_NHAP = batPhienE2E(personById("minh")?.personId);
 
 /* Ba người này là thành viên THẬT của một nhóm THẬT, không phải id bịa ra.
  *
@@ -150,7 +157,16 @@ async function serverIsUp() {
  */
 async function daCoTaiKhoanNhan(personId) {
   const res = await fetch(`${BASE_URL}/people/${personId}/bank-recipient`, {
-    headers: { "X-Actor-ID": personId, "X-Actor-Roles": "group_admin,member" },
+    // Built here rather than by the client, so the bearer is attached here
+    // too. Letting the wrapper repair it would count against `daVa`, which is
+    // meant to measure the CLIENT forgetting, not this file forgetting.
+    headers: {
+      "X-Actor-ID": personId,
+      "X-Actor-Roles": "group_admin,member",
+      ...(banDoPhien()?.[personId]
+        ? { Authorization: `Bearer ${banDoPhien()[personId]}` }
+        : {}),
+    },
   });
   if (res.status === 404) return false;
   if (!res.ok) {
@@ -489,4 +505,43 @@ test("bấm hai lần chỉ ghi một khoản chi", async (t) => {
     first.expenseId,
     "hai lan bam that su khac nhau bi gop lam mot, mat mot khoan chi",
   );
+});
+
+
+/* ---------------------------------------------------------------- prod auth
+ *
+ * Two cases about the adapter this slice runs on, not about the flow above.
+ * They live here because this is the only file in the repository that talks to
+ * a real server the way the app does.
+ */
+
+test("client tự gắn Bearer cho người đang đăng nhập, harness không phải vá", () => {
+  if (NGUOI_DANG_NHAP === null) {
+    // A `dev` server: the headers still work and there is nothing to prove.
+    return;
+  }
+  assert.equal(
+    daVa(NGUOI_DANG_NHAP),
+    0,
+    "harness phải vá Bearer cho chính người đang đăng nhập, tức src/api.ts " +
+      "đã thôi tự gắn — trên máy thật thì đó là 401 ở mọi màn",
+  );
+});
+
+test("máy chủ prod từ chối X-Actor-ID giả khi không có phiên", async () => {
+  if (NGUOI_DANG_NHAP === null) return;
+  // Raw fetch on purpose: through the wrapper this request would be repaired
+  // into a valid one and would prove the opposite of what it claims.
+  const res = await fetchTho(`${BASE_URL}/contexts`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Actor-ID": NGUOI_DANG_NHAP,
+      "X-Actor-Roles": "group_admin,member",
+    },
+    body: JSON.stringify({ display_name: "Nhóm của kẻ mạo danh" }),
+  });
+  assert.equal(res.status, 401, `header giả phải bị từ chối, máy chủ trả ${res.status}`);
+  const body = await res.json();
+  assert.equal(body.code, "authentication_required");
 });

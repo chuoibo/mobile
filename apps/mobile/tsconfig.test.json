@@ -256,12 +256,6 @@
     // chỉ số người sai trong dữ liệu đã lưu là crash ở MỌI lần mở app, và chỉ
     // có chạy hàm thật trên đúng những giá trị hỏng đó mới trả lời được.
     "src/rudi/luu-tru.ts",
-    // Nửa client của ADR-0014. Compile vì luật nó mang là PHỦ ĐỊNH và mang tính
-    // an ninh: khi có bearer thì `X-Actor-ID` KHÔNG được rời máy. Đọc nguồn
-    // không phân biệt được "đã bỏ header" với "định bỏ" — chỉ bắt header trên
-    // dây mới trả lời được. Kèm cả cái seam chưa hiện thực, để «chưa làm» là
-    // một sự thật có cổng gác chứ không phải một dòng TODO.
-    "src/rudi/phien.ts",
     // Màn này đọc số của ai. Compile vì luật nó mang là: chế độ live KHÔNG BAO
     // GIỜ tự tới — phải có người gõ cấu hình vào. Một cổng đọc nguồn không phân
     // biệt được "không thăm dò máy chủ" với "chưa kịp viết đoạn thăm dò".

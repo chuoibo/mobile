@@ -13,8 +13,9 @@ import {
   cloneItinerary,
   type ItineraryDay,
 } from "./fixtures";
-import { dangCoPhien, datPhienBearer, datXuLyMatPhien } from "../api";
-import { docPhienThoAsync, docTokenAsync, ghiPhienThoAsync, xoaPhienAsync, xoaTokenAsync } from "./kho";
+import { datTokenPhien } from "../api";
+import { khoiPhucPhien, type Phien } from "../phien";
+import { docPhienThoAsync, ghiPhienThoAsync, xoaPhienAsync } from "./kho";
 import { dongGoi, moGoi } from "./luu-tru";
 import { nguonHienTai, type Nguon } from "./nguon";
 import { draftPicture, type DraftPicture } from "./money";
@@ -151,10 +152,10 @@ const RudiSessionContext = createContext<RudiSessionApi | null>(null);
 export function RudiSessionProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<RudiSession>(seed);
   const [dangNapPhien, setDangNapPhien] = useState(true);
-  const [coPhien, setCoPhien] = useState(false);
+  const [phien, setPhien] = useState<Phien | null>(null);
   // One decision, derived once. `cheDo` used to be its own piece of state,
   // which is how a badge and a data loader end up disagreeing.
-  const nguon = useMemo(() => nguonHienTai(coPhien), [coPhien]);
+  const nguon = useMemo(() => nguonHienTai(phien !== null), [phien]);
   const cheDo = nguon.kieu === "live" ? "live" : "trai-nghiem";
   const [luuTruSong, setLuuTruSong] = useState(false);
   const hen = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -174,25 +175,30 @@ export function RudiSessionProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // The bearer, read once and handed to `src/api.ts`, which is the only place
-  // that decides what identity a request carries. A 401 while holding one means
-  // the session is gone rather than the server being broken, so the token is
-  // dropped and the screens fall back to the experience build they already know
-  // how to be.
+  // The session, restored at launch by the module that owns it. `src/phien.ts`
+  // (ADR-0014, PR #514) reads SecureStore, drops an expired record rather than
+  // sending it, and hands the bearer to `src/api.ts`. This provider only needs
+  // to know WHETHER there is one, and who it says we are.
+  //
+  // An earlier draft of this branch had its own token store and its own bearer
+  // plumbing in `api.ts`. Both shipped on main first, and two implementations
+  // of one credential is the shape that leaves a tree unable to say which one
+  // is in force -- so this reads theirs instead of merging beside it.
   useEffect(() => {
     let song = true;
-    void docTokenAsync().then((token) => {
-      if (!song) return;
-      datPhienBearer(token);
-      setCoPhien(token !== null);
-    });
-    datXuLyMatPhien(() => {
-      void xoaTokenAsync();
-      setCoPhien(false);
-    });
+    void khoiPhucPhien()
+      .then((phien) => {
+        if (!song) return;
+        if (phien !== null) datTokenPhien(phien.token);
+        setPhien(phien);
+      })
+      .catch(() => {
+        // An unreadable store is indistinguishable from a first launch, and
+        // both answers are the same: no session, experience build.
+        if (song) setPhien(null);
+      });
     return () => {
       song = false;
-      datXuLyMatPhien(null);
     };
   }, []);
 
