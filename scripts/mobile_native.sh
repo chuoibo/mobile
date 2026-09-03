@@ -751,6 +751,8 @@ chay_flow() {
     them=(-e OTP_PHONE="$OTP_PHONE" -e OTP_PHONE_B="$OTP_PHONE_B"
           -e OTP_PHONE_C="$OTP_PHONE_C" -e OTP_PHONE_D="$OTP_PHONE_D" -e OTP_CODE="$OTP_CODE")
   fi
+  # Flow 30 rẽ theo AI: có khoá thì chờ thẻ của Rủ Đi AI, không thì câu nói thật.
+  them+=(-e AI="$AI")
   ra="$(mktemp)"
   # `set -e` là toàn cục, không theo hàm: bật lại ở đây là bật lại cho cả vòng
   # lặp gọi hàm này, và `return "$rc"` khác 0 ngay sau đó giết cả script — bảng

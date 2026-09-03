@@ -98,6 +98,10 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
             "40-ai-plan.yaml",
         ):
             text = (FLOWS / name).read_text(encoding="utf-8")
+            # A flow may hand the sign-in to a `_helper.yaml` through runFlow;
+            # the number and the code still have to come from the harness.
+            for helper in re.findall(r"file: (_[\w-]+\.yaml)", text):
+                text += (FLOWS / helper).read_text(encoding="utf-8")
             self.assertRegex(text, r"\$\{OTP_PHONE(_[BCD])?\}", name)
             self.assertIn("${OTP_CODE}", text, name)
             # A phone number in a flow file is a phone number in Git.

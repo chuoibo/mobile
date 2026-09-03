@@ -94,21 +94,17 @@ appId: com.lakiet.rudi
     visible: "1 phiếu · của bạn"
     timeout: 30000
 - takeScreenshot: 30-binh-chon
-# Gọi AI khi máy chủ không có khoá: câu nói thật, không phải im lặng vô danh.
+# Gọi AI và /chia-bill rẽ theo máy chủ: không có khoá (AI=0) → câu nói thật,
+# không phải im lặng vô danh; có khoá (--ai, AI=1) → thẻ của Rủ Đi AI và bản đọc
+# khoản chi thật (hoặc câu nói thật vì sao không có).
 - tapOn: "Ô soạn tin"
 - inputText: "@Ru Di goi y quan an"
 - tapOn: "Gửi tin nhắn"
-- extendedWaitUntil:
-    visible: "Rủ Đi AI chưa nối được mô hình trên máy chủ này."
-    timeout: 60000
-- hideKeyboard
-- takeScreenshot: 30-ai-im-lang-that
-# Chia bill từ chat khi reader chưa cấu hình: nói thật.
-- tapOn: "Ô soạn tin"
-- inputText: "/chia-bill"
-- tapOn: "Gửi tin nhắn"
-- extendedWaitUntil:
-    visible: "Chia bill từ chat chưa sẵn sàng trên máy chủ này."
-    timeout: 60000
-- hideKeyboard
-- takeScreenshot: 30-chia-bill-that
+- runFlow:
+    when:
+      true: ${AI != "1"}
+    file: _30-ai-khong-khoa.yaml
+- runFlow:
+    when:
+      true: ${AI == "1"}
+    file: _30-ai-co-khoa.yaml

@@ -1,0 +1,17 @@
+# Đăng nhập bằng số D (người được mời ở flow 24, đã vào «Hoi QA» ở flow 25).
+# Dùng khi một flow mở app ra màn chào mà không muốn xin mã cho C trong nhịp 60 s.
+appId: com.lakiet.rudi
+---
+- tapOn: "Rủ Đi thôi!"
+- extendedWaitUntil:
+    visible: "Chào bạn"
+    timeout: 30000
+- tapOn: "Ô số điện thoại"
+- inputText: "${OTP_PHONE_D}"
+- hideKeyboard
+- tapOn: "Gửi mã"
+- extendedWaitUntil:
+    visible: "Nhập mã 6 số"
+    timeout: 60000
+- tapOn: "Ô nhập mã"
+- inputText: "${OTP_CODE}"
