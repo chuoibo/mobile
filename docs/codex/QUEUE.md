@@ -48,6 +48,24 @@ số của seed. Muốn demo kể một câu chuyện thì seed phải đổi �
 
 ---
 
+### 0d. 2026-09-03 — Claude nhận các mục backend của lộ trình production-ready (ADR-0016 §2.3)
+
+Lead uỷ quyền Claude hiện thực cả `api/` + `db/` cho lộ trình 8 mốc (kế hoạch
+`~/.claude/plans/…glittery-riddle.md`, ADR-0016 #520). Ghi ở đây để hàng đợi
+này không mô tả việc đã có người làm như thể còn nợ:
+
+| Việc | Ai | Trạng thái |
+|---|---|---|
+| PR-BE0 seed hỏng vì `/bank-recipients` (#519) | Claude | ĐÃ MERGE |
+| PR-BE2 `issued_via`, `GET /people/me/contexts`, `context_read_marks`, idempotency scope theo bearer — đóng luôn 0a «nhóm nào?» | Claude | M1, đang làm |
+| PR-BE3 OTP điện thoại (`/auth/otp/*`, `otp_challenges`, `account_identities`, SMS sender cắm được) | Claude | M1 |
+| PR-BE4 Google ID-token (`/auth/google`) | Claude | M1 |
+| PR-BE5 profile + saved places | Claude | M2 |
+| PR-BE6 slash/@mention, `message_reactions`, cursor echo, grounding card client | Claude | M3 |
+| PR-BE7 `seed_rudi_world.py` HTTP-only re-runnable — đóng 0c «seed ≠ fixture» | Claude | M7 |
+| 0b `check_api_contract.py` mù `/healthz` | còn mở | sửa khi đụng `scripts/` |
+| C1–C3 (OffsetProposal, phản đối dừng thu, bằng chứng che) | còn mở | chưa nằm trong lộ trình |
+
 ## A. REVIEW — 5 PR đang chờ bạn
 
 ### A1. PR #11 — hai luồng phản đối của khách *(mới, quan trọng)*
