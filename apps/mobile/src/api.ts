@@ -2021,6 +2021,7 @@ export async function luuDongThoiGian(
         at: stop.at,
         label: stop.label,
         place_name: stop.place_name,
+        place_id: stop.place_id ?? null,
       })),
     },
     actorId,

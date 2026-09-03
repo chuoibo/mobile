@@ -20,6 +20,8 @@ export type ChangDung = {
   at: string;
   label: string;
   place_name: string | null;
+  /** Catalogue key (M4), or null for a stop that is only a label. */
+  place_id: string | null;
 };
 
 /** F46. One arrival: who, and when they said so.
@@ -44,6 +46,8 @@ export type ChangGui = {
   at: string;
   label: string;
   place_name: string | null;
+  /** Catalogue key (M4). Absent or null: the server keeps no place for the stop. */
+  place_id?: string | null;
 };
 
 export type BuoiDi = {

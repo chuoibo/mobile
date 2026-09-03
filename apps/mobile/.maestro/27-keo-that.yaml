@@ -1,0 +1,101 @@
+# Kèo THẬT (M4): tạo kèo trong nhóm, thêm chặng gắn địa điểm danh mục, đánh dấu
+# đã tới (giữ qua lần tắt mở), bấm chặng mở địa điểm, «Thêm vào kèo» từ chi tiết
+# địa điểm. Chạy sau flow 26 (phiên của D còn sống; nếu app ở màn chào thì đăng
+# nhập lại bằng số D). Harness kiểm máy chủ sau flow: nhóm của D có một kèo
+# «Keo QA» với hai chặng, chặng đầu trỏ p-tiem-nuong-xom-lao, một check-in.
+appId: com.lakiet.rudi
+---
+- stopApp
+- launchApp
+- runFlow: _bo-qua-dev-menu.yaml
+- extendedWaitUntil:
+    visible: "Rủ Đi thôi!|Khám phá|Chưa có nhóm nào"
+    timeout: 150000
+- runFlow:
+    when:
+      visible: "Rủ Đi thôi!"
+    file: _dang-nhap-d.yaml
+- extendedWaitUntil:
+    visible: "Khám phá"
+    timeout: 60000
+- tapOn: "Lên plan"
+- extendedWaitUntil:
+    visible: "Chưa có kèo nào"
+    timeout: 60000
+- takeScreenshot: 27-chua-co-keo
+- tapOn: "Tạo kèo"
+- extendedWaitUntil:
+    visible: "Hội mình đi đâu?"
+    timeout: 30000
+- tapOn: "Ô tên kèo"
+- inputText: "Keo QA"
+- hideKeyboard
+- tapOn: "Ô ngân sách một người"
+- inputText: "200000"
+- hideKeyboard
+- takeScreenshot: 27-tao-keo
+- tapOn: "Tạo kèo"
+- extendedWaitUntil:
+    visible: "Chưa có chặng nào"
+    timeout: 60000
+- assertVisible: "Keo QA"
+- assertVisible: "200.000đ"
+- takeScreenshot: 27-keo-moi
+# Thêm một chặng có địa điểm trong danh mục.
+- tapOn: "Thêm chặng"
+- extendedWaitUntil:
+    visible: "Ô tên chặng"
+    timeout: 30000
+- tapOn: "Ô tên chặng"
+- inputText: "An toi"
+- hideKeyboard
+- extendedWaitUntil:
+    visible: "Tiệm Nướng Xóm Lào"
+    timeout: 60000
+- tapOn: "Tiệm Nướng Xóm Lào"
+- tapOn: "Thêm chặng"
+- extendedWaitUntil:
+    visible: "1 chặng"
+    timeout: 60000
+- assertVisible: "An toi"
+- assertVisible: "Tiệm Nướng Xóm Lào"
+- assertVisible: "Chưa ai tới"
+- takeScreenshot: 27-co-chang
+- tapOn: "Tôi đã tới"
+- extendedWaitUntil:
+    visible: "1 đã tới · bạn"
+    timeout: 30000
+- takeScreenshot: 27-da-toi
+# Còn sau khi tắt mở: kèo, chặng và check-in đều đọc từ máy chủ.
+- stopApp
+- launchApp
+- runFlow: _bo-qua-dev-menu.yaml
+- extendedWaitUntil:
+    visible: "Khám phá"
+    timeout: 150000
+- tapOn: "Lên plan"
+- extendedWaitUntil:
+    visible: "Keo QA"
+    timeout: 60000
+- assertVisible: "1 chặng"
+- tapOn: "Mở kèo Keo QA"
+- extendedWaitUntil:
+    visible: "1 đã tới · bạn"
+    timeout: 60000
+# Bấm chặng có địa điểm → chi tiết địa điểm; từ đó «Thêm vào kèo».
+- tapOn: "Chặng An toi"
+- extendedWaitUntil:
+    visible: "Chỉ đường"
+    timeout: 60000
+- assertVisible: "Tiệm Nướng Xóm Lào"
+- tapOn: "Thêm vào kèo"
+- extendedWaitUntil:
+    visible: "Thêm vào"
+    timeout: 60000
+- assertVisible: "Keo QA"
+- takeScreenshot: 27-chon-keo
+- tapOn: "Thêm vào"
+- extendedWaitUntil:
+    visible: "2 chặng"
+    timeout: 60000
+- takeScreenshot: 27-hai-chang

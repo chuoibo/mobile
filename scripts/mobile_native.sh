@@ -364,6 +364,46 @@ print("%d|%s" % (len(ds), ",".join(sorted(x for x in ds if isinstance(x, str))))
   echo "máy chủ xác nhận: D đã lưu đúng một địa điểm ($ids) từ chi tiết địa điểm"
 }
 
+# Sau flow 27: nhóm của D có kèo «Keo QA» với hai chặng (chặng đầu trỏ
+# p-tiem-nuong-xom-lao) và một check-in của D — kèo, chặng, địa điểm và check-in
+# đều là hàng trên máy chủ, không phải trạng thái trên máy.
+kiem_may_chu_sau_27() {
+  local goc body tok ctx ket
+  goc="http://127.0.0.1:$API_PORT"
+  body="$(dang_nhap_curl "$OTP_PHONE_D")" \
+    || hong "sau flow 27: D không đăng nhập được qua curl."
+  tok="$(printf '%s' "$body" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("token",""))')"
+  ctx="$(curl -sS "$goc/people/me/contexts" -H "Authorization: Bearer $tok" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+act = [c for c in d.get("contexts", []) if c.get("my_state") == "active"]
+print(act[0]["id"] if act else "")')"
+  [ -n "$tok" ] && [ -n "$ctx" ] || hong "sau flow 27: D không có nhóm active."
+  ket="$(python3 - "$goc" "$tok" "$ctx" <<'PY3'
+import json, sys, urllib.request
+goc, tok, ctx = sys.argv[1:4]
+def get(path):
+    req = urllib.request.Request(goc + path, headers={"Authorization": "Bearer " + tok})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.load(r)
+keo = [o for o in get(f"/contexts/{ctx}/outings").get("outings", []) if o.get("title") == "Keo QA"]
+if not keo:
+    print("0|0||0"); sys.exit()
+o = keo[0]
+stops = sorted(o.get("stops", []), key=lambda s: s.get("position", 0))
+ids = ",".join(str(s.get("place_id")) for s in stops)
+ci = get(f"/outings/{o['id']}/checkins").get("checkins", [])
+print("%d|%d|%s|%d" % (len(keo), len(stops), ids, len(ci)))
+PY3
+)"
+  IFS='|' read -r so_keo so_chang ids so_ci <<< "$ket"
+  [ "${so_keo:-0}" -eq 1 ] || hong "sau flow 27: máy chủ có $so_keo kèo «Keo QA» trong nhóm của D, mong 1."
+  [ "${so_chang:-0}" -eq 2 ] || hong "sau flow 27: kèo có $so_chang chặng, mong 2."
+  case "$ids" in *p-tiem-nuong-xom-lao*) ;; *) hong "sau flow 27: không chặng nào trỏ p-tiem-nuong-xom-lao (place_id: $ids)." ;; esac
+  [ "${so_ci:-0}" -ge 1 ] || hong "sau flow 27: kèo không có check-in nào."
+  echo "máy chủ xác nhận: kèo «Keo QA» có $so_chang chặng (place_id: $ids) và $so_ci check-in"
+}
+
 kiem_may_chu_sau_30() {
   local goc body tok ctx ket
   goc="http://127.0.0.1:$API_PORT"
@@ -854,7 +894,7 @@ for f in "$FLOWS"/*.yaml; do
     # môi trường chứ không phải vì app sai. `--live` chạy đúng và chỉ nhóm này.
     20-*)        [ "$LIVE" = 1 ] || continue ;;
     21-*)        [ "$DANG_NHAP" = 1 ] || continue ;;
-    22-*|23-*|24-*|25-*|26-*|31-*) [ "$OTP" = 1 ] || continue ;;
+    22-*|23-*|24-*|25-*|26-*|27-*|31-*) [ "$OTP" = 1 ] || continue ;;
     # Under the keyboard negative control the composer is meant to be covered,
     # so a flow that has to tap it (30, 40) would only fail for the reason the
     # probe already measures. The table for --tat-kav is the sign-in leg + 31.
@@ -928,6 +968,7 @@ if [ "$OTP" = 1 ]; then
   kiem_may_chu_sau_24
   kiem_may_chu_sau_25
   kiem_may_chu_sau_26
+  kiem_may_chu_sau_27
   [ "$TAT_KAV" = 1 ] || kiem_may_chu_sau_30
   [ "$AI" = 1 ] && [ "$TAT_KAV" = 0 ] && kiem_may_chu_sau_40
   canary_otp
