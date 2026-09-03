@@ -618,7 +618,7 @@ def test_xuat_lai_cuc_bo_van_doc_duoc(tmp_path):
     """
     cuc_bo = tmp_path / "cuc-bo.mjs"
     cuc_bo.write_text(
-        'function a() {}\nfunction b() {}\nexport { a, b as c };\n', encoding="utf-8"
+        "function a() {}\nfunction b() {}\nexport { a, b as c };\n", encoding="utf-8"
     )
     assert xuat_cua(cuc_bo, chi_gia_tri=False) == {"a", "c"}
 
@@ -631,7 +631,7 @@ def test_xuat_lai_cuc_bo_van_doc_duoc(tmp_path):
     # Một file vừa có khai báo thật vừa có re-export cục bộ: đọc được cả hai.
     ca_hai = tmp_path / "ca-hai.mjs"
     ca_hai.write_text(
-        'export function x() {}\nfunction y() {}\nexport { y };\n', encoding="utf-8"
+        "export function x() {}\nfunction y() {}\nexport { y };\n", encoding="utf-8"
     )
     assert xuat_cua(ca_hai, chi_gia_tri=False) == {"x", "y"}
 

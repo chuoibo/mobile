@@ -295,7 +295,9 @@ _EXPORTED_FN = re.compile(
 # `import { a, b } from "..."` -- the names this file took from elsewhere.
 _IMPORT_NAMES = re.compile(r"(?<![\w$])import\s*\{(?P<names>[^}]*)\}\s*from")
 # A literal this tree only writes when it is building an identity header.
-_HEADER_LITERAL = re.compile(r"[\"'](?:X-Actor-[\w-]+|Authorization|Idempotency-Key)[\"']")
+_HEADER_LITERAL = re.compile(
+    r"[\"'](?:X-Actor-[\w-]+|Authorization|Idempotency-Key)[\"']"
+)
 # `h["Idempotency-Key"] = ...` / `headers["X"] = ...`
 _BRACKET_SET = re.compile(
     r"(?<![\w$.])(?P<obj>[\w$]+)\s*\[\s*[\"'](?P<key>[\w-]+)[\"']\s*\]\s*="

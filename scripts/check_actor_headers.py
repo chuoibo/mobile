@@ -911,7 +911,7 @@ export async function docNhom(actorId: string, ctx: string): Promise<void> {
 CANARY_REEXPORT_XAU = {
     **CANARY_REEXPORT,
     "man.ts": CANARY_REEXPORT["man.ts"].replace(
-        "headers: headerNguoiGoi(actorId)", "headers: { Accept: \"application/json\" }"
+        "headers: headerNguoiGoi(actorId)", 'headers: { Accept: "application/json" }'
     ),
 }
 
@@ -936,7 +936,7 @@ export async function docNhom(actorId: string, ctx: string): Promise<void> {
 # luôn trả False cũng "đạt" canary sạch — và cái file này tồn tại là để chặn
 # đúng kiểu xanh đó.
 CANARY_CONST_NUOT_HAM_XAU = CANARY_CONST_NUOT_HAM.replace(
-    "{ headers: headers(actorId) }", "{ headers: { Accept: \"application/json\" } }"
+    "{ headers: headers(actorId) }", '{ headers: { Accept: "application/json" } }'
 )
 
 CANARY_BLIND = """
