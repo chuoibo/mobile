@@ -252,6 +252,7 @@
     // could only be measured by driving an emulator.
     "src/rudi/duong-vao.ts",
     "src/rudi/otp-dang-cho.ts",
+    "src/rudi/chat/tin-song.ts",
     "src/rudi/cua-fixture.ts",
     // Đọc/ghi phiên. Compile chứ không đọc nguồn vì luật nó mang là luật PHỦ
     // ĐỊNH: không blob nào, dù hỏng thế nào, được phép làm màn tiền ném. Một

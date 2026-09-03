@@ -287,6 +287,38 @@ print("%s|%s|%s" % (c.get("friends"), c.get("contexts"), d.get("display_name", "
   echo "máy chủ xác nhận: D có 1 bạn (C) và 1 nhóm (Hoi QA) sau khi bấm hai lần «Đồng ý» trên máy"
 }
 
+# Sau flow 30: hỏi máy chủ với tư cách C — tin nhắn có thật, thẻ poll có thật,
+# phản ứng heart có thật. Màn hình chỉ là nơi bấm.
+kiem_may_chu_sau_30() {
+  local goc id body tok ctx ket
+  goc="http://127.0.0.1:$API_PORT"
+  id="$(curl -sS -X POST "$goc/auth/otp/request" -H 'Content-Type: application/json' \
+      -d "{\"phone\":\"$OTP_PHONE_C\"}" \
+    | python3 -c 'import json,sys;print(json.load(sys.stdin).get("challenge_id",""))' 2>/dev/null || true)"
+  [ -n "$id" ] || hong "sau flow 30: không xin được mã cho C."
+  body="$(curl -sS -X POST "$goc/auth/otp/verify" -H 'Content-Type: application/json' \
+      -d "{\"challenge_id\":\"$id\",\"phone\":\"$OTP_PHONE_C\",\"code\":\"$OTP_CODE\"}")"
+  tok="$(printf '%s' "$body" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("token",""))')"
+  ctx="$(printf '%s' "$body" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+act = [c for c in d.get("contexts", []) if c.get("my_state") == "active"]
+print(act[0]["id"] if act else "")')"
+  [ -n "$tok" ] && [ -n "$ctx" ] || hong "sau flow 30: C không đăng nhập được hoặc không có nhóm."
+  ket="$(curl -sS "$goc/contexts/$ctx/messages?limit=50" -H "Authorization: Bearer $tok" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+ms = d.get("messages", [])
+texts = [m for m in ms if m.get("kind") == "text"]
+polls = [m for m in ms if m.get("kind") == "ai_card" and (m.get("card") or {}).get("kind") == "poll"]
+hearts = sum(r.get("count", 0) for m in texts for r in m.get("reactions", []) if r.get("kind") == "heart")
+print("%d|%d|%d" % (len(texts), len(polls), hearts))')"
+  IFS='|' read -r so_text so_poll so_heart <<< "$ket"
+  [ "${so_text:-0}" -ge 3 ] && [ "${so_poll:-0}" -ge 1 ] && [ "${so_heart:-0}" -ge 1 ] \
+    || hong "sau flow 30: máy chủ có text=$so_text poll=$so_poll heart=$so_heart, mong ≥3, ≥1, ≥1."
+  echo "máy chủ xác nhận: nhóm của C có $so_text tin chữ, $so_poll thẻ bình chọn, $so_heart phản ứng ❤ — chat là thật"
+}
+
 # Canary cho chế độ --otp. Canary 09 đi đường fixture, mà ở đây cửa fixture tắt
 # có chủ ý — nó sẽ chết ở bước 1, tức chứng minh harness hỏng chứ không chứng
 # minh assert cắn. Đối chứng âm đúng của lượt này: chạy LẠI flow 22 với mã SAI
@@ -650,7 +682,7 @@ for f in "$FLOWS"/*.yaml; do
     # môi trường chứ không phải vì app sai. `--live` chạy đúng và chỉ nhóm này.
     20-*)        [ "$LIVE" = 1 ] || continue ;;
     21-*)        [ "$DANG_NHAP" = 1 ] || continue ;;
-    22-*|23-*|24-*|25-*) [ "$OTP" = 1 ] || continue ;;
+    22-*|23-*|24-*|25-*|30-*) [ "$OTP" = 1 ] || continue ;;
     *)           { [ "$LIVE" = 1 ] || [ "$DANG_NHAP" = 1 ] || [ "$OTP" = 1 ]; } && continue ;;
   esac
   DA_CHAY=$((DA_CHAY + 1))
@@ -702,6 +734,7 @@ fi
 if [ "$OTP" = 1 ]; then
   kiem_may_chu_sau_24
   kiem_may_chu_sau_25
+  kiem_may_chu_sau_30
   canary_otp
 else
 RA_CANARY="$(mktemp)"

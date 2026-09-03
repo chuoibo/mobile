@@ -9,8 +9,7 @@
  * An `invited` row is not a conversation yet: it carries «Đồng ý», and only the
  * press makes the person a member (`vaoNhom`). Tapping an active row makes
  * that group the current one (`chonNhom`, so the money screens read it) and
- * opens the group: today its roster and invite tools (M2); the chat itself is
- * M3 and until then a tap is honest about where it goes.
+ * opens its chat (M3); the roster and invite tools sit behind the chat header.
  *
  * On the fixture build (`cheDo !== "live"`) the tab still renders the fixture
  * chat, unchanged, so the default Maestro table keeps its ground.
@@ -66,7 +65,7 @@ export function ConversationsScreen({ phien }: { phien: Phien }) {
     try {
       const moi = await chonNhom({ ...phien, contexts: trang.pha === "xong" ? trang.nhom : phien.contexts }, nhom.id);
       datPhien(moi);
-      router.push(`/groups/${nhom.id}/members` as never);
+      router.push(`/groups/${nhom.id}/chat` as never);
     } catch (error) {
       setTrang({ pha: "hong", loi: loiRaChu(error) });
     } finally {
