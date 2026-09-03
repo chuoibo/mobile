@@ -65,6 +65,7 @@ này không mô tả việc đã có người làm như thể còn nợ:
 | PR-BE7a `outing_stops.place_id` (chặng của kèo trỏ vào danh mục; giữ check-in khi gắn) | Claude | **#536** mở, xếp trên #534 (M4) |
 | PR-BE7 `seed_rudi_world.py` HTTP-only re-runnable — đóng 0c «seed ≠ fixture» | Claude | M7, chưa làm |
 | 0b `check_api_contract.py` mù `/healthz` | còn mở | sửa khi đụng `scripts/` |
+| C1–C3 (OffsetProposal, phản đối dừng thu, bằng chứng che) | còn mở | chưa nằm trong lộ trình |
 
 Phía client (vỏ RuDi, `apps/mobile/`, xếp chồng theo thứ tự, mỗi PR đã có agy PASS + APPROVE có điều kiện chuỗi và bằng chứng emulator trong thân PR):
 
@@ -76,7 +77,6 @@ Phía client (vỏ RuDi, `apps/mobile/`, xếp chồng theo thứ tự, mỗi PR
 | **#537** | M3 chat như messenger trên API thật, Rủ Đi AI là thành viên (`/plan` `/vote` `/chia-bill` `@Rủ Đi`), đo bàn phím | #535 và #534 |
 
 Thứ tự merge chờ Lead: #520 → #526 → #529 → #530 → #532 → #534 → #536 (máy chủ) và #531 → #533 → #535 → #537 (client), đổi base về `main` từng bước.
-| C1–C3 (OffsetProposal, phản đối dừng thu, bằng chứng che) | còn mở | chưa nằm trong lộ trình |
 
 ## A. REVIEW — 5 PR đang chờ bạn
 
