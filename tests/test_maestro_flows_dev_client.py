@@ -130,7 +130,9 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
             script,
         )
         self.assertIn("canary_otp", script)
-        self.assertIn('22-*|23-*|24-*|25-*|30-*|31-*) [ "$OTP" = 1 ] || continue', script)
+        self.assertIn(
+            '22-*|23-*|24-*|25-*|30-*|31-*) [ "$OTP" = 1 ] || continue', script
+        )
         self.assertIn("do_ban_phim.py", script)
         self.assertIn("kiem_khoa_ai", script)
 
@@ -141,10 +143,18 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
         script = (REPO_ROOT / "scripts" / "mobile_native.sh").read_text(
             encoding="utf-8"
         )
-        body = script[script.index("chay_flow() {") : script.index("\n}\n", script.index("chay_flow() {"))]
+        body = script[
+            script.index("chay_flow() {") : script.index(
+                "\n}\n", script.index("chay_flow() {")
+            )
+        ]
         self.assertIn("set +e", body)
-        self.assertNotIn("\n  set -e\n", body, "chay_flow bật lại set -e trước khi return rc")
-        self.assertIn('40-*)        [ "$OTP" = 1 ] && [ "$AI" = 1 ] || continue', script)
+        self.assertNotIn(
+            "\n  set -e\n", body, "chay_flow bật lại set -e trước khi return rc"
+        )
+        self.assertIn(
+            '40-*)        [ "$OTP" = 1 ] && [ "$AI" = 1 ] || continue', script
+        )
         self.assertIn("kiem_may_chu_sau_30", script)
         self.assertIn("kiem_may_chu_sau_24", script)
         self.assertIn("kiem_may_chu_sau_25", script)
