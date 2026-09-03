@@ -20,6 +20,7 @@ from app.api.errors import ApiProblem, RepositoryConflict
 from app.api.limits import OBJECTION_KINDS, QUOTA_CONSUMING_OBJECTIONS
 from app.api.repository import (
     WALL_CLOCK_ZONE,
+    AccountSessionRecord,
     ApiRepository,
     BillRecord,
     FriendEdgeRecord,
@@ -31,6 +32,7 @@ from app.api.repository import (
     ObligationDraft,
     OutingInviteRecord,
     OutingRecord,
+    PersonContextSummaryRecord,
     PersonFinanceSummary,
     PersonRecord,
     PostRecord,
@@ -70,7 +72,9 @@ from app.api.schemas import (
     ContextBalanceEntry,
     ContextBalancesResponse,
     ContextCreateRequest,
+    ContextLastMessage,
     ContextResponse,
+    ContextSummary,
     ContextualSuggestionResponse,
     ConversationBasis,
     ExpenseConfirmationRequest,
@@ -122,6 +126,7 @@ from app.api.schemas import (
     OutingTimelineRequest,
     PaymentReportRequest,
     PaymentReportResponse,
+    PersonContextListResponse,
     PersonMatchResponse,
     PersonPostListResponse,
     PostCreateRequest,
@@ -130,8 +135,11 @@ from app.api.schemas import (
     PreferenceProfileResponse,
     PreferenceSection,
     PreferenceTaste,
+    ProfileSummary,
     PublishedGuestLink,
     PublishedObligation,
+    ReadMarkRequest,
+    ReadMarkResponse,
     RecapOutingResponse,
     ReceiptConfirmationRequest,
     ReceiptConfirmationResponse,
@@ -290,6 +298,30 @@ def _guest_actor(token: str) -> Actor:
         id=f"capability:{token_digest(token).hex()[:16]}",
         roles=frozenset({"guest"}),
         context_ids=frozenset(),
+    )
+
+
+def _context_summary(record: PersonContextSummaryRecord) -> ContextSummary:
+    last = record.last_message
+    return ContextSummary(
+        id=record.id,
+        display_name=record.display_name,
+        member_count=record.member_count,
+        my_role=record.my_role,
+        my_state=record.my_state,
+        membership_id=record.membership_id,
+        joined_at=record.joined_at,
+        last_message=None
+        if last is None
+        else ContextLastMessage(
+            id=last.id,
+            kind=last.kind,
+            preview=last.preview,
+            author_id=last.author_id,
+            author_display_name=last.author_display_name,
+            created_at=last.created_at,
+        ),
+        unread_count=record.unread_count,
     )
 
 
@@ -2551,22 +2583,103 @@ class ApiService:
             issued_from_invite_id=invite.id,
             expires_at=now + ACCOUNT_SESSION_TTL,
             now=now,
+            issued_via="invite",
         )
-        return SessionResponse(
-            token=raw_token,
+        return self._session_response(
+            raw_token,
+            record,
             person_id=person_id,
             # Already in hand: `outing` was loaded above to check the expiry,
             # so naming the group costs no second query. A client told only
             # who it is cannot ask which group it is in -- `contexts.py`
             # declares no route that lists them.
             context_id=outing.context_id,
-            expires_at=record.expires_at,
             membership_state=membership.state,
             # The row this person may accept for themselves. Named here
             # because it is nameable here and nowhere else the client can
             # reach: the roster route that would list it is itself behind the
             # membership.
             membership_id=membership.id,
+        )
+
+    def _session_response(
+        self,
+        raw_token: str,
+        record: AccountSessionRecord,
+        *,
+        person_id: uuid.UUID,
+        context_id: uuid.UUID | None = None,
+        membership_state: str | None = None,
+        membership_id: uuid.UUID | None = None,
+        is_new_person: bool = False,
+    ) -> SessionResponse:
+        """One shape for every door.
+
+        The invite door fills `context_id` / `membership_state` / `membership_id`
+        because it knows them for free; the OTP and Google doors (ADR-0016) do
+        not, and say so with `None` rather than inventing a group. `contexts` is
+        the same list `GET /people/me/contexts` returns, computed once here so a
+        client told who it is is told where it may go in the same answer.
+        """
+        person = self.repository.get_person(person_id)
+        return SessionResponse(
+            token=raw_token,
+            person_id=person_id,
+            expires_at=record.expires_at,
+            issued_via=record.issued_via,
+            is_new_person=is_new_person,
+            profile=ProfileSummary(
+                display_name=person.display_name if person else "Thành viên mới"
+            ),
+            contexts=self._context_summaries(person_id),
+            context_id=context_id,
+            membership_state=membership_state,
+            membership_id=membership_id,
+        )
+
+    def _context_summaries(self, person_id: uuid.UUID) -> list[ContextSummary]:
+        return [
+            _context_summary(record)
+            for record in self.repository.list_person_context_summaries(person_id)
+        ]
+
+    def list_my_contexts(self, actor: Actor) -> PersonContextListResponse:
+        """Every group the caller is in or invited to, newest conversation first.
+
+        Read from the roster and the feed on every call. `X-Actor-Contexts` is
+        not consulted and never will be: ADR-0014 s7 made the database the one
+        source of which groups a person is in, and this is that source's door.
+        """
+        _require_permission("view_own_contexts", actor, {"is_self": True})
+        return PersonContextListResponse(contexts=self._context_summaries(actor.id))
+
+    def mark_context_read(
+        self, context_id: uuid.UUID, request: ReadMarkRequest, actor: Actor
+    ) -> ReadMarkResponse:
+        """Move the caller's read mark forward to one message of this group.
+
+        Gated like reading the messages themselves. A message from another
+        group is a 404, not a 403: this door must not confirm that a message id
+        exists somewhere the caller cannot see.
+        """
+        _require_permission(
+            "view_group_messages",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        message = self.repository.get_message(request.message_id)
+        if message is None or message.context_id != context_id:
+            raise ApiProblem(404, "message_not_found", "Message not found")
+        mark = self.repository.set_read_mark(
+            context_id=context_id,
+            person_id=actor.id,
+            message=message,
+            now=_now(),
+        )
+        return ReadMarkResponse(
+            context_id=context_id,
+            last_read_message_id=mark.last_read_message_id,
+            unread_count=self.repository.count_unread_messages(context_id, actor.id),
         )
 
     def actor_for_session_token(self, token: str) -> Actor:

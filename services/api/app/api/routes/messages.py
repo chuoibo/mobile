@@ -30,6 +30,8 @@ from app.api.schemas import (
     MessageListResponse,
     MessageQuery,
     MessageResponse,
+    ReadMarkRequest,
+    ReadMarkResponse,
 )
 from app.api.search_rate_limit import FixedWindowLimiter
 from app.api.service import ApiService
@@ -232,3 +234,20 @@ def set_context_member_role(
     return ApiService(repository).set_context_member_role(
         context_id, person_id, request, actor
     )
+
+
+@router.put(
+    "/contexts/{context_id}/read-mark",
+    response_model=ReadMarkResponse,
+    responses=ERRORS,
+)
+def mark_context_read(
+    context_id: UUID,
+    request: ReadMarkRequest,
+    actor: Annotated[Actor, Depends(get_actor)],
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+) -> ReadMarkResponse:
+    """Where this person has read up to. Forward-only; a message outside this
+    group is a 404. PUT because the resource is the mark itself and the call is
+    idempotent by construction -- replaying it moves nothing."""
+    return ApiService(repository).mark_context_read(context_id, request, actor)

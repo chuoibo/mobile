@@ -189,6 +189,7 @@ def main(argv: list[str] | None = None) -> int:
                 person_id=person.id,
                 token_digest=_digest(raw_token),
                 issued_from_invite_id=None,
+                issued_via="genesis",
                 created_at=now,
                 expires_at=now + GENESIS_SESSION_TTL,
             )
