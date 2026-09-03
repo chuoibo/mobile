@@ -284,16 +284,17 @@ kiem_may_chu_sau_24() {
   via="$(printf '%s' "$body" | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
-moi = [c for c in d.get("contexts", []) if c.get("my_state") == "invited"]
+# invited ngay sau flow 24; active nếu flow 25 cùng lượt đã cho D bấm «Đồng ý».
+moi = [c for c in d.get("contexts", []) if c.get("my_state") in ("invited", "active")]
 ten_nhom = moi[0]["display_name"] if moi else ""
 ten_nguoi = d.get("profile", {}).get("display_name", "")
 print("%d|%s|%s" % (len(moi), ten_nhom, ten_nguoi))')"
   IFS='|' read -r so_moi ten_nhom ten_nguoi <<< "$via"
   [ "$so_moi" = "1" ] && [ "$ten_nhom" = "Hoi QA" ] \
-    || hong "sau flow 24: máy chủ không giữ lời mời cho người được mời (invited=$so_moi, nhóm='$ten_nhom')."
+    || hong "sau flow 24: máy chủ không có «Hoi QA» cho người được mời (nhóm đếm=$so_moi, tên='$ten_nhom')."
   ten="$ten_nguoi"
   [ "$ten" = "Ban QA" ] || hong "sau flow 24: người được mời phải mang tên người mời đặt ('Ban QA'), máy chủ trả '$ten'."
-  echo "máy chủ xác nhận: người được mời (số D) đăng nhập thấy đúng 1 lời mời vào «Hoi QA», tên «Ban QA» do người mời đặt"
+  echo "máy chủ xác nhận: người được mời (số D) đăng nhập thấy «Hoi QA» (mời hoặc đã vào), tên «Ban QA» do người mời đặt"
 }
 
 # Sau flow 25: D (số D) vừa đồng ý vào «Hoi QA» và đồng ý kết bạn với C trên máy.
