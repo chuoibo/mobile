@@ -30,9 +30,15 @@ answers a different question than the one being asked.
 ## What "reachable" means here, precisely
 
 A directed graph over files. There is an edge `G -> F` when `G` renders `<Name`
-in real code and `Name` is imported into `G` from `F`. The roots are the entry
-points (`index.ts`, `App.tsx`). A screen file passes when it is reachable from a
-root by following those edges.
+in real code and `Name` is imported into `G` from `F`. The roots are whatever
+`package.json` names as the door: under `expo-router/entry` every route file
+under `app/` (its default export -- `export { X as default } from`, or
+`export default X` -- IS the render, because expo-router mounts it), otherwise
+the classic pair `index.ts` / `App.tsx`. Judged screens live under both
+`src/screens` (legacy tree) and `src/rudi/screens` (the shell that ships). A
+screen file passes when it is reachable from a root by following those edges.
+`const X = lazy(() => import("…"))` binds a renderable name too: it is how the
+shell reaches the legacy tree through `app/legacy.tsx`.
 
 Two things make this different from a text search, and both were failure modes
 of the hand-rolled attempts it replaces:
@@ -90,6 +96,49 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 MOBILE_ROOT = REPO_ROOT / "apps" / "mobile"
 SCREEN_ROOT = MOBILE_ROOT / "src" / "screens"
 
+# The shell that ships. `package.json` names `expo-router/entry` as `main`, so the
+# door is every route file under `app/` and the screens they render live in
+# `src/rudi/screens`. Both roots are judged; derived from MOBILE_ROOT at call
+# time so the canary trees, which repoint MOBILE_ROOT, get the same shape.
+ROUTER_ENTRY = "expo-router/entry"
+
+
+def rudi_screen_root() -> Path:
+    return MOBILE_ROOT / "src" / "rudi" / "screens"
+
+
+def app_root() -> Path:
+    return MOBILE_ROOT / "app"
+
+
+def package_main() -> str | None:
+    """What `package.json` says the door is, or None when there is no manifest."""
+    manifest = MOBILE_ROOT / "package.json"
+    if not manifest.is_file():
+        return None
+    try:
+        return json.loads(manifest.read_text(encoding="utf-8")).get("main")
+    except (OSError, ValueError):
+        return None
+
+
+def entry_roots() -> list[Path]:
+    """The files a phone actually starts from.
+
+    Under `expo-router/entry` those are the route files -- every `.tsx` under
+    `app/`, because the file system IS the navigator and each file is a door a
+    URL can open. `index.ts` / `App.tsx` are then NOT roots: the legacy tree is
+    reachable only through `app/legacy.tsx`, and the gate should say so rather
+    than grant it a door `package.json` no longer names. Without a manifest
+    (the canary trees) the classic pair stays the root.
+    """
+    if package_main() == ROUTER_ENTRY and app_root().is_dir():
+        return sorted(p for p in app_root().rglob("*.tsx") if p.is_file())
+    return [
+        MOBILE_ROOT / name for name in ENTRY_RELATIVE if (MOBILE_ROOT / name).is_file()
+    ]
+
+
 # Screens that nothing renders on purpose, each with a reason. Keyed by path so
 # the entry survives edits above it -- a pin that moves with every unrelated
 # line goes red for the wrong reason, which is how a gate stops being run.
@@ -120,7 +169,7 @@ REGISTRATION_FILES = ("index.ts",)
 # are deliberately excluded: a screen rendered only by its own test is exactly
 # the thing this gate exists to name, so letting a test file supply the edge
 # would make the answer always yes.
-SOURCE_DIRS = ("src",)
+SOURCE_DIRS = ("src", "app")
 
 # The twin gate, imported for its tokenizer rather than re-implemented. Loaded
 # by path because `scripts/` is not a package and this file must run as a plain
@@ -146,6 +195,20 @@ IMPORT_RE = re.compile(
 # are host elements (`<View`), never components defined in this tree.
 JSX_RE = re.compile(r"<([A-Z][A-Za-z0-9_]*)")
 
+# `const LegacyApp = lazy(() => import("../../App"))` -- a dynamic import bound
+# to a name that is later rendered as `<LegacyApp />`. This is how the shell
+# reaches the legacy tree; without this edge every legacy screen reads dead.
+LAZY_IMPORT_RE = re.compile(
+    r"\b(?:const|let|var)\s+(?P<name>[A-Z][A-Za-z0-9_]*)\s*=\s*(?:React\.)?lazy\(\s*(?:async\s*)?\(\)\s*=>\s*"
+    r"import\(\s*(?P<quote>['\"])(?P<spec>[^'\"]*)(?P=quote)\s*\)"
+)
+
+# `export default Foo;` in a route file: expo-router renders the default export,
+# so this IS the render edge of that file.
+EXPORT_DEFAULT_NAME_RE = re.compile(
+    r"^\s*export\s+default\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*;?\s*$", re.M
+)
+
 # `import type {...}` and `import {type Foo}` bind types, which cannot be
 # rendered. Excluded so a type borrowed across files never supplies an edge.
 TYPE_ONLY_CLAUSE = re.compile(r"^\s*type\b")
@@ -162,6 +225,10 @@ class Module:
     renders: dict[str, str | None] = field(default_factory=dict)
     # Every name bound by a value import, mapped to its specifier.
     imports: dict[str, str] = field(default_factory=dict)
+    # Specifiers a route file hands to expo-router as its default export:
+    # `export { Screen as default } from "..."`, or `export default Name` where
+    # `Name` was imported. Only honoured for files under `app/`.
+    default_from: list[str] = field(default_factory=list)
 
 
 def read(path: Path) -> str:
@@ -222,6 +289,21 @@ def parse_module(path: Path, rel: str) -> Module:
         clause = src[match.start("clause") : match.end("clause")]
         for name in bound_names(clause):
             module.imports[name] = spec
+        # `export { X as default } from "spec"`: the re-export IS the screen.
+        if masked[match.start() : match.start() + 6] == "export" and re.search(
+            r"\bdefault\b", clause
+        ):
+            module.default_from.append(spec)
+
+    for match in LAZY_IMPORT_RE.finditer(masked):
+        module.imports[match.group("name")] = src[
+            match.start("spec") : match.end("spec")
+        ]
+
+    for match in EXPORT_DEFAULT_NAME_RE.finditer(masked):
+        spec = module.imports.get(match.group("name"))
+        if spec:
+            module.default_from.append(spec)
 
     for match in JSX_RE.finditer(masked):
         name = match.group(1)
@@ -297,9 +379,7 @@ def reachable_files(graph: dict[Path, Module]) -> set[Path]:
     imported from it. Import alone is not enough -- see the module docstring on
     why `import type { Envelope } from "./ChiaSe"` must not count.
     """
-    roots = [
-        MOBILE_ROOT / name for name in ENTRY_RELATIVE if (MOBILE_ROOT / name).is_file()
-    ]
+    roots = entry_roots()
     seen: set[Path] = set()
     queue = [r for r in roots if r in graph]
     seen.update(queue)
@@ -312,6 +392,11 @@ def reachable_files(graph: dict[Path, Module]) -> set[Path]:
         specs: list[str] = []
         if current.name in REGISTRATION_FILES:
             specs.extend(module.imports.values())
+        # A route file's default export is rendered by expo-router itself. A
+        # plain import in a route file still counts for nothing -- see the
+        # CANARY_ROUTER_IMPORT_ONLY tree.
+        if app_root() in current.parents:
+            specs.extend(module.default_from)
         specs.extend(spec for spec in module.renders.values() if spec)
         for spec in specs:
             target = resolve(spec, current)
@@ -329,7 +414,10 @@ def screen_files(graph: dict[Path, Module]) -> list[Path]:
     reached by import rather than by render and judging them would report a
     dead screen for every helper a live screen calls through a function.
     """
-    return sorted(p for p in graph if p.suffix == ".tsx" and SCREEN_ROOT in p.parents)
+    roots = (SCREEN_ROOT, rudi_screen_root())
+    return sorted(
+        p for p in graph if p.suffix == ".tsx" and any(r in p.parents for r in roots)
+    )
 
 
 def load_pins() -> dict[str, str]:
@@ -445,6 +533,44 @@ CANARY_IMPORT_ONLY["App.tsx"] = (
 )
 
 
+# The shell that ships: no `index.ts`, `main` is `expo-router/entry`, and a route
+# file re-exports the screen. `Sang` must read live through that re-export alone.
+CANARY_ROUTER_LIVE = {
+    "package.json": '{"main": "expo-router/entry"}\n',
+    "app/sang.tsx": 'export { Sang as default } from "../src/rudi/screens/Sang";\n',
+    "app/legacy.tsx": (
+        'import { LegacyEntry } from "../src/rudi/LegacyEntry";\n'
+        "export default LegacyEntry;\n"
+    ),
+    "src/rudi/LegacyEntry.tsx": (
+        'import { lazy } from "react";\n'
+        'const LegacyApp = lazy(() => import("../../App"));\n'
+        "export function LegacyEntry() {\n  return <LegacyApp />;\n}\n"
+    ),
+    "App.tsx": (
+        'import { Cu } from "./src/screens/Cu";\n'
+        "export function App() {\n  return <Cu />;\n}\n"
+    ),
+    "src/screens/Cu.tsx": "export function Cu() {\n  return null;\n}\n",
+    "src/rudi/screens/Sang.tsx": "export function Sang() {\n  return null;\n}\n",
+}
+
+# Same shell, plus a RuDi screen no route file exports: it must be the one and
+# only dead screen, and the legacy `Cu` reached through `lazy(import)` must NOT be.
+CANARY_ROUTER_DEAD = dict(CANARY_ROUTER_LIVE)
+CANARY_ROUTER_DEAD["src/rudi/screens/Toi.tsx"] = (
+    "export function Toi() {\n  return null;\n}\n"
+)
+
+# A route file that merely imports a screen hands nothing to expo-router. Same
+# trap as CANARY_IMPORT_ONLY, one level up.
+CANARY_ROUTER_IMPORT_ONLY = dict(CANARY_ROUTER_DEAD)
+CANARY_ROUTER_IMPORT_ONLY["app/sang.tsx"] = (
+    'import { Toi } from "../src/rudi/screens/Toi";\n'
+    'export { Sang as default } from "../src/rudi/screens/Sang";\n'
+)
+
+
 def _write_canary(root: Path, files: dict[str, str]) -> None:
     for rel, body in files.items():
         target = root / rel
@@ -514,6 +640,24 @@ def selftest() -> int:
         else:
             print(f"canary SỐNG: SAI, mong 0 finding, nhận {findings} — {stats}")
             ok = False
+
+    for label, tree, want_dead in (
+        ("ROUTER SỐNG", CANARY_ROUTER_LIVE, None),
+        ("ROUTER CHẾT", CANARY_ROUTER_DEAD, "src/rudi/screens/Toi.tsx"),
+        ("ROUTER CHỈ-IMPORT", CANARY_ROUTER_IMPORT_ONLY, "src/rudi/screens/Toi.tsx"),
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "router"
+            _write_canary(root, tree)
+            findings, stats = _check_canary(root)
+            hits = [f for f in findings if f.kind == "unrendered"]
+            if want_dead is None and not findings:
+                print(f"canary {label}: XANH, 0 finding — {stats}")
+            elif want_dead and len(hits) == 1 and hits[0].rel.endswith(want_dead):
+                print(f"canary {label}: ĐỎ đúng 1 màn ({hits[0].rel}) — {stats}")
+            else:
+                print(f"canary {label}: SAI, nhận {findings} — {stats}")
+                ok = False
 
     if ok:
         print("selftest ĐẠT: cổng đỏ được khi có màn chết, và xanh khi không có.")

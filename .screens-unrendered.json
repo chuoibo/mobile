@@ -1,7 +1,7 @@
 {
   "_doc": [
-    "Man .tsx duoi apps/mobile/src/screens ma KHONG file nao dang song render.",
-    "Do bang scripts/check_screens_reachable.py. Lan cap nhat: 2026-08-31.",
+    "Man .tsx duoi apps/mobile/src/screens VA apps/mobile/src/rudi/screens ma KHONG file nao dang song render.",
+    "Do bang scripts/check_screens_reachable.py, goc la cac route app/** (package.json main = expo-router/entry). Lan cap nhat: 2026-09-03.",
     "",
     "Day la DANH SACH NO, khong phai danh sach mien. Moi dong o day la mot man",
     "da viet xong, da typecheck, va khong nguoi nao mo duoc -- vi khong co gi",
