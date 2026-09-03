@@ -10,6 +10,7 @@ requires-python = ">=3.12"
 dependencies = [
   "alembic>=1.14,<2",
   "google-genai>=1.0,<3",
+  "google-auth>=2.40,<3",
   # Web layer (Claude): server-rendered guest page and its QR image.
   "jinja2>=3.1,<4",
   # F22 face detection. Headless on purpose: the GUI build pulls in an X11

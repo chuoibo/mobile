@@ -18,6 +18,7 @@ from app.api.chat_expense_skill import ChatExpenseReader, run_chat_expense_skill
 from app.api.cursors import CursorError, decode_cursor, encode_cursor
 from app.api.deps import Actor, Companion, ContextualSuggester, Reeler, Suggester
 from app.api.errors import ApiProblem, RepositoryConflict
+from app.api.google_identity import GoogleTokenInvalid, GoogleTokenVerifier
 from app.api.limits import OBJECTION_KINDS, QUOTA_CONSUMING_OBJECTIONS
 from app.api.person_identity import (
     PersonIdKeyMissing,
@@ -145,7 +146,11 @@ from app.api.schemas import (
     PreferenceProfileResponse,
     PreferenceSection,
     PreferenceTaste,
+    ProfileCountsResponse,
+    ProfileResponse,
     ProfileSummary,
+    ProfileUpdateRequest,
+    PublicPersonResponse,
     PublishedGuestLink,
     PublishedObligation,
     ReadMarkRequest,
@@ -155,6 +160,8 @@ from app.api.schemas import (
     ReceiptConfirmationResponse,
     ReelPick,
     ReelResponse,
+    SavedPlacesResponse,
+    SavedPlaceSummary,
     SessionResponse,
     SettlementTransferProposal,
     SocialMapResponse,
@@ -2777,6 +2784,216 @@ class ApiService:
         )
         return self._session_response(
             raw_token, record, person_id=person_id, is_new_person=is_new
+        )
+
+    def login_with_google(
+        self, id_token: object, *, verifier: GoogleTokenVerifier | None
+    ) -> SessionResponse:
+        """A Google ID token for a session (ADR-0016). The e-mail never gets here.
+
+        Order matters and is the whole of the security argument: a host with
+        no client ids refuses before it reads the token (503); a token the
+        verifier does not vouch for is one 401 whatever the reason; and the
+        `sub` is looked up in `account_identities` and nowhere else -- a first
+        `sub` is a NEW person even if a person with the same e-mail exists,
+        because `GoogleClaims` does not carry the e-mail to make that choice.
+        """
+        if verifier is None:
+            raise ApiProblem(
+                503,
+                "google_not_configured",
+                "Máy chủ chưa cấu hình đăng nhập Google.",
+            )
+        if not isinstance(id_token, str) or not id_token.strip():
+            raise ApiProblem(422, "id_token_required", "Thiếu id_token.")
+        try:
+            claims = verifier.verify(id_token.strip())
+        except GoogleTokenInvalid as broken:
+            raise ApiProblem(
+                401,
+                "google_token_invalid",
+                "Google không xác nhận lượt đăng nhập này. Thử lại.",
+            ) from broken
+        now = _now()
+        existing = self.repository.get_account_identity("google", claims.subject)
+        if existing is None:
+            person_id = uuid.uuid4()
+            is_new = True
+            try:
+                self.repository.create_person_with_identity(
+                    person_id=person_id,
+                    display_name=claims.display_name or self.NEW_PERSON_NAME,
+                    provider="google",
+                    subject=claims.subject,
+                    now=now,
+                )
+            except RepositoryConflict:
+                # Two first logins raced on one `sub`. The repository rolled the
+                # loser's person row back with the failed binding, so re-read
+                # the winner and sign in as that person.
+                won = self.repository.get_account_identity("google", claims.subject)
+                if won is None:
+                    raise
+                person_id = won.person_id
+                is_new = False
+        else:
+            person_id = existing.person_id
+            is_new = False
+            self.repository.upsert_account_identity(
+                person_id=person_id, provider="google", subject=claims.subject, now=now
+            )
+        raw_token = secrets.token_urlsafe(32)
+        record = self.repository.create_account_session(
+            person_id=person_id,
+            token_digest=token_digest(raw_token),
+            issued_from_invite_id=None,
+            expires_at=now + ACCOUNT_SESSION_TTL,
+            now=now,
+            issued_via="google",
+        )
+        return self._session_response(
+            raw_token, record, person_id=person_id, is_new_person=is_new
+        )
+
+    # --- profile and bookmarks (M2) -----------------------------------------
+
+    def get_my_profile(self, actor: Actor) -> ProfileResponse:
+        _require_permission("view_own_profile", actor, {"is_self": True})
+        person = self.repository.get_person(actor.id)
+        if person is None:
+            raise ApiProblem(
+                404, "person_not_found", "Chưa có hồ sơ cho tài khoản này."
+            )
+        return self._profile_response(person)
+
+    def update_my_profile(
+        self, request: ProfileUpdateRequest, actor: Actor
+    ) -> ProfileResponse:
+        """Partial update of the caller's own text. `display_name` is trimmed
+        and never blank (the schema refuses blank); an empty `bio`/`city`
+        clears the field, which is the only way to take a sentence back."""
+        _require_permission("edit_own_profile", actor, {"is_self": True})
+        changes: dict[str, str | None] = {}
+        if request.display_name is not None:
+            changes["display_name"] = request.display_name.strip()
+        if request.bio is not None:
+            changes["bio"] = request.bio.strip() or None
+        if request.city is not None:
+            changes["city"] = request.city.strip() or None
+        person = self.repository.update_person_profile(actor.id, changes=changes)
+        if person is None:
+            raise ApiProblem(
+                404, "person_not_found", "Chưa có hồ sơ cho tài khoản này."
+            )
+        return self._profile_response(person)
+
+    def _profile_response(self, person: PersonRecord) -> ProfileResponse:
+        counts = self.repository.profile_counts(person.id)
+        return ProfileResponse(
+            id=person.id,
+            display_name=person.display_name,
+            bio=person.bio,
+            city=person.city,
+            created_at=person.created_at,
+            counts=ProfileCountsResponse(
+                friends=counts.friends,
+                contexts=counts.contexts,
+                outings=counts.outings,
+                places_checked_in=counts.places_checked_in,
+                memories=counts.memories,
+            ),
+            login_methods=self.repository.list_login_providers(person.id),
+        )
+
+    def get_person_profile(
+        self, person_id: uuid.UUID, actor: Actor
+    ) -> PublicPersonResponse:
+        """Somebody's public profile, for a friend or a groupmate.
+
+        The relation is proved from the friend graph and the roster BEFORE the
+        person row is read, and an id nobody may see answers 403
+        `person_not_visible` whether or not it exists. Reading the row first
+        would make the 404/403 split an oracle for which ids are people.
+        """
+        if person_id == actor.id:
+            relation = "self"
+        elif self.repository.are_friends(actor.id, person_id):
+            relation = "friend"
+        elif self.repository.share_active_context(actor.id, person_id):
+            relation = "groupmate"
+        else:
+            relation = None
+        try:
+            _require_permission(
+                "view_person_profile",
+                actor,
+                {
+                    "is_visible_person": relation is not None,
+                    "resource_id": str(person_id),
+                },
+            )
+        except ApiProblem as denied:
+            raise ApiProblem(
+                403, "person_not_visible", "Không xem được hồ sơ này."
+            ) from denied
+        assert relation is not None
+        person = self.repository.get_person(person_id)
+        if person is None:
+            # Only reachable for `self` without a people row: the other two
+            # relations are proved from rows that reference this person.
+            raise ApiProblem(
+                404, "person_not_found", "Chưa có hồ sơ cho tài khoản này."
+            )
+        return PublicPersonResponse(
+            id=person.id,
+            display_name=person.display_name,
+            bio=person.bio,
+            city=person.city,
+            created_at=person.created_at,
+            relation=relation,
+        )
+
+    def list_saved_places(self, actor: Actor) -> SavedPlacesResponse:
+        _require_permission("manage_saved_places", actor, {"is_self": True})
+        saved = []
+        for record in self.repository.list_saved_places(actor.id):
+            place = find_place(record.place_id)
+            # A bookmark whose catalogue row is gone is not shown rather than
+            # shown with a made-up name; the row stays for when it comes back.
+            if place is not None:
+                saved.append(self._saved_place_summary(record, place))
+        return SavedPlacesResponse(saved=saved)
+
+    def save_place(self, place_id: str, actor: Actor) -> tuple[SavedPlaceSummary, bool]:
+        _require_permission("manage_saved_places", actor, {"is_self": True})
+        place = self._known_place(place_id)
+        record, created = self.repository.save_place(actor.id, place_id, _now())
+        return self._saved_place_summary(record, place), created
+
+    def unsave_place(self, place_id: str, actor: Actor) -> None:
+        """Idempotent: removing a bookmark that is not there is still «not
+        there», so the route answers 204 either way. An unknown catalogue key is
+        the one thing refused, because it can only be a client bug."""
+        _require_permission("manage_saved_places", actor, {"is_self": True})
+        self._known_place(place_id)
+        self.repository.unsave_place(actor.id, place_id)
+
+    @staticmethod
+    def _known_place(place_id: str) -> dict:
+        place = find_place(place_id)
+        if place is None:
+            raise ApiProblem(
+                404, "place_not_found", "Không có địa điểm này trong danh mục."
+            )
+        return place
+
+    @staticmethod
+    def _saved_place_summary(record, place: dict) -> SavedPlaceSummary:
+        return SavedPlaceSummary(
+            place_id=record.place_id,
+            name=place["name"],
+            category=place["category"],
+            saved_at=record.created_at,
         )
 
     def _session_response(

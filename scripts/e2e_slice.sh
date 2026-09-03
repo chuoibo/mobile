@@ -403,6 +403,19 @@ login_by_otp() {
   return 0
 }
 
+# The Google door on a host with no client ids must be CLOSED, not permissive:
+# 503 `google_not_configured` before the token is even looked at. A junk token
+# is enough to prove the order -- a permissive host would answer 401 (it tried
+# to verify) or worse.
+google_door_closed_without_ids() {
+  local code
+  code="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API_URL/auth/google" \
+      -H 'Content-Type: application/json' -d '{"id_token":"khong-phai-token"}')"
+  [ "$code" = "503" ] || { echo "Google: host khong co client id ma tra $code, mong 503" >&2; return 2; }
+  echo "--- Google: khong co MOBILE_GOOGLE_CLIENT_IDS -> 503 google_not_configured (cua dong, khong nhan token nao)"
+  return 0
+}
+
 # --- run ------------------------------------------------------------------
 
 command -v node >/dev/null 2>&1 || { echo "không có node" >&2; exit 2; }
@@ -415,6 +428,7 @@ start_api || exit $?
 mint_sessions || exit $?
 redeem_a_real_invite || exit $?
 login_by_otp || exit $?
+google_door_closed_without_ids || exit $?
 
 if [ "$KEEP" -eq 1 ]; then
   echo "--keep: giữ stack lại."
