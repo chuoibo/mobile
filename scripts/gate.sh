@@ -72,7 +72,7 @@ REPO_ROOT="$PWD"
 
 # Every stage, in run order: cheapest and most likely to fail first, so a
 # broken tree is reported in seconds rather than after a docker build.
-STAGES=(guard guard-range ruff contract client-routes server-routes screens cors api migration pinned-import demo-watch hero-walk shared mobile docker postgres e2e)
+STAGES=(guard guard-range ruff contract client-routes server-routes screens cors api migration pinned-import demo-watch hero-walk shared mobile mobile-native docker postgres e2e)
 
 stage_help() {
   case "$1" in
@@ -91,6 +91,7 @@ stage_help() {
     hero-walk) echo "somebody walked ảnh->món->chia->trang khách on the demo box recently, and it worked (máy này thôi)" ;;
     shared)    echo "node packages/shared/money.test.mjs (test.yml: shared)" ;;
     mobile)    echo "tsc, npm test with MOBILE_REQUIRE_WEB_A11Y=1, expo export --platform all (test.yml: mobile)" ;;
+    mobile-native) echo "lái .maestro trên máy ảo Android thật qua Expo Go -- target sẽ ship, không phải react-native-web (test.yml: mobile-native)" ;;
     docker)    echo "image pinned, builds, non-root, no dev tooling, serves /healthz (test.yml: docker)" ;;
     postgres)  echo "every live case -- tests/postgres AND tests/qa -- against a real PostgreSQL it provisions itself (postgres-repository.yml)" ;;
     e2e)       echo "the vertical slice through src/api.ts against an API and database it provisions itself (test.yml: e2e)" ;;
@@ -501,6 +502,20 @@ do_mobile() {
   echo "bundled for web, ios and android"
 }
 
+# Cùng một script mà job `mobile-native` trong test.yml gọi, không phải một bản
+# chép lại. Ba cái neo (Metro đúng cây, thiết bị thật nạp bundle, canary phải đỏ)
+# nằm trong script chứ không nằm ở đây, nên chạy tay và chạy trên CI hỏi đúng một
+# câu hỏi.
+do_mobile-native() {
+  scripts/mobile_native.sh
+  local rc=$?
+  # Mã 2 nghĩa là KHÔNG ĐO ĐƯỢC, và check_prereq ở trên đã lọc hết các lý do
+  # thường gặp. Tới được đây với mã 2 là hạ tầng rụng GIỮA lượt đo -- máy ảo
+  # dùng chung bị lane khác tắt. Đó là hỏng, không phải đạt: bảng vừa chạy
+  # không kết luận được gì.
+  [ "$rc" -eq 0 ] || return 1
+}
+
 do_pinned-import() {
   # The cheap half of `docker`. That stage is the only one that has ever loaded
   # the app with the pinned fastapi, but it builds an image, starts a container
@@ -730,6 +745,19 @@ check_prereq() {
       [ -d apps/mobile ] || { echo "apps/mobile không có trên nhánh này"; return 1; }
       [ -f apps/mobile/package-lock.json ] || return 2
       [ -d apps/mobile/node_modules ] || { echo "chưa 'npm ci' trong apps/mobile"; return 1; } ;;
+    mobile-native)
+      # Chặng duy nhất cần PHẦN CỨNG. Thiếu máy ảo hay thiếu maestro là bỏ qua
+      # có lý do, không phải đỏ -- và `--strict` biến nó thành đỏ, đúng như mọi
+      # chặng khác, để một lượt trước merge không đọc "thiếu công cụ" thành ĐẠT.
+      [ -d apps/mobile ] || { echo "apps/mobile không có trên nhánh này"; return 1; }
+      [ -d apps/mobile/.maestro ] || return 2
+      [ -d apps/mobile/node_modules ] || { echo "chưa 'npm ci' trong apps/mobile"; return 1; }
+      have maestro || { echo "không có maestro trên PATH"; return 1; }
+      command -v adb >/dev/null 2>&1 || [ -x "${ANDROID_HOME:-$HOME/Android/Sdk}/platform-tools/adb" ] \
+        || { echo "không có adb (đặt ANDROID_HOME)"; return 1; }
+      [ -n "$(ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}" PATH="${ANDROID_HOME:-$HOME/Android/Sdk}/platform-tools:$PATH" \
+              timeout 30 adb devices 2>/dev/null | awk '$2=="device"{print $1; exit}')" ] \
+        || { echo "không có máy ảo Android nào đang chạy"; return 1; } ;;
     pinned-import|docker)
       have docker || { echo "không có docker"; return 1; }
       docker info >/dev/null 2>&1 || { echo "docker daemon không chạy"; return 1; } ;;
@@ -781,6 +809,7 @@ broken_why() {
     screens) echo "apps/mobile có mặt nhưng thiếu src/screens -- 0/0 màn không phải ĐẠT" ;;
     shared) echo "packages/shared có mặt nhưng thiếu money.test.mjs -- từ chối bỏ qua" ;;
     mobile) echo "apps/mobile có mặt nhưng thiếu package-lock.json -- từ chối bỏ qua" ;;
+    mobile-native) echo "apps/mobile có mặt nhưng thiếu .maestro -- xoá bảng flow không được biến chặng này thành xanh" ;;
     e2e) echo "apps/mobile có mặt nhưng thiếu tests/e2e/vertical-slice.test.mjs -- từ chối bỏ qua" ;;
     demo-watch) echo "thiếu scripts/demo_watch.py -- xoá canh gác không được biến chặng này thành xanh" ;;
     hero-walk) echo "thiếu scripts/hero_walk.sh -- xoá bài đi bộ không được biến chặng này thành xanh" ;;

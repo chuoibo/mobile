@@ -315,6 +315,28 @@ INLINE_STEPS: dict[str, Covered] = {
         why="",
     ),
     # --- test.yml: mobile -------------------------------------------------
+    # --- test.yml: mobile-native -----------------------------------------
+    "test.yml::mobile-native::present": Covered(
+        kind=GATE_KIND,
+        stages=("mobile-native",),
+        body_sha="f15dd098705bf5de",
+        why="",
+    ),
+    "test.yml::mobile-native::npm --prefix apps/mobile ci": Covered(
+        kind=SETUP_KIND,
+        stages=(),
+        # Same reason as the mobile job's `npm ci` above: the gate's stage
+        # refuses to run without node_modules rather than installing them, so
+        # there is nothing local for this to correspond to.
+        why="npm ci for apps/mobile; asserts nothing about the tree",
+        body_sha="094386e53acc99c7",
+    ),
+    "test.yml::mobile-native::Drive the flows on a device, or say out loud that it could not": Covered(
+        kind=GATE_KIND,
+        stages=("mobile-native",),
+        body_sha="4c440526aa429b3c",
+        why="",
+    ),
     "test.yml::mobile::present": Covered(
         kind=GATE_KIND,
         stages=("mobile",),
