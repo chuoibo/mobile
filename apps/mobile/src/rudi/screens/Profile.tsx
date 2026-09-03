@@ -181,27 +181,32 @@ export function ProfileScreen() {
           </Card>
         </>
       )}
-      <View>
-        <SectionHeader title="Sắp tới" />
-        <View style={styles.sectionGap} />
-        <Card onPress={() => router.push(session.tripPath("/timeline") as never)} style={styles.upcoming}>
-          <Photo
-            height={155}
-            radius={17}
-            source={demoAssets.road}
-            overlay={
-              <PhotoShade>
-                <Text style={styles.upcomingTitle}>{session.tripName}</Text>
-                <Text style={styles.upcomingMeta}>17–19/10/2026 · Team Đà Lạt</Text>
-              </PhotoShade>
-            }
-          />
-          <View style={styles.countdown}>
-            <Text style={[typography.money, { color: colors.accent }]}>46</Text>
-            <Text style={[typography.caption, { color: colors.inkFaint }]}>ngày nữa</Text>
+      {session.phien === null ? (
+        // The fixture trip. A real session has no outing yet until M4 reads
+        // `/outings`; showing Team Đà Lạt's weekend to a signed-in stranger is
+        // the exact lie this tab used to tell.
+          <View>
+            <SectionHeader title="Sắp tới" />
+            <View style={styles.sectionGap} />
+            <Card onPress={() => router.push(session.tripPath("/timeline") as never)} style={styles.upcoming}>
+              <Photo
+                height={155}
+                radius={17}
+                source={demoAssets.road}
+                overlay={
+                  <PhotoShade>
+                    <Text style={styles.upcomingTitle}>{session.tripName}</Text>
+                    <Text style={styles.upcomingMeta}>17–19/10/2026 · Team Đà Lạt</Text>
+                  </PhotoShade>
+                }
+              />
+              <View style={styles.countdown}>
+                <Text style={[typography.money, { color: colors.accent }]}>46</Text>
+                <Text style={[typography.caption, { color: colors.inkFaint }]}>ngày nữa</Text>
+              </View>
+            </Card>
           </View>
-        </Card>
-      </View>
+      ) : null}
       <Card style={styles.menuCard}>
         <ListRow
           icon="wallet-outline"
@@ -210,14 +215,18 @@ export function ProfileScreen() {
           title="Tài chính của tôi"
           tone="split"
         />
-        <View style={[styles.rowLine, { backgroundColor: colors.line }]} />
-        <ListRow
-          icon="trophy-outline"
-          onPress={() => router.push("/achievements")}
-          subtitle="12 huy hiệu đã mở khóa"
-          title="Thành tích"
-          tone="ai"
-        />
+        {session.phien === null ? (
+          <>
+            <View style={[styles.rowLine, { backgroundColor: colors.line }]} />
+            <ListRow
+              icon="trophy-outline"
+              onPress={() => router.push("/achievements")}
+              subtitle="12 huy hiệu đã mở khóa"
+              title="Thành tích"
+              tone="ai"
+            />
+          </>
+        ) : null}
         <View style={[styles.rowLine, { backgroundColor: colors.line }]} />
         <ListRow
           icon="bookmark-outline"

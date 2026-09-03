@@ -91,6 +91,9 @@ appId: com.lakiet.rudi
     timeout: 60000
 - assertNotVisible: "Minh Anh"
 - assertNotVisible: "Dữ liệu demo"
+# Không còn chuyến Team Đà Lạt hay «12 huy hiệu» của fixture dưới một hồ sơ thật.
+- assertNotVisible: ".*Team Đà Lạt.*"
+- assertNotVisible: "12 huy hiệu đã mở khóa"
 - assertVisible: "nhóm"
 - takeScreenshot: 24-ho-so-that
 - tapOn: "Chỉnh hồ sơ"
