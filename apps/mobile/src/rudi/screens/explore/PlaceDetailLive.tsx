@@ -9,6 +9,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { Linking, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ApiError, thongDiepNguoiDoc } from "../../../api";
 import type { Phien } from "../../../phien";
@@ -49,6 +50,8 @@ export function PlaceDetailLiveScreen({ phien }: { phien: Phien }) {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string }>();
   const { colors } = useRudiTheme();
+  // The pinned footer must clear the gesture bar (the shell pads top/left/right only).
+  const { bottom: menDuoi } = useSafeAreaInsets();
   const placeId = thamSoChuoi(params.id);
   const [trang, setTrang] = useState<Trang>({ pha: "dang-doc" });
   const [daLuu, setDaLuu] = useState<string[]>([]);
@@ -97,8 +100,30 @@ export function PlaceDetailLiveScreen({ phien }: { phien: Phien }) {
     }
   };
 
+  const daLuuChoNay = trang.pha === "xong" && daLuu.includes(trang.place.id);
   return (
-    <RudiScreen testID="place-detail-screen">
+    <RudiScreen
+      footer={
+        trang.pha === "xong" ? (
+          <View style={styles.hanhDong}>
+            <View style={styles.flex}>
+              <RudiButton icon="navigate-outline" label="Chỉ đường" onPress={() => void chiDuong(trang.place)} variant="outline" />
+            </View>
+            <View style={styles.flex}>
+              <RudiButton
+                icon={daLuuChoNay ? "heart" : "heart-outline"}
+                label={daLuuChoNay ? "Đã lưu" : "Lưu địa điểm"}
+                loading={dangLuu}
+                onPress={() => void doiLuu(trang.place.id)}
+                variant={daLuuChoNay ? "soft" : "solid"}
+              />
+            </View>
+          </View>
+        ) : null
+      }
+      footerInset={14 + menDuoi}
+      testID="place-detail-screen"
+    >
       <TopBar title="Địa điểm" />
       {trang.pha === "dang-doc" ? (
         <Text style={[typography.caption, { color: colors.inkSoft }]}>Đang đọc từ máy chủ...</Text>
@@ -110,10 +135,7 @@ export function PlaceDetailLiveScreen({ phien }: { phien: Phien }) {
         </Card>
       ) : null}
       {trang.pha === "xong" ? <ThanChiTiet
-        daLuu={daLuu.includes(trang.place.id)}
-        dangLuu={dangLuu}
         onChiDuong={() => void chiDuong(trang.place)}
-        onLuu={() => void doiLuu(trang.place.id)}
         place={trang.place}
         thongBao={thongBao}
       /> : null}
@@ -123,17 +145,11 @@ export function PlaceDetailLiveScreen({ phien }: { phien: Phien }) {
 
 function ThanChiTiet({
   place,
-  daLuu,
-  dangLuu,
   thongBao,
-  onLuu,
   onChiDuong,
 }: {
   place: PlaceDetail;
-  daLuu: boolean;
-  dangLuu: boolean;
   thongBao: string | null;
-  onLuu: () => void;
   onChiDuong: () => void;
 }) {
   const { colors } = useRudiTheme();
@@ -199,16 +215,6 @@ function ThanChiTiet({
         </View>
       ) : null}
       {thongBao !== null ? <Text style={[typography.caption, { color: colors.warn }]}>{thongBao}</Text> : null}
-      <View style={styles.hanhDong}>
-        <RudiButton icon="navigate-outline" label="Chỉ đường" onPress={onChiDuong} variant="outline" />
-        <RudiButton
-          icon={daLuu ? "heart" : "heart-outline"}
-          label={daLuu ? "Đã lưu" : "Lưu địa điểm"}
-          loading={dangLuu}
-          onPress={onLuu}
-          variant={daLuu ? "soft" : "solid"}
-        />
-      </View>
     </>
   );
 }
@@ -219,5 +225,6 @@ const styles = StyleSheet.create({
   suKien: { paddingVertical: 5 },
   khoi: { gap: 8 },
   nhanXet: { gap: 2, paddingVertical: 6 },
-  hanhDong: { gap: 10 },
+  flex: { flex: 1 },
+  hanhDong: { flexDirection: "row", gap: 10 },
 });
