@@ -302,7 +302,7 @@ export function ExploreScreen() {
           filtering
             ? `${visiblePlaces.length} kết quả phù hợp`
             : song
-              ? "Mẫu minh hoạ, chưa phải gợi ý cho bạn"
+              ? "Mẫu minh hoạ"
               : "Gần bạn, đúng gu"
         }
       />
