@@ -249,10 +249,12 @@ kiem_may_chu_sau_24() {
   body="$(curl -sS -X POST "$goc/auth/otp/verify" -H 'Content-Type: application/json' \
       -d "{\"challenge_id\":\"$id\",\"phone\":\"$OTP_PHONE_D\",\"code\":\"$OTP_CODE\"}")"
   via="$(printf '%s' "$body" | python3 -c '
-import json,sys
-d=json.load(sys.stdin)
-moi=[c for c in d.get("contexts",[]) if c.get("my_state")=="invited"]
-print(f"{len(moi)}|{moi[0][\"display_name\"] if moi else \"\"}|{d.get(\"profile\",{}).get(\"display_name\",\"\")}")')"
+import json, sys
+d = json.load(sys.stdin)
+moi = [c for c in d.get("contexts", []) if c.get("my_state") == "invited"]
+ten_nhom = moi[0]["display_name"] if moi else ""
+ten_nguoi = d.get("profile", {}).get("display_name", "")
+print("%d|%s|%s" % (len(moi), ten_nhom, ten_nguoi))')"
   IFS='|' read -r so_moi ten_nhom ten_nguoi <<< "$via"
   [ "$so_moi" = "1" ] && [ "$ten_nhom" = "Hoi QA" ] \
     || hong "sau flow 24: máy chủ không giữ lời mời cho người được mời (invited=$so_moi, nhóm='$ten_nhom')."
