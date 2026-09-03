@@ -23,8 +23,6 @@ from app.api.schemas import ExpenseInput
 from app.db.models import (
     AccountSession,
     AuditEvent,
-    BankRecipient,
-    BankRecipientSnapshot,
     Bill,
     BillDiscount,
     BillItem,
@@ -80,8 +78,6 @@ from app.domain.capability import capability_scope
 from app.domain.friendship import Decision, FriendshipError
 from app.domain.friendship import decide as decide_friendship
 from app.domain.ledger import obligation_status
-from app.payments.vietqr import build_payload
-from app.web.qr import payload_to_png_data_uri
 
 # A trip's `starts_on`/`ends_on` are wall-clock Vietnamese calendar days; an
 # expense's `occurred_at` is an instant. Folding the instant with whatever
@@ -427,16 +423,6 @@ class BatchInputs:
 
 
 @dataclass(frozen=True, slots=True)
-class BankRecipientRecord:
-    id: uuid.UUID
-    recipient_id: uuid.UUID
-    bank_bin: str
-    account_number: str
-    account_name: str | None
-    confirmed_at: datetime
-
-
-@dataclass(frozen=True, slots=True)
 class ObligationDraft:
     sender_id: uuid.UUID
     recipient_id: uuid.UUID
@@ -469,9 +455,6 @@ class PublishObligation:
     sender_id: uuid.UUID
     recipient_id: uuid.UUID
     amount_vnd: int
-    bank_bin: str
-    account_number: str
-    account_name: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -482,8 +465,6 @@ class BatchForPublish:
     status: str
     context_id: uuid.UUID
     advancer_acknowledged: bool
-    bank_recipient_snapshot_valid: bool
-    all_recipients_eligible: bool
     obligations: tuple[PublishObligation, ...]
 
 
@@ -1193,25 +1174,6 @@ class ApiRepository(Protocol):
         self, context_id: uuid.UUID
     ) -> dict[tuple[uuid.UUID, uuid.UUID], int]: ...
 
-    def load_bank_recipients(
-        self, recipient_ids: frozenset[uuid.UUID]
-    ) -> dict[uuid.UUID, BankRecipientRecord]: ...
-
-    def get_active_bank_recipient(
-        self, recipient_id: uuid.UUID
-    ) -> BankRecipientRecord | None: ...
-
-    def save_bank_recipient(
-        self,
-        *,
-        recipient_id: uuid.UUID,
-        bank_bin: str,
-        account_number: str,
-        account_name: str | None,
-        actor_id: uuid.UUID,
-        now: datetime,
-    ) -> tuple[BankRecipientRecord, bool]: ...
-
     def save_frozen_batch(
         self,
         *,
@@ -1219,7 +1181,6 @@ class ApiRepository(Protocol):
         owner_id: uuid.UUID,
         due_at: datetime,
         obligations: tuple[ObligationDraft, ...],
-        bank_recipients: dict[uuid.UUID, BankRecipientRecord],
         now: datetime,
     ) -> FrozenBatch: ...
 
@@ -1320,17 +1281,6 @@ class ApiRepository(Protocol):
     ) -> list[FriendEdgeRecord]: ...
 
     def list_friends(self, person_id: uuid.UUID) -> list[FriendEdgeRecord]: ...
-
-
-def _bank_recipient(row: BankRecipient) -> BankRecipientRecord:
-    return BankRecipientRecord(
-        id=row.id,
-        recipient_id=row.recipient_id,
-        bank_bin=row.bank_bin,
-        account_number=row.account_number,
-        account_name=row.account_name,
-        confirmed_at=row.confirmed_by_recipient_at,
-    )
 
 
 class SqlAlchemyApiRepository:
@@ -3611,115 +3561,6 @@ class SqlAlchemyApiRepository:
             for sender_id, recipient_id, confirmed_amount_vnd in rows
         }
 
-    def load_bank_recipients(
-        self, recipient_ids: frozenset[uuid.UUID]
-    ) -> dict[uuid.UUID, BankRecipientRecord]:
-        if not recipient_ids:
-            return {}
-        recipients = self.session.scalars(
-            select(BankRecipient)
-            .where(
-                BankRecipient.recipient_id.in_(recipient_ids),
-                BankRecipient.revoked_at.is_(None),
-            )
-            .with_for_update()
-        )
-        return {row.recipient_id: _bank_recipient(row) for row in recipients}
-
-    def get_active_bank_recipient(
-        self, recipient_id: uuid.UUID
-    ) -> BankRecipientRecord | None:
-        row = self._active_bank_recipient(recipient_id)
-        return None if row is None else _bank_recipient(row)
-
-    def save_bank_recipient(
-        self,
-        *,
-        recipient_id: uuid.UUID,
-        bank_bin: str,
-        account_number: str,
-        account_name: str | None,
-        actor_id: uuid.UUID,
-        now: datetime,
-    ) -> tuple[BankRecipientRecord, bool]:
-        """Register a destination, returning it and whether anything changed.
-
-        The flag is not a convenience. Section 8.5 makes adding or changing a
-        destination a material event that has to be audited and told to the
-        affected parties; a retry that re-sends the same digits changed nothing
-        and must not fire that.
-        """
-
-        current = self._active_bank_recipient(recipient_id)
-        if current is not None and (
-            current.bank_bin == bank_bin
-            and current.account_number == account_number
-            and current.account_name == account_name
-        ):
-            return _bank_recipient(current), False
-
-        if current is not None:
-            # `uq_bank_recipients_active_recipient` is a partial unique index
-            # over `revoked_at IS NULL`, so the revocation has to reach the
-            # table before the replacement row does; inserting first raises
-            # UniqueViolation and loses the whole request.
-            #
-            # SQLAlchemy's unit of work happens to emit this UPDATE before the
-            # INSERT below even without the explicit flush -- verified by
-            # removing it and watching the PostgreSQL tests stay green. The
-            # flush stays anyway: that ordering is an internal detail of the
-            # unit of work, and a money invariant should not rest on one.
-            #
-            # Revoked, not deleted. This row is what an already published
-            # envelope was frozen from, and the audit has to be able to explain
-            # that envelope long after the account behind it changed.
-            current.revoked_at = now
-            self.session.flush()
-
-        row = BankRecipient(
-            recipient_id=recipient_id,
-            bank_bin=bank_bin,
-            account_number=account_number,
-            account_name=account_name,
-            confirmed_by_recipient_at=now,
-            created_at=now,
-        )
-        self.session.add(row)
-        self.session.flush()
-        self.session.add(
-            AuditEvent(
-                actor_id=actor_id,
-                event_type="bank_recipient_confirmed_by_recipient",
-                aggregate_type="bank_recipient",
-                aggregate_id=row.id,
-                event_data={
-                    # Deliberately no account number and no holder name. An
-                    # audit row is read far more widely than the table it
-                    # describes; the number already lives in `bank_recipients`,
-                    # and copying it into a JSONB blob that every audit query
-                    # scans spreads it for nothing.
-                    "recipient_id": str(recipient_id),
-                    "bank_bin": bank_bin,
-                    "replaced_bank_recipient_id": (
-                        str(current.id) if current is not None else None
-                    ),
-                },
-                occurred_at=now,
-            )
-        )
-        self.session.flush()
-        return _bank_recipient(row), True
-
-    def _active_bank_recipient(self, recipient_id: uuid.UUID) -> BankRecipient | None:
-        return self.session.scalar(
-            select(BankRecipient)
-            .where(
-                BankRecipient.recipient_id == recipient_id,
-                BankRecipient.revoked_at.is_(None),
-            )
-            .with_for_update()
-        )
-
     def save_frozen_batch(
         self,
         *,
@@ -3727,7 +3568,6 @@ class SqlAlchemyApiRepository:
         owner_id: uuid.UUID,
         due_at: datetime,
         obligations: tuple[ObligationDraft, ...],
-        bank_recipients: dict[uuid.UUID, BankRecipientRecord],
         now: datetime,
     ) -> FrozenBatch:
         batch = CollectionBatch(
@@ -3749,23 +3589,6 @@ class SqlAlchemyApiRepository:
         self.session.add(version)
         self.session.flush()
 
-        snapshots: dict[uuid.UUID, BankRecipientSnapshot] = {}
-        for recipient_id in sorted(bank_recipients, key=lambda value: value.bytes):
-            recipient = bank_recipients[recipient_id]
-            snapshot = BankRecipientSnapshot(
-                batch_version_id=version.id,
-                bank_recipient_id=recipient.id,
-                recipient_id=recipient.recipient_id,
-                bank_bin=recipient.bank_bin,
-                account_number=recipient.account_number,
-                account_name=recipient.account_name,
-                confirmed_by_recipient_at=recipient.confirmed_at,
-                snapshotted_at=now,
-            )
-            self.session.add(snapshot)
-            snapshots[recipient_id] = snapshot
-        self.session.flush()
-
         stored: list[FrozenObligation] = []
         for draft in obligations:
             obligation = CollectionObligation(
@@ -3774,7 +3597,6 @@ class SqlAlchemyApiRepository:
                 recipient_id=draft.recipient_id,
                 amount_vnd=draft.amount_vnd,
                 due_at=due_at,
-                bank_recipient_snapshot_id=snapshots[draft.recipient_id].id,
                 created_at=now,
             )
             self.session.add(obligation)
@@ -3843,14 +3665,6 @@ class SqlAlchemyApiRepository:
                 )
             )
         )
-        snapshots = {
-            row.id: row
-            for row in self.session.scalars(
-                select(BankRecipientSnapshot).where(
-                    BankRecipientSnapshot.batch_version_id == version.id
-                )
-            )
-        }
         expense_versions = tuple(
             self.session.scalars(
                 select(ExpenseVersion)
@@ -3875,14 +3689,6 @@ class SqlAlchemyApiRepository:
             row.payer_acknowledgement == PayerAcknowledgement.ACKNOWLEDGED
             for row in unique_expense_versions
         )
-        bank_valid = bool(obligation_models) and all(
-            obligation.bank_recipient_snapshot_id in snapshots
-            and snapshots[
-                obligation.bank_recipient_snapshot_id
-            ].confirmed_by_recipient_at
-            is not None
-            for obligation in obligation_models
-        )
         obligations = tuple(
             PublishObligation(
                 id=obligation.id,
@@ -3890,13 +3696,6 @@ class SqlAlchemyApiRepository:
                 sender_id=obligation.sender_id,
                 recipient_id=obligation.recipient_id,
                 amount_vnd=obligation.amount_vnd,
-                bank_bin=snapshots[obligation.bank_recipient_snapshot_id].bank_bin,
-                account_number=snapshots[
-                    obligation.bank_recipient_snapshot_id
-                ].account_number,
-                account_name=snapshots[
-                    obligation.bank_recipient_snapshot_id
-                ].account_name,
             )
             for obligation in obligation_models
         )
@@ -3907,11 +3706,6 @@ class SqlAlchemyApiRepository:
             status=batch.status.value,
             context_id=batch.context_id,
             advancer_acknowledged=advancer_acknowledged,
-            bank_recipient_snapshot_valid=bank_valid,
-            # Identity-claim tables are not part of the merged schema yet. An
-            # active recipient-confirmed snapshot is the strongest available
-            # eligibility fact; the journal records this limitation.
-            all_recipients_eligible=bank_valid,
             obligations=obligations,
         )
 
@@ -4075,12 +3869,15 @@ class SqlAlchemyApiRepository:
 
         blocks = []
         recorded_by_ids: set[uuid.UUID] = set()
+        # Names for whoever is owed, read from `people`. The envelope used to
+        # take this from the bank snapshot's account holder name, which is gone
+        # with the payment rail -- and which was never the right source anyway:
+        # an account name is what a bank prints, not what the group calls
+        # somebody.
+        recipient_names = self._display_names(
+            {obligation.recipient_id for obligation in obligations}
+        )
         for obligation in obligations:
-            snapshot = self.session.get(
-                BankRecipientSnapshot, obligation.bank_recipient_snapshot_id
-            )
-            if snapshot is None:
-                raise RepositoryConflict("OBLIGATION_SNAPSHOT_NOT_FOUND")
             source_rows = tuple(
                 self.session.execute(
                     select(ExpenseVersion.description, ExpenseVersion.recorded_by_id)
@@ -4120,29 +3917,12 @@ class SqlAlchemyApiRepository:
                 )
                 > 0
             )
-            note = f"TT {obligation.id.hex[:8]}"
-            payload = build_payload(
-                bank_bin=snapshot.bank_bin,
-                account_number=snapshot.account_number,
-                amount_vnd=obligation.amount_vnd,
-                note=note,
-            )
             blocks.append(
                 {
                     "obligation_id": str(obligation.id),
                     "occasion_label": occasion,
                     "amount_vnd": obligation.amount_vnd,
-                    "recipient_display_name": snapshot.account_name
-                    or str(obligation.recipient_id),
-                    # A routing BIN is not a display name. Leave naming to the
-                    # closed guest projection, which can also fall back honestly.
-                    "bank_bin": snapshot.bank_bin,
-                    "account_number": snapshot.account_number,
-                    "account_holder_name": snapshot.account_name
-                    or str(obligation.recipient_id),
-                    "transfer_note": note,
-                    "qr_payload": payload,
-                    "qr_image_data_uri": payload_to_png_data_uri(payload),
+                    "recipient_display_name": recipient_names[obligation.recipient_id],
                     "already_reported": already_reported,
                     "evidence_requested": str(obligation.id) in evidence_asked,
                     "disputed": str(obligation.id) in disputed_ids,
@@ -5053,7 +4833,6 @@ class SqlAlchemyApiRepository:
 __all__ = [
     "AllocationRow",
     "ApiRepository",
-    "BankRecipientRecord",
     "BatchForPublish",
     "BatchInputs",
     "ConfirmedExpense",

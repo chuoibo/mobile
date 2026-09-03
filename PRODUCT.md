@@ -53,7 +53,7 @@ Thành công của bản PoC này là **một đường đi chạy thật, đẹ
 ```
 mở app → đăng nhập → Khám phá (AI MATCH) → vào nhóm → chat, AI gợi ý chỗ ăn
 → chốt → chụp bill → AI đọc từng món → gán món cho người → AI chia
-→ kết quả + VietQR → Cá nhân thấy tài chính cập nhật
+→ kết quả: ai trả bao nhiêu → Cá nhân thấy tài chính cập nhật
 ```
 
 ## Positioning
@@ -64,8 +64,10 @@ xuyên suốt cả vòng**: cùng một AI đã gợi ý quán là AI đọc ho�
 và biết ai đã ngồi ở đó. Đó là câu một sản phẩm hàng xóm không sao chép thật
 được nếu chỉ làm một chặng.
 
-Chốt về tiền: sản phẩm **không giữ tiền và không chuyển tiền**. Nó dựng chuỗi
-VietQR để người dùng tự chuyển bằng app ngân hàng của họ.
+Chốt về tiền: sản phẩm **không giữ tiền, không chuyển tiền, và không nói chuyển
+vào đâu**. Nó nói mỗi người phải bỏ ra bao nhiêu và vì những khoản nào, rồi dừng.
+Chuyển bằng cách nào là chuyện giữa hai người — đường thanh toán (VietQR, tài
+khoản nhận) đã được gỡ khỏi sản phẩm.
 
 ## Operating Context
 
@@ -81,7 +83,7 @@ VietQR để người dùng tự chuyển bằng app ngân hàng của họ.
 Đã chạy được và **không được viết lại**:
 
 - Allocator chia tiền, có 41 golden vector tính tay.
-- Sổ cái, máy trạng thái đợt thu, sinh chuỗi VietQR, route tài khoản nhận tiền.
+- Sổ cái, máy trạng thái đợt thu, nghĩa vụ ai-nợ-ai.
 - Trang khách `GET /g/{token}` với view model ở `app/web/guest_view.py`.
 
 Ba luật về tiền, hiệu lực cả trong PoC (`CLAUDE.md`):

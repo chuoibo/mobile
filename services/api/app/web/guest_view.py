@@ -16,51 +16,48 @@ Pure functions over plain dicts. No I/O, no ORM, no framework.
 
 from __future__ import annotations
 
-from app.web.banks import bank_display_name
-
 __all__ = ["GuestViewError", "build_guest_view", "ALLOWED_TOP_LEVEL", "ALLOWED_BLOCK"]
 
 # Whitelists, not blacklists. A blacklist grows a hole the first time somebody
 # adds a field upstream and forgets to exclude it -- and on this page the
 # forgotten field is somebody else's money.
-ALLOWED_TOP_LEVEL = frozenset({
-    "recorded_by_display_name",
-    "claimed_person_display_name",
-    "blocks",
-    "link_state",
-    "can_report_payment",
-    "can_object",
-})
+ALLOWED_TOP_LEVEL = frozenset(
+    {
+        "recorded_by_display_name",
+        "claimed_person_display_name",
+        "blocks",
+        "link_state",
+        "can_report_payment",
+        "can_object",
+    }
+)
 
-ALLOWED_BLOCK = frozenset({
-    "obligation_id",
-    "occasion_label",
-    "amount_vnd",
-    "amount_display",
-    "recipient_display_name",
-    "bank_name",
-    "bank_bin",
-    "account_number",
-    "account_holder_name",
-    "transfer_note",
-    "qr_payload",
-    "qr_image_data_uri",
-    "already_reported",
-    "disputed",
-    "can_object",
-    "receiver_confirmed",
-})
+ALLOWED_BLOCK = frozenset(
+    {
+        "obligation_id",
+        "occasion_label",
+        "amount_vnd",
+        "amount_display",
+        "recipient_display_name",
+        "already_reported",
+        "disputed",
+        "can_object",
+        "receiver_confirmed",
+    }
+)
 
 # Anything on this list appearing in the input is a programming error upstream,
 # not something to quietly drop.
-FORBIDDEN_INPUT_KEYS = frozenset({
-    "group_balance",
-    "group_history",
-    "other_allocations",
-    "invocation_thread",
-    "original_bill_url",
-    "member_list",
-})
+FORBIDDEN_INPUT_KEYS = frozenset(
+    {
+        "group_balance",
+        "group_history",
+        "other_allocations",
+        "invocation_thread",
+        "original_bill_url",
+        "member_list",
+    }
+)
 
 
 class GuestViewError(Exception):
@@ -112,37 +109,27 @@ def build_guest_view(envelope: dict) -> dict:
 
     blocks = []
     for obligation in envelope["obligations"]:
-        blocks.append({
-            "obligation_id": obligation["obligation_id"],
-            "occasion_label": obligation["occasion_label"],
-            "amount_vnd": obligation["amount_vnd"],
-            "amount_display": format_vnd(obligation["amount_vnd"]),
-            "recipient_display_name": obligation["recipient_display_name"],
-            # A BIN is a routing code, not something a person can act on.
-            "bank_name": obligation.get("bank_name")
-            or bank_display_name(obligation["bank_bin"]),
-            "bank_bin": obligation["bank_bin"],
-            "account_number": obligation["account_number"],
-            "account_holder_name": obligation["account_holder_name"],
-            "transfer_note": obligation["transfer_note"],
-            "qr_payload": obligation["qr_payload"],
-            # Rendered server-side. Guests read this on the phone they will
-            # pay from, so there is no second device to scan with -- the QR
-            # is the fallback and copy is the primary path (spec 8.6).
-            "qr_image_data_uri": obligation.get("qr_image_data_uri"),
-            "already_reported": bool(obligation.get("already_reported")),
-            # Only the recipient can set this, and even then it is a person
-            # pressing a button -- not bank evidence (spec section 15).
-            "receiver_confirmed": bool(obligation.get("receiver_confirmed")),
-            # Section 8.2. Shown so the page can stop claiming collection has
-            # paused while giving no sign of it, which is what it did.
-            "disputed": bool(obligation.get("disputed")),
-            # Per obligation. A link can carry debts to two different people,
-            # and arguing three times with one of them must not take away the
-            # right to say anything about the other.
-            "can_object": obligation.get("objections_used", 0)
-            < obligation.get("objections_allowed", 3),
-        })
+        blocks.append(
+            {
+                "obligation_id": obligation["obligation_id"],
+                "occasion_label": obligation["occasion_label"],
+                "amount_vnd": obligation["amount_vnd"],
+                "amount_display": format_vnd(obligation["amount_vnd"]),
+                "recipient_display_name": obligation["recipient_display_name"],
+                "already_reported": bool(obligation.get("already_reported")),
+                # Only the recipient can set this, and even then it is a person
+                # pressing a button -- not bank evidence (spec section 15).
+                "receiver_confirmed": bool(obligation.get("receiver_confirmed")),
+                # Section 8.2. Shown so the page can stop claiming collection has
+                # paused while giving no sign of it, which is what it did.
+                "disputed": bool(obligation.get("disputed")),
+                # Per obligation. A link can carry debts to two different people,
+                # and arguing three times with one of them must not take away the
+                # right to say anything about the other.
+                "can_object": obligation.get("objections_used", 0)
+                < obligation.get("objections_allowed", 3),
+            }
+        )
         extra = set(blocks[-1]) - ALLOWED_BLOCK
         if extra:
             raise GuestViewError("BLOCK_FIELD_NOT_ALLOWED")
@@ -154,7 +141,8 @@ def build_guest_view(envelope: dict) -> dict:
         "link_state": state,
         # Section 8.6 caps how often a guest may report or object, so a leaked
         # link cannot be used to spam the recipient.
-        "can_report_payment": envelope.get("reports_used", 0) < envelope.get("reports_allowed", 3),
+        "can_report_payment": envelope.get("reports_used", 0)
+        < envelope.get("reports_allowed", 3),
         # Kept for the pages that are about the link as a whole rather than
         # one debt on it. The per-obligation answer lives on each block.
         "can_object": any(block["can_object"] for block in blocks) if blocks else False,

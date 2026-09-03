@@ -5,7 +5,7 @@ from __future__ import annotations
 import pathlib
 import sys
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
@@ -73,12 +73,19 @@ class StateMachine(unittest.TestCase):
 
 
 class PublishGates(unittest.TestCase):
-    def test_all_three_gates_are_reported(self):
+    def test_every_gate_that_still_exists_is_reported(self):
+        """Two, not three.
+
+        `valid_bank_recipient_snapshot_required` left with the payment rail:
+        the product names each person's share and stops, so there is no account
+        to snapshot. Asserted as an exact list on purpose -- a gate that
+        silently disappears is the failure this case exists to catch, and a
+        subset assertion would not have caught its removal either.
+        """
         self.assertEqual(
             unmet_publish_gates({}),
             [
                 "advancer_acknowledgement_required",
-                "valid_bank_recipient_snapshot_required",
                 "delivery_method_required",
             ],
         )
@@ -93,22 +100,16 @@ class PublishGates(unittest.TestCase):
             transition("frozen", "publish", context)
         self.assertEqual(caught.exception.code, "ADVANCER_ACKNOWLEDGEMENT_REQUIRED")
 
-    def test_unready_recipient_needs_an_explicit_choice(self):
-        """Section 8.4: wait for everyone, or split them out. Not silence."""
-        context = {**READY, "has_unready_recipient": True}
-        with self.assertRaises(CollectionError) as caught:
-            transition("accruing", "freeze", context)
-        self.assertEqual(caught.exception.code, "UNREADY_RECIPIENT_CHOICE_REQUIRED")
-        allowed = {**context, "unready_recipient_choice": "split_blocked_recipient_setup"}
-        self.assertEqual(transition("accruing", "freeze", allowed), "frozen")
+    def test_an_unready_recipient_is_no_longer_a_state(self):
+        """Section 8.4 made the organiser choose what to do about somebody with
+        no bank account registered. There are no bank accounts.
 
-    def test_an_arbitrary_string_is_not_a_choice(self):
-        """Blocker P1-04. Section 8.4 offers exactly two answers, so truthiness
-        was letting a batch freeze on a choice nobody actually made."""
-        context = {**READY, "has_unready_recipient": True, "unready_recipient_choice": "anything"}
-        with self.assertRaises(CollectionError) as caught:
-            transition("accruing", "freeze", context)
-        self.assertEqual(caught.exception.code, "UNREADY_RECIPIENT_CHOICE_REQUIRED")
+        Written as a positive assertion rather than deleted outright: the old
+        context key is what a stale caller would still be sending, and it must
+        now be ignored rather than block a freeze forever.
+        """
+        stale = {**READY, "has_unready_recipient": True}
+        self.assertEqual(transition("accruing", "freeze", stale), "frozen")
 
 
 class Closing(unittest.TestCase):
@@ -136,7 +137,9 @@ class Closing(unittest.TestCase):
         `close` carries no target state; the machine derives it.
         """
         obligations = [{"sender_id": "ha", "status": "confirmed"}]
-        self.assertEqual(transition("collecting", "close", {"obligations": obligations}), "completed")
+        self.assertEqual(
+            transition("collecting", "close", {"obligations": obligations}), "completed"
+        )
         obligations.append({"sender_id": "nam", "status": "disputed"})
         self.assertEqual(
             transition("collecting", "close", {"obligations": obligations}),
@@ -154,7 +157,12 @@ class Progress(unittest.TestCase):
         ]
         self.assertEqual(
             progress(obligations),
-            {"transfers_done": 2, "transfers_total": 3, "people_done": 1, "people_total": 2},
+            {
+                "transfers_done": 2,
+                "transfers_total": 3,
+                "people_done": 1,
+                "people_total": 2,
+            },
         )
 
     def test_a_waiver_finishes_the_person_but_not_the_transfer(self):
@@ -177,7 +185,7 @@ class Progress(unittest.TestCase):
 
 class Staleness(unittest.TestCase):
     def setUp(self):
-        self.now = datetime(2026, 8, 27, tzinfo=timezone.utc)
+        self.now = datetime(2026, 8, 27, tzinfo=UTC)
 
     def test_both_conditions_are_required(self):
         long_overdue = self.now - timedelta(days=20)
@@ -192,7 +200,10 @@ class AntiCosmetics(unittest.TestCase):
     def test_abandoned_after_exposure_stays_in_the_denominator(self):
         """Section 8.9. Otherwise the collection rate can be groomed by
         cancelling every batch that went badly."""
-        batch = {"state": "cancelled", "capability_exposed_at": "2026-08-01T00:00:00+07:00"}
+        batch = {
+            "state": "cancelled",
+            "capability_exposed_at": "2026-08-01T00:00:00+07:00",
+        }
         self.assertTrue(counts_toward_collection_rate(batch))
 
     def test_cancelled_before_anyone_was_asked_is_excluded(self):
@@ -200,7 +211,11 @@ class AntiCosmetics(unittest.TestCase):
         self.assertFalse(counts_toward_collection_rate(batch))
 
     def test_live_batches_always_count(self):
-        self.assertTrue(counts_toward_collection_rate({"state": "collecting", "capability_exposed_at": None}))
+        self.assertTrue(
+            counts_toward_collection_rate(
+                {"state": "collecting", "capability_exposed_at": None}
+            )
+        )
 
 
 if __name__ == "__main__":

@@ -78,20 +78,16 @@ test("mỗi màn của luồng để lại một file quét được", () => {
   }
 });
 
-test("màn kết quả thanh toán vẽ được mã VietQR thật, không phải panel từ chối", () => {
-  // Cái kim chống "quét nhầm màn". Màn này render đẹp và sạch CẢ KHI mã hỏng:
-  // `readVietQr` ném thì nó vẽ panel "Chưa hiện được mã". Một file như thế vẫn
-  // đủ lớn, vẫn qua hai assertion trên, và vẫn là ảnh của một thất bại.
+test("màn kết quả thanh toán có số tiền thật, không phải màn rỗng", () => {
+  // Cái kim chống "quét nhầm màn". Trước đây kim là mã VietQR: màn vẫn render
+  // sạch CẢ KHI mã hỏng, nên một file đủ lớn vẫn có thể là ảnh của thất bại.
+  // Không còn mã nào -- sản phẩm nói phần của mỗi người rồi dừng -- nên kim
+  // bây giờ là chính con số, và một khẳng định âm rằng mã đã đi hẳn.
   const html = fs.readFileSync(path.join(OUT, "ket-qua-thanh-toan.html"), "utf8");
-  assert.ok(
-    !html.includes("Chưa hiện được mã"),
-    "màn thanh toán đang hiện panel từ chối chứ không phải mã",
-  );
-  assert.match(
-    html,
-    /aria-label="Mã VietQR[^"]*"/,
-    "không thấy mã VietQR nào được vẽ trên màn thanh toán",
-  );
+  assert.match(html, /\d{3}\.\d{3}đ/, "không thấy số tiền nào trên màn thanh toán");
+  for (const con of ["Mã VietQR", "Chưa hiện được mã", "Số tài khoản"]) {
+    assert.ok(!html.includes(con), `"${con}" vẫn còn trên màn thanh toán`);
+  }
 });
 
 test("ma trận chia tiền có người trên đó, không phải màn rỗng", () => {

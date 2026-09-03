@@ -80,11 +80,6 @@
   ],
   "uncalled": [
     {
-      "route": "/bank-recipients",
-      "loai": "ha-tang",
-      "reason": "Client cố ý dùng PUT /people/{id}/bank-recipient thay cho POST /bank-recipients — api.ts:867 ghi rõ lựa chọn đó và api.ts:895 là chỗ gọi. Route collection này không có người gọi theo thiết kế, không phải do quên."
-    },
-    {
       "route": "/contexts/{context_id}/budget",
       "loai": "cong-mu",
       "reason": "F34 ngân sách. ĐÃ CÓ NGƯỜI GỌI THẬT từ #382: apps/mobile/src/screens/ai-hieu-nhom/ai-hieu-nhom.ts:225 gọi `${prefix}/budget`, với prefix dựng ở dòng 214 là `${base}/contexts/${contextId}`. Cổng không thấy được vì nó đọc từng literal một: nó thấy '/budget' và thấy '/contexts/', không bao giờ thấy đường dẫn ghép. Đường bấm: chat/TinNhan.tsx:636 (nút 'AI hiểu nhóm') -> onMoAiHieu (460) -> AiHieuNhom (466) -> napAiHieuNhom (203). Lý do cũ ghi 'chưa màn nào hiện' đã hết hiệu lực kể từ #382."

@@ -4,9 +4,12 @@
  * here is adding the allocation map to print the bill total -- the same
  * integers the server already sent, read down the column, never split and
  * never rounded. A stale or locally recomputed figure would be a money
- * error, not a display one. The QR payload is not this file's either:
- * `renderMaQr` is injected so the parent can place a code without this
- * screen knowing a bank account exists.
+ * error, not a display one.
+ *
+ * There used to be a `renderMaQr` slot here, injected so the parent could
+ * place a payment code without this screen knowing a bank account existed.
+ * The product stops at naming each person's share, so there is no code to
+ * place and no slot to inject.
  */
 import React from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
@@ -34,7 +37,6 @@ export function KetQuaThanhToan(props: {
   itemCount: number;
   nguoiDangChon: string | null;
   onChonNguoi: (senderId: string) => void;
-  renderMaQr: (senderId: string) => React.ReactNode;
   onShare: () => void;
   onDone: () => void;
   onBack: () => void;
@@ -164,13 +166,11 @@ export function KetQuaThanhToan(props: {
               </View>
             </ScrollView>
           ) : null}
-          {nguoiDangChon !== null ? (
-            props.renderMaQr(nguoiDangChon)
-          ) : (
+          {nguoiDangChon === null ? (
             <Text style={{ ...type.body, color: c.inkSoft, textAlign: "center" }}>
-              Chưa phát đợt thu nên chưa có mã.
+              Chọn một người để xem phần của họ.
             </Text>
-          )}
+          ) : null}
         </View>
 
         <Card>

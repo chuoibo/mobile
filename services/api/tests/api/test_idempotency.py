@@ -38,7 +38,7 @@ from app.api.idempotency import (
 from app.api.main import create_app
 
 from .conftest import ASGITestClient
-from .helpers import ADVANCER_ID, actor_headers, expense_payload
+from .helpers import actor_headers, expense_payload
 
 KEY = "1de11111-aaaa-4aaa-8aaa-0000a0000001"
 
@@ -203,31 +203,25 @@ def test_the_middleware_is_installed_on_the_application():
     assert IdempotencyMiddleware in installed
 
 
-def test_registering_a_bank_account_twice_writes_once(client):
-    """The seam between this middleware and `POST /bank-recipients`.
+def test_naming_a_person_twice_writes_once(client):
+    """The seam between this middleware and a write route.
 
-    Both branches edited the same lines of `main.py`. Resolving that by keeping
-    only one side fails silently: the router still answers, the header is simply
-    ignored, and a retried registration re-runs against where somebody's money
-    lands.
+    It used to be `POST /bank-recipients`, which left with the payment rail.
+    `PUT /people/{id}` replaces it because it has the same discriminator, and
+    the discriminator is the whole point: a replay returns the first answer
+    verbatim, so it stays **201**. A handler that genuinely ran a second time
+    answers **200** -- the route's own "this id was already a person" code --
+    so dropping either the router or the middleware turns this red.
 
-    The status code is the discriminator, not the header alone. A replay returns
-    the first answer verbatim, so it stays 201. A handler that genuinely ran a
-    second time answers 200 -- the route's own "you re-sent digits that were
-    already there" code -- so dropping either the router or the middleware turns
-    this red.
+    Asserting the header alone would not: the header is present either way.
     """
 
-    body = {
-        "recipient_id": str(ADVANCER_ID),
-        "bank_bin": "970418",
-        "account_number": "0000000000TEST",
-        "account_name": "NGUYEN VAN NAM",
-    }
+    person_id = uuid.uuid4()
+    body = {"display_name": "Nguoi Moi"}
     headers = _key_headers(**actor_headers())
 
-    first = client.post("/bank-recipients", json=body, headers=headers)
-    second = client.post("/bank-recipients", json=body, headers=headers)
+    first = client.put(f"/people/{person_id}", json=body, headers=headers)
+    second = client.put(f"/people/{person_id}", json=body, headers=headers)
 
     assert first.status_code == 201, first.text
     assert second.status_code == 201, second.text
@@ -271,7 +265,9 @@ def test_read_requests_never_touch_the_store(client, store):
 def test_a_replayed_response_keeps_the_original_status_and_body(store):
     """The stored response is returned verbatim, not re-serialised."""
 
-    stored = StoredResponse(status_code=201, body=b'{"a": 1}', media_type="application/json")
+    stored = StoredResponse(
+        status_code=201, body=b'{"a": 1}', media_type="application/json"
+    )
     store.rows[("anonymous", KEY)] = {"fingerprint": "f", "response": stored}
 
     outcome = store.reserve(scope="anonymous", key=KEY, fingerprint="f")

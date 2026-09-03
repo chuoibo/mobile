@@ -24,8 +24,6 @@ from app.api.repository import (
 from app.api.schemas import ExpenseInput
 from app.db.models import (
     AuditEvent,
-    BankRecipient,
-    BankRecipientSnapshot,
     CollectionBatch,
     CollectionBatchVersion,
     CollectionEnvelope,
@@ -55,10 +53,7 @@ pytestmark = pytest.mark.postgres
 NOW = datetime(2030, 8, 27, 12, tzinfo=UTC)
 TOTAL_VND = 80_000
 OBLIGATION_VND = 40_000
-ORIGINAL_ACCOUNT = "TESTACCOUNT001"
-CHANGED_ACCOUNT = "TESTACCOUNT002"
 GUEST_TOKEN = "synthetic_repository_integration_token"
-KNOWN_BANK_BIN = "970407"
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,18 +186,6 @@ def _persist_lifecycle(
         if row.participant_id == sender_id
     )
 
-    bank_recipient = BankRecipient(
-        recipient_id=recipient_id,
-        bank_bin=KNOWN_BANK_BIN,
-        account_number=ORIGINAL_ACCOUNT,
-        account_name="SYNTHETIC RECIPIENT",
-        confirmed_by_recipient_at=NOW,
-        created_at=NOW,
-    )
-    session.add(bank_recipient)
-    session.flush()
-    bank_recipients = repository.load_bank_recipients(frozenset({recipient_id}))
-
     frozen = repository.save_frozen_batch(
         context_id=context_id,
         owner_id=owner_id,
@@ -216,18 +199,11 @@ def _persist_lifecycle(
                 sources=(source,),
             ),
         ),
-        bank_recipients=bank_recipients,
         now=NOW + timedelta(minutes=1),
     )
     batch = repository.load_batch_for_publish(frozen.id)
     assert batch is not None
     assert batch.advancer_acknowledged is True
-    assert batch.bank_recipient_snapshot_valid is True
-
-    # A later bank-recipient edit must not change the destination frozen into
-    # this batch version.
-    bank_recipient.account_number = CHANGED_ACCOUNT
-    session.flush()
 
     token_digest = hashlib.sha256(guest_token.encode()).digest()
     stored_links = repository.save_published_batch(
@@ -247,7 +223,6 @@ def _persist_lifecycle(
 
     envelope = repository.get_guest_envelope(token_digest, NOW + timedelta(minutes=3))
     assert envelope is not None
-    assert envelope.envelope["obligations"][0]["account_number"] == ORIGINAL_ACCOUNT
 
     report_id: uuid.UUID | None = None
     if file_payment_report:
@@ -388,7 +363,6 @@ def test_repository_lifecycle_reaches_confirmed_receipt(postgres_session: Sessio
     block = envelope.envelope["obligations"][0]
     assert block["already_reported"] is True
     assert block["receiver_confirmed"] is True
-    assert block["account_number"] == ORIGINAL_ACCOUNT
 
     unavailable = repository.load_batch_inputs(
         state.context_id, (state.expense_version_id,)
@@ -580,7 +554,8 @@ def test_guest_http_uses_name_derived_from_real_postgres_projection(
         state.token_digest, NOW + timedelta(minutes=10)
     )
     assert envelope is not None
-    assert envelope.envelope["obligations"][0]["bank_bin"] == KNOWN_BANK_BIN
+    # The name comes from `people`, not from a bank account holder field.
+    assert envelope.envelope["obligations"][0]["recipient_display_name"]
 
     async def run_sync_inline(function, *args, **kwargs):
         del kwargs
@@ -601,43 +576,11 @@ def test_guest_http_uses_name_derived_from_real_postgres_projection(
     response = anyio.run(get_page)
 
     assert response.status_code == 200
-    assert "Techcombank" in response.text
-    assert f"Ngân hàng {KNOWN_BANK_BIN}" not in response.text
-
-
-def test_partial_unique_index_allows_only_one_active_bank_destination(
-    postgres_session: Session,
-):
-    state = _persist_lifecycle(postgres_session)
-
-    with pytest.raises(IntegrityError) as caught:
-        with postgres_session.begin_nested():
-            postgres_session.add(
-                BankRecipient(
-                    recipient_id=state.recipient_id,
-                    bank_bin="970415",
-                    account_number="TESTACCOUNT003",
-                    account_name="SYNTHETIC DUPLICATE",
-                    confirmed_by_recipient_at=NOW,
-                    created_at=NOW,
-                )
-            )
-            postgres_session.flush()
-    assert _constraint_name(caught.value) == "uq_bank_recipients_active_recipient"
-
-    with postgres_session.begin_nested():
-        postgres_session.add(
-            BankRecipient(
-                recipient_id=state.recipient_id,
-                bank_bin="970415",
-                account_number="TESTACCOUNT004",
-                account_name="SYNTHETIC REVOKED",
-                confirmed_by_recipient_at=NOW,
-                created_at=NOW,
-                revoked_at=NOW + timedelta(minutes=1),
-            )
-        )
-        postgres_session.flush()
+    # No bank detail survives the projection, and the page says what it is
+    # instead of showing a number with no next step.
+    assert "RuDi chỉ tính phần của bạn" in response.text
+    for gone in ("account_number", "qr_payload", "Techcombank"):
+        assert gone not in response.text, gone
 
 
 def test_receipt_report_must_belong_to_the_same_obligation(
@@ -653,7 +596,6 @@ def test_receipt_report_must_belong_to_the_same_obligation(
         recipient_id=state.recipient_id,
         amount_vnd=1_000,
         due_at=NOW + timedelta(days=7),
-        bank_recipient_snapshot_id=first_obligation.bank_recipient_snapshot_id,
         created_at=NOW,
     )
     postgres_session.add(second_obligation)
@@ -690,7 +632,6 @@ def test_every_material_fact_table_rejects_in_place_updates(
         (ExpenseDiscount, "amount_vnd"),
         (ConfirmedAllocation, "amount_vnd"),
         (CollectionBatchVersion, "created_at"),
-        (BankRecipientSnapshot, "account_name"),
         (CollectionObligation, "amount_vnd"),
         (CollectionObligationSource, "amount_vnd"),
         (CollectionEnvelope, "created_at"),
@@ -747,8 +688,6 @@ def test_expected_rows_exist_in_real_tables(postgres_session: Session):
         ConfirmedAllocation: 2,
         CollectionBatch: 1,
         CollectionBatchVersion: 1,
-        BankRecipient: 1,
-        BankRecipientSnapshot: 1,
         CollectionObligation: 1,
         CollectionObligationSource: 1,
         CollectionEnvelope: 1,

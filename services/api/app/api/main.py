@@ -29,7 +29,6 @@ from app.api.idempotency import (
 )
 from app.api.routes import (
     albums,
-    bank_recipients,
     batches,
     bills,
     budget,
@@ -178,7 +177,6 @@ def create_app(
     application.include_router(batches.router)
     application.include_router(guests.router)
     application.include_router(obligations.router)
-    application.include_router(bank_recipients.router)
     application.include_router(people.router)
     application.include_router(sessions.router)
     application.include_router(identity.router)

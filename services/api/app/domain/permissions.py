@@ -81,17 +81,16 @@ _TABLE: dict[str, dict] = {
     "freeze_batch": {"roles": {"batch_owner"}, "requires": ("owns_batch",)},
     "publish_batch": {
         "roles": {"batch_owner"},
-        "requires": ("owns_batch", "all_recipients_eligible"),
+        # `all_recipients_eligible` is gone with the payment rail: it meant
+        # "every recipient has a usable bank account", and there are no
+        # accounts now. Ownership is the whole of the check.
+        "requires": ("owns_batch",),
     },
     # Section 9.1: whoever has data or risk inside a capability may pull it
     # back. Three different subjects, three different scopes.
     "revoke_capability_whole_batch": {
         "roles": {"batch_owner"},
         "requires": ("owns_batch",),
-    },
-    "revoke_capability_own_recipient_account": {
-        "roles": {"recipient"},
-        "requires": ("envelope_contains_own_account",),
     },
     "revoke_capability_own_envelope": {
         "roles": {"sender"},

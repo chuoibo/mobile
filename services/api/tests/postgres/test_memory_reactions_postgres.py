@@ -746,7 +746,9 @@ def test_a_group_comment_never_reaches_the_guest_page(
     # The page has to have rendered for its silence to mean anything. A 500
     # contains no comment either.
     assert response.status_code == 200, response.text
-    assert "Techcombank" in response.text, "guest page did not render its envelope"
+    assert "RuDi chỉ tính phần của bạn" in response.text, (
+        "guest page did not render its envelope"
+    )
 
     assert secret not in response.text
     assert "Bữa đó" not in response.text

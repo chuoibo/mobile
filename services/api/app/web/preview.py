@@ -23,45 +23,41 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape  # noqa: E402
 
-from app.payments.vietqr import build_payload  # noqa: E402
 from app.api.limits import OBJECTION_LIMIT, REPORT_LIMIT
 from app.web.guest_view import NEUTRAL_PREVIEW, build_guest_view  # noqa: E402
 from app.web.objection_view import (  # noqa: E402
     build_not_me_view,
     build_wrong_amount_view,
 )
-from app.web.qr import payload_to_png_data_uri  # noqa: E402
 
 WEB = pathlib.Path(__file__).resolve().parent
-STATES = ("one", "two", "expired", "revoked", "limited", "reported", "confirmed",
-          "not-me", "not-me-done", "wrong-amount", "evidence-asked")
+STATES = (
+    "one",
+    "two",
+    "expired",
+    "revoked",
+    "limited",
+    "reported",
+    "confirmed",
+    "not-me",
+    "not-me-done",
+    "wrong-amount",
+    "evidence-asked",
+)
 
 
-def _obligation(oid, occasion, amount, who, bank, bin_code, account, holder, note):
+def _obligation(oid, occasion, amount, who):
     return {
         "obligation_id": oid,
         "occasion_label": occasion,
         "amount_vnd": amount,
         "recipient_display_name": who,
-        "bank_name": bank,
-        "bank_bin": bin_code,
-        "account_number": account,
-        "account_holder_name": holder,
-        "transfer_note": note,
-        "qr_payload": build_payload(bank_bin=bin_code, account_number=account,
-                                    amount_vnd=amount, note=note),
     }
 
 
 def fixture(state: str) -> dict:
-    lau = _obligation("o1", "bữa lẩu tối thứ bảy", 82000, "Nam",
-                      # repo-guard: allow=long-number reason=synthetic-fixture-never-real-participant-data
-                      "Techcombank", "970407", "19036812345678",
-                      "NGUYEN VAN NAM", "Lau T7")
-    xe = _obligation("o2", "tiền xe về Vũng Tàu", 145000, "Quyên",
-                     # repo-guard: allow=long-number reason=synthetic-fixture-never-real-participant-data
-                     "Vietcombank", "970436", "1017339284",
-                     "TRAN THI QUYEN", "Xe Vung Tau")
+    lau = _obligation("o1", "bữa lẩu tối thứ bảy", 82000, "Nam")
+    xe = _obligation("o2", "tiền xe về Vũng Tàu", 145000, "Quyên")
 
     envelope = {
         "recorded_by_display_name": "Nam",
@@ -104,20 +100,24 @@ def render(state: str) -> bytes:
         view = (
             build_not_me_view(envelope)
             if state.startswith("not-me")
-            else build_wrong_amount_view(envelope, envelope["obligations"][0]["obligation_id"])
+            else build_wrong_amount_view(
+                envelope, envelope["obligations"][0]["obligation_id"]
+            )
         )
-        env = Environment(loader=FileSystemLoader(str(WEB / "templates")),
-                          autoescape=select_autoescape(["html"]))
+        env = Environment(
+            loader=FileSystemLoader(str(WEB / "templates")),
+            autoescape=select_autoescape(["html"]),
+        )
         html = env.get_template(OBJECTION_TEMPLATES[state]).render(
             view=view, preview=NEUTRAL_PREVIEW, token="xem-thu"
         )
         return _with_switcher(html)
 
     view = build_guest_view(fixture(state))
-    for block in view["blocks"]:
-        block["qr_image_data_uri"] = payload_to_png_data_uri(block["qr_payload"])
-    env = Environment(loader=FileSystemLoader(str(WEB / "templates")),
-                      autoescape=select_autoescape(["html"]))
+    env = Environment(
+        loader=FileSystemLoader(str(WEB / "templates")),
+        autoescape=select_autoescape(["html"]),
+    )
     html = env.get_template("guest.html").render(
         view=view, preview=NEUTRAL_PREVIEW, token="xem-thu"
     )
@@ -128,7 +128,10 @@ def _with_switcher(html: str) -> bytes:
     switcher = (
         '<nav style="max-width:26rem;margin:1.5rem auto 0;text-align:center;'
         'font:400 13px system-ui;opacity:.65">'
-        + " ".join(f'<a href="/?state={s}" style="color:inherit;padding:.25rem">{s}</a>' for s in STATES)
+        + " ".join(
+            f'<a href="/?state={s}" style="color:inherit;padding:.25rem">{s}</a>'
+            for s in STATES
+        )
         + "<br><span>xem thử, dữ liệu giả</span></nav>"
     )
     return html.replace("</body>", switcher + "</body>").encode("utf-8")

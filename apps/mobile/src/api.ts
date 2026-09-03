@@ -48,7 +48,6 @@ import {
   type CheckIn,
 } from "./screens/len-plan/buoi-di";
 import { labelInGroup, makeIdFactory, type GroupMember } from "./participants";
-import { maskAccount } from "./ui/vietqr";
 
 /** Where the API lives. Overridable so a phone can reach a laptop. */
 // Written as a plain `process.env.EXPO_PUBLIC_API_URL` on purpose, and it has
@@ -808,49 +807,20 @@ const OPEN_BATCH_REFUSALS: Record<string, string> = {
 };
 
 /**
- * The two refusals that mean "nobody has told us where the money goes".
- *
- * Named as a set rather than checked inline because a screen has to act on
- * them, not just print them. Both sentences above are accurate and both used to
- * be a dead end: QA walked the flow, hit `UNREADY_RECIPIENT_CHOICE_REQUIRED`,
- * and found three buttons on screen, none of which led to a place where a bank
- * account could be entered. The app asked for a thing it had no screen to make.
- *
- * Deliberately excludes `valid_bank_recipient_snapshot_required`. That one is
- * also about a bank account, and it is also raised near money, but the
- * destination it complains about is frozen into a published round -- editing
- * the live account does not thaw it. Offering the same door there would be
- * offering a door that does not open.
- */
-const RECIPIENT_MISSING_CODES = new Set([
-  "unready_recipient_choice_required",
-  "recipient_setup_incomplete",
-]);
-
-/** Whether this failure is "no bank destination on file", and so is fixable. */
-export function isBankRecipientMissing(problem: unknown): boolean {
-  return (
-    problem instanceof ApiError &&
-    RECIPIENT_MISSING_CODES.has(problem.code.toLowerCase())
-  );
-}
-
-/**
  * What the server's refusals to publish mean.
  *
- * The keys are the three gate codes returned by `unmet_publish_gates()` in
+ * The keys are the gate codes returned by `unmet_publish_gates()` in
  * `services/api/app/domain/collection.py`, plus the one code `publish_batch()`
  * raises before it reaches the gates. They are not a guess: `tests/
  * publish-refusals.test.mjs` parses those two Python functions and fails if a
  * key here is not a code publish can send, or a code publish can send has no
  * words here.
  *
- * That test exists because this table shipped wrong. It named
- * `advancer_not_acknowledged` and `bank_recipient_snapshot_invalid`, neither
- * of which appears anywhere in `services/api/app`, so all three gates fell
- * through and put "A publish gate is not satisfied" on screen next to
- * somebody's name and somebody's money. The old test was green throughout: it
- * built its expectations from this object's own keys.
+ * That test exists because this table shipped wrong. It named codes that
+ * appeared nowhere in `services/api/app`, so every gate fell through and put
+ * "A publish gate is not satisfied" on screen next to somebody's name and
+ * somebody's money. The old test was green throughout: it built its
+ * expectations from this object's own keys.
  *
  * Still deliberately incomplete. A code nobody listed falls through to the
  * server's own detail rather than to a friendly sentence that might be wrong
@@ -859,12 +829,6 @@ export function isBankRecipientMissing(problem: unknown): boolean {
 export const PUBLISH_REFUSALS: Record<string, string> = {
   advancer_acknowledgement_required:
     "Người ứng tiền chưa xác nhận. App không gửi gì dưới tên một người trước khi họ đồng ý.",
-  // One code, two situations: the snapshot was never confirmed, or it was
-  // confirmed and then changed after the round froze. The server does not say
-  // which, so neither does this. Naming the wrong one would send somebody to
-  // fix a thing that is not broken.
-  valid_bank_recipient_snapshot_required:
-    "Tài khoản nhận đã đóng băng cùng đợt thu này không còn dùng được. Kiểm tra lại tài khoản nhận của người ứng tiền trước khi phát.",
   // Unreachable from this app today, which is exactly why it is written down.
   // `sendPublish` hard-codes `delivery_method: "personal_link"`, so reaching
   // this line means the app stopped sending it, and a person should not have
@@ -883,183 +847,11 @@ export type OpenedBatch = {
 /**
  * Open a collection round.
  *
- * The server refuses to freeze a batch when somebody who is owed money has no
- * bank account on file, and it is right not to pick for you: "wait" and "split
- * the blocked ones out" have different consequences for the people involved.
- *
- * A parameter for that choice used to sit here. Nothing called it and no test
- * exercised it, so it was a promise the app could not keep -- and an untaken
- * branch on the money path is worse than an absent one, because it reads as
- * handled. The refusal reaches the screen instead, with the reason attached.
+ * The server used to refuse to freeze a batch when somebody who is owed money
+ * had no bank account on file, and this function carried a parameter for the
+ * organiser's answer to that. Both are gone with the payment rail: there are
+ * no accounts, so there is no such refusal and nothing to choose.
  */
-/**
- * What the server's refusals to store a destination mean.
- *
- * The three `INVALID_*` codes come from `app/domain/bank_account.py` and arrive
- * upper-cased; `viDich` lower-cases before looking them up. The screen
- * checks the same three rules locally, so reaching one of these means the two
- * copies have drifted -- and the sentence says which box to look at rather than
- * "Bank destination is malformed", which is the server's own English and names
- * no field at all.
- *
- * `permission_denied` is section 9.2, the one rule in the spec with no
- * exception for an admin: nobody sets somebody else's bank account. It is not
- * reachable from this app today, because the caller and the subject are the
- * same id by construction. It is written down anyway: if that ever stops being
- * true, the person holding the phone should read why rather than read a code.
- */
-const BANK_RECIPIENT_REFUSALS: Record<string, string> = {
-  invalid_bank_bin:
-    "Ngân hàng này app không gửi đi được. Chọn lại từ danh sách.",
-  invalid_account_number:
-    "Số tài khoản sai định dạng. Chỉ chữ và số, tối đa 19 ký tự.",
-  invalid_account_name:
-    "Tên chủ tài khoản chưa hợp lệ. Nhập đúng như ngân hàng hiển thị.",
-  permission_denied:
-    "Chỉ chính chủ mới ghi được tài khoản nhận của mình. App đang gửi dưới tên người khác.",
-};
-
-/** A destination on its way to the server. Digits, not display. */
-export type BankDestination = {
-  bankBin: string;
-  accountNumber: string;
-  accountName: string;
-};
-
-/**
- * A destination on its way back, with the number already masked.
- *
- * The server answers with `account_number` in full, and this deliberately does
- * not carry it. An account number is somebody's, screens get photographed and
- * screen-shared, and the surest way to keep a number off a screen that has no
- * business showing it is for the value never to leave this function. The one
- * screen that legitimately shows it in full is the form the person types it
- * into, which has the digits in its own state and does not need them back.
- */
-export type SavedBankRecipient = {
-  recipientId: string;
-  bankBin: string;
-  bankName: string;
-  /** False when the BIN is not in the shared directory, so nothing pretends. */
-  bankRecognised: boolean;
-  /** `maskAccount`ed. The full number is not returned by design. */
-  accountMasked: string;
-  accountName: string | null;
-};
-
-/**
- * Tell the server where this person's money should land.
- *
- * `PUT /people/{id}/bank-recipient` rather than `POST /bank-recipients`: the
- * subject is in the address, so a request that would change somebody else's
- * account is a different URL rather than this one with a field edited. The
- * server's permission check is unchanged and is still what enforces section
- * 9.2 -- this only narrows what can be asked for by accident.
- *
- * `actorId` must be `personId`. The server allows this only on your own
- * account, and passing anything else earns a 403 that the table above puts into
- * Vietnamese. Kept as a separate parameter rather than assumed, because the
- * moment there is a real gateway the two stop being the same thing.
- *
- * Nothing here logs. Not the number, not the name, not the response -- and the
- * error path throws `ApiError` carrying only a code and one of the sentences
- * above, never the body it sent.
- */
-export async function saveBankRecipient(
-  personId: string,
-  destination: BankDestination,
-  actorId: string,
-  attempt: Attempt,
-): Promise<SavedBankRecipient> {
-  const result = await translatedAsActor<{
-    recipient_id: string;
-    bank_bin: string;
-    bank_name: string;
-    bank_recognised: boolean;
-    account_number: string;
-    account_name: string | null;
-  }>(BANK_RECIPIENT_REFUSALS, `/people/${personId}/bank-recipient`, {
-    method: "PUT",
-    body: {
-      bank_bin: destination.bankBin,
-      account_number: destination.accountNumber,
-      account_name: destination.accountName,
-    },
-    actorId,
-    attempt,
-  });
-
-  return {
-    recipientId: result.recipient_id,
-    bankBin: result.bank_bin,
-    // The server's own name for the BIN, not the app's copy of the directory.
-    // `banks.test.mjs` holds the two copies together; when they do drift, the
-    // surface that decides where money goes is the one worth believing.
-    bankName: result.bank_name,
-    bankRecognised: result.bank_recognised,
-    accountMasked: maskAccount(result.account_number),
-    accountName: result.account_name,
-  };
-}
-
-/** A saved destination, read back, plus when it was put on file. */
-export type StoredBankRecipient = SavedBankRecipient & {
-  /** ISO-8601 from the server. When this destination was last written -- the
-   *  one fact the write path cannot tell a screen, because the screen that
-   *  just saved already knows it was now. */
-  confirmedAt: string;
-};
-
-/**
- * Read the destination already on file for one person.
- *
- * `GET /bank-recipients/{recipient_id}`, which nothing in this app called
- * before. The hole it leaves is small and real: the account form always opened
- * empty, so somebody who had already set a destination could not tell that from
- * having none, and the only way to find out was to type one in again.
- *
- * `null` for 404 rather than a throw. "This person has no destination yet" is
- * the ordinary state of a new group, not a failure, and a caller that has to
- * catch an exception to render an empty form will eventually catch a 403 with
- * it. Every other status still throws.
- *
- * The number comes back masked, for the reason stated on `SavedBankRecipient`:
- * this is a READ, so unlike the form there is no copy of the digits anywhere on
- * this side that a screen could be tempted to show in full.
- */
-export async function docTaiKhoanNhan(
-  recipientId: string,
-  actorId: string,
-): Promise<StoredBankRecipient | null> {
-  let result: {
-    recipient_id: string;
-    bank_bin: string;
-    bank_name: string;
-    bank_recognised: boolean;
-    account_number: string;
-    account_name: string | null;
-    confirmed_at: string;
-  };
-  try {
-    result = await callAsActor(`/bank-recipients/${recipientId}`, {
-      method: "GET",
-      actorId,
-    });
-  } catch (e) {
-    if (e instanceof ApiError && e.status === 404) return null;
-    throw e;
-  }
-  return {
-    recipientId: result.recipient_id,
-    bankBin: result.bank_bin,
-    bankName: result.bank_name,
-    bankRecognised: result.bank_recognised,
-    accountMasked: maskAccount(result.account_number),
-    accountName: result.account_name,
-    confirmedAt: result.confirmed_at,
-  };
-}
-
 export async function openBatch(
   proposal: PendingProposal,
   expenseVersionId: string,
@@ -1252,11 +1044,10 @@ async function sendPublish(
       path: string;
       // One link can cover several obligations -- one person can owe two
       // different people out of the same round. The link is per sender, not
-      // per debt, and each debt carries its own VietQR string.
+      // per debt.
       obligations: {
         obligation_id: string;
         amount_vnd: number;
-        vietqr_payload: string;
       }[];
     }[];
   }>(PUBLISH_REFUSALS, `/batches/${batchId}/publish`, {
@@ -1282,14 +1073,9 @@ async function sendPublish(
     amountVnd: link.obligations.reduce((sum, row) => sum + row.amount_vnd, 0),
     url: BASE_URL + link.path,
     opened: false,
-    // Carried through untouched. The settlement screen draws the code from
-    // this string and cross-checks the amount inside it against the amount
-    // beside it; both of those need the server's own bytes, not a copy the
-    // app assembled from fields it happened to keep.
     obligations: link.obligations.map((row) => ({
       obligationId: row.obligation_id,
       amountVnd: row.amount_vnd,
-      vietqrPayload: row.vietqr_payload,
     })),
   }));
 }

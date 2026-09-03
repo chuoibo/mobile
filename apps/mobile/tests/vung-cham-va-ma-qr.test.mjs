@@ -1,4 +1,10 @@
-/* Two defects on the hero path that only a rendered page can see (bug-191824).
+/* One defect on the hero path that only a rendered page can see (bug-191824).
+ *
+ * There were two. The second -- the VietQR block opening 41% below the fold --
+ * went with the payment rail: the product names each person's share and stops,
+ * so there is no code to be below any fold. The file keeps its name because
+ * four other test files cite it by name as the pattern for measuring a
+ * rendered page, and renaming it would cost four edits to buy nothing.
  *
  * QA measured both on main @ 267971e and no existing gate moved, for the same
  * reason as `vo-tab-web.test.mjs`: nothing else in this suite renders anything.
@@ -127,45 +133,6 @@ function doVungCham(prefix, minimum) {
   });
 }
 
-/**
- * The VietQR block, found by its shape.
- *
- * Same locator as `tools/anh-bon-man-hero.mjs`: a near-square div at least
- * 80pt on a side holding 100+ child divs. The code is drawn as runs of `View`,
- * so the child count is what separates it from any other square on the screen,
- * and a test id would let this file and that probe measure two different
- * objects while both stayed green.
- */
-function doMaQr(cao) {
-  let qr = null;
-  let el = null;
-  for (const e of document.querySelectorAll("div")) {
-    const r = e.getBoundingClientRect();
-    if (r.width < 80 || r.height < 80) continue;
-    if (Math.abs(r.width - r.height) > 12) continue;
-    const con = e.querySelectorAll("div").length;
-    if (con < 100) continue;
-    if (!qr || r.width > qr.w) {
-      qr = { y: Math.round(r.y), x: Math.round(r.x), w: Math.round(r.width), h: Math.round(r.height), con };
-      el = e;
-    }
-  }
-  if (!qr) return { tim: false };
-
-  // How far the page has been scrolled, from the scroller the block sits in
-  // rather than from `window`: a react-native-web ScrollView scrolls its own
-  // element and `window.scrollY` stays 0 whatever the user did.
-  let daCuon = 0;
-  for (let p = el.parentElement; p; p = p.parentElement) {
-    if (p.scrollHeight > p.clientHeight + 4) {
-      daCuon = Math.round(p.scrollTop);
-      break;
-    }
-  }
-
-  const hien = Math.max(0, Math.min(qr.y + qr.h, cao) - Math.max(qr.y, 0));
-  return { tim: true, ...qr, daCuon, hien, tiLe: qr.h ? hien / qr.h : 0 };
-}
 
 /* -------------------------------------------------------------------- gate --- */
 
@@ -272,28 +239,5 @@ if (reasons.length && !REQUIRED && !banCu) {
       );
     });
 
-    /* --- 2. the code is on screen when the screen arrives ------------------ */
-
-    test("mã VietQR nằm trọn trong khung nhìn lúc màn vừa vẽ", async () => {
-      await diToi("ket-qua-thanh-toan");
-      const qr = await page.evaluate(doMaQr, CAO);
-
-      assert.ok(qr.tim, "không tìm thấy khối mã VietQR nào trên màn kết quả thanh toán");
-      console.log(
-        `  mã QR: y=${qr.y} ${qr.w}x${qr.h}px, ${qr.con} module-view, ` +
-          `hiện ${qr.hien}/${qr.h}px (${Math.round(qr.tiLe * 100)}%), đã cuộn ${qr.daCuon}px`,
-      );
-
-      // Nobody scrolled. Measuring after a scroll would answer "can this code
-      // be reached", which was never in doubt; the finding is about what is on
-      // screen the moment the screen is.
-      assert.equal(qr.daCuon, 0, `vùng cuộn đã ở ${qr.daCuon}px, phép đo không còn là "lúc vừa vẽ"`);
-
-      assert.ok(
-        qr.y >= 0 && qr.y + qr.h <= CAO,
-        `khối mã ở y=${qr.y}..${qr.y + qr.h} trong màn cao ${CAO}px — chỉ ${qr.hien}/${qr.h}px ` +
-          `(${Math.round(qr.tiLe * 100)}%) nằm trong khung nhìn lúc màn vừa vẽ`,
-      );
-    });
   });
 }

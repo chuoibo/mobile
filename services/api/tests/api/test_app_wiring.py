@@ -46,8 +46,8 @@ DEMO_PATH_ROUTES = {
     ("POST", "/batches"),
     ("POST", "/batches/{batch_id}/publish"),
     ("GET", "/batches/{batch_id}/obligations"),
-    ("POST", "/bank-recipients"),
-    ("GET", "/bank-recipients/{recipient_id}"),
+    # The two `/bank-recipients` steps left with the payment rail: the demo
+    # walks as far as telling each person their share, and no further.
     ("GET", "/g/{token}"),
     ("POST", "/g/{token}/da-chuyen"),
     ("POST", "/obligations/{obligation_id}/confirm-receipt"),

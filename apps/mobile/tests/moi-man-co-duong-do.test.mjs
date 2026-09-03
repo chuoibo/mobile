@@ -134,10 +134,6 @@ const SO_DO = {
   KetQuaQuetAnh: { chuaDo: "F26; chỉ tới được sau khi chọn ảnh chụp màn hình để quét, không có vao=" },
   ChiaSe: { chuaDo: "mở bằng share sheet của hệ điều hành, không phải một URL" },
   DeXuat: { chuaDo: "render trong luồng chat, không phải một đích điều hướng riêng" },
-  // Keyed by the module path App.tsx imports, not the bare component name --
-  // the derivation returns "tai-khoan/TaiKhoanNhan" and a shortened key here
-  // reads as a missing screen. This gate caught exactly that on its first run.
-  "tai-khoan/TaiKhoanNhan": { quet: "tai-khoan-nhan" },
   // F17 and F22, added with the screens that pay off six routes nobody could
   // reach. `quet` and not `do`: each has a `?man=` address that mounts the real
   // component over a frozen fixture, and no probe row, so a detector and a

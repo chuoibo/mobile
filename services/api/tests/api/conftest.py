@@ -26,7 +26,6 @@ from app.api.repository import (
     AccountSessionRecord,
     ActorGrants,
     AllocationRow,
-    BankRecipientRecord,
     BatchBoard,
     BatchForPublish,
     BatchInputs,
@@ -63,7 +62,6 @@ from app.api.repository import (
 )
 from app.domain.capability import capability_scope
 from app.domain.ledger import obligation_status
-from app.payments.vietqr import build_payload
 
 from .helpers import ADVANCER_ID, CONTEXT_ID, SENDER_ID
 
@@ -106,7 +104,6 @@ class FakeRepository:
         self.confirmed: dict[uuid.UUID, ConfirmedExpense] = {}
         self.version_to_expense: dict[uuid.UUID, uuid.UUID] = {}
         self.version_numbers: dict[uuid.UUID, int] = {}
-        self.bank_recipients: dict[uuid.UUID, BankRecipientRecord] = {}
         self.batched_versions: set[uuid.UUID] = set()
         self.batches: dict[uuid.UUID, BatchForPublish] = {}
         self.obligations: dict[uuid.UUID, PublishObligation] = {}
@@ -862,48 +859,6 @@ class FakeRepository:
             )
         )
 
-    def load_bank_recipients(self, recipient_ids):
-        return {
-            recipient_id: self.bank_recipients[recipient_id]
-            for recipient_id in recipient_ids
-            if recipient_id in self.bank_recipients
-        }
-
-    def get_active_bank_recipient(self, recipient_id):
-        return self.bank_recipients.get(recipient_id)
-
-    def save_bank_recipient(
-        self,
-        *,
-        recipient_id,
-        bank_bin,
-        account_number,
-        account_name,
-        actor_id,
-        now,
-    ):
-        # No partial unique index here and no revoked rows: replacing the key is
-        # all a dict can do. "Changing an account leaves exactly one active row"
-        # is therefore proved in tests/postgres, not against this.
-        del actor_id
-        existing = self.bank_recipients.get(recipient_id)
-        if existing is not None and (
-            existing.bank_bin == bank_bin
-            and existing.account_number == account_number
-            and existing.account_name == account_name
-        ):
-            return existing, False
-        record = BankRecipientRecord(
-            id=uuid.uuid4(),
-            recipient_id=recipient_id,
-            bank_bin=bank_bin,
-            account_number=account_number,
-            account_name=account_name,
-            confirmed_at=now,
-        )
-        self.bank_recipients[recipient_id] = record
-        return record, True
-
     def save_frozen_batch(
         self,
         *,
@@ -911,7 +866,6 @@ class FakeRepository:
         owner_id,
         due_at,
         obligations: tuple[ObligationDraft, ...],
-        bank_recipients,
         now,
     ):
         del now
@@ -931,16 +885,12 @@ class FakeRepository:
                     source_expense_version_ids=draft.source_expense_version_ids,
                 )
             )
-            bank = bank_recipients[draft.recipient_id]
             record = PublishObligation(
                 id=obligation_id,
                 batch_version_id=version_id,
                 sender_id=draft.sender_id,
                 recipient_id=draft.recipient_id,
                 amount_vnd=draft.amount_vnd,
-                bank_bin=bank.bank_bin,
-                account_number=bank.account_number,
-                account_name=bank.account_name,
             )
             publish.append(record)
             self.obligations[obligation_id] = record
@@ -961,8 +911,6 @@ class FakeRepository:
             status="frozen",
             context_id=context_id,
             advancer_acknowledged=acknowledged,
-            bank_recipient_snapshot_valid=bool(publish),
-            all_recipients_eligible=bool(publish),
             obligations=tuple(publish),
         )
         return FrozenBatch(
@@ -1047,13 +995,6 @@ class FakeRepository:
             status = obligation_status(
                 item.amount_vnd, [{"amount_vnd": amount} for amount in receipts]
             )
-            note = f"TT {item.id.hex[:8]}"
-            payload = build_payload(
-                bank_bin=item.bank_bin,
-                account_number=item.account_number,
-                amount_vnd=item.amount_vnd,
-                note=note,
-            )
             blocks.append(
                 {
                     "obligation_id": str(item.id),
@@ -1063,13 +1004,6 @@ class FakeRepository:
                     "occasion_label": "bữa tối",
                     "amount_vnd": item.amount_vnd,
                     "recipient_display_name": "Nam",
-                    "bank_name": "Ngân hàng thử nghiệm",
-                    "bank_bin": item.bank_bin,
-                    "account_number": item.account_number,
-                    "account_holder_name": item.account_name or "NGUYEN VAN NAM",
-                    "transfer_note": note,
-                    "qr_payload": payload,
-                    "qr_image_data_uri": None,
                     "evidence_requested": any(
                         objection["kind"] == "evidence_request"
                         and objection["obligation_id"] == item.id
