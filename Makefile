@@ -364,6 +364,13 @@ mobile-native-live: ## Như trên nhưng đọc DỮ LIỆU THẬT — cần ACT
 	  --actor $(ACTOR) --context $(CONTEXT) --api-port $(API) \
 	  $(if $(PORT),--port $(PORT)) $(if $(SERIAL),--serial $(SERIAL)) $(if $(KEEP),--keep)
 
+mobile-native-dangnhap: ## Cửa vào THẬT: mint lời mời rồi đăng nhập trên máy ảo — cần API= và MOBILE_DATABASE_URL
+	@# Không ghim danh tính nào vào bundle. Script tự mint phiên đầu bằng
+	@# genesis_session.py rồi tạo nhóm/chuyến/lời mời đích danh qua HTTP, và app
+	@# đi đúng đường một người thật đi. API phải chạy KHÔNG có MOBILE_AUTH_MODE.
+	@scripts/mobile_native.sh --dang-nhap --api-port $(API) \
+	  $(if $(PORT),--port $(PORT)) $(if $(SERIAL),--serial $(SERIAL)) $(if $(KEEP),--keep)
+
 bundle-check: ## Cây đang đứng có khớp origin/main không — hỏi TRƯỚC khi xuất bundle
 	@python3 scripts/check_tree_matches_main.py \
 	  $(if $(TREE),--tree $(TREE)) $(if $(REF),--ref $(REF)) \

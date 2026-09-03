@@ -62,9 +62,12 @@ function than(goi) {
   return JSON.parse(goi.init.body);
 }
 
+const NHOM = "1aa00000-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
 const PHIEN = {
   token: "tok-abc",
   person_id: NGUOI,
+  context_id: NHOM,
   expires_at: new Date(Date.now() + 86_400_000).toISOString(),
   membership_state: "invited",
 };
@@ -148,6 +151,35 @@ test("phiên đã hết hạn bị bỏ tại chỗ, không gửi lên để nh�
   assert.equal(phien, null);
   assert.equal(tokenPhienHienTai(), null);
   assert.equal(await kho.doc("rudi.phien"), null, "bản ghi chết phải bị xoá");
+});
+
+test("bản ghi cũ không có nhóm thì bị từ chối, không phải đăng nhập nửa vời", async () => {
+  // A record written before the server answered with `context_id`. Keeping it
+  // would sign somebody in with nothing to read: there is no route that lists
+  // a person's contexts, so the app would show a live-looking shell with no
+  // group behind it. Refusing signs them out, and signing back in is one tap.
+  const kho = khoTrongBoNho();
+  const { context_id: _bo, ...cu } = PHIEN;
+  await kho.ghi("rudi.phien", JSON.stringify(cu));
+
+  assert.equal(await khoiPhucPhien(kho), null);
+  assert.equal(tokenPhienHienTai(), null);
+});
+
+test("nhóm rỗng cũng là bản ghi không dùng được", async () => {
+  const kho = khoTrongBoNho();
+  await kho.ghi("rudi.phien", JSON.stringify({ ...PHIEN, context_id: "" }));
+
+  assert.equal(await khoiPhucPhien(kho), null);
+});
+
+test("phiên còn hạn mang theo nhóm của nó", async () => {
+  const kho = khoTrongBoNho();
+  await kho.ghi("rudi.phien", JSON.stringify(PHIEN));
+
+  const phien = await khoiPhucPhien(kho);
+
+  assert.equal(phien?.context_id, NHOM);
 });
 
 test("bản ghi hỏng là ứng dụng chưa đăng nhập, không phải ứng dụng vỡ", async () => {

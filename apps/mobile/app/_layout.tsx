@@ -5,6 +5,7 @@ import { Linking, Platform } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { diemVaoTuUrl } from "../src/rudi/duong-vao";
+import { datLoiMoiDen } from "../src/rudi/loi-moi-den";
 import { RudiSessionProvider } from "../src/rudi/session";
 import { useRudiTheme } from "../src/rudi/theme";
 
@@ -23,6 +24,14 @@ function LegacyFragmentAdapter() {
       // checked before is the whole of the defect.
       if (!live) return;
       const diem = diemVaoTuUrl(url);
+      if (diem.kieu === "loi-moi") {
+        // The code goes through a module, never through a route param: a
+        // single-use bearer secret should not land in navigation state. See
+        // `src/rudi/loi-moi-den.ts`.
+        datLoiMoiDen(diem.ma);
+        router.replace("/moi" as never);
+        return;
+      }
       if (diem.kieu !== "doi-huong") return;
       router.replace(diem.toi as never);
     });

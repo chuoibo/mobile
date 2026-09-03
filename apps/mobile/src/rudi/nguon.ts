@@ -21,24 +21,26 @@
  * story and a real group's money would swap places silently. So live is
  * entered deliberately, and `viSao` records why it was not.
  *
- * ## Why a bearer is still not enough
+ * ## A session is now enough, and what it took
  *
- * ADR-0014 shipped in PR #514: `POST /sessions` exists, `src/phien.ts` redeems
- * a named invitation for one, and `src/api.ts` puts the bearer on every
- * identified request. So a session is real now. It is still not a group.
+ * ADR-0014 shipped `POST /sessions` in #514, but the answer said only WHO you
+ * are. There is no route that lists a person's contexts, so an app holding a
+ * valid session still had no group to read and stayed on the fixture. That is
+ * why `SessionResponse` now also carries `context_id`: sign-in happens by
+ * redeeming an invitation to a TRIP, so the server knows the group at the
+ * moment it issues the session.
  *
- * `SessionResponse` carries `token`, `person_id`, `expires_at` and
- * `membership_state` -- and no `context_id`. `contexts.py` declares `POST
- * /contexts`, `GET /contexts/{id}`, members, balances and membership accept,
- * and nothing that lists the contexts a person belongs to. Re-checked against
- * `origin/main` at 03eb05a, after #514 merged.
+ * With that, a signed-in person is live and nobody has to pin anything into a
+ * bundle. The `EXPO_PUBLIC_RUDI_*` pair stays as the DEV door -- it is how the
+ * native gate drives live screens without minting an invitation every run --
+ * and `tests/cau-hinh-ban-dung.test.mjs` refuses it in any shippable profile.
  *
- * The legacy tree works around it by replaying `POST /contexts` under a derived
- * idempotency key. That reaches the demo group and would be wrong for a real
- * one: it would name a second group beside the one somebody is looking at.
+ * ## Why `invited` is still not live
  *
- * So a session alone still lands in `trai-nghiem`, with that stated as the
- * reason rather than left for a reader to discover from an empty screen.
+ * Signing in is not joining. A first invitation lands `invited` and a member
+ * still has to accept; the server refuses that person's group data, and this
+ * screen must say the same thing rather than render an empty group as though
+ * it were an empty trip.
  */
 
 /** UUID as the server writes them. Same shape `navigation/lien-ket.ts` enforces. */
@@ -70,8 +72,15 @@ const CONTEXT_DEV = process.env.EXPO_PUBLIC_RUDI_CONTEXT;
  * Taken as an argument rather than imported so this stays a pure function of
  * its inputs and can be exercised without a device or a server.
  */
+/** What the session module knows, reduced to what this decision needs. */
+export type PhienToiThieu = {
+  person_id: string;
+  context_id: string;
+  membership_state: "invited" | "active" | "left";
+};
+
 export function nguonHienTai(
-  coPhien: boolean,
+  phien: PhienToiThieu | null,
   moiTruong: { actor?: string; context?: string } = { actor: ACTOR_DEV, context: CONTEXT_DEV },
 ): Nguon {
   const { actor, context } = moiTruong;
@@ -94,14 +103,20 @@ export function nguonHienTai(
     }
     return { kieu: "live", actorId: actor, contextId: context };
   }
-  if (coPhien) {
-    return {
-      kieu: "trai-nghiem",
-      viSao:
-        "Đã đăng nhập, nhưng chưa biết nhóm nào: SessionResponse không mang context_id và " +
-        "máy chủ chưa có route liệt kê nhóm của một người. Xem " +
-        "docs/claude/2026-09-03/adr-0014-nua-client-da-san-sang.md.",
-    };
+  if (phien !== null) {
+    if (phien.membership_state !== "active") {
+      // The server will refuse this person's group data, and a screen that
+      // rendered the group anyway would show an empty trip where the truth is
+      // "nobody has accepted you yet".
+      return {
+        kieu: "trai-nghiem",
+        viSao: "Đã đăng nhập, nhưng nhóm còn phải duyệt thì bạn mới xem được dữ liệu nhóm.",
+      };
+    }
+    if (!UUID_RE.test(phien.context_id)) {
+      return { kieu: "trai-nghiem", viSao: "Phiên mang một mã nhóm không đọc được." };
+    }
+    return { kieu: "live", actorId: phien.person_id, contextId: phien.context_id };
   }
   return { kieu: "trai-nghiem", viSao: "Chưa đăng nhập. Đây là bản trải nghiệm Team Đà Lạt." };
 }

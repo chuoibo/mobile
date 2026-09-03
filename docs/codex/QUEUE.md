@@ -13,11 +13,21 @@ Mục này viết khi ADR-0014 còn ĐỀ XUẤT. Nó đã **ĐÃ CHẤP NHẬN 
 gộp — hai bản hiện thực của một credential là hình dạng làm cây không trả lời
 được «cái nào đang có hiệu lực».
 
-**Việc còn lại, và nó chặn màn RuDi đọc dữ liệu thật:** một phiên chưa cho biết
-NHÓM nào. `SessionResponse` không mang `context_id`, và `contexts.py` không có
-route nào liệt kê nhóm của một người (đo trên `main` tại `03eb05a`). Đề nghị
-thêm `context_id` vào `SessionResponse` — người ta đăng nhập bằng lời mời vào
-một chuyến, nên máy chủ đã biết nhóm ngay lúc cấp phiên. Chi tiết ở
+**ĐÃ LÀM:** `context_id` vào `SessionResponse` (`bootstrap_session_from_invite`
+đã nạp sẵn `outing`, nên không thêm query). Kèm ca postgres hai-nhóm và một bước
+mới trong `scripts/e2e_slice.sh` đổi lời mời đích danh lấy phiên **qua HTTP ở
+chế độ prod** rồi đối chiếu `context_id`.
+
+**CÒN LẠI, và nó chặn người dùng tự vào được nhóm:** `SessionResponse` không mang
+`membership_id`. Theo ADR-0014 mục 8, lời mời **đích danh** thì chính người được
+mời đồng ý (`is_invitee`), không phải thành viên khác duyệt — nhưng client không
+có id để gọi `POST /memberships/{id}/accept`. Hệ quả đo được trên máy: người nhận
+lời mời đăng nhập xong dừng ở `invited`, màn nói đúng câu «nhóm còn phải duyệt»,
+và **không có nút nào đưa họ qua bước đó** dù luật cho phép chính họ bấm.
+
+Đề nghị: thêm `membership_id` vào `SessionResponse` (cùng chỗ, cùng lý do như
+`context_id` — `ensure_invited_membership` trả về hàng đó ngay trên dòng trước).
+Hoặc một route nhận theo context. Chi tiết ở
 `docs/claude/2026-09-03/adr-0014-nua-client-da-san-sang.md` mục 3.
 
 ### 0b. `scripts/check_api_contract.py` mù với route khai ngoài `routes/`

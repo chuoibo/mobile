@@ -2555,6 +2555,11 @@ class ApiService:
         return SessionResponse(
             token=raw_token,
             person_id=person_id,
+            # Already in hand: `outing` was loaded above to check the expiry,
+            # so naming the group costs no second query. A client told only
+            # who it is cannot ask which group it is in -- `contexts.py`
+            # declares no route that lists them.
+            context_id=outing.context_id,
             expires_at=record.expires_at,
             membership_state=membership.state,
         )

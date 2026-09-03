@@ -617,6 +617,18 @@ class SessionResponse(ApiModel):
     token: str
     person_id: UUID
     expires_at: datetime
+    #: The group the invitation belonged to.
+    #:
+    #: Carried because a session without it is a session that cannot show
+    #: anybody anything. Signing in happens by redeeming an invitation to a
+    #: TRIP, so the server knows the group at the moment it issues the session
+    #: -- and there is no route that lists a person's contexts, so a client
+    #: that is not told here has no second way to find out. The mobile app's
+    #: `src/rudi/nguon.ts` sat in fixture mode for exactly this reason.
+    #:
+    #: `OutingInviteAcceptResponse` already answers with `context_id` for the
+    #: link door. This makes the two doors say the same thing.
+    context_id: UUID
     #: Where this person stands in the group the invitation belonged to.
     #: Carried so the screen can say one true sentence instead of guessing:
     #: signing in is not joining, and somebody redeeming their first invitation

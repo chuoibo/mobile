@@ -38,8 +38,10 @@ SERIAL="${ANDROID_SERIAL:-}"
 FLOWS=".maestro"
 KEEP=0
 LIVE=0
+DANG_NHAP=0
 ACTOR=""
 CONTEXT=""
+MA_LOI_MOI=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -49,6 +51,7 @@ while [ $# -gt 0 ]; do
     --flows) FLOWS="$2"; shift 2 ;;
     --keep) KEEP=1; shift ;;
     --live) LIVE=1; shift ;;
+    --dang-nhap) DANG_NHAP=1; shift ;;
     --actor) ACTOR="$2"; shift 2 ;;
     --context) CONTEXT="$2"; shift 2 ;;
     *) echo "tham số lạ: $1" >&2; exit 64 ;;
@@ -60,6 +63,13 @@ if [ "$LIVE" = 1 ]; then
     || { echo "--live cần --actor <uuid> --context <uuid>" >&2; exit 64; }
   [ -n "$API_PORT" ] \
     || { echo "--live cần --api-port <cổng của API đã seed>" >&2; exit 64; }
+fi
+
+if [ "$DANG_NHAP" = 1 ]; then
+  [ -n "$API_PORT" ] \
+    || { echo "--dang-nhap cần --api-port <cổng của API chạy ở chế độ prod>" >&2; exit 64; }
+  [ "$LIVE" = 0 ] \
+    || { echo "--dang-nhap và --live loại trừ nhau: một cái ghim danh tính, cái kia đi lấy" >&2; exit 64; }
 fi
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -104,6 +114,68 @@ case "$EXPO_VER" in
   *)    hong "Expo Go $EXPO_VER không khớp SDK 57 của app. Bundle sẽ không nạp." ;;
 esac
 
+# --- lời mời thật, cho lượt đăng nhập --------------------------------------
+#
+# Cả bảng mặc định lẫn `--live` đều đi vòng qua cửa đăng nhập: một cái dùng
+# fixture, cái kia ghim sẵn danh tính vào bundle. Không cái nào chạm đường mà
+# NGƯỜI THẬT đi. Chế độ này dựng đúng đường đó: phiên đầu tiên bằng
+# `genesis_session.py` (cửa duy nhất ngoài HTTP trên một host sạch), rồi nhóm,
+# chuyến, và một lời mời ĐÍCH DANH — toàn bộ qua HTTP ở chế độ prod.
+#
+# Người vừa nhận lời mời là `invited`, chưa phải thành viên, nên máy chủ vẫn từ
+# chối dữ liệu nhóm. Thành viên duyệt là một bước riêng ở đây vì nó là một bước
+# riêng trong đời thật — và vì màn hình phải nói được hai câu khác nhau cho hai
+# trạng thái đó.
+API_URL=""
+dung_loi_moi() {
+  API_URL="http://127.0.0.1:$API_PORT"
+  local dsn owner_line owner_id owner_token ctx outing guest
+  dsn="${MOBILE_DATABASE_URL:-}"
+  [ -n "$dsn" ] || khong_do_duoc "--dang-nhap cần MOBILE_DATABASE_URL để mint phiên đầu tiên."
+
+  owner_line="$(MOBILE_DATABASE_URL="$dsn" python3 "$REPO/scripts/genesis_session.py" \
+      --display-name "Chu nhom e2e" --group "RuDi cua vao" --json)" \
+    || khong_do_duoc "genesis_session.py hỏng."
+  owner_id="$(printf '%s' "$owner_line" | python3 -c 'import json,sys;print(json.load(sys.stdin)["person_id"])')"
+  owner_token="$(printf '%s' "$owner_line" | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])')"
+
+  ctx="$(curl -fsS -X POST "$API_URL/contexts" \
+      -H 'Content-Type: application/json' -H "Authorization: Bearer $owner_token" \
+      -H "Idempotency-Key: native-ctx-$owner_id" \
+      -d '{"display_name":"RuDi cua vao"}' \
+    | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')" \
+    || khong_do_duoc "không tạo được nhóm."
+
+  outing="$(curl -fsS -X POST "$API_URL/contexts/$ctx/outings" \
+      -H 'Content-Type: application/json' -H "Authorization: Bearer $owner_token" \
+      -H "Idempotency-Key: native-outing-$owner_id" \
+      -d '{"title":"Chuyen cua vao","starts_on":"2030-10-17","ends_on":"2030-10-19","headcount":2,"budget_per_person_vnd":0}' \
+    | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')" \
+    || khong_do_duoc "không tạo được chuyến."
+
+  guest="$(python3 -c 'import uuid;print(uuid.uuid4())')"
+  curl -fsS -X PUT "$API_URL/people/$guest" \
+      -H 'Content-Type: application/json' -H "Authorization: Bearer $owner_token" \
+      -d '{"display_name":"Khach RuDi"}' >/dev/null \
+    || khong_do_duoc "không đặt được tên người được mời."
+
+  MA_LOI_MOI="$(curl -fsS -X POST "$API_URL/outings/$outing/invites" \
+      -H 'Content-Type: application/json' -H "Authorization: Bearer $owner_token" \
+      -H "Idempotency-Key: native-invite-$guest" \
+      -d "{\"source\":\"friend\",\"person_id\":\"$guest\"}" \
+    | python3 -c 'import json,sys;print(json.load(sys.stdin)["invite_token"])')" \
+    || khong_do_duoc "không mint được lời mời đích danh."
+
+  # Người này sẽ dừng ở `invited`, và lượt đo dừng ở đó CÓ CHỦ Ý.
+  #
+  # Theo ADR-0014 mục 8, lời mời đích danh thì chính người được mời đồng ý
+  # (`is_invitee`) — không phải thành viên khác duyệt. Nhưng để bấm nút đó,
+  # client cần `membership_id`, mà `SessionResponse` không mang. Nên đường
+  # `invited` → `active` chưa đi được từ RuDi, và flow 21 khẳng định đúng cái
+  # nó đo được: đăng nhập thật xong, và màn tiền VẪN KHÔNG live.
+  echo "lời mời đã dựng cho nhóm $ctx"
+}
+
 # --- Metro CỦA CÂY NÀY -----------------------------------------------------
 # Giết cả `npx` lẫn `node` chứ không chỉ subshell. Lượt chạy đầu chỉ giết
 # subshell, `node` ở lại giữ cổng 8095, và lượt sau `expo start` không bind
@@ -129,6 +201,10 @@ don_dep() {
   giet_metro_cua_minh
 }
 trap don_dep EXIT
+
+if [ "$DANG_NHAP" = 1 ]; then
+  dung_loi_moi
+fi
 
 if timeout 20 adb reverse --list 2>/dev/null | grep -q "tcp:$PORT"; then
   hong "cổng $PORT đã có người cắm reverse. Đổi bằng MOBILE_METRO_PORT=<cổng khác>."
@@ -182,8 +258,15 @@ timeout 20 adb reverse "tcp:$PORT" "tcp:$PORT" >/dev/null \
 # --- thiết bị nạp bundle CỦA MÌNH ------------------------------------------
 timeout 30 adb shell am force-stop host.exp.exponent >/dev/null 2>&1 || true
 sleep 2
+# Ở chế độ đăng nhập, chính cái link mời là thứ mở app — giống hệt lúc một
+# người bấm vào link bạn gửi. KHÔNG truyền mã qua biến của Maestro:
+# `${...}` trong `openLink` không được thay, và `$`/`{`/`}` trong URL làm app
+# đứng ở màn lỗi. Đo được: cùng flow đó với một mã thật thì màn nhận lời mời
+# hiện đúng, kèm mã đã điền sẵn.
+DUONG_MO="exp://localhost:$PORT"
+[ "$DANG_NHAP" = 1 ] && DUONG_MO="exp://localhost:$PORT/--/moi/$MA_LOI_MOI"
 timeout 30 adb shell am start -a android.intent.action.VIEW \
-  -d "exp://localhost:$PORT" host.exp.exponent >/dev/null 2>&1 \
+  -d "$DUONG_MO" host.exp.exponent >/dev/null 2>&1 \
   || khong_do_duoc "không mở được Expo Go trên $ANDROID_SERIAL."
 
 for _ in $(seq 1 90); do
@@ -238,7 +321,8 @@ for f in "$FLOWS"/*.yaml; do
     # Bảng mặc định cố ý không có hai thứ đó, nên chạy nó ở đây sẽ đỏ vì thiếu
     # môi trường chứ không phải vì app sai. `--live` chạy đúng và chỉ nhóm này.
     20-*)        [ "$LIVE" = 1 ] || continue ;;
-    *)           [ "$LIVE" = 1 ] && continue ;;
+    21-*)        [ "$DANG_NHAP" = 1 ] || continue ;;
+    *)           { [ "$LIVE" = 1 ] || [ "$DANG_NHAP" = 1 ]; } && continue ;;
   esac
   DA_CHAY=$((DA_CHAY + 1))
   set +e; chay_flow "$f"; rc=$?; set -e
