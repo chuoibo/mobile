@@ -263,6 +263,30 @@ print("%d|%s|%s" % (len(moi), ten_nhom, ten_nguoi))')"
   echo "máy chủ xác nhận: người được mời (số D) đăng nhập thấy đúng 1 lời mời vào «Hoi QA», tên «Ban QA» do người mời đặt"
 }
 
+# Sau flow 25: D (số D) vừa đồng ý vào «Hoi QA» và đồng ý kết bạn với C trên máy.
+# Hỏi máy chủ với tư cách D: một bạn, một nhóm — không đọc từ màn hình.
+kiem_may_chu_sau_25() {
+  local goc id body tok ket
+  goc="http://127.0.0.1:$API_PORT"
+  id="$(curl -sS -X POST "$goc/auth/otp/request" -H 'Content-Type: application/json' \
+      -d "{\"phone\":\"$OTP_PHONE_D\"}" \
+    | python3 -c 'import json,sys;print(json.load(sys.stdin).get("challenge_id",""))' 2>/dev/null || true)"
+  [ -n "$id" ] || hong "sau flow 25: không xin được mã cho D."
+  body="$(curl -sS -X POST "$goc/auth/otp/verify" -H 'Content-Type: application/json' \
+      -d "{\"challenge_id\":\"$id\",\"phone\":\"$OTP_PHONE_D\",\"code\":\"$OTP_CODE\"}")"
+  tok="$(printf '%s' "$body" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("token",""))')"
+  [ -n "$tok" ] || hong "sau flow 25: D không đăng nhập được."
+  ket="$(curl -sS "$goc/people/me" -H "Authorization: Bearer $tok" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+c = d.get("counts", {})
+print("%s|%s|%s" % (c.get("friends"), c.get("contexts"), d.get("display_name", "")))')"
+  IFS='|' read -r so_ban so_nhom ten <<< "$ket"
+  [ "$so_ban" = "1" ] && [ "$so_nhom" = "1" ] \
+    || hong "sau flow 25: máy chủ đếm cho D friends=$so_ban contexts=$so_nhom, mong 1 và 1."
+  echo "máy chủ xác nhận: D có 1 bạn (C) và 1 nhóm (Hoi QA) sau khi bấm hai lần «Đồng ý» trên máy"
+}
+
 # Canary cho chế độ --otp. Canary 09 đi đường fixture, mà ở đây cửa fixture tắt
 # có chủ ý — nó sẽ chết ở bước 1, tức chứng minh harness hỏng chứ không chứng
 # minh assert cắn. Đối chứng âm đúng của lượt này: chạy LẠI flow 22 với mã SAI
@@ -626,7 +650,7 @@ for f in "$FLOWS"/*.yaml; do
     # môi trường chứ không phải vì app sai. `--live` chạy đúng và chỉ nhóm này.
     20-*)        [ "$LIVE" = 1 ] || continue ;;
     21-*)        [ "$DANG_NHAP" = 1 ] || continue ;;
-    22-*|23-*|24-*) [ "$OTP" = 1 ] || continue ;;
+    22-*|23-*|24-*|25-*) [ "$OTP" = 1 ] || continue ;;
     *)           { [ "$LIVE" = 1 ] || [ "$DANG_NHAP" = 1 ] || [ "$OTP" = 1 ]; } && continue ;;
   esac
   DA_CHAY=$((DA_CHAY + 1))
@@ -677,6 +701,7 @@ fi
 
 if [ "$OTP" = 1 ]; then
   kiem_may_chu_sau_24
+  kiem_may_chu_sau_25
   canary_otp
 else
 RA_CANARY="$(mktemp)"

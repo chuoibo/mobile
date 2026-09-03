@@ -1,0 +1,136 @@
+# Bạn bè, hai người, một điện thoại (M2): C gửi lời mời kết bạn tới D bằng số
+# điện thoại; D đăng nhập, đồng ý lời mời vào nhóm (từ flow 24) rồi đồng ý kết
+# bạn; hai người là bạn trên máy chủ. Chạy SAU flow 24 trong cùng lượt và dùng
+# lại đúng cặp số C/D của nó — trạng thái ấy là điều kiện: D đã có tên «Ban QA»
+# (người mời đặt) nên tra được theo số, và có một lời mời vào «Hoi QA» đang chờ.
+# Harness kiểm máy chủ sau flow: đăng nhập D qua curl → counts.friends = 1,
+# counts.contexts = 1 (kiem_may_chu_sau_25).
+appId: com.lakiet.rudi
+---
+- stopApp
+- launchApp
+- runFlow: _bo-qua-dev-menu.yaml
+- extendedWaitUntil:
+    visible: "Rủ Đi thôi!|Khám phá|Chưa có nhóm nào"
+    timeout: 150000
+- runFlow: _dang-xuat-neu-co.yaml
+# --- C: gửi lời mời kết bạn tới D ---------------------------------------------
+- tapOn: "Rủ Đi thôi!"
+- extendedWaitUntil:
+    visible: "Chào bạn"
+    timeout: 30000
+- tapOn: "Ô số điện thoại"
+- inputText: "${OTP_PHONE_C}"
+- hideKeyboard
+- tapOn: "Gửi mã"
+- extendedWaitUntil:
+    visible: "Nhập mã 6 số"
+    timeout: 60000
+- tapOn: "Ô nhập mã"
+- inputText: "${OTP_CODE}"
+# C có nhóm từ flow 24 → vào thẳng tab.
+- extendedWaitUntil:
+    visible: "Khám phá"
+    timeout: 60000
+- tapOn: "Cá nhân"
+- extendedWaitUntil:
+    visible: "Bạn bè, lời mời đã nhận và đã gửi"
+    timeout: 60000
+- tapOn: "Bạn bè, lời mời đã nhận và đã gửi"
+- extendedWaitUntil:
+    visible: "Chưa có bạn nào"
+    timeout: 30000
+- tapOn: "Thêm bạn bằng số điện thoại"
+- extendedWaitUntil:
+    visible: "Ô số điện thoại bạn"
+    timeout: 30000
+- tapOn: "Ô số điện thoại bạn"
+- inputText: "${OTP_PHONE_D}"
+- hideKeyboard
+- tapOn: "Tìm"
+# Tìm được đúng người mà flow 24 đã đặt tên — không phải một tên do mô hình hay
+# client đoán.
+- extendedWaitUntil:
+    visible: "Tìm thấy: Ban QA"
+    timeout: 30000
+- tapOn: "Gửi lời mời kết bạn tới Ban QA"
+- extendedWaitUntil:
+    visible: "Đã gửi lời mời tới Ban QA"
+    timeout: 30000
+- takeScreenshot: 25-c-da-gui
+- tapOn: "Về danh sách bạn"
+- extendedWaitUntil:
+    visible: "Đã gửi"
+    timeout: 30000
+- tapOn: "Đã gửi"
+- extendedWaitUntil:
+    visible: "Ban QA"
+    timeout: 30000
+- assertVisible: "Đang chờ người ấy trả lời"
+- takeScreenshot: 25-c-da-gui-danh-sach
+# --- đăng xuất C ---------------------------------------------------------------
+- tapOn: "Quay lại"
+- tapOn: "Cá nhân"
+- scrollUntilVisible:
+    element:
+      text: "Tài khoản"
+    direction: DOWN
+    centerElement: true
+    timeout: 30000
+- tapOn: "Tài khoản"
+- extendedWaitUntil:
+    visible: "Đăng xuất"
+    timeout: 20000
+- tapOn: "Đăng xuất"
+- extendedWaitUntil:
+    visible: "Rủ Đi thôi!"
+    timeout: 30000
+# --- D: đồng ý vào nhóm rồi đồng ý kết bạn --------------------------------------
+- tapOn: "Rủ Đi thôi!"
+- extendedWaitUntil:
+    visible: "Chào bạn"
+    timeout: 30000
+- tapOn: "Ô số điện thoại"
+- inputText: "${OTP_PHONE_D}"
+- hideKeyboard
+- tapOn: "Gửi mã"
+- extendedWaitUntil:
+    visible: "Nhập mã 6 số"
+    timeout: 60000
+- tapOn: "Ô nhập mã"
+- inputText: "${OTP_CODE}"
+# D được mời nhưng chưa đồng ý → danh sách nhóm với lời mời đang chờ, không phải tab.
+- extendedWaitUntil:
+    visible: "Chưa có nhóm nào"
+    timeout: 60000
+- assertVisible: "Lời mời đang chờ"
+- assertVisible: "Hoi QA"
+- takeScreenshot: 25-d-loi-moi-cho
+- tapOn: "Đồng ý"
+- extendedWaitUntil:
+    visible: "Khám phá"
+    timeout: 60000
+- tapOn: "Cá nhân"
+- extendedWaitUntil:
+    visible: "Bạn bè, lời mời đã nhận và đã gửi"
+    timeout: 60000
+- tapOn: "Bạn bè, lời mời đã nhận và đã gửi"
+- extendedWaitUntil:
+    visible: "Đã nhận"
+    timeout: 30000
+- tapOn: "Đã nhận"
+- extendedWaitUntil:
+    visible: "An QA"
+    timeout: 30000
+- assertVisible: "Muốn kết bạn với bạn"
+- takeScreenshot: 25-d-da-nhan
+- tapOn: "Đồng ý"
+- extendedWaitUntil:
+    visible: "Không có lời mời nào đang chờ"
+    timeout: 30000
+- tapOn: "Bạn bè"
+- extendedWaitUntil:
+    visible: "An QA"
+    timeout: 30000
+- assertVisible: "Bạn từ .*"
+- takeScreenshot: 25-d-ban-be

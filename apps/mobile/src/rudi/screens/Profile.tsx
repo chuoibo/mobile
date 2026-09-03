@@ -208,6 +208,17 @@ export function ProfileScreen() {
           </View>
       ) : null}
       <Card style={styles.menuCard}>
+        {session.phien !== null ? (
+          <>
+            <ListRow
+              icon="people-outline"
+              onPress={() => router.push("/friends")}
+              subtitle="Bạn bè, lời mời đã nhận và đã gửi"
+              title="Bạn bè"
+            />
+            <View style={[styles.rowLine, { backgroundColor: colors.line }]} />
+          </>
+        ) : null}
         <ListRow
           icon="wallet-outline"
           onPress={() => router.push("/finance")}
