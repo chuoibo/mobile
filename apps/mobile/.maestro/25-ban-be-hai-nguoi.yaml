@@ -44,16 +44,29 @@ appId: com.lakiet.rudi
 - extendedWaitUntil:
     visible: "Ô số điện thoại bạn"
     timeout: 30000
+- takeScreenshot: 25-c-nhap
+# Dạng số sai bị chặn ngay trên máy, không gọi máy chủ.
 - tapOn: "Ô số điện thoại bạn"
+- inputText: "12345"
+- hideKeyboard
+- tapOn: "Tìm"
+- extendedWaitUntil:
+    visible: "Chưa đúng dạng số di động Việt Nam."
+    timeout: 30000
+- takeScreenshot: 25-c-hong
+- tapOn: "Ô số điện thoại bạn"
+- eraseText: 5
 - inputText: "${OTP_PHONE_D}"
 - hideKeyboard
 - tapOn: "Tìm"
 # Tìm được đúng người mà flow 24 đã đặt tên — không phải một tên do mô hình hay
-# client đoán.
+# client đoán. Người tìm thấy hiện bằng đúng hàng người của danh sách bạn.
 - extendedWaitUntil:
-    visible: "Tìm thấy: Ban QA"
+    visible: "Tìm thấy theo số điện thoại"
     timeout: 30000
-- tapOn: "Gửi lời mời kết bạn tới Ban QA"
+- assertVisible: "Ban QA"
+- takeScreenshot: 25-c-tim-thay
+- tapOn: "Gửi lời mời"
 - extendedWaitUntil:
     visible: "Đã gửi lời mời tới Ban QA"
     timeout: 30000

@@ -20,6 +20,7 @@ import { chuanHoaSo } from "../../../screens/vao-cua/danh-tinh";
 import { useRudiSession } from "../../session";
 import { typography, useRudiTheme } from "../../theme";
 import { Card, Field, Heading, RudiButton, RudiScreen, TopBar } from "../../ui";
+import { HangNguoi } from "./HangNguoi";
 
 type Trang =
   | { pha: "nhap" }
@@ -117,10 +118,11 @@ export function AddFriendScreen() {
         />
         {trang.pha === "tim-thay" || trang.pha === "dang-gui" ? (
           <>
-            <Text style={[typography.body, { color: colors.ink }]}>Tìm thấy: {trang.nguoi.display_name}</Text>
+            <Text style={[typography.caption, { color: colors.inkSoft }]}>Tìm thấy theo số điện thoại</Text>
+            <HangNguoi phu="Đã dùng Rủ Đi hoặc đã được đặt tên bằng số này" ten={trang.nguoi.display_name} />
             <RudiButton
               disabled={ban}
-              label={`Gửi lời mời kết bạn tới ${trang.nguoi.display_name}`}
+              label="Gửi lời mời"
               loading={trang.pha === "dang-gui"}
               onPress={() => void gui(trang.nguoi)}
             />

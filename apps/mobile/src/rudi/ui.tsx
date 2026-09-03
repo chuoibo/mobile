@@ -369,7 +369,9 @@ export function RudiButton({
     <>
       {loading ? <ActivityIndicator color={foreground} size="small" /> : null}
       {!loading && icon ? <Ionicons color={foreground} name={icon} size={compact ? 18 : 20} /> : null}
-      <Text style={[typography.label, styles.buttonLabel, { color: foreground }]}>{label}</Text>
+      <Text numberOfLines={1} style={[typography.label, styles.buttonLabel, { color: foreground }]}>
+        {label}
+      </Text>
     </>
   );
 
@@ -911,9 +913,9 @@ const styles = StyleSheet.create({
   card: { borderWidth: 1, padding: 16 },
   cardPressed: { opacity: 0.94, transform: [{ scale: 0.992 }] },
   pressed: { opacity: 0.68 },
-  button: { minHeight: 52, overflow: "hidden", borderWidth: 1, borderColor: "transparent", paddingHorizontal: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9 },
+  button: { minHeight: 52, flexShrink: 0, overflow: "hidden", borderWidth: 1, borderColor: "transparent", paddingHorizontal: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9 },
   buttonFull: { width: "100%" },
-  buttonCompact: { minHeight: 44, paddingHorizontal: 14 },
+  buttonCompact: { minHeight: 48, paddingHorizontal: 14 },
   buttonLabel: { zIndex: 1 },
   buttonPressed: { opacity: 0.82, transform: [{ scale: 0.98 }] },
   disabled: { opacity: 0.45 },

@@ -250,8 +250,19 @@ kiem_ma_debug() {
 # Mỗi số có nhịp gửi lại 60s và trần 5 mã/15 phút — các bước kiểm sau flow đăng
 # nhập lại đúng những số flow vừa dùng, nên gặp 429 thì đợi 61s và thử lại MỘT
 # lần thay vì đọc nhịp chống dò thành «máy chủ hỏng».
+# Một phiên curl cho mỗi số trong một lượt. Hai kiểm máy chủ liền nhau trên
+# cùng số (24 rồi 25 với D) không xin mã hai lần: lần hai đã ăn nhịp 60 s của
+# lần một và đôi khi cả nhịp của máy. Thân phiên được cache là bản lúc đăng
+# nhập — `contexts` trong đó có thể cũ; kiểm nào cần trạng thái mới thì hỏi
+# máy chủ bằng token, đừng đọc lại thân.
+declare -A PHIEN_CURL=()
+
 dang_nhap_curl() {
-  local so="$1" goc id rc body lan tep
+  local so="$1" goc id rc body lan tep ma
+  if [ -n "${PHIEN_CURL[$so]:-}" ]; then
+    printf '%s' "${PHIEN_CURL[$so]}"
+    return 0
+  fi
   goc="http://127.0.0.1:$API_PORT"
   tep="$(mktemp)"
   for lan in 1 2; do
@@ -262,11 +273,20 @@ dang_nhap_curl() {
       sleep 61
       continue
     fi
-    [ "$rc" = "202" ] || { rm -f "$tep"; return 1; }
+    if [ "$rc" != "202" ]; then
+      # Say which door refused: the phone cooldown, the per-IP window, or a
+      # transport error. «429 twice» told nobody anything.
+      ma="$(python3 -c 'import json,sys
+try: print(json.load(open(sys.argv[1])).get("code", "?"))
+except Exception: print("(không phải JSON)")' "$tep" 2>/dev/null)"
+      echo "  (xin mã lần $lan: HTTP $rc, code=$ma)" >&2
+      rm -f "$tep"; return 1
+    fi
     id="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("challenge_id",""))' "$tep")"
     body="$(curl -sS -X POST "$goc/auth/otp/verify" -H 'Content-Type: application/json' \
         -d "{\"challenge_id\":\"$id\",\"phone\":\"$so\",\"code\":\"$OTP_CODE\"}")"
     rm -f "$tep"
+    PHIEN_CURL[$so]="$body"
     printf '%s' "$body"
     return 0
   done
@@ -792,6 +812,7 @@ if [ "$OTP" = 1 ]; then
   # Mỗi lượt BỐN người mới, mỗi flow một cặp số chưa ai dùng: người của flow
   # trước đã có nhóm (22) hoặc đã có tên «Thành viên mới» (23), và flow 24 khẳng
   # định cả «Chưa có nhóm nào» lẫn tên «Ban QA» do người mời đặt.
+  PHIEN_CURL=()
   OTP_PHONE="$(sinh_so_di_dong)"; OTP_PHONE_B="$(sinh_so_di_dong)"
   OTP_PHONE_C="$(sinh_so_di_dong)"; OTP_PHONE_D="$(sinh_so_di_dong)"
 fi
