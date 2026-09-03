@@ -208,17 +208,21 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
       style={[styles.man, { backgroundColor: colors.ground, paddingTop: insets.top }]}
     >
       <View style={{ paddingHorizontal: space.md }}>
-        <TopBar
-          title={tenNhom}
-          subtitle={`${Object.keys(tenTheoId).length || 1} thành viên`}
-          right={
-            <IconButton
-              accessibilityLabel="Thành viên nhóm"
-              icon="people-outline"
-              onPress={() => router.push(`/groups/${contextId}/members` as never)}
-            />
-          }
-        />
+        <TopBar title={tenNhom} />
+        {/* The roster lives under the title, not in the top-right corner: on a
+            development build the dev-launcher's floating gear covers that
+            corner, and a target nobody can reach on the build we test on is a
+            target nobody has tested. Messenger puts group info here too. */}
+        <Pressable
+          accessibilityLabel="Thành viên nhóm"
+          accessibilityRole="button"
+          onPress={() => router.push(`/groups/${contextId}/members` as never)}
+          style={[styles.thanhVien, { borderColor: colors.line, backgroundColor: colors.card }]}
+        >
+          <Text style={[typography.caption, { color: colors.inkSoft }]}>
+            {Object.keys(tenTheoId).length || 1} thành viên · xem và mời
+          </Text>
+        </Pressable>
       </View>
       <FlatList
         contentContainerStyle={[styles.danhSach, { paddingHorizontal: space.md }]}
@@ -295,6 +299,7 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
 
 const styles = StyleSheet.create({
   man: { flex: 1 },
+  thanhVien: { alignSelf: "center", borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, marginTop: -6 },
   danhSach: { paddingVertical: 12, gap: 12 },
   ngay: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 },
   duong: { flex: 1, height: StyleSheet.hairlineWidth },
