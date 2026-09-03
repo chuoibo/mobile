@@ -114,7 +114,6 @@ EXIT_CANNOT_RUN = 2
 IMMUTABLE_TABLES = frozenset(
     {
         "audit_events",
-        "bank_recipient_snapshots",
         "collection_batch_versions",
         "collection_envelopes",
         "collection_obligation_sources",

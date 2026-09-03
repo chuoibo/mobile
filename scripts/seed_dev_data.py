@@ -6,10 +6,10 @@ needs psycopg, which is a runtime dependency, and network access to the API.
 
 There are two write paths on purpose.
 
-* `people` and `bank_recipients` are written with SQL. No HTTP route creates
-  either one yet, and inventing product surface inside a dev fixture is worse
-  than admitting the gap. When the recipient-registration route lands, the
-  bank block here should be deleted, not kept as a second way in.
+* `people` are written with SQL. No HTTP route created them when this was
+  written, and inventing product surface inside a dev fixture is worse than
+  admitting the gap. (The account-registration block that used to sit beside
+  it left with ADR-0015: the product no longer says where money moves.)
 * Everything else goes through the real HTTP API. That is the point: a seed
   that finished means the vertical slice answered for real, not that a script
   can run INSERT.
@@ -47,7 +47,6 @@ SEED_NAMESPACE = uuid.UUID("5eed5eed-5eed-5eed-5eed-5eed5eed5eed")
 ADVANCER_ID = uuid.uuid5(SEED_NAMESPACE, "advancer")
 SENDER_A_ID = uuid.uuid5(SEED_NAMESPACE, "sender-a")
 SENDER_B_ID = uuid.uuid5(SEED_NAMESPACE, "sender-b")
-BANK_ROW_ID = uuid.uuid5(SEED_NAMESPACE, "bank-recipient")
 
 PEOPLE = [
     (ADVANCER_ID, "An (dữ liệu mẫu)"),
@@ -141,23 +140,6 @@ def write_rows_with_no_route(connection: psycopg.Connection) -> None:
         "INSERT INTO people (id, display_name) VALUES "
         "(%s, %s), (%s, %s), (%s, %s) ON CONFLICT (id) DO NOTHING",
         tuple(value for person in PEOPLE for value in person),
-    )
-    # No conflict target: the live-recipient constraint is a partial unique
-    # index on recipient_id, so a second run can collide on a row id this
-    # script never chose.
-    connection.execute(
-        "INSERT INTO bank_recipients "
-        "(id, recipient_id, bank_bin, account_number, account_name,"
-        " confirmed_by_recipient_at) "
-        "VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
-        (
-            BANK_ROW_ID,
-            ADVANCER_ID,
-            "970415",
-            "SEEDACCOUNT0001",
-            "TAI KHOAN MAU",
-            datetime.now(UTC),
-        ),
     )
 
 

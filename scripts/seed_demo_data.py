@@ -20,9 +20,9 @@ and money still owed. Concretely it exists so that
 
 Every write goes through the HTTP API.
 ---------------------------------------
-`seed_dev_data.py` writes `people` and `bank_recipients` with SQL because when
-it was written no route created either. Both routes exist now (`PUT /people/{id}`,
-`POST /bank-recipients`), so this script has no SQL write path at all. That is
+`seed_dev_data.py` writes `people` with SQL because when it was written no route
+created them. `PUT /people/{id}` exists now, so this script has no SQL write path
+at all. That is
 not tidiness: a fixture that INSERTs its way around the API can succeed while
 the product is broken, and then the demo is the first place anyone finds out.
 
@@ -117,21 +117,6 @@ EVERYONE = [pid for pid, _ in PEOPLE]
 
 OWNER_ROLES = "group_admin,member,advancer,recipient,batch_owner"
 MEMBER_ROLES = "group_admin,member"
-
-# Three people front money across the three outings, so the demo is not one
-# creditor and six debtors -- the shape where "who owes whom" never gets
-# interesting enough to be worth a screen.
-#
-# The bank code is VietinBank's real BIN because VietQR will not encode an
-# invented one, and a QR nobody's bank app can parse is worse than no QR. The
-# destination behind it is not real and cannot be: an account number with
-# letters in it is not a routable account anywhere in Vietnam.
-BANK_BIN = "970415"
-DESTINATIONS = [
-    (MINH, "DEMODALATMINH", "MINH - DU LIEU DEMO"),
-    (TRANG, "DEMODALATTRANG", "TRANG - DU LIEU DEMO"),
-    (HAI, "DEMODALATHAI", "HAI - DU LIEU DEMO"),
-]
 
 
 class SeedFailed(Exception):
@@ -488,23 +473,6 @@ def create_group() -> uuid.UUID:
     return context_id
 
 
-def register_destinations() -> None:
-    for pid, account_number, account_name in DESTINATIONS:
-        call(
-            "POST",
-            "/bank-recipients",
-            body={
-                "recipient_id": str(pid),
-                "bank_bin": BANK_BIN,
-                "account_number": account_number,
-                "account_name": account_name,
-            },
-            actor=pid,
-            roles=OWNER_ROLES,
-            write_key=idempotency_key(f"bank:{pid}"),
-        )
-
-
 def record_expense(context_id: uuid.UUID, spec: dict, occurred_at: datetime) -> str:
     """Propose, then confirm the allocation the API answered with.
 
@@ -673,7 +641,6 @@ def record_outing(context_id: uuid.UUID, outing: dict, occurred_at: datetime) ->
 
 def build(now: datetime) -> tuple[uuid.UUID, list[str]]:
     register_people()
-    register_destinations()
     context_id = create_group()
 
     guest_paths: list[str] = []
