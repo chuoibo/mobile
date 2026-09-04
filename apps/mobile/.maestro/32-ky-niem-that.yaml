@@ -91,7 +91,8 @@ appId: com.lakiet.rudi
 - extendedWaitUntil:
     visible: "Keo QA"
     timeout: 60000
-- assertVisible: ".*1 check-in.*"
+# Khoảng trắng giữa số và danh từ là non-breaking (không mồ côi số khi xuống dòng).
+- assertVisible: ".*1.check-in.*"
 - takeScreenshot: 32-ke-album
 - tapOn: "Keo QA"
 - extendedWaitUntil:

@@ -39,7 +39,7 @@ function loiRaChu(error: unknown): string {
 }
 
 function cauKhoang(a: { period_label: string; in_progress: boolean; headcount: number }): string {
-  return `${a.period_label}${a.in_progress ? " · đang đi" : ""} · ${a.headcount} người`;
+  return `${a.period_label}${a.in_progress ? " · đang đi" : ""} · ${a.headcount}\u00a0người`;
 }
 
 /* ------------------------------------------------------------------ kệ */

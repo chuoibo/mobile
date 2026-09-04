@@ -206,8 +206,9 @@ export function cauTuongTac(k: KyNiem): string {
 export const CAPTION_DAI_NHAT = 300;
 
 export function cauThongKeAlbum(a: Pick<TomTatAlbum, "photo_count" | "place_count" | "checkin_count" | "expense_count" | "split_total_vnd">): string {
-  const phan = [`${a.photo_count} ảnh`, `${a.place_count} chỗ đã tới`, `${a.checkin_count} check-in`];
-  if (a.expense_count > 0) phan.push(`đã chia ${dinhDangTienVnd(a.split_total_vnd)}`);
+  // Non-breaking spaces: a count must not be orphaned from its noun when the line wraps.
+  const phan = [`${a.photo_count}\u00a0ảnh`, `${a.place_count}\u00a0chỗ đã tới`, `${a.checkin_count}\u00a0check-in`];
+  if (a.expense_count > 0) phan.push(`đã chia\u00a0${dinhDangTienVnd(a.split_total_vnd)}`);
   return phan.join(" · ");
 }
 
