@@ -1,0 +1,79 @@
+# Thế giới seed («Team Đà Lạt» của make demo-rudi) nhìn từ máy, qua đúng đường
+# người thật: số của một người đã seed + mã debug (`--live --otp-phone`). Không
+# ghim danh tính vào bundle, không cửa fixture. Harness kiểm máy chủ sau flow:
+# nhóm 8 người, người này đã chi 1.280.000đ, một đợt thu đã phát với 7 nghĩa vụ.
+appId: com.lakiet.rudi
+---
+- stopApp
+- launchApp
+- runFlow: _bo-qua-dev-menu.yaml
+- extendedWaitUntil:
+    visible: "Rủ Đi thôi!|Khám phá"
+    timeout: 150000
+- runFlow:
+    when:
+      visible: "Rủ Đi thôi!"
+    file: _dang-nhap-so.yaml
+# Người đã có nhóm active vào thẳng Khám phá.
+- extendedWaitUntil:
+    visible: "Khám phá"
+    timeout: 60000
+- assertNotVisible: "Dữ liệu demo"
+- tapOn: "Tin nhắn"
+- extendedWaitUntil:
+    visible: "Team Đà Lạt"
+    timeout: 60000
+- takeScreenshot: 20-tin-nhan-seed
+- tapOn: "Team Đà Lạt"
+# Tin thứ ba của seed là /vote; danh sách đảo nên tin cũ nằm phía trên.
+- scrollUntilVisible:
+    element:
+      text: ".*ăn gì trước khi đi.*"
+    direction: UP
+    timeout: 60000
+- takeScreenshot: 20-chat-seed
+- back
+- extendedWaitUntil:
+    visible: "Lên plan"
+    timeout: 30000
+- tapOn: "Lên plan"
+- extendedWaitUntil:
+    visible: "Đà Lạt cuối tuần"
+    timeout: 60000
+- assertVisible: "3 chặng"
+- tapOn: "Đà Lạt cuối tuần"
+- extendedWaitUntil:
+    visible: "Tối nướng"
+    timeout: 60000
+- assertVisible: "Cà phê sáng"
+- takeScreenshot: 20-keo-seed
+- back
+- extendedWaitUntil:
+    visible: "Cá nhân"
+    timeout: 30000
+- tapOn: "Cá nhân"
+- scrollUntilVisible:
+    element:
+      text: "Tài chính của tôi"
+    direction: DOWN
+    centerElement: true
+    timeout: 30000
+- tapOn: "Tài chính của tôi"
+- extendedWaitUntil:
+    visible: "Chi theo nhóm"
+    timeout: 60000
+# Người seed số 0 trả bill Xóm Lèo 1.280.000đ, cả 8 người cùng dùng: phần của họ
+# («Bạn đã chi») là 160.000đ, bảy người kia nợ họ 1.120.000đ («Sẽ nhận»).
+- assertVisible: "160.000đ"
+- assertVisible: "1.120.000đ"
+- takeScreenshot: 20-tai-chinh-seed
+- tapOn: "Xem quyết toán"
+- extendedWaitUntil:
+    visible: "Quyết toán chuyến đi"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Đã phát"
+    direction: DOWN
+    timeout: 60000
+- takeScreenshot: 20-quyet-toan-seed

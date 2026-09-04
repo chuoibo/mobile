@@ -75,7 +75,13 @@ export PATH="$HOME/Android/Sdk/platform-tools:$HOME/Android/Sdk/emulator:$PATH"
 sg kvm -c "emulator -avd rudi -port 5554 -no-audio -no-boot-anim -gpu swiftshader_indirect -accel on &"
 timeout 300 adb -s emulator-5554 wait-for-device            # rồi chờ sys.boot_completed=1
 make mobile-native-otp API=<cổng>                             # 11 flow + 8 kiểm máy chủ + canary
+make mobile-native-live API=<cổng> PHONE=<số người seed>      # flow 20: thế giới seed trên máy + kiểm máy chủ
 ```
+
+`mobile-native-live` đăng nhập bằng số của một người trong roster seed (lấy số ở Bước 1)
+và đi qua «Team Đà Lạt»: tin nhắn có /vote, kèo «Đà Lạt cuối tuần» 3 chặng, tài chính
+1.280.000đ của người trả bill, đợt thu đã phát; sau flow, harness hỏi lại máy chủ bằng
+chính phiên đó (8 thành viên, đã chi 1.280.000đ, 7 nghĩa vụ).
 
 Harness (`scripts/mobile_native.sh --otp`) tự: kiểm mã debug bằng curl, bật Metro
 ở cổng 8095 với `EXPO_PUBLIC_API_URL=http://localhost:<cổng>`, `adb reverse` cả

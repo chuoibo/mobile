@@ -744,7 +744,9 @@ export function Stat({
           <Ionicons color={toneColor(colors, tone)} name={icon} size={19} />
         </View>
       ) : null}
-      <Text style={[typography.money, { color: colors.ink }]}>{value}</Text>
+      <Text adjustsFontSizeToFit minimumFontScale={0.7} numberOfLines={1} style={[typography.money, { color: colors.ink }]}>
+        {value}
+      </Text>
       <Text style={[typography.caption, { color: colors.inkFaint }]}>{label}</Text>
     </View>
   );

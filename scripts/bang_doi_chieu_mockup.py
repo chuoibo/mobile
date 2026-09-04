@@ -116,7 +116,7 @@ DANH_SACH_MAN: tuple[ManMockup, ...] = (
         "Nhóm chat",
         "NEEDS UPDATE",
         "03_group_chat_ai/01_group_chat/03_01_group_chat.png",
-        ("30-phan-ung", "30-da-gui", "30-chat-rong"),
+        ("30-phan-ung", "30-da-gui", "20-chat-seed", "30-chat-rong"),
     ),
     ManMockup(
         "03.02",
@@ -131,7 +131,7 @@ DANH_SACH_MAN: tuple[ManMockup, ...] = (
         "Bình chọn & chốt plan",
         "NEEDS UPDATE",
         "03_group_chat_ai/03_voting/03_03_voting.png",
-        ("30-binh-chon", "06-vote-hidden-after-pick"),
+        ("30-binh-chon", "20-chat-seed", "06-vote-hidden-after-pick"),
     ),
     ManMockup(
         "04.01",
@@ -145,7 +145,7 @@ DANH_SACH_MAN: tuple[ManMockup, ...] = (
         "Lịch trình chuyến đi",
         "NEEDS UPDATE",
         "04_outing_management/02_trip_timeline/04_02_trip_timeline.png",
-        ("27-hai-chang", "27-co-chang", "27-keo-moi"),
+        ("27-hai-chang", "20-keo-seed", "27-co-chang", "27-keo-moi"),
     ),
     ManMockup(
         "04.03",
@@ -173,7 +173,7 @@ DANH_SACH_MAN: tuple[ManMockup, ...] = (
         "Kết quả thanh toán / Settlement",
         "NEEDS UPDATE",
         "05_smart_bill/03_settlement/05_03_settlement.png",
-        ("29-quyet-toan-co-dot", "28-quyet-toan", "28-ket-qua", "20-settlement-live"),
+        ("29-quyet-toan-co-dot", "28-quyet-toan", "20-quyet-toan-seed", "28-ket-qua"),
     ),
     ManMockup(
         "06.01",
@@ -209,7 +209,7 @@ DANH_SACH_MAN: tuple[ManMockup, ...] = (
         "Tài chính cá nhân",
         "READY",
         "07_profile_finance/02_finance/07_02_finance.png",
-        ("29-tai-chinh", "20-finance-live", "02-finance"),
+        ("29-tai-chinh", "20-tai-chinh-seed", "02-finance"),
     ),
     ManMockup(
         "07.03",
