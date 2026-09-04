@@ -1,0 +1,138 @@
+# Kỷ niệm THẬT (M6 lát vi-a): tường nhóm đọc từ máy chủ, check-in tại một chỗ trong
+# danh mục (không cần chọn ảnh — bộ chọn ảnh hệ thống không lái được ổn định), tim,
+# bình luận, kệ album theo kèo với số máy chủ, album của «Keo QA» thấy chỗ đã tới,
+# thước phim nói vì sao chưa dựng (stack không khoá), và Thành tích tính từ sổ.
+# Chạy sau flow 30/31 (phiên C hoặc D còn sống, nhóm «Hoi QA», kèo «Keo QA» hôm nay). Máy chủ kiểm
+# sau flow: GET /contexts/{ctx}/memories có đúng một kỷ niệm check-in «Quán Ốc Dì Bé»
+# với 1 tim, 1 bình luận; GET /contexts/{ctx}/albums có «Keo QA» với >= 1 check-in.
+appId: com.lakiet.rudi
+---
+- stopApp
+- launchApp
+- runFlow: _bo-qua-dev-menu.yaml
+- extendedWaitUntil:
+    visible: "Rủ Đi thôi!|Khám phá|Chưa có nhóm nào"
+    timeout: 150000
+- runFlow:
+    when:
+      visible: "Rủ Đi thôi!"
+    file: _dang-nhap-d.yaml
+- extendedWaitUntil:
+    visible: "Khám phá"
+    timeout: 60000
+- tapOn: "Tin nhắn"
+- extendedWaitUntil:
+    visible: "Hoi QA"
+    timeout: 60000
+- tapOn: "Hoi QA"
+- extendedWaitUntil:
+    visible: "Thành viên nhóm"
+    timeout: 60000
+- tapOn: "Thành viên nhóm"
+- extendedWaitUntil:
+    visible: "Tường kỷ niệm"
+    timeout: 60000
+- tapOn: "Tường kỷ niệm"
+- extendedWaitUntil:
+    visible: "Tường nhóm"
+    timeout: 60000
+- extendedWaitUntil:
+    visible: "Chưa có kỷ niệm nào"
+    timeout: 60000
+- assertNotVisible: "Dữ liệu demo"
+- takeScreenshot: 32-tuong-trong
+# Check-in tại một chỗ trong danh mục máy chủ.
+- tapOn: "Check-in"
+- extendedWaitUntil:
+    visible: "Chọn Quán Ốc Dì Bé"
+    timeout: 60000
+- tapOn: "Chọn Quán Ốc Dì Bé"
+- tapOn: "Ô câu check-in"
+- inputText: "Oc ngon"
+- hideKeyboard
+- tapOn: "Đăng check-in"
+- extendedWaitUntil:
+    visible: "Check-in tại Quán Ốc Dì Bé"
+    timeout: 60000
+- assertVisible: "0 tim · 0 bình luận"
+- assertVisible: "Oc ngon"
+- takeScreenshot: 32-check-in
+# Tim: một request, số là số máy chủ.
+- tapOn: "Thả tim Check-in tại Quán Ốc Dì Bé"
+- extendedWaitUntil:
+    visible: "1 tim · 0 bình luận"
+    timeout: 60000
+- assertVisible: "Đã tim"
+# Bình luận: mở, đọc (rỗng), gửi, thấy tên mình trước câu.
+- tapOn: "Bình luận Check-in tại Quán Ốc Dì Bé"
+- extendedWaitUntil:
+    visible: "Chưa có bình luận.*"
+    timeout: 60000
+- tapOn: "Ô viết bình luận"
+- inputText: "Ngon that"
+- hideKeyboard
+- tapOn: "Gửi bình luận"
+# Phiên sống lúc này là của người còn đăng nhập sau flow 30/31 (C hoặc D): tên tác giả
+# là tên máy chủ trả cho người đó, không ghim ai.
+- extendedWaitUntil:
+    visible: ".* QA: Ngon that"
+    timeout: 60000
+- assertVisible: "1 tim · 1 bình luận"
+- takeScreenshot: 32-tim-binh-luan
+# Kệ album: mỗi kèo một album, số đếm của máy chủ; check-in vừa rồi rơi vào ngày của «Keo QA».
+- back
+- extendedWaitUntil:
+    visible: "Album chuyến đi"
+    timeout: 60000
+- tapOn: "Album chuyến đi"
+- extendedWaitUntil:
+    visible: "Mỗi kèo một album"
+    timeout: 60000
+- extendedWaitUntil:
+    visible: "Keo QA"
+    timeout: 60000
+# Khoảng trắng giữa số và danh từ là non-breaking (không mồ côi số khi xuống dòng).
+- assertVisible: ".*1.check-in.*"
+- takeScreenshot: 32-ke-album
+- tapOn: "Keo QA"
+- extendedWaitUntil:
+    visible: "Chỗ đã tới"
+    timeout: 60000
+- assertVisible: "Quán Ốc Dì Bé"
+- assertVisible: "Dựng thước phim"
+- tapOn: "Dựng thước phim"
+# Không có khoá mô hình trên stack này: nút biến mất, thay bằng lý do máy chủ trả.
+- extendedWaitUntil:
+    notVisible: "Dựng thước phim"
+    timeout: 60000
+- assertNotVisible: "Rủ Đi AI dựng thước phim này.*"
+- takeScreenshot: 32-album-keo
+# Thành tích: tính từ sổ, không phải «12/18 đã mở». Bốn lần back: album → kệ → Thành viên
+# → chat → danh sách Tin nhắn (thanh tab chỉ hiện ở màn tab).
+- back
+- back
+- back
+- back
+- extendedWaitUntil:
+    visible: "Cá nhân"
+    timeout: 30000
+- tapOn: "Cá nhân"
+- extendedWaitUntil:
+    visible: "Thành tích"
+    timeout: 60000
+- tapOn: "Thành tích"
+- extendedWaitUntil:
+    visible: "Cấp .*"
+    timeout: 60000
+- assertVisible: "Huy hiệu"
+- assertNotVisible: "12/18 đã mở"
+- assertNotVisible: "12 huy hiệu đã mở khóa"
+- takeScreenshot: 32-thanh-tich
+# Thử thách tuần nằm dưới danh sách huy hiệu; cuộn tới rồi mới khẳng định.
+- scrollUntilVisible:
+    element:
+      text: "Thử thách tuần này"
+    direction: DOWN
+    timeout: 30000
+- assertVisible: "Thử thách tuần này"
+- takeScreenshot: 32-thanh-tich-cuoi

@@ -477,6 +477,47 @@ else:
   echo "máy chủ xác nhận: nhóm có đúng một đợt thu đã phát, 1/1 nghĩa vụ 75.000đ đã về (biên nhận do D, người được nhận, xác nhận)"
 }
 
+kiem_may_chu_sau_32() {
+  local goc body tok ctx ket album
+  goc="http://127.0.0.1:$API_PORT"
+  body="$(dang_nhap_curl "$OTP_PHONE_D")" \
+    || hong "sau flow 32: D không đăng nhập được qua curl."
+  tok="$(printf '%s' "$body" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("token",""))')"
+  ctx="$(curl -sS "$goc/people/me/contexts" -H "Authorization: Bearer $tok" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+act = [c for c in d.get("contexts", []) if c.get("my_state") == "active" and c.get("display_name") == "Hoi QA"]
+print(act[0]["id"] if act else "")')"
+  [ -n "$tok" ] && [ -n "$ctx" ] || hong "sau flow 32: D không có nhóm «Hoi QA» active."
+  # The wall is the server's: one check-in memory, the counts the screen drew.
+  ket="$(curl -sS "$goc/contexts/$ctx/memories?limit=10" -H "Authorization: Bearer $tok" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+m = d.get("memories", [])
+if len(m) != 1:
+    print("so_ky_niem=%d" % len(m))
+else:
+    x = m[0]
+    print("%s|%s|%s|%s|%s" % (x.get("kind"), x.get("place_name"), x.get("reaction_count"), x.get("comment_count"), x.get("caption")))')"
+  case "$ket" in
+    so_ky_niem=*) hong "sau flow 32: máy chủ có ${ket#so_ky_niem=} kỷ niệm, mong 1." ;;
+  esac
+  IFS='|' read -r loai cho tim bl cau <<< "$ket"
+  [ "$loai" = "checkin" ] || hong "sau flow 32: kỷ niệm là $loai, mong checkin."
+  [ "$cho" = "Quán Ốc Dì Bé" ] || hong "sau flow 32: check-in tại «$cho», mong «Quán Ốc Dì Bé»."
+  [ "${tim:-0}" -eq 1 ] && [ "${bl:-0}" -eq 1 ] || hong "sau flow 32: $tim tim, $bl bình luận; mong 1/1."
+  [ "$cau" = "Oc ngon" ] || hong "sau flow 32: câu check-in là «$cau», mong «Oc ngon»."
+  album="$(curl -sS "$goc/contexts/$ctx/albums" -H "Authorization: Bearer $tok" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+a = [x for x in d.get("albums", []) if x.get("title") == "Keo QA"]
+print("%d|%s" % (len(a), a[0].get("checkin_count") if a else ""))')"
+  IFS='|' read -r so_album so_checkin <<< "$album"
+  [ "${so_album:-0}" -eq 1 ] && [ "${so_checkin:-0}" -ge 1 ] \
+    || hong "sau flow 32: album «Keo QA»: $so_album album, $so_checkin check-in; mong 1 album, >= 1 check-in."
+  echo "máy chủ xác nhận: tường «Hoi QA» có đúng một check-in «Quán Ốc Dì Bé» (1 tim, 1 bình luận, câu «Oc ngon»); album «Keo QA» đếm $so_checkin check-in"
+}
+
 kiem_may_chu_sau_30() {
   local goc body tok ctx ket
   goc="http://127.0.0.1:$API_PORT"
@@ -967,7 +1008,7 @@ for f in "$FLOWS"/*.yaml; do
     # môi trường chứ không phải vì app sai. `--live` chạy đúng và chỉ nhóm này.
     20-*)        [ "$LIVE" = 1 ] || continue ;;
     21-*)        [ "$DANG_NHAP" = 1 ] || continue ;;
-    22-*|23-*|24-*|25-*|26-*|27-*|28-*|29-*|31-*) [ "$OTP" = 1 ] || continue ;;
+    22-*|23-*|24-*|25-*|26-*|27-*|28-*|29-*|31-*|32-*) [ "$OTP" = 1 ] || continue ;;
     # Under the keyboard negative control the composer is meant to be covered,
     # so a flow that has to tap it (30, 40) would only fail for the reason the
     # probe already measures. The table for --tat-kav is the sign-in leg + 31.
@@ -1044,6 +1085,7 @@ if [ "$OTP" = 1 ]; then
   kiem_may_chu_sau_27
   kiem_may_chu_sau_28
   kiem_may_chu_sau_29
+  kiem_may_chu_sau_32
   [ "$TAT_KAV" = 1 ] || kiem_may_chu_sau_30
   [ "$AI" = 1 ] && [ "$TAT_KAV" = 0 ] && kiem_may_chu_sau_40
   canary_otp

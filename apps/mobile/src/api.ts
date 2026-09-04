@@ -1402,7 +1402,7 @@ export type AnhDaTai = {
  * fixed by compressing it. Collapsing them into "ảnh quá lớn" would send half
  * the people who hit it to do something that cannot work.
  */
-const ANH_REFUSALS: Record<string, string> = {
+export const ANH_REFUSALS: Record<string, string> = {
   image_too_large:
     "Tấm ảnh này nặng quá 10 MB nên máy chủ không nhận. Chọn một tấm nhẹ hơn giúp mình.",
   image_dimensions_too_large:
@@ -1850,7 +1850,7 @@ export const BINH_LUAN_TOI_DA = 2000;
  * and the honest answer then is that the wall is out of date, not that the
  * person did something wrong.
  */
-const XA_HOI_REFUSALS: Record<string, string> = {
+export const XA_HOI_REFUSALS: Record<string, string> = {
   is_group_member:
     "Bạn không còn trong nhóm này nên không thả tim hay bình luận được nữa.",
   memory_not_found: "Ảnh này vừa được gỡ khỏi tường nhóm nên không còn để thả tim.",
