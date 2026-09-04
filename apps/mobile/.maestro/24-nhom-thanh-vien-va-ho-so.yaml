@@ -1,0 +1,112 @@
+# M2 trên cửa OTP: nhóm mình vừa mở hiện ở Tin nhắn với số liệu của máy chủ, roster
+# gọi đúng mình là quản trị, mời một người bằng số điện thoại (lời mời chờ họ
+# đăng nhập bằng đúng số đó), và tab Cá nhân đọc hồ sơ thật rồi sửa được tên.
+#
+# Số điện thoại và mã đi qua `-e` như flow 22/23, nhưng là CẶP SỐ RIÊNG (C tạo
+# nhóm, D được mời): số của flow 22 đã có nhóm, số của flow 23 đã có tên, nên
+# dùng lại thì «Chưa có nhóm nào» và «Ban QA» đều sai vì lý do không phải app.
+# Harness `--otp` đăng nhập bằng số D qua curl SAU flow để chứng minh máy
+# chủ thật sự giữ lời mời (`kiem_may_chu_sau_24`).
+appId: com.lakiet.rudi
+---
+- stopApp
+- launchApp
+- runFlow: _bo-qua-dev-menu.yaml
+- assertNotVisible: "Fetch development servers"
+- extendedWaitUntil:
+    visible: "Rủ Đi thôi!|Khám phá|Chưa có nhóm nào"
+    timeout: 150000
+- runFlow: _dang-xuat-neu-co.yaml
+- tapOn: "Rủ Đi thôi!"
+- extendedWaitUntil:
+    visible: "Chào bạn"
+    timeout: 30000
+- tapOn: "Ô số điện thoại"
+- inputText: "${OTP_PHONE_C}"
+- hideKeyboard
+- tapOn: "Gửi mã"
+- extendedWaitUntil:
+    visible: "Nhập mã 6 số"
+    timeout: 60000
+- tapOn: "Ô nhập mã"
+- inputText: "${OTP_CODE}"
+- extendedWaitUntil:
+    visible: "Chưa có nhóm nào"
+    timeout: 60000
+- tapOn: "Tạo nhóm"
+- extendedWaitUntil:
+    visible: "Đặt tên cho hội"
+    timeout: 30000
+- tapOn: "Ô tên nhóm"
+- inputText: "Hoi QA"
+- hideKeyboard
+- tapOn: "Mở nhóm"
+- extendedWaitUntil:
+    visible: "Khám phá"
+    timeout: 60000
+# Tin nhắn: danh sách nhóm từ máy chủ, không phải chat fixture.
+- tapOn: "Tin nhắn"
+- extendedWaitUntil:
+    visible: "Hoi QA"
+    timeout: 60000
+- assertVisible: "1 thành viên · bạn quản trị"
+- assertNotVisible: "Nhắn Team Đà Lạt..."
+- assertNotVisible: "Dữ liệu demo"
+- takeScreenshot: 24-danh-sach-nhom
+- tapOn: "Hoi QA"
+- extendedWaitUntil:
+    visible: "Thành viên"
+    timeout: 30000
+- assertVisible: "1 đang ở trong nhóm, 0 đang được mời."
+- assertVisible: "Thành viên mới (bạn)"
+- takeScreenshot: 24-thanh-vien
+# Mời bằng số điện thoại: ba cú gọi máy chủ, kết thúc ở một membership `invited`.
+- tapOn: "Mời bằng số điện thoại"
+- extendedWaitUntil:
+    visible: "Ô số điện thoại người được mời"
+    timeout: 30000
+- tapOn: "Ô số điện thoại người được mời"
+- inputText: "${OTP_PHONE_D}"
+- hideKeyboard
+- tapOn: "Ô tên người được mời"
+- inputText: "Ban QA"
+- hideKeyboard
+- tapOn: "Gửi lời mời"
+- extendedWaitUntil:
+    visible: "Đã mời Ban QA"
+    timeout: 60000
+- takeScreenshot: 24-da-moi
+- tapOn: "Xem thành viên"
+- extendedWaitUntil:
+    visible: "1 đang ở trong nhóm, 1 đang được mời."
+    timeout: 60000
+- assertVisible: "Ban QA"
+- assertVisible: "Đã mời, chưa đồng ý"
+- takeScreenshot: 24-roster-co-loi-moi
+# Cá nhân: hồ sơ của máy chủ, không phải «Minh Anh · Cấp 12».
+- tapOn: "Quay lại"
+- tapOn: "Cá nhân"
+- extendedWaitUntil:
+    visible: "Đăng nhập bằng số điện thoại"
+    timeout: 60000
+- assertNotVisible: "Minh Anh"
+- assertNotVisible: "Dữ liệu demo"
+# Không còn chuyến Team Đà Lạt hay «12 huy hiệu» của fixture dưới một hồ sơ thật.
+- assertNotVisible: ".*Team Đà Lạt.*"
+- assertNotVisible: "12 huy hiệu đã mở khóa"
+- assertVisible: "nhóm"
+- takeScreenshot: 24-ho-so-that
+- tapOn: "Chỉnh hồ sơ"
+- extendedWaitUntil:
+    visible: "Lưu hồ sơ"
+    timeout: 30000
+- tapOn: "Ô tên hiển thị"
+- eraseText: 40
+- inputText: "An QA"
+- hideKeyboard
+- tapOn: "Lưu hồ sơ"
+- extendedWaitUntil:
+    visible: "An QA"
+    timeout: 60000
+- assertNotVisible: "Lưu hồ sơ"
+- takeScreenshot: 24-ho-so-da-sua

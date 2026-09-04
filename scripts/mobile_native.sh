@@ -56,6 +56,8 @@ OTP=0
 OTP_CODE="000000"
 OTP_PHONE=""
 OTP_PHONE_B=""
+OTP_PHONE_C=""
+OTP_PHONE_D=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -234,6 +236,33 @@ kiem_ma_debug() {
   echo "API $API_PORT nhận mã debug: đối chứng dương môi trường qua"
 }
 
+# Sau flow 24: người được mời (OTP_PHONE_D) chưa từng mở app. Đăng nhập bằng số
+# đó qua curl và hỏi máy chủ nhóm nào đang chờ họ — nếu lời mời chỉ tồn tại trên
+# màn hình của người mời thì đây là chỗ nó lộ ra.
+kiem_may_chu_sau_24() {
+  local goc id body via ten
+  goc="http://127.0.0.1:$API_PORT"
+  id="$(curl -sS -X POST "$goc/auth/otp/request" -H 'Content-Type: application/json' \
+      -d "{\"phone\":\"$OTP_PHONE_D\"}" \
+    | python3 -c 'import json,sys;print(json.load(sys.stdin).get("challenge_id",""))' 2>/dev/null || true)"
+  [ -n "$id" ] || hong "sau flow 24: không xin được mã cho người được mời."
+  body="$(curl -sS -X POST "$goc/auth/otp/verify" -H 'Content-Type: application/json' \
+      -d "{\"challenge_id\":\"$id\",\"phone\":\"$OTP_PHONE_D\",\"code\":\"$OTP_CODE\"}")"
+  via="$(printf '%s' "$body" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+moi = [c for c in d.get("contexts", []) if c.get("my_state") == "invited"]
+ten_nhom = moi[0]["display_name"] if moi else ""
+ten_nguoi = d.get("profile", {}).get("display_name", "")
+print("%d|%s|%s" % (len(moi), ten_nhom, ten_nguoi))')"
+  IFS='|' read -r so_moi ten_nhom ten_nguoi <<< "$via"
+  [ "$so_moi" = "1" ] && [ "$ten_nhom" = "Hoi QA" ] \
+    || hong "sau flow 24: máy chủ không giữ lời mời cho người được mời (invited=$so_moi, nhóm='$ten_nhom')."
+  ten="$ten_nguoi"
+  [ "$ten" = "Ban QA" ] || hong "sau flow 24: người được mời phải mang tên người mời đặt ('Ban QA'), máy chủ trả '$ten'."
+  echo "máy chủ xác nhận: người được mời (số D) đăng nhập thấy đúng 1 lời mời vào «Hoi QA», tên «Ban QA» do người mời đặt"
+}
+
 # Canary cho chế độ --otp. Canary 09 đi đường fixture, mà ở đây cửa fixture tắt
 # có chủ ý — nó sẽ chết ở bước 1, tức chứng minh harness hỏng chứ không chứng
 # minh assert cắn. Đối chứng âm đúng của lượt này: chạy LẠI flow 22 với mã SAI
@@ -244,7 +273,8 @@ canary_otp() {
   ra="$(mktemp)"; so="$(sinh_so_di_dong)"
   set +e
   maestro test -e TREE_FINGERPRINT="$DAU_VAN" -e OTP_PHONE="$so" -e OTP_PHONE_B="$so" \
-    -e OTP_CODE="999999" "$FLOWS/22-dang-nhap-otp.yaml" > "$ra" 2>&1
+    -e OTP_PHONE_C="$so" -e OTP_PHONE_D="$so" -e OTP_CODE="999999" \
+    "$FLOWS/22-dang-nhap-otp.yaml" > "$ra" 2>&1
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || hong "canary OTP XANH: flow 22 qua với mã SAI. Assert đăng nhập không cắn."
@@ -559,7 +589,8 @@ chay_flow() {
   local -a them=()
   # Số và mã chỉ đi qua -e, không bao giờ nằm trong file flow.
   if [ "$OTP" = 1 ]; then
-    them=(-e OTP_PHONE="$OTP_PHONE" -e OTP_PHONE_B="$OTP_PHONE_B" -e OTP_CODE="$OTP_CODE")
+    them=(-e OTP_PHONE="$OTP_PHONE" -e OTP_PHONE_B="$OTP_PHONE_B"
+          -e OTP_PHONE_C="$OTP_PHONE_C" -e OTP_PHONE_D="$OTP_PHONE_D" -e OTP_CODE="$OTP_CODE")
   fi
   ra="$(mktemp)"
   set +e
@@ -579,9 +610,11 @@ chay_flow() {
 for lap in $(seq 1 "$LAP"); do
 [ "$LAP" -gt 1 ] && echo "=== lượt $lap/$LAP ==="
 if [ "$OTP" = 1 ]; then
-  # Mỗi lượt hai người MỚI: người của lượt trước đã có nhóm, và flow 22 khẳng
-  # định «Chưa có nhóm nào».
+  # Mỗi lượt BỐN người mới, mỗi flow một cặp số chưa ai dùng: người của flow
+  # trước đã có nhóm (22) hoặc đã có tên «Thành viên mới» (23), và flow 24 khẳng
+  # định cả «Chưa có nhóm nào» lẫn tên «Ban QA» do người mời đặt.
   OTP_PHONE="$(sinh_so_di_dong)"; OTP_PHONE_B="$(sinh_so_di_dong)"
+  OTP_PHONE_C="$(sinh_so_di_dong)"; OTP_PHONE_D="$(sinh_so_di_dong)"
 fi
 for f in "$FLOWS"/*.yaml; do
   ten="$(basename "$f")"
@@ -593,7 +626,7 @@ for f in "$FLOWS"/*.yaml; do
     # môi trường chứ không phải vì app sai. `--live` chạy đúng và chỉ nhóm này.
     20-*)        [ "$LIVE" = 1 ] || continue ;;
     21-*)        [ "$DANG_NHAP" = 1 ] || continue ;;
-    22-*|23-*)   [ "$OTP" = 1 ] || continue ;;
+    22-*|23-*|24-*) [ "$OTP" = 1 ] || continue ;;
     *)           { [ "$LIVE" = 1 ] || [ "$DANG_NHAP" = 1 ] || [ "$OTP" = 1 ]; } && continue ;;
   esac
   DA_CHAY=$((DA_CHAY + 1))
@@ -643,6 +676,7 @@ fi
 [ "$BANG" -eq 0 ] || hong "flow đỏ:$DO_LIST"
 
 if [ "$OTP" = 1 ]; then
+  kiem_may_chu_sau_24
   canary_otp
 else
 RA_CANARY="$(mktemp)"

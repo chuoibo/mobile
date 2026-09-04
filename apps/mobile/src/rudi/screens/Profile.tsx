@@ -11,6 +11,7 @@ import { noiLuu, noiLuuNgan } from "../luu-tru";
 import { useRudiSession } from "../session";
 import { typography, useRudiTheme } from "../theme";
 import { DAU_VAN_CAY } from "../dau-van-cay";
+import { HoSoSong } from "./profile/HoSoSong";
 import {
   Avatar,
   Card,
@@ -126,72 +127,86 @@ export function ProfileScreen() {
       {session.profileNotice ? (
         <Text style={[typography.caption, { color: colors.accent }]}>{session.profileNotice}</Text>
       ) : null}
-      <Card style={styles.profileHero}>
-        <LinearGradient
-          colors={["rgba(252,123,55,0.16)", "rgba(131,80,246,0.12)"]}
-          end={{ x: 1, y: 1 }}
-          start={{ x: 0, y: 0 }}
-          style={StyleSheet.absoluteFill}
-        />
-        <View style={styles.avatarLarge}>
-          <Avatar person={PEOPLE[0]} ring size={86} />
-          <View style={[styles.levelBadge, { backgroundColor: colors.accent }]}>
-            <Ionicons color={colors.accentInk} name="sparkles" size={12} />
-            <Text style={styles.levelText}>12</Text>
+      {session.phien !== null ? (
+        // A real session: the server's profile and counts. The fixture hero
+        // below is Team Đà Lạt's story and must never be shown to a signed-in
+        // person as if it were theirs.
+        <HoSoSong phien={session.phien} />
+      ) : (
+        <>
+          <Card style={styles.profileHero}>
+            <LinearGradient
+              colors={["rgba(252,123,55,0.16)", "rgba(131,80,246,0.12)"]}
+              end={{ x: 1, y: 1 }}
+              start={{ x: 0, y: 0 }}
+              style={StyleSheet.absoluteFill}
+            />
+            <View style={styles.avatarLarge}>
+              <Avatar person={PEOPLE[0]} ring size={86} />
+              <View style={[styles.levelBadge, { backgroundColor: colors.accent }]}>
+                <Ionicons color={colors.accentInk} name="sparkles" size={12} />
+                <Text style={styles.levelText}>12</Text>
+              </View>
+            </View>
+            <Text style={[typography.h1, { color: colors.ink }]}>{session.displayName}</Text>
+            <Text style={[typography.body, { color: colors.inkSoft }]}>{session.bio}</Text>
+            <Inline gap={7} wrap>
+              <Chip icon="location-outline" label="TP. Hồ Chí Minh" />
+              <Chip icon="calendar-outline" label="Thành viên từ 2026" />
+            </Inline>
+            <RudiButton
+              compact
+              full={false}
+              icon="create-outline"
+              label="Chỉnh hồ sơ"
+              onPress={() => setPanel("edit")}
+              variant="outline"
+            />
+          </Card>
+          <Card style={styles.profileStats}>
+            <View style={styles.statItem}>
+              <Text style={[typography.money, { color: colors.accent }]}>1</Text>
+              <Text style={[typography.caption, { color: colors.inkFaint }]}>chuyến đi</Text>
+            </View>
+            <View style={[styles.verticalLine, { backgroundColor: colors.line }]} />
+            <View style={styles.statItem}>
+              <Text style={[typography.money, { color: colors.ai }]}>{String(session.savedPlaceIds.length)}</Text>
+              <Text style={[typography.caption, { color: colors.inkFaint }]}>đã lưu</Text>
+            </View>
+            <View style={[styles.verticalLine, { backgroundColor: colors.line }]} />
+            <View style={styles.statItem}>
+              <Text style={[typography.money, { color: colors.split }]}>{String(session.photoCount)}</Text>
+              <Text style={[typography.caption, { color: colors.inkFaint }]}>ảnh</Text>
+            </View>
+          </Card>
+        </>
+      )}
+      {session.phien === null ? (
+        // The fixture trip. A real session has no outing yet until M4 reads
+        // `/outings`; showing Team Đà Lạt's weekend to a signed-in stranger is
+        // the exact lie this tab used to tell.
+          <View>
+            <SectionHeader title="Sắp tới" />
+            <View style={styles.sectionGap} />
+            <Card onPress={() => router.push(session.tripPath("/timeline") as never)} style={styles.upcoming}>
+              <Photo
+                height={155}
+                radius={17}
+                source={demoAssets.road}
+                overlay={
+                  <PhotoShade>
+                    <Text style={styles.upcomingTitle}>{session.tripName}</Text>
+                    <Text style={styles.upcomingMeta}>17–19/10/2026 · Team Đà Lạt</Text>
+                  </PhotoShade>
+                }
+              />
+              <View style={styles.countdown}>
+                <Text style={[typography.money, { color: colors.accent }]}>46</Text>
+                <Text style={[typography.caption, { color: colors.inkFaint }]}>ngày nữa</Text>
+              </View>
+            </Card>
           </View>
-        </View>
-        <Text style={[typography.h1, { color: colors.ink }]}>{session.displayName}</Text>
-        <Text style={[typography.body, { color: colors.inkSoft }]}>{session.bio}</Text>
-        <Inline gap={7} wrap>
-          <Chip icon="location-outline" label="TP. Hồ Chí Minh" />
-          <Chip icon="calendar-outline" label="Thành viên từ 2026" />
-        </Inline>
-        <RudiButton
-          compact
-          full={false}
-          icon="create-outline"
-          label="Chỉnh hồ sơ"
-          onPress={() => setPanel("edit")}
-          variant="outline"
-        />
-      </Card>
-      <Card style={styles.profileStats}>
-        <View style={styles.statItem}>
-          <Text style={[typography.money, { color: colors.accent }]}>1</Text>
-          <Text style={[typography.caption, { color: colors.inkFaint }]}>chuyến đi</Text>
-        </View>
-        <View style={[styles.verticalLine, { backgroundColor: colors.line }]} />
-        <View style={styles.statItem}>
-          <Text style={[typography.money, { color: colors.ai }]}>{String(session.savedPlaceIds.length)}</Text>
-          <Text style={[typography.caption, { color: colors.inkFaint }]}>đã lưu</Text>
-        </View>
-        <View style={[styles.verticalLine, { backgroundColor: colors.line }]} />
-        <View style={styles.statItem}>
-          <Text style={[typography.money, { color: colors.split }]}>{String(session.photoCount)}</Text>
-          <Text style={[typography.caption, { color: colors.inkFaint }]}>ảnh</Text>
-        </View>
-      </Card>
-      <View>
-        <SectionHeader title="Sắp tới" />
-        <View style={styles.sectionGap} />
-        <Card onPress={() => router.push(session.tripPath("/timeline") as never)} style={styles.upcoming}>
-          <Photo
-            height={155}
-            radius={17}
-            source={demoAssets.road}
-            overlay={
-              <PhotoShade>
-                <Text style={styles.upcomingTitle}>{session.tripName}</Text>
-                <Text style={styles.upcomingMeta}>17–19/10/2026 · Team Đà Lạt</Text>
-              </PhotoShade>
-            }
-          />
-          <View style={styles.countdown}>
-            <Text style={[typography.money, { color: colors.accent }]}>46</Text>
-            <Text style={[typography.caption, { color: colors.inkFaint }]}>ngày nữa</Text>
-          </View>
-        </Card>
-      </View>
+      ) : null}
       <Card style={styles.menuCard}>
         <ListRow
           icon="wallet-outline"
@@ -200,14 +215,18 @@ export function ProfileScreen() {
           title="Tài chính của tôi"
           tone="split"
         />
-        <View style={[styles.rowLine, { backgroundColor: colors.line }]} />
-        <ListRow
-          icon="trophy-outline"
-          onPress={() => router.push("/achievements")}
-          subtitle="12 huy hiệu đã mở khóa"
-          title="Thành tích"
-          tone="ai"
-        />
+        {session.phien === null ? (
+          <>
+            <View style={[styles.rowLine, { backgroundColor: colors.line }]} />
+            <ListRow
+              icon="trophy-outline"
+              onPress={() => router.push("/achievements")}
+              subtitle="12 huy hiệu đã mở khóa"
+              title="Thành tích"
+              tone="ai"
+            />
+          </>
+        ) : null}
         <View style={[styles.rowLine, { backgroundColor: colors.line }]} />
         <ListRow
           icon="bookmark-outline"

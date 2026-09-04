@@ -120,11 +120,6 @@
       "reason": "M1 (ADR-0016): nút «Tiếp tục với Google» trên màn Login của vỏ RuDi gọi sau khi Lead tạo client id (Google Cloud) và PR client Google nối @react-native-google-signin. Gỡ pin ở PR đó."
     },
     {
-      "route": "/people/me",
-      "loai": "tinh-nang",
-      "reason": "M2: tab Cá nhân của vỏ RuDi (`app/(tabs)/profile.tsx`) đọc counts thật + login_methods. Gỡ pin ở PR client M2."
-    },
-    {
       "route": "/people/me/saved-places",
       "loai": "tinh-nang",
       "reason": "M2/M4: mục «Đã lưu» ở Cá nhân và bộ lọc «Đã lưu» ở Khám phá. Gỡ pin ở PR client M4."

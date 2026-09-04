@@ -37,13 +37,24 @@ import {
 } from "./api";
 
 /** What the server hands back once, and what we keep. */
+export type TinCuoiTomTat = {
+  id: string;
+  kind: "text" | "image" | "ai_card";
+  preview: string;
+  author_id: string | null;
+  author_display_name: string | null;
+  created_at: string;
+};
+
 export type NhomTomTat = {
   id: string;
   display_name: string;
   my_state: "invited" | "active";
+  my_role?: "member" | "admin";
   membership_id: string;
   member_count: number;
   unread_count: number;
+  last_message?: TinCuoiTomTat | null;
 };
 
 export type Phien = {
@@ -318,6 +329,71 @@ export async function ganDanhSachNhom(
   const moi = chonNhomMacDinh({ ...phien, contexts });
   await ghiNho(moi, kho);
   return moi;
+}
+
+/**
+ * Make one of the listed groups the current one, and remember it.
+ *
+ * The conversation list is where a person with several groups picks which one
+ * the money screens read. Only a group the server listed can be chosen -- an
+ * id typed from nowhere would send `nguon.ts` live on a group the server may
+ * refuse -- and an `invited` row is not a choice yet: accepting is `vaoNhom`.
+ */
+export async function chonNhom(phien: Phien, contextId: string, kho?: KhoAnToan): Promise<Phien> {
+  const nhom = phien.contexts?.find((ung) => ung.id === contextId);
+  if (nhom === undefined) {
+    throw new Error("Nhóm này không có trong danh sách máy chủ vừa trả.");
+  }
+  if (nhom.my_state !== "active") {
+    throw new Error("Bạn chưa đồng ý vào nhóm này.");
+  }
+  const moi: Phien = {
+    ...phien,
+    context_id: nhom.id,
+    membership_state: "active",
+    membership_id: nhom.membership_id,
+  };
+  await ghiNho(moi, kho);
+  return moi;
+}
+
+/** The caller's own profile as `GET /people/me` returns it (M2). */
+export type HoSoToi = {
+  id: string;
+  display_name: string;
+  bio: string | null;
+  city: string | null;
+  created_at: string;
+  counts: {
+    friends: number;
+    contexts: number;
+    outings: number;
+    places_checked_in: number;
+    memories: number;
+  };
+  login_methods: string[];
+};
+
+const LOI_HO_SO: Record<string, string> = {
+  person_not_found: "Máy chủ chưa có hồ sơ cho tài khoản này.",
+  http_422: "Hồ sơ chưa hợp lệ: tên không được rỗng, giới thiệu tối đa 500 chữ.",
+};
+
+export async function docHoSoToi(personId: string): Promise<HoSoToi> {
+  return translatedAsActor<HoSoToi>(LOI_HO_SO, "/people/me", { method: "GET", actorId: personId });
+}
+
+/** Partial update; `bio`/`city` = "" clears the field. */
+export async function suaHoSoToi(
+  personId: string,
+  thayDoi: { display_name?: string; bio?: string; city?: string },
+): Promise<HoSoToi> {
+  return translatedAsActor<HoSoToi>(LOI_HO_SO, "/people/me", {
+    method: "PATCH",
+    body: thayDoi,
+    actorId: personId,
+    attempt: newAttempt(),
+  });
 }
 
 /** Spend the code for a session, remember it, and hand the bearer to `api.ts`. */

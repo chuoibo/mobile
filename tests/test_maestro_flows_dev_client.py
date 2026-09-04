@@ -88,9 +88,13 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
                 )
 
     def test_otp_flows_take_number_and_code_from_the_harness(self) -> None:
-        for name in ("22-dang-nhap-otp.yaml", "23-phien-song-qua-lan-tat.yaml"):
+        for name in (
+            "22-dang-nhap-otp.yaml",
+            "23-phien-song-qua-lan-tat.yaml",
+            "24-nhom-thanh-vien-va-ho-so.yaml",
+        ):
             text = (FLOWS / name).read_text(encoding="utf-8")
-            self.assertRegex(text, r"\$\{OTP_PHONE(_B)?\}", name)
+            self.assertRegex(text, r"\$\{OTP_PHONE(_[BCD])?\}", name)
             self.assertIn("${OTP_CODE}", text, name)
             # A phone number in a flow file is a phone number in Git.
             self.assertIsNone(
@@ -118,7 +122,8 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
             script,
         )
         self.assertIn("canary_otp", script)
-        self.assertIn('22-*|23-*)   [ "$OTP" = 1 ] || continue', script)
+        self.assertIn('22-*|23-*|24-*) [ "$OTP" = 1 ] || continue', script)
+        self.assertIn("kiem_may_chu_sau_24", script)
 
     def test_harness_passes_the_fingerprint_and_checks_it_bites(self) -> None:
         script = (REPO_ROOT / "scripts" / "mobile_native.sh").read_text(
