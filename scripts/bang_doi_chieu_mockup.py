@@ -101,8 +101,8 @@ DANH_SACH_MAN: tuple[ManMockup, ...] = (
         "AI Match / tìm kiếm tự nhiên",
         "NEEDS UPDATE",
         "02_discovery/02_ai_match/02_02_ai_match.png",
-        (),
-        "Tìm bằng câu (/places/search) có trong ExploreLive nhưng chưa flow nào chụp kết quả.",
+        ("26-tim-cau",),
+        "Flow 26 chụp thẻ trả lời của /places/search; stack không khoá thì thẻ nói thật là chưa đọc được.",
     ),
     ManMockup(
         "02.03",
@@ -194,8 +194,8 @@ DANH_SACH_MAN: tuple[ManMockup, ...] = (
         "Thả khoảnh khắc",
         "READY",
         "06_memories/03_share_moment/06_03_share_moment.png",
-        (),
-        "ShareMomentLive cần bộ chọn ảnh hệ thống; flow 32 check-in từ tường nên chưa chụp màn này.",
+        ("32-tha-khoanh-khac",),
+        "Trạng thái chưa chọn ảnh: bộ chọn ảnh hệ thống không lái được bằng flow.",
     ),
     ManMockup(
         "07.01",
@@ -209,8 +209,7 @@ DANH_SACH_MAN: tuple[ManMockup, ...] = (
         "Tài chính cá nhân",
         "READY",
         "07_profile_finance/02_finance/07_02_finance.png",
-        ("20-finance-live", "02-finance"),
-        "Bảng --otp đi qua «Tài chính của tôi» (flow 29) nhưng không chụp; flow 20/02 chụp.",
+        ("29-tai-chinh", "20-finance-live", "02-finance"),
     ),
     ManMockup(
         "07.03",

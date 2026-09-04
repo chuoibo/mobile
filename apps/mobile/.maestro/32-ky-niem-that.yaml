@@ -41,6 +41,16 @@ appId: com.lakiet.rudi
     timeout: 60000
 - assertNotVisible: "Dữ liệu demo"
 - takeScreenshot: 32-tuong-trong
+# Màn Thả khoảnh khắc ở trạng thái chưa chọn ảnh (bộ chọn ảnh hệ thống không lái ở đây): chụp rồi lùi về tường.
+- tapOn: "Thả khoảnh khắc"
+- extendedWaitUntil:
+    visible: "Chọn ảnh"
+    timeout: 30000
+- takeScreenshot: 32-tha-khoanh-khac
+- back
+- extendedWaitUntil:
+    visible: "Chưa có kỷ niệm nào"
+    timeout: 30000
 # Check-in tại một chỗ trong danh mục máy chủ.
 - tapOn: "Check-in"
 - extendedWaitUntil:

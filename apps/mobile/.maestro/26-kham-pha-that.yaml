@@ -81,3 +81,21 @@ appId: com.lakiet.rudi
     timeout: 30000
 - assertVisible: "Bỏ lưu Tiệm Nướng Xóm Lào"
 - takeScreenshot: 26-danh-muc-da-luu
+# Tìm bằng câu: Enter gửi câu lên /places/search. Máy chủ không có khoá thì thẻ
+# «Rủ Đi AI» nói thật là chưa đọc được; có khoá thì nói hiểu gì. Chụp sau khi hết «Đang đọc câu».
+- scrollUntilVisible:
+    element:
+      text: "Ô tìm địa điểm"
+    direction: UP
+- tapOn: "Ô tìm địa điểm"
+- eraseText
+- inputText: "quan nuong cho 4 nguoi"
+- pressKey: Enter
+- extendedWaitUntil:
+    visible: "Rủ Đi AI|Rủ Đi AI hiểu câu.*"
+    timeout: 60000
+- extendedWaitUntil:
+    notVisible: "Đang đọc câu.*"
+    timeout: 60000
+- hideKeyboard
+- takeScreenshot: 26-tim-cau

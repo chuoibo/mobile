@@ -27,6 +27,7 @@ appId: com.lakiet.rudi
 - extendedWaitUntil:
     visible: "Chi theo nhóm"
     timeout: 60000
+- takeScreenshot: 29-tai-chinh
 - scrollUntilVisible:
     element:
       text: "Xem quyết toán"
