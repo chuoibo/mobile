@@ -298,7 +298,7 @@ except Exception: print("(không phải JSON)")' "$tep" 2>/dev/null)"
 }
 
 # Sau flow 20 (--live): người seed vừa xem «Team Đà Lạt» trên máy. Hỏi máy chủ
-# với tư cách người đó — nhóm 8 người, đã chi đúng tổng bill Xóm Lèo, một đợt thu
+# với tư cách người đó — nhóm 8 người, phần và khoản sẽ nhận đúng bill Xóm Lèo chia 8, một đợt thu
 # đã phát với 7 nghĩa vụ — chứ không đọc từ màn hình. Contexts hỏi lại bằng token
 # (thân phiên cache có thể cũ).
 kiem_may_chu_sau_20() {
@@ -323,10 +323,11 @@ print("%s|%s" % (nhom[0]["id"] if nhom else "", nhom[0].get("member_count", 0) i
   ket="$(curl -sS "$goc/people/$pid/finance" -H "Authorization: Bearer $tok" | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
-print("%s|%s" % (d.get("spend_vnd"), d.get("expense_count")))')"
-  IFS='|' read -r chi so_khoan <<< "$ket"
-  [ "$chi" = "1280000" ] \
-    || hong "sau flow 20: máy chủ nói người seed đã chi '$chi' đồng ($so_khoan khoản); mong 1280000 = bill Xóm Lèo."
+print("%s|%s|%s" % (d.get("spend_vnd"), d.get("receivable_vnd"), d.get("expense_count")))')"
+  IFS='|' read -r chi nhan so_khoan <<< "$ket"
+  # spend_vnd là PHẦN của người này (bill 1.280.000đ chia đều 8), receivable là 7 phần kia.
+  [ "$chi" = "160000" ] && [ "$nhan" = "1120000" ] \
+    || hong "sau flow 20: máy chủ nói người seed chi '$chi' / sẽ nhận '$nhan' ($so_khoan khoản); mong 160000 / 1120000 từ bill Xóm Lèo chia 8."
   ket="$(curl -sS "$goc/contexts/$ctx/batches" -H "Authorization: Bearer $tok" | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
@@ -335,7 +336,7 @@ print("%d|%s" % (len(b), b[0].get("obligation_count", "") if b else ""))')"
   IFS='|' read -r so_dot so_nv <<< "$ket"
   [ "${so_dot:-0}" -ge 1 ] && [ "$so_nv" = "7" ] \
     || hong "sau flow 20: mong một đợt thu đã phát với 7 nghĩa vụ, máy chủ trả $so_dot đợt / '$so_nv' nghĩa vụ."
-  echo "máy chủ xác nhận: người seed trong «Team Đà Lạt» 8 người, đã chi 1.280.000đ ($so_khoan khoản), một đợt thu đã phát 7 nghĩa vụ"
+  echo "máy chủ xác nhận: người seed trong «Team Đà Lạt» 8 người, phần 160.000đ và sẽ nhận 1.120.000đ ($so_khoan khoản), một đợt thu đã phát 7 nghĩa vụ"
 }
 
 # Sau flow 24: người được mời (OTP_PHONE_D) chưa từng mở app. Đăng nhập bằng số

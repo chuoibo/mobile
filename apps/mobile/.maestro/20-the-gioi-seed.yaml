@@ -62,8 +62,10 @@ appId: com.lakiet.rudi
 - extendedWaitUntil:
     visible: "Chi theo nhóm"
     timeout: 60000
-# Người seed số 0 là người trả bill Xóm Lèo: sáu món, 1.280.000đ, cả nhóm cùng dùng.
-- assertVisible: "1.280.000đ"
+# Người seed số 0 trả bill Xóm Lèo 1.280.000đ, cả 8 người cùng dùng: phần của họ
+# («Bạn đã chi») là 160.000đ, bảy người kia nợ họ 1.120.000đ («Sẽ nhận»).
+- assertVisible: "160.000đ"
+- assertVisible: "1.120.000đ"
 - takeScreenshot: 20-tai-chinh-seed
 - tapOn: "Xem quyết toán"
 - extendedWaitUntil:
