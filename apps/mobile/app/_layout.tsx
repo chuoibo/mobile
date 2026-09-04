@@ -31,6 +31,9 @@ LogBox.ignoreAllLogs();
  *            with real data or an honest empty state; no fixture text in production.
  * FORM    -- expo-router stack + 4 tabs + create sheet; 44pt targets, 12px floor,
  *            tabular-nums for money, motion <= 220ms.
+ *            Seed: none rolled. Every screen here is an Extension of the world
+ *            already committed in DESIGN.md (tokens in packages/shared), so the
+ *            direction is inherited, not re-rolled per screen.
  * FINISH: the shipped screens are reviewed on the emulator, not on the web export.
  */
 /** Decides the first screen of a cold start, and routes warm links.

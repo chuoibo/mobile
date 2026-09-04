@@ -169,10 +169,14 @@ export function GroupWallLiveScreen({ phien, contextId }: { phien: Phien; contex
     <RudiScreen testID="group-wall-screen">
       <TopBar subtitle="Chỉ thành viên nhóm thấy" title="Tường nhóm" />
       {thongBao !== null ? <Text style={[typography.body, { color: colors.warn }]}>{thongBao}</Text> : null}
-      <Inline gap={8} wrap>
-        <RudiButton full={false} icon="camera-outline" label="Thả khoảnh khắc" onPress={() => router.push("/moments/new" as never)} />
-        <RudiButton disabled={ban} full={false} icon="location-outline" label="Check-in tại một chỗ" onPress={() => void moCheckInForm()} variant="soft" />
-      </Inline>
+      <View style={styles.haiNut}>
+        <View style={styles.flex}>
+          <RudiButton icon="camera-outline" label="Thả khoảnh khắc" onPress={() => router.push("/moments/new" as never)} />
+        </View>
+        <View style={styles.flex}>
+          <RudiButton disabled={ban} icon="location-outline" label="Check-in" onPress={() => void moCheckInForm()} variant="soft" />
+        </View>
+      </View>
 
       {moCheckIn ? (
         <Card style={styles.form}>
@@ -233,14 +237,15 @@ export function GroupWallLiveScreen({ phien, contextId }: { phien: Phien; contex
                     <Text style={[typography.label, { color: k.toiDaTim ? colors.accent : colors.inkSoft }]}>{k.toiDaTim ? "Đã tim" : "Thích"}</Text>
                   </Pressable>
                   <Pressable
-                    accessibilityLabel={`Bình luận ${cauKyNiem(k)}`}
+                    accessibilityLabel={`${moBinhLuan === k.id ? "Ẩn bình luận" : "Bình luận"} ${cauKyNiem(k)}`}
                     accessibilityRole="button"
+                    aria-expanded={moBinhLuan === k.id}
                     disabled={ban}
                     onPress={() => void moHoacDongBinhLuan(k)}
                     style={({ pressed }) => [styles.nutHanhDong, pressed && styles.pressed]}
                   >
-                    <Ionicons color={colors.inkSoft} name="chatbubble-outline" size={21} />
-                    <Text style={[typography.label, { color: colors.inkSoft }]}>Bình luận</Text>
+                    <Ionicons color={moBinhLuan === k.id ? colors.accent : colors.inkSoft} name={moBinhLuan === k.id ? "chatbubble" : "chatbubble-outline"} size={21} />
+                    <Text style={[typography.label, { color: moBinhLuan === k.id ? colors.accent : colors.inkSoft }]}>{moBinhLuan === k.id ? "Ẩn bình luận" : "Bình luận"}</Text>
                   </Pressable>
                 </View>
                 {moBinhLuan === k.id ? (
@@ -273,6 +278,7 @@ const styles = StyleSheet.create({
   dong: { flexDirection: "row", alignItems: "center", gap: 10 },
   anh: { width: "100%", aspectRatio: 4 / 3 },
   hanhDong: { flexDirection: "row", gap: 8 },
+  haiNut: { flexDirection: "row", gap: 8 },
   nutHanhDong: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12 },
   pressed: { opacity: 0.7 },
   khungBl: { gap: 8 },

@@ -19,9 +19,19 @@ appId: com.lakiet.rudi
     visible: "Khám phá"
     timeout: 60000
 - tapOn: "Cá nhân"
+# Quyết toán nằm sau «Tài chính của tôi» (đọc /people/{id}/finance), không ở ngay hồ sơ.
 - extendedWaitUntil:
-    visible: "Xem quyết toán"
+    visible: "Tài chính của tôi"
     timeout: 60000
+- tapOn: "Tài chính của tôi"
+- extendedWaitUntil:
+    visible: "Chi theo nhóm"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Xem quyết toán"
+    direction: DOWN
+    timeout: 20000
 - tapOn: "Xem quyết toán"
 - extendedWaitUntil:
     visible: "Quyết toán chuyến đi"
