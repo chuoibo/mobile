@@ -2,7 +2,7 @@
 # danh mục (không cần chọn ảnh — bộ chọn ảnh hệ thống không lái được ổn định), tim,
 # bình luận, kệ album theo kèo với số máy chủ, album của «Keo QA» thấy chỗ đã tới,
 # thước phim nói vì sao chưa dựng (stack không khoá), và Thành tích tính từ sổ.
-# Chạy sau flow 28/29 (phiên D, nhóm «Hoi QA», kèo «Keo QA» hôm nay). Máy chủ kiểm
+# Chạy sau flow 30/31 (phiên C hoặc D còn sống, nhóm «Hoi QA», kèo «Keo QA» hôm nay). Máy chủ kiểm
 # sau flow: GET /contexts/{ctx}/memories có đúng một kỷ niệm check-in «Quán Ốc Dì Bé»
 # với 1 tim, 1 bình luận; GET /contexts/{ctx}/albums có «Keo QA» với >= 1 check-in.
 appId: com.lakiet.rudi
@@ -72,8 +72,10 @@ appId: com.lakiet.rudi
 - inputText: "Ngon that"
 - hideKeyboard
 - tapOn: "Gửi bình luận"
+# Phiên sống lúc này là của người còn đăng nhập sau flow 30/31 (C hoặc D): tên tác giả
+# là tên máy chủ trả cho người đó, không ghim ai.
 - extendedWaitUntil:
-    visible: "Ban QA: Ngon that"
+    visible: ".* QA: Ngon that"
     timeout: 60000
 - assertVisible: "1 tim · 1 bình luận"
 - takeScreenshot: 32-tim-binh-luan
@@ -104,10 +106,15 @@ appId: com.lakiet.rudi
     timeout: 60000
 - assertNotVisible: "Rủ Đi AI dựng thước phim này.*"
 - takeScreenshot: 32-album-keo
-# Thành tích: tính từ sổ của D (đã có 1 khoản chi, 1 nhóm), không phải «12/18 đã mở».
+# Thành tích: tính từ sổ, không phải «12/18 đã mở». Bốn lần back: album → kệ → Thành viên
+# → chat → danh sách Tin nhắn (thanh tab chỉ hiện ở màn tab).
 - back
 - back
 - back
+- back
+- extendedWaitUntil:
+    visible: "Cá nhân"
+    timeout: 30000
 - tapOn: "Cá nhân"
 - extendedWaitUntil:
     visible: "Thành tích"
