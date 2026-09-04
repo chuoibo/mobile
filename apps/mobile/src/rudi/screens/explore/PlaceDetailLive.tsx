@@ -15,15 +15,16 @@ import { ApiError, thongDiepNguoiDoc } from "../../../api";
 import type { Phien } from "../../../phien";
 import type { PlaceDetail } from "../../../screens/kham-pha/chi-tiet-dia-diem";
 import {
-  formatDistance,
-  formatPriceBand,
-  formatRating,
   matchLabel,
 } from "../../../screens/kham-pha/places";
 import {
   bieuTuongLoai,
   boLuuDiaDiem,
+  cauDuongDi,
+  cauGia,
   cauMoCua,
+  cauNguonDuLieu,
+  chiTietNgan,
   daoLuu,
   docChiTiet,
   docDaLuu,
@@ -168,17 +169,29 @@ function ThanChiTiet({
           <Ionicons color={colors.accent} name={bieuTuongLoai(place.category)} size={40} />
         </View>
         <Heading title={place.name} subtitle={dongPhu(place)} />
+        {/* Only what the row actually carries (M9). Each item is one text node
+            and the status is a whole badge: at font 1.3 an inline word broke
+            across lines («Đang / mở»). */}
         <Inline gap={8} wrap>
-          <Inline gap={6}>
-            <Ionicons color={colors.accent} name="star" size={14} />
-            {/* One text node for the facts line, so no word is measured alone. */}
-            <Text style={[typography.caption, { color: colors.inkSoft }]}>
-              <Text style={[typography.label, { color: colors.ink }]}>{formatRating(place.rating, place.ratingCount)}</Text>
-              {" "}· {formatDistance(place.distanceKm)}
-            </Text>
-          </Inline>
-          {/* Status as a whole badge: at font 1.3 the inline word broke across lines («Đang / mở»). */}
-          <Chip label={place.openNow ? "Đang mở" : "Đã đóng"} selected tone={place.openNow ? "accent" : "split"} />
+          {chiTietNgan(place)
+            .filter((muc) => muc.icon !== "time-outline")
+            .map((muc) => (
+              <Inline gap={6} key={muc.icon}>
+                <Ionicons
+                  color={muc.icon === "star" ? colors.accent : colors.inkFaint}
+                  name={muc.icon}
+                  size={14}
+                />
+                <Text style={[typography.label, { color: colors.ink }]}>{muc.chu}</Text>
+              </Inline>
+            ))}
+          {place.openNow === null ? null : (
+            <Chip
+              label={place.openNow ? "Đang mở" : "Đã đóng"}
+              selected
+              tone={place.openNow ? "accent" : "split"}
+            />
+          )}
         </Inline>
         {hop !== null && hop.real ? (
           <View style={styles.huyHieu}>
@@ -189,10 +202,20 @@ function ThanChiTiet({
       <RudiButton icon="add-circle-outline" label="Thêm vào kèo" onPress={onThemVaoKeo} variant="soft" />
       {place.description ? <Text style={[typography.body, { color: colors.ink }]}>{place.description}</Text> : null}
       <Card style={styles.suKien}>
-        <ListRow icon="navigate-outline" onPress={onChiDuong} subtitle={`${formatDistance(place.distanceKm)} · ${place.travelMinutes} phút đi xe`} title={place.address} />
-        <ListRow icon="time-outline" title={cauMoCua(place)} subtitle="Giờ mở cửa theo danh mục" />
-        <ListRow icon="wallet-outline" title={`${formatPriceBand(place.priceMinVnd, place.priceMaxVnd)} một người`} subtitle="Khoảng giá theo danh mục" />
+        <ListRow
+          icon="navigate-outline"
+          onPress={onChiDuong}
+          subtitle={cauDuongDi(place)}
+          title={place.address ?? "Chưa có địa chỉ"}
+        />
+        <ListRow icon="time-outline" title={cauMoCua(place)} subtitle="Giờ mở cửa" />
+        <ListRow icon="wallet-outline" title={cauGia(place)} subtitle="Khoảng giá" />
       </Card>
+      {cauNguonDuLieu(place) === null ? null : (
+        <Text style={[typography.caption, { color: colors.inkFaint }]}>
+          {cauNguonDuLieu(place)}
+        </Text>
+      )}
       {place.traits.length > 0 ? (
         <Inline gap={8} wrap>
           {place.traits.map((t) => (

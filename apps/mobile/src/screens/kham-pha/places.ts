@@ -109,17 +109,22 @@ export type Place = {
   /** The "BBQ · Lào · Local" line. Kept as parts so the separator is the
    *  screen's decision and a one-kind place does not render a dangling dot. */
   kinds: string[];
-  rating: number;
-  ratingCount: number;
-  distanceKm: number;
-  /** Integer đồng, both ends. Money law 1 reaches here too: a price band that
-   *  arrives as 249.5 is a defect upstream, not something to round on screen. */
-  priceMinVnd: number;
-  priceMaxVnd: number;
-  address: string;
-  openNow: boolean;
-  openHours: string;
-  travelMinutes: number;
+  /** Null since M9: no imported place has a rating, and inventing one would
+   *  put a number on a card that no one ever gave. */
+  rating: number | null;
+  ratingCount: number | null;
+  distanceKm: number | null;
+  /** Integer đồng, both ends, or null when nobody has priced the place. Money
+   *  law 1 still reaches here: a band that arrives as 249.5 is a defect
+   *  upstream, not something to round on screen. */
+  priceMinVnd: number | null;
+  priceMaxVnd: number | null;
+  address: string | null;
+  /** `null` means «nobody told us», which is not «closed». The screen has to
+   *  say those two differently. */
+  openNow: boolean | null;
+  openHours: string | null;
+  travelMinutes: number | null;
   photoCount: number;
   /** Server-sent photograph. Null today: the field is not sent yet. */
   photoUrl: string | null;
@@ -129,6 +134,10 @@ export type Place = {
   flag: "new" | "hot" | null;
   lat: number;
   lng: number;
+  /** Where the row came from. ODbL makes attribution a condition for `osm`,
+   *  so the screen has to be able to name the source. */
+  source: "seed" | "osm" | "curated";
+  license: string | null;
   /** Null when the server could not score this place for this group. The
    *  card then shows no badge at all rather than a zero. */
   match: Match | null;
@@ -174,6 +183,31 @@ function int(v: unknown, field: string): number {
     throw new Error(`${field} phải là số nguyên đồng, nhận được ${n}`);
   }
   return n;
+}
+
+/**
+ * Optional versions of the three readers above (M9).
+ *
+ * Since the catalogue became a table fed by OpenStreetMap, most facts about a
+ * place may be missing: OSM gives a name, a point and a kind, and nothing else
+ * is guaranteed. `null` and `undefined` both mean «chưa có» and both come back
+ * as `null`; anything present is still checked exactly as strictly as before,
+ * so a rating of `"4.7"` is still a defect and still says so.
+ */
+function numOrNull(v: unknown, field: string): number | null {
+  if (v === null || v === undefined) return null;
+  return num(v, field);
+}
+
+function intOrNull(v: unknown, field: string): number | null {
+  if (v === null || v === undefined) return null;
+  return int(v, field);
+}
+
+function strOrNull(v: unknown, field: string): string | null {
+  if (v === null || v === undefined) return null;
+  const value = str(v, field);
+  return value;
 }
 
 function str(v: unknown, field: string): string {
@@ -257,25 +291,37 @@ export function parsePlace(raw: unknown, field: string): Place {
     throw new Error(`${field}.flag phải là new|hot|null, nhận được ${JSON.stringify(flag)}`);
   }
   const fit = p.group_fit as Record<string, unknown> | null | undefined;
-  const priceMin = int(p.price_min_vnd, `${field}.price_min_vnd`);
-  const priceMax = int(p.price_max_vnd, `${field}.price_max_vnd`);
-  if (priceMax < priceMin) {
+  const priceMin = intOrNull(p.price_min_vnd, `${field}.price_min_vnd`);
+  const priceMax = intOrNull(p.price_max_vnd, `${field}.price_max_vnd`);
+  if (priceMin !== null && priceMax !== null && priceMax < priceMin) {
     throw new Error(`${field}: khoảng giá ngược, ${priceMin} > ${priceMax}`);
+  }
+  // Half a band is not a band: one end without the other cannot be drawn and
+  // cannot be compared, so it is a server defect rather than a display case.
+  if ((priceMin === null) !== (priceMax === null)) {
+    throw new Error(`${field}: khoảng giá thiếu một đầu`);
+  }
+  const source = p.source ?? "seed";
+  if (source !== "seed" && source !== "osm" && source !== "curated") {
+    throw new Error(
+      `${field}.source phải là seed|osm|curated, nhận được ${JSON.stringify(source)}`,
+    );
   }
   return {
     id: str(p.id, `${field}.id`),
     name: str(p.name, `${field}.name`),
     category: str(p.category, `${field}.category`),
     kinds: strList(p.kinds ?? [], `${field}.kinds`),
-    rating: num(p.rating, `${field}.rating`),
-    ratingCount: int(p.rating_count, `${field}.rating_count`),
-    distanceKm: num(p.distance_km, `${field}.distance_km`),
+    rating: numOrNull(p.rating, `${field}.rating`),
+    ratingCount: intOrNull(p.rating_count, `${field}.rating_count`),
+    distanceKm: numOrNull(p.distance_km, `${field}.distance_km`),
     priceMinVnd: priceMin,
     priceMaxVnd: priceMax,
-    address: str(p.address, `${field}.address`),
-    openNow: p.open_now === true,
-    openHours: str(p.open_hours, `${field}.open_hours`),
-    travelMinutes: int(p.travel_minutes, `${field}.travel_minutes`),
+    address: strOrNull(p.address, `${field}.address`),
+    // Three states, not two: true, false, and «nobody told us».
+    openNow: p.open_now === null || p.open_now === undefined ? null : p.open_now === true,
+    openHours: strOrNull(p.open_hours, `${field}.open_hours`),
+    travelMinutes: intOrNull(p.travel_minutes, `${field}.travel_minutes`),
     photoCount: int(p.photo_count ?? 0, `${field}.photo_count`),
     photoUrl: parsePhotoUrl(p.photo_url),
     traits: strList(p.traits ?? [], `${field}.traits`),
@@ -289,6 +335,8 @@ export function parsePlace(raw: unknown, field: string): Place {
     flag,
     lat: num(p.lat, `${field}.lat`),
     lng: num(p.lng, `${field}.lng`),
+    source,
+    license: strOrNull(p.license, `${field}.license`),
     match: parseMatch(p.match, `${field}.match`),
   };
 }
@@ -441,9 +489,16 @@ export function matchLabel(match: Match | null): { text: string; real: boolean }
  *  screen re-sorts after a local search; without the same rule here, filtering
  *  would quietly restore the order the server had just rejected. */
 export function byMatchThenRating(a: Place, b: Place): number {
-  if (a.openNow !== b.openNow) return a.openNow ? -1 : 1;
+  // Three states since M9, and the tier is «known open» versus everything
+  // else: an unknown door is not an open one, and it is not a shut one either.
+  // Same rule the server sorts by, for the same reason as the note above.
+  const moA = a.openNow === true;
+  const moB = b.openNow === true;
+  if (moA !== moB) return moA ? -1 : 1;
   const sa = a.match?.score ?? -1;
   const sb = b.match?.score ?? -1;
   if (sa !== sb) return sb - sa;
-  return b.rating - a.rating;
+  // An unrated place sorts after a rated one at equal score, rather than being
+  // ranked as if somebody had given it zero stars.
+  return (b.rating ?? -1) - (a.rating ?? -1);
 }

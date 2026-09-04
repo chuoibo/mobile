@@ -113,21 +113,102 @@ export function locTheoTen(places: Place[], q: string): Place[] {
   const tu = gapChu(q).split(/\s+/).filter(Boolean);
   if (tu.length === 0) return places;
   return places.filter((p) => {
-    const van = gapChu([p.name, ...p.kinds, ...p.traits, p.address].join(" "));
+    const van = gapChu([p.name, ...p.kinds, ...p.traits, p.address ?? ""].join(" "));
     return tu.every((t) => van.includes(t));
   });
 }
 
-/** «Đang mở · 10:00 – 22:30» or «Đã đóng · mở 10:00 – 22:30». */
+/**
+ * «Đang mở · 10:00 – 22:30», «Đã đóng · mở 10:00 – 22:30», or the truth.
+ *
+ * Three states since M9, because the catalogue has three: open, closed, and
+ * «nobody told us». OpenStreetMap rarely carries opening hours, and a place
+ * whose hours are unknown must not be drawn as closed -- that is a claim about
+ * a business, made up by an app that does not know.
+ */
 export function cauMoCua(place: Pick<Place, "openNow" | "openHours">): string {
+  if (place.openHours === null) {
+    return place.openNow === null ? "Chưa có giờ mở cửa" : place.openNow ? "Đang mở" : "Đã đóng";
+  }
+  if (place.openNow === null) return `Giờ mở cửa: ${place.openHours}`;
   return place.openNow ? `Đang mở · ${place.openHours}` : `Đã đóng · mở ${place.openHours}`;
 }
 
-/** The second line of a card: kinds, then the travel estimate. */
+/** The second line of a card: kinds, then the travel estimate if there is one. */
 export function dongPhu(place: Pick<Place, "kinds" | "travelMinutes">): string {
   const loai = formatKinds(place.kinds);
+  if (place.travelMinutes === null) return loai;
   const di = `${place.travelMinutes} phút đi xe`;
   return loai ? `${loai} · ${di}` : di;
+}
+
+/** «200.000đ – 250.000đ mỗi người», or the words for not knowing. */
+export function cauGia(place: Pick<Place, "priceMinVnd" | "priceMaxVnd">): string {
+  if (place.priceMinVnd === null || place.priceMaxVnd === null) return "Chưa có giá";
+  const tien = (v: number) => `${v.toLocaleString("vi-VN")}đ`;
+  if (place.priceMinVnd === place.priceMaxVnd) return `${tien(place.priceMinVnd)} mỗi người`;
+  return `${tien(place.priceMinVnd)} – ${tien(place.priceMaxVnd)} mỗi người`;
+}
+
+/**
+ * Who the row came from, when somebody has to be credited.
+ *
+ * `null` for a row of our own seed data: there is nobody to credit and a line
+ * saying so would be noise. For an OpenStreetMap row it is not decoration --
+ * ODbL makes attribution a condition of using the data (ADR-0017).
+ */
+export function cauNguonDuLieu(place: Pick<Place, "source" | "license">): string | null {
+  if (place.source !== "osm") return null;
+  return "Dữ liệu địa điểm: OpenStreetMap (ODbL)";
+}
+
+/**
+ * The short facts under a card name: only the ones this place actually has.
+ *
+ * A card used to draw four fixed slots -- stars, distance, price, open/closed
+ * -- because every seed row had all four. An imported row may have none of
+ * them, and four slots reading «-- · -- · --» is worse than three honest ones.
+ * So the row is built from what exists, and when nothing does, the address
+ * takes its place: a name and where it is, which is still a card.
+ */
+export function chiTietNgan(
+  place: Pick<
+    Place,
+    "rating" | "ratingCount" | "distanceKm" | "priceMinVnd" | "priceMaxVnd" | "openNow" | "openHours" | "address"
+  >,
+): { icon: IconName; chu: string }[] {
+  const ra: { icon: IconName; chu: string }[] = [];
+  if (place.rating !== null) {
+    const dem = place.ratingCount === null ? "" : ` (${place.ratingCount})`;
+    ra.push({ icon: "star", chu: `${place.rating}${dem}` });
+  }
+  if (place.distanceKm !== null) {
+    ra.push({ icon: "navigate-outline", chu: `${place.distanceKm} km` });
+  }
+  if (place.priceMinVnd !== null && place.priceMaxVnd !== null) {
+    ra.push({ icon: "wallet-outline", chu: cauGia(place) });
+  }
+  if (place.openNow !== null || place.openHours !== null) {
+    ra.push({ icon: "time-outline", chu: cauMoCua(place) });
+  }
+  if (ra.length === 0 && place.address !== null) {
+    ra.push({ icon: "location-outline", chu: place.address });
+  }
+  return ra;
+}
+
+/**
+ * The subtitle under the address: distance and ride time, when either is known.
+ *
+ * Both come from the catalogue rather than from the phone, so an imported
+ * place has neither and the row falls back to naming the action itself. It is
+ * still a row worth tapping: it opens the map app.
+ */
+export function cauDuongDi(place: Pick<Place, "distanceKm" | "travelMinutes">): string {
+  const phan: string[] = [];
+  if (place.distanceKm !== null) phan.push(`${place.distanceKm} km`);
+  if (place.travelMinutes !== null) phan.push(`${place.travelMinutes} phút đi xe`);
+  return phan.length === 0 ? "Mở bằng ứng dụng bản đồ" : phan.join(" · ");
 }
 
 /** A `geo:` URL the phone's map app understands; no map SDK in this build. */
