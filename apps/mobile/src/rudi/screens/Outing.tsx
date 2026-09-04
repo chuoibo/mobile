@@ -7,7 +7,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { DEMO_GROUP, PEOPLE, demoAssets, formatVnd } from "../fixtures";
 import { noiLuu, noiLuuNgan } from "../luu-tru";
 import { useRudiSession } from "../session";
-import { typography, useRudiTheme } from "../theme";
+import { lopPhu, mauSang, mucTrenAnh, phuMau, typography, useRudiTheme } from "../theme";
 import {
   Avatar,
   AvatarStack,
@@ -182,7 +182,7 @@ export function TripTimelineScreen() {
         overlay={
           <>
             <LinearGradient
-              colors={["rgba(20,8,2,0.02)", "rgba(30,10,3,0.82)"]}
+              colors={[lopPhu.toi(0.02), lopPhu.toi(0.82)]}
               style={StyleSheet.absoluteFill}
             />
             <View style={styles.tripHeroBadge}><DemoBadge /></View>
@@ -191,11 +191,11 @@ export function TripTimelineScreen() {
               <Text style={styles.tripTitle}>{session.tripName}</Text>
               <Inline gap={12}>
                 <Inline gap={5}>
-                  <Ionicons color="#FFFFFF" name="calendar-outline" size={15} />
+                  <Ionicons color={mucTrenAnh} name="calendar-outline" size={15} />
                   <Text style={styles.tripMeta}>3 ngày 2 đêm</Text>
                 </Inline>
                 <Inline gap={5}>
-                  <Ionicons color="#FFFFFF" name="people-outline" size={15} />
+                  <Ionicons color={mucTrenAnh} name="people-outline" size={15} />
                   <Text style={styles.tripMeta}>{session.selectedMemberIds.length} người</Text>
                 </Inline>
               </Inline>
@@ -379,13 +379,13 @@ const styles = StyleSheet.create({
   switchCard: { flexDirection: "row", alignItems: "center", gap: 11 },
   switchIcon: { width: 43, height: 43, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   toggle: { width: 50, height: 29, borderRadius: 999, padding: 3, alignItems: "flex-end" },
-  toggleThumb: { width: 23, height: 23, borderRadius: 12, backgroundColor: "#FFFFFF" },
+  toggleThumb: { width: 23, height: 23, borderRadius: 12, backgroundColor: mucTrenAnh },
   pressed: { opacity: 0.75, transform: [{ scale: 0.98 }] },
   tripHeroBadge: { position: "absolute", right: 12, top: 12 },
   tripHeroCopy: { position: "absolute", left: 18, right: 18, bottom: 17, gap: 7 },
-  tripKicker: { color: "rgba(255,255,255,0.78)", fontSize: 11, fontWeight: "800", letterSpacing: 1 },
-  tripTitle: { color: "#FFFFFF", fontSize: 29, lineHeight: 34, fontWeight: "900", letterSpacing: -0.8 },
-  tripMeta: { color: "#FFFFFF", fontSize: 12, fontWeight: "700" },
+  tripKicker: { color: lopPhu.trang(0.78), fontSize: 11, fontWeight: "800", letterSpacing: 1 },
+  tripTitle: { color: mucTrenAnh, fontSize: 29, lineHeight: 34, fontWeight: "900", letterSpacing: -0.8 },
+  tripMeta: { color: mucTrenAnh, fontSize: 12, fontWeight: "700" },
   tripOverview: { minHeight: 94, flexDirection: "row", alignItems: "center", paddingHorizontal: 10 },
   overviewItem: { flex: 1, alignItems: "center", justifyContent: "center", gap: 4 },
   verticalLine: { width: StyleSheet.hairlineWidth, height: 44 },
@@ -397,13 +397,13 @@ const styles = StyleSheet.create({
   scheduleIcon: { width: 40, height: 40, borderRadius: 13, alignItems: "center", justifyContent: "center", marginTop: 2 },
   checkInCta: { flexDirection: "row", alignItems: "center", gap: 12 },
   checkInIcon: { width: 46, height: 46, borderRadius: 15, alignItems: "center", justifyContent: "center" },
-  locationCard: { flexDirection: "row", alignItems: "center", gap: 10, padding: 11, borderRadius: 16, backgroundColor: "rgba(16,11,8,0.58)", borderWidth: 1, borderColor: "rgba(255,255,255,0.24)" },
+  locationCard: { flexDirection: "row", alignItems: "center", gap: 10, padding: 11, borderRadius: 16, backgroundColor: lopPhu.xam(0.58), borderWidth: 1, borderColor: lopPhu.trang(0.24) },
   locationPin: { width: 38, height: 38, borderRadius: 13, alignItems: "center", justifyContent: "center" },
-  locationTitle: { color: "#FFFFFF", fontSize: 15, fontWeight: "800" },
-  locationSubtitle: { color: "rgba(255,255,255,0.75)", fontSize: 11, fontWeight: "600" },
+  locationTitle: { color: mucTrenAnh, fontSize: 15, fontWeight: "800" },
+  locationSubtitle: { color: lopPhu.trang(0.75), fontSize: 11, fontWeight: "600" },
   taggedCard: { gap: 10 },
   demoNote: { textAlign: "center", paddingHorizontal: 20 },
   mapPlaceholder: { minHeight: 160, alignItems: "center", justifyContent: "center", gap: 8 },
   checkRow: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: 10 },
-  shareOn: { borderColor: "rgba(0,117,107,0.35)" },
+  shareOn: { borderColor: phuMau(mauSang.split, 0.35) },
 });

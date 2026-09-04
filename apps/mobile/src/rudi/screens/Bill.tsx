@@ -13,7 +13,7 @@ import { DEMO_PEOPLE } from "../nhom-demo";
 import { BILL_ITEMS, COLLECTOR_INDEX, DEMO_GROUP, PEOPLE, demoAssets, formatVnd } from "../fixtures";
 import { noiLuuNgan } from "../luu-tru";
 import { useRudiSession } from "../session";
-import { typography, useRudiTheme } from "../theme";
+import { bongDen, giayHoaDon, lopPhu, mauSang, mucTrenAnh, phuMau, typography, useRudiTheme } from "../theme";
 import {
   AiNote,
   Avatar,
@@ -35,7 +35,7 @@ function ReceiptPaper({ compact = false }: { compact?: boolean }) {
 
   return (
     <LinearGradient
-      colors={["#FFFDF7", "#F4E8D7", "#FFF9EC"]}
+      colors={[giayHoaDon.nen[0], giayHoaDon.nen[1], giayHoaDon.nen[2]]}
       end={{ x: 1, y: 1 }}
       start={{ x: 0, y: 0 }}
       style={[styles.receipt, compact && styles.receiptCompact]}
@@ -117,7 +117,7 @@ export function ReceiptReviewScreen() {
         <Image contentFit="cover" source={demoAssets.wood} style={StyleSheet.absoluteFill} />
         <View pointerEvents="none" style={styles.woodWarmth} />
         <LinearGradient
-          colors={["rgba(17,7,2,0.34)", "rgba(17,7,2,0.02)", "rgba(17,7,2,0.38)"]}
+          colors={[lopPhu.toi(0.34), lopPhu.toi(0.02), lopPhu.toi(0.38)]}
           locations={[0, 0.52, 1]}
           style={StyleSheet.absoluteFill}
         />
@@ -557,31 +557,31 @@ function QuyetToanNhap() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  wood: { minHeight: 560, overflow: "hidden", borderRadius: 24, backgroundColor: "#4A2818", padding: 28, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.22)", elevation: 6, shadowColor: "#1B0902", shadowOpacity: 0.25, shadowRadius: 18, shadowOffset: { width: 0, height: 10 } },
-  woodWarmth: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: "rgba(73,28,6,0.12)" },
-  receipt: { width: "88%", maxWidth: 390, minHeight: 500, borderRadius: 3, paddingHorizontal: 24, paddingVertical: 28, shadowColor: "#000000", shadowOpacity: 0.48, shadowRadius: 20, shadowOffset: { width: 0, height: 13 }, elevation: 14, transform: [{ rotate: "-1.2deg" }] },
+  wood: { minHeight: 560, overflow: "hidden", borderRadius: 24, backgroundColor: giayHoaDon.khung, padding: 28, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: lopPhu.trang(0.22), elevation: 6, shadowColor: giayHoaDon.bong, shadowOpacity: 0.25, shadowRadius: 18, shadowOffset: { width: 0, height: 10 } },
+  woodWarmth: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: phuMau(giayHoaDon.bongNau, 0.12) },
+  receipt: { width: "88%", maxWidth: 390, minHeight: 500, borderRadius: 3, paddingHorizontal: 24, paddingVertical: 28, shadowColor: bongDen, shadowOpacity: 0.48, shadowRadius: 20, shadowOffset: { width: 0, height: 13 }, elevation: 14, transform: [{ rotate: "-1.2deg" }] },
   receiptCompact: { minHeight: 0, paddingVertical: 18 },
-  paperHighlight: { position: "absolute", left: 8, top: 0, bottom: 0, width: 1, backgroundColor: "rgba(255,255,255,0.72)" },
-  paperFold: { position: "absolute", right: -10, top: -10, width: 42, height: 42, borderRadius: 21, backgroundColor: "rgba(209,188,160,0.2)" },
-  cameraTarget: { width: "88%", maxWidth: 390, minHeight: 500, borderWidth: 2, borderStyle: "dashed", borderColor: "rgba(255,255,255,0.8)", borderRadius: 20, alignItems: "center", justifyContent: "center", gap: 9, padding: 24, backgroundColor: "rgba(20,8,3,0.24)" },
-  cameraTargetIcon: { width: 64, height: 64, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.18)", borderWidth: 1, borderColor: "rgba(255,255,255,0.34)" },
-  cameraTargetTitle: { color: "#FFFFFF", fontSize: 18, lineHeight: 24, fontWeight: "900", textAlign: "center" },
-  cameraTargetCopy: { color: "rgba(255,255,255,0.78)", fontSize: 12, lineHeight: 18, fontWeight: "700", textAlign: "center" },
-  receiptStore: { color: "#241D18", textAlign: "center", fontSize: 19, lineHeight: 24, fontWeight: "900" },
-  receiptSmall: { color: "#453B34", fontSize: 11, lineHeight: 18, fontWeight: "600" },
-  receiptDash: { borderTopWidth: 1, borderStyle: "dashed", borderColor: "#51463E", marginVertical: 12 },
-  receiptTitle: { color: "#241D18", fontSize: 13, lineHeight: 18, fontWeight: "900", textAlign: "center", marginBottom: 9 },
+  paperHighlight: { position: "absolute", left: 8, top: 0, bottom: 0, width: 1, backgroundColor: lopPhu.trang(0.72) },
+  paperFold: { position: "absolute", right: -10, top: -10, width: 42, height: 42, borderRadius: 21, backgroundColor: phuMau(giayHoaDon.vien, 0.2) },
+  cameraTarget: { width: "88%", maxWidth: 390, minHeight: 500, borderWidth: 2, borderStyle: "dashed", borderColor: lopPhu.trang(0.8), borderRadius: 20, alignItems: "center", justifyContent: "center", gap: 9, padding: 24, backgroundColor: lopPhu.toi(0.24) },
+  cameraTargetIcon: { width: 64, height: 64, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: lopPhu.trang(0.18), borderWidth: 1, borderColor: lopPhu.trang(0.34) },
+  cameraTargetTitle: { color: mucTrenAnh, fontSize: 18, lineHeight: 24, fontWeight: "900", textAlign: "center" },
+  cameraTargetCopy: { color: lopPhu.trang(0.78), fontSize: 12, lineHeight: 18, fontWeight: "700", textAlign: "center" },
+  receiptStore: { color: giayHoaDon.chuDam, textAlign: "center", fontSize: 19, lineHeight: 24, fontWeight: "900" },
+  receiptSmall: { color: giayHoaDon.chuNhat, fontSize: 11, lineHeight: 18, fontWeight: "600" },
+  receiptDash: { borderTopWidth: 1, borderStyle: "dashed", borderColor: giayHoaDon.chuMo, marginVertical: 12 },
+  receiptTitle: { color: giayHoaDon.chuDam, fontSize: 13, lineHeight: 18, fontWeight: "900", textAlign: "center", marginBottom: 9 },
   receiptHeader: { flexDirection: "row", marginBottom: 8 },
   receiptRow: { flexDirection: "row", minHeight: 23 },
-  receiptCell: { color: "#302923", fontSize: 11, lineHeight: 17 },
+  receiptCell: { color: giayHoaDon.chuVua, fontSize: 11, lineHeight: 17 },
   receiptIndex: { width: 28 },
   receiptName: { flex: 1 },
   receiptAmount: { width: 80, textAlign: "right", fontVariant: ["tabular-nums"] },
   receiptTotal: { flexDirection: "row", justifyContent: "space-between" },
-  receiptTotalLabel: { color: "#241D18", fontSize: 15, fontWeight: "900" },
-  receiptTotalValue: { color: "#241D18", fontSize: 17, fontWeight: "900", fontVariant: ["tabular-nums"] },
+  receiptTotalLabel: { color: giayHoaDon.chuDam, fontSize: 15, fontWeight: "900" },
+  receiptTotalValue: { color: giayHoaDon.chuDam, fontSize: 17, fontWeight: "900", fontVariant: ["tabular-nums"] },
   receiptThanks: { textAlign: "center", fontSize: 11, marginTop: 20 },
-  cropCorner: { position: "absolute", width: 40, height: 40, borderColor: "#FFFFFF" },
+  cropCorner: { position: "absolute", width: 40, height: 40, borderColor: mucTrenAnh },
   cropTopLeft: { left: 14, top: 14, borderLeftWidth: 3, borderTopWidth: 3, borderTopLeftRadius: 14 },
   cropTopRight: { right: 14, top: 14, borderRightWidth: 3, borderTopWidth: 3, borderTopRightRadius: 14 },
   cropBottomLeft: { left: 14, bottom: 14, borderLeftWidth: 3, borderBottomWidth: 3, borderBottomLeftRadius: 14 },
@@ -603,7 +603,7 @@ const styles = StyleSheet.create({
   settlementHero: { alignItems: "center", gap: 6, paddingTop: 22 },
   balanceIcon: { width: 54, height: 54, borderRadius: 18, alignItems: "center", justifyContent: "center", marginBottom: 4 },
   bigMoney: { fontSize: 35, lineHeight: 42, fontWeight: "900", letterSpacing: -1, fontVariant: ["tabular-nums"] },
-  settlementStats: { width: "100%", flexDirection: "row", alignItems: "center", marginTop: 12, paddingTop: 13, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "rgba(0,117,107,0.18)" },
+  settlementStats: { width: "100%", flexDirection: "row", alignItems: "center", marginTop: 12, paddingTop: 13, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: phuMau(mauSang.split, 0.18) },
   settlementStat: { flex: 1, alignItems: "center", gap: 2 },
   verticalLine: { height: 33, width: StyleSheet.hairlineWidth },
   receiveCard: { gap: 12 },

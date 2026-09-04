@@ -7,7 +7,7 @@ import { Pressable, Share, StyleSheet, Text, useWindowDimensions, View } from "r
 import { PEOPLE, PLACES, DemoPlace } from "../fixtures";
 import { PLACE_CATEGORIES, filterPlaces, type PlaceCategory } from "../places";
 import { useRudiSession } from "../session";
-import { typography, useRudiTheme } from "../theme";
+import { bangMauFixture, lopPhu, mauSang, mauSao, mucTrenAnh, phuMau, typography, useRudiTheme } from "../theme";
 import {
   AiNote,
   AvatarStack,
@@ -64,7 +64,7 @@ function PlaceCard({
           compact ? (
             featured ? (
               <View style={[styles.matchPill, styles.matchPillCompact]}>
-                <Ionicons color="#FFFFFF" name="sparkles" size={12} />
+                <Ionicons color={mucTrenAnh} name="sparkles" size={12} />
                 <Text style={styles.matchPillText}>Hợp gu</Text>
               </View>
             ) : null
@@ -72,7 +72,7 @@ function PlaceCard({
             <>
               <View style={styles.placePhotoTop}>
                 <View style={styles.ratingPill}>
-                  <Ionicons color="#F59E0B" name="star" size={14} />
+                  <Ionicons color={mauSao.dam} name="star" size={14} />
                   <Text style={styles.ratingText}>{place.rating}</Text>
                 </View>
                 <IconButton
@@ -84,7 +84,7 @@ function PlaceCard({
               </View>
               {featured ? (
                 <View style={styles.matchPill}>
-                  <Ionicons color="#FFFFFF" name="sparkles" size={13} />
+                  <Ionicons color={mucTrenAnh} name="sparkles" size={13} />
                   <Text style={styles.matchPillText}>Rất hợp gu</Text>
                 </View>
               ) : null}
@@ -113,7 +113,7 @@ function PlaceCard({
         <Inline gap={12} wrap>
           {compact ? (
             <Inline gap={4}>
-              <Ionicons color="#F59E0B" name="star" size={14} />
+              <Ionicons color={mauSao.dam} name="star" size={14} />
               <Text style={[typography.caption, { color: colors.ink }]}>{place.rating}</Text>
               <Text style={[typography.caption, { color: colors.inkFaint }]}>({place.reviews})</Text>
             </Inline>
@@ -268,7 +268,7 @@ export function ExploreScreen() {
       <View style={styles.categoryGrid}>
         {PLACE_CATEGORIES.map((label, index) => {
           const icons = ["restaurant-outline", "cafe-outline", "game-controller-outline", "moon-outline"] as const;
-          const colorsChip = ["#F97316", "#A16207", "#7D49EF", "#0F766E"] as const;
+          const colorsChip = [bangMauFixture.cam, bangMauFixture.vangSam, mauSang.ai, bangMauFixture.ngocDam] as const;
           const icon = icons[index];
           const color = colorsChip[index];
           const active = category === label;
@@ -489,7 +489,7 @@ export function PlaceDetailScreen() {
               <PhotoShade>
                 <Inline gap={8}>
                   <View style={styles.detailRating}>
-                    <Ionicons color="#FBBF24" name="star" size={15} />
+                    <Ionicons color={mauSao.sang} name="star" size={15} />
                     <Text style={styles.detailRatingText}>{place.rating} · {place.reviews} đánh giá</Text>
                   </View>
                   <View style={styles.openPill}><Text style={styles.openText}>Đang mở</Text></View>
@@ -561,7 +561,7 @@ const styles = StyleSheet.create({
   emptyResults: { alignItems: "center", gap: 14, paddingVertical: 24 },
   emptyIcon: { width: 52, height: 52, borderRadius: 17, alignItems: "center", justifyContent: "center" },
   aiDiscovery: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14 },
-  aiDiscoveryIcon: { width: 46, height: 46, borderRadius: 16, backgroundColor: "#7D49EF", alignItems: "center", justifyContent: "center" },
+  aiDiscoveryIcon: { width: 46, height: 46, borderRadius: 16, backgroundColor: mauSang.ai, alignItems: "center", justifyContent: "center" },
   categoryGrid: { flexDirection: "row", gap: 9 },
   category: { flex: 1, minWidth: 70, minHeight: 87, borderRadius: 17, borderWidth: 1, alignItems: "center", justifyContent: "center", gap: 8, padding: 8 },
   categoryIcon: { width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center" },
@@ -569,14 +569,14 @@ const styles = StyleSheet.create({
   placeCell: { flex: 1 },
   placeCard: { padding: 7, gap: 3 },
   placeCardCompact: { flexDirection: "row", alignItems: "center", gap: 4 },
-  placeCardFeatured: { borderColor: "rgba(201,57,0,0.18)" },
+  placeCardFeatured: { borderColor: phuMau(mauSang.accent, 0.18) },
   placePhotoCompact: { width: 112, flexShrink: 0 },
   placePhotoTop: { position: "absolute", left: 9, right: 9, top: 9, flexDirection: "row", justifyContent: "space-between" },
-  ratingPill: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 6, backgroundColor: "rgba(255,255,255,0.94)" },
-  ratingText: { color: "#1F2230", fontSize: 12, fontWeight: "800" },
-  matchPill: { position: "absolute", left: 9, bottom: 9, flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 6, backgroundColor: "rgba(125,73,239,0.92)" },
+  ratingPill: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 6, backgroundColor: lopPhu.trang(0.94) },
+  ratingText: { color: bangMauFixture.than, fontSize: 12, fontWeight: "800" },
+  matchPill: { position: "absolute", left: 9, bottom: 9, flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 6, backgroundColor: phuMau(mauSang.ai, 0.92) },
   matchPillCompact: { left: 7, bottom: 7, paddingHorizontal: 7, paddingVertical: 5 },
-  matchPillText: { color: "#FFFFFF", fontSize: 11, fontWeight: "800" },
+  matchPillText: { color: mucTrenAnh, fontSize: 11, fontWeight: "800" },
   placeBody: { padding: 9, gap: 8 },
   placeBodyCompact: { flex: 1, padding: 8 },
   placeHeadingRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
@@ -591,10 +591,10 @@ const styles = StyleSheet.create({
   matchMembers: { marginTop: 2, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   detailShell: { width: "100%", maxWidth: 960, alignSelf: "center" },
   detailTop: { position: "absolute", left: 14, right: 14, top: 14, flexDirection: "row", justifyContent: "space-between" },
-  detailRating: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 999, backgroundColor: "rgba(20,15,12,0.65)" },
-  detailRatingText: { color: "#FFFFFF", fontSize: 12, fontWeight: "700" },
-  openPill: { paddingHorizontal: 10, paddingVertical: 7, borderRadius: 999, backgroundColor: "rgba(16,185,129,0.92)" },
-  openText: { color: "#FFFFFF", fontSize: 12, fontWeight: "800" },
+  detailRating: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 999, backgroundColor: lopPhu.xam(0.65) },
+  detailRatingText: { color: mucTrenAnh, fontSize: 12, fontWeight: "700" },
+  openPill: { paddingHorizontal: 10, paddingVertical: 7, borderRadius: 999, backgroundColor: phuMau(bangMauFixture.luc, 0.92) },
+  openText: { color: mucTrenAnh, fontSize: 12, fontWeight: "800" },
   detailContent: { paddingHorizontal: 16, paddingTop: 19, gap: 19 },
   quickFacts: { paddingVertical: 5 },
   memberMatchRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14 },

@@ -7,7 +7,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { DEMO_GROUP, PEOPLE, PLACES, VOTE_PLACE_IDS } from "../fixtures";
 import { noiLuu } from "../luu-tru";
 import { useRudiSession } from "../session";
-import { typography, useRudiTheme } from "../theme";
+import { mucTrenAnh, typography, useRudiTheme } from "../theme";
 import {
   AiNote,
   Avatar,
@@ -258,7 +258,7 @@ export function AiItineraryScreen() {
           <View key={slot.time + slot.title + index} style={styles.timelineItem}>
             <View style={styles.timelineRail}>
               <View style={[styles.timelineDot, { backgroundColor: slot.color }]}>
-                <Ionicons color="#FFFFFF" name={slot.icon as never} size={16} />
+                <Ionicons color={mucTrenAnh} name={slot.icon as never} size={16} />
               </View>
               {index < day.items.length - 1 ? (
                 <View style={[styles.timelineLine, { backgroundColor: colors.line }]} />

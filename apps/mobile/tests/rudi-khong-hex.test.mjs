@@ -33,21 +33,9 @@ const ONLY_FILE_ALLOWED_TO_SPELL_COLOURS = "src/rudi/theme.ts";
 // Pinned 2026-09-03 on the dev-client harness branch. Lower a number when you
 // remove literals; never raise one. Removing a file's last literal means
 // deleting its line here, and the test tells you so.
-const NO_DA_BIET = {
-  "src/rudi/screens/Bill.tsx": 28,
-  "src/rudi/screens/Profile.tsx": 27,
-  "src/rudi/fixtures.ts": 20,
-  "src/rudi/screens/Discovery.tsx": 19,
-  "src/rudi/screens/Onboarding.tsx": 18,
-  "src/rudi/screens/Memories.tsx": 14,
-  "src/rudi/screens/Outing.tsx": 13,
-  "src/rudi/ui.tsx": 7,
-  "src/rudi/screens/Create.tsx": 4,
-  "src/rudi/session.tsx": 2,
-  "src/rudi/screens/Group.tsx": 1,
-  "src/rudi/nguon.ts": 1,
-  "src/rudi/kho.ts": 1,
-};
+// 2026-09-04: the debt list is empty. A file that spells a colour again fails
+// the first test; put the colour in theme.ts instead.
+const NO_DA_BIET = {};
 
 function* walk(dir) {
   for (const name of readdirSync(dir)) {

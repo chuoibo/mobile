@@ -1,6 +1,7 @@
 import { ImageSource } from "expo-image";
 
 import type { PlaceCategory } from "./places";
+import { bangMauFixture, mauSang, mauSao } from "./theme";
 
 export type DemoPerson = {
   id: string;
@@ -55,14 +56,14 @@ export const DEMO_GROUP = {
 };
 
 export const PEOPLE: DemoPerson[] = [
-  { id: "minh-anh", name: "Minh Anh", initials: "MA", color: "#E85D75" },
-  { id: "tuan-kiet", name: "Tuấn Kiệt", initials: "TK", color: "#7D49EF" },
-  { id: "thu-trang", name: "Thu Trang", initials: "TT", color: "#F59E0B" },
-  { id: "quang-huy", name: "Quang Huy", initials: "QH", color: "#0891B2" },
-  { id: "lan-anh", name: "Lan Anh", initials: "LA", color: "#16A34A" },
-  { id: "minh-khoa", name: "Minh Khoa", initials: "MK", color: "#EA580C" },
-  { id: "hai-yen", name: "Hải Yến", initials: "HY", color: "#DB2777" },
-  { id: "thanh-phuc", name: "Thanh Phúc", initials: "TP", color: "#2563EB" },
+  { id: "minh-anh", name: "Minh Anh", initials: "MA", color: bangMauFixture.doHong },
+  { id: "tuan-kiet", name: "Tuấn Kiệt", initials: "TK", color: mauSang.ai },
+  { id: "thu-trang", name: "Thu Trang", initials: "TT", color: mauSao.dam },
+  { id: "quang-huy", name: "Quang Huy", initials: "QH", color: bangMauFixture.xanhBien },
+  { id: "lan-anh", name: "Lan Anh", initials: "LA", color: bangMauFixture.xanhLa },
+  { id: "minh-khoa", name: "Minh Khoa", initials: "MK", color: bangMauFixture.camDam },
+  { id: "hai-yen", name: "Hải Yến", initials: "HY", color: bangMauFixture.hongDam },
+  { id: "thanh-phuc", name: "Thanh Phúc", initials: "TP", color: bangMauFixture.xanhDam },
 ];
 
 export const COLLECTOR_INDEX = 0;
@@ -230,27 +231,27 @@ export const ITINERARY_SEED: ItineraryDay[] = [
   {
     day: "Ngày 1 - 17/10 (Thứ Bảy)",
     items: [
-      { time: "07:00", title: "Khởi hành từ TP.HCM", icon: "car-outline", color: "#F97316" },
-      { time: "11:00", title: "Check-in homestay", icon: "home-outline", color: "#7D49EF" },
-      { time: "12:30", title: "Ăn trưa - Bánh căn Lệ", icon: "restaurant-outline", color: "#EA580C", placeId: "banh-can-le" },
-      { time: "14:30", title: "Ga Đà Lạt và Dinh Bảo Đại", icon: "camera-outline", color: "#16A34A" },
-      { time: "18:00", title: "BBQ bên hồ Tuyền Lâm", icon: "flame-outline", color: "#E11D48", placeId: "ho-tuyen-lam-dem" },
-      { time: "20:00", title: "Chợ đêm Đà Lạt", icon: "moon-outline", color: "#7D49EF", placeId: "cho-dem" },
+      { time: "07:00", title: "Khởi hành từ TP.HCM", icon: "car-outline", color: bangMauFixture.cam },
+      { time: "11:00", title: "Check-in homestay", icon: "home-outline", color: mauSang.ai },
+      { time: "12:30", title: "Ăn trưa - Bánh căn Lệ", icon: "restaurant-outline", color: bangMauFixture.camDam, placeId: "banh-can-le" },
+      { time: "14:30", title: "Ga Đà Lạt và Dinh Bảo Đại", icon: "camera-outline", color: bangMauFixture.xanhLa },
+      { time: "18:00", title: "BBQ bên hồ Tuyền Lâm", icon: "flame-outline", color: bangMauFixture.do, placeId: "ho-tuyen-lam-dem" },
+      { time: "20:00", title: "Chợ đêm Đà Lạt", icon: "moon-outline", color: mauSang.ai, placeId: "cho-dem" },
     ],
   },
   {
     day: "Ngày 2 - 18/10 (Chủ Nhật)",
     items: [
-      { time: "06:30", title: "Săn mây đồi Thiên Phúc Đức", icon: "cloud-outline", color: "#0EA5E9", placeId: "doi-thien-phuc" },
-      { time: "09:00", title: "Cafe sáng - Still Cafe", icon: "cafe-outline", color: "#A16207", placeId: "still-cafe" },
-      { time: "11:30", title: "Mua đặc sản", icon: "bag-handle-outline", color: "#65A30D" },
-      { time: "15:00", title: "Picnic và chụp ảnh", icon: "images-outline", color: "#EC4899" },
-      { time: "19:30", title: "Lẩu gà lá é", icon: "restaurant-outline", color: "#F97316", placeId: "lau-ga-la-e" },
+      { time: "06:30", title: "Săn mây đồi Thiên Phúc Đức", icon: "cloud-outline", color: bangMauFixture.xanhTroi, placeId: "doi-thien-phuc" },
+      { time: "09:00", title: "Cafe sáng - Still Cafe", icon: "cafe-outline", color: bangMauFixture.vangSam, placeId: "still-cafe" },
+      { time: "11:30", title: "Mua đặc sản", icon: "bag-handle-outline", color: bangMauFixture.xanhLaNhat },
+      { time: "15:00", title: "Picnic và chụp ảnh", icon: "images-outline", color: bangMauFixture.hong },
+      { time: "19:30", title: "Lẩu gà lá é", icon: "restaurant-outline", color: bangMauFixture.cam, placeId: "lau-ga-la-e" },
     ],
   },
   {
     day: "Ngày 3 - 19/10 (Thứ Hai)",
-    items: [{ time: "09:00", title: "Trả phòng và về lại Sài Gòn", icon: "bus-outline", color: "#0D9488" }],
+    items: [{ time: "09:00", title: "Trả phòng và về lại Sài Gòn", icon: "bus-outline", color: bangMauFixture.ngoc }],
   },
 ];
 

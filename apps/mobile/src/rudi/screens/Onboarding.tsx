@@ -18,7 +18,7 @@ import {
 import { demoAssets } from "../fixtures";
 import { noiLuu } from "../luu-tru";
 import { useRudiSession } from "../session";
-import { typography, useRudiTheme } from "../theme";
+import { lopPhu, mauLogo, mucTrenAnh, typography, useRudiTheme } from "../theme";
 import { CUA_FIXTURE_DEV } from "../cua-fixture";
 import { DAU_VAN_CAY } from "../dau-van-cay";
 import {
@@ -77,7 +77,7 @@ export function WelcomeScreen() {
     <RudiScreen bottomInset={0} contentStyle={styles.welcome} padded={false} scroll={false} testID="welcome-screen">
       <Image contentFit="cover" source={demoAssets.friends} style={StyleSheet.absoluteFill} />
       <LinearGradient
-        colors={["rgba(38,14,5,0.12)", "rgba(24,8,3,0.23)", "rgba(20,7,3,0.9)"]}
+        colors={[lopPhu.toi(0.12), lopPhu.toi(0.23), lopPhu.toi(0.9)]}
         locations={[0, 0.48, 1]}
         style={StyleSheet.absoluteFill}
       />
@@ -124,7 +124,7 @@ export function WelcomeScreen() {
               style={({ pressed }) => [styles.previewLink, pressed && styles.pressed]}
             >
               <Text style={styles.previewText}>{page < WELCOME_PAGES.length - 1 ? "Tìm hiểu thêm" : "Xem lại từ đầu"}</Text>
-              <Ionicons color="#FFFFFF" name="chevron-forward" size={18} />
+              <Ionicons color={mucTrenAnh} name="chevron-forward" size={18} />
             </Pressable>
             <View style={styles.pager}>
               {WELCOME_PAGES.map((item, index) => (
@@ -238,23 +238,23 @@ const styles = StyleSheet.create({
   welcomeTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 18 },
   welcomeLogo: { flexDirection: "row", alignItems: "center", gap: 8 },
   welcomeWordmark: { flexDirection: "row", alignItems: "center", gap: 4 },
-  welcomeLogoMark: { width: 40, height: 40, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.18)", borderWidth: 1, borderColor: "rgba(255,255,255,0.34)", alignItems: "center", justifyContent: "center" },
-  welcomeLogoMarkType: { color: "#FFFFFF", fontSize: 12, lineHeight: 11, fontStyle: "italic", fontWeight: "900", letterSpacing: -0.7, textAlign: "center" },
-  welcomeLogoType: { color: "#FFFFFF", fontSize: 25, lineHeight: 30, fontStyle: "italic", fontWeight: "900", letterSpacing: -1.2 },
+  welcomeLogoMark: { width: 40, height: 40, borderRadius: 14, backgroundColor: lopPhu.trang(0.18), borderWidth: 1, borderColor: lopPhu.trang(0.34), alignItems: "center", justifyContent: "center" },
+  welcomeLogoMarkType: { color: mucTrenAnh, fontSize: 12, lineHeight: 11, fontStyle: "italic", fontWeight: "900", letterSpacing: -0.7, textAlign: "center" },
+  welcomeLogoType: { color: mucTrenAnh, fontSize: 25, lineHeight: 30, fontStyle: "italic", fontWeight: "900", letterSpacing: -1.2 },
   welcomeCenter: { alignItems: "center", marginTop: -15, paddingHorizontal: 18 },
-  welcomeBrand: { color: "#FFFFFF", fontSize: 76, lineHeight: 64, fontStyle: "italic", fontWeight: "900", letterSpacing: -4, textAlign: "center", transform: [{ rotate: "-4deg" }] },
-  welcomeTagline: { color: "#FFFFFF", fontSize: 20, lineHeight: 25, fontWeight: "800", textAlign: "center", marginTop: 17 },
-  taglineStroke: { width: 120, height: 4, borderRadius: 9, backgroundColor: "#FF9F1C", marginTop: 11, transform: [{ rotate: "-4deg" }] },
+  welcomeBrand: { color: mucTrenAnh, fontSize: 76, lineHeight: 64, fontStyle: "italic", fontWeight: "900", letterSpacing: -4, textAlign: "center", transform: [{ rotate: "-4deg" }] },
+  welcomeTagline: { color: mucTrenAnh, fontSize: 20, lineHeight: 25, fontWeight: "800", textAlign: "center", marginTop: 17 },
+  taglineStroke: { width: 120, height: 4, borderRadius: 9, backgroundColor: mauLogo.diem, marginTop: 11, transform: [{ rotate: "-4deg" }] },
   welcomeBottom: { gap: 10 },
   welcomeActions: { paddingHorizontal: 18, gap: 10 },
-  heroTitle: { color: "#FFFFFF", fontSize: 28, lineHeight: 33, fontWeight: "900", letterSpacing: -0.8, minHeight: 70 },
-  heroSubtitle: { color: "rgba(255,255,255,0.84)", fontSize: 14, lineHeight: 20, fontWeight: "600", maxWidth: 520, marginBottom: 3, minHeight: 60 },
-  previewLink: { minHeight: 50, borderWidth: 1, borderColor: "rgba(255,255,255,0.72)", borderRadius: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
-  previewText: { color: "#FFFFFF", fontSize: 14, fontWeight: "800" },
+  heroTitle: { color: mucTrenAnh, fontSize: 28, lineHeight: 33, fontWeight: "900", letterSpacing: -0.8, minHeight: 70 },
+  heroSubtitle: { color: lopPhu.trang(0.84), fontSize: 14, lineHeight: 20, fontWeight: "600", maxWidth: 520, marginBottom: 3, minHeight: 60 },
+  previewLink: { minHeight: 50, borderWidth: 1, borderColor: lopPhu.trang(0.72), borderRadius: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  previewText: { color: mucTrenAnh, fontSize: 14, fontWeight: "800" },
   pager: { flexDirection: "row", justifyContent: "center", gap: 7, paddingTop: 4 },
-  pagerDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "rgba(255,255,255,0.48)" },
-  pagerActive: { width: 18, height: 7, borderRadius: 4, backgroundColor: "#FFFFFF" },
-  dauVanCay: { color: "rgba(255,255,255,0.55)", fontSize: 12, textAlign: "center", paddingTop: 6 },
+  pagerDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: lopPhu.trang(0.48) },
+  pagerActive: { width: 18, height: 7, borderRadius: 4, backgroundColor: mucTrenAnh },
+  dauVanCay: { color: lopPhu.trang(0.55), fontSize: 12, textAlign: "center", paddingTop: 6 },
   pressed: { opacity: 0.7 },
   personalization: { maxWidth: 760 },
   privacyText: { textAlign: "center", paddingHorizontal: 18 },
