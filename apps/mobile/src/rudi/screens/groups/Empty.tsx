@@ -82,7 +82,9 @@ export function GroupsEmptyScreen() {
           {loiMoi.map((nhom) => (
             <View key={nhom.id} style={styles.hang}>
               <View style={styles.hangChu}>
-                <Text style={[typography.body, { color: colors.ink }]}>{nhom.display_name}</Text>
+                <Text numberOfLines={1} style={[typography.body, { color: colors.ink }]}>
+                  {nhom.display_name}
+                </Text>
                 <Text style={[typography.caption, { color: colors.inkFaint }]}>
                   {nhom.member_count} thành viên
                 </Text>

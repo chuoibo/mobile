@@ -92,6 +92,7 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
             "22-dang-nhap-otp.yaml",
             "23-phien-song-qua-lan-tat.yaml",
             "24-nhom-thanh-vien-va-ho-so.yaml",
+            "25-ban-be-hai-nguoi.yaml",
         ):
             text = (FLOWS / name).read_text(encoding="utf-8")
             self.assertRegex(text, r"\$\{OTP_PHONE(_[BCD])?\}", name)
@@ -122,8 +123,26 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
             script,
         )
         self.assertIn("canary_otp", script)
-        self.assertIn('22-*|23-*|24-*) [ "$OTP" = 1 ] || continue', script)
+        self.assertIn('22-*|23-*|24-*|25-*) [ "$OTP" = 1 ] || continue', script)
+
+    def test_a_red_flow_does_not_end_the_table(self) -> None:
+        # `chay_flow` must not turn errexit back on before returning a non-zero
+        # rc: set -e is global, so the caller's `set +e` would be undone and the
+        # table would stop at the first red flow with no summary line.
+        script = (REPO_ROOT / "scripts" / "mobile_native.sh").read_text(
+            encoding="utf-8"
+        )
+        body = script[
+            script.index("chay_flow() {") : script.index(
+                "\n}\n", script.index("chay_flow() {")
+            )
+        ]
+        self.assertIn("set +e", body)
+        self.assertNotIn(
+            "\n  set -e\n", body, "chay_flow bật lại set -e trước khi return rc"
+        )
         self.assertIn("kiem_may_chu_sau_24", script)
+        self.assertIn("kiem_may_chu_sau_25", script)
 
     def test_harness_passes_the_fingerprint_and_checks_it_bites(self) -> None:
         script = (REPO_ROOT / "scripts" / "mobile_native.sh").read_text(
