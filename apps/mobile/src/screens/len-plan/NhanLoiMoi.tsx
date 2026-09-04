@@ -39,29 +39,9 @@ import { Button, Card, Screen } from "../../ui/Kit";
 export const CAU_MOI_CHUA_BIET =
   "App chưa biết đây là buổi đi nào cho tới khi nhận.";
 
-export function cauSauKhiNhan(
-  state: "invited" | "active",
-  qua: "lien-ket" | "phien" = "lien-ket",
-): string {
-  // Signing in and joining are two different things and the screen must not
-  // merge them. Somebody redeeming their first invitation is signed in AND
-  // still waiting; somebody signing back in on a new phone is signed in and
-  // waiting on nobody.
-  if (qua === "phien") {
-    if (state === "active") return "Đã đăng nhập. Bạn đã ở trong nhóm.";
-    // NOT "the group still has to approve you". This door is only ever reached
-    // by a NAMED invitation -- `bootstrap_session_from_invite` answers 404 to a
-    // link token, because a link names nobody to issue a session to -- and a
-    // named invitation already carries a member's choice. What is left is this
-    // person's own yes (ADR-0014 s8; `accept_context_membership` asks only
-    // `is_invitee`). The old sentence sent somebody off to wait for an approval
-    // that was never going to come, next to a button that would have let them
-    // in immediately.
-    return "Đã đăng nhập. Bạn được mời đích danh, nên chỉ cần bạn đồng ý là vào nhóm.";
-  }
-  if (state === "active") return "Bạn đã vào buổi đi.";
-  return "Lời mời đã nhận, nhưng nhóm còn phải duyệt thì bạn mới vào được.";
-}
+import { cauSauKhiNhan } from "../../rudi/loi-moi-den";
+
+export { cauSauKhiNhan };
 
 type Trang =
   | { pha: "chua-nhan" }

@@ -18,21 +18,9 @@ import { TrongRong } from "../ui/TrangThai";
  * has an opinion about how the money moves, so a debt is who owes what and
  * nothing else.
  */
-export type EnvelopeObligation = {
-  obligationId: string;
-  amountVnd: number;
-};
+import type { Envelope, EnvelopeObligation } from "../api";
 
-export type Envelope = {
-  senderId: string;
-  senderName: string;
-  amountVnd: number;
-  url: string;
-  opened: boolean;
-  /** Per debt, because one person can owe two people out of one round. The
-   *  share screen sums them; the settlement screen shows them one at a time. */
-  obligations: EnvelopeObligation[];
-};
+export type { Envelope, EnvelopeObligation };
 
 export function ChiaSe({ envelopes, onDone }: { envelopes: Envelope[]; onDone: () => void }) {
   const c = usePalette();

@@ -23,12 +23,12 @@ import {
   publishBatch,
   translatedAsActor,
   type Attempt,
+  type Envelope,
 } from "../../api";
-import type { Envelope } from "../../screens/ChiaSe";
 import { dinhDangTienVnd } from "../../screens/chat/ke-hoach";
 import { tenCua, type ThanhVien } from "../chia-bill/hoa-don";
 
-/** The guest-link envelope App B's publish returns; the type lives with its legacy screen until M6 moves it. */
+/** The guest-link envelope `publishBatch` returns (owned by `api.ts`). */
 export type { Envelope };
 
 export type TrangThaiDot =

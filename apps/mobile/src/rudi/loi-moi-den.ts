@@ -33,3 +33,24 @@ export function layLoiMoiDen(): string | null {
   dangCho = null;
   return ma;
 }
+
+/**
+ * The sentence after an invitation is accepted. Signing in and joining are
+ * two different things and the screen must not merge them: somebody redeeming
+ * their first invitation is signed in AND still waiting; somebody signing back
+ * in on a new phone is signed in and waiting on nobody. Moved here from App
+ * B's `NhanLoiMoi.tsx` so the shell owns its own sentences.
+ */
+export function cauSauKhiNhan(
+  state: "invited" | "active",
+  qua: "lien-ket" | "phien" = "lien-ket",
+): string {
+  if (qua === "phien") {
+    if (state === "active") return "Đã đăng nhập. Bạn đã ở trong nhóm.";
+    // NOT "the group still has to approve you": this door is only ever reached
+    // by a NAMED invitation, so the only thing left is the person's own yes.
+    return "Đã đăng nhập. Bạn được mời đích danh, nên chỉ cần bạn đồng ý là vào nhóm.";
+  }
+  if (state === "active") return "Bạn đã vào buổi đi.";
+  return "Lời mời đã nhận, nhưng nhóm còn phải duyệt thì bạn mới vào được.";
+}

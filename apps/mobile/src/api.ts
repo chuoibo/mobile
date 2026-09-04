@@ -40,7 +40,6 @@ import { actorHeaders, datTokenPhien, tokenPhienHienTai } from "./danh-tinh";
 // Người gọi lấy thẳng từ `danh-tinh.ts`.
 export { datTokenPhien, tokenPhienHienTai };
 import type { Obligation } from "./screens/DotThu";
-import type { Envelope } from "./screens/ChiaSe";
 import type { Draft, Participant } from "./screens/NhapKhoanChi";
 import type { BillReading, ReceiptScanWire } from "./receipt";
 import type { Assignment } from "./assignment";
@@ -132,6 +131,25 @@ export class ApiError extends Error {
  * makes a retry byte-identical by construction rather than by care.
  */
 export type Attempt = { readonly key: string; readonly at: number };
+
+/** One debt inside a guest envelope: a person can owe two people out of one round. */
+export type EnvelopeObligation = {
+  obligationId: string;
+  amountVnd: number;
+};
+
+/**
+ * What `publishBatch` hands back per sender: the private guest link and the
+ * debts behind it. Owned here (not by a screen) because two shells share it.
+ */
+export type Envelope = {
+  senderId: string;
+  senderName: string;
+  amountVnd: number;
+  url: string;
+  opened: boolean;
+  obligations: EnvelopeObligation[];
+};
 
 const newKey = makeIdFactory();
 
