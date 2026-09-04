@@ -147,8 +147,9 @@ test("không literal UUID nào trong client viết hoa", () => {
     "một id ghi sẵn bằng chữ hoa sẽ không bao giờ khớp id máy chủ in ra",
   );
   // Sàn: một phép duyệt đi lạc (glob đổi, parse ném vào catch) cũng in ra 0.
-  assert.ok(FILES.length >= 100, `chỉ soi ${FILES.length} file — phép duyệt đi lạc`);
-  assert.ok(tatCa.length >= 25, `chỉ thấy ${tatCa.length} literal UUID — phép duyệt đi lạc`);
+  // Sàn hạ ngày 04/09 khi App B rời cây (còn ~80 file, 12 literal); mục đích vẫn là bắt số 0.
+  assert.ok(FILES.length >= 50, `chỉ soi ${FILES.length} file — phép duyệt đi lạc`);
+  assert.ok(tatCa.length >= 8, `chỉ thấy ${tatCa.length} literal UUID — phép duyệt đi lạc`);
 });
 
 test("ĐỐI CHỨNG: máy quét literal bắt được UUID chữ hoa", () => {

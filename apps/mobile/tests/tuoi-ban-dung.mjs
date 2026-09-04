@@ -79,7 +79,9 @@ export function lyDoBanDungCu(exportDir, goc) {
   const banDung = moiNhat(join(exportDir, "_expo"), moiNhat(join(exportDir, "index.html")));
 
   let nguon = { mtime: 0, file: null };
-  for (const phan of ["src", "app", "app.json", "assets"]) {
+  // `App.tsx`/`index.ts` no longer exist in the shell; kept in the list because
+  // `moiNhat` skips a missing path and the gate's own fixture trees still use them.
+  for (const phan of ["src", "app", "App.tsx", "index.ts", "app.json", "assets"]) {
     nguon = moiNhat(join(goc, phan), nguon);
   }
   nguon = moiNhat(join(goc, "..", "..", "packages", "shared"), nguon);
