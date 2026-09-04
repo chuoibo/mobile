@@ -165,12 +165,13 @@ function ThanChiTiet({
           <Ionicons color={colors.accent} name={bieuTuongLoai(place.category)} size={40} />
         </View>
         <Heading title={place.name} subtitle={dongPhu(place)} />
-        <Inline gap={6} wrap>
+        <Inline gap={6}>
           <Ionicons color={colors.accent} name="star" size={14} />
-          <Text style={[typography.label, { color: colors.ink }]}>{formatRating(place.rating, place.ratingCount)}</Text>
-          <Text style={[typography.caption, { color: colors.inkSoft }]}>· {formatDistance(place.distanceKm)} ·</Text>
-          <Text style={[typography.caption, styles.trangThai, { color: place.openNow ? colors.accent : colors.split }]}>
-            {place.openNow ? "Đang mở" : "Đã đóng"}
+          {/* One text node for the facts line, so no word is measured alone. */}
+          <Text style={[typography.caption, { color: colors.inkSoft }]}>
+            <Text style={[typography.label, { color: colors.ink }]}>{formatRating(place.rating, place.ratingCount)}</Text>
+            {" "}· {formatDistance(place.distanceKm)} ·{" "}
+            <Text style={{ color: place.openNow ? colors.accent : colors.split }}>{place.openNow ? "Đang mở" : "Đã đóng"}</Text>
           </Text>
         </Inline>
         {hop !== null && hop.real ? (
@@ -234,7 +235,6 @@ const styles = StyleSheet.create({
   hero: { gap: 12, padding: 18 },
   heroIcon: { width: 80, height: 80, borderRadius: 24, alignItems: "center", justifyContent: "center" },
   huyHieu: { flexDirection: "row" },
-  trangThai: { flexShrink: 0 },
   suKien: { paddingVertical: 5 },
   khoi: { gap: 8 },
   nhanXet: { gap: 2, paddingVertical: 6 },

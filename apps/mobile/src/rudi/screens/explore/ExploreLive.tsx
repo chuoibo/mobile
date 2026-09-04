@@ -294,11 +294,14 @@ function TheDiaDiem({
           </Inline>
           <Inline gap={4}>
             <Ionicons color={colors.inkFaint} name="wallet-outline" size={13} />
-            <Text style={[typography.caption, { color: colors.inkFaint }]}>{formatPriceBand(place.priceMinVnd, place.priceMaxVnd)}</Text>
+            {/* Price and status in ONE text node: a separate text item in a
+                wrapping row keeps its first-row (one-word) measurement and
+                rendered «Đang» alone. */}
+            <Text style={[typography.caption, { color: colors.inkFaint }]}>
+              {formatPriceBand(place.priceMinVnd, place.priceMaxVnd)} ·{" "}
+              <Text style={{ color: place.openNow ? colors.accent : colors.split }}>{place.openNow ? "Đang mở" : "Đã đóng"}</Text>
+            </Text>
           </Inline>
-          <Text style={[typography.caption, styles.trangThai, { color: place.openNow ? colors.accent : colors.split }]}>
-            {place.openNow ? "Đang mở" : "Đã đóng"}
-          </Text>
         </Inline>
         {hop !== null && hop.real ? (
           <View style={styles.huyHieu}>
@@ -329,8 +332,6 @@ const styles = StyleSheet.create({
   oLoai: { flex: 1, minWidth: 70, borderRadius: 17, borderWidth: 1, alignItems: "center", justifyContent: "flex-start", gap: 8, paddingHorizontal: 6, paddingTop: 10, paddingBottom: 8 },
   nhanLoai: { textAlign: "center", minHeight: 32 },
   huyHieu: { flexDirection: "row" },
-  // A wrapping row hands its last item a one-word width; the status is two words.
-  trangThai: { flexShrink: 0 },
   oLoaiIcon: { width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   giua: { textAlign: "center" },
   bam: { opacity: 0.72, transform: [{ scale: 0.98 }] },
