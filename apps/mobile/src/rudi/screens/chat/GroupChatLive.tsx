@@ -233,7 +233,15 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
     const laAi = tin.kind === "ai_card";
     const chips = (tin.reactions ?? []).filter((r) => r.count > 0);
     return (
-      <View style={[styles.hang, cuaToi && !laAi && styles.hangToi]}>
+      <View
+        style={[
+          styles.hang,
+          cuaToi && !laAi && styles.hangToi,
+          // A photo makes the row tall; an initial pinned to the bottom of it
+          // floats away from the name it belongs to.
+          tin.kind === "image" && styles.hangCao,
+        ]}
+      >
         {!cuaToi && !laAi ? (
           <View style={[styles.chuDau, { backgroundColor: colors.accentSoft }]}>
             <Text style={[typography.caption, { color: colors.accent }]}>{chuDau(tenNguoi(tin.author_id))}</Text>
@@ -462,7 +470,7 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
           cursorColor={colors.accent}
           multiline
           onChangeText={setNhap}
-          placeholder="Nhắn cho hội, hoặc gõ / để gọi Rủ Đi AI"
+          placeholder="Nhắn cho hội, hoặc gõ /"
           placeholderTextColor={colors.inkFaint}
           selectionColor={colors.accentSoft}
           style={[typography.body, styles.oNhap, { color: colors.ink }]}
@@ -492,6 +500,7 @@ const styles = StyleSheet.create({
   duong: { flex: 1, height: StyleSheet.hairlineWidth },
   hang: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
   hangToi: { justifyContent: "flex-end" },
+  hangCao: { alignItems: "flex-start" },
   khoi: { maxWidth: "82%", gap: 4 },
   khoiToi: { alignItems: "flex-end" },
   khoiAi: { maxWidth: "100%", flex: 1 },
