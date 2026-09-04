@@ -1,8 +1,8 @@
 # Cửa vào thật, trên giao diện thật, ở chế độ prod.
 #
 # Mọi flow khác trong thư mục này đi vòng qua cửa đăng nhập: bảng mặc định dùng
-# fixture, còn `20-du-lieu-that` ghim sẵn một danh tính vào bundle bằng
-# `EXPO_PUBLIC_RUDI_*`. Không cái nào chạm đường mà NGƯỜI THẬT đi.
+# fixture, còn `20-the-gioi-seed` (`--live --otp-phone`) đăng nhập OTP bằng số của
+# một người đã seed. Flow này là cửa lời mời đích danh.
 #
 # Lượt này không ghim gì. `scripts/mobile_native.sh --dang-nhap` mint phiên đầu
 # tiên bằng `genesis_session.py`, tạo nhóm + chuyến + một lời mời ĐÍCH DANH qua

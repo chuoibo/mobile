@@ -89,6 +89,7 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
 
     def test_otp_flows_take_number_and_code_from_the_harness(self) -> None:
         for name in (
+            "20-the-gioi-seed.yaml",
             "22-dang-nhap-otp.yaml",
             "23-phien-song-qua-lan-tat.yaml",
             "24-nhom-thanh-vien-va-ho-so.yaml",
@@ -130,10 +131,15 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
         self.assertIn("kiem_ma_debug", script)
         self.assertIn("/auth/otp/verify", script)
         self.assertIn('-e OTP_PHONE="$OTP_PHONE"', script)
+        # The fixture door is off for both doors real people use: --otp and
+        # --live --otp-phone (the seeded person signs in through OTP too).
         self.assertIn(
-            'if [ "$OTP" = 0 ]; then\n    export EXPO_PUBLIC_RUDI_FIXTURE=1',
+            'if [ "$OTP" = 0 ] && [ "$LIVE" = 0 ]; then\n    export EXPO_PUBLIC_RUDI_FIXTURE=1',
             script,
         )
+        self.assertIn("--otp-phone) OTP_PHONE_SEED=", script)
+        self.assertIn("kiem_may_chu_sau_20", script)
+        self.assertNotIn("EXPO_PUBLIC_RUDI_ACTOR=", script)
         self.assertIn("canary_otp", script)
         self.assertIn(
             '22-*|23-*|24-*|25-*|26-*|27-*|28-*|29-*|31-*|32-*) [ "$OTP" = 1 ] || continue',

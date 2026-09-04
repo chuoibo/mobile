@@ -356,13 +356,13 @@ mobile-native: ## Lái app trên máy ảo Android thật qua development build 
 	  $(if $(API),--api-port $(API)) $(if $(KEEP),--keep) \
 	  $(if $(LAP),--lap $(LAP)) $(if $(EXPO_GO),--expo-go)
 
-mobile-native-live: ## Như trên nhưng đọc DỮ LIỆU THẬT — cần ACTOR=, CONTEXT=, API= của một database đã seed
-	@# Bảng mặc định đo app với fixture, tức là app tự nhất quán. Lượt này ghim
-	@# một danh tính vào bundle rồi đối chiếu số trên màn với chính câu trả lời
-	@# của máy chủ. Hai biến EXPO_PUBLIC_RUDI_* chỉ sống ở đây; eas.json bị cấm
-	@# mang chúng, xem tests/cau-hinh-ban-dung.test.mjs.
-	@scripts/mobile_native.sh --live \
-	  --actor $(ACTOR) --context $(CONTEXT) --api-port $(API) \
+mobile-native-live: ## Thế giới seed trên máy: đăng nhập OTP bằng số của một người đã seed — cần API= (đã make demo-rudi) và PHONE=
+	@# Bảng mặc định đo app với fixture. Lượt này đi đúng đường người thật: số của
+	@# người seed + mã debug, rồi flow 20 đối chiếu «Team Đà Lạt», kèo, bill, đợt thu
+	@# trên màn với chính câu trả lời của máy chủ. Lấy số: cd apps/mobile && node -e
+	@# "import('./tools/seed-rudi-world-lib.mjs').then(m=>console.log(m.soDienThoai(0)))"
+	@[ -n "$(PHONE)" ] && [ -n "$(API)" ] || { echo "Cần PHONE=<số người seed> và API=<cổng>" >&2; exit 2; }
+	@scripts/mobile_native.sh --live --otp-phone $(PHONE) --api-port $(API) \
 	  $(if $(PORT),--port $(PORT)) $(if $(SERIAL),--serial $(SERIAL)) $(if $(KEEP),--keep) $(if $(EXPO_GO),--expo-go)
 
 mobile-native-dangnhap: ## Cửa vào THẬT: mint lời mời rồi đăng nhập trên máy ảo — cần API= và MOBILE_DATABASE_URL

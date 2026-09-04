@@ -45,8 +45,7 @@ FLOWS=".maestro"
 KEEP=0
 LIVE=0
 DANG_NHAP=0
-ACTOR=""
-CONTEXT=""
+OTP_PHONE_SEED=""
 MA_LOI_MOI=""
 MODE="dev-client"
 LAP=1
@@ -73,8 +72,7 @@ while [ $# -gt 0 ]; do
     --keep) KEEP=1; shift ;;
     --live) LIVE=1; shift ;;
     --dang-nhap) DANG_NHAP=1; shift ;;
-    --actor) ACTOR="$2"; shift 2 ;;
-    --context) CONTEXT="$2"; shift 2 ;;
+    --otp-phone) OTP_PHONE_SEED="$2"; shift 2 ;;
     --expo-go) MODE="expo-go"; shift ;;
     --lap) LAP="$2"; shift 2 ;;
     --otp) OTP=1; shift ;;
@@ -85,10 +83,10 @@ while [ $# -gt 0 ]; do
 done
 
 if [ "$LIVE" = 1 ]; then
-  [ -n "$ACTOR" ] && [ -n "$CONTEXT" ] \
-    || { echo "--live cần --actor <uuid> --context <uuid>" >&2; exit 64; }
+  [ -n "$OTP_PHONE_SEED" ] \
+    || { echo "--live cần --otp-phone <số của một người trong roster seed: soDienThoai(i) của apps/mobile/tools/seed-rudi-world-lib.mjs>" >&2; exit 64; }
   [ -n "$API_PORT" ] \
-    || { echo "--live cần --api-port <cổng của API đã seed>" >&2; exit 64; }
+    || { echo "--live cần --api-port <cổng API prod đã chạy make demo-rudi, có mã debug $OTP_CODE>" >&2; exit 64; }
 fi
 
 if [ "$DANG_NHAP" = 1 ]; then
@@ -297,6 +295,47 @@ except Exception: print("(không phải JSON)")' "$tep" 2>/dev/null)"
   done
   rm -f "$tep"
   return 1
+}
+
+# Sau flow 20 (--live): người seed vừa xem «Team Đà Lạt» trên máy. Hỏi máy chủ
+# với tư cách người đó — nhóm 8 người, đã chi đúng tổng bill Xóm Lèo, một đợt thu
+# đã phát với 7 nghĩa vụ — chứ không đọc từ màn hình. Contexts hỏi lại bằng token
+# (thân phiên cache có thể cũ).
+kiem_may_chu_sau_20() {
+  local goc body tok pid ctx so_nguoi chi so_khoan so_dot so_nv ket
+  goc="http://127.0.0.1:$API_PORT"
+  body="$(dang_nhap_curl "$OTP_PHONE_SEED")" \
+    || hong "sau flow 20: người seed không đăng nhập được qua curl (429 hai lần hoặc lỗi)."
+  ket="$(printf '%s' "$body" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+print("%s|%s" % (d.get("token", ""), d.get("person_id", "")))')"
+  IFS='|' read -r tok pid <<< "$ket"
+  [ -n "$tok" ] && [ -n "$pid" ] || hong "sau flow 20: thân phiên của người seed không có token/person_id."
+  ket="$(curl -sS "$goc/people/me/contexts" -H "Authorization: Bearer $tok" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+nhom = [c for c in d.get("contexts", []) if c.get("display_name") == "Team Đà Lạt" and c.get("my_state") == "active"]
+print("%s|%s" % (nhom[0]["id"] if nhom else "", nhom[0].get("member_count", 0) if nhom else 0))')"
+  IFS='|' read -r ctx so_nguoi <<< "$ket"
+  [ -n "$ctx" ] && [ "$so_nguoi" = "8" ] \
+    || hong "sau flow 20: máy chủ không có «Team Đà Lạt» 8 người đang active cho người seed (ctx='$ctx', đếm=$so_nguoi)."
+  ket="$(curl -sS "$goc/people/$pid/finance" -H "Authorization: Bearer $tok" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+print("%s|%s" % (d.get("spend_vnd"), d.get("expense_count")))')"
+  IFS='|' read -r chi so_khoan <<< "$ket"
+  [ "$chi" = "1280000" ] \
+    || hong "sau flow 20: máy chủ nói người seed đã chi '$chi' đồng ($so_khoan khoản); mong 1280000 = bill Xóm Lèo."
+  ket="$(curl -sS "$goc/contexts/$ctx/batches" -H "Authorization: Bearer $tok" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+b = [x for x in d.get("batches", []) if x.get("status") == "published"]
+print("%d|%s" % (len(b), b[0].get("obligation_count", "") if b else ""))')"
+  IFS='|' read -r so_dot so_nv <<< "$ket"
+  [ "${so_dot:-0}" -ge 1 ] && [ "$so_nv" = "7" ] \
+    || hong "sau flow 20: mong một đợt thu đã phát với 7 nghĩa vụ, máy chủ trả $so_dot đợt / '$so_nv' nghĩa vụ."
+  echo "máy chủ xác nhận: người seed trong «Team Đà Lạt» 8 người, đã chi 1.280.000đ ($so_khoan khoản), một đợt thu đã phát 7 nghĩa vụ"
 }
 
 # Sau flow 24: người được mời (OTP_PHONE_D) chưa từng mở app. Đăng nhập bằng số
@@ -746,7 +785,7 @@ if command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | grep -qE "127\.0\.0\.1
   hong "cổng $PORT đã có người nghe. Metro của lane khác phục vụ một bundle hợp lệ của CÂY KHÁC, và thiết bị không phân biệt được. Đổi bằng MOBILE_METRO_PORT=<cổng khác>."
 fi
 
-if [ "$OTP" = 1 ]; then kiem_ma_debug; fi
+if [ "$OTP" = 1 ] || [ "$LIVE" = 1 ]; then kiem_ma_debug; fi
 # V4: khoá AI phải SỐNG trước khi đo AI, đo bằng chính đường sản phẩm: một người
 # thăm dò đăng nhập, mở nhóm, nhắn một câu, xin một lượt AI (requested=true).
 # `spoke=true` = khoá sống; `reason=unavailable` = khoá chết/thiếu → ĐỎ (một máy
@@ -768,7 +807,7 @@ if [ "$AI" = 1 ]; then kiem_khoa_ai; fi
   # độ trừ --otp đi qua cửa đó — canary 09 đi `_vao-app-sach`, kể cả ở
   # --dang-nhap (đo 2026-09-04: tắt cờ ở --dang-nhap làm canary chết ở bước 1
   # dù flow 21 xanh). Bằng chứng «bản ship không có cửa fixture» nằm ở flow 22.
-  if [ "$OTP" = 0 ]; then
+  if [ "$OTP" = 0 ] && [ "$LIVE" = 0 ]; then
     export EXPO_PUBLIC_RUDI_FIXTURE=1
   fi
   if [ "$TAT_KAV" = 1 ]; then
@@ -777,13 +816,10 @@ if [ "$AI" = 1 ]; then kiem_khoa_ai; fi
   if [ -n "$API_PORT" ]; then
     export EXPO_PUBLIC_API_URL="http://localhost:$API_PORT"
   fi
-  # Dev-actor mode. Inlined at bundle time, which is why it is set HERE and
-  # never in eas.json -- `tests/cau-hinh-ban-dung.test.mjs` refuses it there,
-  # because a shipped build carrying it shows everybody the same stranger's money.
-  if [ "$LIVE" = 1 ]; then
-    export EXPO_PUBLIC_RUDI_ACTOR="$ACTOR"
-    export EXPO_PUBLIC_RUDI_CONTEXT="$CONTEXT"
-  fi
+  # `--live` no longer pins an identity into the bundle: the seeded person signs
+  # in through OTP exactly like a real user. EXPO_PUBLIC_RUDI_ACTOR/CONTEXT died
+  # with App B; eas.json is still forbidden to carry them
+  # (tests/cau-hinh-ban-dung.test.mjs).
   if [ "$MODE" = "dev-client" ]; then
     npx expo start --dev-client --localhost --port "$PORT" > "$LOG" 2>&1
   else
@@ -963,7 +999,7 @@ chay_flow() {
   local f="$1" ra rc
   local -a them=()
   # Số và mã chỉ đi qua -e, không bao giờ nằm trong file flow.
-  if [ "$OTP" = 1 ]; then
+  if [ "$OTP" = 1 ] || [ "$LIVE" = 1 ]; then
     them=(-e OTP_PHONE="$OTP_PHONE" -e OTP_PHONE_B="$OTP_PHONE_B"
           -e OTP_PHONE_C="$OTP_PHONE_C" -e OTP_PHONE_D="$OTP_PHONE_D" -e OTP_CODE="$OTP_CODE")
   fi
@@ -997,6 +1033,11 @@ if [ "$OTP" = 1 ]; then
   rm -rf "$PHIEN_CURL_DIR"; PHIEN_CURL_DIR="$(mktemp -d)"
   OTP_PHONE="$(sinh_so_di_dong)"; OTP_PHONE_B="$(sinh_so_di_dong)"
   OTP_PHONE_C="$(sinh_so_di_dong)"; OTP_PHONE_D="$(sinh_so_di_dong)"
+elif [ "$LIVE" = 1 ]; then
+  # The seeded person already exists: one fixed number, a fresh curl-session
+  # cache per lap so the server check after flow 20 asks the server, not the cache.
+  rm -rf "$PHIEN_CURL_DIR"; PHIEN_CURL_DIR="$(mktemp -d)"
+  OTP_PHONE="$OTP_PHONE_SEED"; OTP_PHONE_B=""; OTP_PHONE_C=""; OTP_PHONE_D=""
 fi
 for f in "$FLOWS"/*.yaml; do
   ten="$(basename "$f")"
@@ -1088,6 +1129,9 @@ if [ "$OTP" = 1 ]; then
   kiem_may_chu_sau_32
   [ "$TAT_KAV" = 1 ] || kiem_may_chu_sau_30
   [ "$AI" = 1 ] && [ "$TAT_KAV" = 0 ] && kiem_may_chu_sau_40
+  canary_otp
+elif [ "$LIVE" = 1 ]; then
+  kiem_may_chu_sau_20
   canary_otp
 else
 RA_CANARY="$(mktemp)"
