@@ -848,6 +848,37 @@ def test_the_board_reads_back_the_senders_claim_from_postgres(
     assert target[0].status == "outstanding"
 
 
+def test_the_groups_rounds_are_listed_from_the_same_board_postgres(
+    postgres_session: Session,
+):
+    """`list_context_batches` folds each round from `list_batch_obligations`,
+    so the confirmed count it reports is the board's own status counted, and
+    the status column on the batch is what the round list prints. Both are
+    read back from real rows after the full lifecycle."""
+    state = _persist_lifecycle(postgres_session, confirm_receipts=True)
+    repository = SqlAlchemyApiRepository(postgres_session)
+    rows = repository.list_context_batches(state.context_id)
+    assert [row.batch_id for row in rows] == [state.batch_id]
+    row = rows[0]
+    batch = postgres_session.get(CollectionBatch, state.batch_id)
+    assert batch is not None
+    assert row.status == batch.status.value
+    assert row.created_at == batch.created_at
+    assert row.published_at == batch.published_at
+    board = repository.list_batch_obligations(state.batch_id)
+    assert board is not None
+    assert row.obligation_count == len(board.obligations)
+    assert row.confirmed_count == sum(
+        1
+        for item in board.obligations
+        if item.status in ("confirmed", "over_confirmed")
+    )
+    assert row.confirmed_count >= 1, "the lifecycle confirmed at least one receipt"
+    assert row.total_vnd == sum(item.amount_vnd for item in board.obligations)
+    # Another group's rounds are not this group's.
+    assert repository.list_context_batches(uuid.uuid4()) == ()
+
+
 def test_a_second_claim_does_not_move_the_time_the_first_one_was_made(
     postgres_session: Session,
 ):

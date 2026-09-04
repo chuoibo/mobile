@@ -38,6 +38,7 @@ from app.api.repository import (
     BillSurchargeRecord,
     ConfirmationRecord,
     ConfirmedExpense,
+    ContextBatchRow,
     ContextRecord,
     ExpenseIdentity,
     FriendEdgeRecord,
@@ -71,6 +72,8 @@ from app.domain.capability import capability_scope
 from app.domain.ledger import obligation_status
 
 from .helpers import ADVANCER_ID, CONTEXT_ID, SENDER_ID
+
+FAKE_BATCH_INSTANT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 @dataclass(slots=True)
@@ -1445,6 +1448,42 @@ class FakeRepository:
                 )
             )
         return BatchBoard(context_id=CONTEXT_ID, obligations=tuple(rows))
+
+    def list_context_batches(self, context_id):
+        # The fake keeps no clock on a batch; a fixed instant stands in, and
+        # `published_at` follows the status the way the SQL row's column does.
+        rows = []
+        for batch in self.batches.values():
+            if batch.context_id != context_id:
+                continue
+            ids = {obligation.id for obligation in batch.obligations}
+            board = self.list_batch_obligations(batch.id)
+            obligations = tuple(
+                row
+                for row in (() if board is None else board.obligations)
+                if row.obligation_id in ids
+            )
+            rows.append(
+                ContextBatchRow(
+                    batch_id=batch.id,
+                    status=batch.status,
+                    created_at=FAKE_BATCH_INSTANT,
+                    published_at=(
+                        FAKE_BATCH_INSTANT
+                        if batch.status in ("published", "collecting")
+                        else None
+                    ),
+                    obligation_count=len(obligations),
+                    confirmed_count=sum(
+                        1
+                        for row in obligations
+                        if row.status in ("confirmed", "over_confirmed")
+                    ),
+                    disputed_count=sum(1 for row in obligations if row.disputed),
+                    total_vnd=sum(row.amount_vnd for row in obligations),
+                )
+            )
+        return tuple(rows)
 
     def get_receipt_target(self, obligation_id):
         item = self.obligations.get(obligation_id)
