@@ -32,7 +32,7 @@ import unittest
 
 REPO = pathlib.Path(__file__).resolve().parents[4]
 TOKENS_PATH = REPO / "packages/shared/tokens.json"
-KIT_PATH = REPO / "apps/mobile/src/ui/Kit.tsx"
+KIT_PATH = REPO / "apps/mobile/src/rudi/ui.tsx"
 CSS_PATH = REPO / "services/api/app/web/static/guest.css"
 DESIGN_PATH = REPO / "DESIGN.md"
 
@@ -50,15 +50,19 @@ DESIGN = DESIGN_PATH.read_text(encoding="utf-8")
 def relative_luminance(value: str) -> float:
     """WCAG 2.x relative luminance of an #rrggbb colour."""
     raw = value.lstrip("#")
-    channels = [int(raw[i:i + 2], 16) / 255 for i in (0, 2, 4)]
-    linear = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+    channels = [int(raw[i : i + 2], 16) / 255 for i in (0, 2, 4)]
+    linear = [
+        c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels
+    ]
     red, green, blue = linear
     return 0.2126 * red + 0.7152 * green + 0.0722 * blue
 
 
 def contrast(foreground: str, background: str) -> float:
     """WCAG 2.x contrast ratio. Order does not matter."""
-    high, low = sorted((relative_luminance(foreground), relative_luminance(background)), reverse=True)
+    high, low = sorted(
+        (relative_luminance(foreground), relative_luminance(background)), reverse=True
+    )
     return (high + 0.05) / (low + 0.05)
 
 
@@ -70,8 +74,8 @@ def kit_component(name: str) -> str:
     """Source of one exported component, up to the next top-level export."""
     marker = f"export function {name}("
     start = KIT.find(marker)
-    assert start != -1, f"{name} is no longer exported from Kit.tsx"
-    rest = KIT[start + len(marker):]
+    assert start != -1, f"{name} is no longer exported from src/rudi/ui.tsx"
+    rest = KIT[start + len(marker) :]
     end = rest.find("\nexport ")
     return rest if end == -1 else rest[:end]
 
@@ -102,32 +106,58 @@ def css_scrollbar_thumb_token(block: str) -> str:
 
 def kit_border_token(pattern: str, block: str) -> str:
     match = re.search(pattern, block, re.S)
-    assert match is not None, f"border declaration not found; Kit.tsx shape changed: {pattern}"
+    assert match is not None, (
+        f"border declaration not found; ui.tsx shape changed: {pattern}"
+    )
     return match.group(1)
 
 
 # Every boundary in the product whose job is to identify a control.
 # (label, token actually used, background token it sits on)
 def interactive_boundaries() -> list[tuple[str, str, str]]:
-    button = kit_component("Button")
+    # The RuDi shell's primitives (App B's Kit.tsx left with App B, 2026-09-04).
+    button = kit_component("RudiButton")
     field = kit_component("Field")
-    choice = kit_component("Choice")
+    chip = kit_component("Chip")
     return [
-        # App. The quiet button and the unselected chip have no fill at all,
-        # so the border is not decoration, it is the entire affordance.
+        # App. The outline button and the unselected chip have a card fill at
+        # most, so the border is the affordance; it must clear the surface it
+        # sits on (ground) and the fill it encloses (card).
         (
-            "app: nút quiet, viền trên nền trang",
-            kit_border_token(r"quiet:\s*\{[^}]*borderColor:\s*c\.(\w+)", button),
+            "app: nút outline RudiButton, viền trên nền trang",
+            kit_border_token(
+                r'variant === "outline" && \{[^}]*borderColor:\s*(?:tone === "accent" \? )?colors\.(\w+)',
+                button,
+            ),
             "ground",
         ),
         (
-            "app: ô nhập Field, viền trên thẻ",
-            kit_border_token(r"borderColor:\s*c\.(\w+)", field),
+            "app: nút outline RudiButton, viền trên thẻ",
+            kit_border_token(
+                r'variant === "outline" && \{[^}]*borderColor:\s*(?:tone === "accent" \? )?colors\.(\w+)',
+                button,
+            ),
             "card",
         ),
         (
-            "app: chip Choice chưa chọn, viền trên nền trang",
-            kit_border_token(r"borderColor:\s*on\s*\?\s*c\.\w+\s*:\s*c\.(\w+)", choice),
+            "app: ô nhập Field, viền trên thẻ",
+            kit_border_token(r"borderColor:\s*colors\.(\w+)", field),
+            "card",
+        ),
+        (
+            "app: chip Chip chưa chọn, viền trên thẻ",
+            kit_border_token(
+                r"borderColor:\s*selected\s*\?\s*toneColor\(colors, tone\)\s*:\s*colors\.(\w+)",
+                chip,
+            ),
+            "card",
+        ),
+        (
+            "app: chip Chip chưa chọn, viền trên nền trang",
+            kit_border_token(
+                r"borderColor:\s*selected\s*\?\s*toneColor\(colors, tone\)\s*:\s*colors\.(\w+)",
+                chip,
+            ),
             "ground",
         ),
         # Guest page. All three live inside <section class="card">.
@@ -157,7 +187,13 @@ def interactive_boundaries() -> list[tuple[str, str, str]]:
 # Boundaries that decorate a container. SC 1.4.11 does not reach these, and
 # pushing them to 3:1 would darken every hairline in the product.
 DECORATIVE_BOUNDARIES = [
-    ("app: cạnh thẻ Card", lambda: kit_border_token(r"borderColor:\s*c\.(\w+)", kit_component("Card"))),
+    (
+        "app: cạnh thẻ Card",
+        lambda: kit_border_token(
+            r"borderColor:\s*tone\s*\?\s*toneSoftColor\(colors, tone\)\s*:\s*colors\.(\w+)",
+            kit_component("Card"),
+        ),
+    ),
     ("khách: cạnh .card--quiet", lambda: css_border_token(css_rule(".card--quiet"))),
     ("khách: đường kẻ .transfer", lambda: css_border_token(css_rule(".transfer"))),
 ]
@@ -254,7 +290,9 @@ class DesignDocRecordsWhatWasMeasured(unittest.TestCase):
         self.assertGreater(len(rows), 40, "bảng số đo trong DESIGN.md đã biến mất")
         for fg_name, fg_hex, bg_name, bg_hex, printed in rows:
             with self.subTest(pair=f"{fg_name} on {bg_name}"):
-                mode = "light" if fg_hex.lower() in palette("light").values() else "dark"
+                mode = (
+                    "light" if fg_hex.lower() in palette("light").values() else "dark"
+                )
                 colours = palette(mode)
                 self.assertEqual(
                     colours.get(fg_name, "").lower(),
@@ -271,7 +309,7 @@ class DesignDocRecordsWhatWasMeasured(unittest.TestCase):
                     contrast(fg_hex, bg_hex),
                     places=1,
                     msg=f"DESIGN.md ghi {printed}:1 cho `{fg_name}` trên `{bg_name}`, "
-                        f"đo lại được {contrast(fg_hex, bg_hex):.2f}:1",
+                    f"đo lại được {contrast(fg_hex, bg_hex):.2f}:1",
                 )
 
 
