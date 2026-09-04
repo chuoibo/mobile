@@ -861,3 +861,81 @@ def test_a_stranger_cannot_invite_anyone_to_a_trip_they_are_not_in(
     # so the refusal must not hand one over on the way out.
     assert "invite_token" not in link_invite.text
     assert TITLE not in link_invite.text
+
+
+# M4 -- a stop may name a catalogue place
+
+
+def test_a_stop_keeps_its_catalogue_place_and_a_reattach_keeps_its_checkins(
+    postgres_session: Session, monkeypatch: pytest.MonkeyPatch
+):
+    """`place_id` round-trips through the database; attaching it to a stop the
+    group already checked in at keeps the row (and so the check-in), because
+    the repository matches on (time, label, place_name) and only rewrites the
+    catalogue link."""
+    from app.places.catalog import PLACES
+
+    context, owner, _ = _group(postgres_session)
+    app = _http(postgres_session, monkeypatch)
+    outing = _make_outing(postgres_session, app, owner, context)
+    place = PLACES[0]["id"]
+
+    async def exchange():
+        async with _client(app) as client:
+            first = await client.put(
+                f"/outings/{outing['id']}/timeline",
+                headers=_headers(owner.id),
+                json={
+                    "stops": [
+                        {"at": "12:00", "label": "Lunch", "place_name": "Xóm Lào"}
+                    ]
+                },
+            )
+            stop_id = first.json()["stops"][0]["id"]
+            checkin = await client.post(
+                f"/outing-stops/{stop_id}/checkins", headers=_headers(owner.id)
+            )
+            second = await client.put(
+                f"/outings/{outing['id']}/timeline",
+                headers=_headers(owner.id),
+                json={
+                    "stops": [
+                        {
+                            "at": "12:00",
+                            "label": "Lunch",
+                            "place_name": "Xóm Lào",
+                            "place_id": place,
+                        }
+                    ]
+                },
+            )
+            unknown = await client.put(
+                f"/outings/{outing['id']}/timeline",
+                headers=_headers(owner.id),
+                json={
+                    "stops": [
+                        {"at": "12:00", "label": "Lunch", "place_id": "p-khong-co"}
+                    ]
+                },
+            )
+            listed = await client.get(
+                f"/contexts/{context.id}/outings", headers=_headers(owner.id)
+            )
+            return first, stop_id, checkin, second, unknown, listed
+
+    first, stop_id, checkin, second, unknown, listed = anyio.run(exchange)
+
+    assert first.status_code == 200 and first.json()["stops"][0]["place_id"] is None
+    assert checkin.status_code == 201, checkin.text
+    assert second.status_code == 200, second.text
+    assert second.json()["stops"][0]["id"] == stop_id, (
+        "gắn địa điểm không được đổi hàng, kẻo mất check-in"
+    )
+    assert second.json()["stops"][0]["place_id"] == place
+    assert unknown.status_code == 422 and unknown.json()["code"] == "stop_place_unknown"
+    reread = listed.json()["outings"][0]["stops"]
+    assert reread[0]["place_id"] == place, (
+        "place_id phải qua được database, không chỉ nằm trong response"
+    )
+    row = postgres_session.get(OutingStop, uuid.UUID(stop_id))
+    assert row is not None and row.place_id == place

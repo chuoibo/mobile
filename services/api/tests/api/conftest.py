@@ -38,6 +38,7 @@ from app.api.repository import (
     BillSurchargeRecord,
     ConfirmationRecord,
     ConfirmedExpense,
+    ContextBatchRow,
     ContextRecord,
     ExpenseIdentity,
     FriendEdgeRecord,
@@ -59,16 +60,20 @@ from app.api.repository import (
     PersonFinanceSummary,
     PersonRecord,
     PostRecord,
+    ProfileCounts,
     PublishObligation,
     ReadMarkRecord,
     ReceiptRecord,
     ReceiptTarget,
+    SavedPlaceRecord,
     StoredGuestLink,
 )
 from app.domain.capability import capability_scope
 from app.domain.ledger import obligation_status
 
 from .helpers import ADVANCER_ID, CONTEXT_ID, SENDER_ID
+
+FAKE_BATCH_INSTANT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 @dataclass(slots=True)
@@ -132,6 +137,11 @@ class FakeRepository:
         self.read_marks: dict[tuple[uuid.UUID, uuid.UUID], ReadMarkRecord] = {}
         self.otp_challenges: dict[uuid.UUID, OtpChallengeRecord] = {}
         self.account_identities: dict[tuple[str, str], AccountIdentityRecord] = {}
+        # M2 profile: bookmarks, and the two sources the counts read that this
+        # fake did not model before (outing -> context, and check-ins).
+        self.saved_places: dict[tuple[uuid.UUID, str], SavedPlaceRecord] = {}
+        self.outings_by_context: dict[uuid.UUID, uuid.UUID] = {}
+        self.stop_checkins: set[tuple[uuid.UUID, uuid.UUID]] = set()
         self.account_session_ids_by_digest: dict[bytes, uuid.UUID] = {}
         self.left_memberships: set[tuple[uuid.UUID, uuid.UUID]] = set()
         self.admin_memberships: set[tuple[uuid.UUID, uuid.UUID]] = set()
@@ -751,6 +761,86 @@ class FakeRepository:
     def get_account_identity(self, provider, subject):
         return self.account_identities.get((provider, subject))
 
+    def create_person_with_identity(
+        self, *, person_id, display_name, provider, subject, now
+    ):
+        if (provider, subject) in self.account_identities:
+            raise RepositoryConflict("IDENTITY_ALREADY_BOUND")
+        self.create_person(person_id, display_name)
+        return self.upsert_account_identity(
+            person_id=person_id, provider=provider, subject=subject, now=now
+        )
+
+    # --- M2 profile and bookmarks -----------------------------------------
+
+    def update_person_profile(self, person_id, *, changes):
+        record = self.people.get(person_id)
+        if record is None:
+            return None
+        record = replace(record, **changes)
+        self.people[person_id] = record
+        return record
+
+    def profile_counts(self, person_id):
+        friends = sum(
+            1
+            for edge in self.friend_edges.values()
+            if edge["state"] == "accepted"
+            and person_id in (edge["requester_id"], edge["addressee_id"])
+        )
+        my_contexts = {
+            cid for (cid, pid) in self.active_memberships if pid == person_id
+        }
+        outings = sum(
+            1 for cid in self.outings_by_context.values() if cid in my_contexts
+        )
+        places = len({stop for (pid, stop) in self.stop_checkins if pid == person_id})
+        memories = sum(1 for m in self.memories.values() if m.author_id == person_id)
+        return ProfileCounts(
+            friends=friends,
+            contexts=len(my_contexts),
+            outings=outings,
+            places_checked_in=places,
+            memories=memories,
+        )
+
+    def list_login_providers(self, person_id):
+        return sorted(
+            {
+                identity.provider
+                for identity in self.account_identities.values()
+                if identity.person_id == person_id
+            }
+        )
+
+    def are_friends(self, a, b):
+        return any(
+            edge["state"] == "accepted"
+            and {edge["requester_id"], edge["addressee_id"]} == {a, b}
+            for edge in self.friend_edges.values()
+        )
+
+    def share_active_context(self, a, b):
+        mine = {cid for (cid, pid) in self.active_memberships if pid == a}
+        return any(cid in mine for (cid, pid) in self.active_memberships if pid == b)
+
+    def list_saved_places(self, person_id):
+        rows = [r for (pid, _), r in self.saved_places.items() if pid == person_id]
+        return sorted(rows, key=lambda r: (r.created_at, r.id), reverse=True)
+
+    def save_place(self, person_id, place_id, now):
+        existing = self.saved_places.get((person_id, place_id))
+        if existing is not None:
+            return existing, False
+        record = SavedPlaceRecord(
+            id=uuid.uuid4(), person_id=person_id, place_id=place_id, created_at=now
+        )
+        self.saved_places[(person_id, place_id)] = record
+        return record, True
+
+    def unsave_place(self, person_id, place_id):
+        return self.saved_places.pop((person_id, place_id), None) is not None
+
     def upsert_account_identity(self, *, person_id, provider, subject, now):
         existing = self.account_identities.get((provider, subject))
         if existing is None:
@@ -1359,6 +1449,42 @@ class FakeRepository:
             )
         return BatchBoard(context_id=CONTEXT_ID, obligations=tuple(rows))
 
+    def list_context_batches(self, context_id):
+        # The fake keeps no clock on a batch; a fixed instant stands in, and
+        # `published_at` follows the status the way the SQL row's column does.
+        rows = []
+        for batch in self.batches.values():
+            if batch.context_id != context_id:
+                continue
+            ids = {obligation.id for obligation in batch.obligations}
+            board = self.list_batch_obligations(batch.id)
+            obligations = tuple(
+                row
+                for row in (() if board is None else board.obligations)
+                if row.obligation_id in ids
+            )
+            rows.append(
+                ContextBatchRow(
+                    batch_id=batch.id,
+                    status=batch.status,
+                    created_at=FAKE_BATCH_INSTANT,
+                    published_at=(
+                        FAKE_BATCH_INSTANT
+                        if batch.status in ("published", "collecting")
+                        else None
+                    ),
+                    obligation_count=len(obligations),
+                    confirmed_count=sum(
+                        1
+                        for row in obligations
+                        if row.status in ("confirmed", "over_confirmed")
+                    ),
+                    disputed_count=sum(1 for row in obligations if row.disputed),
+                    total_vnd=sum(row.amount_vnd for row in obligations),
+                )
+            )
+        return tuple(rows)
+
     def get_receipt_target(self, obligation_id):
         item = self.obligations.get(obligation_id)
         if item is None:
@@ -1453,6 +1579,12 @@ class ASGITestClient:
 
     def put(self, path, **kwargs):
         return self.request("PUT", path, **kwargs)
+
+    def patch(self, path, **kwargs):
+        return self.request("PATCH", path, **kwargs)
+
+    def delete(self, path, **kwargs):
+        return self.request("DELETE", path, **kwargs)
 
 
 @pytest.fixture

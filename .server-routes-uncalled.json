@@ -80,6 +80,11 @@
   ],
   "uncalled": [
     {
+      "route": "/contexts/{context_id}/batches",
+      "loai": "tinh-nang",
+      "reason": "M5 lát v-b (đợt thu trong vỏ RuDi): màn Quyết toán sống cần liệt kê các đợt thu của nhóm để tới được bảng thu sau khi máy đã quên id từ POST /batches. Route đi trước theo luật máy chủ merge trước client; PR client v-b gỡ dòng này khi màn gọi."
+    },
+    {
       "route": "/contexts/{context_id}/budget",
       "loai": "cong-mu",
       "reason": "F34 ngân sách. ĐÃ CÓ NGƯỜI GỌI THẬT từ #382: apps/mobile/src/screens/ai-hieu-nhom/ai-hieu-nhom.ts:225 gọi `${prefix}/budget`, với prefix dựng ở dòng 214 là `${base}/contexts/${contextId}`. Cổng không thấy được vì nó đọc từng literal một: nó thấy '/budget' và thấy '/contexts/', không bao giờ thấy đường dẫn ghép. Đường bấm: chat/TinNhan.tsx:636 (nút 'AI hiểu nhóm') -> onMoAiHieu (460) -> AiHieuNhom (466) -> napAiHieuNhom (203). Lý do cũ ghi 'chưa màn nào hiện' đã hết hiệu lực kể từ #382."
@@ -108,6 +113,36 @@
       "route": "/contexts/{context_id}/read-mark",
       "loai": "tinh-nang",
       "reason": "M3 (ADR-0016): màn chat vỏ RuDi gọi khi người dùng xem tới tin mới nhất để `unread_count` về 0. Gỡ pin ở PR client M3."
+    },
+    {
+      "route": "/auth/google",
+      "loai": "tinh-nang",
+      "reason": "M1 (ADR-0016): nút «Tiếp tục với Google» trên màn Login của vỏ RuDi gọi sau khi Lead tạo client id (Google Cloud) và PR client Google nối @react-native-google-signin. Gỡ pin ở PR đó."
+    },
+    {
+      "route": "/people/me",
+      "loai": "tinh-nang",
+      "reason": "M2: tab Cá nhân của vỏ RuDi (`app/(tabs)/profile.tsx`) đọc counts thật + login_methods. Gỡ pin ở PR client M2."
+    },
+    {
+      "route": "/people/me/saved-places",
+      "loai": "tinh-nang",
+      "reason": "M2/M4: mục «Đã lưu» ở Cá nhân và bộ lọc «Đã lưu» ở Khám phá. Gỡ pin ở PR client M4."
+    },
+    {
+      "route": "/people/me/saved-places/{place_id}",
+      "loai": "tinh-nang",
+      "reason": "M4: nút «Lưu địa điểm» ở chi tiết địa điểm (PUT/DELETE). Gỡ pin ở PR client M4."
+    },
+    {
+      "route": "/contexts/{context_id}/messages/{message_id}/reactions",
+      "loai": "tinh-nang",
+      "reason": "M3: long-press bong bóng → ReactionChip trong chat của vỏ RuDi. Gỡ pin ở PR client M3."
+    },
+    {
+      "route": "/contexts/{context_id}/messages/{message_id}/reactions/{kind}",
+      "loai": "tinh-nang",
+      "reason": "M3: bấm lại chip để bỏ phản ứng. Gỡ pin ở PR client M3."
     }
   ]
 }

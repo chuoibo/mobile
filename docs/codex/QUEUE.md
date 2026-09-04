@@ -48,6 +48,48 @@ số của seed. Muốn demo kể một câu chuyện thì seed phải đổi �
 
 ---
 
+### 0d. 2026-09-03 — Claude nhận các mục backend của lộ trình production-ready (ADR-0016 §2.3)
+
+Lead uỷ quyền Claude hiện thực cả `api/` + `db/` cho lộ trình 8 mốc (kế hoạch
+`~/.claude/plans/…glittery-riddle.md`, ADR-0016 #520). Ghi ở đây để hàng đợi
+này không mô tả việc đã có người làm như thể còn nợ:
+
+| Việc | Ai | Trạng thái |
+|---|---|---|
+| PR-BE0 seed hỏng vì `/bank-recipients` (#519) | Claude | ĐÃ MERGE |
+| PR-BE2 `issued_via`, `GET /people/me/contexts`, `context_read_marks`, idempotency scope theo bearer — đóng luôn 0a «nhóm nào?» | Claude | **#526** mở, agy PASS, chờ Lead chấp nhận ADR-0016 (#520) rồi merge đầu chuỗi |
+| PR-BE3 OTP điện thoại (`/auth/otp/*`, `otp_challenges`, `account_identities`, SMS sender cắm được) | Claude | **#529** mở, xếp trên #526 |
+| PR-BE4 Google ID-token (`/auth/google`) | Claude | **#530** mở, xếp trên #529; client id Google do Lead tạo (SHA-1 ở #527) |
+| PR-BE5 profile + saved places | Claude | **#532** mở, xếp trên #530 |
+| PR-BE6 slash/@mention, `message_reactions`, cursor echo, grounding card client, `/chia-bill` theo lô | Claude | **#534** mở, xếp trên #532 |
+| PR-BE7a `outing_stops.place_id` (chặng của kèo trỏ vào danh mục; giữ check-in khi gắn) | Claude | **#536** mở, xếp trên #534 (M4) |
+| PR-BE7b `GET /contexts/{context_id}/batches` (liệt kê đợt thu của nhóm, gấp từ bảng thu) | Claude | **#541** mở, xếp trên #536 (M5 v-b) |
+| PR-BE7 `seed_rudi_world` HTTP-only re-runnable — đóng 0c «seed ≠ fixture» | Claude | **#546** mở (Node trên chính module client, không đổi máy chủ); đóng 0c khi merge |
+| 0b `check_api_contract.py` mù `/healthz` | còn mở | sửa khi đụng `scripts/` |
+| C1–C3 (OffsetProposal, phản đối dừng thu, bằng chứng che) | còn mở | chưa nằm trong lộ trình |
+
+Phía client (vỏ RuDi, `apps/mobile/`, xếp chồng theo thứ tự, mỗi PR đã có agy PASS + APPROVE có điều kiện chuỗi và bằng chứng emulator trong thân PR):
+
+| PR | Mảng | Merge sau |
+|---|---|---|
+| **#531** | M1 đăng nhập OTP, màn Chưa có nhóm nào, tạo nhóm, phiên sống qua lần tắt | #529 |
+| **#533** | M2 ii-a Tin nhắn = nhóm thật, roster, mời theo số, hồ sơ sống | #531 và #532 |
+| **#535** | M2 ii-b Bạn bè, thêm bạn theo số điện thoại | #533 |
+| **#537** | M3 chat như messenger trên API thật, Rủ Đi AI là thành viên (`/plan` `/vote` `/chia-bill` `@Rủ Đi`), đo bàn phím | #535 và #534 |
+| **#539** | M4 iv-a Khám phá trên `/places`, chi tiết địa điểm (chỉ đường, lưu địa điểm) | #537 |
+| **#540** | M4 iv-b kèo: tạo kèo, lịch trình với chặng trong danh mục, «Tôi đã tới», thêm địa điểm vào kèo | #539 và #536 |
+| **#542** | M5 v-a chia hóa đơn trên máy chủ (ảnh hoặc nhập tay → gán món → máy chủ chia → ghi vào sổ), quyết toán đọc theo chuyến | #540 |
+| **#543** | M5 v-b đợt thu: gom sổ → phát (không hoàn lại) → link riêng từng người → tiền đã về | #542 và #541 |
+| **#545** | M6 vi-a kỷ niệm: tường nhóm (check-in, ảnh, tim, bình luận), album + thước phim theo kèo, thành tích tính từ sổ | #543 |
+| **#547** | M6 vi-b xoá App B (App.tsx, navigation, 53 màn .tsx, tool web, 46+ test đo App B) — bảng đối chiếu claim trong thân PR; `npm test` 1126 → 605 | #545 |
+| **#549** | M7 vii-a đánh bóng dark + font 1.3 theo finish reviewer (7 nguyên nhân gốc: thẻ lưu ý tô cứng, FAB glyph trắng, form thêm chặng đẩy nút gửi khỏi màn, caption cắt, CTA chạm thanh cử chỉ, «Đang / mở» gãy, gradient nút dùng cặp light); ba lượt emulator XANH (dark 1.3 ×2, light 1.0) | #547 |
+| **#550** | M7: `scripts/bang_doi_chieu_mockup.py` + bảng 21/21 mockup ↔ ảnh emulator (mã thoát 2 khi còn ô thiếu), flow 26/29/32 chụp thêm ba màn, `DESIGN.md` đo lại từ artifact đã ship (documenter), `docs/CHAY-DEMO.md` theo dev client + OTP + `make demo-rudi` | #549 |
+| **#552** | M7: harness `--live --otp-phone` thay `--actor/--context` (cửa fixture tắt, người seed đăng nhập OTP như người thật), flow `20-the-gioi-seed` xem «Team Đà Lạt» trên máy (chat /vote, kèo 3 chặng, tài chính 160.000đ/1.120.000đ, đợt thu đã phát) + `kiem_may_chu_sau_20`; tiền trong Stat/hero kèo co chữ một dòng; ba lượt emulator (đỏ đúng một lần ở nghĩa `spend_vnd`, rồi XANH ×2) | #550 |
+| **#554** | M7: 155 màu viết tay (hex + rgba) ở 13 file thành tên trong `theme.ts` (`mauSang`, `mucTrenAnh`, `giayHoaDon`, `bangMauFixture`, `phuMau`, `lopPhu`…), danh sách nợ `rudi-khong-hex` rỗng; bảng mặc định so ảnh từng điểm 16/18 lệch 0, bảng `--otp` XANH 11 flow | #552 |
+| **#546** | M7 seed «Team Đà Lạt» bằng chính client app (`tools/seed-rudi-world.mjs`, `make demo-rudi`), chạy thật hai lượt (dựng rồi no-op) | #545 (đổi base sang #554 khi merge) |
+
+Thứ tự merge chờ Lead: #520 → #526 → #529 → #530 → #532 → #534 → #536 → #541 (máy chủ) và #531 → #533 → #535 → #537 → #539 → #540 → #542 → #543 → #545 → #547 → #549 → #550 → #552 → #554 → #546 (client + seed), đổi base về `main` từng bước. Mọi PR đều có agy PASS và APPROVE có điều kiện chuỗi trong comment (trừ PR đang chờ agy lúc ghi). Cập nhật 2026-09-04 (lần 5).
+
 ## A. REVIEW — 5 PR đang chờ bạn
 
 ### A1. PR #11 — hai luồng phản đối của khách *(mới, quan trọng)*

@@ -10,11 +10,12 @@ from fastapi import APIRouter, Depends, status
 from app.api.deps import Actor, get_actor, get_repository
 from app.api.repository import ApiRepository
 from app.api.schemas import (
-    BatchObligationsResponse,
     BatchCreateRequest,
     BatchCreateResponse,
+    BatchObligationsResponse,
     BatchPublishRequest,
     BatchPublishResponse,
+    ContextBatchesResponse,
     ErrorResponse,
 )
 from app.api.service import ApiService
@@ -72,3 +73,21 @@ def list_batch_obligations(
     worth nothing if the person collecting cannot see which one it is.
     """
     return ApiService(repository).list_batch_obligations(batch_id, actor)
+
+
+@router.get(
+    "/contexts/{context_id}/batches",
+    response_model=ContextBatchesResponse,
+    responses={403: {"model": ErrorResponse}},
+)
+def list_context_batches(
+    context_id: UUID,
+    actor: Annotated[Actor, Depends(get_actor)],
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+) -> ContextBatchesResponse:
+    """The group's collection rounds, newest first, each summarised from its board.
+
+    Read-only. A member reaches a round from here after the phone that opened
+    it has forgotten the id; the board itself stays at `/batches/{id}/obligations`.
+    """
+    return ApiService(repository).list_context_batches(context_id, actor)

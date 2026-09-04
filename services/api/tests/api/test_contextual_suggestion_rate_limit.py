@@ -80,6 +80,9 @@ _KNOWN_DOORS = frozenset(
         "chat_expense_limiter",
         "screenshot_scan_limiter",
         "companion_turn_limiter",
+        # M3: `/plan`, `@Rủ Đi` and `/chia-bill` inside `POST /messages` reach the
+        # companion through this window, distinct from the ai-turn route's own.
+        "message_intent_limiter",
         "suggestion_limiter",
         "reason_writer",
         "contextual_suggestion_limiter",

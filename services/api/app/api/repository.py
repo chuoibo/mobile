@@ -59,6 +59,7 @@ from app.db.models import (
     MemoryReaction,
     Message,
     MessageKind,
+    MessageReaction,
     OtpChallenge,
     Outing,
     OutingInvite,
@@ -71,6 +72,7 @@ from app.db.models import (
     Post,
     PostAudience,
     ReceiptConfirmation,
+    SavedPlace,
     UploadedImage,
     VerificationScope,
     Vote,
@@ -107,6 +109,8 @@ class PersonRecord:
     id: uuid.UUID
     display_name: str
     created_at: datetime
+    bio: str | None = None
+    city: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -261,6 +265,7 @@ class OutingStopRecord:
     minute_of_day: int
     label: str
     place_name: str | None
+    place_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -454,6 +459,32 @@ class AccountIdentityRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class ReactionRecord:
+    message_id: uuid.UUID
+    person_id: uuid.UUID
+    kind: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProfileCounts:
+    """What `GET /people/me` shows as numbers. Each is one COUNT query."""
+
+    friends: int
+    contexts: int
+    outings: int
+    places_checked_in: int
+    memories: int
+
+
+@dataclass(frozen=True, slots=True)
+class SavedPlaceRecord:
+    id: uuid.UUID
+    person_id: uuid.UUID
+    place_id: str
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class ReadMarkRecord:
     context_id: uuid.UUID
     person_id: uuid.UUID
@@ -577,6 +608,27 @@ class BatchBoard:
 
     context_id: uuid.UUID
     obligations: tuple[BatchObligationRow, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ContextBatchRow:
+    """One collection round of a group, summarised from its own board.
+
+    Every count here is folded from `BatchObligationRow`s the board already
+    derives -- status included -- so the list and the board can never disagree
+    about what arrived. `total_vnd` is the sum of the obligations' amounts:
+    ledger rows added on the server, not a share computed anywhere.
+    """
+
+    batch_id: uuid.UUID
+    status: str
+    created_at: datetime
+    published_at: datetime | None
+    obligation_count: int
+    #: Obligations whose confirmed receipts reach the declared amount.
+    confirmed_count: int
+    disputed_count: int
+    total_vnd: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -1047,6 +1099,46 @@ class ApiRepository(Protocol):
         self, *, challenge_id: uuid.UUID, attempts: int, consumed: bool, now: datetime
     ) -> OtpChallengeRecord | None: ...
 
+    def create_person_with_identity(
+        self,
+        *,
+        person_id: uuid.UUID,
+        display_name: str,
+        provider: str,
+        subject: str,
+        now: datetime,
+    ) -> AccountIdentityRecord: ...
+
+    def update_person_profile(
+        self, person_id: uuid.UUID, *, changes: dict[str, str | None]
+    ) -> PersonRecord | None: ...
+
+    def profile_counts(self, person_id: uuid.UUID) -> ProfileCounts: ...
+
+    def list_login_providers(self, person_id: uuid.UUID) -> list[str]: ...
+
+    def are_friends(self, a: uuid.UUID, b: uuid.UUID) -> bool: ...
+
+    def share_active_context(self, a: uuid.UUID, b: uuid.UUID) -> bool: ...
+
+    def list_saved_places(self, person_id: uuid.UUID) -> list[SavedPlaceRecord]: ...
+
+    def save_place(
+        self, person_id: uuid.UUID, place_id: str, now: datetime
+    ) -> tuple[SavedPlaceRecord, bool]: ...
+
+    def unsave_place(self, person_id: uuid.UUID, place_id: str) -> bool: ...
+
+    def add_reaction(
+        self, *, message_id: uuid.UUID, person_id: uuid.UUID, kind: str, now: datetime
+    ) -> bool: ...
+
+    def remove_reaction(
+        self, *, message_id: uuid.UUID, person_id: uuid.UUID, kind: str
+    ) -> bool: ...
+
+    def list_reactions(self, message_ids: list[uuid.UUID]) -> list[ReactionRecord]: ...
+
     def get_account_identity(
         self, provider: str, subject: str
     ) -> AccountIdentityRecord | None: ...
@@ -1355,6 +1447,10 @@ class ApiRepository(Protocol):
         self, person_id: uuid.UUID, *, movement_limit: int
     ) -> PersonFinanceSummary: ...
 
+    def list_context_batches(
+        self, context_id: uuid.UUID
+    ) -> tuple[ContextBatchRow, ...]: ...
+
     def get_receipt_target(self, obligation_id: uuid.UUID) -> ReceiptTarget | None: ...
 
     def save_receipt_confirmation(
@@ -1506,6 +1602,7 @@ class SqlAlchemyApiRepository:
             minute_of_day=stop.minute_of_day,
             label=stop.label,
             place_name=stop.place_name,
+            place_id=stop.place_id,
         )
 
     def _outing_record(self, outing: Outing) -> OutingRecord:
@@ -1606,6 +1703,8 @@ class SqlAlchemyApiRepository:
             id=person.id,
             display_name=person.display_name,
             created_at=person.created_at,
+            bio=person.bio,
+            city=person.city,
         )
 
     @staticmethod
@@ -2270,6 +2369,9 @@ class SqlAlchemyApiRepository:
         self.session.flush()
         for position, row in kept:
             row.position = position
+            # Only the catalogue link may change on a kept row: its id, and so its
+            # check-ins, stay. Attaching a place is not a new stop.
+            row.place_id = stops[position].get("place_id")
         self.session.flush()
 
         self.session.add_all(
@@ -2280,6 +2382,7 @@ class SqlAlchemyApiRepository:
                     minute_of_day=stop["minute_of_day"],
                     label=stop["label"],
                     place_name=stop["place_name"],
+                    place_id=stop.get("place_id"),
                 )
                 for position, stop in added
             ]
@@ -2822,6 +2925,254 @@ class SqlAlchemyApiRepository:
             row.consumed_at = now
         self.session.flush()
         return self._otp_record(row)
+
+    def create_person_with_identity(
+        self,
+        *,
+        person_id: uuid.UUID,
+        display_name: str,
+        provider: str,
+        subject: str,
+        now: datetime,
+    ) -> AccountIdentityRecord:
+        """A new person and the proof that created them, or neither.
+
+        One savepoint around both rows: when two first logins race on the same
+        proof, the unique index fails the loser's binding and the savepoint
+        takes the loser's `people` row with it. Without that, every lost race
+        would leave a nameless orphan person nobody can ever sign in as.
+        """
+        try:
+            with self.session.begin_nested():
+                self.session.add(Person(id=person_id, display_name=display_name))
+                # Flushed on its own first: the two models share a ForeignKey
+                # but no relationship(), so the unit of work does not know the
+                # order and can emit the binding before the person it points at.
+                self.session.flush()
+                row = AccountIdentity(
+                    person_id=person_id,
+                    provider=provider,
+                    subject=subject,
+                    created_at=now,
+                    last_login_at=now,
+                )
+                self.session.add(row)
+                self.session.flush()
+        except IntegrityError as exc:
+            raise RepositoryConflict("IDENTITY_ALREADY_BOUND") from exc
+        return self._identity_record(row)
+
+    def update_person_profile(
+        self, person_id: uuid.UUID, *, changes: dict[str, str | None]
+    ) -> PersonRecord | None:
+        """Apply validated profile fields. The service decides what is allowed
+        in `changes`; this only writes them under a row lock."""
+        person = self.session.get(Person, person_id, with_for_update=True)
+        if person is None:
+            return None
+        for field, value in changes.items():
+            setattr(person, field, value)
+        self.session.flush()
+        return self._person_record(person)
+
+    def profile_counts(self, person_id: uuid.UUID) -> ProfileCounts:
+        """Five counts, five queries, each against the table that is the source.
+
+        Friends are `accepted` rows in either direction -- there is no friends
+        table to drift from this. Contexts are ACTIVE memberships only; outings
+        are those of the active contexts; places are distinct stops this person
+        checked in at; memories are the ones they authored.
+        """
+        friends = self.session.scalar(
+            select(func.count())
+            .select_from(FriendRequest)
+            .where(
+                or_(
+                    FriendRequest.requester_id == person_id,
+                    FriendRequest.addressee_id == person_id,
+                ),
+                FriendRequest.state == FriendRequestState.ACCEPTED,
+            )
+        )
+        active_contexts = select(Membership.context_id).where(
+            Membership.person_id == person_id,
+            Membership.state == MembershipState.ACTIVE,
+        )
+        contexts = self.session.scalar(
+            select(func.count()).select_from(active_contexts.subquery())
+        )
+        outings = self.session.scalar(
+            select(func.count())
+            .select_from(Outing)
+            .where(Outing.context_id.in_(active_contexts))
+        )
+        places = self.session.scalar(
+            select(func.count(func.distinct(OutingStopCheckin.stop_id))).where(
+                OutingStopCheckin.person_id == person_id
+            )
+        )
+        memories = self.session.scalar(
+            select(func.count())
+            .select_from(Memory)
+            .where(Memory.author_id == person_id)
+        )
+        return ProfileCounts(
+            friends=friends or 0,
+            contexts=contexts or 0,
+            outings=outings or 0,
+            places_checked_in=places or 0,
+            memories=memories or 0,
+        )
+
+    def list_login_providers(self, person_id: uuid.UUID) -> list[str]:
+        return list(
+            self.session.scalars(
+                select(AccountIdentity.provider)
+                .where(AccountIdentity.person_id == person_id)
+                .distinct()
+                .order_by(AccountIdentity.provider)
+            )
+        )
+
+    def are_friends(self, a: uuid.UUID, b: uuid.UUID) -> bool:
+        return (
+            self.session.scalar(
+                select(FriendRequest.id)
+                .where(
+                    FriendRequest.state == FriendRequestState.ACCEPTED,
+                    or_(
+                        and_(
+                            FriendRequest.requester_id == a,
+                            FriendRequest.addressee_id == b,
+                        ),
+                        and_(
+                            FriendRequest.requester_id == b,
+                            FriendRequest.addressee_id == a,
+                        ),
+                    ),
+                )
+                .limit(1)
+            )
+            is not None
+        )
+
+    def share_active_context(self, a: uuid.UUID, b: uuid.UUID) -> bool:
+        mine = select(Membership.context_id).where(
+            Membership.person_id == a, Membership.state == MembershipState.ACTIVE
+        )
+        return (
+            self.session.scalar(
+                select(Membership.id)
+                .where(
+                    Membership.person_id == b,
+                    Membership.state == MembershipState.ACTIVE,
+                    Membership.context_id.in_(mine),
+                )
+                .limit(1)
+            )
+            is not None
+        )
+
+    def list_saved_places(self, person_id: uuid.UUID) -> list[SavedPlaceRecord]:
+        rows = self.session.scalars(
+            select(SavedPlace)
+            .where(SavedPlace.person_id == person_id)
+            .order_by(SavedPlace.created_at.desc(), SavedPlace.id)
+        ).all()
+        return [self._saved_place_record(row) for row in rows]
+
+    def save_place(
+        self, person_id: uuid.UUID, place_id: str, now: datetime
+    ) -> tuple[SavedPlaceRecord, bool]:
+        existing = self.session.scalar(
+            select(SavedPlace).where(
+                SavedPlace.person_id == person_id, SavedPlace.place_id == place_id
+            )
+        )
+        if existing is not None:
+            return self._saved_place_record(existing), False
+        row = SavedPlace(person_id=person_id, place_id=place_id, created_at=now)
+        try:
+            with self.session.begin_nested():
+                self.session.add(row)
+                self.session.flush()
+        except IntegrityError:
+            # Two taps raced on one bookmark; the first one is the bookmark.
+            winner = self.session.scalar(
+                select(SavedPlace).where(
+                    SavedPlace.person_id == person_id, SavedPlace.place_id == place_id
+                )
+            )
+            assert winner is not None
+            return self._saved_place_record(winner), False
+        return self._saved_place_record(row), True
+
+    def unsave_place(self, person_id: uuid.UUID, place_id: str) -> bool:
+        row = self.session.scalar(
+            select(SavedPlace).where(
+                SavedPlace.person_id == person_id, SavedPlace.place_id == place_id
+            )
+        )
+        if row is None:
+            return False
+        self.session.delete(row)
+        self.session.flush()
+        return True
+
+    @staticmethod
+    def _saved_place_record(row: SavedPlace) -> SavedPlaceRecord:
+        return SavedPlaceRecord(
+            id=row.id,
+            person_id=row.person_id,
+            place_id=row.place_id,
+            created_at=row.created_at,
+        )
+
+    def add_reaction(
+        self, *, message_id: uuid.UUID, person_id: uuid.UUID, kind: str, now: datetime
+    ) -> bool:
+        """True when a row was added; False when this reaction already stood."""
+        row = MessageReaction(
+            message_id=message_id, person_id=person_id, kind=kind, created_at=now
+        )
+        try:
+            with self.session.begin_nested():
+                self.session.add(row)
+                self.session.flush()
+        except IntegrityError:
+            # The unique index says it is already there; two taps are one heart.
+            return False
+        return True
+
+    def remove_reaction(
+        self, *, message_id: uuid.UUID, person_id: uuid.UUID, kind: str
+    ) -> bool:
+        row = self.session.scalar(
+            select(MessageReaction).where(
+                MessageReaction.message_id == message_id,
+                MessageReaction.person_id == person_id,
+                MessageReaction.kind == kind,
+            )
+        )
+        if row is None:
+            return False
+        self.session.delete(row)
+        self.session.flush()
+        return True
+
+    def list_reactions(self, message_ids: list[uuid.UUID]) -> list[ReactionRecord]:
+        """Every reaction on these messages, one query for the whole page."""
+        if not message_ids:
+            return []
+        rows = self.session.scalars(
+            select(MessageReaction)
+            .where(MessageReaction.message_id.in_(message_ids))
+            .order_by(MessageReaction.created_at, MessageReaction.id)
+        ).all()
+        return [
+            ReactionRecord(message_id=r.message_id, person_id=r.person_id, kind=r.kind)
+            for r in rows
+        ]
 
     def get_account_identity(
         self, provider: str, subject: str
@@ -4571,6 +4922,47 @@ class SqlAlchemyApiRepository:
                 )
             )
         return BatchBoard(context_id=batch.context_id, obligations=tuple(rows))
+
+    def list_context_batches(
+        self, context_id: uuid.UUID
+    ) -> tuple[ContextBatchRow, ...]:
+        """Every collection round this group opened, newest first.
+
+        Each row is folded from `list_batch_obligations` rather than from a
+        second query over the same tables: the board is the one place status
+        is derived (receipts summed, disputes read back from events), and a
+        list that re-derived it would be a second answer waiting to drift.
+        One board read per batch is a handful of queries for a handful of
+        rounds; a group does not open hundreds.
+        """
+        batches = list(
+            self.session.scalars(
+                select(CollectionBatch)
+                .where(CollectionBatch.context_id == context_id)
+                .order_by(CollectionBatch.created_at.desc(), CollectionBatch.id)
+            )
+        )
+        rows = []
+        for batch in batches:
+            board = self.list_batch_obligations(batch.id)
+            obligations = () if board is None else board.obligations
+            rows.append(
+                ContextBatchRow(
+                    batch_id=batch.id,
+                    status=batch.status.value,
+                    created_at=batch.created_at,
+                    published_at=batch.published_at,
+                    obligation_count=len(obligations),
+                    confirmed_count=sum(
+                        1
+                        for row in obligations
+                        if row.status in ("confirmed", "over_confirmed")
+                    ),
+                    disputed_count=sum(1 for row in obligations if row.disputed),
+                    total_vnd=sum(row.amount_vnd for row in obligations),
+                )
+            )
+        return tuple(rows)
 
     def get_receipt_target(self, obligation_id: uuid.UUID) -> ReceiptTarget | None:
         obligation = self.session.scalar(

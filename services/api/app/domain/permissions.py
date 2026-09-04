@@ -185,6 +185,21 @@ _TABLE: dict[str, dict] = {
     # person before any membership exists (see `actor_grants`), so a brand-new
     # OTP account may ask and be told "no groups yet" rather than 403.
     "view_own_contexts": {"roles": {"member"}, "requires": ("is_self",)},
+    # --- profile and bookmarks (M2) ---------------------------------------
+    # Your own profile: read and edit are `is_self`, like the friend list.
+    "view_own_profile": {"roles": {"member"}, "requires": ("is_self",)},
+    "edit_own_profile": {"roles": {"member"}, "requires": ("is_self",)},
+    # Somebody else's profile is visible to a friend or to a person who shares
+    # an ACTIVE group with them, and to nobody else. The service proves
+    # `is_visible_person` from the friend graph and the roster. An id that does
+    # not exist and an id that is merely not visible get the SAME 403, so the
+    # route is not an oracle for which ids exist.
+    "view_person_profile": {
+        "roles": {"member"},
+        "requires": ("is_visible_person",),
+    },
+    # Bookmarks are the person's, not the group's.
+    "manage_saved_places": {"roles": {"member"}, "requires": ("is_self",)},
     # Resolving a telephone number the caller already holds to a person id.
     # No predicate beyond membership of the product, because the caller is
     # asking about a number they typed. What keeps this from being a directory
@@ -360,6 +375,12 @@ _TABLE: dict[str, dict] = {
     # F34 carries the group's historical and current ledger totals. A context
     # id from a link is not authority to read them; only an ACTIVE row is.
     "view_group_budget": {
+        "roles": {"group_admin", "member"},
+        "requires": ("is_group_member",),
+    },
+    # A reaction is a message-sized write by a member; reading them rides on
+    # `view_group_messages`, which is why the list carries counts, not names.
+    "react_to_message": {
         "roles": {"group_admin", "member"},
         "requires": ("is_group_member",),
     },

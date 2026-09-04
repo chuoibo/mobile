@@ -18,6 +18,7 @@ from app.api.chat_expense_skill import ChatExpenseReader, run_chat_expense_skill
 from app.api.cursors import CursorError, decode_cursor, encode_cursor
 from app.api.deps import Actor, Companion, ContextualSuggester, Reeler, Suggester
 from app.api.errors import ApiProblem, RepositoryConflict
+from app.api.google_identity import GoogleTokenInvalid, GoogleTokenVerifier
 from app.api.limits import OBJECTION_KINDS, QUOTA_CONSUMING_OBJECTIONS
 from app.api.person_identity import (
     PersonIdKeyMissing,
@@ -45,6 +46,7 @@ from app.api.repository import (
     PersonFinanceSummary,
     PersonRecord,
     PostRecord,
+    ReactionRecord,
     RecapOutingRecord,
     StopCheckinRecord,
     UploadedImageRecord,
@@ -80,6 +82,8 @@ from app.api.schemas import (
     CompanionTurnResponse,
     ContextBalanceEntry,
     ContextBalancesResponse,
+    ContextBatchesResponse,
+    ContextBatchView,
     ContextCreateRequest,
     ContextLastMessage,
     ContextResponse,
@@ -122,6 +126,7 @@ from app.api.schemas import (
     MessageCreateRequest,
     MessageListResponse,
     MessageQuery,
+    MessageReactionsResponse,
     MessageResponse,
     ObligationResponse,
     OtpRequestResponse,
@@ -140,14 +145,21 @@ from app.api.schemas import (
     PersonMatchResponse,
     PersonPostListResponse,
     PostCreateRequest,
+    PostedMessageResponse,
     PostListResponse,
     PostResponse,
     PreferenceProfileResponse,
     PreferenceSection,
     PreferenceTaste,
+    ProfileCountsResponse,
+    ProfileResponse,
     ProfileSummary,
+    ProfileUpdateRequest,
+    PublicPersonResponse,
     PublishedGuestLink,
     PublishedObligation,
+    ReactionRequest,
+    ReactionSummary,
     ReadMarkRequest,
     ReadMarkResponse,
     RecapOutingResponse,
@@ -155,6 +167,8 @@ from app.api.schemas import (
     ReceiptConfirmationResponse,
     ReelPick,
     ReelResponse,
+    SavedPlacesResponse,
+    SavedPlaceSummary,
     SessionResponse,
     SettlementTransferProposal,
     SocialMapResponse,
@@ -168,6 +182,7 @@ from app.api.schemas import (
     VoteBallotResponse,
     VoteCreateRequest,
     VoteListResponse,
+    VoteOptionInput,
     VoteOptionResultResponse,
     VoteResponse,
     WidgetPhotoResponse,
@@ -180,6 +195,8 @@ from app.domain.allocator import allocate
 from app.domain.bill import BillError, allocator_input_from_bill
 from app.domain.budget import build_group_budget
 from app.domain.capability import CapabilityScopeError, capability_scope
+from app.domain.chat_expense import ChatExpenseError
+from app.domain.chat_intent import parse_intent, parse_vote
 from app.domain.collection import CollectionError, transition, unmet_publish_gates
 from app.domain.companion import CompanionError, ground_card, plan_turn
 from app.domain.contract import AllocationError
@@ -714,6 +731,7 @@ def _wire_outing(record: OutingRecord) -> OutingResponse:
                 at=_clock(stop.minute_of_day),
                 label=stop.label,
                 place_name=stop.place_name,
+                place_id=stop.place_id,
             )
             for stop in record.stops
         ],
@@ -807,7 +825,9 @@ def _wire_outing_invite(
     )
 
 
-def _wire_message(record: MessageRecord) -> MessageResponse:
+def _wire_message(
+    record: MessageRecord, reactions: list[ReactionSummary] | None = None
+) -> MessageResponse:
     return MessageResponse(
         id=record.id,
         context_id=record.context_id,
@@ -818,7 +838,35 @@ def _wire_message(record: MessageRecord) -> MessageResponse:
         card=record.card,
         created_at=record.created_at,
         cursor=encode_cursor(record.created_at, record.id),
+        reactions=reactions or [],
     )
+
+
+def _summarise_reactions(
+    rows: list[ReactionRecord], reader_id: uuid.UUID
+) -> dict[uuid.UUID, list[ReactionSummary]]:
+    """Counts per (message, kind), and whether the reader is among them."""
+    counts: dict[tuple[uuid.UUID, str], int] = {}
+    mine: set[tuple[uuid.UUID, str]] = set()
+    order: list[tuple[uuid.UUID, str]] = []
+    for row in rows:
+        key = (row.message_id, row.kind)
+        if key not in counts:
+            counts[key] = 0
+            order.append(key)
+        counts[key] += 1
+        if row.person_id == reader_id:
+            mine.add(key)
+    out: dict[uuid.UUID, list[ReactionSummary]] = {}
+    for message_id, kind in order:
+        out.setdefault(message_id, []).append(
+            ReactionSummary(
+                kind=kind,
+                count=counts[(message_id, kind)],
+                mine=(message_id, kind) in mine,
+            )
+        )
+    return out
 
 
 def _group_budget_per_person_vnd() -> int | None:
@@ -2310,11 +2358,21 @@ class ApiService:
             actor,
             {"is_group_member": self.repository.is_member(record.context_id, actor.id)},
         )
+        for stop in request.stops:
+            # A stop may name a catalogue place; a key the catalogue does not
+            # know is a client bug, refused before anything is written.
+            if stop.place_id is not None and find_place(stop.place_id) is None:
+                raise ApiProblem(
+                    422,
+                    "stop_place_unknown",
+                    "Chặng nêu một địa điểm không có trong danh mục.",
+                )
         stops = [
             {
                 "minute_of_day": _minute_of_day(stop.at),
                 "label": stop.label,
                 "place_name": stop.place_name,
+                "place_id": stop.place_id,
             }
             for stop in request.stops
         ]
@@ -2777,6 +2835,270 @@ class ApiService:
         )
         return self._session_response(
             raw_token, record, person_id=person_id, is_new_person=is_new
+        )
+
+    def login_with_google(
+        self, id_token: object, *, verifier: GoogleTokenVerifier | None
+    ) -> SessionResponse:
+        """A Google ID token for a session (ADR-0016). The e-mail never gets here.
+
+        Order matters and is the whole of the security argument: a host with
+        no client ids refuses before it reads the token (503); a token the
+        verifier does not vouch for is one 401 whatever the reason; and the
+        `sub` is looked up in `account_identities` and nowhere else -- a first
+        `sub` is a NEW person even if a person with the same e-mail exists,
+        because `GoogleClaims` does not carry the e-mail to make that choice.
+        """
+        if verifier is None:
+            raise ApiProblem(
+                503,
+                "google_not_configured",
+                "Máy chủ chưa cấu hình đăng nhập Google.",
+            )
+        if not isinstance(id_token, str) or not id_token.strip():
+            raise ApiProblem(422, "id_token_required", "Thiếu id_token.")
+        try:
+            claims = verifier.verify(id_token.strip())
+        except GoogleTokenInvalid as broken:
+            raise ApiProblem(
+                401,
+                "google_token_invalid",
+                "Google không xác nhận lượt đăng nhập này. Thử lại.",
+            ) from broken
+        now = _now()
+        existing = self.repository.get_account_identity("google", claims.subject)
+        if existing is None:
+            person_id = uuid.uuid4()
+            is_new = True
+            try:
+                self.repository.create_person_with_identity(
+                    person_id=person_id,
+                    display_name=claims.display_name or self.NEW_PERSON_NAME,
+                    provider="google",
+                    subject=claims.subject,
+                    now=now,
+                )
+            except RepositoryConflict:
+                # Two first logins raced on one `sub`. The repository rolled the
+                # loser's person row back with the failed binding, so re-read
+                # the winner and sign in as that person.
+                won = self.repository.get_account_identity("google", claims.subject)
+                if won is None:
+                    raise
+                person_id = won.person_id
+                is_new = False
+        else:
+            person_id = existing.person_id
+            is_new = False
+            self.repository.upsert_account_identity(
+                person_id=person_id, provider="google", subject=claims.subject, now=now
+            )
+        raw_token = secrets.token_urlsafe(32)
+        record = self.repository.create_account_session(
+            person_id=person_id,
+            token_digest=token_digest(raw_token),
+            issued_from_invite_id=None,
+            expires_at=now + ACCOUNT_SESSION_TTL,
+            now=now,
+            issued_via="google",
+        )
+        return self._session_response(
+            raw_token, record, person_id=person_id, is_new_person=is_new
+        )
+
+    # --- profile and bookmarks (M2) -----------------------------------------
+
+    def get_my_profile(self, actor: Actor) -> ProfileResponse:
+        _require_permission("view_own_profile", actor, {"is_self": True})
+        person = self.repository.get_person(actor.id)
+        if person is None:
+            raise ApiProblem(
+                404, "person_not_found", "Chưa có hồ sơ cho tài khoản này."
+            )
+        return self._profile_response(person)
+
+    def update_my_profile(
+        self, request: ProfileUpdateRequest, actor: Actor
+    ) -> ProfileResponse:
+        """Partial update of the caller's own text. `display_name` is trimmed
+        and never blank (the schema refuses blank); an empty `bio`/`city`
+        clears the field, which is the only way to take a sentence back."""
+        _require_permission("edit_own_profile", actor, {"is_self": True})
+        changes: dict[str, str | None] = {}
+        if request.display_name is not None:
+            changes["display_name"] = request.display_name.strip()
+        if request.bio is not None:
+            changes["bio"] = request.bio.strip() or None
+        if request.city is not None:
+            changes["city"] = request.city.strip() or None
+        person = self.repository.update_person_profile(actor.id, changes=changes)
+        if person is None:
+            raise ApiProblem(
+                404, "person_not_found", "Chưa có hồ sơ cho tài khoản này."
+            )
+        return self._profile_response(person)
+
+    def _profile_response(self, person: PersonRecord) -> ProfileResponse:
+        counts = self.repository.profile_counts(person.id)
+        return ProfileResponse(
+            id=person.id,
+            display_name=person.display_name,
+            bio=person.bio,
+            city=person.city,
+            created_at=person.created_at,
+            counts=ProfileCountsResponse(
+                friends=counts.friends,
+                contexts=counts.contexts,
+                outings=counts.outings,
+                places_checked_in=counts.places_checked_in,
+                memories=counts.memories,
+            ),
+            login_methods=self.repository.list_login_providers(person.id),
+        )
+
+    def get_person_profile(
+        self, person_id: uuid.UUID, actor: Actor
+    ) -> PublicPersonResponse:
+        """Somebody's public profile, for a friend or a groupmate.
+
+        The relation is proved from the friend graph and the roster BEFORE the
+        person row is read, and an id nobody may see answers 403
+        `person_not_visible` whether or not it exists. Reading the row first
+        would make the 404/403 split an oracle for which ids are people.
+        """
+        if person_id == actor.id:
+            relation = "self"
+        elif self.repository.are_friends(actor.id, person_id):
+            relation = "friend"
+        elif self.repository.share_active_context(actor.id, person_id):
+            relation = "groupmate"
+        else:
+            relation = None
+        try:
+            _require_permission(
+                "view_person_profile",
+                actor,
+                {
+                    "is_visible_person": relation is not None,
+                    "resource_id": str(person_id),
+                },
+            )
+        except ApiProblem as denied:
+            raise ApiProblem(
+                403, "person_not_visible", "Không xem được hồ sơ này."
+            ) from denied
+        assert relation is not None
+        person = self.repository.get_person(person_id)
+        if person is None:
+            # Only reachable for `self` without a people row: the other two
+            # relations are proved from rows that reference this person.
+            raise ApiProblem(
+                404, "person_not_found", "Chưa có hồ sơ cho tài khoản này."
+            )
+        return PublicPersonResponse(
+            id=person.id,
+            display_name=person.display_name,
+            bio=person.bio,
+            city=person.city,
+            created_at=person.created_at,
+            relation=relation,
+        )
+
+    def list_saved_places(self, actor: Actor) -> SavedPlacesResponse:
+        _require_permission("manage_saved_places", actor, {"is_self": True})
+        saved = []
+        for record in self.repository.list_saved_places(actor.id):
+            place = find_place(record.place_id)
+            # A bookmark whose catalogue row is gone is not shown rather than
+            # shown with a made-up name; the row stays for when it comes back.
+            if place is not None:
+                saved.append(self._saved_place_summary(record, place))
+        return SavedPlacesResponse(saved=saved)
+
+    def save_place(self, place_id: str, actor: Actor) -> tuple[SavedPlaceSummary, bool]:
+        _require_permission("manage_saved_places", actor, {"is_self": True})
+        place = self._known_place(place_id)
+        record, created = self.repository.save_place(actor.id, place_id, _now())
+        return self._saved_place_summary(record, place), created
+
+    def unsave_place(self, place_id: str, actor: Actor) -> None:
+        """Idempotent: removing a bookmark that is not there is still «not
+        there», so the route answers 204 either way. An unknown catalogue key is
+        the one thing refused, because it can only be a client bug."""
+        _require_permission("manage_saved_places", actor, {"is_self": True})
+        self._known_place(place_id)
+        self.repository.unsave_place(actor.id, place_id)
+
+    @staticmethod
+    def _known_place(place_id: str) -> dict:
+        place = find_place(place_id)
+        if place is None:
+            raise ApiProblem(
+                404, "place_not_found", "Không có địa điểm này trong danh mục."
+            )
+        return place
+
+    @staticmethod
+    def _saved_place_summary(record, place: dict) -> SavedPlaceSummary:
+        return SavedPlaceSummary(
+            place_id=record.place_id,
+            name=place["name"],
+            category=place["category"],
+            saved_at=record.created_at,
+        )
+
+    # --- reactions (M3) ------------------------------------------------------
+
+    def _message_in_context(self, context_id: uuid.UUID, message_id: uuid.UUID):
+        message = self.repository.get_message(message_id)
+        if message is None or message.context_id != context_id:
+            # Same answer for absent and cross-context: a guessed id must not
+            # learn that a message exists somewhere else.
+            raise ApiProblem(404, "message_not_found", "Message does not exist")
+        return message
+
+    def react_to_message(
+        self,
+        context_id: uuid.UUID,
+        message_id: uuid.UUID,
+        request: ReactionRequest,
+        actor: Actor,
+    ) -> MessageReactionsResponse:
+        _require_permission(
+            "react_to_message",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        self._message_in_context(context_id, message_id)
+        # Idempotent on purpose: two taps are one heart, and the answer is the
+        # same list either way.
+        self.repository.add_reaction(
+            message_id=message_id, person_id=actor.id, kind=request.kind, now=_now()
+        )
+        return self._reactions_response(message_id, actor)
+
+    def unreact_to_message(
+        self, context_id: uuid.UUID, message_id: uuid.UUID, kind: str, actor: Actor
+    ) -> MessageReactionsResponse:
+        _require_permission(
+            "react_to_message",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        self._message_in_context(context_id, message_id)
+        self.repository.remove_reaction(
+            message_id=message_id, person_id=actor.id, kind=kind
+        )
+        return self._reactions_response(message_id, actor)
+
+    def _reactions_response(
+        self, message_id: uuid.UUID, actor: Actor
+    ) -> MessageReactionsResponse:
+        summaries = _summarise_reactions(
+            self.repository.list_reactions([message_id]), actor.id
+        )
+        return MessageReactionsResponse(
+            message_id=message_id, reactions=summaries.get(message_id, [])
         )
 
     def _session_response(
@@ -3481,13 +3803,209 @@ class ApiService:
             )
 
         _require_photo_url_context(context_id, request.image_url)
+        card = request.card
+        if request.kind == "ai_card":
+            # A client may post a card, but only one the server would have
+            # written itself: known kind, every place in the catalogue, text
+            # bounded. The same whitelist that grounds the model grounds the
+            # client, so `poll` and `expense_draft` -- server-authored kinds --
+            # cannot be forged from a phone.
+            try:
+                card = ground_card(
+                    request.card, companion_places.load_place_catalogue()
+                )
+            except CompanionError as refused:
+                raise ApiProblem(
+                    422,
+                    "card_ungrounded",
+                    "Thẻ không hợp lệ: loại thẻ lạ hoặc nêu địa điểm không có trong danh mục.",
+                ) from refused
         record = self.repository.create_message(
             context_id=context_id,
             author_id=actor.id,
             kind=request.kind,
             body=request.body,
             image_url=request.image_url,
-            card=request.card,
+            card=card,
+            now=_now(),
+        )
+        return _wire_message(record)
+
+    def act_on_message_intent(
+        self,
+        context_id: uuid.UUID,
+        posted: MessageResponse,
+        actor: Actor,
+        *,
+        companion: Companion,
+        companion_limiter,
+        expense_reader: ChatExpenseReader | None = None,
+    ) -> PostedMessageResponse:
+        """What the stored message asked for, done after it is safely stored.
+
+        `/plan` and `@Rủ Đi` are a requested companion turn; `/vote` creates a
+        poll and a poll card in the caller's name; `/chia-bill` is answered
+        honestly as not available until the batch reader lands. Nothing here
+        raises after the store: a companion refused by the window becomes
+        `companion_rate_limited` in the body, because a 429 on a message the
+        server already kept would make the client retry into a duplicate.
+        """
+        base = posted.model_dump()
+        intent = parse_intent(posted.body) if posted.kind == "text" else None
+        if intent is None:
+            return PostedMessageResponse(**base)
+        name = intent["intent"]
+        if name in ("plan", "mention"):
+            try:
+                companion_limiter.check(actor.id)
+            except ApiProblem as limited:
+                if limited.status_code != 429:
+                    raise
+                return PostedMessageResponse(
+                    **base, intent=name, intent_error="companion_rate_limited"
+                )
+            turn = self.take_companion_turn(
+                context_id, actor, companion, requested=True
+            )
+            return PostedMessageResponse(**base, intent=name, companion=turn)
+        if name == "vote":
+            spec = parse_vote(intent["args"])
+            if spec is None:
+                return PostedMessageResponse(
+                    **base, intent="vote", intent_error="vote_malformed"
+                )
+            vote = self.create_vote(
+                context_id,
+                VoteCreateRequest(
+                    question=spec["question"],
+                    options=[VoteOptionInput(label=label) for label in spec["options"]],
+                ),
+                actor,
+            )
+            # The poll card is the PERSON's, not the companion's: authored by
+            # the caller, so the cadence does not read it as an AI turn and no
+            # ceiling is spent on it.
+            self.repository.create_message(
+                context_id=context_id,
+                author_id=actor.id,
+                kind="ai_card",
+                body=None,
+                image_url=None,
+                card={
+                    "kind": "poll",
+                    "payload": {
+                        "vote_id": str(vote.id),
+                        "question": vote.question,
+                        "options": [
+                            {"id": str(option.id), "label": option.label}
+                            for option in vote.options
+                        ],
+                    },
+                },
+                now=_now(),
+            )
+            return PostedMessageResponse(**base, intent="vote", vote=vote)
+        # `/chia-bill`: one companion slot for the whole batch, then read the
+        # recent human text with the same identity-free reader the per-message
+        # draft route uses. The model never sees who paid; the author of each
+        # message is who paid, and the active roster is who shares.
+        if expense_reader is None:
+            return PostedMessageResponse(
+                **base, intent="chia_bill", intent_error="chia_bill_not_available"
+            )
+        try:
+            companion_limiter.check(actor.id)
+        except ApiProblem as limited:
+            if limited.status_code != 429:
+                raise
+            return PostedMessageResponse(
+                **base, intent="chia_bill", intent_error="companion_rate_limited"
+            )
+        outcome = self._draft_expenses_from_chat(
+            context_id, actor, posted.id, expense_reader
+        )
+        if isinstance(outcome, str):
+            return PostedMessageResponse(
+                **base, intent="chia_bill", intent_error=outcome
+            )
+        return PostedMessageResponse(**base, intent="chia_bill", expense_card=outcome)
+
+    CHIA_BILL_WINDOW = 20
+    CHIA_BILL_MODEL_CALLS = 8
+
+    def _draft_expenses_from_chat(
+        self,
+        context_id: uuid.UUID,
+        actor: Actor,
+        command_id: uuid.UUID,
+        reader: ChatExpenseReader,
+    ) -> MessageResponse | str:
+        """Read recent human text into one `expense_draft` card, or say why not.
+
+        At most `CHIA_BILL_WINDOW` recent messages are considered and at most
+        `CHIA_BILL_MODEL_CALLS` of them reach the model: a command over a long
+        evening's chatter must cost a bounded number of model calls. A reading
+        that names a person sinks the whole batch -- the reader's contract says
+        it cannot, so one that does is not to be trusted for the others either.
+        Nothing here creates an expense: a card is a draft somebody confirms.
+        """
+        del actor  # the caller's membership was proved when the message was stored
+        page = self.repository.list_messages(context_id, limit=self.CHIA_BILL_WINDOW)
+        candidates = [
+            message
+            for message in page.messages
+            if message.id != command_id
+            and message.kind == "text"
+            and message.author_id is not None
+            and isinstance(message.body, str)
+            and message.body.strip()
+            and parse_intent(message.body) is None
+        ]
+        shared_by = sorted(
+            (
+                membership.person_id
+                for membership in self.repository.list_members(context_id)
+                if membership.state == "active"
+            ),
+            key=lambda person_id: person_id.bytes,
+        )
+        drafts: list[dict] = []
+        for message in candidates[: self.CHIA_BILL_MODEL_CALLS]:
+            try:
+                reading = run_chat_expense_skill(message.body, reader=reader)
+            except ChatExpenseError as refused:
+                if refused.code == "CHAT_READER_NOT_CONFIGURED":
+                    return "chia_bill_not_available"
+                if refused.code == "MODEL_NAMED_A_PERSON":
+                    logger.warning("chia-bill: reader named a person; batch sunk")
+                    return "chia_bill_refused"
+                continue  # unreadable: not an expense, move on
+            except RuntimeError as broken:
+                logger.warning("chia-bill: reader failed (%s)", type(broken).__name__)
+                return "chia_bill_not_available"
+            if not reading["is_expense"]:
+                continue
+            drafts.append(
+                {
+                    "title": reading["title"],
+                    "amount_vnd": int(reading["amount_vnd"]),
+                    "paid_by_id": str(message.author_id),
+                    "shared_by": [str(person_id) for person_id in shared_by],
+                    "source_message_id": str(message.id),
+                    "needs_review": True,
+                }
+            )
+        if not drafts:
+            return "chia_bill_no_expenses"
+        # Oldest first, the order they were spent in.
+        drafts.reverse()
+        record = self.repository.create_message(
+            context_id=context_id,
+            author_id=None,
+            kind="ai_card",
+            body=None,
+            image_url=None,
+            card={"kind": "expense_draft", "payload": {"drafts": drafts}},
             now=_now(),
         )
         return _wire_message(record)
@@ -3524,11 +4042,22 @@ class ApiService:
             before=before,
             after=after,
         )
-        messages = [_wire_message(record) for record in page.messages]
+        # One query for the page's reactions, not one per message.
+        summaries = _summarise_reactions(
+            self.repository.list_reactions([record.id for record in page.messages]),
+            actor.id,
+        )
+        messages = [
+            _wire_message(record, summaries.get(record.id)) for record in page.messages
+        ]
         return MessageListResponse(
             context_id=context_id,
             messages=messages,
-            next_cursor=messages[-1].cursor if messages else None,
+            # A forward poll that found nothing echoes its own cursor, so the
+            # client keeps polling from the same place instead of restarting
+            # from the top on every empty page. Backward and first pages keep
+            # `None`: there is nothing further to ask for.
+            next_cursor=messages[-1].cursor if messages else query.after,
             has_more=page.has_more,
         )
 
@@ -3631,7 +4160,13 @@ class ApiService:
         metadata = [
             {
                 "id": str(message.id),
-                "author_kind": "ai" if message.kind == "ai_card" else "human",
+                # A poll card is posted in a PERSON's name (`/vote`); only a
+                # card with no author is the companion speaking.
+                "author_kind": (
+                    "ai"
+                    if message.kind == "ai_card" and message.author_id is None
+                    else "human"
+                ),
                 "created_at": message.created_at.isoformat(),
             }
             for message in messages
@@ -3653,7 +4188,11 @@ class ApiService:
                 "author_id": (
                     str(message.author_id) if message.author_id is not None else None
                 ),
-                "author_kind": "ai" if message.kind == "ai_card" else "human",
+                "author_kind": (
+                    "ai"
+                    if message.kind == "ai_card" and message.author_id is None
+                    else "human"
+                ),
                 "kind": message.kind,
                 "body": message.body,
                 "image_url": message.image_url,
@@ -4625,6 +5164,40 @@ class ApiService:
             payment_reported_count=sum(
                 1 for row in rows if row.payment_reported_at is not None
             ),
+        )
+
+    def list_context_batches(
+        self, context_id: uuid.UUID, actor: Actor
+    ) -> ContextBatchesResponse:
+        """The group's collection rounds, for a screen that has to find them.
+
+        `POST /batches` hands the id back once; a phone that restarts, or a
+        member who did not open the round, had no way to reach the board at
+        all. The list is read with the board's own permission, and the
+        membership check runs before the query: an unknown group and a group
+        the caller is not in refuse the same way, so the route is not an
+        oracle for which ids exist.
+        """
+        _require_permission(
+            "view_collection_board",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        return ContextBatchesResponse(
+            context_id=context_id,
+            batches=[
+                ContextBatchView(
+                    batch_id=row.batch_id,
+                    status=row.status,
+                    created_at=row.created_at,
+                    published_at=row.published_at,
+                    obligation_count=row.obligation_count,
+                    confirmed_count=row.confirmed_count,
+                    disputed_count=row.disputed_count,
+                    total_vnd=row.total_vnd,
+                )
+                for row in self.repository.list_context_batches(context_id)
+            ],
         )
 
     def record_objection(

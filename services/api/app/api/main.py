@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api.auth_mode import AUTH_MODE_ENV_VAR, resolve_auth_mode
 from app.api.cors import install_cors
 from app.api.errors import GUEST_LINK_NOT_FOUND, ApiProblem
+from app.api.google_identity import build_google_verifier
 from app.api.guest_privacy import (
     GuestPrivacyHeadersMiddleware,
     guest_aware_server_error_response,
@@ -126,6 +127,13 @@ def create_app(
         type(application.state.sms_sender).__name__,
         "set" if application.state.otp_debug_code else "unset",
     )
+    # ADR-0016, second door. No client ids means no verifier, and the route
+    # answers 503 rather than accepting anything.
+    application.state.google_verifier = build_google_verifier(os.environ)
+    LOGGER.info(
+        "google: verifier=%s",
+        "configured" if application.state.google_verifier is not None else "absent",
+    )
     # Said out loud at startup because the dangerous configuration is the
     # silent one: a box that kept trusting `X-Actor-*` looks exactly like a box
     # that does not, until somebody sends a header.
@@ -148,6 +156,10 @@ def create_app(
     # cadence and not a ceiling -- the caller lifts it by saying one more
     # thing -- so the turn needs a window like every other model route.
     application.state.companion_turn_limiter = build_companion_turn_limiter()
+    # M3: a slash command or mention in `POST /messages` reaches the companion
+    # too, through its own window -- same size, never the same object, so one
+    # route cannot drain the other's and the ownership gate can tell them apart.
+    application.state.message_intent_limiter = build_companion_turn_limiter()
     # And the proactive card, which had nothing at all in front of it: no
     # cache, no cadence, one model call per GET.
     application.state.suggestion_limiter = build_suggestion_limiter()
