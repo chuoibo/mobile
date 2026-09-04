@@ -202,7 +202,7 @@ export function OutingLiveScreen({ phien }: { phien: Phien }) {
           />
           <Card style={styles.tongQuan}>
             <View style={styles.oTong}>
-              <Text numberOfLines={1} style={[typography.money, { color: colors.ink }]}>
+              <Text adjustsFontSizeToFit minimumFontScale={0.7} numberOfLines={1} style={[typography.money, { color: colors.ink }]}>
                 {dinhDangTienVnd(trang.keo.budget_per_person_vnd)}
               </Text>
               <Text numberOfLines={1} style={[typography.caption, { color: colors.inkFaint }]}>
@@ -211,7 +211,7 @@ export function OutingLiveScreen({ phien }: { phien: Phien }) {
             </View>
             <View style={[styles.vach, { backgroundColor: colors.line }]} />
             <View style={styles.oTong}>
-              <Text style={[typography.money, { color: colors.ink }]}>
+              <Text adjustsFontSizeToFit minimumFontScale={0.7} numberOfLines={1} style={[typography.money, { color: colors.ink }]}>
                 {dinhDangTienVnd(tongDuKien(trang.keo.budget_per_person_vnd, trang.keo.headcount))}
               </Text>
               <Text numberOfLines={1} style={[typography.caption, { color: colors.inkFaint }]}>
