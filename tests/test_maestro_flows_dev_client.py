@@ -155,7 +155,8 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
             "\n  set -e\n", body, "chay_flow bật lại set -e trước khi return rc"
         )
         self.assertIn(
-            '40-*)        [ "$OTP" = 1 ] && [ "$AI" = 1 ] && [ "$TAT_KAV" = 0 ] || continue', script
+            '40-*)        [ "$OTP" = 1 ] && [ "$AI" = 1 ] && [ "$TAT_KAV" = 0 ] || continue',
+            script,
         )
         self.assertIn("kiem_may_chu_sau_30", script)
         self.assertIn("kiem_may_chu_sau_24", script)
