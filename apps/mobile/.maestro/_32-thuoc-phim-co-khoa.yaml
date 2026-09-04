@@ -1,0 +1,7 @@
+# Nhánh của flow 32 khi máy chủ CÓ khoá mô hình (--ai, AI=1): thước phim là do
+# Rủ Đi AI dựng và nói rõ điều đó trên màn (mô hình cần thời gian; 120 s là trần).
+appId: com.lakiet.rudi
+---
+- extendedWaitUntil:
+    visible: "Rủ Đi AI dựng thước phim này.*"
+    timeout: 120000

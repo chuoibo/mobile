@@ -1,0 +1,5 @@
+# Nhánh của flow 32 khi máy chủ KHÔNG có khoá mô hình (AI=0): nút «Dựng thước
+# phim» biến mất, thay bằng lý do máy chủ trả; không có thẻ nào ký tên Rủ Đi AI.
+appId: com.lakiet.rudi
+---
+- assertNotVisible: "Rủ Đi AI dựng thước phim này.*"

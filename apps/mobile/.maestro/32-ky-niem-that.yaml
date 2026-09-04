@@ -111,11 +111,20 @@ appId: com.lakiet.rudi
 - assertVisible: "Quán Ốc Dì Bé"
 - assertVisible: "Dựng thước phim"
 - tapOn: "Dựng thước phim"
-# Không có khoá mô hình trên stack này: nút biến mất, thay bằng lý do máy chủ trả.
+# Nút biến mất khi máy chủ đã trả lời. Có khoá mô hình hay không là chuyện của
+# stack (harness truyền AI=0/1), nên hai nhánh như flow 30: không khoá → lý do
+# máy chủ trả, không thẻ AI; có khoá → thước phim ký tên Rủ Đi AI.
 - extendedWaitUntil:
     notVisible: "Dựng thước phim"
     timeout: 60000
-- assertNotVisible: "Rủ Đi AI dựng thước phim này.*"
+- runFlow:
+    when:
+      true: ${AI != "1"}
+    file: _32-thuoc-phim-khong-khoa.yaml
+- runFlow:
+    when:
+      true: ${AI == "1"}
+    file: _32-thuoc-phim-co-khoa.yaml
 - takeScreenshot: 32-album-keo
 # Thành tích: tính từ sổ, không phải «12/18 đã mở». Bốn lần back: album → kệ → Thành viên
 # → chat → danh sách Tin nhắn (thanh tab chỉ hiện ở màn tab).
