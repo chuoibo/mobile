@@ -26,11 +26,12 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.api.deps import Actor, get_actor, get_repository
 from app.api.errors import ApiProblem
-from app.api.repository import ApiRepository
+from app.api.repository import ApiRepository, DestinationRecord
 from app.api.schemas import MoneyVnd
 from app.api.search_rate_limit import FixedWindowLimiter
 from app.api.service import ApiService
 from app.domain.place_search import PlaceSearchError, ground_search
+from app.places.areas import haversine_km
 from app.places.catalog import CATEGORIES, GROUP, GroupProfile
 from app.places.reasons import (
     PlaceReason,
@@ -42,6 +43,13 @@ from app.places.scoring import score_place
 from app.places.search import MAX_QUERY_CHARS, echoes_the_query, gemini_search
 
 logger = logging.getLogger(__name__)
+
+# How far «you are here» is allowed to reach. Beyond it the answer is «RuDi
+# chưa biết chỗ bạn đang đứng», not the least-wrong city in the table: a
+# suggestion two provinces away is worse than admitting the gap. Chosen to be
+# generous enough that a caller on the edge of a city still matches it and
+# small enough that two neighbouring destinations never both claim somebody.
+NEAR_LIMIT_KM = 60.0
 
 router = APIRouter(tags=["places"])
 
@@ -163,10 +171,39 @@ class GroupSummary(BaseModel):
     when: str
 
 
+class DestinationSummary(BaseModel):
+    """One place people travel to, as a row the picker draws (M10)."""
+
+    id: str
+    name: str
+    province: str | None
+    blurb: str | None
+    lat: float
+    lng: float
+    #: Straight-line kilometres from a caller who sent coordinates, else null.
+    #: Rounded to one decimal: the number is «which city am I in», and any more
+    #: precision would be repeating back a position we promised not to keep.
+    distance_km: float | None = None
+
+
+class DestinationsResponse(BaseModel):
+    destinations: list[DestinationSummary]
+    #: Present only when the caller sent coordinates: the nearest destination,
+    #: or null when the nearest one is further away than `NEAR_LIMIT_KM`.
+    #: Null is «bạn đang ở ngoài vùng RuDi biết», which the screen must say
+    #: rather than silently choosing a city hundreds of kilometres away.
+    nearest: DestinationSummary | None = None
+
+
 class PlacesResponse(BaseModel):
     places: list[Place]
     categories: list[Category]
     group: GroupSummary
+    #: Which destination these places are from. Always present: a catalogue
+    #: spanning fifteen cities cannot be shown as one list, so the route always
+    #: picks one, and saying which is how the screen can name it and let
+    #: somebody change it.
+    destination: DestinationSummary
 
 
 class Understood(BaseModel):
@@ -491,6 +528,67 @@ def _matches(text: str, place: dict[str, Any]) -> bool:
     return needle in haystack
 
 
+def _destination_summary(
+    row: DestinationRecord, distance_km: float | None = None
+) -> DestinationSummary:
+    return DestinationSummary(
+        id=row.id,
+        name=row.name,
+        province=row.province,
+        blurb=row.blurb,
+        lat=row.lat,
+        lng=row.lng,
+        distance_km=distance_km,
+    )
+
+
+@router.get("/destinations", response_model=DestinationsResponse)
+def list_destinations(
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+    lat: Annotated[float | None, Query(ge=-90, le=90)] = None,
+    lng: Annotated[float | None, Query(ge=-180, le=180)] = None,
+) -> DestinationsResponse:
+    """Where RuDi knows places, and which one the caller is standing in (M10).
+
+    `lat`/`lng` are used **inside this call and nowhere else** (ADR-0018): no
+    column stores them, no cache holds them, no log line prints them, and the
+    response does not echo them back. What comes back is a city name and a
+    rounded distance -- the answer to «which city am I in», which is the only
+    question the product asked.
+
+    Sending only one of the two is a caller bug rather than a half-answer, so
+    it is a 422: a screen that asked for a position and got half of one should
+    say so rather than quietly show a list ordered by nothing.
+
+    The nearest destination is `null` when the closest one is beyond
+    `NEAR_LIMIT_KM`. Somebody in Cà Mau is not «in Cần Thơ» because Cần Thơ is
+    the closest row we happen to have.
+    """
+
+    if (lat is None) != (lng is None):
+        raise ApiProblem(
+            422, "coordinates_incomplete", "Cần cả lat và lng, hoặc không gửi gì."
+        )
+
+    rows = repository.list_destinations()
+    if lat is None or lng is None:
+        return DestinationsResponse(
+            destinations=[_destination_summary(row) for row in rows], nearest=None
+        )
+
+    khoang_cach = [(haversine_km(lat, lng, row.lat, row.lng), row) for row in rows]
+    khoang_cach.sort(key=lambda pair: (pair[0], pair[1].id))
+    gan_nhat = None
+    if khoang_cach and khoang_cach[0][0] <= NEAR_LIMIT_KM:
+        gan_nhat = _destination_summary(khoang_cach[0][1], round(khoang_cach[0][0], 1))
+    return DestinationsResponse(
+        destinations=[
+            _destination_summary(row, round(km, 1)) for km, row in khoang_cach
+        ],
+        nearest=gan_nhat,
+    )
+
+
 @router.get("/places", response_model=PlacesResponse)
 def list_places(
     reason_writer: Annotated[Any, Depends(get_reason_writer)],
@@ -498,6 +596,7 @@ def list_places(
     context_id: Annotated[str | None, Query()] = None,
     category: Annotated[str | None, Query()] = None,
     q: Annotated[str | None, Query()] = None,
+    destination: Annotated[str | None, Query()] = None,
 ) -> PlacesResponse:
     """Score the seed catalogue against the group, then ask the model about it.
 
@@ -513,9 +612,20 @@ def list_places(
 
     del context_id
 
+    service = ApiService(repository)
+    # One city at a time (M10). A catalogue that spans fifteen destinations is
+    # not a list; asking for «places» without saying where is a question with
+    # no answer, so the route picks the first destination and says which one it
+    # picked rather than serving two thousand rows or an empty screen.
+    diem_den = service.destination_or_default(destination)
+    if diem_den is None:
+        raise ApiProblem(
+            404, "destination_not_found", "Không có điểm đến nào với mã này."
+        )
+
     selected = [
         place
-        for place in ApiService(repository).place_rows()
+        for place in service.place_rows(destination_id=diem_den.id)
         if (category is None or place["category"] == category)
         and _matches(q or "", place)
     ]
@@ -565,6 +675,7 @@ def list_places(
         places=out,
         categories=[Category(**category_row) for category_row in CATEGORIES],
         group=GroupSummary(**GROUP),
+        destination=_destination_summary(diem_den),
     )
 
 

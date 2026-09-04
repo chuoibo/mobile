@@ -28,14 +28,29 @@ const LOI_DIA_DIEM: Record<string, string> = {
   permission_denied: "Bạn cần đăng nhập để lưu địa điểm.",
 };
 
-export type DanhMuc = { places: Place[]; categories: Category[] };
+export type DanhMuc = {
+  places: Place[];
+  categories: Category[];
+  /** Which destination these places are from. The server always picks one and
+   *  says which, so the screen can name it instead of printing a city it hopes
+   *  is right. */
+  destination: { id: string; name: string };
+};
 
-/** The catalogue, optionally narrowed by a category id or a name query. */
-export async function docDanhMuc(opts: { category?: string | null; q?: string } = {}): Promise<DanhMuc> {
+/**
+ * The catalogue for one destination, optionally narrowed further.
+ *
+ * `destination` omitted means «you choose» -- the server answers with its
+ * default and names it in the body, which is what the header then draws.
+ */
+export async function docDanhMuc(
+  opts: { category?: string | null; q?: string; destination?: string | null } = {},
+): Promise<DanhMuc> {
   const params = new URLSearchParams();
   if (opts.category) params.set("category", opts.category);
   const q = opts.q?.trim();
   if (q) params.set("q", q);
+  if (opts.destination) params.set("destination", opts.destination);
   const duoi = params.toString();
   const body = await translatedAnonymous<unknown>(LOI_DIA_DIEM, duoi ? `/places?${duoi}` : "/places", {
     method: "GET",

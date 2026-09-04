@@ -20,6 +20,7 @@ import {
   type Place,
 } from "../../../screens/kham-pha/places";
 import { askSearch, hieuDuocGi, type TimKiemState } from "../../../screens/kham-pha/tim-kiem";
+import { docDiemDenDaChon } from "../../kham-pha/diem-den";
 import {
   bieuTuongLoai,
   boLuuDiaDiem,
@@ -78,10 +79,19 @@ export function ExploreLiveScreen({ phien }: { phien: Phien }) {
   const [loai, setLoai] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [timKiem, setTimKiem] = useState<TimKiemState>({ kind: "chua-tim" });
+  // Which city the list is of. The server always answers with one and says
+  // which, so this starts as null and is filled from the answer -- the screen
+  // never guesses a city name it has not been told.
+  const [diemDen, setDiemDen] = useState<{ id: string; name: string } | null>(null);
 
   const nap = useCallback(async () => {
     try {
-      const [danhMuc, luu] = await Promise.all([docDanhMuc(), docDaLuu(phien.person_id)]);
+      const daChon = await docDiemDenDaChon();
+      const [danhMuc, luu] = await Promise.all([
+        docDanhMuc(daChon === null ? undefined : { destination: daChon }),
+        docDaLuu(phien.person_id),
+      ]);
+      setDiemDen(danhMuc.destination);
       setTrang({ pha: "xong", places: danhMuc.places, categories: danhMuc.categories });
       setDaLuu(luu);
     } catch (error) {
@@ -136,10 +146,21 @@ export function ExploreLiveScreen({ phien }: { phien: Phien }) {
       <View style={styles.dau}>
         <View>
           <Logo compact />
-          <Inline gap={4} style={styles.viTri}>
+          {/* The destination is a control, not a caption. It used to be the
+              words «Đà Lạt · danh mục Rủ Đi» printed under the logo whatever
+              the list actually held. */}
+          <Pressable
+            accessibilityLabel="Đổi điểm đến"
+            accessibilityRole="button"
+            onPress={() => router.push("/destinations")}
+            style={styles.viTri}
+          >
             <Ionicons color={colors.accent} name="location" size={14} />
-            <Text style={[typography.caption, { color: colors.inkSoft }]}>Đà Lạt · danh mục Rủ Đi</Text>
-          </Inline>
+            <Text style={[typography.caption, { color: colors.inkSoft }]}>
+              {diemDen === null ? "Đang đọc điểm đến…" : `${diemDen.name} · đổi nơi khác`}
+            </Text>
+            <Ionicons color={colors.inkFaint} name="chevron-down" size={14} />
+          </Pressable>
         </View>
       </View>
       <SearchField

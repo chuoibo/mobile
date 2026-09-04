@@ -895,13 +895,32 @@ class ApiService:
         # does not issue the same SELECT three times.
         self._place_rows: list[dict] | None = None
 
-    def place_rows(self) -> list[dict]:
+    def destination_or_default(self, destination_id: str | None):
+        """The destination asked for, or the first one. `None` if the id is unknown.
+
+        «The first one» is by `sort_order`, which is data rather than accident:
+        a caller who has not chosen yet gets a real city with real places in it,
+        and the route says which one it picked so the screen can offer to
+        change it. An empty destinations table returns `None` too -- there is
+        nothing honest to show, and 404 says that better than an empty list.
+        """
+        if destination_id is not None:
+            return self.repository.get_destination(destination_id)
+        rows = self.repository.list_destinations()
+        return rows[0] if rows else None
+
+    def place_rows(self, destination_id: str | None = None) -> list[dict]:
         """The whole catalogue, in the dict shape the scorers already read.
 
         `PlaceRecord.to_row()` is the only conversion; `scoring.py`,
         `search.py`, `social_map.py` and the card builder keep reading exactly
         what they read when the catalogue was twelve rows in a module.
         """
+        if destination_id is not None:
+            return [
+                row.to_row()
+                for row in self.repository.list_places(destination_id=destination_id)
+            ]
         if self._place_rows is None:
             self._place_rows = [row.to_row() for row in self.repository.list_places()]
         return self._place_rows
