@@ -12,7 +12,7 @@
 import { goiAiTurn } from "../../dist-test/screens/chat/ai.js";
 import { khoiDongNhom } from "../../dist-test/screens/chat/nhom.js";
 import { guiTinNhan } from "../../dist-test/screens/chat/tin-nhan.js";
-import { personById } from "../../dist-test/navigation/nhom-demo.js";
+import { personById } from "../../dist-test/rudi/nhom-demo.js";
 import { khoaGhi } from "../../dist-test/screens/chat/uuid5.js";
 
 const BASE = process.env.EXPO_PUBLIC_API_URL;

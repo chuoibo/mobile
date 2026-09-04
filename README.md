@@ -6,7 +6,7 @@
 Một app, một vòng lặp, và đúng **một** phép chia tiền trong toàn hệ.
 
 ![Trạng thái](https://img.shields.io/badge/tr%E1%BA%A1ng_th%C3%A1i-PoC_%C2%B7_l%C3%A1t_c%E1%BA%AFt_d%E1%BB%8Dc_ch%E1%BA%A1y_%C4%91%C6%B0%E1%BB%A3c-c93900?style=flat-square&labelColor=1f2230)
-![Test](https://img.shields.io/badge/test-3143_ca-00756b?style=flat-square&labelColor=1f2230)
+![Test](https://img.shields.io/badge/test-3625_ca-00756b?style=flat-square&labelColor=1f2230)
 ![API](https://img.shields.io/badge/API-FastAPI_0.115_%C2%B7_Python_3.12-0f766e?style=flat-square&labelColor=1f2230)
 ![App](https://img.shields.io/badge/app-Expo_57_%C2%B7_RN_0.86_%C2%B7_TS_strict-7d49ef?style=flat-square&labelColor=1f2230)
 ![Database](https://img.shields.io/badge/database-PostgreSQL_16-336791?style=flat-square&labelColor=1f2230)
@@ -277,23 +277,23 @@ cưỡng chế nó. Lý do là luật tiền số 3 ở trên.
 
 ```bash
 git rev-parse --short HEAD                                    # f3d4ede khi đo
-python3 -m pytest services/api/tests tests -q --collect-only   # 3143 ca
+python3 -m pytest services/api/tests tests -q --collect-only   # 3625 ca
 python3 -c "import sys; sys.path.insert(0,'services/api')
 from app.api.main import app; from fastapi.routing import APIRoute
-print(len([r for r in app.routes if isinstance(r, APIRoute)]))"   # 90 route
-ls services/api/app/api/routes/*.py | wc -l                    # 28 module route
-ls services/api/app/domain/*.py | wc -l                        # 27 module domain
-find apps/mobile/src -name '*.ts*' | wc -l                     # 104 file
-find apps/mobile/src -name '*.ts*' | xargs cat | wc -l         # 28274 dòng
+print(len([r for r in app.routes if isinstance(r, APIRoute)]))"   # 103 route
+ls services/api/app/api/routes/*.py | wc -l                    # 29 module route
+ls services/api/app/domain/*.py | wc -l                        # 29 module domain
+find apps/mobile/src -name '*.ts*' | wc -l                     # 115 file
+find apps/mobile/src -name '*.ts*' | xargs cat | wc -l         # 28304 dòng
 python3 -c "import json,glob; print(sum(len(json.load(open(f))) for f in glob.glob('services/api/tests/domain/golden/*.json')))"   # 41 golden vector
 ```
 
-Đếm route bằng hai cách khác nhau ra hai con số khác nhau (`grep` decorator ra 89,
-`app.routes` ra 90, số path duy nhất là 78). Con số trong README là `APIRoute` thật
+Đếm route bằng hai cách khác nhau ra hai con số khác nhau (`grep` decorator ra 102,
+`app.routes` ra 103, số path duy nhất là 89). Con số trong README là `APIRoute` thật
 sự được đăng ký, vì đó là thứ trả lời được câu "server này phục vụ cái gì".
 
 Repo này có nhiều lane cùng đẩy vào `main`, nên các con số trên **trôi theo ngày**.
-Chúng được đo tại `f3d4ede`; lệch vài đơn vị so với hôm nay là bình thường, lệch
+Chúng được đo tại `b9f6473` (2026-09-04, sau khi gộp 23 PR của lộ trình production-ready); lệch vài đơn vị so với hôm nay là bình thường, lệch
 hàng chục thì đoạn văn quanh nó đã cũ.
 
 </details>
@@ -504,11 +504,11 @@ chính bộ mockup đó để README nhẹ.
 ## Bố cục repo
 
 ```
-services/api/app/domain/     thuần: tiền, sổ, đợt thu, quyền, hiển thị (27 module)
+services/api/app/domain/     thuần: tiền, sổ, đợt thu, quyền, hiển thị (29 module)
 services/api/app/db/         SQLAlchemy + Alembic
-services/api/app/api/        FastAPI, 90 route trên 28 module
+services/api/app/api/        FastAPI, 103 route trên 29 module
 services/api/app/web/        trang khách, render từ server
-apps/mobile/                 Expo + TypeScript (104 file, ~28.3k dòng)
+apps/mobile/                 Expo + TypeScript (115 file, ~28.3k dòng)
 packages/shared/             token thiết kế, định dạng tiền
 docs/assets/                 ảnh của README, pin sha256 trong repo guard allowlist
 docs/decisions/              ADR — đọc trước khi đổi hành vi
