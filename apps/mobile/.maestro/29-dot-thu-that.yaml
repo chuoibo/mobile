@@ -89,4 +89,9 @@ appId: com.lakiet.rudi
     timeout: 60000
 - assertVisible: "Đã phát"
 - assertNotVisible: "Chưa có đợt thu nào.*"
+# Sổ đọc lại khi màn được focus: tiền đã về nên không còn khoản chuyển đề xuất nào.
+- extendedWaitUntil:
+    visible: "Sổ không còn ai nợ ai.*"
+    timeout: 60000
+- assertNotVisible: "Đề xuất, chưa phải nghĩa vụ"
 - takeScreenshot: 29-quyet-toan-co-dot

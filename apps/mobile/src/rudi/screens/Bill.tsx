@@ -330,26 +330,30 @@ function QuyetToanLive({ actorId, contextId }: { actorId: string; contextId: str
     }
   };
 
-  useEffect(() => {
-    let song = true;
-    void docQuyetToanLive(actorId, contextId, BASE_URL)
-      .then((ketQua) => {
-        if (song) setDu(ketQua);
-      })
-      .catch((error: unknown) => {
-        // The real sentence from the real failure. Falling back to the fixture
-        // here would answer a broken request with somebody else's money.
-        if (!song) return;
-        setLoi(
-          error instanceof ApiError
-            ? error.message
-            : `Không đọc được quyết toán tại ${BASE_URL}.`,
-        );
-      });
-    return () => {
-      song = false;
-    };
-  }, [actorId, contextId]);
+  // On focus, like the rounds below: a receipt confirmed on the round screen
+  // empties the ledger's transfer list, and coming back must show that.
+  useFocusEffect(
+    useCallback(() => {
+      let song = true;
+      void docQuyetToanLive(actorId, contextId, BASE_URL)
+        .then((ketQua) => {
+          if (song) setDu(ketQua);
+        })
+        .catch((error: unknown) => {
+          // The real sentence from the real failure. Falling back to the fixture
+          // here would answer a broken request with somebody else's money.
+          if (!song) return;
+          setLoi(
+            error instanceof ApiError
+              ? error.message
+              : `Không đọc được quyết toán tại ${BASE_URL}.`,
+          );
+        });
+      return () => {
+        song = false;
+      };
+    }, [actorId, contextId]),
+  );
 
   if (loi !== null) {
     return (
@@ -383,6 +387,9 @@ function QuyetToanLive({ actorId, contextId }: { actorId: string; contextId: str
         <Text style={[typography.caption, { color: colors.inkSoft }]}>{hero.cau}</Text>
       </Card>
       <SectionHeader title="Các khoản chuyển" />
+      {du.chuyenTien.length === 0 ? (
+        <Text style={[typography.caption, { color: colors.inkSoft }]}>Sổ không còn ai nợ ai: mọi khoản đã về hoặc chưa có khoản nào được ghi.</Text>
+      ) : null}
       <View style={styles.transferList}>
         {du.chuyenTien.map((row) => (
           <Card key={`${row.fromId}-${row.toId}`} style={styles.transfer}>
