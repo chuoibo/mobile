@@ -729,6 +729,7 @@ def _wire_outing(record: OutingRecord) -> OutingResponse:
                 at=_clock(stop.minute_of_day),
                 label=stop.label,
                 place_name=stop.place_name,
+                place_id=stop.place_id,
             )
             for stop in record.stops
         ],
@@ -2355,11 +2356,21 @@ class ApiService:
             actor,
             {"is_group_member": self.repository.is_member(record.context_id, actor.id)},
         )
+        for stop in request.stops:
+            # A stop may name a catalogue place; a key the catalogue does not
+            # know is a client bug, refused before anything is written.
+            if stop.place_id is not None and find_place(stop.place_id) is None:
+                raise ApiProblem(
+                    422,
+                    "stop_place_unknown",
+                    "Chặng nêu một địa điểm không có trong danh mục.",
+                )
         stops = [
             {
                 "minute_of_day": _minute_of_day(stop.at),
                 "label": stop.label,
                 "place_name": stop.place_name,
+                "place_id": stop.place_id,
             }
             for stop in request.stops
         ]
