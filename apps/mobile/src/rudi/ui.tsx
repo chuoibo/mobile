@@ -277,7 +277,7 @@ export function SectionHeader({
           accessibilityRole="button"
           hitSlop={8}
           onPress={onAction}
-          style={({ pressed }) => pressed && styles.pressed}
+          style={({ pressed }) => [styles.sectionAction, pressed && styles.pressed]}
         >
           <Text style={[typography.label, { color: colors.accent }]}>{action}</Text>
         </Pressable>
@@ -933,6 +933,8 @@ const styles = StyleSheet.create({
   center: { alignSelf: "center", alignItems: "center" },
   headingSubtitle: { maxWidth: 560 },
   sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 3 },
+  // A text action is still a target: 48dp tall, so a 13dp glyph is not the whole hit box.
+  sectionAction: { minHeight: 48, justifyContent: "center", paddingHorizontal: 6 },
   card: { borderWidth: 1, padding: 16 },
   cardPressed: { opacity: 0.94, transform: [{ scale: 0.992 }] },
   pressed: { opacity: 0.68 },

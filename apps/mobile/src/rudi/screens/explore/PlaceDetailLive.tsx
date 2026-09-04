@@ -3,7 +3,7 @@
  * one catalogue place, said in its own words. No gallery (no images on the
  * wire), a match card only when the model actually scored this place for the
  * group, directions through the phone's map app, and a save that lives on
- * the server. «Thêm vào kèo» arrives with the outing screens.
+ * the server. «Thêm vào kèo» picks one of the group's outings.
  */
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -137,6 +137,7 @@ export function PlaceDetailLiveScreen({ phien }: { phien: Phien }) {
       ) : null}
       {trang.pha === "xong" ? <ThanChiTiet
         onChiDuong={() => void chiDuong(trang.place)}
+        onThemVaoKeo={() => router.push(`/outings/chon?place=${encodeURIComponent(trang.place.id)}` as never)}
         place={trang.place}
         thongBao={thongBao}
       /> : null}
@@ -148,10 +149,12 @@ function ThanChiTiet({
   place,
   thongBao,
   onChiDuong,
+  onThemVaoKeo,
 }: {
   place: PlaceDetail;
   thongBao: string | null;
   onChiDuong: () => void;
+  onThemVaoKeo: () => void;
 }) {
   const { colors, radius } = useRudiTheme();
   const hop = matchLabel(place.match);
@@ -180,6 +183,7 @@ function ThanChiTiet({
           </View>
         ) : null}
       </View>
+      <RudiButton icon="add-circle-outline" label="Thêm vào kèo" onPress={onThemVaoKeo} variant="soft" />
       {place.description ? <Text style={[typography.body, { color: colors.ink }]}>{place.description}</Text> : null}
       <Card style={styles.suKien}>
         <ListRow icon="navigate-outline" onPress={onChiDuong} subtitle={`${formatDistance(place.distanceKm)} · ${place.travelMinutes} phút đi xe`} title={place.address} />

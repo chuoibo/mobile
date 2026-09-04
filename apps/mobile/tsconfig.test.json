@@ -274,6 +274,9 @@
     // Khám phá trên danh mục thật (M4): compile để test chứng minh danh mục được
     // đọc như người lạ KHÔNG mang context_id bịa và việc lưu đi với bearer.
     "src/rudi/kham-pha/dia-diem.ts",
+    // Kèo trên máy chủ (M4): compile để test chứng minh PUT timeline mang place_id
+    // và thêm/gắn chặng không đụng chặng khác.
+    "src/rudi/keo/keo.ts",
     "src/rudi/vote.ts"
   ]
 }
