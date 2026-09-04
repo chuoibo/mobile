@@ -106,10 +106,15 @@ appId: com.lakiet.rudi
     timeout: 60000
 - assertNotVisible: "Rủ Đi AI dựng thước phim này.*"
 - takeScreenshot: 32-album-keo
-# Thành tích: tính từ sổ của D (đã có 1 khoản chi, 1 nhóm), không phải «12/18 đã mở».
+# Thành tích: tính từ sổ, không phải «12/18 đã mở». Bốn lần back: album → kệ → Thành viên
+# → chat → danh sách Tin nhắn (thanh tab chỉ hiện ở màn tab).
 - back
 - back
 - back
+- back
+- extendedWaitUntil:
+    visible: "Cá nhân"
+    timeout: 30000
 - tapOn: "Cá nhân"
 - extendedWaitUntil:
     visible: "Thành tích"
