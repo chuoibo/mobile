@@ -282,6 +282,7 @@
     // mỗi lời gọi một Attempt, và không phép chia nào ở phía client.
     "src/rudi/chia-bill/hoa-don.ts",
     "src/rudi/dot-thu/dot-thu.ts",
+    "src/rudi/ky-niem/ky-niem.ts",
     "src/rudi/vote.ts"
   ]
 }

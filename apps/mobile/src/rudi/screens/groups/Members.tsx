@@ -15,7 +15,7 @@ import { chuDau } from "../../../screens/ca-nhan/ban-be";
 import { danhSachThanhVien, type ThanhVien } from "../../../screens/vao-cua/cong-api";
 import { useRudiSession } from "../../session";
 import { typography, useRudiTheme } from "../../theme";
-import { Card, Chip, Heading, RudiButton, RudiScreen, TopBar } from "../../ui";
+import { Card, Chip, Heading, ListRow, RudiButton, RudiScreen, TopBar } from "../../ui";
 
 type Trang =
   | { pha: "dang-doc" }
@@ -65,6 +65,10 @@ export function GroupMembersScreen() {
             : "Đang đọc danh sách từ máy chủ..."
         }
       />
+      <Card style={styles.loiVao}>
+        <ListRow icon="images-outline" onPress={() => router.push(`/groups/${id}/wall` as never)} subtitle="Ảnh, check-in, tim và bình luận. Chỉ thành viên thấy." title="Tường kỷ niệm" />
+        <ListRow icon="albums-outline" onPress={() => router.push(`/groups/${id}/album` as never)} subtitle="Mỗi kèo một album, có thước phim." title="Album chuyến đi" />
+      </Card>
       {trang.pha === "hong" ? (
         <Card>
           <Text style={[typography.body, { color: colors.warn }]}>{trang.loi}</Text>
@@ -110,6 +114,7 @@ export function GroupMembersScreen() {
 }
 
 const styles = StyleSheet.create({
+  loiVao: { gap: 0, paddingVertical: 4 },
   danhSach: { gap: 12 },
   hang: { flexDirection: "row", alignItems: "center", gap: 12 },
   hangChu: { flex: 1, gap: 2 },
