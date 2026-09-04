@@ -3074,8 +3074,10 @@ class ApiService:
         self._known_place(place_id)
         self.repository.unsave_place(actor.id, place_id)
 
-    @staticmethod
-    def _known_place(place_id: str) -> dict:
+    def _known_place(self, place_id: str) -> dict:
+        """The catalogue row for this key, or 404. An instance method since M9:
+        the catalogue is a table now, so looking a key up needs the repository
+        this service is holding rather than a module constant."""
         place = self.place_row(place_id)
         if place is None:
             raise ApiProblem(

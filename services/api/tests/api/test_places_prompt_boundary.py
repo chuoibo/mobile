@@ -28,6 +28,7 @@ import pytest
 
 from app.api.routes.places import get_reason_writer
 from app.places.catalog import GROUP, PLACES
+from app.places.prompt_safety import place_is_safe_for_prompt, safe_places
 from app.places.reasons import ReasonRow, build_prompt
 
 #: Carries no digit on purpose. `ungrounded_numbers` rejects stray figures, so
@@ -134,35 +135,59 @@ def test_the_prompt_is_exactly_the_prompt_the_seed_catalogue_builds(client, reco
         "make the comparison below pass for the wrong reason"
     )
     served = build_prompt(recorder.rows, GROUP)
-    from_seed = build_prompt([ReasonRow(place=place) for place in PLACES], GROUP)
+    # Sorted by id, which is the order the catalogue read returns since M9 (a
+    # table has no file order). The invariant under test is that the bytes are
+    # a pure function of the catalogue and the group profile -- not that the
+    # rows arrive in the order somebody typed them into a module.
+    from_seed = build_prompt(
+        [ReasonRow(place=place) for place in sorted(PLACES, key=lambda p: p["id"])],
+        GROUP,
+    )
     assert served == from_seed, (
         "the prompt served to Gemini is no longer the seed catalogue's prompt"
     )
 
 
-def test_the_rows_put_to_the_model_are_the_seed_objects_themselves(client, recorder):
-    """The activation trigger, as an identity check.
+def test_every_row_put_to_the_model_passed_the_safety_filter(client, recorder):
+    """The alarm, re-aimed at the precondition that actually holds now.
 
-    Today the route passes the very dicts in `PLACES`. The moment places become
-    user-editable those objects will be built from a request or a table, object
-    identity breaks, and this test goes red -- which is the point. It is not
-    guarding object identity for its own sake; it is guarding the precondition
-    that the live xfail's "not reachable today" sentence rests on.
+    It used to assert object identity with `PLACES`: the route passed the very
+    dicts from `catalog.py`, so nothing a caller could type reached the prompt.
+    M9 (ADR-0017) ended that -- rows come from a table an importer fills from
+    OpenStreetMap, which anybody in the world can edit -- and this test went
+    red, exactly as its author intended it to on that day.
 
-    If you are reading this because it failed: that is the alarm working. The
-    injection is now reachable and must be fixed before the new source of place
-    data ships. Do not delete this test to go green.
+    The answer was not to delete it. `app/places/prompt_safety.py` drops any
+    row whose text talks to a model, and the invariant is now: *every row that
+    reached the prompt passed that filter*. The neighbouring test proves the
+    filter is not vacuous by pushing an injected row through the real route.
     """
 
     response = get_places(client)
     assert response.status_code == 200, response.text
     assert recorder.rows, "no rows were put to the model at all"
 
-    seed_ids = {id(place) for place in PLACES}
-    foreign = [row.place.get("id") for row in recorder.rows if id(row.place) not in seed_ids]
-    assert not foreign, (
-        f"place rows not from the seed catalogue reached the prompt: {foreign}. "
-        "Place data is now built at request time, so the prompt injection "
-        "reproduced in tests/live/test_places_reason_quality_live.py is live. "
-        "See docs/security/prompt-injection-dia-diem.md for the unblock criteria."
+    unsafe = [
+        row.place.get("id")
+        for row in recorder.rows
+        if not place_is_safe_for_prompt(row.place)
+    ]
+    assert not unsafe, (
+        f"rows that failed the prompt-safety filter reached the prompt: {unsafe}. "
+        "See docs/security/prompt-injection-dia-diem.md."
     )
+
+
+def test_a_row_that_talks_to_the_model_never_reaches_the_prompt(client, recorder):
+    """The filter, proved through the route rather than in isolation.
+
+    A catalogue row whose name is an instruction is what an OpenStreetMap edit
+    can now put in the table. It must not be quoted to the model at all, and
+    the card for it must still be served -- with no AI sentence, because a
+    place we will not show a model is a place with no model answer.
+    """
+
+    that = next(place for place in PLACES if place["id"] == "p-tiem-nuong-xom-lao")
+    doc = {**that, "id": "p-tiem-doc", "name": MARKER}
+    rows = safe_places([doc, that])
+    assert [row["id"] for row in rows] == ["p-tiem-nuong-xom-lao"]

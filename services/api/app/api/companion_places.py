@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from app.places.prompt_safety import safe_places
+
 CLIENT_PLACE_FIELDS = (
     "id",
     "name",
@@ -25,9 +27,16 @@ def load_place_catalogue(rows: list[dict] | None = None) -> list[dict]:
     """
 
     if rows is None:
-        return []
+        # No caller: the seed rows, so the live probes and the offline scripts
+        # that ask for «the catalogue» with no session still get one. Every
+        # request path passes its own read; this branch is not one of them.
+        from app.places.catalog import PLACES
 
+        rows = PLACES
+
+    # Only rows safe to put in front of a model (M9, ADR-0017): the catalogue
+    # is a table now, and its rows can come from data the world can edit.
     return [
         {field: place.get(field) for field in CLIENT_PLACE_FIELDS}
-        for place in rows
+        for place in safe_places(rows)
     ]

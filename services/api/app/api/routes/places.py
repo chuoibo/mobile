@@ -33,6 +33,7 @@ from app.api.service import ApiService
 from app.domain.place_search import PlaceSearchError, ground_search
 from app.places.areas import haversine_km
 from app.places.catalog import CATEGORIES, GROUP, GroupProfile
+from app.places.prompt_safety import safe_places
 from app.places.reasons import (
     PlaceReason,
     ReasonRow,
@@ -630,7 +631,10 @@ def list_places(
         and _matches(q or "", place)
     ]
 
-    rows = [ReasonRow(place=place) for place in selected]
+    # Only rows that are safe to show a model (M9, ADR-0017). A place whose
+    # name or traits talk to the model is dropped from the prompt, not quoted
+    # more carefully: it still appears on screen, with no AI sentence.
+    rows = [ReasonRow(place=place) for place in safe_places(selected)]
     # Never lets a model outage become a 500 on a read-only catalogue.
     try:
         written = reason_writer(rows) if rows else {}
@@ -780,7 +784,7 @@ def search_places(
         group=GroupSummary(**GROUP),
     )
 
-    rows = ApiService(repository).place_rows()
+    rows = safe_places(ApiService(repository).place_rows())
     try:
         raw = place_searcher(query, rows)
     except Exception as error:  # noqa: BLE001 - a search box must not 500 on this

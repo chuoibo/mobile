@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.places.prompt_safety import place_is_safe_for_prompt
+
 CATEGORY_BY_TAG: dict[tuple[str, str], str] = {
     ("amenity", "restaurant"): "quan-an-local",
     ("amenity", "fast_food"): "quan-an-local",
@@ -229,6 +231,12 @@ def rows_from_payload(
             element, destination_id=destination_id, fallback_city=fallback_city
         )
         if row is None or row["id"] in seen:
+            continue
+        # A venue name on OpenStreetMap is text anybody in the world can write,
+        # and this catalogue is quoted to a model. Rows that talk to the model
+        # are refused at the door as well as at the prompt (ADR-0017): the
+        # prompt filter is the guarantee, this is the hygiene.
+        if not place_is_safe_for_prompt(row):
             continue
         category = row["category"]
         if (
