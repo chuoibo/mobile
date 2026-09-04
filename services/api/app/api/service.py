@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import logging
 import secrets
 import uuid
@@ -18,6 +19,14 @@ from app.api.cursors import CursorError, decode_cursor, encode_cursor
 from app.api.deps import Actor, Companion, ContextualSuggester, Reeler, Suggester
 from app.api.errors import ApiProblem, RepositoryConflict
 from app.api.limits import OBJECTION_KINDS, QUOTA_CONSUMING_OBJECTIONS
+from app.api.person_identity import (
+    PersonIdKeyMissing,
+    canonical_mobile,
+    derive_code_digest,
+    derive_person_id,
+    derive_phone_digest,
+    read_key,
+)
 from app.api.repository import (
     WALL_CLOCK_ZONE,
     AccountSessionRecord,
@@ -115,6 +124,7 @@ from app.api.schemas import (
     MessageQuery,
     MessageResponse,
     ObligationResponse,
+    OtpRequestResponse,
     OutingCheckinListResponse,
     OutingCreateRequest,
     OutingInviteAcceptResponse,
@@ -163,6 +173,7 @@ from app.api.schemas import (
     WidgetPhotoResponse,
     WidgetResponse,
 )
+from app.api.sms import SmsDeliveryError, SmsSender
 from app.domain import permissions, post_audience
 from app.domain.album import build_album
 from app.domain.allocator import allocate
@@ -194,6 +205,8 @@ from app.domain.ledger import (
     obligations_from_allocations,
     settlement_plan,
 )
+from app.domain.otp import DEFAULT_LIMITS as OTP_LIMITS
+from app.domain.otp import generate_code, plan_request, plan_verify
 from app.domain.preferences import build_preference_profile
 from app.domain.reel import ReelError, ground_reel
 from app.domain.suggestion import (
@@ -2600,6 +2613,170 @@ class ApiService:
             # reach: the roster route that would list it is itself behind the
             # membership.
             membership_id=membership.id,
+        )
+
+    # ------------------------------------------------------------- OTP door
+    NEW_PERSON_NAME = "Thành viên mới"
+
+    def _otp_phone(self, phone: object) -> tuple[str, bytes]:
+        """Canonical number and the signing key, or the identity route's 422/503."""
+        if not isinstance(phone, str):
+            raise ApiProblem(
+                422, "phone_required", "Thiếu trường phone, và phải là chuỗi."
+            )
+        canonical = canonical_mobile(phone)
+        if canonical is None:
+            raise ApiProblem(
+                422, "phone_not_mobile", "Chưa đúng dạng số di động Việt Nam."
+            )
+        try:
+            key = read_key()
+        except PersonIdKeyMissing as missing:
+            raise ApiProblem(
+                503,
+                "identity_key_missing",
+                "Máy chủ chưa cấu hình khoá danh tính nên chưa đăng nhập được.",
+            ) from missing
+        return canonical, key
+
+    def request_otp(
+        self, phone: object, *, sender: SmsSender, debug_code: str | None
+    ) -> OtpRequestResponse:
+        """Issue one code for one phone. The number is never stored or logged.
+
+        With `debug_code` set (log sender only -- `resolve_otp_debug_code`
+        refuses any other pairing at startup) every challenge carries that code,
+        so the comparison path on verify is one path, not two.
+        """
+        canonical, key = self._otp_phone(phone)
+        digest = derive_phone_digest(canonical, key)
+        now = _now()
+        recent = self.repository.recent_otp_challenges(
+            digest, since=now - timedelta(seconds=OTP_LIMITS["window_seconds"])
+        )
+        plan = plan_request([{"created_at": r.created_at} for r in recent], now)
+        if not plan["allowed"]:
+            wait = plan["retry_after_seconds"]
+            if plan["reason"] == "resend_too_soon":
+                raise ApiProblem(
+                    429,
+                    "otp_resend_too_soon",
+                    f"Mã vừa được gửi. Gửi lại sau {wait} giây.",
+                )
+            raise ApiProblem(
+                429,
+                "otp_too_many_requests",
+                f"Số này đã nhận quá nhiều mã. Thử lại sau {wait} giây.",
+            )
+        challenge_id = uuid.uuid4()
+        code = (
+            debug_code if debug_code is not None else generate_code(secrets.randbelow)
+        )
+        record = self.repository.create_otp_challenge(
+            challenge_id=challenge_id,
+            phone_digest=digest,
+            code_digest=derive_code_digest(challenge_id, code, key),
+            expires_at=now + timedelta(seconds=OTP_LIMITS["code_ttl_seconds"]),
+            now=now,
+        )
+        try:
+            sender.send_otp(
+                canonical_phone=canonical, code=code, challenge_id=record.id
+            )
+        except SmsDeliveryError as exc:
+            # Type name only in the log; the exception never carries the number.
+            logger.warning("otp challenge %s: sms delivery failed (%s)", record.id, exc)
+            self.repository.record_otp_attempt(
+                challenge_id=record.id, attempts=0, consumed=True, now=now
+            )
+            raise ApiProblem(
+                503, "sms_unavailable", "Chưa gửi được tin nhắn lúc này, thử lại sau."
+            ) from None
+        return OtpRequestResponse(
+            challenge_id=record.id,
+            expires_in_seconds=OTP_LIMITS["code_ttl_seconds"],
+            resend_after_seconds=OTP_LIMITS["resend_cooldown_seconds"],
+        )
+
+    def verify_otp(
+        self, challenge_id: uuid.UUID, phone: object, code: object
+    ) -> SessionResponse:
+        """Spend a code for a session. Every dead-challenge refusal is one 404."""
+        canonical, key = self._otp_phone(phone)
+        if not isinstance(code, str) or not code.strip():
+            raise ApiProblem(422, "code_required", "Thiếu mã xác minh.")
+        code = code.strip()
+        now = _now()
+        digest = derive_phone_digest(canonical, key)
+        challenge = self.repository.get_otp_challenge(challenge_id)
+        # A challenge issued to another number is, to this caller, no challenge.
+        if challenge is not None and not hmac.compare_digest(
+            challenge.phone_digest, digest
+        ):
+            challenge = None
+        matches = challenge is not None and hmac.compare_digest(
+            challenge.code_digest, derive_code_digest(challenge.id, code, key)
+        )
+        plan = plan_verify(
+            None
+            if challenge is None
+            else {
+                "expires_at": challenge.expires_at,
+                "attempts": challenge.attempts,
+                "consumed_at": challenge.consumed_at,
+            },
+            now,
+            matches,
+        )
+        outcome = plan["outcome"]
+        if outcome in ("not_found", "consumed", "expired", "burned_already"):
+            raise ApiProblem(
+                404,
+                "otp_challenge_not_found",
+                "Mã không còn hiệu lực. Hãy yêu cầu mã mới.",
+            )
+        assert challenge is not None
+        self.repository.record_otp_attempt(
+            challenge_id=challenge.id,
+            attempts=plan["attempts"],
+            consumed=outcome in ("ok", "burned"),
+            now=now,
+        )
+        if outcome == "burned":
+            raise ApiProblem(
+                429,
+                "otp_too_many_attempts",
+                "Sai mã quá nhiều lần. Hãy yêu cầu mã mới.",
+            )
+        if outcome == "wrong_code":
+            left = plan["attempts_left"]
+            raise ApiProblem(
+                422, "otp_code_invalid", f"Mã chưa đúng. Còn {left} lần thử."
+            )
+
+        person_id = derive_person_id(canonical, key)
+        person = self.repository.get_person(person_id)
+        is_new = person is None
+        if is_new:
+            try:
+                self.repository.create_person(person_id, self.NEW_PERSON_NAME)
+            except RepositoryConflict:
+                # Two verifies raced on a brand-new number; the row exists now.
+                is_new = False
+        self.repository.upsert_account_identity(
+            person_id=person_id, provider="phone", subject=digest.hex(), now=now
+        )
+        raw_token = secrets.token_urlsafe(32)
+        record = self.repository.create_account_session(
+            person_id=person_id,
+            token_digest=token_digest(raw_token),
+            issued_from_invite_id=None,
+            expires_at=now + ACCOUNT_SESSION_TTL,
+            now=now,
+            issued_via="otp",
+        )
+        return self._session_response(
+            raw_token, record, person_id=person_id, is_new_person=is_new
         )
 
     def _session_response(

@@ -23,6 +23,7 @@ from app.api.errors import RepositoryConflict
 from app.api.limits import OBJECTION_LIMIT, REPORT_LIMIT
 from app.api.main import create_app
 from app.api.repository import (
+    AccountIdentityRecord,
     AccountSessionRecord,
     ActorGrants,
     AllocationRow,
@@ -50,6 +51,7 @@ from app.api.repository import (
     MemoryRecord,
     MessageRecord,
     ObligationDraft,
+    OtpChallengeRecord,
     OutingInviteRecord,
     PaymentReportRecord,
     PaymentReportTarget,
@@ -128,6 +130,8 @@ class FakeRepository:
         self.account_sessions: dict[uuid.UUID, AccountSessionRecord] = {}
         self.invited_memberships: set[tuple[uuid.UUID, uuid.UUID]] = set()
         self.read_marks: dict[tuple[uuid.UUID, uuid.UUID], ReadMarkRecord] = {}
+        self.otp_challenges: dict[uuid.UUID, OtpChallengeRecord] = {}
+        self.account_identities: dict[tuple[str, str], AccountIdentityRecord] = {}
         self.account_session_ids_by_digest: dict[bytes, uuid.UUID] = {}
         self.left_memberships: set[tuple[uuid.UUID, uuid.UUID]] = set()
         self.admin_memberships: set[tuple[uuid.UUID, uuid.UUID]] = set()
@@ -702,6 +706,66 @@ class FakeRepository:
             )
             self.read_marks[(context_id, person_id)] = current
         return current
+
+    def create_otp_challenge(
+        self, *, challenge_id, phone_digest, code_digest, expires_at, now
+    ):
+        record = OtpChallengeRecord(
+            id=challenge_id,
+            phone_digest=phone_digest,
+            code_digest=code_digest,
+            created_at=now,
+            expires_at=expires_at,
+            attempts=0,
+            consumed_at=None,
+        )
+        self.otp_challenges[challenge_id] = record
+        return record
+
+    def recent_otp_challenges(self, phone_digest, since):
+        return sorted(
+            (
+                r
+                for r in self.otp_challenges.values()
+                if r.phone_digest == phone_digest and r.created_at > since
+            ),
+            key=lambda r: r.created_at,
+            reverse=True,
+        )
+
+    def get_otp_challenge(self, challenge_id):
+        return self.otp_challenges.get(challenge_id)
+
+    def record_otp_attempt(self, *, challenge_id, attempts, consumed, now):
+        record = self.otp_challenges.get(challenge_id)
+        if record is None:
+            return None
+        record = replace(
+            record,
+            attempts=attempts,
+            consumed_at=(record.consumed_at or now) if consumed else record.consumed_at,
+        )
+        self.otp_challenges[challenge_id] = record
+        return record
+
+    def get_account_identity(self, provider, subject):
+        return self.account_identities.get((provider, subject))
+
+    def upsert_account_identity(self, *, person_id, provider, subject, now):
+        existing = self.account_identities.get((provider, subject))
+        if existing is None:
+            existing = AccountIdentityRecord(
+                id=uuid.uuid4(),
+                person_id=person_id,
+                provider=provider,
+                subject=subject,
+                created_at=now,
+                last_login_at=now,
+            )
+        else:
+            existing = replace(existing, last_login_at=now)
+        self.account_identities[(provider, subject)] = existing
+        return existing
 
     def ensure_invited_membership(
         self, *, context_id, person_id, invited_by_id, origin, now
