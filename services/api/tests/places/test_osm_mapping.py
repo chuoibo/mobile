@@ -85,8 +85,8 @@ class OsmMapping(unittest.TestCase):
         payload = {
             "elements": [
                 CAFE,
-                {**CAFE, "id": 2, "tags": {"amenity": "restaurant", "name": "Quán"}},
-                {**CAFE, "id": 3, "tags": {"amenity": "bar", "name": "Bar"}},
+                {**CAFE, "id": 2, "tags": {"amenity": "restaurant", "name": "Quán Bà Tư"}},
+                {**CAFE, "id": 3, "tags": {"amenity": "bar", "name": "Bar Thông Xanh"}},
                 {**CAFE, "id": 4, "tags": {"tourism": "viewpoint", "name": "Đồi"}},
             ]
         }
@@ -224,3 +224,27 @@ class OsmImportRefusesHostileRows(unittest.TestCase):
         }
         rows = rows_from_payload(payload, destination_id="d-da-lat")
         self.assertEqual([row["id"] for row in rows], ["osm-node-4407"])
+
+
+class OsmImportSkipsNamelessRows(unittest.TestCase):
+    """«Café» is the word the reader just tapped, not a place to choose."""
+
+    def test_a_name_that_is_only_the_category_word_is_skipped(self):
+        for name in ("Café", "CAFE", "Nhà hàng", "quán cà phê", "Restaurant"):
+            with self.subTest(name=name):
+                self.assertIsNone(
+                    row_from_element(
+                        {**CAFE, "tags": {"amenity": "cafe", "name": name}},
+                        destination_id="d-da-lat",
+                    )
+                )
+
+    def test_a_real_name_containing_the_category_word_survives(self):
+        for name in ("Lúa Café", "Nhà Hàng Cafe CitroNella", "Cà Phê Vợt Hẻm 330"):
+            with self.subTest(name=name):
+                row = row_from_element(
+                    {**CAFE, "tags": {"amenity": "cafe", "name": name}},
+                    destination_id="d-da-lat",
+                )
+                assert row is not None
+                self.assertEqual(row["name"], name)
