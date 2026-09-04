@@ -53,6 +53,9 @@ appId: com.lakiet.rudi
 # Bill gõ tay nói là gõ tay; «Chưa nhận diện được món nào» dưới hai món vừa gõ đọc như thất bại.
 - assertVisible: "Bạn nhập tay 2 món.*"
 - takeScreenshot: 28-xem-lai
+# Cuộn hết trang: nút bước phải nằm trên thanh cử chỉ nhờ inset đáy (ở font 1.3 nội dung dài hơn màn).
+- scroll
+- takeScreenshot: 28-xem-lai-cuoi
 - tapOn: "Tiếp: ai dùng món nào?"
 # Máy chủ đã giữ bill; mặc định mọi người cùng dùng mọi món. Nước chỉ D uống.
 - extendedWaitUntil:

@@ -97,12 +97,13 @@ export default function TabsLayout() {
           {
             bottom: expanded ? Math.max(insets.bottom, 24) : bottom + 27,
             backgroundColor: brand.coral,
+            borderColor: colors.ground,
             shadowColor: colors.accent,
           },
           pressed && styles.fabPressed,
         ]}
       >
-        <Ionicons color="#FFFFFF" name="add" size={30} />
+        <Ionicons color={colors.accentInk} name="add" size={30} />
       </Pressable>
     </View>
   );
@@ -122,7 +123,6 @@ const styles = StyleSheet.create({
     height: 58,
     borderRadius: 21,
     borderWidth: 4,
-    borderColor: "rgba(255,255,255,0.92)",
     alignItems: "center",
     justifyContent: "center",
     elevation: 12,

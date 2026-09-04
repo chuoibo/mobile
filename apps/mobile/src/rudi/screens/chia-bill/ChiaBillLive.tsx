@@ -17,6 +17,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ApiError, attemptFor, thongDiepNguoiDoc, type Attempt, type ChiaBill } from "../../../api";
 import {
@@ -113,6 +114,8 @@ function tenHienThi(ten: string | null | undefined): string {
 export function ChiaBillLiveScreen({ phien }: { phien: Phien }) {
   const router = useRouter();
   const { colors, radius } = useRudiTheme();
+  // The step CTA is the last thing in the scroll; at font 1.3 it met the gesture pill.
+  const insets = useSafeAreaInsets();
   const contextId = phien.context_id;
   const [buoc, setBuoc] = useState<Buoc>({ ten: "bat-dau" });
   const [reading, setReading] = useState<BillReading>(hoaDonTrong());
@@ -235,7 +238,7 @@ export function ChiaBillLiveScreen({ phien }: { phien: Phien }) {
   const luiTrongLuong = buoc.ten !== "bat-dau" && buoc.ten !== "da-ghi";
 
   return (
-    <RudiScreen tone="split" testID="receipt-review-screen">
+    <RudiScreen bottomInset={Math.max(insets.bottom, 16) + 40} tone="split" testID="receipt-review-screen">
       <TopBar onBack={luiTrongLuong ? quayLai : undefined} subtitle={`Bước ${soBuoc(buoc)}/${SO_BUOC}`} title={tieuDeBuoc(buoc)} />
       {thongBao !== null ? <Text style={[typography.body, { color: colors.warn }]}>{thongBao}</Text> : null}
 

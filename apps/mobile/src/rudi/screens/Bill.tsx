@@ -404,7 +404,7 @@ function QuyetToanLive({ actorId, contextId }: { actorId: string; contextId: str
         ))}
       </View>
       <Card style={styles.safetyNote}>
-        <Ionicons color={colors.warn} name="shield-checkmark-outline" size={21} />
+        <Ionicons color={colors.split} name="shield-checkmark-outline" size={21} />
         <Text style={[typography.caption, styles.flex, { color: colors.inkSoft }]}>
           {du.toiThieu
             ? "Máy chủ chứng minh đây là danh sách chuyển ngắn nhất."
@@ -536,7 +536,7 @@ function QuyetToanNhap() {
         })}
       </View>
       <Card style={styles.safetyNote}>
-        <Ionicons color={colors.warn} name="shield-checkmark-outline" size={21} />
+        <Ionicons color={colors.split} name="shield-checkmark-outline" size={21} />
         <Text style={[typography.caption, styles.flex, { color: colors.inkSoft }]}>
           “Đã trả” là xác nhận trong Rủ Đi, không phải bằng chứng chuyển tiền. Chuyển bằng cách nào là việc giữa hai người; app dừng ở phần của mỗi người.
         </Text>
@@ -613,5 +613,6 @@ const styles = StyleSheet.create({
   transferRight: { alignItems: "flex-end", gap: 5 },
   status: { flexDirection: "row", alignItems: "center", gap: 3, borderRadius: 999, paddingHorizontal: 7, paddingVertical: 4 },
   statusText: { fontSize: 10, lineHeight: 12, fontWeight: "800" },
-  safetyNote: { flexDirection: "row", alignItems: "flex-start", gap: 9, backgroundColor: "#FFF8ED" },
+  // No fill of its own: the Card token follows the scheme, a cream literal did not.
+  safetyNote: { flexDirection: "row", alignItems: "flex-start", gap: 9 },
 });

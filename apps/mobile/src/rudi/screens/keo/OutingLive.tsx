@@ -8,7 +8,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Redirect, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { ApiError, newAttempt, thongDiepNguoiDoc } from "../../../api";
 import type { Phien } from "../../../phien";
@@ -215,7 +215,7 @@ export function OutingLiveScreen({ phien }: { phien: Phien }) {
                 {dinhDangTienVnd(tongDuKien(trang.keo.budget_per_person_vnd, trang.keo.headcount))}
               </Text>
               <Text numberOfLines={1} style={[typography.caption, { color: colors.inkFaint }]}>
-                cả kèo, tham chiếu
+                cả kèo
               </Text>
             </View>
             <View style={[styles.vach, { backgroundColor: colors.line }]} />
@@ -248,7 +248,8 @@ export function OutingLiveScreen({ phien }: { phien: Phien }) {
                 </View>
               </View>
               <Text style={[typography.caption, { color: colors.inkSoft }]}>Địa điểm trong danh mục (tuỳ chọn)</Text>
-              <Inline gap={6} wrap>
+              {/* One scrolling row: at font 1.3 the catalogue wrapped into eight rows and pushed the submit off-screen. */}
+              <ScrollView contentContainerStyle={styles.hangChip} horizontal showsHorizontalScrollIndicator={false}>
                 {danhMuc.map((p) => (
                   <Chip
                     key={p.id}
@@ -257,18 +258,18 @@ export function OutingLiveScreen({ phien }: { phien: Phien }) {
                     selected={choDiaDiem !== null && choDiaDiem.id === p.id}
                   />
                 ))}
-              </Inline>
+              </ScrollView>
               <RudiButton disabled={dangGhi} label="Thêm chặng" loading={dangGhi} onPress={() => void themChangMoi(trang.keo)} />
             </Card>
           ) : null}
           {ganChoChang !== null ? (
             <Card style={styles.form}>
               <Text style={[typography.title, { color: colors.ink }]}>Gắn địa điểm cho «{ganChoChang.label}»</Text>
-              <Inline gap={6} wrap>
+              <ScrollView contentContainerStyle={styles.hangChip} horizontal showsHorizontalScrollIndicator={false}>
                 {danhMuc.map((p) => (
                   <Chip key={p.id} label={p.name} onPress={() => void ganChang(trang.keo, ganChoChang, p)} />
                 ))}
-              </Inline>
+              </ScrollView>
               <RudiButton label="Để sau" onPress={() => setGanChoChang(null)} variant="ghost" />
             </Card>
           ) : null}
@@ -335,6 +336,7 @@ export function OutingLiveScreen({ phien }: { phien: Phien }) {
 }
 
 const styles = StyleSheet.create({
+  hangChip: { flexDirection: "row", gap: 6, paddingRight: 8 },
   flex: { flex: 1 },
   tongQuan: { flexDirection: "row", alignItems: "center", padding: 12 },
   oTong: { flex: 1, alignItems: "center", gap: 3, minHeight: 48, justifyContent: "center" },

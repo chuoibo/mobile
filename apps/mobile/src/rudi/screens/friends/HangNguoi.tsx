@@ -22,7 +22,7 @@ export function HangNguoi({ ten, phu, duoi }: { ten: string; phu: string; duoi?:
         <Text numberOfLines={1} style={[typography.body, { color: colors.ink }]}>
           {ten}
         </Text>
-        <Text numberOfLines={1} style={[typography.caption, { color: colors.inkFaint }]}>
+        <Text numberOfLines={2} style={[typography.caption, { color: colors.inkFaint }]}>
           {phu}
         </Text>
       </View>

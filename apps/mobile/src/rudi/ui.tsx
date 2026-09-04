@@ -358,7 +358,7 @@ export function RudiButton({
   full = true,
   style,
 }: ButtonProps) {
-  const { colors, radius, brand } = useRudiTheme();
+  const { colors, radius } = useRudiTheme();
   const solid = variant === "solid";
   const foreground = solid ? colors[`${tone}Ink` as const] : toneColor(colors, tone);
   const base = [
@@ -394,9 +394,9 @@ export function RudiButton({
       {solid ? (
         <LinearGradient
           colors={
-            tone === "accent"
-              ? [brand.actionGradient.from, brand.actionGradient.to]
-              : [toneColor(colors, tone), toneColor(colors, tone)]
+            // Scheme tokens, not the brand's light-only pair: in dark the
+            // primary must be the brightest actionable thing on the screen.
+            tone === "accent" ? [colors.accent, colors.accentEnd] : [toneColor(colors, tone), toneColor(colors, tone)]
           }
           end={{ x: 1, y: 0.6 }}
           start={{ x: 0, y: 0 }}

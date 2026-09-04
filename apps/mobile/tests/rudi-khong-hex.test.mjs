@@ -34,7 +34,7 @@ const ONLY_FILE_ALLOWED_TO_SPELL_COLOURS = "src/rudi/theme.ts";
 // remove literals; never raise one. Removing a file's last literal means
 // deleting its line here, and the test tells you so.
 const NO_DA_BIET = {
-  "src/rudi/screens/Bill.tsx": 29,
+  "src/rudi/screens/Bill.tsx": 28,
   "src/rudi/screens/Profile.tsx": 27,
   "src/rudi/fixtures.ts": 20,
   "src/rudi/screens/Discovery.tsx": 19,
@@ -44,7 +44,6 @@ const NO_DA_BIET = {
   "src/rudi/ui.tsx": 7,
   "src/rudi/screens/Create.tsx": 4,
   "src/rudi/session.tsx": 2,
-  "app/(tabs)/_layout.tsx": 2,
   "src/rudi/screens/Group.tsx": 1,
   "src/rudi/nguon.ts": 1,
   "src/rudi/kho.ts": 1,
