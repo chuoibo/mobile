@@ -40,7 +40,7 @@ import test from "node:test";
 
 import * as api from "../../dist-test/api.js";
 import { khoiDongNhom } from "../../dist-test/screens/chat/nhom.js";
-import { personById } from "../../dist-test/navigation/nhom-demo.js";
+import { personById } from "../../dist-test/rudi/nhom-demo.js";
 import { batPhienE2E } from "./phien-e2e.mjs";
 
 // The API this file talks to runs in `prod` and does not believe `X-Actor-ID`

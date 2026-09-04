@@ -39,7 +39,7 @@ import { khoiDongNhom } from "../../dist-test/screens/chat/nhom.js";
 import { layTaiChinh } from "../../dist-test/screens/ca-nhan/tai-chinh.js";
 import { layKyUc } from "../../dist-test/screens/ky-niem/ky-uc.js";
 import { docQuyetToanLive } from "../../dist-test/rudi/doc-live.js";
-import { DEMO_PEOPLE, personById } from "../../dist-test/navigation/nhom-demo.js";
+import { DEMO_PEOPLE, personById } from "../../dist-test/rudi/nhom-demo.js";
 import { batPhienE2E, daVa, fetchTho } from "./phien-e2e.mjs";
 
 // The API this file talks to runs in `prod` and does not believe `X-Actor-ID`
