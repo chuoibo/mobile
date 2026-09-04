@@ -39,7 +39,7 @@ import {
   taoBill,
 } from "../../dist-test/api.js";
 import { khoiDongNhom } from "../../dist-test/screens/chat/nhom.js";
-import { DEMO_PEOPLE, personById } from "../../dist-test/navigation/nhom-demo.js";
+import { DEMO_PEOPLE, personById } from "../../dist-test/rudi/nhom-demo.js";
 import { batPhienE2E } from "./phien-e2e.mjs";
 
 // The API this file talks to runs in `prod` and does not believe `X-Actor-ID`

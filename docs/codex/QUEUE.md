@@ -57,18 +57,18 @@ này không mô tả việc đã có người làm như thể còn nợ:
 | Việc | Ai | Trạng thái |
 |---|---|---|
 | PR-BE0 seed hỏng vì `/bank-recipients` (#519) | Claude | ĐÃ MERGE |
-| PR-BE2 `issued_via`, `GET /people/me/contexts`, `context_read_marks`, idempotency scope theo bearer — đóng luôn 0a «nhóm nào?» | Claude | **#526** mở, agy PASS, chờ Lead chấp nhận ADR-0016 (#520) rồi merge đầu chuỗi |
-| PR-BE3 OTP điện thoại (`/auth/otp/*`, `otp_challenges`, `account_identities`, SMS sender cắm được) | Claude | **#529** mở, xếp trên #526 |
-| PR-BE4 Google ID-token (`/auth/google`) | Claude | **#530** mở, xếp trên #529; client id Google do Lead tạo (SHA-1 ở #527) |
-| PR-BE5 profile + saved places | Claude | **#532** mở, xếp trên #530 |
-| PR-BE6 slash/@mention, `message_reactions`, cursor echo, grounding card client, `/chia-bill` theo lô | Claude | **#534** mở, xếp trên #532 |
-| PR-BE7a `outing_stops.place_id` (chặng của kèo trỏ vào danh mục; giữ check-in khi gắn) | Claude | **#536** mở, xếp trên #534 (M4) |
-| PR-BE7b `GET /contexts/{context_id}/batches` (liệt kê đợt thu của nhóm, gấp từ bảng thu) | Claude | **#541** mở, xếp trên #536 (M5 v-b) |
-| PR-BE7 `seed_rudi_world` HTTP-only re-runnable — đóng 0c «seed ≠ fixture» | Claude | **#546** mở (Node trên chính module client, không đổi máy chủ); đóng 0c khi merge |
+| PR-BE2 `issued_via`, `GET /people/me/contexts`, `context_read_marks`, idempotency scope theo bearer — đóng luôn 0a «nhóm nào?» | Claude | ĐÃ MERGE 2026-09-04 (**#526**) |
+| PR-BE3 OTP điện thoại (`/auth/otp/*`, `otp_challenges`, `account_identities`, SMS sender cắm được) | Claude | ĐÃ MERGE 2026-09-04 (**#529**) |
+| PR-BE4 Google ID-token (`/auth/google`) | Claude | ĐÃ MERGE 2026-09-04 (**#530**) |
+| PR-BE5 profile + saved places | Claude | ĐÃ MERGE 2026-09-04 (**#532**) |
+| PR-BE6 slash/@mention, `message_reactions`, cursor echo, grounding card client, `/chia-bill` theo lô | Claude | ĐÃ MERGE 2026-09-04 (**#534**) |
+| PR-BE7a `outing_stops.place_id` (chặng của kèo trỏ vào danh mục; giữ check-in khi gắn) | Claude | ĐÃ MERGE 2026-09-04 (**#536**) |
+| PR-BE7b `GET /contexts/{context_id}/batches` (liệt kê đợt thu của nhóm, gấp từ bảng thu) | Claude | ĐÃ MERGE 2026-09-04 (**#541**) |
+| PR-BE7 `seed_rudi_world` HTTP-only re-runnable — đóng 0c «seed ≠ fixture» | Claude | ĐÃ MERGE 2026-09-04 (**#546**) |
 | 0b `check_api_contract.py` mù `/healthz` | còn mở | sửa khi đụng `scripts/` |
 | C1–C3 (OffsetProposal, phản đối dừng thu, bằng chứng che) | còn mở | chưa nằm trong lộ trình |
 
-Phía client (vỏ RuDi, `apps/mobile/`, xếp chồng theo thứ tự, mỗi PR đã có agy PASS + APPROVE có điều kiện chuỗi và bằng chứng emulator trong thân PR):
+Phía client (vỏ RuDi, `apps/mobile/`, xếp chồng theo thứ tự, mỗi PR đã có agy PASS + APPROVE có điều kiện chuỗi và bằng chứng emulator trong thân PR; **tất cả đã merge 2026-09-04**, xem đoạn dưới bảng):
 
 | PR | Mảng | Merge sau |
 |---|---|---|
@@ -88,7 +88,7 @@ Phía client (vỏ RuDi, `apps/mobile/`, xếp chồng theo thứ tự, mỗi PR
 | **#554** | M7: 155 màu viết tay (hex + rgba) ở 13 file thành tên trong `theme.ts` (`mauSang`, `mucTrenAnh`, `giayHoaDon`, `bangMauFixture`, `phuMau`, `lopPhu`…), danh sách nợ `rudi-khong-hex` rỗng; bảng mặc định so ảnh từng điểm 16/18 lệch 0, bảng `--otp` XANH 11 flow | #552 |
 | **#546** | M7 seed «Team Đà Lạt» bằng chính client app (`tools/seed-rudi-world.mjs`, `make demo-rudi`), chạy thật hai lượt (dựng rồi no-op) | #545 (đổi base sang #554 khi merge) |
 
-Thứ tự merge chờ Lead: #520 → #526 → #529 → #530 → #532 → #534 → #536 → #541 (máy chủ) và #531 → #533 → #535 → #537 → #539 → #540 → #542 → #543 → #545 → #547 → #549 → #550 → #552 → #554 → #546 (client + seed), đổi base về `main` từng bước. Mọi PR đều có agy PASS và APPROVE có điều kiện chuỗi trong comment (trừ PR đang chờ agy lúc ghi). Cập nhật 2026-09-04 (lần 5).
+**Đã merge hết vào `main` ngày 2026-09-04** (Lead uỷ quyền toàn quyền cho Claude; merge commit, không squash, mỗi PR đổi base về `main` trước): máy chủ #520 → #526 → #529 → #530 → #532 → #534 → #536 → #541, rồi client #531 → #533 → #535 → #537 → #539 → #540 → #542 → #543 → #545 → #547 → #549 → #550 → #552 → #554 → #546. Ba PR xung đột ở `.server-routes-uncalled.json` (#531, #533, #539) được giải bằng bản pin của `main` trừ đúng các pin cổng route báo «đã có người gọi». ADR-0016 đã vào `main` nhưng dòng trạng thái vẫn ghi ĐỀ XUẤT — Lead tự tay đổi sang ĐÃ CHẤP NHẬN (một dòng). Trên `main` sau gộp (b9f6473): pytest 2991 passed + 1 đỏ (pin `/contexts/{context_id}/batches` đã trả nợ mà bản gộp tự động giữ lại → PR này gỡ), test-db ĐẠT, 4 cổng hợp đồng rc=0, repo guard tree ĐẠT, tsc 0, npm 609/609; `scripts/e2e_slice.sh` đỏ 3 test e2e vì còn trỏ `dist-test/navigation/nhom-demo.js` (App B đã xoá ở #547; module dời về `src/rudi/nhom-demo.ts`) → PR này trỏ lại. Còn mở: #488 (cổng Luật 1, Lead quyết).
 
 ## A. REVIEW — 5 PR đang chờ bạn
 
