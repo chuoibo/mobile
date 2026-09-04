@@ -12,9 +12,9 @@ import { StyleSheet, Text, View } from "react-native";
 import type { Phien } from "../../../phien";
 import { FinanceError } from "../../../screens/ca-nhan/tai-chinh";
 import { phanSo, tiLe } from "../../../screens/thanh-tich/thanh-tich";
-import { cauCapDo, demHuyHieuMo, docThanhTich, type HuyHieu, type ThanhTich } from "../../ky-niem/ky-niem";
+import { demHuyHieuMo, docThanhTich, type HuyHieu, type ThanhTich } from "../../ky-niem/ky-niem";
 import { typography, useRudiTheme } from "../../theme";
-import { Card, Chip, Heading, RudiButton, RudiScreen, SectionHeader, TopBar } from "../../ui";
+import { Card, Heading, ListRow, RudiButton, RudiScreen, SectionHeader, TopBar, type IconName } from "../../ui";
 
 type Trang = { pha: "dang-doc" } | { pha: "xong"; tt: ThanhTich } | { pha: "hong"; loi: string };
 
@@ -29,6 +29,20 @@ function chuTrangThai(h: HuyHieu): string {
   if (h.trangThai === "chua-do-duoc") return "Chưa đo được";
   if (h.daDat !== undefined && h.can !== undefined) return `${phanSo(h.daDat, h.can)}`;
   return "Chưa đạt";
+}
+
+/** Three states, three glyphs: a badge the ledger cannot decide yet is not a locked one. */
+function bieuTuongHuyHieu(h: HuyHieu): IconName {
+  if (h.trangThai === "mo") return "ribbon";
+  if (h.trangThai === "chua-do-duoc") return "help-circle-outline";
+  return "lock-closed-outline";
+}
+
+/** The rule, plus what is missing, in a member's words (App B's `thieuGi` spoke to developers). */
+function phuHuyHieu(h: HuyHieu): string {
+  if (h.trangThai === "chua-do-duoc") return `${h.dieuKien} · Sổ chưa ghi mục này theo từng người, nên chưa đo được.`;
+  if (h.thieuGi !== undefined && h.thieuGi !== "") return `${h.dieuKien} · ${h.thieuGi}`;
+  return h.dieuKien;
 }
 
 export function AchievementsLiveScreen({ phien }: { phien: Phien }) {
@@ -81,28 +95,28 @@ export function AchievementsLiveScreen({ phien }: { phien: Phien }) {
     <RudiScreen testID="achievements-screen">
       <TopBar title="Thành tích" />
       <Card style={styles.hero} tone="accent">
-        <Text style={[typography.caption, { color: colors.inkFaint }]}>Tính từ sổ của bạn: {so.expense_count} khoản chi, {so.group_count} nhóm</Text>
         <Text style={[styles.cap, { color: colors.ink }]}>Cấp {tienDo.cap}</Text>
-        <Text style={[typography.caption, { color: colors.inkSoft }]}>{cauCapDo(tienDo)}</Text>
+        <Text style={[typography.caption, { color: colors.inkSoft }]}>
+          {tienDo.diemTrongCap}/{tienDo.diemMoiCap} điểm tới cấp {tienDo.cap + 1} · tính từ {so.expense_count} khoản chi, {so.group_count} nhóm trong sổ của bạn
+        </Text>
         <View accessibilityLabel={`Tiến độ ${phanTram} phần trăm tới cấp sau`} style={[styles.thanh, { backgroundColor: colors.line, borderRadius: radius.pill }]}>
           <View style={[styles.thanhDay, { backgroundColor: colors.accent, borderRadius: radius.pill, width: `${phanTram}%` }]} />
         </View>
       </Card>
 
-      <SectionHeader title="Huy hiệu" action={demHuyHieuMo(huyHieu)} />
-      {huyHieu.map((h) => (
-        <Card key={h.id} style={styles.hang}>
-          <View style={[styles.oIcon, { backgroundColor: h.trangThai === "mo" ? colors.accentSoft : colors.line, borderRadius: radius.small }]}>
-            <Ionicons color={h.trangThai === "mo" ? colors.accent : colors.inkFaint} name={h.trangThai === "mo" ? "ribbon" : "lock-closed-outline"} size={22} />
-          </View>
-          <View style={styles.flex}>
-            <Text style={[typography.label, { color: colors.ink }]}>{h.ten}</Text>
-            <Text style={[typography.caption, { color: colors.inkSoft }]}>{h.dieuKien}</Text>
-            {h.thieuGi !== undefined ? <Text style={[typography.caption, { color: colors.inkFaint }]}>{h.thieuGi}</Text> : null}
-          </View>
-          <Chip label={chuTrangThai(h)} selected={h.trangThai === "mo"} />
-        </Card>
-      ))}
+      <SectionHeader title="Huy hiệu" />
+      <Card style={styles.danhSach}>
+        <Text style={[typography.caption, { color: colors.inkSoft }]}>{demHuyHieuMo(huyHieu)} · mỗi huy hiệu là một luật đọc từ sổ</Text>
+        {huyHieu.map((h) => (
+          <ListRow
+            icon={bieuTuongHuyHieu(h)}
+            key={h.id}
+            subtitle={phuHuyHieu(h)}
+            title={h.ten}
+            trailing={<Text style={[typography.label, { color: h.trangThai === "mo" ? colors.accent : colors.inkSoft }]}>{chuTrangThai(h)}</Text>}
+          />
+        ))}
+      </Card>
 
       <SectionHeader title="Thử thách tuần này" />
       {thuThach.length === 0 ? <Text style={[typography.caption, { color: colors.inkFaint }]}>Tuần này chưa có thử thách nào đo được từ sổ.</Text> : null}
@@ -127,5 +141,5 @@ const styles = StyleSheet.create({
   thanh: { height: 10, overflow: "hidden", marginTop: 6 },
   thanhDay: { height: 10 },
   hang: { flexDirection: "row", alignItems: "center", gap: 12 },
-  oIcon: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  danhSach: { gap: 2, paddingVertical: 8 },
 });

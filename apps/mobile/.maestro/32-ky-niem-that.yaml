@@ -42,7 +42,7 @@ appId: com.lakiet.rudi
 - assertNotVisible: "Dữ liệu demo"
 - takeScreenshot: 32-tuong-trong
 # Check-in tại một chỗ trong danh mục máy chủ.
-- tapOn: "Check-in tại một chỗ"
+- tapOn: "Check-in"
 - extendedWaitUntil:
     visible: "Chọn Quán Ốc Dì Bé"
     timeout: 60000
@@ -124,7 +124,14 @@ appId: com.lakiet.rudi
     visible: "Cấp .*"
     timeout: 60000
 - assertVisible: "Huy hiệu"
-- assertVisible: "Thử thách tuần này"
 - assertNotVisible: "12/18 đã mở"
 - assertNotVisible: "12 huy hiệu đã mở khóa"
 - takeScreenshot: 32-thanh-tich
+# Thử thách tuần nằm dưới danh sách huy hiệu; cuộn tới rồi mới khẳng định.
+- scrollUntilVisible:
+    element:
+      text: "Thử thách tuần này"
+    direction: DOWN
+    timeout: 30000
+- assertVisible: "Thử thách tuần này"
+- takeScreenshot: 32-thanh-tich-cuoi
