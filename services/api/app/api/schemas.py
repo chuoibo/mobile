@@ -1567,6 +1567,38 @@ class BatchObligationsResponse(ApiModel):
     payment_reported_count: int = 0
 
 
+class ContextBatchView(ApiModel):
+    """One collection round of a group, as the settlement screen lists it.
+
+    `status` is the batch's own state (`app.domain.collection.STATES`). The
+    counts are folded from the board (`GET /batches/{batch_id}/obligations`)
+    so the two never disagree; `total_vnd` adds the obligations' amounts on
+    the server. Nothing here is a share.
+    """
+
+    batch_id: UUID
+    status: Literal[
+        "accruing",
+        "frozen",
+        "published",
+        "collecting",
+        "completed",
+        "closed_with_exceptions",
+        "cancelled",
+    ]
+    created_at: datetime
+    published_at: datetime | None
+    obligation_count: int
+    confirmed_count: int
+    disputed_count: int
+    total_vnd: MoneyVnd
+
+
+class ContextBatchesResponse(ApiModel):
+    context_id: UUID
+    batches: list[ContextBatchView]
+
+
 class ErrorResponse(ApiModel):
     code: StrictStr
     detail: StrictStr

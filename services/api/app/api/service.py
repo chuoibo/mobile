@@ -82,6 +82,8 @@ from app.api.schemas import (
     CompanionTurnResponse,
     ContextBalanceEntry,
     ContextBalancesResponse,
+    ContextBatchesResponse,
+    ContextBatchView,
     ContextCreateRequest,
     ContextLastMessage,
     ContextResponse,
@@ -5162,6 +5164,40 @@ class ApiService:
             payment_reported_count=sum(
                 1 for row in rows if row.payment_reported_at is not None
             ),
+        )
+
+    def list_context_batches(
+        self, context_id: uuid.UUID, actor: Actor
+    ) -> ContextBatchesResponse:
+        """The group's collection rounds, for a screen that has to find them.
+
+        `POST /batches` hands the id back once; a phone that restarts, or a
+        member who did not open the round, had no way to reach the board at
+        all. The list is read with the board's own permission, and the
+        membership check runs before the query: an unknown group and a group
+        the caller is not in refuse the same way, so the route is not an
+        oracle for which ids exist.
+        """
+        _require_permission(
+            "view_collection_board",
+            actor,
+            {"is_group_member": self.repository.is_member(context_id, actor.id)},
+        )
+        return ContextBatchesResponse(
+            context_id=context_id,
+            batches=[
+                ContextBatchView(
+                    batch_id=row.batch_id,
+                    status=row.status,
+                    created_at=row.created_at,
+                    published_at=row.published_at,
+                    obligation_count=row.obligation_count,
+                    confirmed_count=row.confirmed_count,
+                    disputed_count=row.disputed_count,
+                    total_vnd=row.total_vnd,
+                )
+                for row in self.repository.list_context_batches(context_id)
+            ],
         )
 
     def record_objection(
