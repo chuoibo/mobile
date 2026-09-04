@@ -124,7 +124,14 @@ appId: com.lakiet.rudi
     visible: "Cấp .*"
     timeout: 60000
 - assertVisible: "Huy hiệu"
-- assertVisible: "Thử thách tuần này"
 - assertNotVisible: "12/18 đã mở"
 - assertNotVisible: "12 huy hiệu đã mở khóa"
 - takeScreenshot: 32-thanh-tich
+# Thử thách tuần nằm dưới danh sách huy hiệu; cuộn tới rồi mới khẳng định.
+- scrollUntilVisible:
+    element:
+      text: "Thử thách tuần này"
+    direction: DOWN
+    timeout: 30000
+- assertVisible: "Thử thách tuần này"
+- takeScreenshot: 32-thanh-tich-cuoi
