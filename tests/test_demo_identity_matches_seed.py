@@ -27,7 +27,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SEED_SCRIPT = REPO_ROOT / "scripts" / "seed_demo_data.py"
-DEMO_TS = REPO_ROOT / "apps" / "mobile" / "src" / "navigation" / "nhom-demo.ts"
+DEMO_TS = REPO_ROOT / "apps" / "mobile" / "src" / "rudi" / "nhom-demo.ts"
 
 # One object literal per person, in the DEMO_PEOPLE array. Deliberately strict
 # about the field order it accepts: a loose pattern that silently matched fewer
