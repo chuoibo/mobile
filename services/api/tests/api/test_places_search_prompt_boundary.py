@@ -124,8 +124,8 @@ def test_the_catalogue_half_of_the_prompt_is_a_pure_function_of_the_seed_rows():
 
 
 def searcher(raw):
-    def search(query: str):
-        del query
+    def search(query: str, places=None):
+        del query, places
         return raw
 
     return search
@@ -237,4 +237,8 @@ def test_a_search_never_leaks_into_the_browse_prompt(client):
         "a search query reached the browse prompt -- the two routes share state "
         "they must not share"
     )
-    assert prompt == build_prompt([ReasonRow(place=place) for place in PLACES], GROUP)
+    # Sorted by id: the catalogue is a table since M9 and has no file order.
+    assert prompt == build_prompt(
+        [ReasonRow(place=place) for place in sorted(PLACES, key=lambda p: p["id"])],
+        GROUP,
+    )

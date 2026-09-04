@@ -30,10 +30,15 @@ REAL_CATEGORY_IDS = [category["id"] for category in CATEGORIES]
 
 
 def searcher_returning(raw):
-    """A searcher that answers with a fixed model payload, without a network call."""
+    """A searcher that answers with a fixed model payload, without a network call.
 
-    def search(query: str):
-        del query
+    Takes the catalogue the route hands it (M9: the rows come from the table,
+    so the route reads them and passes them in) and ignores it: what this stub
+    is for is the answer, not the prompt.
+    """
+
+    def search(query: str, places=None):
+        del query, places
         return raw
 
     return search
@@ -408,7 +413,7 @@ def test_a_sentence_quoting_a_figure_nobody_supplied_loses_its_ai_label(client):
 
 
 def test_a_model_that_cannot_be_reached_is_an_honest_empty_answer_not_a_500(client):
-    client.app.dependency_overrides[get_place_searcher] = lambda: lambda query: None
+    client.app.dependency_overrides[get_place_searcher] = lambda: lambda query, places=None: None
 
     response = post(client)
     assert response.status_code == 200, response.text
@@ -418,7 +423,7 @@ def test_a_model_that_cannot_be_reached_is_an_honest_empty_answer_not_a_500(clie
 
 
 def test_a_searcher_that_raises_is_contained(client):
-    def boom(query):
+    def boom(query, places=None):
         raise RuntimeError("socket died")
 
     client.app.dependency_overrides[get_place_searcher] = lambda: boom
@@ -435,7 +440,7 @@ def test_no_silent_fallback_to_keyword_search_when_the_model_is_down(client):
     the screen and leave nobody able to tell that the feature is not running.
     """
 
-    client.app.dependency_overrides[get_place_searcher] = lambda: lambda query: None
+    client.app.dependency_overrides[get_place_searcher] = lambda: lambda query, places=None: None
 
     body = post(client, query="cafe").json()
     assert body["places"] == []
@@ -445,7 +450,7 @@ def test_no_silent_fallback_to_keyword_search_when_the_model_is_down(client):
 def test_an_empty_query_is_refused_before_any_model_is_asked(client, query):
     asked = []
 
-    def record(text):
+    def record(text, places=None):
         asked.append(text)
         return None
 
@@ -461,7 +466,7 @@ def test_an_empty_query_is_refused_before_any_model_is_asked(client, query):
 def test_an_oversized_query_is_refused_rather_than_pasted_into_a_prompt(client):
     asked = []
 
-    def record(text):
+    def record(text, places=None):
         asked.append(text)
         return None
 
