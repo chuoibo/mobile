@@ -195,7 +195,7 @@ def turn(monkeypatch):
     monkeypatch.setattr(anyio.to_thread, "run_sync", run_sync_inline)
     monkeypatch.setattr(service, "_now", lambda: NOW)
     monkeypatch.setattr(
-        companion_places, "load_place_catalogue", lambda: list(CATALOGUE)
+        companion_places, "load_place_catalogue", lambda *_: list(CATALOGUE)
     )
 
     def take(conversation, *, companion=None, requested=False):

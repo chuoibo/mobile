@@ -184,7 +184,7 @@ def client(monkeypatch, companion):
     monkeypatch.setattr(anyio.to_thread, "run_sync", run_sync_inline)
     monkeypatch.setattr("app.api.service._now", lambda: NOW)
     monkeypatch.setattr(
-        companion_places, "load_place_catalogue", lambda: list(CATALOGUE)
+        companion_places, "load_place_catalogue", lambda *_: list(CATALOGUE)
     )
     app = create_app()
     app.dependency_overrides[get_repository] = lambda: ConversationRepository()
