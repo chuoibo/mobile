@@ -754,7 +754,7 @@ const CONFIRM_REFUSALS: Record<string, string> = {
   expense_not_found: "Không tìm thấy khoản chi này trên máy chủ.",
 };
 
-const OPEN_BATCH_REFUSALS: Record<string, string> = {
+export const OPEN_BATCH_REFUSALS: Record<string, string> = {
   unready_recipient_choice_required:
     "Người ứng tiền chưa có tài khoản nhận. Chưa biết chuyển tiền về đâu thì " +
     "chưa mở đợt thu được.",

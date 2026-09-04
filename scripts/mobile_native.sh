@@ -424,9 +424,57 @@ d = json.load(sys.stdin)
 t = d.get("transfers", [])
 print("%d|%s" % (len(t), ",".join(str(x.get("amount_vnd")) for x in t)))')"
   IFS='|' read -r so_chuyen tien <<< "$ket"
+  # Flow 29 (same lap) publishes a round and D confirms the receipt, so the
+  # ledger then owes nothing: zero transfers is the RIGHT answer once a round
+  # with a confirmed obligation exists. Read the rounds before deciding.
+  local da_ve
+  da_ve="$(curl -sS "$goc/contexts/$ctx/batches" -H "Authorization: Bearer $tok" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+print(sum(int(b.get("confirmed_count") or 0) for b in d.get("batches", [])))' 2>/dev/null || echo 0)"
+  if [ "${da_ve:-0}" -ge 1 ]; then
+    [ "${so_chuyen:-0}" -eq 0 ] || hong "sau flow 28: đợt thu đã có $da_ve biên nhận mà sổ vẫn còn $so_chuyen khoản chuyển."
+    echo "máy chủ xác nhận: khoản chuyển 75.000đ (C → D) đã được đợt thu tất toán (flow 29), sổ không còn nợ, tính lại từ sổ"
+    return 0
+  fi
   [ "${so_chuyen:-0}" -eq 1 ] || hong "sau flow 28: máy chủ có $so_chuyen khoản chuyển, mong 1 (C → D)."
   [ "$tien" = "75000" ] || hong "sau flow 28: khoản chuyển là $tien đồng, mong 75000."
   echo "máy chủ xác nhận: quyết toán nhóm có đúng một khoản chuyển 75.000đ (C → D), tính lại từ sổ"
+}
+
+kiem_may_chu_sau_29() {
+  local goc body tok ctx ket
+  goc="http://127.0.0.1:$API_PORT"
+  body="$(dang_nhap_curl "$OTP_PHONE_D")" \
+    || hong "sau flow 29: D không đăng nhập được qua curl."
+  tok="$(printf '%s' "$body" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("token",""))')"
+  ctx="$(curl -sS "$goc/people/me/contexts" -H "Authorization: Bearer $tok" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+act = [c for c in d.get("contexts", []) if c.get("my_state") == "active" and c.get("display_name") == "Hoi QA"]
+print(act[0]["id"] if act else "")')"
+  [ -n "$tok" ] && [ -n "$ctx" ] || hong "sau flow 29: D không có nhóm «Hoi QA» active."
+  # The round list is the server's fold of the board: one round, published,
+  # one obligation, one confirmed receipt, 75.000đ. Anything else is a lie the
+  # screen told, or a write the screen claimed and the server never got.
+  ket="$(curl -sS "$goc/contexts/$ctx/batches" -H "Authorization: Bearer $tok" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+b = d.get("batches", [])
+if len(b) != 1:
+    print("so_dot=%d" % len(b))
+else:
+    x = b[0]
+    print("%s|%s|%s|%s|%s" % (x.get("status"), x.get("obligation_count"), x.get("confirmed_count"), x.get("disputed_count"), x.get("total_vnd")))')"
+  case "$ket" in
+    so_dot=*) hong "sau flow 29: máy chủ có ${ket#so_dot=} đợt thu, mong 1." ;;
+  esac
+  IFS='|' read -r trang_thai so_nv so_ve so_tc tong <<< "$ket"
+  [ "$trang_thai" = "published" ] || hong "sau flow 29: đợt thu ở trạng thái $trang_thai, mong published."
+  [ "${so_nv:-0}" -eq 1 ] && [ "${so_ve:-0}" -eq 1 ] && [ "${so_tc:-0}" -eq 0 ] \
+    || hong "sau flow 29: nghĩa vụ $so_nv, đã về $so_ve, thắc mắc $so_tc; mong 1/1/0."
+  [ "$tong" = "75000" ] || hong "sau flow 29: tổng đợt thu là $tong đồng, mong 75000."
+  echo "máy chủ xác nhận: nhóm có đúng một đợt thu đã phát, 1/1 nghĩa vụ 75.000đ đã về (biên nhận do D, người được nhận, xác nhận)"
 }
 
 kiem_may_chu_sau_30() {
@@ -919,7 +967,7 @@ for f in "$FLOWS"/*.yaml; do
     # môi trường chứ không phải vì app sai. `--live` chạy đúng và chỉ nhóm này.
     20-*)        [ "$LIVE" = 1 ] || continue ;;
     21-*)        [ "$DANG_NHAP" = 1 ] || continue ;;
-    22-*|23-*|24-*|25-*|26-*|27-*|28-*|31-*) [ "$OTP" = 1 ] || continue ;;
+    22-*|23-*|24-*|25-*|26-*|27-*|28-*|29-*|31-*) [ "$OTP" = 1 ] || continue ;;
     # Under the keyboard negative control the composer is meant to be covered,
     # so a flow that has to tap it (30, 40) would only fail for the reason the
     # probe already measures. The table for --tat-kav is the sign-in leg + 31.
@@ -995,6 +1043,7 @@ if [ "$OTP" = 1 ]; then
   kiem_may_chu_sau_26
   kiem_may_chu_sau_27
   kiem_may_chu_sau_28
+  kiem_may_chu_sau_29
   [ "$TAT_KAV" = 1 ] || kiem_may_chu_sau_30
   [ "$AI" = 1 ] && [ "$TAT_KAV" = 0 ] && kiem_may_chu_sau_40
   canary_otp

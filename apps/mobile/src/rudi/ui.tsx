@@ -367,7 +367,9 @@ export function RudiButton({
     full && styles.buttonFull,
     { borderRadius: radius.control },
     variant === "soft" && { backgroundColor: toneSoftColor(colors, tone), borderColor: "transparent" },
-    variant === "outline" && { backgroundColor: colors.card, borderColor: colors.lineStrong },
+    // The outline is the button's own tone on split/ai screens; `lineStrong`
+    // (a warm neutral) only on accent, where it is the brand world's line.
+    variant === "outline" && { backgroundColor: colors.card, borderColor: tone === "accent" ? colors.lineStrong : toneColor(colors, tone) },
     variant === "ghost" && { backgroundColor: "transparent", borderColor: "transparent" },
     disabled && styles.disabled,
     style,

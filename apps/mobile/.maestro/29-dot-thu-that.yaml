@@ -1,0 +1,107 @@
+# Đợt thu THẬT (M5 lát v-b): từ Quyết toán sống gom sổ thành một đợt thu, phát
+# (nghĩa vụ thành thật, mỗi người một link riêng), mở khay chia sẻ cho từng người,
+# rồi người được nhận bấm «Tiền đã về». Chạy sau flow 28 (D đang đăng nhập, khoản
+# 200.000đ đã ghi, C nợ D 75.000đ). Máy chủ kiểm sau flow: GET /contexts/{ctx}/batches
+# có đúng một đợt, đã phát, 1/1 nghĩa vụ đã về, tổng 75.000đ.
+appId: com.lakiet.rudi
+---
+- stopApp
+- launchApp
+- runFlow: _bo-qua-dev-menu.yaml
+- extendedWaitUntil:
+    visible: "Rủ Đi thôi!|Khám phá|Chưa có nhóm nào"
+    timeout: 150000
+- runFlow:
+    when:
+      visible: "Rủ Đi thôi!"
+    file: _dang-nhap-d.yaml
+- extendedWaitUntil:
+    visible: "Khám phá"
+    timeout: 60000
+- tapOn: "Cá nhân"
+# Quyết toán nằm sau «Tài chính của tôi» (đọc /people/{id}/finance), không ở ngay hồ sơ.
+- extendedWaitUntil:
+    visible: "Tài chính của tôi"
+    timeout: 60000
+- tapOn: "Tài chính của tôi"
+- extendedWaitUntil:
+    visible: "Chi theo nhóm"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Xem quyết toán"
+    direction: DOWN
+    timeout: 20000
+- tapOn: "Xem quyết toán"
+- extendedWaitUntil:
+    visible: "Quyết toán chuyến đi"
+    timeout: 60000
+# Chưa có đợt nào: các khoản chuyển ở trên mới là đề xuất.
+- extendedWaitUntil:
+    visible: "Chưa có đợt thu nào.*"
+    timeout: 60000
+- takeScreenshot: 29-quyet-toan-chua-co-dot
+- tapOn: "Tạo đợt thu từ sổ"
+# Máy chủ gom mọi khoản chưa vào đợt: một nghĩa vụ C → D 75.000đ, chưa phát.
+- extendedWaitUntil:
+    visible: "0/1 lượt chuyển đã về"
+    timeout: 60000
+- assertVisible: "Chưa phát"
+- assertVisible: "An QA → Ban QA"
+- assertVisible: "75.000đ"
+- assertVisible: "chưa chuyển"
+- assertNotVisible: "Gửi cho An QA"
+- takeScreenshot: 29-dot-chua-phat
+- tapOn: "Phát đợt thu"
+# Phát là không hoàn lại: cú bấm đầu mở câu nói vậy, cú bấm thứ hai mới phát.
+- extendedWaitUntil:
+    visible: "Phát, không hoàn lại"
+    timeout: 30000
+- assertVisible: "Không hoàn lại được.*"
+- takeScreenshot: 29-xac-nhan-phat
+- tapOn: "Phát, không hoàn lại"
+# Phát xong: link riêng của An có trên máy này (máy chủ chỉ giữ dấu vân).
+- extendedWaitUntil:
+    visible: "Gửi cho An QA"
+    timeout: 60000
+- assertVisible: "Đã phát"
+- assertVisible: "Tiền đã về từ An QA"
+- takeScreenshot: 29-dot-da-phat
+# Khay chia sẻ của hệ thống là cửa sổ khác: chữ của app biến mất khi khay mở.
+- tapOn: "Gửi cho An QA"
+- extendedWaitUntil:
+    notVisible: "Gửi cho An QA"
+    timeout: 15000
+- takeScreenshot: 29-khay-chia-se
+- back
+- extendedWaitUntil:
+    visible: "Gửi lại cho An QA"
+    timeout: 30000
+- assertVisible: "Đã mở khay chia sẻ.*"
+# D là người được nhận 75.000đ; chỉ D có nút này.
+- tapOn: "Tiền đã về từ An QA"
+- extendedWaitUntil:
+    visible: "1/1 lượt chuyển đã về"
+    timeout: 60000
+- assertVisible: "đã về"
+- assertNotVisible: "Tiền đã về từ An QA"
+- takeScreenshot: 29-tien-da-ve
+# Về Quyết toán: mục «Đợt thu» đọc lại khi màn được focus.
+- back
+- extendedWaitUntil:
+    visible: "Quyết toán chuyến đi"
+    timeout: 60000
+- extendedWaitUntil:
+    visible: "1 lượt chuyển · 1 đã về · 75.000đ"
+    timeout: 60000
+- assertVisible: "Đã phát"
+- assertNotVisible: "Chưa có đợt thu nào.*"
+# Sổ đọc lại khi màn được focus: tiền đã về nên không còn khoản chuyển đề xuất nào,
+# và không còn gì để gom thành đợt mới.
+- extendedWaitUntil:
+    visible: "Sổ không còn ai nợ ai.*"
+    timeout: 60000
+- assertNotVisible: "Đề xuất, chưa phải nghĩa vụ"
+- assertNotVisible: "Tạo đợt thu từ sổ"
+- assertVisible: "Sổ không còn khoản nào ngoài đợt.*"
+- takeScreenshot: 29-quyet-toan-co-dot

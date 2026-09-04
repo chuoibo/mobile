@@ -281,6 +281,7 @@
     // đề xuất bằng items của bill rồi chốt với expected_allocations của máy chủ,
     // mỗi lời gọi một Attempt, và không phép chia nào ở phía client.
     "src/rudi/chia-bill/hoa-don.ts",
+    "src/rudi/dot-thu/dot-thu.ts",
     "src/rudi/vote.ts"
   ]
 }
