@@ -59,6 +59,7 @@ from app.db.models import (
     MemoryReaction,
     Message,
     MessageKind,
+    MessageReaction,
     OtpChallenge,
     Outing,
     OutingInvite,
@@ -264,6 +265,7 @@ class OutingStopRecord:
     minute_of_day: int
     label: str
     place_name: str | None
+    place_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -457,6 +459,13 @@ class AccountIdentityRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class ReactionRecord:
+    message_id: uuid.UUID
+    person_id: uuid.UUID
+    kind: str
+
+
+@dataclass(frozen=True, slots=True)
 class ProfileCounts:
     """What `GET /people/me` shows as numbers. Each is one COUNT query."""
 
@@ -599,6 +608,27 @@ class BatchBoard:
 
     context_id: uuid.UUID
     obligations: tuple[BatchObligationRow, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ContextBatchRow:
+    """One collection round of a group, summarised from its own board.
+
+    Every count here is folded from `BatchObligationRow`s the board already
+    derives -- status included -- so the list and the board can never disagree
+    about what arrived. `total_vnd` is the sum of the obligations' amounts:
+    ledger rows added on the server, not a share computed anywhere.
+    """
+
+    batch_id: uuid.UUID
+    status: str
+    created_at: datetime
+    published_at: datetime | None
+    obligation_count: int
+    #: Obligations whose confirmed receipts reach the declared amount.
+    confirmed_count: int
+    disputed_count: int
+    total_vnd: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -1099,6 +1129,16 @@ class ApiRepository(Protocol):
 
     def unsave_place(self, person_id: uuid.UUID, place_id: str) -> bool: ...
 
+    def add_reaction(
+        self, *, message_id: uuid.UUID, person_id: uuid.UUID, kind: str, now: datetime
+    ) -> bool: ...
+
+    def remove_reaction(
+        self, *, message_id: uuid.UUID, person_id: uuid.UUID, kind: str
+    ) -> bool: ...
+
+    def list_reactions(self, message_ids: list[uuid.UUID]) -> list[ReactionRecord]: ...
+
     def get_account_identity(
         self, provider: str, subject: str
     ) -> AccountIdentityRecord | None: ...
@@ -1407,6 +1447,10 @@ class ApiRepository(Protocol):
         self, person_id: uuid.UUID, *, movement_limit: int
     ) -> PersonFinanceSummary: ...
 
+    def list_context_batches(
+        self, context_id: uuid.UUID
+    ) -> tuple[ContextBatchRow, ...]: ...
+
     def get_receipt_target(self, obligation_id: uuid.UUID) -> ReceiptTarget | None: ...
 
     def save_receipt_confirmation(
@@ -1558,6 +1602,7 @@ class SqlAlchemyApiRepository:
             minute_of_day=stop.minute_of_day,
             label=stop.label,
             place_name=stop.place_name,
+            place_id=stop.place_id,
         )
 
     def _outing_record(self, outing: Outing) -> OutingRecord:
@@ -2324,6 +2369,9 @@ class SqlAlchemyApiRepository:
         self.session.flush()
         for position, row in kept:
             row.position = position
+            # Only the catalogue link may change on a kept row: its id, and so its
+            # check-ins, stay. Attaching a place is not a new stop.
+            row.place_id = stops[position].get("place_id")
         self.session.flush()
 
         self.session.add_all(
@@ -2334,6 +2382,7 @@ class SqlAlchemyApiRepository:
                     minute_of_day=stop["minute_of_day"],
                     label=stop["label"],
                     place_name=stop["place_name"],
+                    place_id=stop.get("place_id"),
                 )
                 for position, stop in added
             ]
@@ -3078,6 +3127,52 @@ class SqlAlchemyApiRepository:
             place_id=row.place_id,
             created_at=row.created_at,
         )
+
+    def add_reaction(
+        self, *, message_id: uuid.UUID, person_id: uuid.UUID, kind: str, now: datetime
+    ) -> bool:
+        """True when a row was added; False when this reaction already stood."""
+        row = MessageReaction(
+            message_id=message_id, person_id=person_id, kind=kind, created_at=now
+        )
+        try:
+            with self.session.begin_nested():
+                self.session.add(row)
+                self.session.flush()
+        except IntegrityError:
+            # The unique index says it is already there; two taps are one heart.
+            return False
+        return True
+
+    def remove_reaction(
+        self, *, message_id: uuid.UUID, person_id: uuid.UUID, kind: str
+    ) -> bool:
+        row = self.session.scalar(
+            select(MessageReaction).where(
+                MessageReaction.message_id == message_id,
+                MessageReaction.person_id == person_id,
+                MessageReaction.kind == kind,
+            )
+        )
+        if row is None:
+            return False
+        self.session.delete(row)
+        self.session.flush()
+        return True
+
+    def list_reactions(self, message_ids: list[uuid.UUID]) -> list[ReactionRecord]:
+        """Every reaction on these messages, one query for the whole page."""
+        if not message_ids:
+            return []
+        rows = self.session.scalars(
+            select(MessageReaction)
+            .where(MessageReaction.message_id.in_(message_ids))
+            .order_by(MessageReaction.created_at, MessageReaction.id)
+        ).all()
+        return [
+            ReactionRecord(message_id=r.message_id, person_id=r.person_id, kind=r.kind)
+            for r in rows
+        ]
 
     def get_account_identity(
         self, provider: str, subject: str
@@ -4827,6 +4922,47 @@ class SqlAlchemyApiRepository:
                 )
             )
         return BatchBoard(context_id=batch.context_id, obligations=tuple(rows))
+
+    def list_context_batches(
+        self, context_id: uuid.UUID
+    ) -> tuple[ContextBatchRow, ...]:
+        """Every collection round this group opened, newest first.
+
+        Each row is folded from `list_batch_obligations` rather than from a
+        second query over the same tables: the board is the one place status
+        is derived (receipts summed, disputes read back from events), and a
+        list that re-derived it would be a second answer waiting to drift.
+        One board read per batch is a handful of queries for a handful of
+        rounds; a group does not open hundreds.
+        """
+        batches = list(
+            self.session.scalars(
+                select(CollectionBatch)
+                .where(CollectionBatch.context_id == context_id)
+                .order_by(CollectionBatch.created_at.desc(), CollectionBatch.id)
+            )
+        )
+        rows = []
+        for batch in batches:
+            board = self.list_batch_obligations(batch.id)
+            obligations = () if board is None else board.obligations
+            rows.append(
+                ContextBatchRow(
+                    batch_id=batch.id,
+                    status=batch.status.value,
+                    created_at=batch.created_at,
+                    published_at=batch.published_at,
+                    obligation_count=len(obligations),
+                    confirmed_count=sum(
+                        1
+                        for row in obligations
+                        if row.status in ("confirmed", "over_confirmed")
+                    ),
+                    disputed_count=sum(1 for row in obligations if row.disputed),
+                    total_vnd=sum(row.amount_vnd for row in obligations),
+                )
+            )
+        return tuple(rows)
 
     def get_receipt_target(self, obligation_id: uuid.UUID) -> ReceiptTarget | None:
         obligation = self.session.scalar(

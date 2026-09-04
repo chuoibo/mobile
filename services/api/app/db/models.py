@@ -1165,6 +1165,10 @@ class OutingStop(Base):
     minute_of_day: Mapped[int] = mapped_column(Integer, nullable=False)
     label: Mapped[str] = mapped_column(Text, nullable=False)
     place_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Catalogue key of the place this stop is at (M4). Text, not a foreign key,
+    # while the catalogue is code; the service refuses a key it does not know.
+    # Optional: a stop may be somewhere the catalogue has never heard of.
+    place_id: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class OutingStopCheckin(Base):
@@ -2050,6 +2054,49 @@ class SavedPlace(Base):
         nullable=False,
     )
     place_id: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+REACTION_KINDS = ("heart", "haha", "like", "wow", "sad", "fire")
+
+
+class MessageReaction(Base):
+    """One person's one reaction on one message (M3).
+
+    The reaction is a closed key, not free text or a raw emoji: the client maps
+    keys to glyphs, the database checks the set, and a screen can never be
+    asked to render something a stranger typed. Unique per (message, person,
+    kind): reacting twice is one reaction, and taking it back is a DELETE.
+    """
+
+    __tablename__ = "message_reactions"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('heart', 'haha', 'like', 'wow', 'sad', 'fire')",
+            name="reaction_kind_known",
+        ),
+        UniqueConstraint(
+            "message_id", "person_id", "kind", name="uq_message_reactions_one_per_kind"
+        ),
+        Index("ix_message_reactions_message", "message_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    message_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("messages.id", name="fk_message_reactions_message"),
+        nullable=False,
+    )
+    person_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_message_reactions_person"),
+        nullable=False,
+    )
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
