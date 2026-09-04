@@ -42,7 +42,7 @@ const NO_DA_BIET = {
   "src/rudi/screens/Memories.tsx": 14,
   "src/rudi/screens/Outing.tsx": 13,
   "src/rudi/ui.tsx": 7,
-  "src/rudi/screens/Create.tsx": 5,
+  "src/rudi/screens/Create.tsx": 4,
   "src/rudi/session.tsx": 2,
   "app/(tabs)/_layout.tsx": 2,
   "src/rudi/screens/Group.tsx": 1,

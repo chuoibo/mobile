@@ -16,8 +16,8 @@ import type { Assignment } from "../assignment";
 import type { BillWire } from "../bill";
 import type { GroupMember, Roster } from "../participants";
 import type { BillReading } from "../receipt";
-import type { Envelope } from "../screens/ChiaSe";
-import type { Obligation } from "../screens/DotThu";
+import type { Envelope } from "../api";
+import type { Obligation } from "../api";
 
 export const DEMO_ADVANCER_ID = "d2";
 

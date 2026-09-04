@@ -52,7 +52,6 @@ import ts from "typescript";
 import { BillPhotoError, withBillPhoto } from "../dist-test/camera/bill-photo.js";
 import { moTaLoi } from "../dist-test/ui/loi-tren-man.js";
 
-const APP_TSX = fileURLToPath(new URL("../App.tsx", import.meta.url));
 
 /** What `expo-image-manipulator` rejects with on the web when a file will not decode.
  *
@@ -216,7 +215,6 @@ test("moTaLoi giữ nguyên câu của một Error thật", () => {
   assert.equal(moTaLoi(that), "Không kết nối được tới máy chủ 10.0.0.4:8000.");
 });
 
-/* -------------------------------------------------- 3. App.tsx không tự chế --- */
 
 /** Every `String(x)` where `x` is a value the code just caught.
  *
@@ -292,17 +290,4 @@ test("bộ dò của cổng này thật sự nhìn thấy cả hai khuôn đang 
   ].join("\n");
 
   assert.deepEqual(stringHoaBienBat(nhuCu, "fixture.tsx"), [4, 8]);
-});
-
-test("App.tsx không còn tự biến thứ bị ném thành chuỗi", () => {
-  // The behaviour is asserted above, on `moTaLoi`. This only pins that the two
-  // catch sites in App.tsx go through it instead of each keeping a private
-  // fallback -- which is how the bug got into one of them and not the other.
-  const source = readFileSync(APP_TSX, "utf8");
-  const dong = stringHoaBienBat(source, "App.tsx");
-  assert.deepEqual(
-    dong,
-    [],
-    `App.tsx còn String(<biến bắt được>) ở dòng ${dong.join(", ")}; dùng moTaLoi thay cho nó`,
-  );
 });

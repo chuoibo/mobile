@@ -9,7 +9,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { ApiError, BASE_URL, attemptFor, scanReceipt, type Attempt } from "../../api";
 import { docQuyetToanLive, dongHeroQuyetToan, tenCua, type QuyetToanLive } from "../doc-live";
 import { cauTomTatDot, cauTrangThaiDot, docDotThuCuaNhom, moDotThu, type DotThuTomTat } from "../dot-thu/dot-thu";
-import { DEMO_PEOPLE } from "../../navigation/nhom-demo";
+import { DEMO_PEOPLE } from "../nhom-demo";
 import { BILL_ITEMS, COLLECTOR_INDEX, DEMO_GROUP, PEOPLE, demoAssets, formatVnd } from "../fixtures";
 import { noiLuuNgan } from "../luu-tru";
 import { useRudiSession } from "../session";
@@ -538,7 +538,7 @@ function QuyetToanNhap() {
       <Card style={styles.safetyNote}>
         <Ionicons color={colors.warn} name="shield-checkmark-outline" size={21} />
         <Text style={[typography.caption, styles.flex, { color: colors.inkSoft }]}>
-          “Đã trả” là xác nhận trong Rủ Đi, không phải bằng chứng ngân hàng. VietQR theo từng người nhận, chưa phát trên bản nháp này.
+          “Đã trả” là xác nhận trong Rủ Đi, không phải bằng chứng chuyển tiền. Chuyển bằng cách nào là việc giữa hai người; app dừng ở phần của mỗi người.
         </Text>
       </Card>
       <RudiButton

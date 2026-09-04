@@ -492,6 +492,14 @@ def canh_nhap_noi_bo() -> tuple[list[str], int]:
 # them needs a live API to mint a real context, which is QA-lane work on QA-lane
 # evidence, not a specifier edit. Reported to that lane rather than papered over.
 DA_BIET_HONG = {
+    # App B (cay legacy apps/mobile/App.tsx + src/screens/*.tsx + tool do web export)
+    # da xoa 2026-09-04 (M6 vi-b). Hai script QA nay di bo App B qua tab-snapshots /
+    # screen-snapshots; chung la hien vat lich su cua lan QA do, khong phai phep do
+    # dang hong, va khong co ten nao dung de sua sang.
+    "tests/qa/qa-tt-0020/qa-di-bo-tim.mjs: `../../../apps/mobile/tools/tab-snapshots.mjs` "
+    "khong co file nao o do",
+    "tests/qa/rd-qa-29/di-bo-cau-chan.mjs: `../../../apps/mobile/tools/screen-snapshots.mjs` "
+    "khong co file nao o do",
     "tests/qa/rd-qa-02/make-guest-url.mjs: `CONTEXT_ID` khong duoc "
     "apps/mobile/src/api.ts xuat ra",
     "tests/qa/rd-qa-02/money-server-truth.mjs: `CONTEXT_ID` khong duoc "

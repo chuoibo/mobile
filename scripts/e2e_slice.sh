@@ -248,7 +248,7 @@ s.close()")" || { echo "không tìm được cổng trống" >&2; return 2; }
 mint_sessions() {
   local people
   people="$(python3 "$REPO_ROOT/scripts/e2e_demo_people.py" \
-              "$REPO_ROOT/apps/mobile/src/navigation/nhom-demo.ts")" \
+              "$REPO_ROOT/apps/mobile/src/rudi/nhom-demo.ts")" \
     || { echo "khong lay duoc danh sach nguoi demo" >&2; return 2; }
 
   SESSION_FILE="$WORK_DIR/sessions.json"

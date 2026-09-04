@@ -2,7 +2,7 @@
 """The three demo people the e2e slice drives, read out of the client source.
 
 `scripts/e2e_slice.sh` needs their `personId` values to mint a session for each
-one, and the ids live in `apps/mobile/src/navigation/nhom-demo.ts` as literals
+one, and the ids live in `apps/mobile/src/rudi/nhom-demo.ts` as literals
 because the slice's own group bootstrap addresses them by slug.
 
 Read rather than duplicated: a second copy of three UUIDs is a second thing to

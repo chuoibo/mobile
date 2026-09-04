@@ -79,7 +79,7 @@ import {
   DEMO_PEOPLE,
   type NguoiDung,
   personById,
-} from "../../navigation/nhom-demo";
+} from "../../rudi/nhom-demo";
 import { KHONG_GIAN_DEMO, idNguoi, khoaGhi } from "./uuid5";
 
 declare const process: { env: Record<string, string | undefined> };

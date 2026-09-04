@@ -122,3 +122,11 @@ test("docThanhTich: cấp độ, huy hiệu, thử thách suy từ /people/{id}/
   assert.ok(Array.isArray(t.huyHieu) && t.huyHieu.length > 0);
   datTokenPhien(null);
 });
+
+test("tenDiaDiem: chỗ không tên không in id, khoảng trắng không phải tên (claim của test album App B cũ)", async () => {
+  const { tenDiaDiem, TEN_DIA_DIEM_CHUA_BIET } = await import("../dist-test/rudi/ky-niem/ky-niem.js");
+  assert.equal(tenDiaDiem({ place_id: "p-xxxxxxxx", place_name: null }), TEN_DIA_DIEM_CHUA_BIET);
+  assert.equal(tenDiaDiem({ place_id: "p-xxxxxxxx", place_name: "   " }), TEN_DIA_DIEM_CHUA_BIET);
+  assert.equal(tenDiaDiem({ place_id: "p-xxxxxxxx", place_name: "Quán Ốc Dì Bé" }), "Quán Ốc Dì Bé");
+  assert.doesNotMatch(TEN_DIA_DIEM_CHUA_BIET, /p-|[0-9a-f]{8}-/);
+});

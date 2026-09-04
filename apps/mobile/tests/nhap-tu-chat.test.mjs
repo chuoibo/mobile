@@ -21,8 +21,6 @@ import {
   tenTuRoster,
   trangTuWire,
 } from "../dist-test/screens/chat/nhap-tu-chat.js";
-import { TheNhapChiTuChat } from "../dist-test/screens/chat/TheNhapChiTuChat.js";
-
 const CTX = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 const MSG = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff";
 const ACTOR = "46b55e67-932b-5415-a5ee-08fb2641a4ff";
@@ -329,61 +327,6 @@ test("bấm chốt đi đúng POST /expenses rồi POST /expenses/{id}/confirm",
   // Con số hiện lên là con số máy chủ trả, không phải phép chia của app.
   const dong = dongChiaTuAllocation(deXuat.allocations, trang.nguoiChiaIds, NHOM_DU);
   assert.deepEqual(dong.map((d) => d.soTien), [200_000, 200_000]);
-});
-
-test("thẻ có nút ghi thật, và câu 'chưa ghi' nằm TRÊN nút", () => {
-  const markup = renderToStaticMarkup(
-    React.createElement(TheNhapChiTuChat, {
-      trang: nhapMau(),
-      ghi: CHUA_GHI,
-      onGhi: () => {},
-      onDong: () => {},
-    }),
-  );
-  assert.ok(
-    markup.includes("Ghi khoản chi"),
-    `thẻ chỉ có [Đóng] thì không có chỗ nào chốt: ${markup.slice(0, 400)}`,
-  );
-  assert.ok(markup.includes("Đóng"));
-  assert.ok(markup.includes(CAU_CHUA_GHI_KHOAN_CHI));
-  assert.ok(
-    markup.indexOf(CAU_CHUA_GHI_KHOAN_CHI) < markup.indexOf("Ghi khoản chi"),
-    "câu điều kiện phải đọc được trước khi tay chạm nút",
-  );
-  assert.equal(markup.includes(CAU_DA_GHI_KHOAN_CHI), false);
-});
-
-test("ghi xong thì thẻ thôi nói 'chưa ghi' và bỏ nút ghi đi", () => {
-  const markup = renderToStaticMarkup(
-    React.createElement(TheNhapChiTuChat, {
-      trang: nhapMau(),
-      ghi: { kind: "da-ghi", dong: [{ ten: "Hà", soTien: 200_000 }, { ten: "Minh", soTien: 200_000 }] },
-      onGhi: () => {},
-      onDong: () => {},
-    }),
-  );
-  assert.equal(
-    markup.includes(CAU_CHUA_GHI_KHOAN_CHI),
-    false,
-    "ghi rồi mà thẻ vẫn nói chưa ghi là nói dối về sổ",
-  );
-  assert.ok(markup.includes(CAU_DA_GHI_KHOAN_CHI));
-  assert.equal(markup.includes("Ghi khoản chi"), false, "ghi hai lần là hai khoản chi");
-  assert.ok(markup.includes("200.000"), `số tiền mỗi người phải hiện: ${markup.slice(0, 400)}`);
-});
-
-test("chốt hỏng thì giữ nguyên bản nháp và nói bằng tiếng Việt", () => {
-  const markup = renderToStaticMarkup(
-    React.createElement(TheNhapChiTuChat, {
-      trang: nhapMau(),
-      ghi: { kind: "ghi-hong", loi: "Khoản chi đã đổi kể từ lúc bạn nhìn." },
-      onGhi: () => {},
-      onDong: () => {},
-    }),
-  );
-  assert.ok(markup.includes("Khoản chi đã đổi kể từ lúc bạn nhìn."));
-  assert.ok(markup.includes("Tiền lẩu"), "mất bản nháp thì không ai quyết được có bấm lại không");
-  assert.ok(markup.includes("Ghi lại"));
 });
 
 test("câu trên thẻ không có em-dash và không lộ mã máy", () => {

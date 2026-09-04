@@ -35,7 +35,7 @@ import { Text, View } from "react-native";
 
 import { ApiError, thongDiepNguoiDoc } from "../../api";
 import { doiLoiMoiLayPhien, vaoNhom, type Phien } from "../../phien";
-import { cauSauKhiNhan } from "../../screens/len-plan/NhanLoiMoi";
+import { cauSauKhiNhan } from "../loi-moi-den";
 import { layLoiMoiDen } from "../loi-moi-den";
 import { useRudiSession } from "../session";
 import { typography, useRudiTheme } from "../theme";
