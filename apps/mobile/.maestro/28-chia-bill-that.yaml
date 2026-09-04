@@ -1,0 +1,89 @@
+# Chia hóa đơn THẬT (M5): nhập tay hai món (máy chủ không có khoá đọc bill thì
+# đường nhập tay vẫn phải đủ), máy chủ giữ bill và bản gán, máy chủ chia, ghi
+# vào sổ, quyết toán đọc từ sổ. Chạy sau flow 27 (phiên của D còn sống; nếu app
+# ở màn chào thì đăng nhập lại bằng số D). Nhóm «Hoi QA» có C («An QA») và D
+# («Ban QA»). Harness kiểm máy chủ sau flow: GET /contexts/{ctx}/balances có
+# một khoản chuyển C → D đúng số.
+appId: com.lakiet.rudi
+---
+- stopApp
+- launchApp
+- runFlow: _bo-qua-dev-menu.yaml
+- extendedWaitUntil:
+    visible: "Rủ Đi thôi!|Khám phá|Chưa có nhóm nào"
+    timeout: 150000
+- runFlow:
+    when:
+      visible: "Rủ Đi thôi!"
+    file: _dang-nhap-d.yaml
+- extendedWaitUntil:
+    visible: "Khám phá"
+    timeout: 60000
+- tapOn: "Tạo mới"
+- extendedWaitUntil:
+    visible: "Chia hóa đơn"
+    timeout: 30000
+- tapOn: "Chia hóa đơn"
+- extendedWaitUntil:
+    visible: "Nhập tay"
+    timeout: 60000
+- assertNotVisible: "Dữ liệu demo"
+- takeScreenshot: 28-bat-dau
+- tapOn: "Nhập tay"
+- extendedWaitUntil:
+    visible: "Ô tên món 1"
+    timeout: 30000
+- tapOn: "Ô tên món 1"
+- inputText: "Bun bo"
+- hideKeyboard
+- tapOn: "Ô tiền món 1"
+- inputText: "150000"
+- hideKeyboard
+- tapOn: "Thêm món"
+- extendedWaitUntil:
+    visible: "Ô tên món 2"
+    timeout: 30000
+- tapOn: "Ô tên món 2"
+- inputText: "Nuoc"
+- hideKeyboard
+- tapOn: "Ô tiền món 2"
+- inputText: "50000"
+- hideKeyboard
+- assertVisible: "2 món · 200.000đ"
+- takeScreenshot: 28-xem-lai
+- tapOn: "Tiếp: ai dùng món nào?"
+# Máy chủ đã giữ bill; mặc định mọi người cùng dùng mọi món. Nước chỉ D uống.
+- extendedWaitUntil:
+    visible: "Ai dùng món nào?"
+    timeout: 60000
+- assertVisible: "An QA · Nuoc"
+- tapOn: "An QA · Nuoc"
+- takeScreenshot: 28-gan-mon
+- tapOn: "Xem kết quả"
+# Máy chủ chia: Bún bò 150.000 chia đôi, nước 50.000 riêng D → C 75.000, D 125.000.
+- extendedWaitUntil:
+    visible: "Mỗi người"
+    timeout: 60000
+- assertVisible: "75.000đ"
+- assertVisible: "125.000đ"
+- assertVisible: "Người trả Ban QA"
+- takeScreenshot: 28-ket-qua
+- tapOn: "Ô tên khoản chi"
+- inputText: "Toi Xom Lao"
+- hideKeyboard
+- tapOn: "Ghi vào sổ"
+- extendedWaitUntil:
+    visible: "Đã ghi vào sổ"
+    timeout: 60000
+- takeScreenshot: 28-da-ghi
+- tapOn: "Xem quyết toán"
+# Quyết toán sống đọc /contexts/{ctx}/balances: C chuyển cho D 75.000đ.
+- extendedWaitUntil:
+    visible: "Quyết toán chuyến đi"
+    timeout: 60000
+- extendedWaitUntil:
+    visible: "75.000đ"
+    timeout: 60000
+- assertNotVisible: "Dữ liệu demo"
+- assertNotVisible: "3.840.000đ"
+- takeScreenshot: 28-quyet-toan

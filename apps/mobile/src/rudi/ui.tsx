@@ -568,12 +568,15 @@ export function Chip({
   selected = false,
   tone = "accent",
   onPress,
+  accessibilityLabel,
 }: {
   label: string;
   icon?: IconName;
   selected?: boolean;
   tone?: RudiTone;
   onPress?: () => void;
+  /** When the same label appears on several rows, say which row this one is. */
+  accessibilityLabel?: string;
 }) {
   const { colors, radius } = useRudiTheme();
   const foreground = selected ? toneColor(colors, tone) : colors.inkSoft;
@@ -582,6 +585,7 @@ export function Chip({
     // cannot be tapped must not announce itself as a button.
     return (
       <View
+        accessibilityLabel={accessibilityLabel}
         style={[
           styles.chipTinh,
           {
@@ -600,6 +604,7 @@ export function Chip({
   }
   return (
     <Pressable
+      accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
       aria-pressed={selected}
       onPress={onPress}
