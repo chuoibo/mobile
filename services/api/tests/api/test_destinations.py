@@ -226,3 +226,20 @@ def test_a_hundred_places_do_not_all_go_into_one_prompt(monkeypatch):
     assert writer.rows_seen == MAX_REASON_ROWS, (
         f"prompt nhận {writer.rows_seen} dòng, mong tối đa {MAX_REASON_ROWS}"
     )
+
+
+def test_the_companion_never_sees_the_whole_country(monkeypatch):
+    """A model prompt carries one destination, capped (M10).
+
+    `place_rows()` is every place RuDi knows -- more than a thousand once an
+    import has run. As a prompt that is a bill and a timeout, and the measured
+    failure was exactly that: three Gemini timeouts in a row at 107 rows.
+    """
+    from app.api.service import MAX_MODEL_PLACES, ApiService
+
+    service = ApiService(ManyPlacesRepository(300))
+    rows = service.model_place_rows()
+    assert len(rows) == MAX_MODEL_PLACES
+    assert {row["destination_id"] for row in rows} == {"d-da-lat"}
+    # And the whole catalogue is still readable by anything that asks for it.
+    assert len(service.place_rows()) == 300

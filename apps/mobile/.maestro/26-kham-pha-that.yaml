@@ -33,15 +33,18 @@ appId: com.lakiet.rudi
 - takeScreenshot: 26-danh-muc-that
 # Lọc theo category của máy chủ.
 - tapOn: "Cafe"
+# Con số là của danh mục đang phục vụ: 3 trên stack seed, hàng chục trên stack
+# đã nhập OpenStreetMap. Flow gác việc BỘ LỌC CÓ CẮN (số kết quả ít hơn tổng,
+# và chỗ thuộc danh mục khác biến mất), không gác con số.
 - extendedWaitUntil:
-    visible: "3 kết quả"
+    visible: "[0-9]+ kết quả"
     timeout: 30000
 - assertVisible: "Lưng Chừng Cafe"
 - assertNotVisible: "Tiệm Nướng Xóm Lào"
 - takeScreenshot: 26-loc-cafe
 - tapOn: "Xóa lọc"
 - extendedWaitUntil:
-    visible: "12 nơi ở Đà Lạt"
+    visible: "[0-9]+ nơi ở Đà Lạt"
     timeout: 30000
 # Gõ tên thì lọc ngay trên máy, không cần dấu («di be» ra «Dì Bé»).
 - tapOn: "Ô tìm địa điểm"
@@ -50,6 +53,7 @@ appId: com.lakiet.rudi
 - extendedWaitUntil:
     visible: "Quán Ốc Dì Bé"
     timeout: 30000
+# Tên riêng thì vẫn phải ra ĐÚNG một chỗ, kể cả trong danh mục hàng trăm dòng.
 - assertVisible: "1 kết quả"
 - takeScreenshot: 26-tim-ten
 - tapOn: "Xóa lọc"
@@ -80,7 +84,7 @@ appId: com.lakiet.rudi
 # Thanh đầu đã cuộn khỏi màn; nút back của hệ thống đưa về danh mục.
 - back
 - extendedWaitUntil:
-    visible: "12 nơi ở Đà Lạt"
+    visible: "[0-9]+ nơi ở Đà Lạt"
     timeout: 30000
 - assertVisible: "Bỏ lưu Tiệm Nướng Xóm Lào"
 - takeScreenshot: 26-danh-muc-da-luu

@@ -53,6 +53,14 @@ appId: com.lakiet.rudi
     timeout: 30000
 # Check-in tại một chỗ trong danh mục máy chủ.
 - tapOn: "Check-in"
+# Danh mục thật có hàng trăm chỗ, nên ô chọn là một ô TÌM chứ không phải một
+# hàng chip: gõ tên rồi mới bấm. Bỏ dấu vẫn ra («di be» → «Dì Bé»).
+- extendedWaitUntil:
+    visible: "Ô tìm chỗ check-in"
+    timeout: 30000
+- tapOn: "Ô tìm chỗ check-in"
+- inputText: "di be"
+- hideKeyboard
 - extendedWaitUntil:
     visible: "Chọn Quán Ốc Dì Bé"
     timeout: 60000
