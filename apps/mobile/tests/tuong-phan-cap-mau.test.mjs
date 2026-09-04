@@ -173,7 +173,8 @@ describe("cổng: toàn bộ màn", () => {
   test("bộ đọc thật sự đọc được cây này", () => {
     // Sàn coverage. Nếu ai đó đổi cách viết style và bộ đọc mù đi, số cặp tụt
     // về 0 và cổng sẽ báo xanh mãi mãi. Ca này biến im lặng đó thành đỏ.
-    assert.ok(files.length > 40, `chỉ thấy ${files.length} file .tsx`);
+    // 36 .tsx sau khi App B rời cây (04/09); sàn đặt dưới con số đó một chút.
+    assert.ok(files.length > 30, `chỉ thấy ${files.length} file .tsx`);
     assert.ok(soCap > 300, `chỉ đọc được ${soCap} cặp màu, cổng đang mù`);
   });
 
