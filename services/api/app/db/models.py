@@ -2055,6 +2055,49 @@ class SavedPlace(Base):
     )
 
 
+REACTION_KINDS = ("heart", "haha", "like", "wow", "sad", "fire")
+
+
+class MessageReaction(Base):
+    """One person's one reaction on one message (M3).
+
+    The reaction is a closed key, not free text or a raw emoji: the client maps
+    keys to glyphs, the database checks the set, and a screen can never be
+    asked to render something a stranger typed. Unique per (message, person,
+    kind): reacting twice is one reaction, and taking it back is a DELETE.
+    """
+
+    __tablename__ = "message_reactions"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('heart', 'haha', 'like', 'wow', 'sad', 'fire')",
+            name="reaction_kind_known",
+        ),
+        UniqueConstraint(
+            "message_id", "person_id", "kind", name="uq_message_reactions_one_per_kind"
+        ),
+        Index("ix_message_reactions_message", "message_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    message_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("messages.id", name="fk_message_reactions_message"),
+        nullable=False,
+    )
+    person_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_message_reactions_person"),
+        nullable=False,
+    )
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class AccountIdentity(Base):
     """One external proof of identity bound to one person (ADR-0016).
 

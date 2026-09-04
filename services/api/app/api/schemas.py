@@ -1281,6 +1281,27 @@ class MessageQuery(ApiModel):
     after: str | None = None
 
 
+ReactionKind = Literal["heart", "haha", "like", "wow", "sad", "fire"]
+
+
+class ReactionSummary(ApiModel):
+    """One kind of reaction on one message: how many, and whether the reader
+    is among them. Names are not listed; the count is what a chat shows."""
+
+    kind: ReactionKind
+    count: Annotated[int, Field(strict=True, ge=1)]
+    mine: StrictBool
+
+
+class ReactionRequest(ApiModel):
+    kind: ReactionKind
+
+
+class MessageReactionsResponse(ApiModel):
+    message_id: UUID
+    reactions: list[ReactionSummary]
+
+
 class MessageResponse(ApiModel):
     id: UUID
     context_id: UUID
@@ -1291,6 +1312,7 @@ class MessageResponse(ApiModel):
     card: dict | None
     created_at: datetime
     cursor: str
+    reactions: list[ReactionSummary] = []
 
 
 class ChatExpenseDraft(ApiModel):
@@ -1347,6 +1369,32 @@ class MessageListResponse(ApiModel):
     messages: list[MessageResponse]
     next_cursor: str | None
     has_more: bool
+
+
+class PostedMessageResponse(MessageResponse):
+    """`POST /messages` answers with the stored message and what the server did
+    about a slash command or mention in it (M3, `app/domain/chat_intent.py`).
+
+    The message is ALWAYS stored first; the companion, the vote or a refusal
+    ride along in the same answer so a rate-limited or refused intent never
+    turns into a lost message and a retried duplicate.
+    """
+
+    intent: Literal["plan", "chia_bill", "vote", "mention"] | None = None
+    companion: CompanionTurnResponse | None = None
+    vote: VoteResponse | None = None
+    # `/chia-bill`: one server-authored `expense_draft` card, or nothing.
+    expense_card: MessageResponse | None = None
+    intent_error: (
+        Literal[
+            "vote_malformed",
+            "companion_rate_limited",
+            "chia_bill_not_available",
+            "chia_bill_no_expenses",
+            "chia_bill_refused",
+        ]
+        | None
+    ) = None
 
 
 class BatchCreateRequest(ApiModel):
