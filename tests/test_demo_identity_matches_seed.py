@@ -1,7 +1,7 @@
 """The app's demo people must be the rows the seed script actually writes.
 
 Two files now carry the same seven ids: `scripts/seed_demo_data.py` derives
-them with `uuid5`, and `apps/mobile/src/navigation/nhom-demo.ts` has them
+them with `uuid5`, and `apps/mobile/src/rudi/nhom-demo.ts` has them
 written out because Hermes cannot derive a `uuid5` without shipping SHA-1.
 
 Duplicated constants drift. This one drifts *silently*, which is why it is
