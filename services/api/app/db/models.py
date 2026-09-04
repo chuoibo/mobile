@@ -1746,6 +1746,45 @@ class Message(Base):
     )
 
 
+class ContextReadMark(Base):
+    """How far one person has read in one group's conversation.
+
+    One row per (context, person), moved only forward. The mark stores the
+    `created_at` of the last read message beside its id so "newer than the
+    mark" is the same keyset comparison the message feed already uses, with no
+    join back into `messages`. `updated_at` is when the person moved it;
+    `last_read_at` is the message's own time -- two clocks, kept apart.
+
+    Unread counts are DERIVED from this row and the feed, never stored: a
+    stored counter is a second source of truth that drifts the first time a
+    message is written without touching it.
+    """
+
+    __tablename__ = "context_read_marks"
+
+    context_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("contexts.id", name="fk_context_read_marks_context"),
+        primary_key=True,
+    )
+    person_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_context_read_marks_person"),
+        primary_key=True,
+    )
+    last_read_message_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("messages.id", name="fk_context_read_marks_message"),
+        nullable=False,
+    )
+    last_read_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class FriendRequestState(StrEnum):
     """F04's four states, spelled the way the spec spells them.
 
@@ -1962,6 +2001,17 @@ class AccountSession(Base):
     __tablename__ = "account_sessions"
     __table_args__ = (
         CheckConstraint("expires_at > created_at", name="expiry_after_creation"),
+        # ADR-0016: every session says which door minted it, and the invite
+        # door is the only one that carries an invite id. Two rules, both in
+        # the database, so a row cannot claim one provenance and carry another.
+        CheckConstraint(
+            "issued_via IN ('invite', 'otp', 'google', 'genesis')",
+            name="issued_via_known",
+        ),
+        CheckConstraint(
+            "(issued_via = 'invite') = (issued_from_invite_id IS NOT NULL)",
+            name="invite_matches_via",
+        ),
         Index("ix_account_sessions_person", "person_id"),
     )
 
@@ -1980,6 +2030,14 @@ class AccountSession(Base):
         UUID(as_uuid=True),
         ForeignKey("outing_invites.id", name="fk_account_sessions_invite"),
         nullable=True,
+    )
+    #: How the holder proved who they are: `invite` (a member named them and
+    #: they redeemed the secret), `otp` / `google` (ADR-0016 doors), `genesis`
+    #: (seeded out of band on a clean host). Kept beside `issued_from_invite_id`
+    #: rather than replacing it: the id says WHICH invitation, this says WHAT KIND
+    #: of proof, and an audit wants both.
+    issued_via: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="invite", default="invite"
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
