@@ -15,19 +15,19 @@ CLIENT_PLACE_FIELDS = (
 )
 
 
-def load_place_catalogue() -> list[dict]:
+def load_place_catalogue(rows: list[dict] | None = None) -> list[dict]:
     """Return only place facts the client contract is prepared to display.
 
-    Keeping this as an adapter avoids a second catalogue while the soft import
-    lets the companion fail closed on deployments that do not ship places yet.
+    Keeping this as an adapter avoids a second catalogue. `rows` is the caller's
+    catalogue read (M9: the service reads it from the table); the argument is
+    optional so a caller without a repository still fails closed on an empty
+    list rather than on an ImportError.
     """
 
-    try:
-        from app.places.catalog import PLACES
-    except ImportError:
+    if rows is None:
         return []
 
     return [
         {field: place.get(field) for field in CLIENT_PLACE_FIELDS}
-        for place in PLACES
+        for place in rows
     ]

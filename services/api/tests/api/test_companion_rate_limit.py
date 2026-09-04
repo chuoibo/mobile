@@ -63,7 +63,7 @@ from app.api.search_rate_limit import (
 )
 from app.domain.suggestion import SUGGESTION_KIND
 
-from .conftest import ASGITestClient
+from .conftest import SeedCatalogueReads, ASGITestClient
 
 NOW = datetime(2030, 8, 27, 12, 0, tzinfo=UTC)
 CONTEXT_ID = uuid.UUID("3cc00000-cccc-4ccc-8ccc-0000c0000001")
@@ -126,7 +126,7 @@ def other_actor() -> dict[str, str]:
     return {"X-Actor-ID": str(uuid.uuid4()), "X-Actor-Roles": "member"}
 
 
-class StubRepository:
+class StubRepository(SeedCatalogueReads):
     """Only the reads these two workflows make, and nothing else.
 
     The shared fake in `conftest.py` knows nothing about messages, trips or the

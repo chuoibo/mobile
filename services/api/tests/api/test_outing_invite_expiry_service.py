@@ -34,12 +34,14 @@ from app.api.repository import (
 )
 from app.api.service import OUTING_INVITE_TTL, ApiService, token_digest
 
+from tests.api.conftest import SeedCatalogueReads
+
 NOW = datetime(2026, 8, 29, 9, 0, tzinfo=UTC)
 TOKEN = "link-da-phat-tu-doi-nao"
 
 
 @dataclass
-class PermissiveInviteRepository:
+class PermissiveInviteRepository(SeedCatalogueReads):
     """Every method the redeem path touches, and no refusals anywhere.
 
     Deliberately *not* a subclass of the shared ``FakeRepository``: that fake

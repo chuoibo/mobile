@@ -47,7 +47,7 @@ from app.api.repository import (
     PersonRecord,
 )
 
-from .conftest import ASGITestClient
+from .conftest import SeedCatalogueReads, ASGITestClient
 
 NOW = datetime(2030, 8, 27, 12, 0, tzinfo=UTC)
 CONTEXT_ID = uuid.UUID("3cc00000-cccc-4ccc-8ccc-0000c0000009")
@@ -75,7 +75,7 @@ CARD = {
 }
 
 
-class ConversationRepository:
+class ConversationRepository(SeedCatalogueReads):
     """One group whose last two messages are the ones that trigger `cooldown`.
 
     The companion answered thirty seconds ago and a person has spoken since, so

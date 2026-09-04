@@ -39,6 +39,7 @@ from app.db.models import (
     ConfirmedAllocation,
     Context,
     ContextReadMark,
+    Destination,
     Expense,
     ExpenseDiscount,
     ExpenseItem,
@@ -69,6 +70,7 @@ from app.db.models import (
     PayerAcknowledgement,
     PaymentReport,
     Person,
+    Place,
     Post,
     PostAudience,
     ReceiptConfirmation,
@@ -474,6 +476,88 @@ class ProfileCounts:
     outings: int
     places_checked_in: int
     memories: int
+
+
+@dataclass(frozen=True, slots=True)
+class DestinationRecord:
+    """One city or area people travel to (M9, ADR-0017)."""
+
+    id: str
+    name: str
+    province: str | None
+    lat: float
+    lng: float
+    bbox_south: float
+    bbox_west: float
+    bbox_north: float
+    bbox_east: float
+    blurb: str | None
+    sort_order: int
+
+
+@dataclass(frozen=True, slots=True)
+class PlaceRecord:
+    """One catalogue place, read from the table that replaced `catalog.py`.
+
+    `to_row()` hands back the exact dict shape the seed catalogue had, because
+    `scoring.py`, `reasons.py`, `search.py` and the card builder all read that
+    shape and none of them should have to learn a second one. The conversion
+    lives here, once, rather than at four call sites.
+    """
+
+    id: str
+    destination_id: str
+    name: str
+    category: str
+    kinds: list[str]
+    address: str | None
+    lat: float
+    lng: float
+    rating: float | None
+    rating_count: int | None
+    price_min_vnd: int | None
+    price_max_vnd: int | None
+    open_hours: str | None
+    open_now: bool | None
+    travel_minutes: int | None
+    distance_km: float | None
+    photo_count: int
+    traits: list[str]
+    group_fit: dict[str, object] | None
+    flag: str | None
+    description: str | None
+    reviews: list[dict[str, object]] | None
+    source: str
+    source_ref: str | None
+    license: str | None
+
+    def to_row(self) -> dict[str, object]:
+        return {
+            "id": self.id,
+            "destination_id": self.destination_id,
+            "name": self.name,
+            "category": self.category,
+            "kinds": list(self.kinds),
+            "rating": self.rating,
+            "rating_count": self.rating_count,
+            "distance_km": self.distance_km,
+            "price_min_vnd": self.price_min_vnd,
+            "price_max_vnd": self.price_max_vnd,
+            "address": self.address,
+            "open_now": self.open_now,
+            "open_hours": self.open_hours,
+            "travel_minutes": self.travel_minutes,
+            "photo_count": self.photo_count,
+            "traits": list(self.traits),
+            "group_fit": self.group_fit,
+            "flag": self.flag,
+            "lat": self.lat,
+            "lng": self.lng,
+            "description": self.description,
+            "reviews": list(self.reviews or []),
+            "source": self.source,
+            "license": self.license,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -1120,6 +1204,16 @@ class ApiRepository(Protocol):
     def are_friends(self, a: uuid.UUID, b: uuid.UUID) -> bool: ...
 
     def share_active_context(self, a: uuid.UUID, b: uuid.UUID) -> bool: ...
+
+    def list_destinations(self) -> list[DestinationRecord]: ...
+
+    def get_destination(self, destination_id: str) -> DestinationRecord | None: ...
+
+    def list_places(
+        self, *, destination_id: str | None = None, category: str | None = None
+    ) -> list[PlaceRecord]: ...
+
+    def get_place(self, place_id: str) -> PlaceRecord | None: ...
 
     def list_saved_places(self, person_id: uuid.UUID) -> list[SavedPlaceRecord]: ...
 
@@ -3072,6 +3166,83 @@ class SqlAlchemyApiRepository:
             )
             is not None
         )
+
+    @staticmethod
+    def _destination_record(row: Destination) -> DestinationRecord:
+        return DestinationRecord(
+            id=row.id,
+            name=row.name,
+            province=row.province,
+            lat=row.lat,
+            lng=row.lng,
+            bbox_south=row.bbox_south,
+            bbox_west=row.bbox_west,
+            bbox_north=row.bbox_north,
+            bbox_east=row.bbox_east,
+            blurb=row.blurb,
+            sort_order=row.sort_order,
+        )
+
+    @staticmethod
+    def _place_record(row: Place) -> PlaceRecord:
+        return PlaceRecord(
+            id=row.id,
+            destination_id=row.destination_id,
+            name=row.name,
+            category=row.category,
+            kinds=list(row.kinds or []),
+            address=row.address,
+            lat=row.lat,
+            lng=row.lng,
+            rating=row.rating,
+            rating_count=row.rating_count,
+            price_min_vnd=row.price_min_vnd,
+            price_max_vnd=row.price_max_vnd,
+            open_hours=row.open_hours,
+            open_now=row.open_now,
+            travel_minutes=row.travel_minutes,
+            distance_km=row.distance_km,
+            photo_count=row.photo_count,
+            traits=list(row.traits or []),
+            group_fit=row.group_fit,
+            flag=row.flag,
+            description=row.description,
+            reviews=row.reviews,
+            source=row.source,
+            source_ref=row.source_ref,
+            license=row.license,
+        )
+
+    def list_destinations(self) -> list[DestinationRecord]:
+        rows = self.session.scalars(
+            select(Destination).order_by(Destination.sort_order, Destination.id)
+        ).all()
+        return [self._destination_record(row) for row in rows]
+
+    def get_destination(self, destination_id: str) -> DestinationRecord | None:
+        row = self.session.get(Destination, destination_id)
+        return None if row is None else self._destination_record(row)
+
+    def list_places(
+        self, *, destination_id: str | None = None, category: str | None = None
+    ) -> list[PlaceRecord]:
+        """Every place matching the filters, in a stable order.
+
+        Ordered by id rather than by score: the ranking is the route's job and
+        depends on a group profile this layer knows nothing about. A stable
+        order here only keeps two identical reads from shuffling.
+        """
+        query = select(Place)
+        if destination_id is not None:
+            query = query.where(Place.destination_id == destination_id)
+        if category is not None:
+            query = query.where(Place.category == category)
+        rows = self.session.scalars(query.order_by(Place.id)).all()
+        return [self._place_record(row) for row in rows]
+
+    def get_place(self, place_id: str) -> PlaceRecord | None:
+        row = self.session.get(Place, place_id)
+        return None if row is None else self._place_record(row)
 
     def list_saved_places(self, person_id: uuid.UUID) -> list[SavedPlaceRecord]:
         rows = self.session.scalars(

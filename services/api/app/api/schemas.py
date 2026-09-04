@@ -1049,7 +1049,7 @@ class CheckinCreateRequest(ApiModel):
     """F46. The group arrived somewhere, and only the group says where.
 
     One field names the place and nothing describes it. The name and the
-    coordinates are looked up server-side from `app/places/catalog.py`, so a
+    coordinates are looked up server-side from the `places` table, so a
     caller cannot assert that the group was at "Nhà tôi, 0.0, 0.0" or move a
     real venue by a kilometre -- the same rule `POST /expenses` follows about
     who is allowed to state a fact. An unknown `place_id` is a 422 rather than

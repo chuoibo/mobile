@@ -114,11 +114,11 @@ def build_prompt(rows: list[ReasonRow], group: GroupProfile) -> str:
         "xem nó CÓ HỢP với nhóm này không, rồi viết 1-2 câu nói rõ kết luận đó.",
         "",
         "Điều quan trọng nhất:",
-        "- Câu hỏi là \"chỗ này có hợp không\". KHÔNG phải \"hãy khen chỗ này\".",
+        '- Câu hỏi là "chỗ này có hợp không". KHÔNG phải "hãy khen chỗ này".',
         "- Danh sách này CHƯA được lọc. Trong đó có chỗ hợp và có chỗ không hợp.",
-        "  Nếu bạn trả về toàn \"hop\", đó là dấu hiệu bạn đang chiều người hỏi",
+        '  Nếu bạn trả về toàn "hop", đó là dấu hiệu bạn đang chiều người hỏi',
         "  chứ không đọc dữ liệu.",
-        "- Chỗ nào không hợp thì trả \"khong-hop\" và nói thẳng vướng ở đâu",
+        '- Chỗ nào không hợp thì trả "khong-hop" và nói thẳng vướng ở đâu',
         "  (quá tiền, quá xa, quá nhỏ so với nhóm, sai kiểu nhóm thích).",
         "",
         "Luật về dữ kiện:",
@@ -127,7 +127,7 @@ def build_prompt(rows: list[ReasonRow], group: GroupProfile) -> str:
         "  tên người, hay bất kỳ chi tiết nào không được cho.",
         "- Nêu số cụ thể (khoảng giá, khoảng cách, số người) khi nó chính là lý do.",
         "- Đừng nhắc tới điểm số hay phần trăm; bạn không được cho con số đó.",
-        "- Không xưng \"tôi\", không chào hỏi, không emoji.",
+        '- Không xưng "tôi", không chào hỏi, không emoji.',
         "",
         'Trả về JSON: mảng các object {"id": ..., "verdict": ..., "reason": ...}.',
         'verdict là một trong "hop", "tam", "khong-hop".',
@@ -143,9 +143,7 @@ def build_prompt(rows: list[ReasonRow], group: GroupProfile) -> str:
                     "id": place["id"],
                     "ten": place["name"],
                     "loai": place["kinds"],
-                    "khoang_gia_moi_nguoi": (
-                        f"{_k(place['price_min_vnd'])}-{_k(place['price_max_vnd'])}k"
-                    ),
+                    "khoang_gia_moi_nguoi": _khoang_gia(place),
                     "dac_diem": place["traits"],
                     "khoang_cach_km": place["distance_km"],
                     "so_nguoi_hop": (
@@ -194,22 +192,44 @@ def _candidate_values(token: str) -> set[Fraction]:
     return values
 
 
+def _khoang_gia(place: dict[str, Any]) -> str:
+    """The price band as the prompt shows it, or the words «chưa có».
+
+    Never a formatted `None`: a model shown «None-Nonek» will write a sentence
+    about it.
+    """
+
+    low = place.get("price_min_vnd")
+    high = place.get("price_max_vnd")
+    if low is None or high is None:
+        return "chưa có"
+    return f"{_k(low)}-{_k(high)}k"
+
+
 def allowed_numbers(place: dict[str, Any], group: GroupProfile) -> set[Fraction]:
-    """Every figure the model was actually shown, in every unit it might quote."""
+    """Every figure the model was actually shown, in every unit it might quote.
+
+    A field the row does not have contributes nothing -- which makes the gate
+    STRICTER for an imported place, not looser: a price the model quotes for a
+    place with no price is a number it invented, and there is now no entry in
+    this set for it to match.
+    """
 
     fit = place.get("group_fit") or {}
-    raw: list[float | int] = [
-        place["price_min_vnd"],
-        place["price_max_vnd"],
-        _k(place["price_min_vnd"]),
-        _k(place["price_max_vnd"]),
-        (place["price_min_vnd"] + place["price_max_vnd"]) // 2,
-        _k((place["price_min_vnd"] + place["price_max_vnd"]) // 2),
-        place["distance_km"],
-        place["travel_minutes"],
-        place["rating"],
-        place["rating_count"],
-        place["photo_count"],
+    low = place.get("price_min_vnd")
+    high = place.get("price_max_vnd")
+    raw: list[float | int | None] = [
+        low,
+        high,
+        None if low is None else _k(low),
+        None if high is None else _k(high),
+        None if low is None or high is None else (low + high) // 2,
+        None if low is None or high is None else _k((low + high) // 2),
+        place.get("distance_km"),
+        place.get("travel_minutes"),
+        place.get("rating"),
+        place.get("rating_count"),
+        place.get("photo_count"),
         group["size"],
         group["budget_per_person_vnd"],
         _k(group["budget_per_person_vnd"]),
@@ -218,10 +238,12 @@ def allowed_numbers(place: dict[str, Any], group: GroupProfile) -> set[Fraction]
     if fit:
         raw.extend([fit["min_people"], fit["max_people"]])
 
-    values = {Fraction(str(value)) for value in raw}
+    values = {Fraction(str(value)) for value in raw if value is not None}
     # Opening hours, the age band and the street number all appear verbatim in
     # the row, so a reason quoting them is quoting given data.
-    for text in (place["open_hours"], group["age_range"], place["address"]):
+    for text in (place.get("open_hours"), group["age_range"], place.get("address")):
+        if not text:
+            continue
         for token in _NUMBER.findall(text):
             values |= _candidate_values(token)
     return values
@@ -377,7 +399,9 @@ def _post(prompt: str, api_key: str) -> str | None:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=GEMINI_TIMEOUT_SECONDS) as response:
+        with urllib.request.urlopen(
+            request, timeout=GEMINI_TIMEOUT_SECONDS
+        ) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as error:
         # Status only. The error body can echo request detail back, so it is

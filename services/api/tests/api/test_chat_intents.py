@@ -33,7 +33,7 @@ from app.api.routes.messages import get_message_intent_limiter
 from app.api.search_rate_limit import FixedWindowLimiter
 from app.domain.chat_expense import ChatExpenseError
 
-from .conftest import ASGITestClient
+from .conftest import SeedCatalogueReads, ASGITestClient
 from .helpers import actor_headers
 
 NOW = datetime(2030, 8, 27, 12, 0, tzinfo=UTC)
@@ -52,7 +52,7 @@ CATALOGUE = [
 TEXT_CARD = {"kind": "text", "payload": {"text": "Tối mai đi ăn rồi cà phê nhé."}}
 
 
-class ChatRepository:
+class ChatRepository(SeedCatalogueReads):
     """One group, one member, a growing feed, and the votes it created."""
 
     def __init__(self) -> None:

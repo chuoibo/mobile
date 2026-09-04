@@ -6,12 +6,16 @@ nothing in this file came from a person. That matters beyond politeness --
 putting a real venue's real rating in a repo is the kind of data the charter
 keeps out of Git, and inventing one avoids the question entirely.
 
-Seed data rather than a table because rd-be-05 is a read-only catalogue for a
-proof of concept. There is no write path, no migration, and no aggregate whose
-balance has to be recomputable; a table would add an Alembic revision and a
-repository method to serve twelve rows that never change. When places become
-user-editable this file is the thing that gets replaced, and the route's shape
-does not have to.
+These twelve rows are no longer the catalogue. Since M9 (ADR-0017) the
+catalogue is the `places` table, and this file is the **seed material** that
+`app/places/seed_catalog.py` loads into it for demos and tests -- which is why
+every id here still matters: flows, fixtures and saved bookmarks name them.
+
+The old note said «when places become user-editable this file is the thing that
+gets replaced, and the route's shape does not have to». That is what happened:
+the route's shape did not change, and real venues arrive through
+`scripts/import_osm_places.py` instead of through this file, because real venue
+data may not live in Git.
 """
 
 from __future__ import annotations
@@ -156,7 +160,11 @@ PLACES: list[dict[str, Any]] = [
         "travel_minutes": 28,
         "photo_count": 32,
         "traits": ["Nhóm đông", "Ngoài trời", "Nhiều trò"],
-        "group_fit": {"min_people": 4, "max_people": 20, "relation": "Bạn bè, gia đình"},
+        "group_fit": {
+            "min_people": 4,
+            "max_people": 20,
+            "relation": "Bạn bè, gia đình",
+        },
         "flag": "new",
         "lat": 11.9601,
         "lng": 108.4498,

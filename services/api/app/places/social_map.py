@@ -105,7 +105,7 @@ def trending_layer(places: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "place_name": place["name"],
             "lat": float(place["lat"]),
             "lng": float(place["lng"]),
-            "rating": place["rating"],
+            "rating": place.get("rating"),
             "rating_count": place["rating_count"],
         }
         for place in sorted(places, key=lambda place: place["id"])
