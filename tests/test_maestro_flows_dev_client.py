@@ -93,6 +93,7 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
             "23-phien-song-qua-lan-tat.yaml",
             "24-nhom-thanh-vien-va-ho-so.yaml",
             "25-ban-be-hai-nguoi.yaml",
+            "26-kham-pha-that.yaml",
             "30-chat-that.yaml",
             "31-ban-phim-mo.yaml",
             "40-ai-plan.yaml",
@@ -131,7 +132,7 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
         )
         self.assertIn("canary_otp", script)
         self.assertIn(
-            '22-*|23-*|24-*|25-*|30-*|31-*) [ "$OTP" = 1 ] || continue', script
+            '22-*|23-*|24-*|25-*|26-*|31-*) [ "$OTP" = 1 ] || continue', script
         )
         self.assertIn("do_ban_phim.py", script)
         self.assertIn("kiem_khoa_ai", script)
@@ -153,7 +154,8 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
             "\n  set -e\n", body, "chay_flow bật lại set -e trước khi return rc"
         )
         self.assertIn(
-            '40-*)        [ "$OTP" = 1 ] && [ "$AI" = 1 ] || continue', script
+            '40-*)        [ "$OTP" = 1 ] && [ "$AI" = 1 ] && [ "$TAT_KAV" = 0 ] || continue',
+            script,
         )
         self.assertIn("kiem_may_chu_sau_30", script)
         self.assertIn("kiem_may_chu_sau_24", script)

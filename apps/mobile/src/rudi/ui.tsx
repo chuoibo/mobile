@@ -577,6 +577,27 @@ export function Chip({
 }) {
   const { colors, radius } = useRudiTheme();
   const foreground = selected ? toneColor(colors, tone) : colors.inkSoft;
+  if (onPress === undefined) {
+    // A fact, not a control: no role, no pressed state, no 48dp box. A chip that
+    // cannot be tapped must not announce itself as a button.
+    return (
+      <View
+        style={[
+          styles.chipTinh,
+          {
+            backgroundColor: selected ? toneSoftColor(colors, tone) : colors.card,
+            borderColor: selected ? toneColor(colors, tone) : colors.line,
+            borderRadius: radius.small,
+          },
+        ]}
+      >
+        {icon ? <Ionicons color={foreground} name={icon} size={14} /> : null}
+        <Text numberOfLines={1} style={[typography.caption, { color: foreground }]}>
+          {label}
+        </Text>
+      </View>
+    );
+  }
   return (
     <Pressable
       accessibilityRole="button"
@@ -593,7 +614,9 @@ export function Chip({
       ]}
     >
       {icon ? <Ionicons color={foreground} name={icon} size={16} /> : null}
-      <Text style={[typography.caption, { color: foreground }]}>{label}</Text>
+      <Text numberOfLines={1} style={[typography.caption, { color: foreground }]}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -924,7 +947,8 @@ const styles = StyleSheet.create({
   field: { minHeight: 52, borderWidth: 1, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 10 },
   fieldMultiline: { minHeight: 108, alignItems: "flex-start", paddingTop: 13 },
   fieldInput: { flex: 1, minHeight: 40, paddingVertical: 0 },
-  chip: { minHeight: 48, borderWidth: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 10 },
+  chipTinh: { minHeight: 30, flexShrink: 0, borderWidth: 1, flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 9, paddingVertical: 5 },
+  chip: { minHeight: 48, flexShrink: 0, borderWidth: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 10 },
   avatar: { alignItems: "center", justifyContent: "center" },
   avatarText: { color: "#FFFFFF", fontWeight: "800", letterSpacing: -0.2 },
   avatarStack: { flexDirection: "row", alignItems: "center" },
