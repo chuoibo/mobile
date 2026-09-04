@@ -46,12 +46,16 @@ appId: com.lakiet.rudi
 - extendedWaitUntil:
     visible: "[0-9]+ nơi ở Đà Lạt"
     timeout: 30000
-# Gõ tên thì lọc ngay trên máy, không cần dấu («di be» ra «Dì Bé»).
+# Gõ tên thì lọc ngay trên máy, không cần dấu («lung chung» ra «Lưng Chừng»).
+#
+# Chỗ được tìm phải nằm ở ĐIỂM ĐẾN ĐANG PHỤC VỤ. «Quán Ốc Dì Bé» của bộ seed
+# nằm ở TP.HCM — trước M10 route trả cả mười hai dòng bất kể thành phố nên flow
+# tìm thấy nó ở Đà Lạt, và đó chính là cái sai M10 sửa.
 - tapOn: "Ô tìm địa điểm"
-- inputText: "di be"
+- inputText: "lung chung"
 - hideKeyboard
 - extendedWaitUntil:
-    visible: "Quán Ốc Dì Bé"
+    visible: "Lưng Chừng Cafe"
     timeout: 30000
 # Tên riêng thì vẫn phải ra ĐÚNG một chỗ, kể cả trong danh mục hàng trăm dòng.
 - assertVisible: "1 kết quả"

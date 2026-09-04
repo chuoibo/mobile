@@ -3,7 +3,7 @@
 # bình luận, kệ album theo kèo với số máy chủ, album của «Keo QA» thấy chỗ đã tới,
 # thước phim nói vì sao chưa dựng (stack không khoá), và Thành tích tính từ sổ.
 # Chạy sau flow 30/31 (phiên C hoặc D còn sống, nhóm «Hoi QA», kèo «Keo QA» hôm nay). Máy chủ kiểm
-# sau flow: GET /contexts/{ctx}/memories có đúng một kỷ niệm check-in «Quán Ốc Dì Bé»
+# sau flow: GET /contexts/{ctx}/memories có đúng một kỷ niệm check-in «Lưng Chừng Cafe»
 # với 1 tim, 1 bình luận; GET /contexts/{ctx}/albums có «Keo QA» với >= 1 check-in.
 appId: com.lakiet.rudi
 ---
@@ -54,35 +54,35 @@ appId: com.lakiet.rudi
 # Check-in tại một chỗ trong danh mục máy chủ.
 - tapOn: "Check-in"
 # Danh mục thật có hàng trăm chỗ, nên ô chọn là một ô TÌM chứ không phải một
-# hàng chip: gõ tên rồi mới bấm. Bỏ dấu vẫn ra («di be» → «Dì Bé»).
+# hàng chip: gõ tên rồi mới bấm. Bỏ dấu vẫn ra («lung chung» → «Lưng Chừng»).
 - extendedWaitUntil:
     visible: "Ô tìm chỗ check-in"
     timeout: 30000
 - tapOn: "Ô tìm chỗ check-in"
-- inputText: "di be"
+- inputText: "lung chung"
 - hideKeyboard
 - extendedWaitUntil:
-    visible: "Chọn Quán Ốc Dì Bé"
+    visible: "Chọn Lưng Chừng Cafe"
     timeout: 60000
-- tapOn: "Chọn Quán Ốc Dì Bé"
+- tapOn: "Chọn Lưng Chừng Cafe"
 - tapOn: "Ô câu check-in"
 - inputText: "Oc ngon"
 - hideKeyboard
 - tapOn: "Đăng check-in"
 - extendedWaitUntil:
-    visible: "Check-in tại Quán Ốc Dì Bé"
+    visible: "Check-in tại Lưng Chừng Cafe"
     timeout: 60000
 - assertVisible: "0 tim · 0 bình luận"
 - assertVisible: "Oc ngon"
 - takeScreenshot: 32-check-in
 # Tim: một request, số là số máy chủ.
-- tapOn: "Thả tim Check-in tại Quán Ốc Dì Bé"
+- tapOn: "Thả tim Check-in tại Lưng Chừng Cafe"
 - extendedWaitUntil:
     visible: "1 tim · 0 bình luận"
     timeout: 60000
 - assertVisible: "Đã tim"
 # Bình luận: mở, đọc (rỗng), gửi, thấy tên mình trước câu.
-- tapOn: "Bình luận Check-in tại Quán Ốc Dì Bé"
+- tapOn: "Bình luận Check-in tại Lưng Chừng Cafe"
 - extendedWaitUntil:
     visible: "Chưa có bình luận.*"
     timeout: 60000
@@ -116,7 +116,7 @@ appId: com.lakiet.rudi
 - extendedWaitUntil:
     visible: "Chỗ đã tới"
     timeout: 60000
-- assertVisible: "Quán Ốc Dì Bé"
+- assertVisible: "Lưng Chừng Cafe"
 - assertVisible: "Dựng thước phim"
 - tapOn: "Dựng thước phim"
 # Nút biến mất khi máy chủ đã trả lời. Có khoá mô hình hay không là chuyện của

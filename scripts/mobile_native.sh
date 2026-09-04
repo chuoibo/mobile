@@ -544,7 +544,7 @@ else:
   esac
   IFS='|' read -r loai cho tim bl cau <<< "$ket"
   [ "$loai" = "checkin" ] || hong "sau flow 32: kỷ niệm là $loai, mong checkin."
-  [ "$cho" = "Quán Ốc Dì Bé" ] || hong "sau flow 32: check-in tại «$cho», mong «Quán Ốc Dì Bé»."
+  [ "$cho" = "Lưng Chừng Cafe" ] || hong "sau flow 32: check-in tại «$cho», mong «Lưng Chừng Cafe» (chỗ seed ở ĐÀ LẠT — «Quán Ốc Dì Bé» nằm ở TP.HCM và không còn trong điểm đến mặc định từ M10)."
   [ "${tim:-0}" -eq 1 ] && [ "${bl:-0}" -eq 1 ] || hong "sau flow 32: $tim tim, $bl bình luận; mong 1/1."
   [ "$cau" = "Oc ngon" ] || hong "sau flow 32: câu check-in là «$cau», mong «Oc ngon»."
   album="$(curl -sS "$goc/contexts/$ctx/albums" -H "Authorization: Bearer $tok" | python3 -c '
@@ -555,7 +555,7 @@ print("%d|%s" % (len(a), a[0].get("checkin_count") if a else ""))')"
   IFS='|' read -r so_album so_checkin <<< "$album"
   [ "${so_album:-0}" -eq 1 ] && [ "${so_checkin:-0}" -ge 1 ] \
     || hong "sau flow 32: album «Keo QA»: $so_album album, $so_checkin check-in; mong 1 album, >= 1 check-in."
-  echo "máy chủ xác nhận: tường «Hoi QA» có đúng một check-in «Quán Ốc Dì Bé» (1 tim, 1 bình luận, câu «Oc ngon»); album «Keo QA» đếm $so_checkin check-in"
+  echo "máy chủ xác nhận: tường «Hoi QA» có đúng một check-in «Lưng Chừng Cafe» (1 tim, 1 bình luận, câu «Oc ngon»); album «Keo QA» đếm $so_checkin check-in"
 }
 
 # Sau flow 35: điểm đến là dữ liệu của máy chủ, không phải chuỗi trên màn. Hỏi
