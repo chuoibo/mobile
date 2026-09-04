@@ -144,7 +144,12 @@ export function FriendsScreen() {
         ) : (
           <DanhSach
             hang={trang.du.ban.map((b) => (
-              <HangNguoi key={b.person_id} phu={ngayKetBan(b.friends_since)} ten={b.display_name} />
+              <HangNguoi
+                key={b.person_id}
+                onPress={() => router.push(`/people/${b.person_id}`)}
+                phu={ngayKetBan(b.friends_since)}
+                ten={b.display_name}
+              />
             ))}
           />
         )

@@ -1,0 +1,83 @@
+# Hồ sơ người khác và tường cá nhân (M8): hàng bạn bè bấm vào được, hồ sơ của
+# người ấy đọc từ máy chủ, và bài đăng đi đúng mức người đọc.
+#
+# Chạy sau flow 32 trong cùng lượt và GIỮ phiên đang sống (C hoặc D — cả hai là
+# bạn của nhau từ flow 25), chỉ đăng nhập khi app đang ở màn chào: xin mã lại
+# trong nhịp 60 s sẽ bị máy chủ từ chối.
+#
+# Hai bài được đăng: một «Bạn bè», một «Chỉ mình tôi». Harness kiểm máy chủ sau
+# bảng (kiem_may_chu_sau_33): người kia đọc tường của tác giả thấy ĐÚNG bài
+# «Bạn bè» và KHÔNG thấy bài «Chỉ mình tôi». Màn hình không tự chứng minh được
+# điều đó — nó chỉ là nơi bấm.
+appId: com.lakiet.rudi
+---
+- stopApp
+- launchApp
+- runFlow: _bo-qua-dev-menu.yaml
+- extendedWaitUntil:
+    visible: "Rủ Đi thôi!|Khám phá|Chưa có nhóm nào"
+    timeout: 150000
+- runFlow:
+    when:
+      visible: "Rủ Đi thôi!"
+    file: _dang-nhap-d.yaml
+- extendedWaitUntil:
+    visible: "Khám phá"
+    timeout: 60000
+# --- hồ sơ của bạn mình -------------------------------------------------------
+- tapOn: "Cá nhân"
+- extendedWaitUntil:
+    visible: "Bạn bè, lời mời đã nhận và đã gửi"
+    timeout: 60000
+- tapOn: "Bạn bè, lời mời đã nhận và đã gửi"
+- extendedWaitUntil:
+    visible: "Xem hồ sơ .*"
+    timeout: 60000
+- tapOn: "Xem hồ sơ .*"
+- extendedWaitUntil:
+    visible: "Tường cá nhân"
+    timeout: 60000
+- assertVisible: "Tham gia từ tháng .*"
+- takeScreenshot: 33-ho-so-ban
+- back
+- back
+# --- tường của chính mình -----------------------------------------------------
+- extendedWaitUntil:
+    visible: "Bài bạn đã đăng và ai đọc được"
+    timeout: 60000
+- tapOn: "Bài bạn đã đăng và ai đọc được"
+- extendedWaitUntil:
+    visible: "Hồ sơ của bạn"
+    timeout: 60000
+- assertVisible: "Bạn chưa đăng bài nào.*"
+- takeScreenshot: 33-tuong-rong
+- tapOn: "Đăng bài mới"
+- extendedWaitUntil:
+    visible: "Ai đọc được?"
+    timeout: 30000
+- tapOn: "Bạn muốn kể gì?"
+- inputText: "Chuyen QA cho ban be"
+- hideKeyboard
+- tapOn: "Mức người đọc: Bạn bè"
+- takeScreenshot: 33-chon-muc-doc
+- tapOn: "Đăng"
+- extendedWaitUntil:
+    visible: "Chuyen QA cho ban be"
+    timeout: 60000
+- assertNotVisible: "Bạn chưa đăng bài nào.*"
+- takeScreenshot: 33-tuong-cua-toi
+# --- bài chỉ mình tôi: cùng màn, khác mức người đọc ---------------------------
+- tapOn: "Đăng bài mới"
+- extendedWaitUntil:
+    visible: "Ai đọc được?"
+    timeout: 30000
+- tapOn: "Bạn muốn kể gì?"
+- inputText: "Chi minh toi QA"
+- hideKeyboard
+- tapOn: "Mức người đọc: Chỉ mình tôi"
+- tapOn: "Đăng"
+- extendedWaitUntil:
+    visible: "Chi minh toi QA"
+    timeout: 60000
+- assertVisible: "Chuyen QA cho ban be"
+- takeScreenshot: 33-hai-muc-nguoi-doc

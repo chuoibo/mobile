@@ -558,6 +558,152 @@ print("%d|%s" % (len(a), a[0].get("checkin_count") if a else ""))')"
   echo "máy chủ xác nhận: tường «Hoi QA» có đúng một check-in «Quán Ốc Dì Bé» (1 tim, 1 bình luận, câu «Oc ngon»); album «Keo QA» đếm $so_checkin check-in"
 }
 
+# Sau flow 33: hai bài vừa đăng trên máy phải đi đúng mức người đọc. Hỏi máy chủ
+# với tư cách CẢ HAI người (C và D): người viết thấy hai bài trên tường mình,
+# người kia thấy ĐÚNG bài «Bạn bè» và KHÔNG thấy bài «Chỉ mình tôi». Flow không
+# biết ai đang đăng nhập trên máy (phiên của flow 30 còn sống), nên phép kiểm
+# tìm tác giả từ dữ liệu chứ không giả định.
+kiem_may_chu_sau_33() {
+  local goc body_c body_d tok_c tok_d id_c id_d ket
+  goc="http://127.0.0.1:$API_PORT"
+  body_c="$(dang_nhap_curl "$OTP_PHONE_C")" || hong "sau flow 33: C không đăng nhập được qua curl."
+  body_d="$(dang_nhap_curl "$OTP_PHONE_D")" || hong "sau flow 33: D không đăng nhập được qua curl."
+  tok_c="$(printf '%s' "$body_c" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("token",""))')"
+  tok_d="$(printf '%s' "$body_d" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("token",""))')"
+  id_c="$(printf '%s' "$body_c" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("person_id",""))')"
+  id_d="$(printf '%s' "$body_d" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("person_id",""))')"
+  [ -n "$tok_c" ] && [ -n "$tok_d" ] && [ -n "$id_c" ] && [ -n "$id_d" ] \
+    || hong "sau flow 33: thiếu token hoặc person_id của C/D."
+  ket="$(MC_GOC="$goc" MC_TOK_C="$tok_c" MC_TOK_D="$tok_d" MC_ID_C="$id_c" MC_ID_D="$id_d" python3 - <<'PYCHECK'
+import json, os, urllib.request
+
+goc = os.environ["MC_GOC"]
+
+def tuong(chu_so_huu, token):
+    yc = urllib.request.Request(
+        "%s/people/%s/posts?limit=50" % (goc, chu_so_huu),
+        headers={"Authorization": "Bearer %s" % token},
+    )
+    with urllib.request.urlopen(yc, timeout=20) as tra:
+        return json.load(tra).get("posts", [])
+
+BAI_BAN = "Chuyen QA cho ban be"
+BAI_RIENG = "Chi minh toi QA"
+nguoi = {"C": (os.environ["MC_ID_C"], os.environ["MC_TOK_C"]), "D": (os.environ["MC_ID_D"], os.environ["MC_TOK_D"])}
+
+tac_gia = None
+for ten, (pid, tok) in nguoi.items():
+    than = [b.get("body") for b in tuong(pid, tok)]
+    if BAI_BAN in than and BAI_RIENG in than:
+        tac_gia = ten
+if tac_gia is None:
+    print("khong_thay_tac_gia")
+else:
+    nguoi_kia = "D" if tac_gia == "C" else "C"
+    pid_tg = nguoi[tac_gia][0]
+    tok_kia = nguoi[nguoi_kia][1]
+    than_kia = [b.get("body") for b in tuong(pid_tg, tok_kia)]
+    print("%s|%s|%d|%d|%d" % (
+        tac_gia,
+        nguoi_kia,
+        len(than_kia),
+        1 if BAI_BAN in than_kia else 0,
+        1 if BAI_RIENG in than_kia else 0,
+    ))
+PYCHECK
+)"
+  case "$ket" in
+    khong_thay_tac_gia) hong "sau flow 33: không người nào (C/D) có cả hai bài trên tường mình — cú «Đăng» chưa tới máy chủ." ;;
+  esac
+  IFS='|' read -r tac_gia nguoi_kia so_bai thay_ban thay_rieng <<< "$ket"
+  [ "$thay_ban" = "1" ] || hong "sau flow 33: $nguoi_kia không đọc được bài «Bạn bè» của $tac_gia."
+  [ "$thay_rieng" = "0" ] || hong "sau flow 33: $nguoi_kia ĐỌC ĐƯỢC bài «Chỉ mình tôi» của $tac_gia — mức người đọc thủng."
+  [ "$so_bai" = "1" ] || hong "sau flow 33: $nguoi_kia thấy $so_bai bài trên tường $tac_gia, mong đúng 1."
+  echo "máy chủ xác nhận: $tac_gia đăng hai bài; $nguoi_kia đọc được đúng bài «Bạn bè» và không đọc được bài «Chỉ mình tôi»"
+}
+
+# Trước flow 34: đưa một tấm ảnh THẬT vào nhóm «Hoi QA» bằng đường sản phẩm
+# (POST /contexts/{id}/photos rồi POST /contexts/{id}/messages kind=image), vì
+# bộ chọn ảnh của hệ thống không lái được bằng flow. PNG sinh tại chỗ bằng
+# python3 (zlib + struct): không byte ảnh nào nằm trong Git.
+chuan_bi_anh_cho_34() {
+  local goc body tok ctx anh url
+  goc="http://127.0.0.1:$API_PORT"
+  body="$(dang_nhap_curl "$OTP_PHONE_D")" || hong "trước flow 34: D không đăng nhập được qua curl."
+  tok="$(printf '%s' "$body" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("token",""))')"
+  ctx="$(curl -sS "$goc/people/me/contexts" -H "Authorization: Bearer $tok" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+act = [c for c in d.get("contexts", []) if c.get("my_state") == "active" and c.get("display_name") == "Hoi QA"]
+print(act[0]["id"] if act else "")')"
+  [ -n "$tok" ] && [ -n "$ctx" ] || hong "trước flow 34: D chưa ở nhóm «Hoi QA» active."
+  anh="$(mktemp --suffix=.png)"
+  python3 - "$anh" <<'PYPNG'
+import struct, sys, zlib
+
+# 96x96 solid teal PNG, built here so no image bytes live in the repo.
+w = h = 96
+raw = b"".join(b"\x00" + bytes([0x0E, 0x7A, 0x6B]) * w for _ in range(h))
+
+def khoi(ten, than):
+    return struct.pack(">I", len(than)) + ten + than + struct.pack(">I", zlib.crc32(ten + than) & 0xFFFFFFFF)
+
+png = b"\x89PNG\r\n\x1a\n"
+png += khoi(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+png += khoi(b"IDAT", zlib.compress(raw, 9))
+png += khoi(b"IEND", b"")
+open(sys.argv[1], "wb").write(png)
+PYPNG
+  url="$(curl -sS -X POST "$goc/contexts/$ctx/photos" -H "Authorization: Bearer $tok" \
+      -F "file=@$anh;type=image/png" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("url",""))')"
+  rm -f "$anh"
+  case "$url" in
+    /contexts/*/photos/*) : ;;
+    *) hong "trước flow 34: tải ảnh lên nhóm không trả về địa chỉ ảnh (nhận «$url»)." ;;
+  esac
+  curl -sS -X POST "$goc/contexts/$ctx/messages" -H "Authorization: Bearer $tok" \
+    -H "Content-Type: application/json" -H "Idempotency-Key: qa-anh-$$-$RANDOM" \
+    -d "{\"kind\":\"image\",\"body\":\"Anh tu QA\",\"image_url\":\"$url\",\"card\":null}" \
+    | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+if d.get("kind") != "image" or not d.get("image_url"):
+    sys.exit("tin ảnh không được ghi: %s" % json.dumps(d)[:200])' \
+    || hong "trước flow 34: máy chủ không ghi được tin nhắn ảnh."
+  echo "đã đặt sẵn một ảnh thật trong «Hoi QA» cho flow 34"
+}
+
+# Sau flow 34: tin ảnh có thật trên máy chủ (kind=image, địa chỉ trỏ vào kho ảnh
+# của chính nhóm này), và câu trả lời gõ trên máy nằm sau nó.
+kiem_may_chu_sau_34() {
+  local goc body tok ctx ket
+  goc="http://127.0.0.1:$API_PORT"
+  body="$(dang_nhap_curl "$OTP_PHONE_D")" || hong "sau flow 34: D không đăng nhập được qua curl."
+  tok="$(printf '%s' "$body" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("token",""))')"
+  ctx="$(curl -sS "$goc/people/me/contexts" -H "Authorization: Bearer $tok" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+act = [c for c in d.get("contexts", []) if c.get("my_state") == "active" and c.get("display_name") == "Hoi QA"]
+print(act[0]["id"] if act else "")')"
+  [ -n "$tok" ] && [ -n "$ctx" ] || hong "sau flow 34: D chưa ở nhóm «Hoi QA» active."
+  ket="$(curl -sS "$goc/contexts/$ctx/messages?limit=50" -H "Authorization: Bearer $tok" | MC_CTX="$ctx" python3 -c '
+import json, os, sys
+ctx = os.environ["MC_CTX"]
+d = json.load(sys.stdin)
+tin = d.get("messages", [])
+anh = [t for t in tin if t.get("kind") == "image"]
+hop_le = [t for t in anh if str(t.get("image_url", "")).startswith("/contexts/%s/photos/" % ctx)]
+tra_loi = [t for t in tin if t.get("kind") == "text" and t.get("body") == "Dep qua"]
+print("%d|%d|%s|%d" % (len(anh), len(hop_le), anh[0].get("body") if anh else "", len(tra_loi)))')"
+  IFS='|' read -r so_anh so_hop_le chu_thich so_tra_loi <<< "$ket"
+  [ "${so_anh:-0}" -ge 1 ] || hong "sau flow 34: máy chủ không có tin nhắn ảnh nào trong «Hoi QA»."
+  [ "${so_hop_le:-0}" = "${so_anh:-0}" ] \
+    || hong "sau flow 34: có tin ảnh trỏ ra ngoài kho ảnh của nhóm ($so_hop_le/$so_anh hợp lệ)."
+  [ "$chu_thich" = "Anh tu QA" ] || hong "sau flow 34: chú thích ảnh là «$chu_thich», mong «Anh tu QA»."
+  [ "${so_tra_loi:-0}" -ge 1 ] || hong "sau flow 34: câu trả lời gõ trên máy («Dep qua») không tới máy chủ."
+  echo "máy chủ xác nhận: «Hoi QA» có $so_anh tin ảnh trong kho ảnh của chính nhóm, chú thích «Anh tu QA», và câu trả lời từ máy"
+}
+
 kiem_may_chu_sau_30() {
   local goc body tok ctx ket
   goc="http://127.0.0.1:$API_PORT"
@@ -1050,13 +1196,19 @@ for f in "$FLOWS"/*.yaml; do
     # môi trường chứ không phải vì app sai. `--live` chạy đúng và chỉ nhóm này.
     20-*)        [ "$LIVE" = 1 ] || continue ;;
     21-*)        [ "$DANG_NHAP" = 1 ] || continue ;;
-    22-*|23-*|24-*|25-*|26-*|27-*|28-*|29-*|31-*|32-*) [ "$OTP" = 1 ] || continue ;;
+    22-*|23-*|24-*|25-*|26-*|27-*|28-*|29-*|31-*|32-*|33-*|34-*) [ "$OTP" = 1 ] || continue ;;
     # Under the keyboard negative control the composer is meant to be covered,
     # so a flow that has to tap it (30, 40) would only fail for the reason the
     # probe already measures. The table for --tat-kav is the sign-in leg + 31.
     30-*) [ "$OTP" = 1 ] && [ "$TAT_KAV" = 0 ] || continue ;;
     40-*)        [ "$OTP" = 1 ] && [ "$AI" = 1 ] && [ "$TAT_KAV" = 0 ] || continue ;;
     *)           { [ "$LIVE" = 1 ] || [ "$DANG_NHAP" = 1 ] || [ "$OTP" = 1 ]; } && continue ;;
+  esac
+  # Flow 34 cần một tấm ảnh CÓ THẬT trong nhóm trước khi mở màn: bộ chọn ảnh của
+  # hệ thống không lái được bằng flow, nên ảnh đi vào bằng đường sản phẩm (upload
+  # + tin nhắn kind=image) qua curl.
+  case "$ten" in
+    34-*) chuan_bi_anh_cho_34 ;;
   esac
   DA_CHAY=$((DA_CHAY + 1))
   set +e; chay_flow "$f"; rc=$?; set -e
@@ -1128,6 +1280,8 @@ if [ "$OTP" = 1 ]; then
   kiem_may_chu_sau_28
   kiem_may_chu_sau_29
   kiem_may_chu_sau_32
+  kiem_may_chu_sau_33
+  kiem_may_chu_sau_34
   [ "$TAT_KAV" = 1 ] || kiem_may_chu_sau_30
   [ "$AI" = 1 ] && [ "$TAT_KAV" = 0 ] && kiem_may_chu_sau_40
   canary_otp

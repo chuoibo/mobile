@@ -251,6 +251,10 @@
     "src/rudi/loi-moi-den.ts",
     "src/rudi/dot-thu/dot-thu.ts",
     "src/rudi/ky-niem/ky-niem.ts",
-    "src/rudi/vote.ts"
+    "src/rudi/vote.ts",
+    // Hồ sơ người khác + tường của họ (M8): compile để test chứng minh câu cho
+    // tường rỗng KHÔNG khẳng định người ấy chưa đăng gì (máy chủ trả 200 rỗng
+    // cho cả hai trường hợp), và mỗi bài luôn nói rõ ai đọc được.
+    "src/rudi/nguoi/ho-so-nguoi.ts"
   ]
 }

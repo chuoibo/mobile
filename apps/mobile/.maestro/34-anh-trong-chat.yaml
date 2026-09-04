@@ -1,0 +1,45 @@
+# Ảnh trong chat (M8): một tấm ảnh THẬT đi qua kho ảnh của nhóm và hiện thành
+# bong bóng có ảnh + chú thích, không phải bong bóng rỗng.
+#
+# Ảnh được đưa vào bằng curl TRƯỚC flow (harness: chuan_bi_anh_cho_34) chứ không
+# bằng cách bấm: bộ chọn ảnh của hệ thống không lái được ổn định bằng flow, và
+# một máy ảo vừa `pm clear` thì thư viện ảnh cũng rỗng. Nên flow này chứng minh
+# đường NHẬN (địa chỉ ảnh → khung ảnh có quyền → pixel trên màn) và sự tồn tại
+# của nút gửi ảnh; đường GỬI từ máy được gác bằng test wire
+# (`tests/rudi-chat-tin-song.test.mjs`), và ảnh chụp dưới đây là chỗ người đọc
+# nhìn thấy pixel thật.
+appId: com.lakiet.rudi
+---
+- stopApp
+- launchApp
+- runFlow: _bo-qua-dev-menu.yaml
+- extendedWaitUntil:
+    visible: "Rủ Đi thôi!|Khám phá|Chưa có nhóm nào"
+    timeout: 150000
+- runFlow:
+    when:
+      visible: "Rủ Đi thôi!"
+    file: _dang-nhap-d.yaml
+- extendedWaitUntil:
+    visible: "Khám phá"
+    timeout: 60000
+- tapOn: "Tin nhắn"
+- extendedWaitUntil:
+    visible: "Hoi QA"
+    timeout: 60000
+- tapOn: "Hoi QA"
+- extendedWaitUntil:
+    visible: "Anh tu QA"
+    timeout: 60000
+- assertVisible: "Ảnh: Anh tu QA"
+- assertNotVisible: "Ảnh này máy không mở được."
+- assertVisible: "Gửi ảnh"
+- takeScreenshot: 34-anh-trong-chat
+- tapOn: "Ô soạn tin"
+- inputText: "Dep qua"
+- tapOn: "Gửi tin nhắn"
+- extendedWaitUntil:
+    visible: "Dep qua"
+    timeout: 30000
+- hideKeyboard
+- takeScreenshot: 34-tra-loi-anh
