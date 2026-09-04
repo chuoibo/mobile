@@ -2,8 +2,11 @@
 
 <!-- impeccable:design-schema 1 -->
 
-Hệ thiết kế của **Rủ Đi**, rút từ mockup đã chốt chứ không tự chế. Nguồn số
-duy nhất là `packages/shared/tokens.json`; file này mô tả và giải thích nó.
+Hệ thiết kế của **Rủ Đi**. Token đo từ mockup 2026-08-29; luật thành phần và
+luật native bên dưới **đo lại từ artifact đã ship** (commit `86a55fb`,
+2026-09-04), không phải từ kế hoạch. Chỗ nào mockup và bản ship lệch nhau thì
+bản ship thắng và được ghi rõ. Nguồn số duy nhất là
+`packages/shared/tokens.json`; file này mô tả và giải thích nó.
 `.impeccable/design.json` là bản máy đọc, sinh ra từ chính tokens.json nên
 mọi con số dưới đây là **tính ra**, không phải gõ tay.
 
@@ -37,6 +40,107 @@ mọi con số dưới đây là **tính ra**, không phải gõ tay.
 **Một màn hình chỉ có MỘT tông dẫn.** Hai tông dẫn cùng lúc là lỗi, không phải
 lựa chọn. Trang khách là mặt quyết toán, nên tông dẫn của nó là teal, không phải
 cam, dù cam mới là màu thương hiệu.
+
+## Đo lại từ artifact đã ship (2026-09-04, 86a55fb)
+
+Nguồn: `apps/mobile/src/rudi/theme.ts`, `ui.tsx`, `app/(tabs)/_layout.tsx`,
+`app/_layout.tsx`, và hai lượt chụp trên emulator Android (sáng + font 1.0
+`da101c9 (chụp 2026-09-04 lúc 13:17:38)`, tối + font 1.3 `86a55fb (chụp 2026-09-04 lúc 13:33:58)`). Kit App B
+cũ (`Kit.tsx`) đã bị xoá cùng App B ngày 2026-09-04; vỏ RuDi là kit duy nhất.
+
+### Hợp đồng hướng đi (ghi trong `app/_layout.tsx`, nguyên văn)
+
+> THESIS: A warm evening with friends, organised by a calm assistant: every
+> screen tells one group what happens next and what it costs, nothing more.
+> OWN-WORLD: Cream ground, white cards, one leading tone per screen (accent =
+> brand action, split = money, ai = machine output); brand gradients only on
+> hero and primary CTA, never under small text.
+> STORY: Discover → plan together in chat → go → photograph the bill →
+> everyone sees their own share; the screen never invents a number.
+> FIRST VIEWPORT: The tab bar and one decision above it, on a 360x800 phone,
+> with real data or an honest empty state; no fixture text in production.
+> FORM: expo-router stack + 4 tabs + create sheet; 44pt targets, 12px floor,
+> tabular-nums for money, motion ≤ 220ms. Seed: none rolled. Every screen
+> here is an Extension of the world already committed in DESIGN.md.
+> FINISH: the shipped screens are reviewed on the emulator, not on the web export.
+
+Một chỗ bản ship vượt hợp đồng: FORM nói 44pt, code ship **48dp** (xem dưới).
+
+### Tông dẫn theo họ màn hình (đo bằng `<RudiScreen tone=…>`)
+
+| Họ màn | Tông dẫn | Bằng chứng |
+|---|---|---|
+| Đăng nhập, OTP, nhóm, bạn bè, kèo (`keo/*`), khám phá, kỷ niệm | `accent` (mặc định của `RudiScreen`) | 58 dùng `tone="split"` và 35 `tone="ai"` đều nằm trong thành phần con, không đổi tông màn |
+| Chia bill (`ChiaBillLive`), đợt thu (`DotThuLive`), quyết toán (`batches/[id]`), `Bill` | `split` | mọi `RudiButton` trên các màn này mang `tone="split"`, kể cả outline/ghost |
+| Thẻ AI trong chat, gợi ý hợp gu ở Khám phá | `ai` chỉ ở **thành phần** (`Card tone="ai"`, `AiNote`, `Chip tone="ai"`) | không màn live nào ship với `tone="ai"` ở `RudiScreen`; chỉ các màn fixture cũ (`Discovery`, `Group`, `Profile`) |
+
+`RudiScreen` vẽ hai vệt sáng mờ (`AmbientBackdrop`): vệt trên lấy `<tone>Soft`
+của tông dẫn, vệt dưới luôn `accentSoft`. Đó là cách một màn "nói" tông của nó
+trước khi có chữ.
+
+### Primitive và luật của từng cái (`ui.tsx`)
+
+| Primitive | Luật đo được |
+|---|---|
+| `RudiScreen` | `SafeAreaView` cạnh top/left/right; lề ngang `space.md` (16), `space.lg` (24) khi ≥ 700dp; `gap` 18 giữa khối; `bottomInset` mặc định 32, màn có tab bar dùng **112** để nội dung không chui dưới thanh tab + FAB; `footer` ghim dưới, `footerInset` do màn truyền `insets.bottom` |
+| `TopBar` | cao tối thiểu 52, hai bên rộng 52; tiêu đề `title` 1 dòng, phụ đề `caption` 1 dòng; không có back thì hiện `Logo compact` |
+| `Heading` | `display`/`h1`/`h2` màu `ink`, phụ đề `body` màu `inkSoft`, rộng tối đa 620/560 |
+| `SectionHeader` | `h2` + hành động chữ màu `accent`, hộp bấm cao **48** dù chữ chỉ 14 |
+| `Card` | bo `radius.base` (20), đệm 16, viền 1px `line` **và** `cardShadow`; `tone` đổi nền sang `<tone>Soft` và viền cùng màu nền (viền biến mất). Có `onPress` thì là `button`, nhấn co 0.992 và mờ 0.94 |
+| `RudiButton` | cao tối thiểu **52** (48 khi `compact`), bo `radius.control` (14), nhãn `label` 14/600 một dòng, icon 20 (18 compact). `solid` = gradient `[colors.accent, colors.accentEnd]` theo **scheme**, nhãn `accentInk`; tông khác `solid` là màu phẳng của tông. `soft` = nền `<tone>Soft`, chữ màu tông. `outline` = nền `card`, viền `lineStrong`, chữ màu tông. `ghost` = trong suốt. Nhấn: mờ 0.82, co 0.98. `disabled` mờ 0.45 |
+| `IconButton` | **48 × 48**, bo 16; `quiet` không viền không nền; `solid` = nền tông, glyph `<tone>Ink` |
+| `Field` | cao tối thiểu 52 (108 nếu `multiline`), nền `card`, viền `lineStrong`, bo 14, chữ `body`, placeholder `inkFaint`; nhãn `label` màu `ink` phía trên |
+| `OtpBoxes` | 6 ô 44 × 54, một `TextInput` thật phủ lên (chữ trong suốt, không dùng opacity 0); ô đang nhập viền `accent`, ô khác `lineStrong` |
+| `Chip` có `onPress` | cao tối thiểu **48**, bo `pill`; chưa chọn: nền `card`, viền `lineStrong`, chữ `inkSoft`; đã chọn: nền `<tone>Soft`, viền màu tông, chữ màu tông **và** dấu check, để trạng thái không dựa vào màu đơn thuần |
+| `Chip` không `onPress` | là **sự thật, không phải control**: không role, cao 30, bo `radius.small` (10). Đây là cách ship trạng thái («Đã trả bill», «Đang mở», «Quản trị») |
+| `Stat` | số bằng `typography.money`, nhãn `caption` `inkFaint`, icon 38 trong nền `<tone>Soft` |
+| `AiNote` | nền `aiSoft`, thanh trái 3px `ai`, icon `sparkles` trên nền `ai`, tiêu đề cố định «Rủ Đi AI gợi ý» |
+| `ListRow` | cao tối thiểu 58, icon 40 trong `<tone>Soft`, chevron `inkFaint` khi bấm được |
+| `Segmented` | `role="tab"`, mỗi đoạn cao 48, đoạn chọn nền `<tone>Soft` bo 10 trong khung bo 14 |
+| `Divider` | `StyleSheet.hairlineWidth`, màu `line` |
+| `Avatar` | vòng tròn chữ cái đầu, viền 2px `card` (hoặc `accent` khi `ring`); không bao giờ là ảnh người thật |
+| `DemoBadge` | viền `line`, chữ 10/700 `inkFaint`, icon `flask-outline`; **render rỗng ở chế độ live**. Nhãn demo trên tiền thật là lời nói dối ngược chiều |
+| Thanh tab + FAB | tab bar cao `62 + insets.bottom`, nhãn 10/700, active `accent`, inactive `inkFaint`; iOS mờ kính `BlurView` 78. FAB 58 × 58 bo 21, nền `brand.coral`, glyph `accentInk`, **vòng 4px màu `ground`** tách nó khỏi thanh tab; ≥ 700dp đổi thành rail trái 104 |
+
+Có trong `ui.tsx` nhưng **không màn nào ship dùng**: `Eyebrow`, `SurfaceLabel`
+(nhãn in hoa giãn chữ), `FloatingGlass`. Chúng không phải hệ; đừng lấy làm mẫu.
+
+### Luật native đã ship
+
+- **Đích bấm 48dp.** Nút 52, nút compact 48, icon 48, chip bấm 48, đoạn segmented
+  48, hành động chữ trong `SectionHeader` 48. Nhỏ hơn là lỗi.
+- **Cỡ chữ theo sp**, đã chạy đủ lượt chụp ở font 1.3: không cắt, không đè.
+  Chữ nào có `numberOfLines={1}` (14 chỗ) đều là tiêu đề/nhãn nút/chip; chú
+  thích dài dùng `numberOfLines={2}` (5 chỗ), không bao giờ 1.
+- **Hàng chip cuộn ngang, không lưới gập dòng, trong form.** Ở font 1.3 danh
+  mục địa điểm gập thành tám hàng và đẩy nút gửi khỏi màn; `OutingLive` đổi
+  sang `ScrollView horizontal`. Lưới gập chỉ dùng khi không có CTA bên dưới.
+- **Safe area cho thứ ghim đáy.** Composer chat: `marginBottom =
+  max(insets.bottom, 8)` (6 khi bàn phím mở, vì IME đã che thanh điều hướng).
+  Màn chia bill: `bottomInset = max(insets.bottom, 16) + 40` để CTA cuối không
+  nằm dưới thanh gesture. Tab bar: `paddingBottom = max(insets.bottom, 10)`.
+- **Trạng thái là `Chip`, không phải chữ inline.** «Đã trả bill», «+lẻ đồng»,
+  «Đã tới», «Đang mở/Đã đóng» đều là chip tĩnh; màu tông nói phần nào của
+  sản phẩm đang nói.
+- **Tiền luôn qua `typography.money`** (21/800, `tabular-nums`, 33 chỗ). Số
+  tiền màu `ink`; chỉ số tiền trong **khoản chuyển** đề xuất mới lên `split`.
+- **Gradient theo scheme, không theo brand.** Nút chính lấy `[accent, accentEnd]`
+  của bảng màu hiện hành: sáng `#c93900 → #c9344a` nhãn trắng, tối
+  `#fb693e → #e75262` nhãn `#1c0d06`. Ở tối, nút chính phải là thứ sáng nhất
+  có thể bấm trên màn. Gradient brand (`logoGradient`, `heroGradient`) chỉ ở
+  logo.
+- **Đường kẻ là hairline** (`StyleSheet.hairlineWidth`, màu `line`): divider
+  trong thẻ, cạnh trên tab bar, cạnh phải rail.
+- **Bóng thẻ trên native**: iOS `#5A3014` 0/8 mờ 18 độ đục 0.1, Android
+  `elevation: 3`. Ám ấm như web, nhưng nhẹ hơn.
+- **Thẻ có tông** (`Card tone`) là cách ship khối tóm tắt của một phần: tổng
+  chi chuyến (`split`), thẻ AI trong chat (`ai`). Một thẻ tông mỗi màn.
+- **Rỗng / đang tải / lỗi**: rỗng là `Heading size="h2"` + một câu `caption`
+  nói việc tiếp theo («Chưa có kèo nào… tạo một kèo ở Lên plan»); đang tải
+  là `RudiButton loading` ngay tại nút vừa bấm (spinner thay icon, nút khoá);
+  lỗi là chữ `warn` dưới form hoặc `RudiButton variant="outline"` «Thử lại».
+  Không toast, không modal lỗi.
+- **`DemoBadge`** đặt ở màn còn đọc fixture (9 file), tự ẩn khi phiên live.
 
 ## Màu, kèm số đo tương phản
 
@@ -145,7 +249,8 @@ nó cho một cái nút.
 họ với nền kem chứ không phải một đường xám lạc lõng.
 
 **Cổng giữ nó**: `services/api/tests/web/test_contrast_floor.py` không kiểm token
-trong bảng, nó **đọc token ra từ `Kit.tsx` và `guest.css` rồi mới đo**. Thêm một
+trong bảng, nó **đọc token ra từ `src/rudi/ui.tsx` và `guest.css` rồi mới đo**
+(`Kit.tsx` của App B đã đi cùng App B, 2026-09-04). Thêm một
 token đạt chuẩn mà không component nào dùng thì test vẫn đỏ, và một control lặng
 lẽ quay về `line` cũng đỏ. Chiều ngược lại cũng có cổng: đẩy cạnh thẻ lên
 `lineStrong` để cho dễ pass thì test cũng đỏ.
@@ -197,6 +302,24 @@ Một webfont ở đây tốn LCP trên mạng di động và có rủi ro vỡ 
 `micro` từng là 11px. Detector bắt 8 chỗ "tiny body text" nên nâng lên 12px,
 đó là sàn của hệ này.
 
+Bảng trên là `tokens.json.type`, thang của **trang khách web**. App ship thang
+riêng trong `theme.ts` (`typography`), đo lại từ artifact, nặng tay hơn một
+bậc và có `lineHeight` tường minh vì RN không tự tính:
+
+| Bậc | Cỡ / dòng | Đậm | Giãn chữ | Dùng ở đâu |
+|---|---|---|---|---|
+| `display` | 34 / 39 | 800 | -1.1 | Số tiền tổng trên thẻ tông, một màn một lần |
+| `h1` | 28 / 34 | 800 | -0.65 | Tiêu đề màn (`Heading` mặc định) |
+| `h2` | 21 / 27 | 700 | -0.3 | `SectionHeader`, tiêu đề trạng thái rỗng |
+| `title` | 17 / 23 | 700 | -0.15 | Tiêu đề `TopBar`, tiêu đề thẻ, chữ số OTP |
+| `body` | 16 / 23 | 400 | 0 | Chữ thân, ô nhập |
+| `label` | 14 / 19 | 600 | 0 | Nhãn nút, nhãn ô nhập, dòng chính `ListRow` |
+| `caption` | 12 / 16 | 600 | 0 | Chip, phụ đề, chú thích. Sàn 12 giữ nguyên |
+| `money` | 21 / 27 | 800 | 0, `tabular-nums` | Mọi số tiền |
+
+Hai thang cùng sàn 12 và cùng system stack; số trong `tokens.json` không đổi
+vì `guest.css` còn đọc nó.
+
 Số tiền luôn dùng `font-variant-numeric: tabular-nums`. Một cột tiền đọc dọc mà
 chữ số nhảy bề ngang là đọc sai.
 
@@ -231,6 +354,13 @@ dưới bóng nhoè 30px là đường nối mà bóng đã làm thừa. Detecto
 finding còn 4, rồi còn 0. Thẻ `--quiet` không có bóng, nên ở đó viền là thứ duy
 nhất giữ cạnh và viền được giữ lại.
 
+Luật "một trong hai" ở trên là của **trang khách web**. `Card` native ship
+**cả** viền 1px `line` lẫn `cardShadow` (Android `elevation: 3`, iOS đục 0.1):
+bóng elevation 3 gần như không thấy trên nền kem, và ở chế độ tối bóng đen
+trên nền `#17120f` không tách được gì, nên viền `line` là thứ giữ cạnh thẻ ở
+cả hai scheme. Ghi lại để không ai "sửa" thẻ native theo luật web rồi mất
+cạnh ở dark.
+
 ## Chuyển động
 
 Bấm phải phản hồi trong một khung hình: `press` 100ms · `fade` 160ms ·
@@ -242,15 +372,24 @@ Bấm phải phản hồi trong một khung hình: `press` 100ms · `fade` 160ms
 |---|---|---|
 | Số tiền mỗi người tô màu theo từng người (đỏ, tím, teal) | Toàn bộ dùng teal | Màu ở đây phải mang nghĩa "tiền", không phải mã định danh người. Bốn màu trong một cột tiền làm người đọc đi tìm nghĩa không tồn tại |
 | Avatar là ảnh người thật | Vòng tròn chữ cái đầu | Không đưa ảnh và tên người tham gia thật vào Git |
-| Bất kỳ ô nào trông như mã chuyển khoản | Không vẽ | Sản phẩm không có đường thanh toán: nói phần của mỗi người rồi dừng |
+| Bất kỳ ô nào trông như mã chuyển khoản, nút VietQR, số tài khoản | Không vẽ | ADR-0015 gỡ đường thanh toán: sản phẩm nói phần của mỗi người rồi dừng. Quyết toán kết thúc ở «khoản chuyển đề xuất» và «Tạo đợt thu từ sổ» |
+| Ảnh địa điểm làm hero | Dải typographic: khối `accentSoft` bo 20, icon trên nền `card`, `Heading` tên quán | Danh mục thật không có ảnh; một ảnh stock ở đó là bịa. `Photo`/`PhotoShade` chỉ còn ở màn fixture |
+| Thẻ AI ở mọi màn | `AiNote`/`Card tone="ai"` chỉ khi có nguồn thật (`hop.real`, `match.source === "ai"`) | Màu tím hứa «máy sinh ra, người sửa được»; không có đầu ra thật thì không có thẻ |
+| Nút phẳng một màu | Nút chính là gradient `[accent, accentEnd]` theo scheme | Đo từ mockup 2026-08-29 và giữ ở bản ship; hai đầu dải đều qua sàn chữ ở cả hai scheme (bảng trên) |
+| Chip viền `line` mỏng | Chip bấm được viền `lineStrong`, có check khi chọn | Sàn 1.4.11 ở trên; chip là control |
+| Mockup còn 9 tờ «NEEDS UPDATE» | Mockup là comp để quyết định, không phải comp đã duyệt | Bản ship là ground truth của file này, không phải mockup |
 
 ## Cổng phải xanh trước khi đổi hệ này
 
 ```bash
-python3 -m pytest services/api/tests/web -q          # token trong guest.css khớp tokens.json
+python3 -m pytest services/api/tests/web -q          # token trong guest.css khớp tokens.json; đọc ui.tsx và DESIGN.md
+cd apps/mobile && node --test tests/rudi-khong-hex.test.mjs   # không file nào trong vỏ RuDi tự gõ mã màu
 python3 -m app.web.design_preview 8010               # xem hệ, không cần DB
 imp detect --json http://localhost:8010/             # 59 rule, contrast tính thật
 ```
+
+Màn native thì cổng là **emulator**, không phải web export (dòng FINISH của hợp
+đồng): chạy lượt Maestro ở cả sáng/font 1.0 và tối/font 1.3 rồi đọc ảnh.
 
 Thêm một cặp màu tông-trên-tông mới thì **phải đo lại**, đừng nhìn bằng mắt.
 Cặp `split` trên `splitSoft` trượt ở 4.46:1 đúng vì cả hai đều teal và không ai
