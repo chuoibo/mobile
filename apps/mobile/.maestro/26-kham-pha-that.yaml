@@ -70,7 +70,9 @@ appId: com.lakiet.rudi
     visible: "Chỉ đường"
     timeout: 60000
 - assertVisible: "27/1 Yersin.*"
-- assertVisible: ".*một người"
+# «mỗi người» chứ không phải «một người»: câu giá do `cauGia` dựng từ M9c, và
+# nó nói «Chưa có giá» cho chỗ nhập từ OSM. Chỗ seed này có giá nên phải ra dải.
+- assertVisible: ".*mỗi người"
 - assertVisible: "Lưu địa điểm"
 - takeScreenshot: 26-chi-tiet
 # Cuộn tới cuối: nhận xét phải lên khỏi footer ghim, và footer vẫn bấm được.
