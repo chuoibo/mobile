@@ -23,7 +23,7 @@
  *
  * ## A session is now enough, and what it took
  *
- * ADR-0014 shipped `POST /sessions` in #514, but the answer said only WHO you
+ * ADR-0014 shipped `POST /sessions` in PR 514, but the answer said only WHO you
  * are. There is no route that lists a person's contexts, so an app holding a
  * valid session still had no group to read and stayed on the fixture. That is
  * why `SessionResponse` now also carries `context_id`: sign-in happens by

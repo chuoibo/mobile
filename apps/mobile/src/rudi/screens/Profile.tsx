@@ -9,7 +9,7 @@ import { BASE_URL } from "../../api";
 import { layTaiChinh, tinhTrangNo, type Finance } from "../../screens/ca-nhan/tai-chinh";
 import { noiLuu, noiLuuNgan } from "../luu-tru";
 import { useRudiSession } from "../session";
-import { typography, useRudiTheme } from "../theme";
+import { bangMauFixture, lopPhu, mauSang, mauThuongHieu, mucTrenAnh, phuMau, typography, useRudiTheme } from "../theme";
 import { DAU_VAN_CAY } from "../dau-van-cay";
 import { HoSoSong } from "./profile/HoSoSong";
 import {
@@ -136,7 +136,7 @@ export function ProfileScreen() {
         <>
           <Card style={styles.profileHero}>
             <LinearGradient
-              colors={["rgba(252,123,55,0.16)", "rgba(131,80,246,0.12)"]}
+              colors={[phuMau(mauThuongHieu.glow, 0.16), phuMau(mauThuongHieu.violet, 0.12)]}
               end={{ x: 1, y: 1 }}
               start={{ x: 0, y: 0 }}
               style={StyleSheet.absoluteFill}
@@ -408,21 +408,21 @@ function TaiChinhNhap() {
       title: "Tiệm Nướng Xóm Lèo",
       detail: "Phần bạn trong bill, cùng số với Quyết toán",
       amount: -picture.shares[COLLECTOR_INDEX],
-      tone: "#F97316",
+      tone: bangMauFixture.cam,
     },
     {
       icon: "home-outline" as const,
       title: "Homestay + xăng",
       detail: "Phần bạn trong phần còn lại của chuyến",
       amount: -picture.otherShares[COLLECTOR_INDEX],
-      tone: "#7D49EF",
+      tone: mauSang.ai,
     },
     {
       icon: "arrow-down-circle-outline" as const,
       title: `${PEOPLE[COLLECTOR_INDEX].name} sẽ thu (bill)`,
       detail: "Nháp, chưa confirm sổ",
       amount: receive,
-      tone: "#00756B",
+      tone: mauSang.split,
     },
   ];
 
@@ -524,12 +524,12 @@ function TaiChinhNhap() {
 }
 
 const BADGES = [
-  ["airplane", "Chân đi", "Hoàn thành 10 chuyến", "#F97316", true],
-  ["people", "Kết nối", "Đi cùng 25 người bạn", "#7D49EF", true],
-  ["restaurant", "Foodie", "Thử 20 món local", "#E11D48", true],
-  ["camera", "Ký ức", "Đăng 100 khoảnh khắc", "#0EA5E9", true],
-  ["leaf", "Xanh", "5 chuyến ngoài trời", "#16A34A", true],
-  ["map", "Nhà thám hiểm", "Ghé 15 tỉnh thành", "#C93900", false],
+  ["airplane", "Chân đi", "Hoàn thành 10 chuyến", bangMauFixture.cam, true],
+  ["people", "Kết nối", "Đi cùng 25 người bạn", mauSang.ai, true],
+  ["restaurant", "Foodie", "Thử 20 món local", bangMauFixture.do, true],
+  ["camera", "Ký ức", "Đăng 100 khoảnh khắc", bangMauFixture.xanhTroi, true],
+  ["leaf", "Xanh", "5 chuyến ngoài trời", bangMauFixture.xanhLa, true],
+  ["map", "Nhà thám hiểm", "Ghé 15 tỉnh thành", mauSang.accent, false],
 ] as const;
 
 export function AchievementsScreen() {
@@ -540,14 +540,14 @@ export function AchievementsScreen() {
       <TopBar title="Thành tích" right={<DemoBadge />} />
       <Card style={styles.levelHero}>
         <LinearGradient
-          colors={["#7D49EF", "#C9344A"]}
+          colors={[mauSang.ai, mauSang.accentEnd]}
           end={{ x: 1, y: 1 }}
           start={{ x: 0, y: 0 }}
           style={StyleSheet.absoluteFill}
         />
         <View style={styles.levelHeroTop}>
           <View style={styles.levelSeal}>
-            <Ionicons color="#7D49EF" name="sparkles" size={27} />
+            <Ionicons color={mauSang.ai} name="sparkles" size={27} />
             <Text style={styles.levelNumber}>12</Text>
           </View>
           <View style={styles.flex}>
@@ -621,16 +621,16 @@ const styles = StyleSheet.create({
   profileTop: { minHeight: 54, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
   profileHero: { alignItems: "center", overflow: "hidden", gap: 8, paddingVertical: 23 },
   avatarLarge: { position: "relative" },
-  levelBadge: { position: "absolute", right: -7, bottom: 1, minWidth: 37, height: 24, borderRadius: 999, borderWidth: 2, borderColor: "#FFFFFF", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 2, paddingHorizontal: 5 },
-  levelText: { color: "#FFFFFF", fontSize: 10, fontWeight: "900" },
+  levelBadge: { position: "absolute", right: -7, bottom: 1, minWidth: 37, height: 24, borderRadius: 999, borderWidth: 2, borderColor: mucTrenAnh, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 2, paddingHorizontal: 5 },
+  levelText: { color: mucTrenAnh, fontSize: 10, fontWeight: "900" },
   profileStats: { flexDirection: "row", alignItems: "center", paddingHorizontal: 8 },
   statItem: { flex: 1, alignItems: "center", gap: 3, paddingVertical: 5 },
   verticalLine: { width: StyleSheet.hairlineWidth, height: 38 },
   sectionGap: { height: 10 },
   upcoming: { padding: 7, position: "relative" },
-  upcomingTitle: { color: "#FFFFFF", fontSize: 19, lineHeight: 24, fontWeight: "900" },
-  upcomingMeta: { color: "rgba(255,255,255,0.8)", fontSize: 11, fontWeight: "700" },
-  countdown: { position: "absolute", right: 15, top: 15, minWidth: 74, alignItems: "center", padding: 8, borderRadius: 15, backgroundColor: "rgba(255,255,255,0.93)" },
+  upcomingTitle: { color: mucTrenAnh, fontSize: 19, lineHeight: 24, fontWeight: "900" },
+  upcomingMeta: { color: lopPhu.trang(0.8), fontSize: 11, fontWeight: "700" },
+  countdown: { position: "absolute", right: 15, top: 15, minWidth: 74, alignItems: "center", padding: 8, borderRadius: 15, backgroundColor: lopPhu.trang(0.93) },
   menuCard: { paddingVertical: 5 },
   rowLine: { height: StyleSheet.hairlineWidth, marginLeft: 52 },
   financeHero: { gap: 13 },
@@ -651,15 +651,15 @@ const styles = StyleSheet.create({
   financeFootnote: { flexDirection: "row", alignItems: "flex-start", gap: 9 },
   levelHero: { overflow: "hidden", gap: 14, padding: 19 },
   levelHeroTop: { flexDirection: "row", alignItems: "center", gap: 14 },
-  levelSeal: { width: 72, height: 72, borderRadius: 23, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
-  levelNumber: { color: "#7D49EF", fontSize: 17, fontWeight: "900", marginTop: -3 },
-  levelKicker: { color: "rgba(255,255,255,0.72)", fontSize: 10, fontWeight: "900", letterSpacing: 1 },
-  levelTitle: { color: "#FFFFFF", fontSize: 22, lineHeight: 27, fontWeight: "900" },
-  levelSubtitle: { color: "rgba(255,255,255,0.79)", fontSize: 11, lineHeight: 16, fontWeight: "600" },
-  levelTrack: { height: 9, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.24)", overflow: "hidden" },
-  levelFill: { width: "75%", height: "100%", borderRadius: 999, backgroundColor: "#FFFFFF" },
+  levelSeal: { width: 72, height: 72, borderRadius: 23, backgroundColor: mucTrenAnh, alignItems: "center", justifyContent: "center" },
+  levelNumber: { color: mauSang.ai, fontSize: 17, fontWeight: "900", marginTop: -3 },
+  levelKicker: { color: lopPhu.trang(0.72), fontSize: 10, fontWeight: "900", letterSpacing: 1 },
+  levelTitle: { color: mucTrenAnh, fontSize: 22, lineHeight: 27, fontWeight: "900" },
+  levelSubtitle: { color: lopPhu.trang(0.79), fontSize: 11, lineHeight: 16, fontWeight: "600" },
+  levelTrack: { height: 9, borderRadius: 999, backgroundColor: lopPhu.trang(0.24), overflow: "hidden" },
+  levelFill: { width: "75%", height: "100%", borderRadius: 999, backgroundColor: mucTrenAnh },
   levelProgressText: { flexDirection: "row", justifyContent: "space-between" },
-  levelSmall: { color: "rgba(255,255,255,0.82)", fontSize: 10, fontWeight: "800" },
+  levelSmall: { color: lopPhu.trang(0.82), fontSize: 10, fontWeight: "800" },
   achievementStats: { flexDirection: "row", alignItems: "center", paddingHorizontal: 8 },
   badgeGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   badgeCard: { flexGrow: 1, flexBasis: 145, alignItems: "center", gap: 6, padding: 14 },

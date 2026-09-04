@@ -3,13 +3,13 @@ import { useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { typography, useRudiTheme } from "../theme";
+import { lopPhu, mauSang, typography, useRudiTheme } from "../theme";
 import { DemoBadge, Heading, IconName } from "../ui";
 
 const ACTIONS: { icon: IconName; title: string; detail: string; href: string; tone: string }[] = [
-  { icon: "calendar-outline", title: "Tạo cuộc hẹn", detail: "Chốt thời gian, nơi đi và hội bạn", href: "/outings/new", tone: "#C93900" },
-  { icon: "receipt-outline", title: "Chia hóa đơn", detail: "Xem lại ảnh bill và gán món", href: "/smart-split/xom-leo/review", tone: "#00756B" },
-  { icon: "images-outline", title: "Đăng kỷ niệm", detail: "Chia sẻ ảnh vào tường nhóm", href: "/moments/new", tone: "#7D49EF" },
+  { icon: "calendar-outline", title: "Tạo cuộc hẹn", detail: "Chốt thời gian, nơi đi và hội bạn", href: "/outings/new", tone: mauSang.accent },
+  { icon: "receipt-outline", title: "Chia hóa đơn", detail: "Xem lại ảnh bill và gán món", href: "/smart-split/xom-leo/review", tone: mauSang.split },
+  { icon: "images-outline", title: "Đăng kỷ niệm", detail: "Chia sẻ ảnh vào tường nhóm", href: "/moments/new", tone: mauSang.ai },
 ];
 
 /** Same sheet for the tab FAB (`router.push("/create")`) and the `/create` route. */
@@ -56,7 +56,7 @@ export function CreateSheet() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, justifyContent: "flex-end" },
-  scrim: { position: "absolute", inset: 0, backgroundColor: "rgba(31, 23, 18, 0.48)" },
+  scrim: { position: "absolute", inset: 0, backgroundColor: lopPhu.xam(0.48) },
   sheet: {
     borderTopLeftRadius: 30,
     borderTopRightRadius: 30,

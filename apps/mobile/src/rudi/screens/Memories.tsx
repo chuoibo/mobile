@@ -5,7 +5,7 @@ import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-na
 
 import { COLLECTOR_INDEX, DEMO_GROUP, MEMORY_PHOTOS, MEMORY_VIDEO_INDEXES, PEOPLE, demoAssets } from "../fixtures";
 import { useRudiSession } from "../session";
-import { typography, useRudiTheme } from "../theme";
+import { lopPhu, mucTrenAnh, typography, useRudiTheme } from "../theme";
 import {
   Avatar,
   AvatarStack,
@@ -305,13 +305,13 @@ export function TripAlbumScreen() {
             <Photo height={index % 3 === 0 ? 186 : 141} radius={15} source={photo} />
             {videoIndexes.includes(originalIndex) ? (
               <View style={styles.videoBadge}>
-                <Ionicons color="#FFFFFF" name="play" size={14} />
+                <Ionicons color={mucTrenAnh} name="play" size={14} />
                 <Text style={styles.videoText}>0:{originalIndex === 2 ? "18" : "24"}</Text>
               </View>
             ) : null}
             {selecting ? (
               <View style={[styles.selectionBadge, selected && { backgroundColor: colors.accent }]}>
-                <Ionicons color="#FFFFFF" name={selected ? "checkmark" : "ellipse-outline"} size={17} />
+                <Ionicons color={mucTrenAnh} name={selected ? "checkmark" : "ellipse-outline"} size={17} />
               </View>
             ) : null}
           </Pressable>
@@ -353,7 +353,7 @@ export function ShareMomentScreen() {
               <IconButton accessibilityLabel="Xóa ảnh" icon="trash-outline" />
             </View>
             <View style={styles.photoCount}>
-              <Ionicons color="#FFFFFF" name="images" size={15} />
+              <Ionicons color={mucTrenAnh} name="images" size={15} />
               <Text style={styles.photoCountText}>1 ảnh</Text>
             </View>
           </>
@@ -419,28 +419,28 @@ const styles = StyleSheet.create({
   postAction: { minHeight: 36, flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
   pressed: { opacity: 0.7, transform: [{ scale: 0.985 }] },
   wallHero: { gap: 7 },
-  wallTitle: { color: "#FFFFFF", fontSize: 28, lineHeight: 33, fontWeight: "900", letterSpacing: -0.8 },
+  wallTitle: { color: mucTrenAnh, fontSize: 28, lineHeight: 33, fontWeight: "900", letterSpacing: -0.8 },
   wallMeta: { flexDirection: "row", alignItems: "center", gap: 9 },
-  wallMetaText: { color: "rgba(255,255,255,0.84)", fontSize: 12, fontWeight: "700" },
+  wallMetaText: { color: lopPhu.trang(0.84), fontSize: 12, fontWeight: "700" },
   memorySummary: { flexDirection: "row", alignItems: "center", paddingHorizontal: 8 },
   summaryItem: { flex: 1, alignItems: "center", gap: 3, paddingVertical: 6 },
   verticalLine: { width: StyleSheet.hairlineWidth, height: 37 },
   sharePrompt: { flexDirection: "row", alignItems: "center", gap: 9, padding: 10 },
   promptField: { flex: 1, minHeight: 43, borderWidth: 1, borderRadius: 15, paddingHorizontal: 12, justifyContent: "center" },
   photoAction: { width: 41, height: 41, borderRadius: 14, alignItems: "center", justifyContent: "center" },
-  albumKicker: { color: "rgba(255,255,255,0.74)", fontSize: 10, fontWeight: "900", letterSpacing: 1.1 },
-  albumTitle: { color: "#FFFFFF", fontSize: 24, lineHeight: 29, fontWeight: "900", letterSpacing: -0.6 },
-  albumDate: { color: "rgba(255,255,255,0.8)", fontSize: 11, fontWeight: "700" },
+  albumKicker: { color: lopPhu.trang(0.74), fontSize: 10, fontWeight: "900", letterSpacing: 1.1 },
+  albumTitle: { color: mucTrenAnh, fontSize: 24, lineHeight: 29, fontWeight: "900", letterSpacing: -0.6 },
+  albumDate: { color: lopPhu.trang(0.8), fontSize: 11, fontWeight: "700" },
   albumStats: { flexDirection: "row", alignItems: "center", paddingHorizontal: 8 },
   albumToolbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
   photoGrid: { flexDirection: "row", flexWrap: "wrap", marginHorizontal: -2 },
   gridPhoto: { position: "relative", paddingLeft: 2, paddingBottom: 4 },
-  selectionBadge: { position: "absolute", top: 9, right: 9, width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(15,10,8,0.5)", borderWidth: 2, borderColor: "#FFFFFF" },
-  videoBadge: { position: "absolute", right: 9, bottom: 12, flexDirection: "row", alignItems: "center", gap: 3, borderRadius: 999, backgroundColor: "rgba(15,10,8,0.68)", paddingHorizontal: 7, paddingVertical: 5 },
-  videoText: { color: "#FFFFFF", fontSize: 10, fontWeight: "800" },
+  selectionBadge: { position: "absolute", top: 9, right: 9, width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: lopPhu.xam(0.5), borderWidth: 2, borderColor: mucTrenAnh },
+  videoBadge: { position: "absolute", right: 9, bottom: 12, flexDirection: "row", alignItems: "center", gap: 3, borderRadius: 999, backgroundColor: lopPhu.xam(0.68), paddingHorizontal: 7, paddingVertical: 5 },
+  videoText: { color: mucTrenAnh, fontSize: 10, fontWeight: "800" },
   photoEditTop: { position: "absolute", top: 11, right: 11, flexDirection: "row", gap: 8 },
-  photoCount: { position: "absolute", left: 11, bottom: 11, flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 999, backgroundColor: "rgba(15,10,8,0.68)" },
-  photoCountText: { color: "#FFFFFF", fontSize: 11, fontWeight: "800" },
+  photoCount: { position: "absolute", left: 11, bottom: 11, flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 999, backgroundColor: lopPhu.xam(0.68) },
+  photoCountText: { color: mucTrenAnh, fontSize: 11, fontWeight: "800" },
   section: { gap: 10 },
   peoplePicker: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   personPick: { width: 60, alignItems: "center", gap: 4 },

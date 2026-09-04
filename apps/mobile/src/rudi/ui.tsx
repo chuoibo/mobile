@@ -25,14 +25,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { DemoPerson } from "./fixtures";
 import { useRudiSession } from "./session";
-import {
-  cardShadow,
-  RudiTone,
-  toneColor,
-  toneSoftColor,
-  typography,
-  useRudiTheme,
-} from "./theme";
+import { cardShadow, lopPhu, mauSang, mucTrenAnh, nenAnhTrong, RudiTone, toneColor, toneSoftColor, typography, useRudiTheme } from "./theme";
 
 export type IconName = ComponentProps<typeof Ionicons>["name"];
 
@@ -713,7 +706,7 @@ export function Photo({
 export function PhotoShade({ children }: { children: ReactNode }) {
   return (
     <LinearGradient
-      colors={["transparent", "rgba(15, 12, 10, 0.78)"]}
+      colors={["transparent", lopPhu.xam(0.78)]}
       end={{ x: 0.5, y: 1 }}
       start={{ x: 0.5, y: 0.3 }}
       style={[StyleSheet.absoluteFill, styles.photoShade]}
@@ -939,9 +932,9 @@ const styles = StyleSheet.create({
   logoWordmark: { flexDirection: "row", alignItems: "center", flexShrink: 0, gap: 4 },
   logoMark: { width: 48, height: 48, borderRadius: 17, alignItems: "center", justifyContent: "center", transform: [{ rotate: "-4deg" }] },
   logoMarkCompact: { width: 40, height: 40, borderRadius: 14 },
-  logoMarkType: { color: "#FFFFFF", fontSize: 14, lineHeight: 12, fontStyle: "italic", fontWeight: "900", letterSpacing: -0.8, textAlign: "center" },
+  logoMarkType: { color: mucTrenAnh, fontSize: 14, lineHeight: 12, fontStyle: "italic", fontWeight: "900", letterSpacing: -0.8, textAlign: "center" },
   logoMarkTypeCompact: { fontSize: 12, lineHeight: 11 },
-  logoType: { color: "#C93900", fontSize: 29, lineHeight: 34, fontStyle: "italic", fontWeight: "900", letterSpacing: -1.7 },
+  logoType: { color: mauSang.accent, fontSize: 29, lineHeight: 34, fontStyle: "italic", fontWeight: "900", letterSpacing: -1.7 },
   logoTypeCompact: { fontSize: 18, lineHeight: 22, letterSpacing: -1.2 },
   eyebrow: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 11, paddingVertical: 7, borderRadius: 999 },
   eyebrowDot: { width: 6, height: 6, borderRadius: 3 },
@@ -970,11 +963,11 @@ const styles = StyleSheet.create({
   chipTinh: { minHeight: 30, flexShrink: 0, borderWidth: 1, flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 9, paddingVertical: 5 },
   chip: { minHeight: 48, flexShrink: 0, borderWidth: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 10 },
   avatar: { alignItems: "center", justifyContent: "center" },
-  avatarText: { color: "#FFFFFF", fontWeight: "800", letterSpacing: -0.2 },
+  avatarText: { color: mucTrenAnh, fontWeight: "800", letterSpacing: -0.2 },
   avatarStack: { flexDirection: "row", alignItems: "center" },
   avatarMore: { width: 34, height: 34, marginLeft: -10, borderRadius: 17, borderWidth: 2, alignItems: "center", justifyContent: "center" },
-  avatarMoreText: { color: "#FFFFFF", fontSize: 10, fontWeight: "800" },
-  photo: { position: "relative", overflow: "hidden", backgroundColor: "#E7DACE" },
+  avatarMoreText: { color: mucTrenAnh, fontSize: 10, fontWeight: "800" },
+  photo: { position: "relative", overflow: "hidden", backgroundColor: nenAnhTrong },
   photoShade: { justifyContent: "flex-end", padding: 16 },
   stat: { flex: 1, minWidth: 88, alignItems: "center", gap: 4, paddingVertical: 5 },
   statIcon: { width: 38, height: 38, borderRadius: 13, alignItems: "center", justifyContent: "center", marginBottom: 2 },
@@ -988,7 +981,7 @@ const styles = StyleSheet.create({
   listRow: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 7 },
   listIcon: { width: 40, height: 40, borderRadius: 13, alignItems: "center", justifyContent: "center" },
   listText: { flex: 1, gap: 2 },
-  floatingGlass: { overflow: "hidden", borderWidth: 1, borderColor: "rgba(255,255,255,0.7)" },
+  floatingGlass: { overflow: "hidden", borderWidth: 1, borderColor: lopPhu.trang(0.7) },
   responsiveRow: { flexDirection: "row", alignItems: "stretch" },
   responsiveColumn: { flexDirection: "column" },
   divider: { width: "100%", height: StyleSheet.hairlineWidth },

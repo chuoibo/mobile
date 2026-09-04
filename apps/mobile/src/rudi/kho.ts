@@ -12,7 +12,7 @@
  * a fixture -- a trip nobody took, a display name somebody typed, which places
  * they tapped a heart on. None of it is a credential.
  *
- * The session bearer lives in `src/phien.ts` (ADR-0014, shipped in PR #514),
+ * The session bearer lives in `src/phien.ts` (ADR-0014, shipped in PR 514),
  * which keeps it in SecureStore and imports that native module dynamically so
  * the node test suite can still load the API layer. An earlier draft of this
  * file grew a second token store beside it; two places holding one credential

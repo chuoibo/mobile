@@ -20,6 +20,7 @@ import { dongGoi, moGoi } from "./luu-tru";
 import { nguonHienTai, type Nguon } from "./nguon";
 import { draftPicture, type DraftPicture } from "./money";
 import { visibleVoteTallies } from "./vote";
+import { bangMauFixture } from "./theme";
 
 export type RudiSession = {
   displayName: string;
@@ -198,7 +199,7 @@ export function RudiSessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // The session, restored at launch by the module that owns it. `src/phien.ts`
-  // (ADR-0014, PR #514) reads SecureStore, drops an expired record rather than
+  // (ADR-0014, PR 514) reads SecureStore, drops an expired record rather than
   // sending it, and hands the bearer to `src/api.ts`. This provider only needs
   // to know WHETHER there is one, and who it says we are.
   //
@@ -329,7 +330,7 @@ export function RudiSessionProvider({ children }: { children: ReactNode }) {
             time: "18:00",
             title: place.name,
             icon: "restaurant-outline",
-            color: "#E11D48",
+            color: bangMauFixture.do,
             placeId: place.id,
           });
         }
