@@ -545,5 +545,35 @@
       ]
     }
   },
-  "toneRule": "Ba tông mang nghĩa, không phải trang trí. accent (cam) = thương hiệu và hành động chính. split (teal) = chia bill, tiền, quyết toán. ai (tím) = thứ do máy sinh ra và người còn sửa được. Một màn hình chỉ có MỘT tông dẫn; hai tông dẫn cùng lúc là lỗi, không phải lựa chọn."
+  "toneRule": "Ba tông mang nghĩa, không phải trang trí. accent (cam) = thương hiệu và hành động chính. split (teal) = chia bill, tiền, quyết toán. ai (tím) = thứ do máy sinh ra và người còn sửa được. Một màn hình chỉ có MỘT tông dẫn; hai tông dẫn cùng lúc là lỗi, không phải lựa chọn.",
+  "shipped": {
+    "_": "Đo lại từ artifact đã ship (apps/mobile/src/rudi/ui.tsx, theme.ts). Chỉ chuỗi mô tả; số vẫn ở tokens.json và các khối trên.",
+    "date": "2026-09-04",
+    "commit": "86a55fb",
+    "components": {
+      "RudiScreen": "SafeAreaView top/left/right, lề space.md (space.lg ≥700dp), gap 18, bottomInset 32 (112 dưới tab bar), footer ghim + footerInset từ insets.bottom, AmbientBackdrop <tone>Soft trên + accentSoft dưới",
+      "RudiButton": "minHeight 52 (48 compact), radius.control, nhãn label 14/600 một dòng; solid = gradient [accent, accentEnd] theo scheme với nhãn accentInk; soft = <tone>Soft; outline = card + viền lineStrong; ghost = trong suốt",
+      "IconButton": "48×48 bo 16; quiet không viền; solid nền tông glyph <tone>Ink",
+      "Card": "radius.base, đệm 16, viền 1px line + cardShadow; tone = nền <tone>Soft, viền cùng màu nền",
+      "Chip": "bấm được: minHeight 48, pill, viền lineStrong, chọn = <tone>Soft + viền tông + check; tĩnh (không onPress): cao 30, radius.small, không role — dùng cho trạng thái",
+      "Field": "minHeight 52, card, viền lineStrong, radius.control, chữ body, placeholder inkFaint",
+      "OtpBoxes": "6 ô 44×54, một TextInput thật phủ lên, ô đang nhập viền accent",
+      "Stat": "typography.money + caption inkFaint, icon 38 trong <tone>Soft",
+      "AiNote": "aiSoft, thanh trái 3px ai, icon sparkles trên ai, tiêu đề «Rủ Đi AI gợi ý»",
+      "ListRow": "minHeight 58, icon 40 trong <tone>Soft, chevron inkFaint",
+      "Segmented": "role tab, đoạn 48, chọn = <tone>Soft bo radius.small trong khung radius.control",
+      "Divider": "hairlineWidth màu line",
+      "DemoBadge": "viền line, chữ 10/700 inkFaint, flask-outline; render rỗng ở chế độ live",
+      "TabBar+FAB": "tab bar 62 + insets.bottom, nhãn 10/700, active accent / inactive inkFaint; FAB 58 bo 21 nền brand.coral glyph accentInk vòng 4px ground; rail trái 104 khi ≥700dp",
+      "typography(app)": "display 34/39/800/-1.1 · h1 28/34/800/-0.65 · h2 21/27/700/-0.3 · title 17/23/700/-0.15 · body 16/23/400 · label 14/19/600 · caption 12/16/600 · money 21/27/800 tabular-nums (theme.ts; khối `type` ở trên là thang của guest.css)"
+    },
+    "notes": [
+      "Một tông dẫn mỗi màn: accent mặc định; split ở chia bill / đợt thu / quyết toán; ai chỉ ở thành phần khi có nguồn thật.",
+      "Đích bấm 48dp; đã chụp đủ ở font 1.3 (tối) và 1.0 (sáng) trên emulator Android.",
+      "Hàng chip cuộn ngang thay lưới gập trong form; safe-area cho composer, CTA ghim và tab bar.",
+      "Trạng thái là Chip tĩnh, không chữ inline; tiền qua typography.money.",
+      "Card native ship cả viền line lẫn cardShadow; luật «bóng hoặc viền» là của guest.css.",
+      "Không canonize: Eyebrow, SurfaceLabel, FloatingGlass (có trong ui.tsx, không màn nào dùng); không có VietQR/nút thanh toán (ADR-0015)."
+    ]
+  }
 }
