@@ -85,9 +85,10 @@ Phía client (vỏ RuDi, `apps/mobile/`, xếp chồng theo thứ tự, mỗi PR
 | **#549** | M7 vii-a đánh bóng dark + font 1.3 theo finish reviewer (7 nguyên nhân gốc: thẻ lưu ý tô cứng, FAB glyph trắng, form thêm chặng đẩy nút gửi khỏi màn, caption cắt, CTA chạm thanh cử chỉ, «Đang / mở» gãy, gradient nút dùng cặp light); ba lượt emulator XANH (dark 1.3 ×2, light 1.0) | #547 |
 | **#550** | M7: `scripts/bang_doi_chieu_mockup.py` + bảng 21/21 mockup ↔ ảnh emulator (mã thoát 2 khi còn ô thiếu), flow 26/29/32 chụp thêm ba màn, `DESIGN.md` đo lại từ artifact đã ship (documenter), `docs/CHAY-DEMO.md` theo dev client + OTP + `make demo-rudi` | #549 |
 | **#552** | M7: harness `--live --otp-phone` thay `--actor/--context` (cửa fixture tắt, người seed đăng nhập OTP như người thật), flow `20-the-gioi-seed` xem «Team Đà Lạt» trên máy (chat /vote, kèo 3 chặng, tài chính 160.000đ/1.120.000đ, đợt thu đã phát) + `kiem_may_chu_sau_20`; tiền trong Stat/hero kèo co chữ một dòng; ba lượt emulator (đỏ đúng một lần ở nghĩa `spend_vnd`, rồi XANH ×2) | #550 |
-| **#546** | M7 seed «Team Đà Lạt» bằng chính client app (`tools/seed-rudi-world.mjs`, `make demo-rudi`), chạy thật hai lượt (dựng rồi no-op) | #545 (đổi base sang #552 khi merge) |
+| **#554** | M7: 155 màu viết tay (hex + rgba) ở 13 file thành tên trong `theme.ts` (`mauSang`, `mucTrenAnh`, `giayHoaDon`, `bangMauFixture`, `phuMau`, `lopPhu`…), danh sách nợ `rudi-khong-hex` rỗng; bảng mặc định so ảnh từng điểm 16/18 lệch 0, bảng `--otp` XANH 11 flow | #552 |
+| **#546** | M7 seed «Team Đà Lạt» bằng chính client app (`tools/seed-rudi-world.mjs`, `make demo-rudi`), chạy thật hai lượt (dựng rồi no-op) | #545 (đổi base sang #554 khi merge) |
 
-Thứ tự merge chờ Lead: #520 → #526 → #529 → #530 → #532 → #534 → #536 → #541 (máy chủ) và #531 → #533 → #535 → #537 → #539 → #540 → #542 → #543 → #545 → #547 → #549 → #550 → #552 → #546 (client + seed), đổi base về `main` từng bước. Mọi PR đều có agy PASS và APPROVE có điều kiện chuỗi trong comment (trừ PR đang chờ agy lúc ghi). Cập nhật 2026-09-04 (lần 4).
+Thứ tự merge chờ Lead: #520 → #526 → #529 → #530 → #532 → #534 → #536 → #541 (máy chủ) và #531 → #533 → #535 → #537 → #539 → #540 → #542 → #543 → #545 → #547 → #549 → #550 → #552 → #554 → #546 (client + seed), đổi base về `main` từng bước. Mọi PR đều có agy PASS và APPROVE có điều kiện chuỗi trong comment (trừ PR đang chờ agy lúc ghi). Cập nhật 2026-09-04 (lần 5).
 
 ## A. REVIEW — 5 PR đang chờ bạn
 
