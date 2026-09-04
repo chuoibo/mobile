@@ -97,5 +97,6 @@ appId: com.lakiet.rudi
 - extendedWaitUntil:
     notVisible: "Đang đọc câu.*"
     timeout: 60000
-- hideKeyboard
+# Không hideKeyboard ở đây: sau Enter bàn phím đã đóng, hideKeyboard thành BACK và
+# app ở tab gốc thoát ra launcher (lượt 13:50 chụp màn hình chờ của Android).
 - takeScreenshot: 26-tim-cau
