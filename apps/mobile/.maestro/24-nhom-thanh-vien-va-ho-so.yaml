@@ -54,6 +54,11 @@ appId: com.lakiet.rudi
 - assertNotVisible: "Dữ liệu demo"
 - takeScreenshot: 24-danh-sach-nhom
 - tapOn: "Hoi QA"
+# M3: bấm hàng mở CHAT; roster nằm sau icon «Thành viên nhóm» ở header.
+- extendedWaitUntil:
+    visible: "Ô soạn tin"
+    timeout: 60000
+- tapOn: "Thành viên nhóm"
 - extendedWaitUntil:
     visible: "Thành viên"
     timeout: 30000
@@ -85,6 +90,13 @@ appId: com.lakiet.rudi
 - takeScreenshot: 24-roster-co-loi-moi
 # Cá nhân: hồ sơ của máy chủ, không phải «Minh Anh · Cấp 12».
 - tapOn: "Quay lại"
+- extendedWaitUntil:
+    visible: "Ô soạn tin"
+    timeout: 30000
+- tapOn: "Quay lại"
+- extendedWaitUntil:
+    visible: "Tin nhắn"
+    timeout: 30000
 - tapOn: "Cá nhân"
 - extendedWaitUntil:
     visible: "Đăng nhập bằng số điện thoại"

@@ -110,11 +110,6 @@
       "reason": "F33 gợi ý từ lịch sử nhóm. ĐÃ CÓ NGƯỜI GỌI THẬT từ #382: ai-hieu-nhom.ts:219 gọi `${prefix}/suggestion`. Cùng cơ chế mù và cùng đường bấm với /budget ở trên. Lý do cũ ('không có literal nào bắt đầu bằng /suggest') là một phép thử trên hình dạng literal, và hình dạng đó không đo được chuyện đường dẫn bị ghép từ hai mảnh."
     },
     {
-      "route": "/contexts/{context_id}/read-mark",
-      "loai": "tinh-nang",
-      "reason": "M3 (ADR-0016): màn chat vỏ RuDi gọi khi người dùng xem tới tin mới nhất để `unread_count` về 0. Gỡ pin ở PR client M3."
-    },
-    {
       "route": "/auth/google",
       "loai": "tinh-nang",
       "reason": "M1 (ADR-0016): nút «Tiếp tục với Google» trên màn Login của vỏ RuDi gọi sau khi Lead tạo client id (Google Cloud) và PR client Google nối @react-native-google-signin. Gỡ pin ở PR đó."

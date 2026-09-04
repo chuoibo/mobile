@@ -1,0 +1,21 @@
+# Nhánh của flow 30 khi máy chủ CÓ khoá mô hình (--ai, AI=1): lời gọi AI ra một
+# thẻ của Rủ Đi AI (mô hình cần thời gian; 120 s là trần), và /chia-bill ra bản
+# đọc khoản chi hoặc một trong các câu nói thật của máy chủ — không bao giờ im
+# lặng vô danh.
+appId: com.lakiet.rudi
+---
+- extendedWaitUntil:
+    visible: "Rủ Đi AI.*"
+    timeout: 120000
+- assertNotVisible: "Rủ Đi AI chưa nối được mô hình trên máy chủ này."
+- assertNotVisible: ".*đang im lặng.*"
+- hideKeyboard
+- takeScreenshot: 30-ai-tra-loi
+- tapOn: "Ô soạn tin"
+- inputText: "/chia-bill"
+- tapOn: "Gửi tin nhắn"
+- extendedWaitUntil:
+    visible: "Đây là bản đọc từ tin nhắn, chưa ghi vào sổ.*|Không thấy khoản chi nào trong các tin gần đây.|Máy chủ từ chối bản đọc lần này. Thử lại sau.|Chia bill từ chat chưa sẵn sàng trên máy chủ này."
+    timeout: 120000
+- hideKeyboard
+- takeScreenshot: 30-chia-bill-that

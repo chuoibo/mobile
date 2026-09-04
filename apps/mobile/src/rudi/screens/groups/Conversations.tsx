@@ -9,8 +9,7 @@
  * An `invited` row is not a conversation yet: it carries «Đồng ý», and only the
  * press makes the person a member (`vaoNhom`). Tapping an active row makes
  * that group the current one (`chonNhom`, so the money screens read it) and
- * opens the group: today its roster and invite tools (M2); the chat itself is
- * M3 and until then a tap is honest about where it goes.
+ * opens its chat (M3); the roster and invite tools sit behind the chat header.
  *
  * On the fixture build (`cheDo !== "live"`) the tab still renders the fixture
  * chat, unchanged, so the default Maestro table keeps its ground.
@@ -32,6 +31,14 @@ type Trang =
 
 function loiRaChu(error: unknown): string {
   return error instanceof ApiError ? error.message : thongDiepNguoiDoc(0, null);
+}
+
+/** «Bạn» for the reader's own last message, the roster name for anyone else,
+ *  «Rủ Đi AI» for a card with no author -- the way a messenger reads. */
+function tenTacGia(tin: { author_id: string | null; author_display_name: string | null }, toi: string): string {
+  if (tin.author_id === null) return "Rủ Đi AI";
+  if (tin.author_id === toi) return "Bạn";
+  return tin.author_display_name ?? "Thành viên";
 }
 
 export function ConversationsScreen({ phien }: { phien: Phien }) {
@@ -66,7 +73,7 @@ export function ConversationsScreen({ phien }: { phien: Phien }) {
     try {
       const moi = await chonNhom({ ...phien, contexts: trang.pha === "xong" ? trang.nhom : phien.contexts }, nhom.id);
       datPhien(moi);
-      router.push(`/groups/${nhom.id}/members` as never);
+      router.push(`/groups/${nhom.id}/chat` as never);
     } catch (error) {
       setTrang({ pha: "hong", loi: loiRaChu(error) });
     } finally {
@@ -99,8 +106,12 @@ export function ConversationsScreen({ phien }: { phien: Phien }) {
           <Text style={[typography.h1, { color: colors.ink }]}>Tin nhắn</Text>
           <Text style={[typography.caption, { color: colors.inkFaint }]}>Nhóm của bạn trên máy chủ</Text>
         </View>
-        <RudiButton compact full={false} icon="add" label="Tạo nhóm" onPress={() => router.push("/groups/new")} />
       </View>
+      {/* Not in the top-right corner: on the development build the
+          dev-launcher's floating gear covers it, so a tap there opens the dev
+          menu instead of this. A full row under the title is reachable on the
+          build we test on and reads as the tab's one action. */}
+      <RudiButton icon="add" label="Tạo nhóm" onPress={() => router.push("/groups/new")} variant="soft" />
       {trang.pha === "dang-doc" ? (
         <Text style={[typography.caption, { color: colors.inkSoft }]}>Đang đọc danh sách nhóm...</Text>
       ) : null}
@@ -134,7 +145,7 @@ export function ConversationsScreen({ phien }: { phien: Phien }) {
                   </Text>
                   <Text numberOfLines={1} style={[typography.caption, { color: colors.inkSoft }]}>
                     {nhom.last_message
-                      ? `${nhom.last_message.author_display_name ?? "Rủ Đi AI"}: ${nhom.last_message.preview}`
+                      ? `${tenTacGia(nhom.last_message, phien.person_id)}: ${nhom.last_message.preview}`
                       : "Chưa có tin nhắn nào."}
                   </Text>
                 </View>

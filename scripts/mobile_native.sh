@@ -51,6 +51,11 @@ MA_LOI_MOI=""
 MODE="dev-client"
 LAP=1
 OTP=0
+# Đối chứng âm cho phép đo bàn phím: tắt KeyboardAvoidingView trong bundle, và
+# do_ban_phim.py PHẢI hỏng. Xanh ở đây là thước đo mù.
+TAT_KAV=0
+# --ai (cùng --otp): API phải có khoá Gemini còn sống; chạy thêm flow 40 và kiểm thẻ AI grounded.
+AI=0
 # Mã debug của API ở chế độ --otp. CHỈ hợp lệ khi API dùng log sender
 # (MOBILE_OTP_DEBUG_CODE cạnh gateway thật làm create_app từ chối khởi động).
 OTP_CODE="000000"
@@ -73,6 +78,8 @@ while [ $# -gt 0 ]; do
     --expo-go) MODE="expo-go"; shift ;;
     --lap) LAP="$2"; shift 2 ;;
     --otp) OTP=1; shift ;;
+    --tat-kav) TAT_KAV=1; shift ;;
+    --ai) AI=1; shift ;;
     *) echo "tham số lạ: $1" >&2; exit 64 ;;
   esac
 done
@@ -93,6 +100,9 @@ if [ "$DANG_NHAP" = 1 ]; then
     || { echo "--lap >1 chưa hỗ trợ cùng --dang-nhap: mỗi lượt cần xoá phiên và mint lời mời mới" >&2; exit 64; }
 fi
 
+if [ "$AI" = 1 ] && [ "$OTP" = 0 ]; then
+  echo "--ai đi cùng --otp (flow 40 cần người và nhóm của flow 24)" >&2; exit 64
+fi
 if [ "$OTP" = 1 ]; then
   [ -n "$API_PORT" ] \
     || { echo "--otp cần --api-port <cổng API prod có MOBILE_OTP_DEBUG_CODE=$OTP_CODE và log sender>" >&2; exit 64; }
@@ -332,6 +342,118 @@ print("%s|%s|%s" % (c.get("friends"), c.get("contexts"), d.get("display_name", "
   echo "máy chủ xác nhận: D có 1 bạn (C) và 1 nhóm (Hoi QA) sau khi bấm hai lần «Đồng ý» trên máy"
 }
 
+# Sau flow 30: hỏi máy chủ với tư cách C — tin nhắn có thật, thẻ poll có thật,
+# phản ứng heart có thật. Màn hình chỉ là nơi bấm.
+kiem_may_chu_sau_30() {
+  local goc body tok ctx ket
+  goc="http://127.0.0.1:$API_PORT"
+  body="$(dang_nhap_curl "$OTP_PHONE_C")" \
+    || hong "sau flow 30: C không đăng nhập được qua curl (429 hai lần hoặc lỗi)."
+  tok="$(printf '%s' "$body" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("token",""))')"
+  ctx="$(printf '%s' "$body" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+act = [c for c in d.get("contexts", []) if c.get("my_state") == "active"]
+# Flow 40 adds «Plan QA» to C before these checks run; the flow-30 traffic
+# (text, poll, heart) lives in «Hoi QA», so pick it by name, not by position.
+hoi = [c for c in act if c.get("display_name") == "Hoi QA"]
+print((hoi or act)[0]["id"] if act else "")')"
+  [ -n "$tok" ] && [ -n "$ctx" ] || hong "sau flow 30: C không đăng nhập được hoặc không có nhóm."
+  ket="$(curl -sS "$goc/contexts/$ctx/messages?limit=50" -H "Authorization: Bearer $tok" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+ms = d.get("messages", [])
+texts = [m for m in ms if m.get("kind") == "text"]
+polls = [m for m in ms if m.get("kind") == "ai_card" and (m.get("card") or {}).get("kind") == "poll"]
+hearts = sum(r.get("count", 0) for m in texts for r in m.get("reactions", []) if r.get("kind") == "heart")
+print("%d|%d|%d" % (len(texts), len(polls), hearts))')"
+  IFS='|' read -r so_text so_poll so_heart <<< "$ket"
+  [ "${so_text:-0}" -ge 3 ] && [ "${so_poll:-0}" -ge 1 ] && [ "${so_heart:-0}" -ge 1 ] \
+    || hong "sau flow 30: máy chủ có text=$so_text poll=$so_poll heart=$so_heart, mong ≥3, ≥1, ≥1."
+  echo "máy chủ xác nhận: nhóm của C có $so_text tin chữ, $so_poll thẻ bình chọn, $so_heart phản ứng ❤ — chat là thật"
+}
+
+# Khoá AI còn sống không — hỏi bằng đường sản phẩm, không hỏi biến môi trường.
+kiem_khoa_ai() {
+  local goc so body tok ctx ket
+  goc="http://127.0.0.1:$API_PORT"
+  so="$(sinh_so_di_dong)"
+  body="$(dang_nhap_curl "$so")" || khong_do_duoc "không đăng nhập được người thăm dò AI."
+  tok="$(printf '%s' "$body" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("token",""))')"
+  ctx="$(curl -sS -X POST "$goc/contexts" -H 'Content-Type: application/json' -H "Authorization: Bearer $tok" \
+      -H "Idempotency-Key: ai-probe-ctx-$so" -d '{"display_name":"Tham do AI"}' \
+    | python3 -c 'import json,sys;print(json.load(sys.stdin).get("id",""))')"
+  [ -n "$ctx" ] || khong_do_duoc "người thăm dò AI không mở được nhóm."
+  curl -sS -o /dev/null -X POST "$goc/contexts/$ctx/messages" -H 'Content-Type: application/json' \
+      -H "Authorization: Bearer $tok" -H "Idempotency-Key: ai-probe-msg-$so" \
+      -d '{"kind":"text","body":"Toi nay ca hoi di an o Da Lat, ngan sach vua, goi y giup","image_url":null,"card":null}'
+  ket="$(curl -sS -X POST "$goc/contexts/$ctx/ai-turn" -H 'Content-Type: application/json' \
+      -H "Authorization: Bearer $tok" -d '{"requested":true}' \
+    | python3 -c 'import json,sys;d=json.load(sys.stdin);print("%s|%s" % (d.get("spoke"), d.get("reason")))')"
+  case "$ket" in
+    True\|*) echo "khoá AI còn sống trên API $API_PORT (lượt thăm dò: mô hình đã trả lời)" ;;
+    *\|unavailable) hong "khoá AI CHẾT hoặc thiếu trên API $API_PORT (ai-turn: unavailable). Flow AI không chạy, và đó là màu đỏ." ;;
+    *\|ungrounded) echo "khoá AI sống nhưng lượt thăm dò trả thẻ không grounded ($ket) — vẫn đo tiếp" ;;
+    *) khong_do_duoc "ai-turn thăm dò trả «$ket», không kết luận được về khoá." ;;
+  esac
+}
+
+# Sau flow 40: thẻ AI có thật và GROUNDED — mọi place_id trong thẻ nằm trong
+# catalogue GET /places. Một thẻ nêu chỗ không có trong danh mục là thứ ground_card
+# phải chặn; ở đây đo lại từ ngoài.
+kiem_may_chu_sau_40() {
+  local goc body tok ctx ket
+  goc="http://127.0.0.1:$API_PORT"
+  # Flow 40 keeps whichever session flow 31 left (C, or D after a fallback
+  # sign-in) and creates «Plan QA» there; find that group through the live
+  # contexts list, not the cached sign-in body.
+  local so
+  tok=""; ctx=""
+  for so in "$OTP_PHONE_C" "$OTP_PHONE_D"; do
+    body="$(dang_nhap_curl "$so")" || continue
+    tok="$(printf '%s' "$body" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("token",""))')"
+    [ -n "$tok" ] || continue
+    ctx="$(curl -sS "$goc/people/me/contexts" -H "Authorization: Bearer $tok" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+hit = [c for c in d.get("contexts", []) if c.get("display_name") == "Plan QA" and c.get("my_state") == "active"]
+print(hit[0]["id"] if hit else "")')"
+    [ -n "$ctx" ] && break
+  done
+  [ -n "$tok" ] && [ -n "$ctx" ] || hong "sau flow 40: không thấy nhóm «Plan QA» của C hay D trên máy chủ."
+  ket="$(python3 - "$goc" "$tok" "$ctx" <<'PY2'
+import json, sys, urllib.request
+goc, tok, ctx = sys.argv[1:4]
+def get(path):
+    req = urllib.request.Request(goc + path, headers={"Authorization": "Bearer " + tok})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.load(r)
+ms = get(f"/contexts/{ctx}/messages?limit=50").get("messages", [])
+ai = [m for m in ms if m.get("kind") == "ai_card" and m.get("author_id") is None
+      and (m.get("card") or {}).get("kind") in ("text", "places", "itinerary")]
+places = {p.get("id") for p in get("/places").get("places", [])}
+la = 0
+mu = 0
+for m in ai:
+    card = m["card"]; p = card.get("payload") or {}
+    ids = [pl.get("id") for pl in p.get("places", []) if isinstance(pl, dict)]
+    ids += [(st.get("place") or {}).get("id") for st in p.get("stops", []) if isinstance(st, dict)]
+    if card.get("kind") in ("places", "itinerary") and not ids:
+        mu += 1
+    la += sum(1 for i in ids if i and i not in places)
+print("%d|%d|%d|%s" % (len(ai), la, mu, ",".join(sorted({m["card"]["kind"] for m in ai}))))
+PY2
+)"
+  IFS='|' read -r so_ai so_la so_mu loai <<< "$ket"
+  [ "${so_ai:-0}" -ge 1 ] || hong "sau flow 40: máy chủ không có thẻ AI nào (author null, kind text/places/itinerary)."
+  # A places/itinerary card the check read zero ids from is a blind check, not
+  # a grounded card: the keys drifted (that is exactly how the first version of
+  # this check passed for a week while reading `items`/`days` nobody sends).
+  [ "${so_mu:-1}" -eq 0 ] || hong "sau flow 40: $so_mu thẻ AI không đọc được place id nào — máy đo mù với hình dạng thẻ."
+  [ "${so_la:-1}" -eq 0 ] || hong "sau flow 40: thẻ AI nêu $so_la place_id KHÔNG có trong GET /places — grounding thủng."
+  echo "máy chủ xác nhận: nhóm «Plan QA» có $so_ai thẻ AI ($loai), mọi địa điểm đều trong catalogue"
+}
+
 # Canary cho chế độ --otp. Canary 09 đi đường fixture, mà ở đây cửa fixture tắt
 # có chủ ý — nó sẽ chết ở bước 1, tức chứng minh harness hỏng chứ không chứng
 # minh assert cắn. Đối chứng âm đúng của lượt này: chạy LẠI flow 22 với mã SAI
@@ -451,6 +573,13 @@ if command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | grep -qE "127\.0\.0\.1
 fi
 
 if [ "$OTP" = 1 ]; then kiem_ma_debug; fi
+# V4: khoá AI phải SỐNG trước khi đo AI, đo bằng chính đường sản phẩm: một người
+# thăm dò đăng nhập, mở nhóm, nhắn một câu, xin một lượt AI (requested=true).
+# `spoke=true` = khoá sống; `reason=unavailable` = khoá chết/thiếu → ĐỎ (một máy
+# có khoá mà không dùng được là lỗi phải thấy); `ungrounded` = mô hình trả lời
+# nhưng thẻ không đứng được → vẫn là khoá sống, ghi lại. check_demo_ai_key.py chỉ
+# đối chiếu container demo, không dùng cho uvicorn trần.
+if [ "$AI" = 1 ]; then kiem_khoa_ai; fi
 
 (
   cd "$APP"
@@ -467,6 +596,9 @@ if [ "$OTP" = 1 ]; then kiem_ma_debug; fi
   # dù flow 21 xanh). Bằng chứng «bản ship không có cửa fixture» nằm ở flow 22.
   if [ "$OTP" = 0 ]; then
     export EXPO_PUBLIC_RUDI_FIXTURE=1
+  fi
+  if [ "$TAT_KAV" = 1 ]; then
+    export EXPO_PUBLIC_QA_TAT_KAV=1
   fi
   if [ -n "$API_PORT" ]; then
     export EXPO_PUBLIC_API_URL="http://localhost:$API_PORT"
@@ -661,6 +793,8 @@ chay_flow() {
     them=(-e OTP_PHONE="$OTP_PHONE" -e OTP_PHONE_B="$OTP_PHONE_B"
           -e OTP_PHONE_C="$OTP_PHONE_C" -e OTP_PHONE_D="$OTP_PHONE_D" -e OTP_CODE="$OTP_CODE")
   fi
+  # Flow 30 rẽ theo AI: có khoá thì chờ thẻ của Rủ Đi AI, không thì câu nói thật.
+  them+=(-e AI="$AI")
   ra="$(mktemp)"
   # `set -e` là toàn cục, không theo hàm: bật lại ở đây là bật lại cho cả vòng
   # lặp gọi hàm này, và `return "$rc"` khác 0 ngay sau đó giết cả script — bảng
@@ -700,7 +834,8 @@ for f in "$FLOWS"/*.yaml; do
     # môi trường chứ không phải vì app sai. `--live` chạy đúng và chỉ nhóm này.
     20-*)        [ "$LIVE" = 1 ] || continue ;;
     21-*)        [ "$DANG_NHAP" = 1 ] || continue ;;
-    22-*|23-*|24-*|25-*) [ "$OTP" = 1 ] || continue ;;
+    22-*|23-*|24-*|25-*|30-*|31-*) [ "$OTP" = 1 ] || continue ;;
+    40-*)        [ "$OTP" = 1 ] && [ "$AI" = 1 ] || continue ;;
     *)           { [ "$LIVE" = 1 ] || [ "$DANG_NHAP" = 1 ] || [ "$OTP" = 1 ]; } && continue ;;
   esac
   DA_CHAY=$((DA_CHAY + 1))
@@ -711,6 +846,22 @@ for f in "$FLOWS"/*.yaml; do
   fi
   if [ "$rc" -eq 99 ]; then HA_TANG="$HA_TANG $ten"; continue; fi
   if [ "$rc" -ne 0 ]; then BANG=1; DO_LIST="$DO_LIST $ten(lượt $lap)"; fi
+  # V3: flow 31 để bàn phím mở rồi dừng; đo hình học ngay khi màn còn nguyên.
+  # Exit 2 của script là «không đo được» — cũng đỏ, vì một lượt --otp không đo
+  # được bàn phím là một lượt thiếu bằng chứng, không phải một lượt xanh.
+  case "$ten" in
+    31-*)
+      if [ "$rc" -eq 0 ]; then
+        set +e; python3 "$REPO/scripts/do_ban_phim.py" --serial "$ANDROID_SERIAL"; rc_bp=$?; set -e
+        if [ "$TAT_KAV" = 1 ]; then
+          # Đối chứng âm: KAV tắt thì bàn phím PHẢI che (rc 1). rc 0 = thước đo mù.
+          [ "$rc_bp" -eq 1 ] || { BANG=1; DO_LIST="$DO_LIST doi_chung_ban_phim(lượt $lap, rc=$rc_bp, mong 1)"; }
+        else
+          [ "$rc_bp" -eq 0 ] || { BANG=1; DO_LIST="$DO_LIST do_ban_phim(lượt $lap, rc=$rc_bp)"; }
+        fi
+      fi
+      ;;
+  esac
 done
 done
 
@@ -752,6 +903,8 @@ fi
 if [ "$OTP" = 1 ]; then
   kiem_may_chu_sau_24
   kiem_may_chu_sau_25
+  kiem_may_chu_sau_30
+  [ "$AI" = 1 ] && kiem_may_chu_sau_40
   canary_otp
 else
 RA_CANARY="$(mktemp)"

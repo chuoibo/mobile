@@ -1,0 +1,34 @@
+# Mở bàn phím trong chat và DỪNG — không hideKeyboard. Harness --otp chạy
+# `scripts/do_ban_phim.py` ngay sau flow này để đo hình học: ô soạn và bong bóng
+# cuối phải nằm trên mép IME. Flow chỉ dựng trạng thái; phép đo là của script.
+# Chạy sau flow 30 (nhóm «Hoi QA» đã có tin; phiên của flow 30 còn sống).
+appId: com.lakiet.rudi
+---
+- stopApp
+- launchApp
+- runFlow: _bo-qua-dev-menu.yaml
+- extendedWaitUntil:
+    visible: "Rủ Đi thôi!|Khám phá|Chưa có nhóm nào"
+    timeout: 150000
+# Giữ phiên đang sống của flow trước (C, D đều là thành viên «Hoi QA»): xin mã
+# lại trong nhịp 60 s sẽ bị máy chủ từ chối. Chỉ đăng nhập (bằng số D, số mà
+# harness đã xin mã cách đây lâu) khi app đang ở màn chào.
+- runFlow:
+    when:
+      visible: "Rủ Đi thôi!"
+    file: _dang-nhap-d.yaml
+- extendedWaitUntil:
+    visible: "Khám phá"
+    timeout: 60000
+- tapOn: "Tin nhắn"
+- extendedWaitUntil:
+    visible: "Hoi QA"
+    timeout: 60000
+- tapOn: "Hoi QA"
+- extendedWaitUntil:
+    visible: "Ô soạn tin"
+    timeout: 60000
+- tapOn: "Ô soạn tin"
+- inputText: "dang go"
+# Bàn phím đang mở. Dừng ở đây.
+- takeScreenshot: 31-ban-phim-mo

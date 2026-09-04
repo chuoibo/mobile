@@ -93,8 +93,15 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
             "23-phien-song-qua-lan-tat.yaml",
             "24-nhom-thanh-vien-va-ho-so.yaml",
             "25-ban-be-hai-nguoi.yaml",
+            "30-chat-that.yaml",
+            "31-ban-phim-mo.yaml",
+            "40-ai-plan.yaml",
         ):
             text = (FLOWS / name).read_text(encoding="utf-8")
+            # A flow may hand the sign-in to a `_helper.yaml` through runFlow;
+            # the number and the code still have to come from the harness.
+            for helper in re.findall(r"file: (_[\w-]+\.yaml)", text):
+                text += (FLOWS / helper).read_text(encoding="utf-8")
             self.assertRegex(text, r"\$\{OTP_PHONE(_[BCD])?\}", name)
             self.assertIn("${OTP_CODE}", text, name)
             # A phone number in a flow file is a phone number in Git.
@@ -123,7 +130,11 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
             script,
         )
         self.assertIn("canary_otp", script)
-        self.assertIn('22-*|23-*|24-*|25-*) [ "$OTP" = 1 ] || continue', script)
+        self.assertIn(
+            '22-*|23-*|24-*|25-*|30-*|31-*) [ "$OTP" = 1 ] || continue', script
+        )
+        self.assertIn("do_ban_phim.py", script)
+        self.assertIn("kiem_khoa_ai", script)
 
     def test_a_red_flow_does_not_end_the_table(self) -> None:
         # `chay_flow` must not turn errexit back on before returning a non-zero
@@ -141,6 +152,10 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
         self.assertNotIn(
             "\n  set -e\n", body, "chay_flow bật lại set -e trước khi return rc"
         )
+        self.assertIn(
+            '40-*)        [ "$OTP" = 1 ] && [ "$AI" = 1 ] || continue', script
+        )
+        self.assertIn("kiem_may_chu_sau_30", script)
         self.assertIn("kiem_may_chu_sau_24", script)
         self.assertIn("kiem_may_chu_sau_25", script)
 

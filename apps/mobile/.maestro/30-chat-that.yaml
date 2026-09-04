@@ -1,0 +1,110 @@
+# Chat thật (M3), một người một máy, trên API prod không có khoá Gemini.
+#
+# Chạy SAU flow 24/25 trong cùng lượt: C có nhóm «Hoi QA» và là bạn của D. Gõ một
+# tin → hiện bong bóng; tắt app mở lại → tin còn (đọc từ máy chủ, không phải
+# state); giữ lâu → thanh phản ứng → ❤ → chip «❤️ 1» (đếm của máy chủ);
+# `/vote Ăn gì? Bún bò | Phở` → thẻ bình chọn với hai lựa chọn, bấm một → «1
+# phiếu · của bạn» (qua /votes/{id}/ballots); `@Rủ Đi gợi ý quán` → máy chủ
+# không có khoá mô hình → câu nói thật «chưa nối được mô hình» (đường im lặng
+# trung thực; đường AI nói thật đo ở `mobile-native-ai` khi có khoá);
+# `/chia-bill` → «chưa sẵn sàng trên máy chủ này» (reader không cấu hình).
+# Harness kiểm máy chủ sau flow (kiem_may_chu_sau_30): ≥3 tin, một thẻ poll, một
+# phản ứng heart của C trên tin đầu.
+appId: com.lakiet.rudi
+---
+- stopApp
+- launchApp
+- runFlow: _bo-qua-dev-menu.yaml
+- extendedWaitUntil:
+    visible: "Rủ Đi thôi!|Khám phá|Chưa có nhóm nào"
+    timeout: 150000
+- runFlow: _dang-xuat-neu-co.yaml
+- tapOn: "Rủ Đi thôi!"
+- extendedWaitUntil:
+    visible: "Chào bạn"
+    timeout: 30000
+- tapOn: "Ô số điện thoại"
+- inputText: "${OTP_PHONE_C}"
+- hideKeyboard
+- tapOn: "Gửi mã"
+- extendedWaitUntil:
+    visible: "Nhập mã 6 số"
+    timeout: 60000
+- tapOn: "Ô nhập mã"
+- inputText: "${OTP_CODE}"
+- extendedWaitUntil:
+    visible: "Khám phá"
+    timeout: 60000
+- tapOn: "Tin nhắn"
+- extendedWaitUntil:
+    visible: "Hoi QA"
+    timeout: 60000
+- tapOn: "Hoi QA"
+- extendedWaitUntil:
+    visible: "Chưa có tin nhắn nào"
+    timeout: 60000
+- assertVisible: "Ô soạn tin"
+- takeScreenshot: 30-chat-rong
+# Gửi một tin.
+- tapOn: "Ô soạn tin"
+- inputText: "Toi nay an gi moi nguoi"
+- tapOn: "Gửi tin nhắn"
+- extendedWaitUntil:
+    visible: "Toi nay an gi moi nguoi"
+    timeout: 30000
+- assertNotVisible: "Chưa có tin nhắn nào"
+- hideKeyboard
+- takeScreenshot: 30-da-gui
+# Tắt mở lại: tin đến từ máy chủ, không phải từ state của lần gửi.
+- stopApp
+- launchApp
+- runFlow: _bo-qua-dev-menu.yaml
+- extendedWaitUntil:
+    visible: "Khám phá"
+    timeout: 150000
+- tapOn: "Tin nhắn"
+- extendedWaitUntil:
+    visible: "Hoi QA"
+    timeout: 60000
+- assertVisible: "Bạn: Toi nay an gi moi nguoi"
+- tapOn: "Hoi QA"
+- extendedWaitUntil:
+    visible: "Toi nay an gi moi nguoi"
+    timeout: 60000
+# Phản ứng: giữ lâu → thanh → ❤ → chip đếm của máy chủ.
+- longPressOn: "Tin nhắn: Toi nay an gi moi nguoi"
+- extendedWaitUntil:
+    visible: "Thích"
+    timeout: 15000
+- tapOn: "Thích"
+- extendedWaitUntil:
+    visible: "❤️ 1"
+    timeout: 30000
+- takeScreenshot: 30-phan-ung
+# Bình chọn bằng lệnh; thẻ poll của máy chủ; bỏ phiếu qua /votes.
+- tapOn: "Ô soạn tin"
+- inputText: "/vote An gi? Bun bo | Pho"
+- tapOn: "Gửi tin nhắn"
+- extendedWaitUntil:
+    visible: "Bỏ phiếu Bun bo"
+    timeout: 60000
+- hideKeyboard
+- tapOn: "Bỏ phiếu Bun bo"
+- extendedWaitUntil:
+    visible: "1 phiếu · của bạn"
+    timeout: 30000
+- takeScreenshot: 30-binh-chon
+# Gọi AI và /chia-bill rẽ theo máy chủ: không có khoá (AI=0) → câu nói thật,
+# không phải im lặng vô danh; có khoá (--ai, AI=1) → thẻ của Rủ Đi AI và bản đọc
+# khoản chi thật (hoặc câu nói thật vì sao không có).
+- tapOn: "Ô soạn tin"
+- inputText: "@Ru Di goi y quan an"
+- tapOn: "Gửi tin nhắn"
+- runFlow:
+    when:
+      true: ${AI != "1"}
+    file: _30-ai-khong-khoa.yaml
+- runFlow:
+    when:
+      true: ${AI == "1"}
+    file: _30-ai-co-khoa.yaml
