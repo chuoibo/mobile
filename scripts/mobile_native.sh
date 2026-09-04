@@ -404,6 +404,31 @@ PY3
   echo "máy chủ xác nhận: kèo «Keo QA» có $so_chang chặng (place_id: $ids) và $so_ci check-in"
 }
 
+# Sau flow 28: sổ của nhóm D có khoản chi 200.000đ do D trả, chia C 75.000 /
+# D 125.000 → /contexts/{ctx}/balances phải nói C chuyển D 75.000 (một khoản).
+kiem_may_chu_sau_28() {
+  local goc body tok ctx ket
+  goc="http://127.0.0.1:$API_PORT"
+  body="$(dang_nhap_curl "$OTP_PHONE_D")" \
+    || hong "sau flow 28: D không đăng nhập được qua curl."
+  tok="$(printf '%s' "$body" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("token",""))')"
+  ctx="$(curl -sS "$goc/people/me/contexts" -H "Authorization: Bearer $tok" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+act = [c for c in d.get("contexts", []) if c.get("my_state") == "active" and c.get("display_name") == "Hoi QA"]
+print(act[0]["id"] if act else "")')"
+  [ -n "$tok" ] && [ -n "$ctx" ] || hong "sau flow 28: D không có nhóm «Hoi QA» active."
+  ket="$(curl -sS "$goc/contexts/$ctx/balances" -H "Authorization: Bearer $tok" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+t = d.get("transfers", [])
+print("%d|%s" % (len(t), ",".join(str(x.get("amount_vnd")) for x in t)))')"
+  IFS='|' read -r so_chuyen tien <<< "$ket"
+  [ "${so_chuyen:-0}" -eq 1 ] || hong "sau flow 28: máy chủ có $so_chuyen khoản chuyển, mong 1 (C → D)."
+  [ "$tien" = "75000" ] || hong "sau flow 28: khoản chuyển là $tien đồng, mong 75000."
+  echo "máy chủ xác nhận: quyết toán nhóm có đúng một khoản chuyển 75.000đ (C → D), tính lại từ sổ"
+}
+
 kiem_may_chu_sau_30() {
   local goc body tok ctx ket
   goc="http://127.0.0.1:$API_PORT"
@@ -894,7 +919,7 @@ for f in "$FLOWS"/*.yaml; do
     # môi trường chứ không phải vì app sai. `--live` chạy đúng và chỉ nhóm này.
     20-*)        [ "$LIVE" = 1 ] || continue ;;
     21-*)        [ "$DANG_NHAP" = 1 ] || continue ;;
-    22-*|23-*|24-*|25-*|26-*|27-*|31-*) [ "$OTP" = 1 ] || continue ;;
+    22-*|23-*|24-*|25-*|26-*|27-*|28-*|31-*) [ "$OTP" = 1 ] || continue ;;
     # Under the keyboard negative control the composer is meant to be covered,
     # so a flow that has to tap it (30, 40) would only fail for the reason the
     # probe already measures. The table for --tat-kav is the sign-in leg + 31.
@@ -969,6 +994,7 @@ if [ "$OTP" = 1 ]; then
   kiem_may_chu_sau_25
   kiem_may_chu_sau_26
   kiem_may_chu_sau_27
+  kiem_may_chu_sau_28
   [ "$TAT_KAV" = 1 ] || kiem_may_chu_sau_30
   [ "$AI" = 1 ] && [ "$TAT_KAV" = 0 ] && kiem_may_chu_sau_40
   canary_otp

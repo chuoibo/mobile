@@ -277,6 +277,10 @@
     // Kèo trên máy chủ (M4): compile để test chứng minh PUT timeline mang place_id
     // và thêm/gắn chặng không đụng chặng khác.
     "src/rudi/keo/keo.ts",
+    // Chia hóa đơn trong vỏ RuDi (M5): compile để test chứng minh khoản chi được
+    // đề xuất bằng items của bill rồi chốt với expected_allocations của máy chủ,
+    // mỗi lời gọi một Attempt, và không phép chia nào ở phía client.
+    "src/rudi/chia-bill/hoa-don.ts",
     "src/rudi/vote.ts"
   ]
 }

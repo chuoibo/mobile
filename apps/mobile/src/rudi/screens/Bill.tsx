@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ApiError, BASE_URL, scanReceipt } from "../../api";
-import { docQuyetToanLive, tenCua, type QuyetToanLive } from "../doc-live";
+import { docQuyetToanLive, dongHeroQuyetToan, tenCua, type QuyetToanLive } from "../doc-live";
 import { DEMO_PEOPLE } from "../../navigation/nhom-demo";
 import { BILL_ITEMS, COLLECTOR_INDEX, DEMO_GROUP, PEOPLE, demoAssets, formatVnd } from "../fixtures";
 import { noiLuuNgan } from "../luu-tru";
@@ -323,6 +323,7 @@ function QuyetToanLive({ actorId, contextId }: { actorId: string; contextId: str
       </RudiScreen>
     );
   }
+  const hero = dongHeroQuyetToan(du.tongChuyen, du.nguoi.length);
   return (
     <RudiScreen tone="split" testID="settlement-screen">
       <TopBar title="Quyết toán chuyến đi" />
@@ -330,17 +331,9 @@ function QuyetToanLive({ actorId, contextId }: { actorId: string; contextId: str
         <View style={[styles.balanceIcon, { backgroundColor: colors.split }]}>
           <Ionicons color={colors.splitInk} name="wallet" size={26} />
         </View>
-        <Text style={[typography.caption, { color: colors.inkFaint }]}>
-          Tổng chi tiêu ({du.nguoi.length} người)
-        </Text>
-        <Text style={[styles.bigMoney, { color: colors.ink }]}>
-          {du.tongChuyen === null ? "Chưa có số" : formatVnd(du.tongChuyen)}
-        </Text>
-        <Text style={[typography.caption, { color: colors.inkSoft }]}>
-          {du.tongChuyen === null
-            ? "Máy chủ chưa có tổng cho nhóm này. Chuyến chưa kết thúc thì chưa vào recap, và chưa có số không phải là 0đ."
-            : "Số này máy chủ tính lại từ sổ mỗi lần hỏi."}
-        </Text>
+        <Text style={[typography.caption, { color: colors.inkFaint }]}>{hero.nhan}</Text>
+        <Text style={[styles.bigMoney, { color: colors.ink }]}>{hero.so}</Text>
+        <Text style={[typography.caption, { color: colors.inkSoft }]}>{hero.cau}</Text>
       </Card>
       <SectionHeader title="Các khoản chuyển" />
       <View style={styles.transferList}>
