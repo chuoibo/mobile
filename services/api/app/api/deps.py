@@ -278,3 +278,8 @@ def get_sms_sender(request: Request):
 def get_otp_debug_code(request: Request) -> str | None:
     """The fixed OTP code, only ever set beside the log sender."""
     return getattr(request.app.state, "otp_debug_code", None)
+
+
+def get_google_verifier(request: Request):
+    """The Google ID-token verifier, or `None` on a host with no client ids."""
+    return getattr(request.app.state, "google_verifier", None)

@@ -1,9 +1,9 @@
-"""The two OTP doors (ADR-0016). No actor: this is where an identity is obtained.
+"""The OTP doors and the Google door (ADR-0016). No actor: an identity is obtained here.
 
 Bodies are parsed by hand for the same reason `routes/identity.py` parses its
 own: FastAPI's validation error echoes the offending value, and the value here
-is a telephone number. No example number appears in this file -- the repo
-guard refuses digit runs shaped like one.
+is a telephone number or a bearer-grade ID token. No example number appears in
+this file -- the repo guard refuses digit runs shaped like one.
 """
 
 from __future__ import annotations
@@ -13,8 +13,14 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request, status
 
-from app.api.deps import get_otp_debug_code, get_repository, get_sms_sender
+from app.api.deps import (
+    get_google_verifier,
+    get_otp_debug_code,
+    get_repository,
+    get_sms_sender,
+)
 from app.api.errors import ApiProblem
+from app.api.google_identity import GoogleTokenVerifier
 from app.api.repository import ApiRepository
 from app.api.routes.identity import FixedWindowLimit
 from app.api.schemas import ErrorResponse, OtpRequestResponse, SessionResponse
@@ -25,6 +31,7 @@ router = APIRouter(tags=["auth"])
 
 REQUEST_LIMIT = 10
 VERIFY_LIMIT = 30
+GOOGLE_LIMIT = 10
 WINDOW_SECONDS = 60.0
 
 _PHONE_BODY = {
@@ -58,6 +65,26 @@ _VERIFY_BODY = {
             }
         },
     }
+}
+_GOOGLE_BODY = {
+    "requestBody": {
+        "required": True,
+        "content": {
+            "application/json": {
+                "schema": {
+                    "type": "object",
+                    "required": ["id_token"],
+                    "properties": {"id_token": {"type": "string"}},
+                }
+            }
+        },
+    }
+}
+GOOGLE_ERRORS = {
+    401: {"model": ErrorResponse},
+    422: {"model": ErrorResponse},
+    429: {"model": ErrorResponse},
+    503: {"model": ErrorResponse},
 }
 ERRORS = {
     404: {"model": ErrorResponse},
@@ -135,4 +162,24 @@ async def verify_otp(
         raise ApiProblem(422, "challenge_id_invalid", "Thiếu hoặc sai challenge_id.")
     return ApiService(repository).verify_otp(
         challenge_id, body.get("phone"), body.get("code")
+    )
+
+
+@router.post(
+    "/auth/google",
+    response_model=SessionResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses=GOOGLE_ERRORS,
+    openapi_extra=_GOOGLE_BODY,
+)
+async def login_google(
+    request: Request,
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+    verifier: Annotated[GoogleTokenVerifier | None, Depends(get_google_verifier)],
+) -> SessionResponse:
+    if not _limit(request, "google_login_limit", GOOGLE_LIMIT).allow(_caller(request)):
+        raise ApiProblem(429, "rate_limited", "Thử lại sau một phút.")
+    body = await _json_object(request)
+    return ApiService(repository).login_with_google(
+        body.get("id_token"), verifier=verifier
     )
