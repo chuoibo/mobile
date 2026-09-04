@@ -127,15 +127,22 @@ export function TopBar({
   title,
   subtitle,
   back = true,
+  onBack,
   right,
 }: {
   title?: string;
   subtitle?: string;
   back?: boolean;
+  /** What the chevron does instead of leaving the route: a stepper's own step back. */
+  onBack?: () => void;
   right?: ReactNode;
 }) {
   const router = useRouter();
   const { colors } = useRudiTheme();
+  const luiVe = () => {
+    if (onBack !== undefined) onBack();
+    else router.back();
+  };
 
   return (
     <View style={styles.topBar}>
@@ -144,7 +151,7 @@ export function TopBar({
           <IconButton
             accessibilityLabel="Quay lại"
             icon="chevron-back"
-            onPress={() => router.back()}
+            onPress={luiVe}
             quiet
           />
         ) : (
@@ -590,7 +597,7 @@ export function Chip({
           styles.chipTinh,
           {
             backgroundColor: selected ? toneSoftColor(colors, tone) : colors.card,
-            borderColor: selected ? toneColor(colors, tone) : colors.line,
+            borderColor: selected ? toneColor(colors, tone) : colors.lineStrong,
             borderRadius: radius.small,
           },
         ]}
@@ -612,13 +619,17 @@ export function Chip({
         styles.chip,
         {
           backgroundColor: selected ? toneSoftColor(colors, tone) : colors.card,
-          borderColor: selected ? toneColor(colors, tone) : colors.line,
+          // DESIGN.md: an unselected chip's boundary is `lineStrong` (>= 3:1 on
+          // card and ground); `line` is a hairline for dividers, not a control edge.
+          borderColor: selected ? toneColor(colors, tone) : colors.lineStrong,
           borderRadius: radius.pill,
         },
         pressed && styles.pressed,
       ]}
     >
+      {/* Selected is said twice: fill and a check, so it does not rest on color alone. */}
       {icon ? <Ionicons color={foreground} name={icon} size={16} /> : null}
+      {icon === undefined && selected ? <Ionicons color={foreground} name="checkmark" size={16} /> : null}
       <Text numberOfLines={1} style={[typography.caption, { color: foreground }]}>
         {label}
       </Text>

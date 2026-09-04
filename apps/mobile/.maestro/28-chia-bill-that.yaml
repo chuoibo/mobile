@@ -50,6 +50,8 @@ appId: com.lakiet.rudi
 - inputText: "50000"
 - hideKeyboard
 - assertVisible: "2 món · 200.000đ"
+# Bill gõ tay nói là gõ tay; «Chưa nhận diện được món nào» dưới hai món vừa gõ đọc như thất bại.
+- assertVisible: "Bạn nhập tay 2 món.*"
 - takeScreenshot: 28-xem-lai
 - tapOn: "Tiếp: ai dùng món nào?"
 # Máy chủ đã giữ bill; mặc định mọi người cùng dùng mọi món. Nước chỉ D uống.
@@ -62,19 +64,22 @@ appId: com.lakiet.rudi
 - tapOn: "Xem kết quả"
 # Máy chủ chia: Bún bò 150.000 chia đôi, nước 50.000 riêng D → C 75.000, D 125.000.
 - extendedWaitUntil:
-    visible: "Mỗi người"
+    visible: "Phần của mỗi người"
     timeout: 60000
 - assertVisible: "75.000đ"
 - assertVisible: "125.000đ"
 - assertVisible: "Người trả Ban QA"
+# Người trả (D, mặc định là người đang dùng máy) có huy hiệu ngay trên hàng của mình.
+- assertVisible: "Đã trả bill"
 - takeScreenshot: 28-ket-qua
 - tapOn: "Ô tên khoản chi"
 - inputText: "Toi Xom Lao"
 - hideKeyboard
 - tapOn: "Ghi vào sổ"
 - extendedWaitUntil:
-    visible: "Đã ghi vào sổ"
+    visible: "Đã ghi: Toi Xom Lao"
     timeout: 60000
+- assertVisible: "200.000đ, Ban QA đã trả.*"
 - takeScreenshot: 28-da-ghi
 - tapOn: "Xem quyết toán"
 # Quyết toán sống đọc /contexts/{ctx}/balances: C chuyển cho D 75.000đ.
@@ -84,6 +89,11 @@ appId: com.lakiet.rudi
 - extendedWaitUntil:
     visible: "75.000đ"
     timeout: 60000
+# Tổng theo chuyến: kèo «Keo QA» (flow 27) đang đi hôm nay, bill vừa ghi rơi vào ngày của nó.
+# Máy chủ trả 0 ở tổng các chuyến đã kết thúc; màn không được in 0đ làm «tổng chi tiêu».
+- assertVisible: "Đang đi: Keo QA.*"
+- assertVisible: "200.000đ"
+- assertNotVisible: "Tổng chi tiêu.*"
 - assertNotVisible: "Dữ liệu demo"
 - assertNotVisible: "3.840.000đ"
 - takeScreenshot: 28-quyet-toan

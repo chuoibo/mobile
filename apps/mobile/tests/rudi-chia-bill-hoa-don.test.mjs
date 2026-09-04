@@ -13,12 +13,14 @@ import test from "node:test";
 
 import { datTokenPhien } from "../dist-test/api.js";
 import {
+  cauNguonBill,
   cauSauKhiScanHong,
   cauTongMon,
   ghiVaoSo,
   hangKetQua,
   hoaDonTrong,
   nguoiThamGia,
+  nhanDongMon,
   tenCua,
   themMon,
 } from "../dist-test/rudi/chia-bill/hoa-don.js";
@@ -104,4 +106,21 @@ test("ghiVaoSo đề xuất với items của bill rồi chốt, mỗi lần m�
 
 test("cauSauKhiScanHong nối câu máy chủ với lối ra nhập tay", () => {
   assert.equal(cauSauKhiScanHong("Máy chủ chưa cấu hình trình đọc bill."), "Máy chủ chưa cấu hình trình đọc bill. Bạn có thể nhập món bằng tay.");
+});
+
+test("cauNguonBill: bill gõ tay nói là gõ tay, không nói «chưa nhận diện»", () => {
+  assert.equal(cauNguonBill(hoaDonHaiMon()), "Bạn nhập tay 2 món. Máy chủ chưa đọc ảnh nào.");
+  assert.equal(cauNguonBill(hoaDonTrong()), "Chưa có món nào. Thêm món bên dưới.");
+  const docTuAnh = { ...hoaDonHaiMon(), lines: hoaDonHaiMon().lines.map((l) => ({ ...l, read: { name: l.name, quantity: 1, lineTotalVnd: l.lineTotalVnd } })) };
+  assert.equal(cauNguonBill(docTuAnh), "Đã nhận diện 2 món");
+  assert.equal(cauNguonBill({ ...docTuAnh, needsReview: true }), "Cần bạn kiểm lại");
+});
+
+test("nhanDongMon: không nhãn trên bill gõ tay; trên bill đọc từ ảnh mỗi dòng nói nguồn và cờ kiểm lại", () => {
+  const tay = hoaDonHaiMon();
+  assert.equal(nhanDongMon(tay, tay.lines[0]), null);
+  const doc = { ...tay, lines: [{ ...tay.lines[0], read: { name: "Bun bo", quantity: 1, lineTotalVnd: 150000 } }, tay.lines[1]] };
+  assert.deepEqual(nhanDongMon(doc, doc.lines[0]), { chu: "Máy chủ đọc từ ảnh", canKiem: false });
+  assert.deepEqual(nhanDongMon(doc, doc.lines[1]), { chu: "Bạn thêm tay", canKiem: false });
+  assert.deepEqual(nhanDongMon({ ...doc, needsReview: true }, doc.lines[0]), { chu: "Máy chủ đọc từ ảnh, cần bạn kiểm lại", canKiem: true });
 });

@@ -24,7 +24,7 @@ import {
 import { itemsForWire, whoOn, type Assignment } from "../../assignment";
 import { type BillWire } from "../../bill";
 import { dinhDangTienVnd } from "../../screens/chat/ke-hoach";
-import { addLine, itemsTotalVnd, readingFromWire, type BillReading } from "../../receipt";
+import { addLine, disclosure, itemsTotalVnd, readingFromWire, type BillReading } from "../../receipt";
 
 /** One group member as the assignment matrix names them. */
 export type ThanhVien = { id: string; name: string };
@@ -128,4 +128,40 @@ export function hangKetQua(chia: ChiaBill, roster: readonly ThanhVien[]): { id: 
 /** What a scan refusal means for the next move, or the honest generic line. */
 export function cauSauKhiScanHong(message: string): string {
   return `${message} Bạn có thể nhập món bằng tay.`;
+}
+
+/** True when nobody but the user produced these lines: no machine read any of them. */
+function nhapTayHoanToan(reading: BillReading): boolean {
+  return reading.lines.every((line) => line.read === null);
+}
+
+/**
+ * The review step's subtitle: what produced the lines on screen.
+ *
+ * `disclosure()` counts machine-read lines, so on a bill the user typed it
+ * says "chưa nhận diện được món nào" -- true, and read as a failure under two
+ * lines the user just entered. The hand-typed reading gets its own sentence.
+ */
+export function cauNguonBill(reading: BillReading): string {
+  if (!nhapTayHoanToan(reading)) return disclosure(reading).text;
+  const n = reading.lines.length;
+  if (n === 0) return "Chưa có món nào. Thêm món bên dưới.";
+  return `Bạn nhập tay ${n} món. Máy chủ chưa đọc ảnh nào.`;
+}
+
+/**
+ * One line's provenance, for the caption on its card. `null` on a reading the
+ * user typed entirely (the subtitle already says so; repeating it per line is
+ * noise). On a photo reading every machine-read line says so, and says
+ * "cần bạn kiểm lại" when the server raised its hand -- it flags the reading,
+ * not a line, so every read line carries the flag rather than none.
+ */
+export function nhanDongMon(
+  reading: BillReading,
+  line: BillReading["lines"][number],
+): { chu: string; canKiem: boolean } | null {
+  if (nhapTayHoanToan(reading)) return null;
+  if (line.read === null) return { chu: "Bạn thêm tay", canKiem: false };
+  if (reading.needsReview) return { chu: "Máy chủ đọc từ ảnh, cần bạn kiểm lại", canKiem: true };
+  return { chu: "Máy chủ đọc từ ảnh", canKiem: false };
 }
