@@ -204,6 +204,11 @@ def main(argv: list[str] | None = None) -> int:
             tong_doc += doc
             tong_them += them
             tong_doi += doi
+            if not args.dry_run:
+                # Commit per destination: fifteen Overpass queries take minutes,
+                # and a failure on the last one must not throw away the first
+                # fourteen. Each destination is a complete unit of work.
+                session.commit()
             print(f"  {destination['id']}: đọc {doc}, thêm {them}, cập nhật {doi}")
         if args.dry_run:
             session.rollback()

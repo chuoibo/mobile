@@ -12,7 +12,8 @@ import pytest
 
 from app.api.deps import get_repository
 from app.api.main import create_app
-from app.api.repository import DestinationRecord
+from app.api.repository import DestinationRecord, PlaceRecord
+from app.api.routes.places import MAX_REASON_ROWS, get_reason_writer
 
 from .conftest import ASGITestClient, SeedCatalogueReads, _seed_place_records
 
@@ -145,3 +146,83 @@ def test_half_a_position_is_a_refusal_not_half_an_answer(client):
 
 def test_an_out_of_range_coordinate_is_refused_by_the_route(client):
     assert client.get("/destinations?lat=99&lng=108").status_code == 422
+
+
+class ManyPlacesRepository(SeedCatalogueReads):
+    """One destination holding more places than a prompt should carry."""
+
+    def __init__(self, how_many: int):
+        self.rows = [
+            PlaceRecord(
+                id=f"osm-node-{i}",
+                destination_id="d-da-lat",
+                name=f"Quán số {i}",
+                category="cafe",
+                kinds=["Cà phê"],
+                address="Đà Lạt",
+                lat=11.94,
+                lng=108.44,
+                rating=None,
+                rating_count=None,
+                price_min_vnd=None,
+                price_max_vnd=None,
+                open_hours=None,
+                open_now=None,
+                travel_minutes=None,
+                distance_km=None,
+                photo_count=0,
+                traits=[],
+                group_fit=None,
+                flag=None,
+                description=None,
+                reviews=None,
+                source="osm",
+                source_ref=f"node/{i}",
+                license="ODbL-1.0",
+            )
+            for i in range(how_many)
+        ]
+
+    def list_destinations(self):
+        return [DA_LAT]
+
+    def get_destination(self, destination_id):
+        return DA_LAT if destination_id == "d-da-lat" else None
+
+    def list_places(self, *, destination_id=None, category=None):
+        return list(self.rows)
+
+
+class CountingReasonWriter:
+    def __init__(self):
+        self.rows_seen = 0
+
+    def __call__(self, rows):
+        self.rows_seen = len(rows)
+        return {}
+
+
+def test_a_hundred_places_do_not_all_go_into_one_prompt(monkeypatch):
+    """A destination can hold a hundred imported rows (M10).
+
+    Asking the model about every one of them would put the whole catalogue in
+    a prompt on every read, to write sentences for cards nobody scrolls to.
+    The cap is what keeps a browse cheap; the cards themselves are all served.
+    """
+
+    async def run_sync_inline(function, *args, **kwargs):
+        del kwargs
+        return function(*args)
+
+    monkeypatch.setattr(anyio.to_thread, "run_sync", run_sync_inline)
+    app = create_app(auth_mode="dev")
+    app.dependency_overrides[get_repository] = lambda: ManyPlacesRepository(100)
+    writer = CountingReasonWriter()
+    app.dependency_overrides[get_reason_writer] = lambda: writer
+    client = ASGITestClient(app)
+
+    body = client.get("/places").json()
+    assert len(body["places"]) == 100, "mọi chỗ vẫn được phục vụ"
+    assert writer.rows_seen == MAX_REASON_ROWS, (
+        f"prompt nhận {writer.rows_seen} dòng, mong tối đa {MAX_REASON_ROWS}"
+    )

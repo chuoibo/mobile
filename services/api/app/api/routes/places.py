@@ -52,6 +52,13 @@ logger = logging.getLogger(__name__)
 # small enough that two neighbouring destinations never both claim somebody.
 NEAR_LIMIT_KM = 60.0
 
+# How many places one read may ask the model about. A destination can hold a
+# hundred imported rows and a reader looks at the first handful; the rest get
+# the server's own template sentence, which is what an unanswered row gets
+# anyway. Twelve because the seed catalogue is twelve: every existing test that
+# expects a reason for every seed row still gets one.
+MAX_REASON_ROWS = 12
+
 router = APIRouter(tags=["places"])
 
 
@@ -634,7 +641,18 @@ def list_places(
     # Only rows that are safe to show a model (M9, ADR-0017). A place whose
     # name or traits talk to the model is dropped from the prompt, not quoted
     # more carefully: it still appears on screen, with no AI sentence.
-    rows = [ReasonRow(place=place) for place in safe_places(selected)]
+    #
+    # And only the top of the list (M10). A destination can hold a hundred
+    # imported places; asking the model about all of them would put fifteen
+    # kilobytes of catalogue in one prompt on every read, to write sentences
+    # for cards nobody scrolls to. The rows chosen are the ones the reader sees
+    # first, ranked by the same arithmetic that orders the screen -- so the cap
+    # never silently drops a card that would have been at the top.
+    xep = sorted(
+        safe_places(selected),
+        key=lambda place: (-score_place(place, GROUP)[0], place["id"]),
+    )
+    rows = [ReasonRow(place=place) for place in xep[:MAX_REASON_ROWS]]
     # Never lets a model outage become a 500 on a read-only catalogue.
     try:
         written = reason_writer(rows) if rows else {}

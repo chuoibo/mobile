@@ -46,11 +46,16 @@ def seed_places_of_default_destination() -> list[dict]:
     two. A prompt built from all twelve would be a prompt this route never
     builds.
     """
+    # Ordered the way the route orders them before it builds the prompt: by
+    # score, then id. The route ranks first so the model is asked about the
+    # rows a reader sees first (there is a cap since M10); a prompt built in a
+    # different order is a different prompt.
+    from app.places.scoring import score_place
     from app.places.seed_catalog import _destination_for
 
     return sorted(
         (place for place in PLACES if _destination_for(place) == "d-da-lat"),
-        key=lambda place: place["id"],
+        key=lambda place: (-score_place(place, GROUP)[0], place["id"]),
     )
 
 
