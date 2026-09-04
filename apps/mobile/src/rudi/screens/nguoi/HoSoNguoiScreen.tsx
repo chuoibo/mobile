@@ -123,7 +123,9 @@ export function HoSoNguoiScreen() {
               <Text style={[typography.body, { color: colors.inkSoft }]}>{hoSo.hoSo.bio}</Text>
             ) : (
               <Text style={[typography.caption, { color: colors.inkFaint }]}>
-                Người này chưa viết giới thiệu.
+                {hoSo.hoSo.relation === "self"
+                  ? "Bạn chưa viết giới thiệu. Sửa ở Cá nhân."
+                  : "Người này chưa viết giới thiệu."}
               </Text>
             )}
             {hoSo.hoSo.relation === "self" ? (
