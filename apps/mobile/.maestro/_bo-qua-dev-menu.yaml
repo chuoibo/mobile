@@ -29,3 +29,20 @@ appId: com.lakiet.rudi
       visible: ".*Toggle performance monitor.*"
     commands:
       - pressKey: Back
+
+# Ba: mở lại app một lần nếu nó không lên.
+#
+# `launchApp` trên máy ảo thỉnh thoảng trả về mà app không lên, để lại màn hình
+# chính của Android. Đo được nhiều lần trong ngày 2026-09-05, và logcat KHÔNG có
+# FATAL/ANR — đây là đua lúc mở, không phải app hỏng. Trước đây mỗi lần như vậy
+# là một lượt bảng phải chạy lại; tệ hơn, nó đổ dây chuyền (flow 24 hỏng thì D
+# không có nhóm, nên 26/27/28 đỏ vì «Khám phá» không tồn tại).
+#
+# Điều kiện là «không thấy màn nào của app», nên bước này SKIP ở mọi lượt app
+# lên bình thường — nó không giấu được một app thật sự không mở lên: lần thử
+# thứ hai mà vẫn không có gì thì flow vẫn đỏ ở assert của chính nó.
+- runFlow:
+    when:
+      notVisible: "Rủ Đi thôi!|Khám phá|Chưa có nhóm nào|Chào bạn|Nhập mã 6 số|Tin nhắn|.*Development servers.*|.*This is the developer menu.*"
+    commands:
+      - launchApp

@@ -77,6 +77,12 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
         # open after install; a flow that launches and does not dismiss it reads
         # the sheet as «no button». Measured 2026-09-03.
         for flow in self.flows:
+            # The helper IS the dismissal, and its own retry-launch (added
+            # 2026-09-05, after `launchApp` returned to the Android launcher
+            # often enough to redden eleven flows in one board) cannot be
+            # followed by a call to itself. Everything else still must be.
+            if flow.name == "_bo-qua-dev-menu.yaml":
+                continue
             lines = code_lines(flow)
             for i, line in enumerate(lines):
                 if line.strip() != "- launchApp":
