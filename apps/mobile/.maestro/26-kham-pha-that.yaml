@@ -74,7 +74,8 @@ appId: com.lakiet.rudi
     visible: "Đã lưu"
     timeout: 30000
 - takeScreenshot: 26-da-luu
-- tapOn: "Quay lại"
+# Thanh đầu đã cuộn khỏi màn; nút back của hệ thống đưa về danh mục.
+- back
 - extendedWaitUntil:
     visible: "12 nơi ở Đà Lạt"
     timeout: 30000
