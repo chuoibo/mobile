@@ -233,6 +233,15 @@ demo: ## Dựng hệ rồi nạp dữ liệu demo "Team Đà Lạt" — 7 ngư�
 # Đường thoát cũ là `make clean`, nhưng clean lấy CẢ volume ảnh và seed không
 # dựng lại ảnh được. Target này đi đường rẻ hơn: giải phóng cái TÊN mà fixture
 # tra cứu, không xoá dòng nào. Sổ cái giữ nguyên mọi bản ghi.
+# Thế giới demo của vỏ RuDi, dựng qua CHÍNH các module client mà app gửi
+# (apps/mobile/tools/seed-rudi-world.mjs): một hình dạng wire, không trôi dạt.
+# Cần một API chế độ prod có SMS sender `log` và MOBILE_OTP_DEBUG_CODE — đúng
+# stack mà `scripts/e2e_slice.sh --keep` dựng. Chạy lần hai là no-op: mỗi bước
+# đọc trạng thái trước rồi mới ghi. Không in số điện thoại hay link khách.
+demo-rudi: ## Dựng «Team Đà Lạt» cho vỏ RuDi lên API=<cổng prod> — OTP_CODE= (mặc định 000000), FRESH=1 tạo nhóm tên mới
+	@[ -n "$(API)" ] || { echo "Cần API=<cổng>, ví dụ: make demo-rudi API=46197 (từ scripts/e2e_slice.sh --keep)" >&2; exit 2; }
+	cd apps/mobile && npm run --silent seed:rudi -- --api http://127.0.0.1:$(API) --otp-code $(or $(OTP_CODE),000000) $(if $(FRESH),--fresh,)
+
 demo-reset: ## Giải phóng tên nhóm demo để `make demo` dựng lại được — APPLY=1 để ghi thật
 	@python3 scripts/reset_demo_group.py $(if $(DSN),--dsn $(DSN)) $(if $(APPLY),--yes)
 
