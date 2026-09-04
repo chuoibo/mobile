@@ -23,7 +23,10 @@ appId: com.lakiet.rudi
 - extendedWaitUntil:
     visible: "Tiệm Nướng Xóm Lào"
     timeout: 60000
-- assertVisible: "12 nơi ở Đà Lạt"
+# Con số là của máy chủ (danh mục seed có 12 chỗ ở Đà Lạt; một stack đã nhập
+# OpenStreetMap có hàng trăm), nên flow gác HÌNH DẠNG câu chứ không gác con số:
+# tên thành phố phải là tên máy chủ vừa phục vụ, không phải chuỗi viết cứng.
+- assertVisible: "[0-9]+ nơi ở Đà Lạt"
 - assertNotVisible: "Xóm Lèo"
 - assertNotVisible: "Mẫu minh hoạ.*"
 - assertNotVisible: "Gợi ý mẫu.*"

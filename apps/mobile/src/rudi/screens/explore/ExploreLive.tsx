@@ -252,7 +252,13 @@ export function ExploreLiveScreen({ phien }: { phien: Phien }) {
           <SectionHeader
             action={dangLoc ? "Xóa lọc" : undefined}
             onAction={dangLoc ? boTim : undefined}
-            title={dangLoc ? `${danhSach.length} kết quả` : `${trang.places.length} nơi ở Đà Lạt`}
+            // The city comes from the answer, not from a string typed here:
+            // this line used to say «Đà Lạt» over a list of anywhere.
+            title={
+              dangLoc
+                ? `${danhSach.length} kết quả`
+                : `${trang.places.length} nơi ở ${diemDen === null ? "đây" : diemDen.name}`
+            }
           />
           {danhSach.length === 0 ? (
             <Card style={styles.rong}>
