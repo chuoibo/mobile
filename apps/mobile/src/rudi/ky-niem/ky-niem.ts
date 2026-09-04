@@ -15,6 +15,8 @@
  * pages, because a group that has been out twenty times has more than a
  * screenful.
  */
+import type { ImageSource } from "expo-image";
+
 import {
   ANH_REFUSALS,
   BASE_URL,
@@ -183,11 +185,7 @@ export async function guiBinhLuanCho(
  * the image source carries them (expo-image sends `source.headers`). A server
  * url that is not ours is refused rather than fetched with our credentials.
  */
-export function nguonAnh(
-  imageUrl: string | null,
-  actorId: string,
-  contextId: string,
-): { uri: string; headers: Record<string, string> } | null {
+export function nguonAnh(imageUrl: string | null, actorId: string, contextId: string): ImageSource | null {
   if (imageUrl === null || imageUrl === "") return null;
   if (!imageUrl.startsWith("/")) return null;
   return { uri: BASE_URL + imageUrl, headers: headerNguoiGoi(actorId, { roles: "member", contexts: contextId }) };
