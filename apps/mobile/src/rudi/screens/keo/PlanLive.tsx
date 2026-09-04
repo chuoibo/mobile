@@ -92,7 +92,7 @@ export function PlanLiveScreen({ phien }: { phien: Phien }) {
                 <Text numberOfLines={1} style={[typography.title, { color: colors.ink }]}>
                   {k.title}
                 </Text>
-                <Text numberOfLines={1} style={[typography.caption, { color: colors.inkSoft }]}>
+                <Text numberOfLines={2} style={[typography.caption, { color: colors.inkSoft }]}>
                   {nhanKhoangNgay(k.starts_on, k.ends_on)} · {k.headcount} người · {dinhDangTienVnd(k.budget_per_person_vnd)} một người
                 </Text>
                 <Text style={[typography.caption, { color: colors.inkFaint }]}>{cauSoChang(k.stops.length)}</Text>
