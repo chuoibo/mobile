@@ -611,6 +611,27 @@ class BatchBoard:
 
 
 @dataclass(frozen=True, slots=True)
+class ContextBatchRow:
+    """One collection round of a group, summarised from its own board.
+
+    Every count here is folded from `BatchObligationRow`s the board already
+    derives -- status included -- so the list and the board can never disagree
+    about what arrived. `total_vnd` is the sum of the obligations' amounts:
+    ledger rows added on the server, not a share computed anywhere.
+    """
+
+    batch_id: uuid.UUID
+    status: str
+    created_at: datetime
+    published_at: datetime | None
+    obligation_count: int
+    #: Obligations whose confirmed receipts reach the declared amount.
+    confirmed_count: int
+    disputed_count: int
+    total_vnd: int
+
+
+@dataclass(frozen=True, slots=True)
 class FinanceMovement:
     """One movement of money that actually happened, as this person sees it.
 
@@ -1425,6 +1446,10 @@ class ApiRepository(Protocol):
     def person_finance_summary(
         self, person_id: uuid.UUID, *, movement_limit: int
     ) -> PersonFinanceSummary: ...
+
+    def list_context_batches(
+        self, context_id: uuid.UUID
+    ) -> tuple[ContextBatchRow, ...]: ...
 
     def get_receipt_target(self, obligation_id: uuid.UUID) -> ReceiptTarget | None: ...
 
@@ -4897,6 +4922,47 @@ class SqlAlchemyApiRepository:
                 )
             )
         return BatchBoard(context_id=batch.context_id, obligations=tuple(rows))
+
+    def list_context_batches(
+        self, context_id: uuid.UUID
+    ) -> tuple[ContextBatchRow, ...]:
+        """Every collection round this group opened, newest first.
+
+        Each row is folded from `list_batch_obligations` rather than from a
+        second query over the same tables: the board is the one place status
+        is derived (receipts summed, disputes read back from events), and a
+        list that re-derived it would be a second answer waiting to drift.
+        One board read per batch is a handful of queries for a handful of
+        rounds; a group does not open hundreds.
+        """
+        batches = list(
+            self.session.scalars(
+                select(CollectionBatch)
+                .where(CollectionBatch.context_id == context_id)
+                .order_by(CollectionBatch.created_at.desc(), CollectionBatch.id)
+            )
+        )
+        rows = []
+        for batch in batches:
+            board = self.list_batch_obligations(batch.id)
+            obligations = () if board is None else board.obligations
+            rows.append(
+                ContextBatchRow(
+                    batch_id=batch.id,
+                    status=batch.status.value,
+                    created_at=batch.created_at,
+                    published_at=batch.published_at,
+                    obligation_count=len(obligations),
+                    confirmed_count=sum(
+                        1
+                        for row in obligations
+                        if row.status in ("confirmed", "over_confirmed")
+                    ),
+                    disputed_count=sum(1 for row in obligations if row.disputed),
+                    total_vnd=sum(row.amount_vnd for row in obligations),
+                )
+            )
+        return tuple(rows)
 
     def get_receipt_target(self, obligation_id: uuid.UUID) -> ReceiptTarget | None:
         obligation = self.session.scalar(

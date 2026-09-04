@@ -101,11 +101,11 @@ Ràng buộc riêng của tầng hiển thị:
   nói như thể nó là.
 - Câu chữ tiếng Việt, không dùng em-dash (có test bắt), không để lộ mã lỗi
   tiếng Anh ra màn hình người dùng.
-- Chưa có auth production. Header `X-Actor-*` là chỗ tạm; không xây gì dựa trên
-  giả định nó an toàn.
+- Phiên đăng nhập là Bearer từ `account_sessions` (ADR-0014, prod mặc định);
+  `X-Actor-*` chỉ còn ở chế độ `dev`. Đăng nhập OTP/Google cho người mới: ADR-0016.
 
-Chưa quyết: Home và cấu trúc tab (spec mục 14.3 cấm thiết kế Home trước khi
-biết hành động nào tồn tại).
+Đã quyết: bốn điểm đến Khám phá · Lên plan · Tin nhắn · Cá nhân + nút tạo mới nổi
+(ADR-0013); phạm vi v1 = P0 của `product/feature_list.md` (ADR-0016, đề xuất).
 
 ## Brand Commitments
 

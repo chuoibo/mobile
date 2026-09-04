@@ -156,8 +156,8 @@ actor dưới đáy sơ đồ tuần tự.
 
 Vài điều cố ý, đừng đọc nhầm thành thiếu sót:
 
-- **Sản phẩm không giữ tiền và không chuyển tiền.** Nó dựng chuỗi EMVCo để người
-  dùng tự quét bằng app ngân hàng của họ.
+- **Sản phẩm không giữ tiền, không chuyển tiền, và không nói chuyển vào đâu.**
+  ADR-0015 đã gỡ cả đường VietQR/EMVCo: app nói phần của mỗi người rồi dừng.
 - **`receiver_confirmed` không phải bằng chứng ngân hàng**, và câu chữ trên màn
   hình không được nói như thể nó là.
 - **Sửa khoản chi tạo phiên bản mới**, không ghi đè bản cũ.
@@ -229,7 +229,6 @@ flowchart TB
         A["app/api<br/>FastAPI · service · repository"]
         DOM["app/domain<br/>thuần: dict vào, dict ra"]
         DB["app/db<br/>SQLAlchemy · Alembic"]
-        PAY["app/payments<br/>EMVCo + CRC"]
     end
     PG[("PostgreSQL 16<br/>JSONB · partial unique index · trigger append-only")]
 
@@ -239,7 +238,6 @@ flowchart TB
     W -.-> P
     A --> DOM
     A --> DB
-    A --> PAY
     DB --> PG
 
     classDef brand fill:#fff0ea,stroke:#c93900,stroke-width:2px,color:#1f2230
@@ -247,7 +245,7 @@ flowchart TB
     classDef money fill:#d5f5f0,stroke:#00756b,stroke-width:2px,color:#1f2230
     class M,W brand
     class P ai
-    class A,DOM,DB,PAY,PG money
+    class A,DOM,DB,PG money
     style BM fill:#ffffff,stroke:#e7dace,color:#4e5563
     style SH fill:#ffffff,stroke:#e7dace,color:#4e5563
     style BE fill:#ffffff,stroke:#e7dace,color:#4e5563
@@ -497,9 +495,9 @@ view và trigger append-only. Thêm hành vi persistence mới thì **thêm ca l
 mở rộng fake rồi coi đó là bằng chứng DB là nói dối.
 
 Ảnh trong README lấy từ `product/` — spec 47 feature và bộ mockup 21 màn. Thư mục đó
-**không có trên `main`**: nó nặng 51 MB và chỉ là nguồn thiết kế, nên bản clone sạch sẽ
-không có nó. Cái đã commit là 8 file trong `docs/assets/`, mỗi file pin sha256 trong
-`.repo-guard-allowlist.json`, thu nhỏ và cắt lại từ chính bộ mockup đó.
+**có trên `main`** từ 2026-08-30 (62 file, 27 PNG, mỗi PNG pin sha256 trong
+`.repo-guard-allowlist.json`); 8 file trong `docs/assets/` là bản thu nhỏ cắt lại từ
+chính bộ mockup đó để README nhẹ.
 
 ---
 
@@ -551,9 +549,11 @@ Phần quan trọng nhất của README này. Đọc trước khi tin bất cứ
   ghi rõ: Giai đoạn 0 bị gác lại theo quyết định có ý thức của chủ sản phẩm. Đây là
   một canh bạc, không phải một giả thuyết đã được kiểm chứng. **Đừng đọc bộ test xanh
   thành "sản phẩm này đúng".**
-- ❌ **Chưa có auth production.** Header `X-Actor-ID` / `X-Actor-Roles` /
-  `X-Actor-Contexts` do gateway tin cậy ghi đè là chỗ tạm cho lát cắt dọc.
-  Đừng xây thêm gì dựa trên giả định nó an toàn.
+- ✅ **Có phiên đăng nhập thật từ 2026-09-03** (ADR-0014, #514): `Authorization: Bearer`
+  đọc từ `account_sessions`, `MOBILE_AUTH_MODE` vắng mặt là `prod` và không tin
+  `X-Actor-*`. ❌ **Chưa có đăng nhập bằng OTP/Google** cho người mới — ADR-0016
+  (đề xuất) mở đường đó; hiện phiên chỉ mint được từ lời mời đích danh hoặc
+  `scripts/genesis_session.py`.
 - ❌ **Chưa có người dùng thật**, chưa có testimonial, chưa có số liệu tăng trưởng,
   chưa có app trên store. Mọi con số trong mockup (4.9 sao, "AI MATCH 95%", tên
   Minh Anh / Quang Huy) là **dữ liệu trình diễn**.
