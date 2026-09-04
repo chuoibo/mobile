@@ -49,10 +49,17 @@ appId: com.lakiet.rudi
 - assertVisible: "Chưa phát"
 - assertVisible: "An QA → Ban QA"
 - assertVisible: "75.000đ"
-- assertVisible: "chưa gửi"
+- assertVisible: "chưa chuyển"
 - assertNotVisible: "Gửi cho An QA"
 - takeScreenshot: 29-dot-chua-phat
 - tapOn: "Phát đợt thu"
+# Phát là không hoàn lại: cú bấm đầu mở câu nói vậy, cú bấm thứ hai mới phát.
+- extendedWaitUntil:
+    visible: "Phát, không hoàn lại"
+    timeout: 30000
+- assertVisible: "Không hoàn lại được.*"
+- takeScreenshot: 29-xac-nhan-phat
+- tapOn: "Phát, không hoàn lại"
 # Phát xong: link riêng của An có trên máy này (máy chủ chỉ giữ dấu vân).
 - extendedWaitUntil:
     visible: "Gửi cho An QA"
@@ -76,7 +83,7 @@ appId: com.lakiet.rudi
 - extendedWaitUntil:
     visible: "1/1 lượt chuyển đã về"
     timeout: 60000
-- assertVisible: "đã nhận"
+- assertVisible: "đã về"
 - assertNotVisible: "Tiền đã về từ An QA"
 - takeScreenshot: 29-tien-da-ve
 # Về Quyết toán: mục «Đợt thu» đọc lại khi màn được focus.
@@ -89,9 +96,12 @@ appId: com.lakiet.rudi
     timeout: 60000
 - assertVisible: "Đã phát"
 - assertNotVisible: "Chưa có đợt thu nào.*"
-# Sổ đọc lại khi màn được focus: tiền đã về nên không còn khoản chuyển đề xuất nào.
+# Sổ đọc lại khi màn được focus: tiền đã về nên không còn khoản chuyển đề xuất nào,
+# và không còn gì để gom thành đợt mới.
 - extendedWaitUntil:
     visible: "Sổ không còn ai nợ ai.*"
     timeout: 60000
 - assertNotVisible: "Đề xuất, chưa phải nghĩa vụ"
+- assertNotVisible: "Tạo đợt thu từ sổ"
+- assertVisible: "Sổ không còn khoản nào ngoài đợt.*"
 - takeScreenshot: 29-quyet-toan-co-dot

@@ -431,10 +431,16 @@ function QuyetToanLive({ actorId, contextId }: { actorId: string; contextId: str
           ))
         : null}
       {loiDot !== null ? <Text style={[typography.body, { color: colors.warn }]}>{loiDot}</Text> : null}
-      <RudiButton disabled={dangMo} icon="add" label="Tạo đợt thu từ sổ" loading={dangMo} onPress={() => void moDot()} tone="split" variant="soft" />
-      <Text style={[typography.caption, { color: colors.inkSoft }]}>
-        Gom mọi khoản đã ghi mà chưa vào đợt nào thành một đợt thu. Chưa phát thì chưa ai bị nhắn gì.
-      </Text>
+      {du.chuyenTien.length > 0 ? (
+        <>
+          <RudiButton disabled={dangMo} icon="add" label="Tạo đợt thu từ sổ" loading={dangMo} onPress={() => void moDot()} tone="split" variant="soft" />
+          <Text style={[typography.caption, { color: colors.inkSoft }]}>
+            Gom mọi khoản đã ghi mà chưa vào đợt nào thành một đợt thu. Chưa phát thì chưa ai bị nhắn gì.
+          </Text>
+        </>
+      ) : (
+        <Text style={[typography.caption, { color: colors.inkFaint }]}>Sổ không còn khoản nào ngoài đợt: không có gì để gom thêm.</Text>
+      )}
     </RudiScreen>
   );
 }

@@ -41,7 +41,7 @@ import {
 } from "../../dot-thu/dot-thu";
 import { docLinkDot, luuLinkDot } from "../../dot-thu/kho-link";
 import { typography, useRudiTheme } from "../../theme";
-import { Card, Heading, RudiButton, RudiScreen, SectionHeader, TopBar } from "../../ui";
+import { Card, Chip, Heading, RudiButton, RudiScreen, SectionHeader, TopBar } from "../../ui";
 
 type Trang =
   | { pha: "dang-doc" }
@@ -68,6 +68,9 @@ export function DotThuLiveScreen({ phien, batchId }: { phien: Phien; batchId: st
   // Per sender: the sheet was opened and not dismissed. Not "delivered" -- the
   // phone cannot know that -- and the caption says as much.
   const [daMoKhay, setDaMoKhay] = useState<Record<string, boolean>>({});
+  // Publishing cannot be undone and hands out links exactly once, so the first
+  // tap only opens the sentence that says so; the second tap publishes.
+  const [sapPhat, setSapPhat] = useState(false);
   const attempts = useRef<Record<string, Attempt>>({});
 
   const doc = useCallback(async () => {
@@ -123,6 +126,7 @@ export function DotThuLiveScreen({ phien, batchId }: { phien: Phien; batchId: st
     chay(async () => {
       const links = await phatDotThu(batchId, phien.person_id, attemptFor(attempts.current, `phat:${batchId}`), roster);
       await luuLinkDot(batchId, links);
+      setSapPhat(false);
       await doc();
     });
 
@@ -169,18 +173,27 @@ export function DotThuLiveScreen({ phien, batchId }: { phien: Phien; batchId: st
   return (
     <RudiScreen tone="split" testID="collection-batch-screen">
       <TopBar subtitle={trang.trangThai === null ? undefined : cauTrangThaiDot(trang.trangThai)} title="Đợt thu" />
-      {thongBao !== null ? <Text style={[typography.body, { color: colors.warn }]}>{thongBao}</Text> : null}
+      {thongBao !== null ? (
+        <Card>
+          <Text style={[typography.body, { color: colors.warn }]}>{thongBao}</Text>
+        </Card>
+      ) : null}
       <Card style={styles.hero} tone="split">
         <Text style={[styles.soLon, { color: colors.ink }]}>
           {tom.daVe}/{tom.tong} lượt chuyển đã về
         </Text>
         <Text style={[typography.caption, { color: colors.inkSoft }]}>
           {tom.nguoiXong}/{tom.nguoiGui} người đã xong phần mình.{" "}
-          {daPhatRoi ? "Đã phát: ai cũng xem được phần của mình." : "Chưa phát: chưa ai bị nhắn gì."}
+          {daPhatRoi ? "Đã phát: mỗi người xem phần của mình qua link riêng." : "Chưa phát: chưa ai bị nhắn gì."}
         </Text>
       </Card>
 
       <SectionHeader title="Ai chuyển cho ai" />
+      {daPhatRoi ? (
+        <Text style={[typography.caption, { color: colors.inkSoft }]}>
+          Người được nhận tiền là người bấm «Tiền đã về»; số ở trên là số máy chủ đếm từ biên nhận, không phải ai tự khai.
+        </Text>
+      ) : null}
       {trang.nghiaVu.length === 0 ? (
         <Text style={[typography.caption, { color: colors.inkFaint }]}>Đợt này không ai phải chuyển tiền.</Text>
       ) : null}
@@ -189,11 +202,11 @@ export function DotThuLiveScreen({ phien, batchId }: { phien: Phien; batchId: st
           <View style={styles.dong}>
             <View style={styles.flex}>
               <Text style={[typography.label, { color: colors.ink }]}>{cauHangNghiaVu(n, roster)}</Text>
-              <Text style={[typography.caption, { color: n.tranhCai ? colors.warn : colors.inkFaint }]}>
-                {TU_NGHIA_VU[n.trangThai]}
-                {n.tranhCai && n.trangThai !== "disputed" ? " · đang thắc mắc" : ""}
-              </Text>
+              {n.tranhCai && n.trangThai !== "disputed" ? (
+                <Text style={[typography.caption, { color: colors.warn }]}>đang thắc mắc</Text>
+              ) : null}
             </View>
+            <Chip label={TU_NGHIA_VU[n.trangThai]} selected={n.trangThai === "confirmed" || n.trangThai === "over_confirmed"} tone="split" />
             <Text style={[typography.money, { color: colors.ink }]}>{dinhDangTienVnd(n.amountVnd)}</Text>
           </View>
           {daPhatRoi && toiNhan.has(n.id) ? (
@@ -211,13 +224,23 @@ export function DotThuLiveScreen({ phien, batchId }: { phien: Phien; batchId: st
         </Card>
       ))}
 
-      {!daPhatRoi ? (
+      {!daPhatRoi && !sapPhat ? (
         <>
-          <RudiButton disabled={ban} icon="paper-plane-outline" label="Phát đợt thu" loading={ban} onPress={() => void phat()} tone="split" />
+          <RudiButton disabled={ban} icon="paper-plane-outline" label="Phát đợt thu" onPress={() => setSapPhat(true)} tone="split" />
           <Text style={[typography.caption, { color: colors.inkSoft }]}>
-            Phát xong thì mỗi người nhận một link riêng để xem phần của mình; nghĩa vụ chỉ tồn tại từ lúc đó. Máy chủ chỉ phát khi người ứng tiền đã xác nhận.
+            Phát là không hoàn lại: mỗi người nợ nhận một link riêng để xem phần của mình, nghĩa vụ chỉ tồn tại từ lúc đó. Link chỉ hiện một lần và được giữ trên máy này. Máy chủ chỉ phát khi người ứng tiền đã xác nhận.
           </Text>
         </>
+      ) : null}
+      {!daPhatRoi && sapPhat ? (
+        <Card style={styles.hang}>
+          <Text style={[typography.label, { color: colors.ink }]}>Phát đợt thu này?</Text>
+          <Text style={[typography.caption, { color: colors.inkSoft }]}>
+            Không hoàn lại được. {tom.nguoiGui} người sẽ có link riêng; link chỉ hiện một lần và chỉ máy này giữ.
+          </Text>
+          <RudiButton disabled={ban} icon="paper-plane-outline" label="Phát, không hoàn lại" loading={ban} onPress={() => void phat()} tone="split" />
+          <RudiButton disabled={ban} label="Thôi, chưa phát" onPress={() => setSapPhat(false)} tone="split" variant="ghost" />
+        </Card>
       ) : null}
 
       {daPhatRoi ? (
@@ -239,7 +262,7 @@ export function DotThuLiveScreen({ phien, batchId }: { phien: Phien; batchId: st
                 <View style={styles.flex}>
                   <Text style={[typography.label, { color: colors.ink }]}>{env.senderName}</Text>
                   <Text style={[typography.caption, { color: colors.inkFaint }]}>
-                    {daMoKhay[env.senderId] === true ? "Đã mở khay chia sẻ, chưa rõ đã gửi chưa" : "Chưa gửi. Mỗi người một link riêng."}
+                    {daMoKhay[env.senderId] === true ? "Đã mở khay chia sẻ, chưa rõ đã gửi link chưa" : "Chưa gửi link. Mỗi người một link riêng."}
                   </Text>
                 </View>
                 <Text style={[typography.money, { color: colors.ink }]}>{dinhDangTienVnd(env.amountVnd)}</Text>

@@ -192,12 +192,18 @@ export async function xacNhanDaNhan(obligationId: string, amountVnd: number, act
 
 /* ------------------------------------------------------------ pure helpers */
 
-/** App B's wording for an obligation, kept verbatim. */
+/**
+ * Wording for an obligation: what the SENDER's money did. Deliberately not
+ * App B's «chưa gửi»/«đã nhận»: on this screen the organiser also "sends" a
+ * link, and two facts about two different people must not share a verb.
+ * «đã về» is the hero's own word (lượt chuyển đã về), so the row and the
+ * count read as one thing.
+ */
 export const TU_NGHIA_VU: Record<TrangThaiNghiaVu, string> = {
-  outstanding: "chưa gửi",
-  partially_confirmed: "gửi một phần",
-  confirmed: "đã nhận",
-  over_confirmed: "nhận dư",
+  outstanding: "chưa chuyển",
+  partially_confirmed: "chuyển một phần",
+  confirmed: "đã về",
+  over_confirmed: "về dư",
   waived: "được bỏ qua",
   disputed: "đang thắc mắc",
 };
