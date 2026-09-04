@@ -136,7 +136,8 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
         )
         self.assertIn("canary_otp", script)
         self.assertIn(
-            '22-*|23-*|24-*|25-*|26-*|27-*|28-*|29-*|31-*|32-*) [ "$OTP" = 1 ] || continue', script
+            '22-*|23-*|24-*|25-*|26-*|27-*|28-*|29-*|31-*|32-*) [ "$OTP" = 1 ] || continue',
+            script,
         )
         self.assertIn("do_ban_phim.py", script)
         self.assertIn("kiem_khoa_ai", script)
