@@ -1,0 +1,80 @@
+# Cửa thứ hai vào app, và là cửa đầu tiên KHÔNG cần ai mời: số điện thoại → mã 6
+# số → phiên (ADR-0016, `POST /auth/otp/request` + `/verify`).
+#
+# API chạy chế độ prod (không MOBILE_AUTH_MODE) với log sender và
+# MOBILE_OTP_DEBUG_CODE — harness `--otp` đã tự kiểm bằng curl rằng mã debug
+# được nhận TRƯỚC khi chạy flow này, nên một màn đỏ ở đây là app, không phải
+# môi trường. Số điện thoại và mã đi qua `-e`: số sinh lúc chạy (mỗi lượt một
+# số mới, vì người đã có nhóm sẽ không còn thấy «Chưa có nhóm nào»), và repo
+# guard không cho phép một số di động nằm trong file.
+#
+# Bản dựng của lượt này KHÔNG có EXPO_PUBLIC_RUDI_FIXTURE: cửa «Vào bản trải
+# nghiệm» phải vắng, đúng như trên một bản ship.
+appId: com.lakiet.rudi
+---
+- stopApp
+- launchApp
+- runFlow: _bo-qua-dev-menu.yaml
+- assertNotVisible: "Fetch development servers"
+- extendedWaitUntil:
+    visible: "Rủ Đi thôi!|Khám phá|Chưa có nhóm nào"
+    timeout: 150000
+- runFlow: _dang-xuat-neu-co.yaml
+- assertVisible: "Rủ Đi thôi!"
+- tapOn: "Rủ Đi thôi!"
+- extendedWaitUntil:
+    visible: "Chào bạn"
+    timeout: 30000
+- assertNotVisible: "Vào bản trải nghiệm Team Đà Lạt"
+- assertNotVisible: "Dữ liệu demo"
+- takeScreenshot: 22-man-dang-nhap
+- tapOn: "Ô số điện thoại"
+- inputText: "${OTP_PHONE}"
+- hideKeyboard
+- tapOn: "Gửi mã"
+- extendedWaitUntil:
+    visible: "Nhập mã 6 số"
+    timeout: 60000
+- takeScreenshot: 22-man-nhap-ma
+# Ca âm trước ca dương: mã sai phải bị máy chủ từ chối, và màn phải nói còn mấy
+# lần — con số là của máy chủ (5 lần rồi cháy), không phải chữ cứng của app.
+- tapOn: "Ô nhập mã"
+- inputText: "111111"
+- extendedWaitUntil:
+    visible: "Mã chưa đúng. Còn 4 lần thử."
+    timeout: 30000
+- takeScreenshot: 22-ma-sai-con-4-lan
+- tapOn: "Ô nhập mã"
+- inputText: "${OTP_CODE}"
+# Người mới, chưa ai mời: đăng nhập xong phải là trạng thái rỗng THẬT, không
+# phải tab Khám phá kể chuyện Team Đà Lạt.
+- extendedWaitUntil:
+    visible: "Chưa có nhóm nào"
+    timeout: 60000
+- assertNotVisible: "Dữ liệu demo"
+- assertNotVisible: "Khám phá"
+- assertVisible: "Tài khoản vừa được tạo bằng số điện thoại của bạn. Tên hiển thị sửa được ở mục Cá nhân."
+- takeScreenshot: 22-chua-co-nhom
+# Và dùng được thật: mở một nhóm, vào tới tab.
+- tapOn: "Tạo nhóm"
+- extendedWaitUntil:
+    visible: "Đặt tên cho hội"
+    timeout: 30000
+- tapOn: "Ô tên nhóm"
+- inputText: "Nhom OTP"
+- hideKeyboard
+- tapOn: "Mở nhóm"
+- extendedWaitUntil:
+    visible: "Khám phá"
+    timeout: 60000
+- assertNotVisible: "Dữ liệu demo"
+- assertNotVisible: "3.840.000đ"
+- assertNotVisible: "Xóm Lèo"
+# Khám phá còn đọc catalogue mẫu tới M4. Với một phiên THẬT nó phải nói thẳng
+# điều đó bằng nhãn, và không được kể chuyện «Team Đà Lạt» cho nhóm vừa đặt tên.
+# M4 đảo hai dòng này (như flow 07 từng đổi cực) khi danh sách đến từ /places.
+- assertVisible: "Gợi ý mẫu.*"
+- assertVisible: "Mẫu minh hoạ.*"
+- assertNotVisible: ".*Team Đà Lạt.*"
+- assertNotVisible: "Gần bạn, đúng gu"
+- takeScreenshot: 22-trong-nhom-moi

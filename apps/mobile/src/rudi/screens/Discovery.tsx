@@ -132,10 +132,28 @@ function PlaceCard({
   );
 }
 
+/**
+ * Whose group this screen is talking about.
+ *
+ * Until M4 ports Explore to `/places`, the catalogue on this screen is the
+ * sample one. With a REAL session that must be said out loud and the story
+ * must stop naming «Team Đà Lạt» for a group somebody just created: the
+ * sentence names their group and calls the suggestions samples. On the
+ * fixture build the fixture story stands.
+ */
+function tenNhomHienTai(session: ReturnType<typeof useRudiSession>): string {
+  if (session.cheDo !== "live") return "Team Đà Lạt";
+  const phien = session.phien;
+  const nhom = phien?.contexts?.find((ung) => ung.id === phien.context_id);
+  return nhom?.display_name ?? "nhóm của bạn";
+}
+
 export function ExploreScreen() {
   const router = useRouter();
   const { colors } = useRudiTheme();
   const session = useRudiSession();
+  const song = session.cheDo === "live";
+  const tenNhom = tenNhomHienTai(session);
   const [category, setCategory] = useState<PlaceCategory | null>(null);
   const [query, setQuery] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -180,7 +198,9 @@ export function ExploreScreen() {
           <Logo compact />
           <Inline gap={4} style={styles.location}>
             <Ionicons color={colors.accent} name="location" size={14} />
-            <Text style={[typography.caption, { color: colors.inkSoft }]}>Đà Lạt, Lâm Đồng</Text>
+            <Text style={[typography.caption, { color: colors.inkSoft }]}>
+              {song ? "Khu vực chưa chọn" : "Đà Lạt, Lâm Đồng"}
+            </Text>
             <Ionicons color={colors.inkFaint} name="chevron-down" size={13} />
           </Inline>
         </View>
@@ -238,7 +258,9 @@ export function ExploreScreen() {
         <View style={styles.flex}>
           <Text style={[typography.title, { color: colors.ink }]}>Match gu cả nhóm bằng AI</Text>
           <Text style={[typography.caption, { color: colors.inkSoft }]}>
-            Rủ Đi đã tìm thấy {PLACES.length} nơi hợp Team Đà Lạt.
+            {song
+              ? `Gợi ý mẫu cho ${tenNhom}: ${PLACES.length} nơi, chưa lọc theo gu nhóm bạn.`
+              : `Rủ Đi đã tìm thấy ${PLACES.length} nơi hợp Team Đà Lạt.`}
           </Text>
         </View>
         <Ionicons color={colors.ai} name="arrow-forward-circle" size={27} />
@@ -276,8 +298,23 @@ export function ExploreScreen() {
       <SectionHeader
         action={filtering ? "Xóa lọc" : "Xem tất cả"}
         onAction={filtering ? resetFilters : () => setFiltersOpen(true)}
-        title={filtering ? `${visiblePlaces.length} kết quả phù hợp` : "Gần bạn, đúng gu"}
+        title={
+          filtering
+            ? `${visiblePlaces.length} kết quả phù hợp`
+            : song
+              ? "Mẫu minh hoạ"
+              : "Gần bạn, đúng gu"
+        }
       />
+      {song ? (
+        // The cards below carry distances, ratings and prices. For a real
+        // session those are sample numbers until M4 reads the catalogue from
+        // the server, and a number that looks measured must say it is not.
+        <Text style={[typography.caption, { color: colors.inkSoft }]}>
+          Khoảng cách, đánh giá và giá ở đây là số mẫu. Gợi ý thật cho khu vực của nhóm đến ở bản
+          sau.
+        </Text>
+      ) : null}
       {primaryPlaces.length ? (
         <ResponsiveRow minItemWidth={320}>
           {primaryPlaces.map((place, index) => (
@@ -473,7 +510,7 @@ export function PlaceDetailScreen() {
             <ListRow icon="time-outline" title="10:00 - 22:30" subtitle="Mở cửa hôm nay" />
           </Card>
           <View>
-            <SectionHeader title="Vì sao hợp Team Đà Lạt?" />
+            <SectionHeader title={`Vì sao hợp ${tenNhomHienTai(session)}?`} />
             <Spacer size={10} />
             <Card tone="ai">
               <View style={styles.memberMatchRow}>

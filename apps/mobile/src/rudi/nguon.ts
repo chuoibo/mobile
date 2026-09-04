@@ -75,8 +75,8 @@ const CONTEXT_DEV = process.env.EXPO_PUBLIC_RUDI_CONTEXT;
 /** What the session module knows, reduced to what this decision needs. */
 export type PhienToiThieu = {
   person_id: string;
-  context_id: string;
-  membership_state: "invited" | "active" | "left";
+  context_id: string | null;
+  membership_state: "invited" | "active" | "left" | null;
 };
 
 export function nguonHienTai(
@@ -104,6 +104,13 @@ export function nguonHienTai(
     return { kieu: "live", actorId: actor, contextId: context };
   }
   if (phien !== null) {
+    if (phien.context_id === null) {
+      return {
+        kieu: "trai-nghiem",
+        viSao:
+          "Đã đăng nhập nhưng chưa ở nhóm nào. Tạo nhóm hoặc nhận lời mời để xem dữ liệu thật.",
+      };
+    }
     if (phien.membership_state !== "active") {
       // The server will refuse this person's group data, and a screen that
       // rendered the group anyway would show an empty trip where the truth is

@@ -108,7 +108,7 @@ test("nếu có profile đi http thì app.json phải khai cleartext, không đ�
 test("không profile nào được ghim danh tính dev vào bản dựng", () => {
   for (const profile of Object.keys(eas.build)) {
     const env = eas.build[profile]?.env ?? {};
-    for (const bien of ["EXPO_PUBLIC_RUDI_ACTOR", "EXPO_PUBLIC_RUDI_CONTEXT"]) {
+    for (const bien of ["EXPO_PUBLIC_RUDI_ACTOR", "EXPO_PUBLIC_RUDI_CONTEXT", "EXPO_PUBLIC_RUDI_FIXTURE"]) {
       assert.equal(
         bien in env,
         false,

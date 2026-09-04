@@ -372,6 +372,14 @@ mobile-native-dangnhap: ## Cửa vào THẬT: mint lời mời rồi đăng nh�
 	@scripts/mobile_native.sh --dang-nhap --api-port $(API) \
 	  $(if $(PORT),--port $(PORT)) $(if $(SERIAL),--serial $(SERIAL)) $(if $(KEEP),--keep) $(if $(EXPO_GO),--expo-go)
 
+mobile-native-otp: ## Cửa OTP THẬT: số sinh lúc chạy, mã debug, phiên sống qua lần tắt — cần API= của API prod có MOBILE_OTP_DEBUG_CODE=000000
+	@# Không ghim danh tính, không cửa fixture (EXPO_PUBLIC_RUDI_FIXTURE tắt): bản
+	@# dựng có đúng hình dạng bản ship. API chạy KHÔNG có MOBILE_AUTH_MODE, với log
+	@# sender + mã debug — `scripts/e2e_slice.sh --keep` dựng đúng stack đó. Script
+	@# tự curl kiểm mã debug trước khi chạy flow, và canary là flow 22 với mã SAI.
+	@scripts/mobile_native.sh --otp --api-port $(API) \
+	  $(if $(PORT),--port $(PORT)) $(if $(SERIAL),--serial $(SERIAL)) $(if $(KEEP),--keep) $(if $(LAP),--lap $(LAP))
+
 bundle-check: ## Cây đang đứng có khớp origin/main không — hỏi TRƯỚC khi xuất bundle
 	@python3 scripts/check_tree_matches_main.py \
 	  $(if $(TREE),--tree $(TREE)) $(if $(REF),--ref $(REF)) \

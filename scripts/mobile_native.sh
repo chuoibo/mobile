@@ -50,6 +50,12 @@ CONTEXT=""
 MA_LOI_MOI=""
 MODE="dev-client"
 LAP=1
+OTP=0
+# Mã debug của API ở chế độ --otp. CHỈ hợp lệ khi API dùng log sender
+# (MOBILE_OTP_DEBUG_CODE cạnh gateway thật làm create_app từ chối khởi động).
+OTP_CODE="000000"
+OTP_PHONE=""
+OTP_PHONE_B=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -64,6 +70,7 @@ while [ $# -gt 0 ]; do
     --context) CONTEXT="$2"; shift 2 ;;
     --expo-go) MODE="expo-go"; shift ;;
     --lap) LAP="$2"; shift 2 ;;
+    --otp) OTP=1; shift ;;
     *) echo "tham số lạ: $1" >&2; exit 64 ;;
   esac
 done
@@ -82,6 +89,13 @@ if [ "$DANG_NHAP" = 1 ]; then
     || { echo "--dang-nhap và --live loại trừ nhau: một cái ghim danh tính, cái kia đi lấy" >&2; exit 64; }
   [ "$LAP" = 1 ] \
     || { echo "--lap >1 chưa hỗ trợ cùng --dang-nhap: mỗi lượt cần xoá phiên và mint lời mời mới" >&2; exit 64; }
+fi
+
+if [ "$OTP" = 1 ]; then
+  [ -n "$API_PORT" ] \
+    || { echo "--otp cần --api-port <cổng API prod có MOBILE_OTP_DEBUG_CODE=$OTP_CODE và log sender>" >&2; exit 64; }
+  [ "$LIVE" = 0 ] && [ "$DANG_NHAP" = 0 ] \
+    || { echo "--otp loại trừ --live và --dang-nhap: mỗi chế độ một cửa vào" >&2; exit 64; }
 fi
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -190,6 +204,59 @@ xoa_du_lieu_app() {
 # chối dữ liệu nhóm. Thành viên duyệt là một bước riêng ở đây vì nó là một bước
 # riêng trong đời thật — và vì màn hình phải nói được hai câu khác nhau cho hai
 # trạng thái đó.
+# --- cửa OTP, cho lượt --otp -------------------------------------------------
+#
+# Không ghim danh tính, không mint lời mời: app đi đúng đường một người lạ đi —
+# gõ số, nhận mã, có phiên. Số sinh lúc chạy (mỗi lượt một số mới, vì người đã
+# có nhóm không còn thấy «Chưa có nhóm nào») và không bao giờ nằm trong file:
+# repo guard chặn số di động, và đó là ý đồ.
+sinh_so_di_dong() {
+  # 09 + 8 chữ số: hợp lệ với `chuanHoaSo` (đầu 3/5/7/8/9, chín số sau số 0).
+  # `10 ** 8` chứ không viết số: repo guard đọc chín chữ số liền là số tài khoản.
+  printf '09%08d' "$(( (RANDOM * 32768 + RANDOM) % (10 ** 8) ))"
+}
+
+# Đối chứng DƯƠNG môi trường, trước khi chạy flow: API này có nhận mã debug
+# không? Không kiểm thì một API thiếu MOBILE_OTP_DEBUG_CODE làm flow 22 đỏ ở bước
+# nhập mã, và màu đỏ đó đọc y hệt «app hỏng».
+kiem_ma_debug() {
+  local goc so id rc
+  goc="http://127.0.0.1:$API_PORT"
+  so="$(sinh_so_di_dong)"
+  id="$(curl -sS -X POST "$goc/auth/otp/request" -H 'Content-Type: application/json' \
+      -d "{\"phone\":\"$so\"}" \
+    | python3 -c 'import json,sys;print(json.load(sys.stdin).get("challenge_id",""))' 2>/dev/null || true)"
+  [ -n "$id" ] || khong_do_duoc "API $API_PORT không cấp challenge OTP (thiếu route /auth/otp/request, hay API không chạy?)."
+  rc="$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$goc/auth/otp/verify" \
+      -H 'Content-Type: application/json' \
+      -d "{\"challenge_id\":\"$id\",\"phone\":\"$so\",\"code\":\"$OTP_CODE\"}")"
+  [ "$rc" = "201" ] || khong_do_duoc "API $API_PORT không nhận mã debug $OTP_CODE (HTTP $rc). Chạy API với MOBILE_OTP_DEBUG_CODE=$OTP_CODE và log sender, ví dụ scripts/e2e_slice.sh --keep."
+  echo "API $API_PORT nhận mã debug: đối chứng dương môi trường qua"
+}
+
+# Canary cho chế độ --otp. Canary 09 đi đường fixture, mà ở đây cửa fixture tắt
+# có chủ ý — nó sẽ chết ở bước 1, tức chứng minh harness hỏng chứ không chứng
+# minh assert cắn. Đối chứng âm đúng của lượt này: chạy LẠI flow 22 với mã SAI
+# làm «mã debug». Flow phải đỏ, và đỏ ĐÚNG ở bước chờ «Chưa có nhóm nào» —
+# nghĩa là không có mã đúng thì app không bao giờ vào được trạng thái đăng nhập.
+canary_otp() {
+  local ra so rc dong
+  ra="$(mktemp)"; so="$(sinh_so_di_dong)"
+  set +e
+  maestro test -e TREE_FINGERPRINT="$DAU_VAN" -e OTP_PHONE="$so" -e OTP_PHONE_B="$so" \
+    -e OTP_CODE="999999" "$FLOWS/22-dang-nhap-otp.yaml" > "$ra" 2>&1
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || hong "canary OTP XANH: flow 22 qua với mã SAI. Assert đăng nhập không cắn."
+  dong="$(grep -n 'FAILED' "$ra" | head -1 || true)"
+  case "$dong" in
+    *"Chưa có nhóm nào"*) echo "canary OTP: mã sai → đỏ đúng ở bước chờ «Chưa có nhóm nào». Không có mã đúng thì không vào được." ;;
+    "") sed -n '1,40p' "$ra" >&2; hong "canary OTP thoát khác 0 mà không có bước nào FAILED — chết trước khi chạy." ;;
+    *) sed -n '1,60p' "$ra" >&2; hong "canary OTP đỏ ở bước KHÁC ($dong). Chưa chứng minh được gì." ;;
+  esac
+  rm -f "$ra"
+}
+
 API_URL=""
 dung_loi_moi() {
   API_URL="http://127.0.0.1:$API_PORT"
@@ -284,6 +351,8 @@ if command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | grep -qE "127\.0\.0\.1
   hong "cổng $PORT đã có người nghe. Metro của lane khác phục vụ một bundle hợp lệ của CÂY KHÁC, và thiết bị không phân biệt được. Đổi bằng MOBILE_METRO_PORT=<cổng khác>."
 fi
 
+if [ "$OTP" = 1 ]; then kiem_ma_debug; fi
+
 (
   cd "$APP"
   # `export` rather than an assignment prefix: bash decides what is an
@@ -293,6 +362,13 @@ fi
   # below caught it as "Metro is not serving this tree" -- which was true.
   export CI=1 EXPO_NO_TELEMETRY=1 EXPO_NO_DEPENDENCY_VALIDATION=1
   export EXPO_PUBLIC_TREE_FINGERPRINT="$DAU_VAN"
+  # Cửa «Vào bản trải nghiệm» chỉ tồn tại khi cờ này lên (và __DEV__). Mọi chế
+  # độ trừ --otp đi qua cửa đó — canary 09 đi `_vao-app-sach`, kể cả ở
+  # --dang-nhap (đo 2026-09-04: tắt cờ ở --dang-nhap làm canary chết ở bước 1
+  # dù flow 21 xanh). Bằng chứng «bản ship không có cửa fixture» nằm ở flow 22.
+  if [ "$OTP" = 0 ]; then
+    export EXPO_PUBLIC_RUDI_FIXTURE=1
+  fi
   if [ -n "$API_PORT" ]; then
     export EXPO_PUBLIC_API_URL="http://localhost:$API_PORT"
   fi
@@ -480,9 +556,14 @@ in_man_dang_thay() {
 
 chay_flow() {
   local f="$1" ra rc
+  local -a them=()
+  # Số và mã chỉ đi qua -e, không bao giờ nằm trong file flow.
+  if [ "$OTP" = 1 ]; then
+    them=(-e OTP_PHONE="$OTP_PHONE" -e OTP_PHONE_B="$OTP_PHONE_B" -e OTP_CODE="$OTP_CODE")
+  fi
   ra="$(mktemp)"
   set +e
-  maestro test -e TREE_FINGERPRINT="$DAU_VAN" --test-output-dir "$ANH_DIR" "$f" > "$ra" 2>&1
+  maestro test -e TREE_FINGERPRINT="$DAU_VAN" "${them[@]}" --test-output-dir "$ANH_DIR" "$f" > "$ra" 2>&1
   rc=$?
   set -e
   cat "$ra"
@@ -497,6 +578,11 @@ chay_flow() {
 # được «đúng» với «may»; bộ nhớ dự án ghi cú bấm bị rơi ~1/4 lượt trên web.
 for lap in $(seq 1 "$LAP"); do
 [ "$LAP" -gt 1 ] && echo "=== lượt $lap/$LAP ==="
+if [ "$OTP" = 1 ]; then
+  # Mỗi lượt hai người MỚI: người của lượt trước đã có nhóm, và flow 22 khẳng
+  # định «Chưa có nhóm nào».
+  OTP_PHONE="$(sinh_so_di_dong)"; OTP_PHONE_B="$(sinh_so_di_dong)"
+fi
 for f in "$FLOWS"/*.yaml; do
   ten="$(basename "$f")"
   case "$ten" in
@@ -507,7 +593,8 @@ for f in "$FLOWS"/*.yaml; do
     # môi trường chứ không phải vì app sai. `--live` chạy đúng và chỉ nhóm này.
     20-*)        [ "$LIVE" = 1 ] || continue ;;
     21-*)        [ "$DANG_NHAP" = 1 ] || continue ;;
-    *)           { [ "$LIVE" = 1 ] || [ "$DANG_NHAP" = 1 ]; } && continue ;;
+    22-*|23-*)   [ "$OTP" = 1 ] || continue ;;
+    *)           { [ "$LIVE" = 1 ] || [ "$DANG_NHAP" = 1 ] || [ "$OTP" = 1 ]; } && continue ;;
   esac
   DA_CHAY=$((DA_CHAY + 1))
   set +e; chay_flow "$f"; rc=$?; set -e
@@ -532,7 +619,7 @@ echo "đã chạy $DA_CHAY flow"
 # NEO 2b. Flow 00 vừa assert dấu vân THẬT ở trong bảng; giờ cùng flow với dấu vân
 # SAI phải đỏ, và đỏ đúng ở dòng đó. Không thì `assertVisible` của dấu vân là một
 # dòng trang trí và hai neo Metro ở trên lại là tất cả những gì ta có.
-if [ "$LIVE" = 0 ] && [ "$DANG_NHAP" = 0 ]; then
+if [ "$LIVE" = 0 ] && [ "$DANG_NHAP" = 0 ] && [ "$OTP" = 0 ]; then
   RA_2B="$(mktemp)"
   set +e
   maestro test -e TREE_FINGERPRINT="KHONG_CO_DAU_VAN_NAY" "$FLOWS/00-smoke-deeplink.yaml" > "$RA_2B" 2>&1
@@ -553,6 +640,11 @@ if [ "$LIVE" = 0 ] && [ "$DANG_NHAP" = 0 ]; then
   rm -f "$RA_2B"
 fi
 
+[ "$BANG" -eq 0 ] || hong "flow đỏ:$DO_LIST"
+
+if [ "$OTP" = 1 ]; then
+  canary_otp
+else
 RA_CANARY="$(mktemp)"
 # Canary chạy đường FIXTURE trên app CHƯA đăng nhập. Ở chế độ `--dang-nhap` thì
 # bảng vừa đăng nhập thật xong, nên phải trả máy về trạng thái đó trước.
@@ -564,7 +656,6 @@ if [ "$DANG_NHAP" = 1 ]; then
 fi
 set +e; maestro test -e TREE_FINGERPRINT="$DAU_VAN" "$FLOWS/09-canary-phai-do.yaml" 2>&1 | tee "$RA_CANARY"; CANARY=${PIPESTATUS[0]}; set -e
 
-[ "$BANG" -eq 0 ] || hong "flow đỏ:$DO_LIST"
 # NEO 3. Canary xanh nghĩa là phép đo không phân biệt được đúng với sai, nên cả
 # bảng xanh ở trên không chứng minh gì.
 [ "$CANARY" -ne 0 ] || hong "canary XANH. Bảng trên không chứng minh gì."
@@ -587,5 +678,6 @@ case "$DONG_DO_DAU" in
      hong "canary đỏ ở bước KHÁC bước cuối ($DONG_DO_DAU). Nó chết vì hạ tầng, nên bảng trên vẫn chưa chứng minh gì." ;;
 esac
 rm -f "$RA_CANARY"
+fi
 
-echo "XANH: bảng qua ($LAP lượt), NEO 2b cắn, canary đỏ đúng thiết kế, trên $ANDROID_SERIAL / $EXPO_VER / dấu vân $DAU_VAN"
+echo "XANH: bảng qua ($LAP lượt), $([ "$OTP" = 1 ] && echo "canary OTP (mã sai) đỏ đúng chỗ" || echo "NEO 2b cắn, canary đỏ đúng thiết kế"), trên $ANDROID_SERIAL / $EXPO_VER / dấu vân $DAU_VAN"

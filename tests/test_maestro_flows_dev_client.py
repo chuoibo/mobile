@@ -72,6 +72,54 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
         lines = code_lines(FLOWS / "00-smoke-deeplink.yaml")
         self.assertIn('- assertVisible: ".*${TREE_FINGERPRINT}.*"', lines)
 
+    def test_every_launch_is_followed_by_the_dev_menu_skip(self) -> None:
+        # The dev client shows «This is the developer menu» on the first cold
+        # open after install; a flow that launches and does not dismiss it reads
+        # the sheet as «no button». Measured 2026-09-03.
+        for flow in self.flows:
+            lines = code_lines(flow)
+            for i, line in enumerate(lines):
+                if line.strip() != "- launchApp":
+                    continue
+                sau = lines[i + 1 : i + 3]
+                self.assertTrue(
+                    any("_bo-qua-dev-menu.yaml" in x for x in sau),
+                    f"{flow.name}: launchApp ở dòng {i} không có _bo-qua-dev-menu ngay sau",
+                )
+
+    def test_otp_flows_take_number_and_code_from_the_harness(self) -> None:
+        for name in ("22-dang-nhap-otp.yaml", "23-phien-song-qua-lan-tat.yaml"):
+            text = (FLOWS / name).read_text(encoding="utf-8")
+            self.assertRegex(text, r"\$\{OTP_PHONE(_B)?\}", name)
+            self.assertIn("${OTP_CODE}", text, name)
+            # A phone number in a flow file is a phone number in Git.
+            self.assertIsNone(
+                re.search(r"\d[\d .-]{8,}\d", text),
+                f"{name}: có dãy số dài như số điện thoại",
+            )
+            self.assertIn(
+                'assertNotVisible: "Vào bản trải nghiệm Team Đà Lạt"',
+                text.replace("- ", ""),
+                name,
+            ) if name.startswith("22") else None
+
+    def test_harness_otp_mode_probes_the_debug_code_and_hides_the_fixture_door(
+        self,
+    ) -> None:
+        script = (REPO_ROOT / "scripts" / "mobile_native.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("--otp) OTP=1", script)
+        self.assertIn("kiem_ma_debug", script)
+        self.assertIn("/auth/otp/verify", script)
+        self.assertIn('-e OTP_PHONE="$OTP_PHONE"', script)
+        self.assertIn(
+            'if [ "$OTP" = 0 ]; then\n    export EXPO_PUBLIC_RUDI_FIXTURE=1',
+            script,
+        )
+        self.assertIn("canary_otp", script)
+        self.assertIn('22-*|23-*)   [ "$OTP" = 1 ] || continue', script)
+
     def test_harness_passes_the_fingerprint_and_checks_it_bites(self) -> None:
         script = (REPO_ROOT / "scripts" / "mobile_native.sh").read_text(
             encoding="utf-8"

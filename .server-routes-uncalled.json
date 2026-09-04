@@ -110,24 +110,9 @@
       "reason": "F33 gợi ý từ lịch sử nhóm. ĐÃ CÓ NGƯỜI GỌI THẬT từ #382: ai-hieu-nhom.ts:219 gọi `${prefix}/suggestion`. Cùng cơ chế mù và cùng đường bấm với /budget ở trên. Lý do cũ ('không có literal nào bắt đầu bằng /suggest') là một phép thử trên hình dạng literal, và hình dạng đó không đo được chuyện đường dẫn bị ghép từ hai mảnh."
     },
     {
-      "route": "/people/me/contexts",
-      "loai": "tinh-nang",
-      "reason": "M1/M2 (ADR-0016): danh sách hội thoại của vỏ RuDi (`app/(tabs)/messages.tsx` → `groups/Conversations.tsx`) sẽ gọi; thay cho việc `nguon.ts` đoán nhóm từ SessionResponse. Gỡ pin ở PR client M2."
-    },
-    {
       "route": "/contexts/{context_id}/read-mark",
       "loai": "tinh-nang",
       "reason": "M3 (ADR-0016): màn chat vỏ RuDi gọi khi người dùng xem tới tin mới nhất để `unread_count` về 0. Gỡ pin ở PR client M3."
-    },
-    {
-      "route": "/auth/otp/request",
-      "loai": "tinh-nang",
-      "reason": "M1 (ADR-0016): màn Login của vỏ RuDi gọi khi bấm «Gửi OTP». Gỡ pin ở PR client M1."
-    },
-    {
-      "route": "/auth/otp/verify",
-      "loai": "tinh-nang",
-      "reason": "M1 (ADR-0016): màn Otp của vỏ RuDi gọi khi nhập đủ 6 số; trả SessionResponse. Gỡ pin ở PR client M1."
     },
     {
       "route": "/auth/google",

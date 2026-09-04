@@ -15,20 +15,18 @@ import {
   View,
 } from "react-native";
 
-import { chuanHoaSo } from "../../screens/vao-cua/danh-tinh";
 import { demoAssets } from "../fixtures";
 import { noiLuu } from "../luu-tru";
 import { useRudiSession } from "../session";
 import { typography, useRudiTheme } from "../theme";
+import { CUA_FIXTURE_DEV } from "../cua-fixture";
 import { DAU_VAN_CAY } from "../dau-van-cay";
 import {
   Card,
   Chip,
   DemoBadge,
-  Field,
   Heading,
   Inline,
-  Logo,
   ProgressBar,
   RudiButton,
   RudiScreen,
@@ -94,7 +92,9 @@ export function WelcomeScreen() {
               <Text style={styles.welcomeLogoType}>Đi</Text>
             </View>
           </View>
-          <DemoBadge label="Bản trải nghiệm" />
+          {/* Only a dev build with the fixture door is an «experience build»;
+              a shipped build must not call itself one. */}
+          {CUA_FIXTURE_DEV ? <DemoBadge label="Bản trải nghiệm" /> : null}
         </View>
         <View style={styles.welcomeCenter}>
           <Text style={styles.welcomeBrand}>Rủ{"\n"}Đi</Text>
@@ -141,126 +141,6 @@ export function WelcomeScreen() {
           </View>
         </View>
       </View>
-    </RudiScreen>
-  );
-}
-
-export function LoginScreen() {
-  const router = useRouter();
-  const { colors } = useRudiTheme();
-  const session = useRudiSession();
-  const [phone, setPhone] = useState("");
-  const [otp, setOtp] = useState("");
-  const [otpSent, setOtpSent] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [providerNotice, setProviderNotice] = useState<string | null>(null);
-
-  const normalized = chuanHoaSo(phone);
-
-  const sendOtp = () => {
-    setProviderNotice(null);
-    if (!normalized) {
-      setError("Nhập số điện thoại di động Việt Nam hợp lệ.");
-      return;
-    }
-    setOtpSent(true);
-    setError("Chưa có nhà cung cấp OTP nên không gửi được mã. Dùng bản trải nghiệm bên dưới, hoặc đợi Pha D.");
-  };
-
-  const verifyOtp = () => {
-    setProviderNotice(null);
-    if (!otp.trim()) {
-      setError("Nhập mã OTP khi nhà cung cấp đã kết nối.");
-      return;
-    }
-    setError("OTP nhà cung cấp chưa kết nối. Không thể xác thực số thật trên bản này.");
-  };
-
-  // No state to set: the screens are on the experience build whenever there is
-  // no session token, and that is the only thing that decides it now.
-  const enterDemo = () => router.push("/personalization");
-
-  return (
-    <RudiScreen contentStyle={styles.formScreen} testID="login-screen">
-      <TopBar right={<DemoBadge />} />
-      <View style={styles.loginBrand}>
-        <Logo />
-        <Heading
-          align="center"
-          title="Chào bạn"
-          subtitle="Đăng nhập bằng Google, Apple hoặc số điện thoại. Tài khoản nhà cung cấp chưa gắn, đừng nhầm với bản trải nghiệm."
-        />
-      </View>
-      <Card style={styles.loginCard}>
-        <RudiButton
-          icon="logo-google"
-          label="Tiếp tục với Google"
-          onPress={() => {
-            setError(null);
-            setProviderNotice("Google chưa kết nối. Cần tài khoản OAuth (Pha D).");
-          }}
-          variant="outline"
-        />
-        <RudiButton
-          icon="logo-apple"
-          label="Tiếp tục với Apple"
-          onPress={() => {
-            setError(null);
-            setProviderNotice("Apple chưa kết nối. Trên iOS sẽ hiện sau khi có chứng chỉ.");
-          }}
-          variant="outline"
-        />
-        <View style={styles.orRow}>
-          <View style={[styles.orLine, { backgroundColor: colors.line }]} />
-          <Text style={[typography.caption, { color: colors.inkFaint }]}>hoặc số điện thoại</Text>
-          <View style={[styles.orLine, { backgroundColor: colors.line }]} />
-        </View>
-        <Field
-          autoCapitalize="none"
-          icon="call-outline"
-          keyboardType="phone-pad"
-          label="Số điện thoại"
-          onChangeText={setPhone}
-          placeholder="Nhập số di động"
-          value={phone}
-        />
-        {otpSent ? (
-          <Field
-            icon="keypad-outline"
-            keyboardType="number-pad"
-            label="Mã OTP"
-            onChangeText={setOtp}
-            placeholder="6 số từ nhà cung cấp"
-            value={otp}
-          />
-        ) : null}
-        <RudiButton
-          label={otpSent ? "Xác nhận OTP" : "Gửi OTP"}
-          onPress={() => (otpSent ? verifyOtp() : sendOtp())}
-        />
-        {error ? <Text style={[typography.caption, styles.authError, { color: colors.warn }]}>{error}</Text> : null}
-        {providerNotice ? (
-          <Text style={[typography.caption, { color: colors.inkSoft }]}>{providerNotice}</Text>
-        ) : null}
-        <Pressable accessibilityRole="button" onPress={() => setError("Khôi phục mật khẩu cần nhà cung cấp OTP, hiện chưa kết nối.")}>
-          <Text style={[typography.caption, { color: colors.accent }]}>Quên mật khẩu?</Text>
-        </Pressable>
-      </Card>
-      <RudiButton
-        icon="mail-open-outline"
-        label="Tôi có lời mời"
-        onPress={() => router.push("/moi")}
-      />
-      <RudiButton label="Vào bản trải nghiệm Team Đà Lạt" onPress={enterDemo} variant="soft" />
-      <Inline style={styles.signupRow}>
-        <Text style={[typography.label, { color: colors.inkSoft }]}>Chưa có tài khoản?</Text>
-        <Pressable accessibilityRole="button" onPress={enterDemo}>
-          <Text style={[typography.label, { color: colors.accent }]}>Tạo ngay (bản trải nghiệm)</Text>
-        </Pressable>
-      </Inline>
-      <Text style={[typography.caption, styles.privacyText, { color: colors.inkFaint }]}>
-        Tiếp tục nghĩa là bạn đồng ý Điều khoản và Chính sách bảo mật. Bản trải nghiệm không tạo tài khoản thật.
-      </Text>
     </RudiScreen>
   );
 }
@@ -376,18 +256,11 @@ const styles = StyleSheet.create({
   pagerActive: { width: 18, height: 7, borderRadius: 4, backgroundColor: "#FFFFFF" },
   dauVanCay: { color: "rgba(255,255,255,0.55)", fontSize: 12, textAlign: "center", paddingTop: 6 },
   pressed: { opacity: 0.7 },
-  formScreen: { gap: 20 },
-  loginBrand: { alignItems: "center", gap: 20, marginTop: 3 },
-  loginCard: { gap: 14, maxWidth: 560, width: "100%", alignSelf: "center" },
-  orRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  orLine: { flex: 1, height: StyleSheet.hairlineWidth },
-  signupRow: { justifyContent: "center", gap: 5 },
-  authError: { lineHeight: 18 },
   personalization: { maxWidth: 760 },
+  privacyText: { textAlign: "center", paddingHorizontal: 18 },
   preferenceCard: { gap: 8 },
   interestGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 7 },
   interest: { minHeight: 62, minWidth: "47%", flexGrow: 1, flexBasis: 150, borderRadius: 16, borderWidth: 1, flexDirection: "row", alignItems: "center", gap: 9, padding: 10 },
   interestIcon: { width: 39, height: 39, borderRadius: 13, alignItems: "center", justifyContent: "center" },
   vibeBlock: { gap: 11 },
-  privacyText: { textAlign: "center", paddingHorizontal: 18 },
 });

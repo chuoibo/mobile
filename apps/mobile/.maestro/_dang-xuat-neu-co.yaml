@@ -1,0 +1,40 @@
+# Về trạng thái CHƯA ĐĂNG NHẬP, dù lượt trước để lại gì.
+#
+# Phiên OTP sống trong SecureStore qua lần tắt app (đó chính là điều flow 23
+# khẳng định), nên flow 22 chạy lượt 2 sẽ mở app ra thẳng tab Khám phá thay vì
+# màn chào, và đỏ ở «Rủ Đi thôi!» vì một lý do không liên quan tới nó. Đi đúng
+# đường đăng xuất của sản phẩm — không `clearState` (pm clear đưa dev client về
+# launcher và xoá bundle) — nên đường đăng xuất được đo lại ở mỗi lượt.
+#
+# Gọi SAU khi màn đã ổn định: người gọi phải `extendedWaitUntil` một trong ba
+# màn đích («Rủ Đi thôi!» | «Khám phá» | «Chưa có nhóm nào») trước, vì `when`
+# không chờ.
+appId: com.lakiet.rudi
+---
+- runFlow:
+    when:
+      visible: "Chưa có nhóm nào"
+    commands:
+      - tapOn: "Đăng xuất"
+      - extendedWaitUntil:
+          visible: "Rủ Đi thôi!"
+          timeout: 30000
+- runFlow:
+    when:
+      visible: "Khám phá"
+    commands:
+      - tapOn: "Cá nhân"
+      - scrollUntilVisible:
+          element:
+            text: "Tài khoản"
+          direction: DOWN
+          centerElement: true
+          timeout: 30000
+      - tapOn: "Tài khoản"
+      - extendedWaitUntil:
+          visible: "Đăng xuất"
+          timeout: 20000
+      - tapOn: "Đăng xuất"
+      - extendedWaitUntil:
+          visible: "Rủ Đi thôi!"
+          timeout: 30000
