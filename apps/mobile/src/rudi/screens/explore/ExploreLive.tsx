@@ -152,7 +152,7 @@ export function ExploreLiveScreen({ phien }: { phien: Phien }) {
           if (timKiem.kind !== "chua-tim") setTimKiem({ kind: "chua-tim" });
         }}
         onSubmitEditing={() => void hoi()}
-        placeholder="Tìm tên quán, hoặc gõ một câu cho Rủ Đi AI"
+        placeholder="Tìm quán hoặc hỏi Rủ Đi AI"
         value={query}
       />
       <Card onPress={() => setQuery(CAU_MAU)} style={styles.theAi} tone="ai">

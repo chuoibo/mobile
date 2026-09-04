@@ -168,14 +168,17 @@ function ThanChiTiet({
           <Ionicons color={colors.accent} name={bieuTuongLoai(place.category)} size={40} />
         </View>
         <Heading title={place.name} subtitle={dongPhu(place)} />
-        <Inline gap={6}>
-          <Ionicons color={colors.accent} name="star" size={14} />
-          {/* One text node for the facts line, so no word is measured alone. */}
-          <Text style={[typography.caption, { color: colors.inkSoft }]}>
-            <Text style={[typography.label, { color: colors.ink }]}>{formatRating(place.rating, place.ratingCount)}</Text>
-            {" "}· {formatDistance(place.distanceKm)} ·{" "}
-            <Text style={{ color: place.openNow ? colors.accent : colors.split }}>{place.openNow ? "Đang mở" : "Đã đóng"}</Text>
-          </Text>
+        <Inline gap={8} wrap>
+          <Inline gap={6}>
+            <Ionicons color={colors.accent} name="star" size={14} />
+            {/* One text node for the facts line, so no word is measured alone. */}
+            <Text style={[typography.caption, { color: colors.inkSoft }]}>
+              <Text style={[typography.label, { color: colors.ink }]}>{formatRating(place.rating, place.ratingCount)}</Text>
+              {" "}· {formatDistance(place.distanceKm)}
+            </Text>
+          </Inline>
+          {/* Status as a whole badge: at font 1.3 the inline word broke across lines («Đang / mở»). */}
+          <Chip label={place.openNow ? "Đang mở" : "Đã đóng"} selected tone={place.openNow ? "accent" : "split"} />
         </Inline>
         {hop !== null && hop.real ? (
           <View style={styles.huyHieu}>
