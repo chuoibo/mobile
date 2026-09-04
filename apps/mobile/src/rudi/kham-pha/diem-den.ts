@@ -90,6 +90,15 @@ export async function luuDiemDen(id: string): Promise<void> {
   }
 }
 
+/** Forget the stored choice, e.g. after the server said it no longer exists. */
+export async function quenDiemDen(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(KHOA);
+  } catch {
+    // Same as above: this is a filter, not a fact.
+  }
+}
+
 export async function docDiemDenDaChon(): Promise<string | null> {
   try {
     return await AsyncStorage.getItem(KHOA);

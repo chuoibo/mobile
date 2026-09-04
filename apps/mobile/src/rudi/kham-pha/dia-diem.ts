@@ -9,7 +9,7 @@
  * nobody; saving a place is the person's own row and goes with the bearer.
  * No synthetic `context_id` travels on the query string.
  */
-import { translatedAnonymous, translatedAsActor } from "../../api";
+import { ApiError, translatedAnonymous, translatedAsActor } from "../../api";
 import {
   parsePlaceDetail,
   type PlaceDetail,
@@ -21,6 +21,7 @@ import {
   type Place,
 } from "../../screens/kham-pha/places";
 import type { TimKiemState } from "../../screens/kham-pha/tim-kiem";
+import { quenDiemDen } from "./diem-den";
 import type { IconName } from "../ui";
 
 const LOI_DIA_DIEM: Record<string, string> = {
@@ -56,6 +57,27 @@ export async function docDanhMuc(
     method: "GET",
   });
   return parseCatalogue(body);
+}
+
+/**
+ * The catalogue for a remembered destination, falling back to the server's own.
+ *
+ * A destination this phone stored can be gone from the catalogue -- an import
+ * can drop one -- and that answers 404. The right response is the default
+ * destination, not an error screen about a city somebody chose last week; the
+ * stored choice is cleared so it stops being asked for.
+ */
+export async function docDanhMucCoLui(daChon: string | null): Promise<DanhMuc> {
+  if (daChon === null) return docDanhMuc();
+  try {
+    return await docDanhMuc({ destination: daChon });
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      await quenDiemDen();
+      return docDanhMuc();
+    }
+    throw error;
+  }
 }
 
 export async function docChiTiet(placeId: string): Promise<PlaceDetail> {

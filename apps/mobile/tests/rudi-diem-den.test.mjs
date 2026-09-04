@@ -14,8 +14,11 @@ import {
   cauGanToi,
   cauKhoangCach,
   docDiemDen,
+  docDiemDenDaChon,
   dongPhuDiemDen,
+  luuDiemDen,
 } from "../dist-test/rudi/kham-pha/diem-den.js";
+import { docDanhMucCoLui } from "../dist-test/rudi/kham-pha/dia-diem.js";
 
 const DA_LAT = {
   id: "d-da-lat",
@@ -100,4 +103,44 @@ test("dòng phụ ghép tỉnh với khoảng cách, bỏ phần rỗng", () => 
   assert.equal(dongPhuDiemDen(doc({ province: "Lâm Đồng", distanceKm: 4.2 })), "Lâm Đồng · Cách bạn 4.2 km");
   assert.equal(dongPhuDiemDen(doc({ province: "Lâm Đồng" })), "Lâm Đồng");
   assert.equal(dongPhuDiemDen(doc({})), "");
+});
+
+test("điểm đến đã lưu mà máy chủ không còn thì lùi về mặc định, và quên nó đi", async () => {
+  // Một import có thể bỏ một điểm đến. Màn không được hiện lỗi về một thành
+  // phố người ta chọn tuần trước; nó lùi về nơi máy chủ chọn, và thôi hỏi.
+  const goc = globalThis.fetch;
+  const daGoi = [];
+  globalThis.fetch = async (url) => {
+    daGoi.push(String(url));
+    if (String(url).includes("destination=d-khong-con")) {
+      return {
+        ok: false,
+        status: 404,
+        headers: { get: () => "application/json" },
+        json: async () => ({ code: "destination_not_found", detail: "x" }),
+        text: async () => "",
+      };
+    }
+    const than = {
+      places: [],
+      categories: [],
+      destination: { id: "d-da-lat", name: "Đà Lạt" },
+    };
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => "application/json" },
+      json: async () => than,
+      text: async () => JSON.stringify(than),
+    };
+  };
+  try {
+    await luuDiemDen("d-khong-con");
+    const dm = await docDanhMucCoLui("d-khong-con");
+    assert.equal(dm.destination.id, "d-da-lat");
+    assert.equal(await docDiemDenDaChon(), null, "lựa chọn hỏng phải bị quên");
+  } finally {
+    globalThis.fetch = goc;
+  }
+  assert.equal(daGoi.length, 2, "một lần hỏi nơi đã lưu, một lần lùi về mặc định");
 });

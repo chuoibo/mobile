@@ -28,7 +28,7 @@ import {
   chiTietNgan,
   daoLuu,
   docDaLuu,
-  docDanhMuc,
+  docDanhMucCoLui,
   dongPhu,
   locTheoTen,
   luuDiaDiem,
@@ -88,7 +88,11 @@ export function ExploreLiveScreen({ phien }: { phien: Phien }) {
     try {
       const daChon = await docDiemDenDaChon();
       const [danhMuc, luu] = await Promise.all([
-        docDanhMuc(daChon === null ? undefined : { destination: daChon }),
+        // A destination this phone remembers may be gone from the catalogue
+        // (an import can drop one). That is a 404, and the right answer is the
+        // server's default rather than an error screen about a city the person
+        // chose last week; the stored choice is cleared so it stops asking.
+        docDanhMucCoLui(daChon),
         docDaLuu(phien.person_id),
       ]);
       setDiemDen(danhMuc.destination);
