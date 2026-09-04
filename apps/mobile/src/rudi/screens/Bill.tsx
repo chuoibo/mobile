@@ -2,12 +2,13 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { ApiError, BASE_URL, scanReceipt } from "../../api";
+import { ApiError, BASE_URL, attemptFor, scanReceipt, type Attempt } from "../../api";
 import { docQuyetToanLive, dongHeroQuyetToan, tenCua, type QuyetToanLive } from "../doc-live";
+import { cauTomTatDot, cauTrangThaiDot, docDotThuCuaNhom, moDotThu, type DotThuTomTat } from "../dot-thu/dot-thu";
 import { DEMO_PEOPLE } from "../../navigation/nhom-demo";
 import { BILL_ITEMS, COLLECTOR_INDEX, DEMO_GROUP, PEOPLE, demoAssets, formatVnd } from "../fixtures";
 import { noiLuuNgan } from "../luu-tru";
@@ -20,6 +21,7 @@ import {
   Chip,
   DemoBadge,
   Inline,
+  ListRow,
   ProgressBar,
   RudiButton,
   RudiScreen,
@@ -280,8 +282,53 @@ export function SettlementScreen() {
  */
 function QuyetToanLive({ actorId, contextId }: { actorId: string; contextId: string }) {
   const { colors } = useRudiTheme();
+  const router = useRouter();
   const [du, setDu] = useState<QuyetToanLive | null>(null);
   const [loi, setLoi] = useState<string | null>(null);
+  // The group's collection rounds, read beside the balances. `"hong"` keeps
+  // the transfer list on screen when only this read fails: they answer
+  // different questions and fail independently.
+  const [dotThu, setDotThu] = useState<DotThuTomTat[] | "hong" | null>(null);
+  const [dangMo, setDangMo] = useState(false);
+  const [loiDot, setLoiDot] = useState<string | null>(null);
+  const attempts = useRef<Record<string, Attempt>>({});
+
+  // On focus, not on mount: coming back from a round (created or just
+  // published) must show it, and a stack keeps this screen mounted underneath.
+  useFocusEffect(
+    useCallback(() => {
+      let song = true;
+      void docDotThuCuaNhom(contextId, actorId)
+        .then((ds) => {
+          if (song) setDotThu(ds);
+        })
+        .catch(() => {
+          if (song) setDotThu("hong");
+        });
+      return () => {
+        song = false;
+      };
+    }, [actorId, contextId]),
+  );
+
+  const moDot = async () => {
+    setDangMo(true);
+    setLoiDot(null);
+    try {
+      const soDot = dotThu === null || dotThu === "hong" ? 0 : dotThu.length;
+      const dot = await moDotThu({
+        contextId,
+        actorId,
+        expenseVersionIds: null,
+        attempt: attemptFor(attempts.current, `mo-dot:${contextId}:${soDot}`),
+      });
+      router.push(`/batches/${dot.batchId}` as never);
+    } catch (error) {
+      setLoiDot(error instanceof ApiError ? error.message : `Không mở được đợt thu tại ${BASE_URL}.`);
+    } finally {
+      setDangMo(false);
+    }
+  };
 
   useEffect(() => {
     let song = true;
@@ -355,9 +402,32 @@ function QuyetToanLive({ actorId, contextId }: { actorId: string; contextId: str
           {du.toiThieu
             ? "Máy chủ chứng minh đây là danh sách chuyển ngắn nhất."
             : "Danh sách này chưa được chứng minh là ngắn nhất."}{" "}
-          Nghĩa vụ chỉ tồn tại sau khi một đợt thu được publish.
+          Nghĩa vụ chỉ tồn tại sau khi một đợt thu được phát.
         </Text>
       </Card>
+      <SectionHeader title="Đợt thu" />
+      {dotThu === null ? <Text style={[typography.caption, { color: colors.inkFaint }]}>Đang đọc các đợt thu…</Text> : null}
+      {dotThu === "hong" ? <Text style={[typography.caption, { color: colors.warn }]}>Chưa đọc được các đợt thu của nhóm.</Text> : null}
+      {Array.isArray(dotThu) && dotThu.length === 0 ? (
+        <Text style={[typography.caption, { color: colors.inkFaint }]}>Chưa có đợt thu nào. Các khoản chuyển ở trên mới là đề xuất.</Text>
+      ) : null}
+      {Array.isArray(dotThu)
+        ? dotThu.map((dot) => (
+            <ListRow
+              icon="receipt-outline"
+              key={dot.id}
+              onPress={() => router.push(`/batches/${dot.id}` as never)}
+              subtitle={cauTomTatDot(dot)}
+              title={cauTrangThaiDot(dot.trangThai)}
+              tone="split"
+            />
+          ))
+        : null}
+      {loiDot !== null ? <Text style={[typography.body, { color: colors.warn }]}>{loiDot}</Text> : null}
+      <RudiButton disabled={dangMo} icon="add" label="Tạo đợt thu từ sổ" loading={dangMo} onPress={() => void moDot()} tone="split" variant="soft" />
+      <Text style={[typography.caption, { color: colors.inkSoft }]}>
+        Gom mọi khoản đã ghi mà chưa vào đợt nào thành một đợt thu. Chưa phát thì chưa ai bị nhắn gì.
+      </Text>
     </RudiScreen>
   );
 }

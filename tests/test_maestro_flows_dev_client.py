@@ -96,6 +96,7 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
             "26-kham-pha-that.yaml",
             "27-keo-that.yaml",
             "28-chia-bill-that.yaml",
+            "29-dot-thu-that.yaml",
             "30-chat-that.yaml",
             "31-ban-phim-mo.yaml",
             "40-ai-plan.yaml",
@@ -134,7 +135,7 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
         )
         self.assertIn("canary_otp", script)
         self.assertIn(
-            '22-*|23-*|24-*|25-*|26-*|27-*|28-*|31-*) [ "$OTP" = 1 ] || continue', script
+            '22-*|23-*|24-*|25-*|26-*|27-*|28-*|29-*|31-*) [ "$OTP" = 1 ] || continue', script
         )
         self.assertIn("do_ban_phim.py", script)
         self.assertIn("kiem_khoa_ai", script)
