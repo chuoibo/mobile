@@ -63,7 +63,8 @@ này không mô tả việc đã có người làm như thể còn nợ:
 | PR-BE5 profile + saved places | Claude | **#532** mở, xếp trên #530 |
 | PR-BE6 slash/@mention, `message_reactions`, cursor echo, grounding card client, `/chia-bill` theo lô | Claude | **#534** mở, xếp trên #532 |
 | PR-BE7a `outing_stops.place_id` (chặng của kèo trỏ vào danh mục; giữ check-in khi gắn) | Claude | **#536** mở, xếp trên #534 (M4) |
-| PR-BE7 `seed_rudi_world.py` HTTP-only re-runnable — đóng 0c «seed ≠ fixture» | Claude | M7, chưa làm |
+| PR-BE7b `GET /contexts/{context_id}/batches` (liệt kê đợt thu của nhóm, gấp từ bảng thu) | Claude | **#541** mở, xếp trên #536 (M5 v-b) |
+| PR-BE7 `seed_rudi_world` HTTP-only re-runnable — đóng 0c «seed ≠ fixture» | Claude | M7 đang làm: viết bằng Node trên chính module client (`apps/mobile/tools/seed-rudi-world.mjs`, `make demo-rudi`), đã chạy thật một lượt trên stack BE7b; PR sau M6 |
 | 0b `check_api_contract.py` mù `/healthz` | còn mở | sửa khi đụng `scripts/` |
 | C1–C3 (OffsetProposal, phản đối dừng thu, bằng chứng che) | còn mở | chưa nằm trong lộ trình |
 
@@ -75,8 +76,14 @@ Phía client (vỏ RuDi, `apps/mobile/`, xếp chồng theo thứ tự, mỗi PR
 | **#533** | M2 ii-a Tin nhắn = nhóm thật, roster, mời theo số, hồ sơ sống | #531 và #532 |
 | **#535** | M2 ii-b Bạn bè, thêm bạn theo số điện thoại | #533 |
 | **#537** | M3 chat như messenger trên API thật, Rủ Đi AI là thành viên (`/plan` `/vote` `/chia-bill` `@Rủ Đi`), đo bàn phím | #535 và #534 |
+| **#539** | M4 iv-a Khám phá trên `/places`, chi tiết địa điểm (chỉ đường, lưu địa điểm) | #537 |
+| **#540** | M4 iv-b kèo: tạo kèo, lịch trình với chặng trong danh mục, «Tôi đã tới», thêm địa điểm vào kèo | #539 và #536 |
+| **#542** | M5 v-a chia hóa đơn trên máy chủ (ảnh hoặc nhập tay → gán món → máy chủ chia → ghi vào sổ), quyết toán đọc theo chuyến | #540 |
+| **#543** | M5 v-b đợt thu: gom sổ → phát (không hoàn lại) → link riêng từng người → tiền đã về | #542 và #541 |
+| M6 vi-a | Kỷ niệm: tường nhóm (ảnh, check-in, tim, bình luận), album + thước phim theo kèo, thành tích từ sổ | đang chạy emulator, chưa mở PR |
+| M6 vi-b | Xoá App B (App.tsx, navigation, 53 màn, tool web, test đo App B) — bảng đối chiếu claim trong thân PR | sau vi-a |
 
-Thứ tự merge chờ Lead: #520 → #526 → #529 → #530 → #532 → #534 → #536 (máy chủ) và #531 → #533 → #535 → #537 (client), đổi base về `main` từng bước.
+Thứ tự merge chờ Lead: #520 → #526 → #529 → #530 → #532 → #534 → #536 → #541 (máy chủ) và #531 → #533 → #535 → #537 → #539 → #540 → #542 → #543 (client), đổi base về `main` từng bước. Cập nhật 2026-09-04.
 
 ## A. REVIEW — 5 PR đang chờ bạn
 
