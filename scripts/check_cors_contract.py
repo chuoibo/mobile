@@ -833,9 +833,11 @@ CANARIES: list[tuple[str, str, int]] = [
     ),
     (
         "method-la",
+        # PROPFIND, not PATCH: PATCH became a real method in M2 (`PATCH
+        # /people/me`), and a canary that names an allowed method stops biting.
         """
         export async function go(a: string) {
-          return fetch("/x", { method: "PATCH", headers: { "X-Actor-ID": a } });
+          return fetch("/x", { method: "PROPFIND", headers: { "X-Actor-ID": a } });
         }
         """,
         EXIT_MISMATCH,

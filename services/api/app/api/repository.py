@@ -71,6 +71,7 @@ from app.db.models import (
     Post,
     PostAudience,
     ReceiptConfirmation,
+    SavedPlace,
     UploadedImage,
     VerificationScope,
     Vote,
@@ -107,6 +108,8 @@ class PersonRecord:
     id: uuid.UUID
     display_name: str
     created_at: datetime
+    bio: str | None = None
+    city: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -451,6 +454,25 @@ class AccountIdentityRecord:
     subject: str
     created_at: datetime
     last_login_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ProfileCounts:
+    """What `GET /people/me` shows as numbers. Each is one COUNT query."""
+
+    friends: int
+    contexts: int
+    outings: int
+    places_checked_in: int
+    memories: int
+
+
+@dataclass(frozen=True, slots=True)
+class SavedPlaceRecord:
+    id: uuid.UUID
+    person_id: uuid.UUID
+    place_id: str
+    created_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -1057,6 +1079,26 @@ class ApiRepository(Protocol):
         now: datetime,
     ) -> AccountIdentityRecord: ...
 
+    def update_person_profile(
+        self, person_id: uuid.UUID, *, changes: dict[str, str | None]
+    ) -> PersonRecord | None: ...
+
+    def profile_counts(self, person_id: uuid.UUID) -> ProfileCounts: ...
+
+    def list_login_providers(self, person_id: uuid.UUID) -> list[str]: ...
+
+    def are_friends(self, a: uuid.UUID, b: uuid.UUID) -> bool: ...
+
+    def share_active_context(self, a: uuid.UUID, b: uuid.UUID) -> bool: ...
+
+    def list_saved_places(self, person_id: uuid.UUID) -> list[SavedPlaceRecord]: ...
+
+    def save_place(
+        self, person_id: uuid.UUID, place_id: str, now: datetime
+    ) -> tuple[SavedPlaceRecord, bool]: ...
+
+    def unsave_place(self, person_id: uuid.UUID, place_id: str) -> bool: ...
+
     def get_account_identity(
         self, provider: str, subject: str
     ) -> AccountIdentityRecord | None: ...
@@ -1616,6 +1658,8 @@ class SqlAlchemyApiRepository:
             id=person.id,
             display_name=person.display_name,
             created_at=person.created_at,
+            bio=person.bio,
+            city=person.city,
         )
 
     @staticmethod
@@ -2868,6 +2912,172 @@ class SqlAlchemyApiRepository:
         except IntegrityError as exc:
             raise RepositoryConflict("IDENTITY_ALREADY_BOUND") from exc
         return self._identity_record(row)
+
+    def update_person_profile(
+        self, person_id: uuid.UUID, *, changes: dict[str, str | None]
+    ) -> PersonRecord | None:
+        """Apply validated profile fields. The service decides what is allowed
+        in `changes`; this only writes them under a row lock."""
+        person = self.session.get(Person, person_id, with_for_update=True)
+        if person is None:
+            return None
+        for field, value in changes.items():
+            setattr(person, field, value)
+        self.session.flush()
+        return self._person_record(person)
+
+    def profile_counts(self, person_id: uuid.UUID) -> ProfileCounts:
+        """Five counts, five queries, each against the table that is the source.
+
+        Friends are `accepted` rows in either direction -- there is no friends
+        table to drift from this. Contexts are ACTIVE memberships only; outings
+        are those of the active contexts; places are distinct stops this person
+        checked in at; memories are the ones they authored.
+        """
+        friends = self.session.scalar(
+            select(func.count())
+            .select_from(FriendRequest)
+            .where(
+                or_(
+                    FriendRequest.requester_id == person_id,
+                    FriendRequest.addressee_id == person_id,
+                ),
+                FriendRequest.state == FriendRequestState.ACCEPTED,
+            )
+        )
+        active_contexts = select(Membership.context_id).where(
+            Membership.person_id == person_id,
+            Membership.state == MembershipState.ACTIVE,
+        )
+        contexts = self.session.scalar(
+            select(func.count()).select_from(active_contexts.subquery())
+        )
+        outings = self.session.scalar(
+            select(func.count())
+            .select_from(Outing)
+            .where(Outing.context_id.in_(active_contexts))
+        )
+        places = self.session.scalar(
+            select(func.count(func.distinct(OutingStopCheckin.stop_id))).where(
+                OutingStopCheckin.person_id == person_id
+            )
+        )
+        memories = self.session.scalar(
+            select(func.count())
+            .select_from(Memory)
+            .where(Memory.author_id == person_id)
+        )
+        return ProfileCounts(
+            friends=friends or 0,
+            contexts=contexts or 0,
+            outings=outings or 0,
+            places_checked_in=places or 0,
+            memories=memories or 0,
+        )
+
+    def list_login_providers(self, person_id: uuid.UUID) -> list[str]:
+        return list(
+            self.session.scalars(
+                select(AccountIdentity.provider)
+                .where(AccountIdentity.person_id == person_id)
+                .distinct()
+                .order_by(AccountIdentity.provider)
+            )
+        )
+
+    def are_friends(self, a: uuid.UUID, b: uuid.UUID) -> bool:
+        return (
+            self.session.scalar(
+                select(FriendRequest.id)
+                .where(
+                    FriendRequest.state == FriendRequestState.ACCEPTED,
+                    or_(
+                        and_(
+                            FriendRequest.requester_id == a,
+                            FriendRequest.addressee_id == b,
+                        ),
+                        and_(
+                            FriendRequest.requester_id == b,
+                            FriendRequest.addressee_id == a,
+                        ),
+                    ),
+                )
+                .limit(1)
+            )
+            is not None
+        )
+
+    def share_active_context(self, a: uuid.UUID, b: uuid.UUID) -> bool:
+        mine = select(Membership.context_id).where(
+            Membership.person_id == a, Membership.state == MembershipState.ACTIVE
+        )
+        return (
+            self.session.scalar(
+                select(Membership.id)
+                .where(
+                    Membership.person_id == b,
+                    Membership.state == MembershipState.ACTIVE,
+                    Membership.context_id.in_(mine),
+                )
+                .limit(1)
+            )
+            is not None
+        )
+
+    def list_saved_places(self, person_id: uuid.UUID) -> list[SavedPlaceRecord]:
+        rows = self.session.scalars(
+            select(SavedPlace)
+            .where(SavedPlace.person_id == person_id)
+            .order_by(SavedPlace.created_at.desc(), SavedPlace.id)
+        ).all()
+        return [self._saved_place_record(row) for row in rows]
+
+    def save_place(
+        self, person_id: uuid.UUID, place_id: str, now: datetime
+    ) -> tuple[SavedPlaceRecord, bool]:
+        existing = self.session.scalar(
+            select(SavedPlace).where(
+                SavedPlace.person_id == person_id, SavedPlace.place_id == place_id
+            )
+        )
+        if existing is not None:
+            return self._saved_place_record(existing), False
+        row = SavedPlace(person_id=person_id, place_id=place_id, created_at=now)
+        try:
+            with self.session.begin_nested():
+                self.session.add(row)
+                self.session.flush()
+        except IntegrityError:
+            # Two taps raced on one bookmark; the first one is the bookmark.
+            winner = self.session.scalar(
+                select(SavedPlace).where(
+                    SavedPlace.person_id == person_id, SavedPlace.place_id == place_id
+                )
+            )
+            assert winner is not None
+            return self._saved_place_record(winner), False
+        return self._saved_place_record(row), True
+
+    def unsave_place(self, person_id: uuid.UUID, place_id: str) -> bool:
+        row = self.session.scalar(
+            select(SavedPlace).where(
+                SavedPlace.person_id == person_id, SavedPlace.place_id == place_id
+            )
+        )
+        if row is None:
+            return False
+        self.session.delete(row)
+        self.session.flush()
+        return True
+
+    @staticmethod
+    def _saved_place_record(row: SavedPlace) -> SavedPlaceRecord:
+        return SavedPlaceRecord(
+            id=row.id,
+            person_id=row.person_id,
+            place_id=row.place_id,
+            created_at=row.created_at,
+        )
 
     def get_account_identity(
         self, provider: str, subject: str
