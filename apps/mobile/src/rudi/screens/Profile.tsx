@@ -226,6 +226,17 @@ export function ProfileScreen() {
           title="Tài chính của tôi"
           tone="split"
         />
+        {session.phien !== null ? (
+          <>
+            <View style={[styles.rowLine, { backgroundColor: colors.line }]} />
+            <ListRow
+              icon="ribbon-outline"
+              onPress={() => router.push("/achievements")}
+              subtitle="Cấp và huy hiệu tính từ sổ của bạn"
+              title="Thành tích"
+            />
+          </>
+        ) : null}
         {session.phien === null ? (
           <>
             <View style={[styles.rowLine, { backgroundColor: colors.line }]} />
