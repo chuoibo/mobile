@@ -80,11 +80,6 @@
   ],
   "uncalled": [
     {
-      "route": "/contexts/{context_id}/batches",
-      "loai": "tinh-nang",
-      "reason": "M5 lát v-b (đợt thu trong vỏ RuDi): màn Quyết toán sống cần liệt kê các đợt thu của nhóm để tới được bảng thu sau khi máy đã quên id từ POST /batches. Route đi trước theo luật máy chủ merge trước client; PR client v-b gỡ dòng này khi màn gọi."
-    },
-    {
       "route": "/contexts/{context_id}/budget",
       "loai": "cong-mu",
       "reason": "F34 ngân sách. ĐÃ CÓ NGƯỜI GỌI THẬT từ #382: apps/mobile/src/screens/ai-hieu-nhom/ai-hieu-nhom.ts:225 gọi `${prefix}/budget`, với prefix dựng ở dòng 214 là `${base}/contexts/${contextId}`. Cổng không thấy được vì nó đọc từng literal một: nó thấy '/budget' và thấy '/contexts/', không bao giờ thấy đường dẫn ghép. Đường bấm: chat/TinNhan.tsx:636 (nút 'AI hiểu nhóm') -> onMoAiHieu (460) -> AiHieuNhom (466) -> napAiHieuNhom (203). Lý do cũ ghi 'chưa màn nào hiện' đã hết hiệu lực kể từ #382."
