@@ -3864,7 +3864,8 @@ class ApiService:
             # cannot be forged from a phone.
             try:
                 card = ground_card(
-                    request.card, companion_places.load_place_catalogue(self.place_rows())
+                    request.card,
+                    companion_places.load_place_catalogue(self.place_rows()),
                 )
             except CompanionError as refused:
                 raise ApiProblem(

@@ -111,7 +111,9 @@ def test_every_place_carries_the_fields_the_app_parses(client):
         "match",
     }
     for place in body["places"]:
-        assert required <= set(place), f"{place.get('id')} thiếu {required - set(place)}"
+        assert required <= set(place), (
+            f"{place.get('id')} thiếu {required - set(place)}"
+        )
         assert place["flag"] in (None, "new", "hot")
 
 
@@ -219,10 +221,24 @@ def test_the_group_profile_the_score_is_computed_against_is_disclosed(client):
     assert isinstance(body["group"]["budget_per_person_vnd"], int)
 
 
+def seed_places_of_default_destination() -> list[dict]:
+    """The seed rows the route serves when nobody names a destination (M10).
+
+    `GET /places` is scoped to one city now, and the twelve seed rows sit in
+    two. Comparing against all twelve would be comparing against a list this
+    route never claims to return.
+    """
+    from app.places.seed_catalog import _destination_for
+
+    return [place for place in PLACES if _destination_for(place) == "d-da-lat"]
+
+
 def test_catalogue_ids_are_unique(client):
-    ids = [place["id"] for place in get_places(client).json()["places"]]
+    body = get_places(client).json()
+    ids = [place["id"] for place in body["places"]]
     assert len(ids) == len(set(ids))
-    assert len(ids) == len(PLACES)
+    assert body["destination"]["id"] == "d-da-lat"
+    assert len(ids) == len(seed_places_of_default_destination())
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +280,7 @@ def test_open_now_does_not_move_the_score(client):
     """
 
     places = {place["id"]: place for place in get_places(client).json()["places"]}
-    for place in PLACES:
+    for place in seed_places_of_default_destination():
         expected, _ = score_place(place, GROUP)
         assert places[place["id"]]["match"]["score"] == expected, (
             f"{place['id']}: score no longer matches score_place() alone"

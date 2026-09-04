@@ -1,0 +1,55 @@
+# Đổi điểm đến (M10): danh mục là của MỘT thành phố, và người dùng chọn thành
+# phố nào.
+#
+# Trước M10 màn Khám phá in cứng «Đà Lạt · danh mục Rủ Đi» dưới logo, bất kể
+# danh sách bên dưới là gì. Flow này lái đúng cái đổi: thanh điểm đến là một
+# nút, bấm vào mở danh sách, chọn một nơi khác thì cả tiêu đề lẫn danh sách đổi
+# theo — và tiêu đề nói đúng tên máy chủ vừa phục vụ chứ không phải một chuỗi
+# viết sẵn.
+#
+# Chạy sau flow 26 trong cùng lượt và GIỮ phiên đang sống; chỉ đăng nhập khi
+# app đang ở màn chào (nhịp 60 giây của OTP).
+#
+# Harness kiểm máy chủ sau bảng (kiem_may_chu_sau_35): `GET /destinations` trả
+# về danh sách có Hội An, và `GET /places?destination=d-hoi-an` trả về đúng
+# thành phố ấy — màn hình chỉ là nơi bấm.
+appId: com.lakiet.rudi
+---
+- stopApp
+- launchApp
+- runFlow: _bo-qua-dev-menu.yaml
+- extendedWaitUntil:
+    visible: "Rủ Đi thôi!|Khám phá|Chưa có nhóm nào"
+    timeout: 150000
+- runFlow:
+    when:
+      visible: "Rủ Đi thôi!"
+    file: _dang-nhap-d.yaml
+- extendedWaitUntil:
+    visible: "Khám phá"
+    timeout: 60000
+- tapOn: "Khám phá"
+- extendedWaitUntil:
+    visible: ".*đổi nơi khác"
+    timeout: 60000
+- takeScreenshot: 35-thanh-diem-den
+- tapOn: "Đổi điểm đến"
+- extendedWaitUntil:
+    visible: "Đi đâu?"
+    timeout: 30000
+- assertVisible: "Đà Lạt"
+- assertVisible: "Hội An"
+- takeScreenshot: 35-danh-sach-diem-den
+# Tìm theo tên bỏ dấu: gõ «hoi an» phải ra «Hội An».
+- tapOn: "Tìm thành phố hoặc tỉnh"
+- inputText: "hoi an"
+- hideKeyboard
+- assertVisible: "Hội An"
+- assertNotVisible: "Đà Lạt"
+- takeScreenshot: 35-tim-diem-den
+- tapOn: "Chọn Hội An"
+- extendedWaitUntil:
+    visible: "Hội An · đổi nơi khác"
+    timeout: 60000
+- assertNotVisible: "Đà Lạt · đổi nơi khác"
+- takeScreenshot: 35-da-doi-diem-den

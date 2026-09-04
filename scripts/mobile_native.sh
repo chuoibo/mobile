@@ -558,6 +558,33 @@ print("%d|%s" % (len(a), a[0].get("checkin_count") if a else ""))')"
   echo "máy chủ xác nhận: tường «Hoi QA» có đúng một check-in «Quán Ốc Dì Bé» (1 tim, 1 bình luận, câu «Oc ngon»); album «Keo QA» đếm $so_checkin check-in"
 }
 
+# Sau flow 35: điểm đến là dữ liệu của máy chủ, không phải chuỗi trên màn. Hỏi
+# thẳng: danh sách có Hội An không, và `/places?destination=d-hoi-an` có trả về
+# đúng thành phố ấy không.
+kiem_may_chu_sau_35() {
+  local goc ket
+  goc="http://127.0.0.1:$API_PORT"
+  ket="$(curl -sS "$goc/destinations" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+ds = d.get("destinations", [])
+ten = {x.get("id"): x.get("name") for x in ds}
+print("%d|%s|%s" % (len(ds), ten.get("d-hoi-an", ""), "yes" if d.get("nearest") is None else "no"))')"
+  IFS='|' read -r so ten_hoi_an khong_toa_do <<< "$ket"
+  [ "${so:-0}" -ge 2 ] || hong "sau flow 35: máy chủ chỉ có $so điểm đến."
+  [ "$ten_hoi_an" = "Hội An" ] || hong "sau flow 35: không thấy «Hội An» trong danh sách điểm đến (nhận «$ten_hoi_an»)."
+  [ "$khong_toa_do" = "yes" ] \
+    || hong "sau flow 35: hỏi không kèm toạ độ mà máy chủ vẫn trả «nearest» — nó đang đoán chỗ người gọi đứng."
+  ket="$(curl -sS "$goc/places?destination=d-hoi-an" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+print("%s|%d" % (d.get("destination", {}).get("id"), len(d.get("places", []))))')"
+  IFS='|' read -r id_tra so_cho <<< "$ket"
+  [ "$id_tra" = "d-hoi-an" ] \
+    || hong "sau flow 35: hỏi Hội An mà máy chủ trả điểm đến «$id_tra»."
+  echo "máy chủ xác nhận: $so điểm đến, «Hội An» có trong danh sách và trả đúng $so_cho địa điểm của nó"
+}
+
 kiem_may_chu_sau_30() {
   local goc body tok ctx ket
   goc="http://127.0.0.1:$API_PORT"
@@ -1050,7 +1077,7 @@ for f in "$FLOWS"/*.yaml; do
     # môi trường chứ không phải vì app sai. `--live` chạy đúng và chỉ nhóm này.
     20-*)        [ "$LIVE" = 1 ] || continue ;;
     21-*)        [ "$DANG_NHAP" = 1 ] || continue ;;
-    22-*|23-*|24-*|25-*|26-*|27-*|28-*|29-*|31-*|32-*) [ "$OTP" = 1 ] || continue ;;
+    22-*|23-*|24-*|25-*|26-*|27-*|28-*|29-*|31-*|32-*|35-*) [ "$OTP" = 1 ] || continue ;;
     # Under the keyboard negative control the composer is meant to be covered,
     # so a flow that has to tap it (30, 40) would only fail for the reason the
     # probe already measures. The table for --tat-kav is the sign-in leg + 31.
@@ -1128,6 +1155,7 @@ if [ "$OTP" = 1 ]; then
   kiem_may_chu_sau_28
   kiem_may_chu_sau_29
   kiem_may_chu_sau_32
+  kiem_may_chu_sau_35
   [ "$TAT_KAV" = 1 ] || kiem_may_chu_sau_30
   [ "$AI" = 1 ] && [ "$TAT_KAV" = 0 ] && kiem_may_chu_sau_40
   canary_otp
