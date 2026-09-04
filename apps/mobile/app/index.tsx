@@ -1,12 +1,10 @@
 import { Redirect } from "expo-router";
 
 import { manDau } from "../src/rudi/duong-vao";
-import { isLegacyWebAddress, LegacyEntry } from "../src/rudi/LegacyEntry";
 import { useRudiSession } from "../src/rudi/session";
 
 export default function IndexRoute() {
   const { phien, phienDaDoc } = useRudiSession();
-  if (isLegacyWebAddress()) return <LegacyEntry />;
   // Nothing until SecureStore has answered: a redirect to /welcome decided on
   // an unread disk would show a signed-in person the carousel for a frame and
   // then jump. `manDau` is the same decision `app/_layout.tsx` makes for a

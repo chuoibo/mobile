@@ -34,12 +34,6 @@ import {
   soKm,
   soLan,
 } from "../dist-test/screens/kham-pha/ban-do-nhom.js";
-import {
-  CAU_SUY_NGUOC,
-  thanhDanhSachKhuVuc,
-  tongNguoi,
-} from "../dist-test/screens/kham-pha/DiemHen.js";
-
 /* Cùng hình dạng với `tests/api/helpers.py`. Chữ trong UUID là có chủ ý:
  * repo guard chặn chuỗi số dài (luật `long-number`, thứ bắt số tài khoản),
  * và một UUID toàn chữ số trông y hệt thứ đó. */
@@ -101,25 +95,6 @@ test("thân request điểm hẹn CHỈ có from_areas, không có chỗ nào ch
     !JSON.stringify(than).includes(NGUOI),
     "personId không được nằm trong thân request",
   );
-});
-
-test("hai người cùng một khu gửi thành hai phần tử, không phải một", () => {
-  const chon = [
-    { khu: { id: "hcm-quan-1", label: "Quận 1", lat: 0, lng: 0 }, so: 2 },
-    { khu: { id: "hcm-thu-duc", label: "Thủ Đức", lat: 0, lng: 0 }, so: 1 },
-    { khu: { id: "da-lat", label: "Đà Lạt", lat: 0, lng: 0 }, so: 0 },
-  ];
-  // Multiset, không phải tập hợp: gộp hai người Quận 1 thành một sẽ làm điểm
-  // cân bằng lệch về phía nhóm đông người.
-  assert.deepEqual(thanhDanhSachKhuVuc(chon), ["hcm-quan-1", "hcm-quan-1", "hcm-thu-duc"]);
-  assert.equal(tongNguoi(chon), 3);
-});
-
-test("câu cảnh báo hai đầu nói ra hậu quả, không chỉ nói 'riêng tư'", () => {
-  assert.ok(CAU_SUY_NGUOC.includes("hai khu vực"));
-  assert.ok(CAU_SUY_NGUOC.includes("suy ra"));
-  // Nó phải bảo người đọc ĐỪNG làm gì, chứ không chỉ mô tả một tính chất toán.
-  assert.ok(CAU_SUY_NGUOC.includes("đừng đưa màn này"));
 });
 
 /* ------------------------------------------------ NHÓM 2: trường tiết lộ --- */

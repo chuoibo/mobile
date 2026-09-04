@@ -525,7 +525,7 @@ function QuyetToanNhap() {
       <Card style={styles.safetyNote}>
         <Ionicons color={colors.warn} name="shield-checkmark-outline" size={21} />
         <Text style={[typography.caption, styles.flex, { color: colors.inkSoft }]}>
-          “Đã trả” là xác nhận trong Rủ Đi, không phải bằng chứng ngân hàng. VietQR theo từng người nhận, chưa phát trên bản nháp này.
+          “Đã trả” là xác nhận trong Rủ Đi, không phải bằng chứng chuyển tiền. Chuyển bằng cách nào là việc giữa hai người; app dừng ở phần của mỗi người.
         </Text>
       </Card>
       <RudiButton

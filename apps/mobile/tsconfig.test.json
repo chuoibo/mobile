@@ -30,7 +30,6 @@
     // and `aria-busy` are only real once they have reached the DOM.
     // `accessibilityState` compiles just as well and arrives as nothing --
     // that is the whole subject of `tests/aria-state.test.mjs`.
-    "src/ui/NutChonAnh.tsx",
     "src/ui/direction.ts",
     "src/ui/a11y.ts",
     // Which image addresses the app will dial. Compiled on its own line because
@@ -46,7 +45,6 @@
     // `<Image` stays spelled in the file whether or not the branch that mounts
     // it can ever be taken, which is exactly how the earlier gate here went
     // blind. See the render block in `tests/anh.test.mjs`.
-    "src/ui/Anh.tsx",
     // bug-185426. The copy shown when the server itself refuses. Compiled on
     // its own line because the rule it carries -- a 5xx body never becomes the
     // sentence, and never reaches the screen uncut -- is assertable without a
@@ -59,9 +57,6 @@
     // over the values libraries really throw. See `tests/anh-hong.test.mjs`.
     "src/ui/loi-tren-man.ts",
     "src/ui/qr.ts",
-    "src/ui/vietqr.ts",
-    "src/navigation/tabs.ts",
-    "src/navigation/nhom-demo.ts",
     "src/screens/kham-pha/places.ts",
     // F12's search box. `tim-kiem.ts` is the request and the reading of the
     // reply; `CauAiHieu.tsx` is compiled too because the requirement rd-fe-15
@@ -69,12 +64,10 @@
     // reached the markup is not a fact a source read can establish. See
     // `tim-dia-diem.test.mjs` and `hieu-cau-web.test.mjs`.
     "src/screens/kham-pha/tim-kiem.ts",
-    "src/screens/kham-pha/CauAiHieu.tsx",
     // The catalogue screen itself, for `ChuaCoDuLieu`. Its 5xx card is the
     // second copy of the same dead end `CauAiHieu.tsx` renders for search, and
     // bug-185426 was present in both -- so both are rendered and read, rather
     // than one being trusted to stand for the other.
-    "src/screens/kham-pha/KhamPha.tsx",
     // `GET /places/{id}`, the detail screen's own read. Compiled because the
     // rules worth pinning are all about a body this app does not control: a
     // review outside 0-5 is refused rather than clamped, an absent
@@ -101,23 +94,14 @@
     "src/screens/chat/ai.ts",
     "src/screens/chat/nhom.ts",
     "src/screens/chat/nhap-tu-chat.ts",
-    "src/screens/chat/TheNhapChiTuChat.tsx",
     // F31/F33/F34/F36. Compile both the four-route client and the markup the
     // group-understanding test reads through react-native-web.
     "src/screens/ai-hieu-nhom/ai-hieu-nhom.ts",
-    "src/screens/ai-hieu-nhom/AiHieuNhom.tsx",
-    "src/screens/chat/TinNhan.tsx",
-    "src/screens/chat/BongBong.tsx",
-    "src/screens/chat/TheKeHoach.tsx",
-    "src/screens/chat/ChiTietKeHoach.tsx",
-    "src/screens/chat/ONhap.tsx",
-    "src/navigation/lien-ket.ts",
     "src/screens/ca-nhan/tai-chinh.ts",
     // F39/F42. The wall on Cá nhân: audience copy, refusal sentences, and the
     // screen itself so a test can read the markup react-native-web emits for
     // the four radios and the disabled Đăng button.
     "src/screens/ca-nhan/bai-dang.ts",
-    "src/screens/ca-nhan/Tuong.tsx",
     // F30's date arithmetic. Compiled because the rule under test -- a trip's
     // calendar days must not be shifted by the reading machine's timezone -- is
     // invisible at +07 and at UTC, and only shows up when the test runs itself
@@ -132,7 +116,6 @@
     // so the test asserts the same constant the screen uses instead of
     // retyping the sentence. See `tests/ten-dia-diem-album.test.mjs`.
     "src/screens/album/album-api.ts",
-    "src/screens/album/AlbumChuyenDi.tsx",
     // F38's moment line and refusal words. Compiled rather than read as source
     // because the rules under test are boundary rules -- 59 seconds versus 61,
     // six days versus seven -- and a source read cannot stand on either side of
@@ -145,7 +128,6 @@
     // are rendered by nothing -- and the empty one is the state most likely to
     // be wrong, because it is a 200 the client could mistake for a failure.
     // Rendering it here reads the markup react-native-web really emits.
-    "src/screens/widget/Widget.tsx",
     // F01's number rules. The derivation itself moved to the server in
     // bug-140342 -- an unkeyed digest over 5x10^8 numbers is reversible -- so
     // what is compiled here is what the device still decides on its own: which
@@ -167,7 +149,6 @@
     // `group` and the budget bands are `radio` in a `radiogroup` -- picking the
     // wrong one of those pairs compiles fine and tells a screen reader the
     // opposite of what the screen does. See `tests/so-thich-web.test.mjs`.
-    "src/screens/vao-cua/CaNhanHoa.tsx",
     // F05's friend code. Same reason as the line above, and one more: the
     // property that matters most here is a *negative* one -- no telephone
     // number reaches the payload -- and a negative is only worth asserting
@@ -176,32 +157,22 @@
     // Two screens compiled rather than only logic modules, so a test can
     // render them and read the markup react-native-web actually emits. See
     // `tools/fixup-esm.mjs` for why that is the real DOM and not a mock.
-    "src/ui/Kit.tsx",
-    "src/screens/GoiYChia.tsx",
     // The settlement screen and the code on it, for the same reason: the
     // masking rule and the amount cross-check are only observable in the
     // markup that actually reaches a browser.
-    "src/ui/MaVietQr.tsx",
-    "src/screens/KetQuaThanhToan.tsx",
     // The bank-destination form and the proposal screen that reports it back.
     // Same reason again, and it is the sharpest case of it: the rule under test
     // is "a full account number never reaches a screen the group reads", and
     // that is a fact about markup. Reading the source would only show that
     // `maskAccount` is called somewhere.
-    "src/screens/tai-khoan/kiem-tra.ts",
-    "src/screens/tai-khoan/TaiKhoanNhan.tsx",
-    "src/screens/DeXuat.tsx",
     // The tab bar and the map strip, for the same reason once more: both carry
     // an ARIA role, and a role is only real once react-native-web has emitted
     // it. `aria-vai-tro.test.mjs` reads the markup these produce.
-    "src/navigation/ThanhTab.tsx",
-    "src/screens/kham-pha/DaiBanDo.tsx",
     // Cá nhân, for the keyboard tab-stop on its scroller. The screen holds
     // nothing pressable, so the stop is the only key that scrolls it, and
     // whether it survives is a fact about emitted markup rather than source:
     // `focusable` compiles just as well as `tabIndex` and reaches the DOM as
     // nothing. See `vung-cuon-ban-phim.test.mjs`.
-    "src/screens/ca-nhan/CaNhan.tsx",
     // F03/F04's client half. The shape check is compiled so a test can pin it
     // against the server's own regex, and the refusal tables so a test can pin
     // every key against a code the server can really raise -- the check
@@ -213,10 +184,6 @@
     // substitution Expo's web build performs, and read the markup a browser
     // would actually get. See `tools/fixup-esm.mjs`.
     "src/screens/len-plan/buoi-di.ts",
-    "src/screens/len-plan/LenPlan.tsx",
-    "src/screens/len-plan/TaoBuoiDi.tsx",
-    "src/screens/len-plan/DongThoiGian.tsx",
-    "src/screens/len-plan/NhanLoiMoi.tsx",
     // F14's other half. `NhanLoiMoi.tsx` above redeems an invite; this decides
     // whether one may be OFFERED, and every rule in it is a claim about what
     // `create_outing_invite` will accept. Compiled rather than read as source
@@ -226,7 +193,6 @@
     // holds from one that was merely written down. See
     // `tests/moi-vao-chuyen.test.mjs`.
     "src/screens/len-plan/moi-vao-chuyen.ts",
-    "src/screens/len-plan/MoiVaoChuyen.tsx",
     // 07.03. Every figure on the achievements screen is derived here from one
     // finance response -- level, all eight badges, all three weekly challenges.
     // Compiled rather than read as source because the claim worth pinning is

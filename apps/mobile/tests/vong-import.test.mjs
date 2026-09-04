@@ -33,12 +33,8 @@ import { fileURLToPath } from "node:url";
 
 const SRC = fileURLToPath(new URL("../src", import.meta.url));
 
-/** Vòng đã có trước lượt gỡ 2026-09-03. Không được dài thêm. */
-const VONG_DA_BIET = [
-  "src/api.ts -> src/screens/DotThu.tsx -> src/api.ts",
-  "src/screens/kham-pha/BanDoNhom.tsx -> src/screens/kham-pha/DiemHen.tsx" +
-    " -> src/screens/kham-pha/BanDoNhom.tsx",
-];
+/** Không còn vòng nào: hai vòng cũ đi cùng App B (04/09). Không được dài ra. */
+const VONG_DA_BIET = [];
 
 function nguon(dir) {
   const ra = [];

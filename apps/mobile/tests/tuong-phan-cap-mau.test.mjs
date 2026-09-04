@@ -187,7 +187,7 @@ describe("cổng: toàn bộ màn", () => {
 
 describe("neo hồi quy: chip Level của màn thành tích", () => {
   test("Level chip không dùng aiInk trên aiSoft", () => {
-    const f = resolve(GOC, "src/screens/thanh-tich/ThanhTich.tsx");
+    const f = resolve(GOC, "src/rudi/screens/ky-niem/AchievementsLive.tsx");
     const { loi } = quetFile(f);
     assert.deepEqual(loi, [], "chip Level lại rơi về mực trắng trên nền nhạt");
   });

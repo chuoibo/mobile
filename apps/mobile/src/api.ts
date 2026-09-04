@@ -26,7 +26,6 @@
  * screen says so and names the address it tried. A demo that quietly runs on
  * made-up data is the failure this file keeps being rewritten to avoid.
  */
-import type { Proposal } from "./screens/DeXuat";
 import { actorHeaders, datTokenPhien, tokenPhienHienTai } from "./danh-tinh";
 
 // `datTokenPhien` / `tokenPhienHienTai` re-export vì chúng là TRẠNG THÁI, và
@@ -39,8 +38,6 @@ import { actorHeaders, datTokenPhien, tokenPhienHienTai } from "./danh-tinh";
 // tách, và cái dải LogBox của nó nằm đè lên nút, nuốt luôn cú bấm của flow.
 // Người gọi lấy thẳng từ `danh-tinh.ts`.
 export { datTokenPhien, tokenPhienHienTai };
-import type { Obligation } from "./screens/DotThu";
-import type { Draft, Participant } from "./screens/NhapKhoanChi";
 import type { BillReading, ReceiptScanWire } from "./receipt";
 import type { Assignment } from "./assignment";
 import {
@@ -58,7 +55,7 @@ import {
   type ChangGui,
   type CheckIn,
 } from "./screens/len-plan/buoi-di";
-import { labelInGroup, makeIdFactory, type GroupMember } from "./participants";
+import { type Participant, labelInGroup, makeIdFactory, type GroupMember } from "./participants";
 
 /** Where the API lives. Overridable so a phone can reach a laptop. */
 // Written as a plain `process.env.EXPO_PUBLIC_API_URL` on purpose, and it has
@@ -131,6 +128,34 @@ export class ApiError extends Error {
  * makes a retry byte-identical by construction rather than by care.
  */
 export type Attempt = { readonly key: string; readonly at: number };
+
+/** A draft expense as the organiser typed it, before the server has split it. */
+export type Draft = {
+  participants: Participant[];
+  totalVnd: number;
+  advancerId: string;
+  occasion: string;
+};
+
+/** The server's split of a draft: allocations per person, who absorbed the rounding đồng. */
+export type Proposal = {
+  participants: Participant[];
+  allocations: Record<string, number>;
+  roundingGainers: string[];
+  totalVnd: number;
+  advancerId: string;
+  occasion: string;
+};
+
+/** One obligation on a collection board as App B named it; status is the server's. */
+export type Obligation = {
+  id: string;
+  senderId: string;
+  senderName: string;
+  recipient: string;
+  amountVnd: number;
+  status: "outstanding" | "partially_confirmed" | "confirmed" | "over_confirmed" | "waived" | "disputed";
+};
 
 /** One debt inside a guest envelope: a person can owe two people out of one round. */
 export type EnvelopeObligation = {

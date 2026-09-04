@@ -49,7 +49,6 @@ import { TEN_CHUA_BIET } from "../dist-test/screens/chat/tin-nhan.js";
 
 const MOBILE = fileURLToPath(new URL("..", import.meta.url));
 const SRC = join(MOBILE, "src");
-const APP = join(MOBILE, "App.tsx");
 
 /** Chuẩn RFC 4122 như máy chủ in ra: chữ thường, có gạch, đúng 36 ký tự. */
 const CHUAN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -66,7 +65,7 @@ function nguonTs(dir) {
   return ra;
 }
 
-const FILES = [...nguonTs(SRC), APP];
+const FILES = nguonTs(SRC);
 
 /** Literal chuỗi có dạng UUID, kèm chỗ đứng.
  *
@@ -215,7 +214,6 @@ test("kiểm đếm nguồn đúc id: không có nguồn nào mọc thêm mà c�
     "src/participants.ts": "gọi thật (makeIdFactory)",
     "src/screens/vao-cua/danh-tinh.ts": "gọi thật (idNgauNhien)",
     "src/screens/chat/uuid5.ts": "gọi thật (idNguoi, khoaGhi)",
-    "src/screens/chat/TinNhan.tsx": "private taoKhoa — chỉ cấp Idempotency-Key, không phải id người",
   };
 
   const moi = coDuc.filter((f) => !(f in daBiet));

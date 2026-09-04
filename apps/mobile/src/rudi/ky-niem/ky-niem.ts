@@ -35,6 +35,7 @@ import {
 } from "../../api";
 import { headerNguoiGoi } from "../../danh-tinh";
 import {
+  TEN_DIA_DIEM_CHUA_BIET,
   layAlbum,
   layDanhSachAlbum,
   layThuocPhim,
@@ -58,7 +59,7 @@ import {
 } from "../../screens/thanh-tich/thanh-tich";
 
 export type { Album, CanhPhim, DanhSachAlbum, HuyHieu, ThuThach, ThuocPhim, TienDoCap, TomTatAlbum };
-export { layAlbum, layDanhSachAlbum, layThuocPhim, lyDoPhim, tenDiaDiem };
+export { TEN_DIA_DIEM_CHUA_BIET, layAlbum, layDanhSachAlbum, layThuocPhim, lyDoPhim, tenDiaDiem };
 
 /** One memory on the wall, as the screen draws it. Counts are the server's. */
 export type KyNiem = {

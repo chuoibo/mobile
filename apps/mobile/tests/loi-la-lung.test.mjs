@@ -71,9 +71,6 @@ import {
   napTinMoiHon,
   napTinNhan,
 } from "../dist-test/screens/chat/tin-nhan.js";
-import { ChuaCoDuLieu } from "../dist-test/screens/kham-pha/KhamPha.js";
-import { TimKhongDuoc } from "../dist-test/screens/kham-pha/CauAiHieu.js";
-
 const SRC = fileURLToPath(new URL("../src", import.meta.url));
 
 /* -------------------------------------------------------------------------
@@ -317,50 +314,6 @@ test("guiTinNhan và guiTheAi: không thứ gì bị ném thành chữ máy", as
     voiFetch(f, () => guiTinNhan({ ...chung, body: "đi ăn không" })),
   );
   await quetMotCua("guiTheAi", (f) => voiFetch(f, () => guiTheAi({ ...chung })));
-});
-
-/* -------------------------------------------------------------------------
- * And what the markup actually says
- * ---------------------------------------------------------------------- */
-
-/** Markup with tags stripped, which is what a person actually reads. */
-function chuTrenMan(el) {
-  return renderToStaticMarkup(el)
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&#x27;/g, "'")
-    .replace(/&quot;/g, '"')
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-test("hai thẻ dead-end của Khám phá: markup không mang chữ máy, và không có nhãn cụt", () => {
-  // A clean `detail` in a return value can still be interpolated badly one line
-  // later, and a source read cannot tell the difference. This renders.
-  const trangThai = [
-    { kind: "khong-noi-duoc", url: BASE, detail: "" },
-    { kind: "du-lieu-sai", url: BASE, detail: "" },
-    { kind: "khong-noi-duoc", url: BASE, detail: "ECONNREFUSED" },
-    { kind: "may-chu-loi", url: BASE, status: 502, detail: "" },
-  ];
-  for (const state of trangThai) {
-    for (const [ten, El] of [
-      ["ChuaCoDuLieu", ChuaCoDuLieu],
-      ["TimKhongDuoc", TimKhongDuoc],
-    ]) {
-      const chu = chuTrenMan(React.createElement(El, { state, onThuLai: () => {} }));
-      khongPhaiChuMay(chu, `${ten} (${state.kind}, detail=${JSON.stringify(state.detail)})`);
-      assert.ok(
-        !/Chi tiết:\s*$/.test(chu) && !/Chi tiết:\s+[A-ZĐ]/.test(chu.replace(/Chi tiết: \S/, "")),
-        `${ten} (${state.kind}): còn nhãn "Chi tiết:" mà phía sau không có gì -> ${chu}`,
-      );
-      if (state.detail === "") {
-        assert.ok(
-          !chu.includes("Chi tiết:"),
-          `${ten} (${state.kind}): detail rỗng mà vẫn in nhãn "Chi tiết:" -> ${chu}`,
-        );
-      }
-    }
-  }
 });
 
 /* -------------------------------------------------------------------------

@@ -63,7 +63,6 @@ import ts from "typescript";
 
 const MOBILE = fileURLToPath(new URL("..", import.meta.url));
 const SRC = join(MOBILE, "src");
-const APP = join(MOBILE, "App.tsx");
 
 /*
  * The red control's material, and why it is a checked-in file rather than a
@@ -183,27 +182,9 @@ const CHO_PHEP = new Map([
     // Which group the tab shell is showing. An argument to navigation.
     "nhom?.id ?? nhomId",
   ]],
-  ["navigation/lien-ket.ts", [
-    // Stripping the leading '#' off a URL fragment. Not a person.
-    'hash.startsWith("#") ? hash.slice(1) : hash',
-  ]],
   ["participants.ts", [
     // Clearing the advancer when that person is removed. Stored, never drawn.
     "roster.advancerId === id ? null : roster.advancerId",
-  ]],
-  ["screens/GoiYChia.tsx", [
-    // Which person's row is open. Selection state.
-    "selected ? null : person.id",
-  ]],
-  ["screens/ky-niem/KyNiem.tsx", [
-    // Toggle: tapping the open memory closes it.
-    "cu === m.id ? null : m.id",
-  ]],
-  ["screens/len-plan/LenPlan.tsx", [
-    // Which outing and which group the planner has open.
-    'cuaSo.pha === "tg" ? cuaSo.buoi.id : null',
-    'nhom.kind === "xong" ? nhom.contextId : null',
-    'cuaSo.pha === "moi" ? cuaSo.buoi.id : null',
   ]],
   ["screens/kham-pha/tim-kiem.ts", [
     /* The one entry here that is a DISPLAY value, kept on the author's written
@@ -220,27 +201,14 @@ const CHO_PHEP = new Map([
     // Keeping the invite token already held when the reply carries none.
     "sau.invite_token ?? m.invite_token",
   ]],
-  ["screens/quan-tri/QuanTriNhom.tsx", [
-    // Which group is being administered, and which outing is preselected.
-    'nhom.kind === "xong" ? nhom.contextId : null',
-    "truoc ?? trang.outings[0]?.id",
-  ]],
-  ["screens/thanh-tich/ThanhTich.tsx", [
-    // Toggle: tapping the open achievement closes it.
-    "chon === h.id ? null : h.id",
-  ]],
-  ["screens/vao-cua/CaNhanHoa.tsx", [
-    // Which taste chip is on. Selection state.
-    "on ? null : k.id",
-  ]],
 ]);
 
 function quetCayNguon() {
-  const files = [...sourceFiles(SRC), APP];
+  const files = sourceFiles(SRC);
   const viPham = [];
   let seen = 0;
   for (const file of files) {
-    const key = file === APP ? "App.tsx" : relative(SRC, file);
+    const key = relative(SRC, file);
     const duocPhep = CHO_PHEP.get(key) ?? [];
     const result = fallbacksToId(readFileSync(file, "utf8"), file);
     seen += result.seen;

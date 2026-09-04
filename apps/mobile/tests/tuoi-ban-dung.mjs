@@ -79,7 +79,7 @@ export function lyDoBanDungCu(exportDir, goc) {
   const banDung = moiNhat(join(exportDir, "_expo"), moiNhat(join(exportDir, "index.html")));
 
   let nguon = { mtime: 0, file: null };
-  for (const phan of ["src", "App.tsx", "index.ts", "app.json", "assets"]) {
+  for (const phan of ["src", "app", "app.json", "assets"]) {
     nguon = moiNhat(join(goc, phan), nguon);
   }
   nguon = moiNhat(join(goc, "..", "..", "packages", "shared"), nguon);
