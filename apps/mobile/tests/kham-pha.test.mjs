@@ -162,6 +162,9 @@ test("số tiền hiện ra đúng dạng nghìn, không đẻ ra chữ số nà
 
 /* ------------------------------------------------ parsing --------------- */
 
+/** Every `/places` body carries the destination it served, since M10. */
+const DIEM_DEN = { id: "d-da-lat", name: "Đà Lạt" };
+
 test("một dòng hợp lệ đọc ra đủ các trường màn hình cần", () => {
   const p = parsePlace(row(), "places[0]");
   assert.equal(p.name, "Tiệm Nướng Xóm Lào");
@@ -172,9 +175,15 @@ test("một dòng hợp lệ đọc ra đủ các trường màn hình cần", (
 });
 
 test("trường thiếu được gọi tên, không im lặng thành undefined", () => {
-  // A screen that renders `undefined` for a rating looks like a CSS bug and
-  // gets chased in the wrong file; a refusal that names the field is read once.
-  assert.throws(() => parsePlace(row({ rating: null }), "places[3]"), /places\[3\]\.rating/);
+  // A screen that renders `undefined` looks like a CSS bug and gets chased in
+  // the wrong file; a refusal that names the field is read once.
+  //
+  // `rating: null` is no longer wrong (M9: OpenStreetMap gives no rating, and
+  // null is how «chưa có» is carried). A rating that is present and not a
+  // number still is.
+  assert.equal(parsePlace(row({ rating: null }), "places[3]").rating, null);
+  assert.throws(() => parsePlace(row({ rating: "4.7" }), "places[3]"), /places\[3\]\.rating/);
+  assert.throws(() => parsePlace(row({ lat: null }), "places[3]"), /places\[3\]\.lat/);
 });
 
 test("source lạ bị từ chối — không có đường nào cho nhãn tự chế", () => {
@@ -187,7 +196,13 @@ test("flag chỉ được là new, hot hoặc rỗng", () => {
 });
 
 test("catalogue thiếu mảng places bị từ chối", () => {
-  assert.throws(() => parseCatalogue({ categories: [] }), /places/);
+  assert.throws(() => parseCatalogue({ categories: [], destination: DIEM_DEN }), /places/);
+});
+
+test("catalogue không nói nó của thành phố nào bị từ chối", () => {
+  // M10: một danh sách địa điểm không gắn điểm đến thì màn phải bịa cái tên
+  // nó in lên đầu.
+  assert.throws(() => parseCatalogue({ places: [], categories: [] }), /destination/);
 });
 
 /* ------------------------------------------------ the four failures ----- */
@@ -220,7 +235,7 @@ test("máy chủ 500 là trạng thái riêng, kèm mã", async () => {
 test("dữ liệu sai dạng bị từ chối chứ không vẽ ra số sai", async () => {
   const s = await fetchPlaces({
     base: "http://x",
-    fetchImpl: async () => res({ places: [row({ rating: "bốn phẩy bảy" })] }),
+    fetchImpl: async () => res({ places: [row({ rating: "bốn phẩy bảy" })], destination: DIEM_DEN }),
   });
   assert.equal(s.kind, "du-lieu-sai");
   assert.match(s.detail, /rating/);
@@ -229,7 +244,8 @@ test("dữ liệu sai dạng bị từ chối chứ không vẽ ra số sai", as
 test("trả về đúng thì ra danh sách đã đọc", async () => {
   const s = await fetchPlaces({
     base: "http://x",
-    fetchImpl: async () => res({ categories: [{ id: "cafe", label: "Cafe" }], places: [row()] }),
+    fetchImpl: async () =>
+      res({ categories: [{ id: "cafe", label: "Cafe" }], places: [row()], destination: DIEM_DEN }),
   });
   assert.equal(s.kind, "co-du-lieu");
   assert.equal(s.places.length, 1);
