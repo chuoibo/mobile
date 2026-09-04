@@ -205,14 +205,18 @@ export function OutingLiveScreen({ phien }: { phien: Phien }) {
               <Text numberOfLines={1} style={[typography.money, { color: colors.ink }]}>
                 {dinhDangTienVnd(trang.keo.budget_per_person_vnd)}
               </Text>
-              <Text style={[typography.caption, { color: colors.inkFaint }]}>một người · tham chiếu</Text>
+              <Text numberOfLines={1} style={[typography.caption, { color: colors.inkFaint }]}>
+                một người
+              </Text>
             </View>
             <View style={[styles.vach, { backgroundColor: colors.line }]} />
             <View style={styles.oTong}>
               <Text style={[typography.money, { color: colors.ink }]}>
                 {dinhDangTienVnd(tongDuKien(trang.keo.budget_per_person_vnd, trang.keo.headcount))}
               </Text>
-              <Text style={[typography.caption, { color: colors.inkFaint }]}>dự kiến cả kèo</Text>
+              <Text numberOfLines={1} style={[typography.caption, { color: colors.inkFaint }]}>
+                cả kèo, tham chiếu
+              </Text>
             </View>
             <View style={[styles.vach, { backgroundColor: colors.line }]} />
             <Pressable
@@ -298,19 +302,23 @@ export function OutingLiveScreen({ phien }: { phien: Phien }) {
                       )}
                       <Text style={[typography.caption, { color: colors.inkSoft }]}>{cauDaToi(daToi, phien.person_id)}</Text>
                     </Pressable>
-                    {daToi.some((c) => c.person_id === phien.person_id) ? (
-                      // Arrived is a fact, not a control that went grey: a static badge.
-                      <Chip icon="checkmark" label="Đã tới" selected />
-                    ) : (
-                      <RudiButton
-                        compact
-                        disabled={dangGhi}
-                        full={false}
-                        label="Tôi đã tới"
-                        onPress={() => void daToiChang(trang.keo, stop)}
-                        variant="outline"
-                      />
-                    )}
+                    {/* Both states sit in the same 48dp box so the row's right
+                        edge does not jump between a badge and a button. */}
+                    <View style={styles.oPhai}>
+                      {daToi.some((c) => c.person_id === phien.person_id) ? (
+                        // Arrived is a fact, not a control that went grey: a static badge.
+                        <Chip icon="checkmark" label="Đã tới" selected />
+                      ) : (
+                        <RudiButton
+                          compact
+                          disabled={dangGhi}
+                          full={false}
+                          label="Tôi đã tới"
+                          onPress={() => void daToiChang(trang.keo, stop)}
+                          variant="outline"
+                        />
+                      )}
+                    </View>
                   </View>
                 );
               })}
@@ -339,4 +347,5 @@ const styles = StyleSheet.create({
   cotGio: { width: 52, alignItems: "center", gap: 6 },
   duongGio: { width: 2, flex: 1, minHeight: 18, borderRadius: 1 },
   thanChang: { flex: 1, gap: 2, minHeight: 48 },
+  oPhai: { minHeight: 48, justifyContent: "center", flexShrink: 0 },
 });

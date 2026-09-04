@@ -78,6 +78,7 @@ appId: com.lakiet.rudi
     visible: "Keo QA"
     timeout: 60000
 - assertVisible: "1 chặng"
+- takeScreenshot: 27-danh-sach-keo
 - tapOn: "Mở kèo Keo QA"
 - extendedWaitUntil:
     visible: "1 đã tới · bạn"
