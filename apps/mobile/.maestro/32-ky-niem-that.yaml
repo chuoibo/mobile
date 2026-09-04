@@ -42,7 +42,7 @@ appId: com.lakiet.rudi
 - assertNotVisible: "Dữ liệu demo"
 - takeScreenshot: 32-tuong-trong
 # Check-in tại một chỗ trong danh mục máy chủ.
-- tapOn: "Check-in tại một chỗ"
+- tapOn: "Check-in"
 - extendedWaitUntil:
     visible: "Chọn Quán Ốc Dì Bé"
     timeout: 60000

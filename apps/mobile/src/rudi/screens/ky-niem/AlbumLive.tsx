@@ -161,8 +161,8 @@ export function TripAlbumLiveScreen({ phien, contextId, outingId }: { phien: Phi
   const a = trang.album;
   return (
     <RudiScreen testID="trip-album-screen">
-      <TopBar subtitle={cauKhoang(a)} title={a.title} />
-      <Heading title={a.title} subtitle={cauThongKeAlbum(a)} />
+      <TopBar title="Album" />
+      <Heading title={a.title} subtitle={`${cauKhoang(a)} · ${cauThongKeAlbum(a)}`} />
 
       <SectionHeader title="Khoảnh khắc nổi bật" />
       {a.highlights.length === 0 ? (
@@ -192,6 +192,10 @@ export function TripAlbumLiveScreen({ phien, contextId, outingId }: { phien: Phi
       ) : (
         <>
           {trang.phim.source === "ai" ? <AiNote>{cauThuocPhim(trang.phim)}</AiNote> : <Text style={[typography.body, { color: colors.ink }]}>{cauThuocPhim(trang.phim)}</Text>}
+          {!trang.phim.reeled && trang.phim.reason !== "no_memories" ? (
+            // «lúc này» in the reason sentence is only true if the person can try again.
+            <RudiButton disabled={trang.dangDung} icon="refresh-outline" label="Dựng lại" loading={trang.dangDung} onPress={() => void dungPhim()} tone="ai" variant="soft" />
+          ) : null}
           {trang.phim.title !== null ? <Heading size="h2" title={trang.phim.title} /> : null}
           {trang.phim.picks.map((canh) => {
             const nguon = nguonAnh(canh.image_url, me, contextId);
