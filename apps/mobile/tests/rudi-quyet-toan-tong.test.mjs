@@ -19,7 +19,7 @@ test("chuyến đang đi: số đang chạy của chính chuyến đó, không p
   const tong = tongTuRecap({ context_id: "c", outings: [], in_progress: [CHUYEN("Keo QA", 200000)], split_total_vnd: 0 });
   assert.deepEqual(tong, { kieu: "dang-di", ten: "Keo QA", tong: 200000, soChuyenDangDi: 1 });
   const hero = dongHeroQuyetToan(tong, 2);
-  assert.equal(hero.nhan, "Đang đi: Keo QA (2 người)");
+  assert.equal(hero.nhan, "Chi tiêu chuyến Keo QA, đang đi (2 người)");
   assert.equal(hero.so, "200.000đ");
 });
 

@@ -139,7 +139,7 @@ export function dongHeroQuyetToan(
   if (tong.kieu === "dang-di") {
     const them = tong.soChuyenDangDi > 1 ? ` và ${tong.soChuyenDangDi - 1} chuyến khác` : "";
     return {
-      nhan: `Đang đi: ${tong.ten}${them} (${nguoi})`,
+      nhan: `Chi tiêu chuyến ${tong.ten}${them}, đang đi (${nguoi})`,
       so: dinhDangTienVnd(tong.tong),
       cau: "Tính từ sổ theo ngày của chuyến, tới giờ này. Sửa một bill là số đổi theo.",
     };
