@@ -38,9 +38,9 @@ function bieuTuongHuyHieu(h: HuyHieu): IconName {
   return "lock-closed-outline";
 }
 
-/** The rule, plus what is missing, in a member's words (App B's `thieuGi` spoke to developers). */
+/** The rule, plus what is missing, in a member's words; the shared "chưa đo được" reason is said once under the card. */
 function phuHuyHieu(h: HuyHieu): string {
-  if (h.trangThai === "chua-do-duoc") return `${h.dieuKien} · Sổ chưa ghi mục này theo từng người, nên chưa đo được.`;
+  if (h.trangThai === "chua-do-duoc") return h.dieuKien;
   if (h.thieuGi !== undefined && h.thieuGi !== "") return `${h.dieuKien} · ${h.thieuGi}`;
   return h.dieuKien;
 }
@@ -116,6 +116,11 @@ export function AchievementsLiveScreen({ phien }: { phien: Phien }) {
             trailing={<Text style={[typography.label, { color: h.trangThai === "mo" ? colors.accent : colors.inkSoft }]}>{chuTrangThai(h)}</Text>}
           />
         ))}
+        {huyHieu.some((h) => h.trangThai === "chua-do-duoc") ? (
+          <Text style={[typography.caption, { color: colors.inkFaint }]}>
+            «Chưa đo được»: sổ chưa ghi mục đó theo từng người, nên chưa có gì để đếm. Không phải khoá.
+          </Text>
+        ) : null}
       </Card>
 
       <SectionHeader title="Thử thách tuần này" />

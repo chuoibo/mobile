@@ -104,7 +104,7 @@ test("nguonAnh: url máy chủ mang header của người gọi; url ngoài ho�
 
 test("album/reel copy: thống kê từ số máy chủ; thước phim nói ai dựng hoặc vì sao không", () => {
   const a = { outing_id: "o", title: "Keo QA", period_label: "4/9", starts_on: "2026-09-04", ends_on: "2026-09-04", in_progress: true, photo_count: 1, checkin_count: 1, place_count: 1, split_total_vnd: 200000, expense_count: 1, headcount: 2, cover: null };
-  assert.equal(cauThongKeAlbum(a), "1 ảnh · 1 chỗ đã tới · 1 check-in · đã chia 200.000đ");
+  assert.equal(cauThongKeAlbum(a), "1\u00a0ảnh · 1\u00a0chỗ đã tới · 1\u00a0check-in · đã chia\u00a0200.000đ");
   assert.equal(cauThuocPhim({ context_id: "c", outing_id: "o", reeled: true, reason: "ok", source: "ai", title: "x", picks: [{}, {}, {}] }), "Rủ Đi AI dựng thước phim này, 3 cảnh.");
   assert.notEqual(cauThuocPhim({ context_id: "c", outing_id: "o", reeled: false, reason: "no_memories", source: "none", title: null, picks: [], considered_count: 0 }), "");
 });
