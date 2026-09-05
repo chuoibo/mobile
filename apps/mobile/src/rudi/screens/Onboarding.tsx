@@ -3,7 +3,7 @@ import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -16,6 +16,16 @@ import {
 } from "react-native";
 
 import { demoAssets } from "../fixtures";
+import { manDau } from "../duong-vao";
+import {
+  LOI_SO_THICH,
+  cauLuuTru,
+  docSoThich,
+  docTuVung,
+  luuSoThich,
+  maLoi,
+} from "../nguoi/so-thich-song";
+import { NGAN_SACH, SO_THICH, doiMuc } from "../../screens/vao-cua/so-thich";
 import { noiLuu } from "../luu-tru";
 import { useRudiSession } from "../session";
 import { lopPhu, mauLogo, mucTrenAnh, typography, useRudiTheme } from "../theme";
@@ -145,47 +155,128 @@ export function WelcomeScreen() {
   );
 }
 
-const INTERESTS = [
-  ["restaurant-outline", "Ăn ngon"],
-  ["cafe-outline", "Cafe chill"],
-  ["trail-sign-outline", "Khám phá"],
-  ["camera-outline", "Sống ảo"],
-  ["musical-notes-outline", "Âm nhạc"],
-  ["game-controller-outline", "Vui chơi"],
-] as const;
 
-const VIBES = ["Yên bình", "Náo nhiệt", "Ngoài trời", "Có gu", "Tiết kiệm", "Tự thưởng"];
+/** One icon per taste word the SERVER knows. The words themselves come from
+ *  `so-thich.ts`, which `tests/test_interest_vocabulary_matches_client.py`
+ *  keeps equal to the server's list; the icon is decoration and lives here. */
+const BIEU_TUONG: Record<string, keyof typeof Ionicons.glyphMap> = {
+  "an-uong": "restaurant-outline",
+  cafe: "cafe-outline",
+  nightlife: "wine-outline",
+  "mon-local": "fast-food-outline",
+  outdoor: "trail-sign-outline",
+  shopping: "bag-handle-outline",
+  karaoke: "mic-outline",
+  game: "game-controller-outline",
+};
 
 export function PersonalizationScreen() {
   const router = useRouter();
   const { colors } = useRudiTheme();
   const session = useRudiSession();
+  const personId = session.phien?.person_id ?? null;
 
-  const toggle = (value: string, values: string[], setValues: (next: string[]) => void) => {
+  const [muc, setMuc] = useState<string[]>([]);
+  // Which words the server will accept. Null until it answers, and null forever
+  // if it cannot be reached -- the screen renders the local list either way.
+  const [tuVung, setTuVung] = useState<string[] | null>(null);
+  const [khoang, setKhoang] = useState<string | null>(null);
+  const [dangLuu, setDangLuu] = useState(false);
+  const [loi, setLoi] = useState<string | null>(null);
+
+  // What this person already told the server, so re-opening the step shows
+  // their answers rather than an empty screen that looks like a reset.
+  useEffect(() => {
+    let con = true;
+    void docTuVung().then((ds) => con && setTuVung(ds));
+    return () => {
+      con = false;
+    };
+  }, []);
+
+  const danhSach = tuVung === null ? SO_THICH : SO_THICH.filter((m) => tuVung.includes(m.id));
+
+  useEffect(() => {
+    if (personId === null) return;
+    let con = true;
+    void docSoThich(personId)
+      .then((da) => {
+        if (!con) return;
+        setMuc(da.muc);
+        setKhoang(da.khoang);
+      })
+      .catch(() => undefined);
+    return () => {
+      con = false;
+    };
+  }, [personId]);
+
+  /** Tapping the chosen band again clears it: «bỏ qua» has to stay reachable
+   *  after somebody has answered, or the first answer is permanent. */
+  const doiKhoang = (id: string) => {
     void Haptics.selectionAsync();
-    setValues(values.includes(value) ? values.filter((item) => item !== value) : [...values, value]);
+    if (khoang === id) {
+      setKhoang(null);
+      return;
+    }
+    setKhoang(id);
+  };
+
+  const doiMucChon = (id: string) => {
+    void Haptics.selectionAsync();
+    setMuc(doiMuc(muc, id));
+  };
+
+  const xong = async () => {
+    setLoi(null);
+    if (personId === null) {
+      // The dev fixture door reaches this screen with no session. Nothing to
+      // attach the answers to, and writing them to a file a later sign-in
+      // adopts would make one phone's guesses look like somebody's taste.
+      router.replace("/explore");
+      return;
+    }
+    setDangLuu(true);
+    try {
+      await luuSoThich(personId, { muc, khoang });
+      router.replace(manDau(session.phien));
+    } catch (error) {
+      const ma = maLoi(error);
+      setLoi((ma !== null ? LOI_SO_THICH[ma] : null) ?? "Chưa lưu được. Thử lại giúp mình nhé.");
+    } finally {
+      setDangLuu(false);
+    }
   };
 
   return (
     <RudiScreen contentStyle={styles.personalization} testID="personalization-screen">
-      <TopBar right={<Text style={[typography.caption, { color: colors.inkFaint }]}>1/1</Text>} />
+      <TopBar
+        right={
+          <Pressable accessibilityRole="button" onPress={() => router.replace(manDau(session.phien))}>
+            {/* Not a gate. The step is editable forever from Cá nhân, and a
+                required question on the first screen of a new account is a
+                toll booth, not a personalization. */}
+            <Text style={[typography.label, { color: colors.inkFaint }]}>Bỏ qua</Text>
+          </Pressable>
+        }
+      />
       <ProgressBar value={100} />
       <Heading
         title="Cho Rủ Đi biết gu của bạn"
-        subtitle={`Chọn ít nhất 3 sở thích. Lựa chọn ${noiLuu(session.luuTruSong)}.`}
+        subtitle="Chọn ít nhất 3 sở thích. Rủ Đi xếp gợi ý theo đúng những gì bạn chọn."
       />
       <Card style={styles.preferenceCard}>
         <Text style={[typography.title, { color: colors.ink }]}>Bạn thường mê gì?</Text>
         <Text style={[typography.caption, { color: colors.inkFaint }]}>Chọn mọi thứ khiến bạn muốn xách balo lên.</Text>
         <View style={styles.interestGrid}>
-          {INTERESTS.map(([icon, label]) => {
-            const selected = session.interests.includes(label);
+          {danhSach.map((m) => {
+            const selected = muc.includes(m.id);
             return (
               <Pressable
-                key={label}
+                key={m.id}
                 accessibilityRole="checkbox"
                 aria-checked={selected}
-                onPress={() => toggle(label, session.interests, session.setInterests)}
+                onPress={() => doiMucChon(m.id)}
                 style={({ pressed }) => [
                   styles.interest,
                   {
@@ -196,9 +287,9 @@ export function PersonalizationScreen() {
                 ]}
               >
                 <View style={[styles.interestIcon, { backgroundColor: selected ? colors.accent : colors.ground }]}>
-                  <Ionicons color={selected ? colors.accentInk : colors.inkSoft} name={icon} size={23} />
+                  <Ionicons color={selected ? colors.accentInk : colors.inkSoft} name={BIEU_TUONG[m.id] ?? "sparkles-outline"} size={23} />
                 </View>
-                <Text style={[typography.label, { color: selected ? colors.accent : colors.ink }]}>{label}</Text>
+                <Text style={[typography.label, { color: selected ? colors.accent : colors.ink }]}>{m.nhan}</Text>
                 {selected ? <Ionicons color={colors.accent} name="checkmark-circle" size={18} /> : null}
               </Pressable>
             );
@@ -206,27 +297,33 @@ export function PersonalizationScreen() {
         </View>
       </Card>
       <View style={styles.vibeBlock}>
-        <Text style={[typography.title, { color: colors.ink }]}>Mood chuyến đi</Text>
+        <Text style={[typography.title, { color: colors.ink }]}>Mỗi lần đi chơi bạn tiêu khoảng</Text>
+        <Text style={[typography.caption, { color: colors.inkFaint }]}>
+          Bỏ qua cũng được. Rủ Đi để trống chỗ này chứ không đoán thay bạn.
+        </Text>
         <Inline gap={8} wrap>
-          {VIBES.map((vibe) => (
+          {NGAN_SACH.map((k) => (
             <Chip
-              key={vibe}
-              label={vibe}
-              onPress={() => toggle(vibe, session.vibes, session.setVibes)}
-              selected={session.vibes.includes(vibe)}
+              key={k.id}
+              label={k.nhan}
+              onPress={() => doiKhoang(k.id)}
+              selected={khoang === k.id}
             />
           ))}
         </Inline>
       </View>
       <Spacer size={4} />
+      {loi !== null ? (
+        <Text style={[typography.body, { color: colors.warn }]}>{loi}</Text>
+      ) : null}
       <RudiButton
-        disabled={session.interests.length < 3}
+        disabled={muc.length < 3 || dangLuu}
         icon="sparkles"
-        label="Tạo không gian của tôi"
-        onPress={() => router.replace("/explore")}
+        label={dangLuu ? "Đang lưu…" : "Tạo không gian của tôi"}
+        onPress={() => void xong()}
       />
       <Text style={[typography.caption, styles.privacyText, { color: colors.inkFaint }]}>
-        Rủ Đi chỉ dùng lựa chọn này để cá nhân hóa gợi ý trên máy. Chưa gửi lên máy chủ.
+        {cauLuuTru(personId !== null)}
       </Text>
     </RudiScreen>
   );

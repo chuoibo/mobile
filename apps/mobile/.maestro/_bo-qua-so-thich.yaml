@@ -1,0 +1,17 @@
+# Bước cá nhân hoá của tài khoản MỚI (M11), bỏ qua khi flow không đo nó.
+#
+# Từ M11, một tài khoản vừa tạo (`is_new_person`) rơi vào `/personalization`
+# ngay sau khi nhập mã, chứ không vào thẳng «Chưa có nhóm nào». Mọi flow đăng
+# nhập bằng số sinh lúc chạy đều tạo tài khoản mới, nên tất cả đều đi qua màn
+# này — và đó là đúng hành vi của sản phẩm, không phải một bước thừa.
+#
+# «Bỏ qua» có thật trên màn vì bước ấy KHÔNG phải cổng: sở thích sửa được bất
+# cứ lúc nào ở Cá nhân. Flow 36 mới là flow đo màn này; các flow khác chỉ đi
+# qua nó.
+appId: com.lakiet.rudi
+---
+- runFlow:
+    when:
+      visible: "Cho Rủ Đi biết gu của bạn"
+    commands:
+      - tapOn: "Bỏ qua"

@@ -20,6 +20,7 @@ import {
   type Place,
 } from "../../../screens/kham-pha/places";
 import { askSearch, hieuDuocGi, type TimKiemState } from "../../../screens/kham-pha/tim-kiem";
+import { SO_THICH } from "../../../screens/vao-cua/so-thich";
 import { docDiemDenDaChon } from "../../kham-pha/diem-den";
 import {
   bieuTuongLoai,
@@ -28,8 +29,11 @@ import {
   chiTietNgan,
   daoLuu,
   docDaLuu,
+  cauChuaCo,
+  cauGu,
   docDanhMucCoLui,
   dongPhu,
+  type Gu,
   locTheoTen,
   luuDiaDiem,
 } from "../../kham-pha/dia-diem";
@@ -83,6 +87,13 @@ export function ExploreLiveScreen({ phien }: { phien: Phien }) {
   // which, so this starts as null and is filled from the answer -- the screen
   // never guesses a city name it has not been told.
   const [diemDen, setDiemDen] = useState<{ id: string; name: string } | null>(null);
+  // Whose taste the badges are relative to. Starts as «chưa biết» because that
+  // is true until the server has answered, and it is what the screen says.
+  const [gu, setGu] = useState<Gu | null>(null);
+  // Only words this build can name. A tag the server knows and this app does
+  // not would otherwise print its storage key on screen, which is how «cafe»
+  // becomes «mon-local» in front of somebody.
+  const chuaCo = cauChuaCo(gu, (id) => SO_THICH.find((m) => m.id === id)?.nhan ?? "");
 
   const nap = useCallback(async () => {
     try {
@@ -92,10 +103,11 @@ export function ExploreLiveScreen({ phien }: { phien: Phien }) {
         // (an import can drop one). That is a 404, and the right answer is the
         // server's default rather than an error screen about a city the person
         // chose last week; the stored choice is cleared so it stops asking.
-        docDanhMucCoLui(daChon),
+        docDanhMucCoLui(daChon, phien.person_id),
         docDaLuu(phien.person_id),
       ]);
       setDiemDen(danhMuc.destination);
+      setGu(danhMuc.gu);
       setTrang({ pha: "xong", places: danhMuc.places, categories: danhMuc.categories });
       setDaLuu(luu);
     } catch (error) {
@@ -253,6 +265,18 @@ export function ExploreLiveScreen({ phien }: { phien: Phien }) {
             </Card>
           ) : null}
           {loiLuu !== null ? <Text style={[typography.caption, { color: colors.warn }]}>{loiLuu}</Text> : null}
+          {/* Whose taste the badges follow (M11). The «chưa biết» sentence is a
+              button, because it is the one state the person can fix. */}
+          <Pressable
+            accessibilityRole={gu === null || gu.co_so === "chua-biet" ? "button" : undefined}
+            disabled={gu !== null && gu.co_so !== "chua-biet"}
+            onPress={() => router.push("/personalization" as never)}
+          >
+            <Text style={[typography.caption, { color: colors.inkFaint }]}>{cauGu(gu)}</Text>
+            {chuaCo !== "" ? (
+              <Text style={[typography.caption, { color: colors.inkFaint }]}>{chuaCo}</Text>
+            ) : null}
+          </Pressable>
           <SectionHeader
             action={dangLoc ? "Xóa lọc" : undefined}
             onAction={dangLoc ? boTim : undefined}

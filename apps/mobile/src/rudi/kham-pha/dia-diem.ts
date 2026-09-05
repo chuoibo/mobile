@@ -36,7 +36,81 @@ export type DanhMuc = {
    *  says which, so the screen can name it instead of printing a city it hopes
    *  is right. */
   destination: { id: string; name: string };
+  /** Whose taste the match percentages are relative to (M11). */
+  gu: Gu;
 };
+
+/**
+ * The basis every badge on the screen is scored against.
+ *
+ * `chua-biet` is not an error and not an empty group: it is «we have not been
+ * told anything about you», and it is why the cards come back with no
+ * percentage at all. Saying which of the three it is, in the screen's own
+ * words, is the difference between «không có chỗ nào hợp gu bạn» (a claim
+ * about the places) and «Rủ Đi chưa biết gu bạn» (a claim about us).
+ */
+export type Gu = {
+  co_so: "nhom" | "ca-nhan" | "chua-biet";
+  so_thich: string[];
+  /** Chosen tastes this catalogue has nothing to match against. */
+  chua_co_trong_danh_muc: string[];
+  nguoi: number;
+  nguoi_da_chon: number;
+};
+
+const GU_CHUA_BIET: Gu = {
+  co_so: "chua-biet",
+  so_thich: [],
+  chua_co_trong_danh_muc: [],
+  nguoi: 0,
+  nguoi_da_chon: 0,
+};
+
+/**
+ * The one line the screen prints about whose taste the badges follow.
+ *
+ * Three states, three different sentences, and the «chưa biết» one names the
+ * next move rather than describing an absence: the person can fix it, and the
+ * screen is the only place they would find that out.
+ */
+export function cauGu(gu: Gu | null): string {
+  if (gu === null || gu.co_so === "chua-biet") {
+    return "Chưa biết gu bạn nên chưa xếp hạng. Chọn sở thích ở Cá nhân để Rủ Đi xếp giúp.";
+  }
+  if (gu.co_so === "ca-nhan") {
+    return gu.so_thich.length === 0
+      ? "Xếp theo mức chi bạn đã chọn."
+      : `Xếp theo ${gu.so_thich.length} sở thích bạn đã chọn.`;
+  }
+  return `Xếp theo gu nhóm: ${gu.nguoi_da_chon}/${gu.nguoi} người đã chọn sở thích.`;
+}
+
+/** «Rủ Đi chưa có nhóm địa điểm này», or empty. A claim about the catalogue. */
+export function cauChuaCo(gu: Gu | null, ten: (id: string) => string): string {
+  if (gu === null) return "";
+  // A word this build cannot name is dropped rather than printed as its id:
+  // the sentence is about the catalogue, and a storage key on screen is not.
+  const ds = gu.chua_co_trong_danh_muc.map(ten).filter((chu) => chu !== "");
+  if (ds.length === 0) return "";
+  return `Rủ Đi chưa nhập nhóm địa điểm cho: ${ds.join(", ")}.`;
+}
+
+function docGu(body: unknown): Gu {
+  const raw = (body as { group?: Record<string, unknown> } | null)?.group;
+  if (raw === undefined || raw === null) return GU_CHUA_BIET;
+  const co_so = raw.basis;
+  if (co_so !== "nhom" && co_so !== "ca-nhan" && co_so !== "chua-biet") return GU_CHUA_BIET;
+  const chuoi = (value: unknown): string[] =>
+    Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  const so = (value: unknown): number => (typeof value === "number" && Number.isInteger(value) ? value : 0);
+  return {
+    co_so,
+    so_thich: chuoi(raw.interests),
+    chua_co_trong_danh_muc: chuoi(raw.uncovered_interests),
+    nguoi: so(raw.people),
+    nguoi_da_chon: so(raw.people_answered),
+  };
+}
 
 /**
  * The catalogue for one destination, optionally narrowed further.
@@ -45,7 +119,15 @@ export type DanhMuc = {
  * default and names it in the body, which is what the header then draws.
  */
 export async function docDanhMuc(
-  opts: { category?: string | null; q?: string; destination?: string | null } = {},
+  opts: {
+    category?: string | null;
+    q?: string;
+    destination?: string | null;
+    /** Read as this person when there is a session (M11): the badge is scored
+     *  against their stated taste. Absent means an anonymous read, which the
+     *  route serves as a catalogue with no percentages. */
+    personId?: string | null;
+  } = {},
 ): Promise<DanhMuc> {
   const params = new URLSearchParams();
   if (opts.category) params.set("category", opts.category);
@@ -53,10 +135,12 @@ export async function docDanhMuc(
   if (q) params.set("q", q);
   if (opts.destination) params.set("destination", opts.destination);
   const duoi = params.toString();
-  const body = await translatedAnonymous<unknown>(LOI_DIA_DIEM, duoi ? `/places?${duoi}` : "/places", {
-    method: "GET",
-  });
-  return parseCatalogue(body);
+  const duong = duoi ? `/places?${duoi}` : "/places";
+  const body =
+    opts.personId != null
+      ? await translatedAsActor<unknown>(LOI_DIA_DIEM, duong, { method: "GET", actorId: opts.personId })
+      : await translatedAnonymous<unknown>(LOI_DIA_DIEM, duong, { method: "GET" });
+  return { ...parseCatalogue(body), gu: docGu(body) };
 }
 
 /**
@@ -67,14 +151,17 @@ export async function docDanhMuc(
  * destination, not an error screen about a city somebody chose last week; the
  * stored choice is cleared so it stops being asked for.
  */
-export async function docDanhMucCoLui(daChon: string | null): Promise<DanhMuc> {
-  if (daChon === null) return docDanhMuc();
+export async function docDanhMucCoLui(
+  daChon: string | null,
+  personId?: string | null,
+): Promise<DanhMuc> {
+  if (daChon === null) return docDanhMuc({ personId });
   try {
-    return await docDanhMuc({ destination: daChon });
+    return await docDanhMuc({ destination: daChon, personId });
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) {
       await quenDiemDen();
-      return docDanhMuc();
+      return docDanhMuc({ personId });
     }
     throw error;
   }
