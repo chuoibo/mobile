@@ -127,7 +127,15 @@ def interactive_boundaries() -> list[tuple[str, str, str]]:
     button = kit_component("RudiButton")
     field = kit_component("Field")
     chip = kit_component("Chip")
+    cover_button = kit_component("CoverButton")
     return [
+        # UI v2: the quiet button on the indigo cover has no fill, so its border is
+        # the whole affordance and must clear 3:1 against `cover` in both schemes.
+        (
+            "app: nút CoverButton, viền trên bìa sổ",
+            kit_border_token(r"borderColor:\s*colors\.(\w+)", cover_button),
+            "cover",
+        ),
         # App. The outline button and the unselected chip have a card fill at
         # most, so the border is the affordance; it must clear the surface it
         # sits on (ground) and the fill it encloses (card).

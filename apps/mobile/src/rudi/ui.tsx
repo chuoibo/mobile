@@ -25,7 +25,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { DemoPerson } from "./fixtures";
 import { useRudiSession } from "./session";
-import { cardShadow, lopPhu, mauSang, mucTrenAnh, nenAnhTrong, RudiTone, toneColor, toneSoftColor, typography, useRudiTheme, displayFace } from "./theme";
+import { cardShadow, lopPhu, mucTrenAnh, nenAnhTrong, RudiTone, toneColor, toneSoftColor, typography, useRudiTheme, displayFace } from "./theme";
 import { useAdaptiveLayout } from "./ui/useAdaptiveLayout";
 import { Wordmark } from "./ui/Wordmark";
 
@@ -40,6 +40,8 @@ type ScreenProps = {
   footer?: ReactNode;
   footerInset?: number;
   contentStyle?: StyleProp<ViewStyle>;
+  /** `cover` when the first child is a CoverBand: the status-bar area is indigo, not paper. */
+  surface?: "page" | "cover";
   testID?: string;
 };
 
@@ -52,6 +54,7 @@ export function RudiScreen({
   footer,
   footerInset = 0,
   contentStyle,
+  surface = "page",
   testID,
 }: ScreenProps) {
   const { colors, dark, space } = useRudiTheme();
@@ -59,6 +62,7 @@ export function RudiScreen({
   const tablet = layout.sizeClass !== "compact";
   const inner = [
     styles.screenInner,
+    surface === "cover" && { backgroundColor: colors.ground },
     padded && { paddingHorizontal: tablet ? space.lg : space.md },
     { paddingBottom: bottomInset },
     tablet && styles.tabletInner,
@@ -68,7 +72,7 @@ export function RudiScreen({
   return (
     <SafeAreaView
       edges={["top", "left", "right"]}
-      style={[styles.safeArea, { backgroundColor: colors.ground }]}
+      style={[styles.safeArea, { backgroundColor: surface === "cover" ? colors.cover : colors.ground }]}
       testID={testID}
     >
       {scroll ? (
@@ -154,7 +158,7 @@ export function TopBar({
   );
 }
 
-export function Logo({ compact = false }: { compact?: boolean }) {
+export function Logo({ compact = false, ink }: { compact?: boolean; ink?: string }) {
   const { brand, colors } = useRudiTheme();
   return (
     <View style={styles.logoRow} accessibilityLabel="Rủ Đi">
@@ -168,7 +172,7 @@ export function Logo({ compact = false }: { compact?: boolean }) {
           Rủ{"\n"}Đi
         </Text>
       </LinearGradient>
-      <Wordmark height={compact ? 18 : 26} color={colors.ink} />
+      <Wordmark height={compact ? 18 : 26} color={ink ?? colors.ink} />
     </View>
   );
 }

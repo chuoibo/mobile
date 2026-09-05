@@ -19,10 +19,14 @@
  * server listed an active one. `manDau` then decides between the Khám phá tab
  * and «Chưa có nhóm nào». `datPhien` puts the session into force for the
  * screens already mounted; without it they would read fixtures until restart.
+ *
+ * UI v2: the cover band continues from the login page (title and the masked
+ * number in cover ink), the six boxes sit on the paper without a card.
  */
 import { Redirect, useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
-import { StyleSheet, Text } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 
 import { ApiError, thongDiepNguoiDoc } from "../../../api";
 import { guiOtp, xacMinhOtp } from "../../../phien";
@@ -30,7 +34,9 @@ import { manDau } from "../../duong-vao";
 import { cheSo, datOtpDangCho, layOtpDangCho, xoaOtpDangCho, type OtpDangCho } from "../../otp-dang-cho";
 import { useRudiSession } from "../../session";
 import { typography, useRudiTheme } from "../../theme";
-import { Card, Heading, OtpBoxes, RudiButton, RudiScreen, TopBar } from "../../ui";
+import { OtpBoxes, RudiButton, RudiScreen } from "../../ui";
+import { CoverBand } from "../../ui/CoverBand";
+import { useAdaptiveLayout } from "../../ui/useAdaptiveLayout";
 
 type Trang =
   | { pha: "nhap" }
@@ -46,7 +52,8 @@ function loiRaChu(error: unknown): string {
 
 export function OtpScreen() {
   const router = useRouter();
-  const { colors } = useRudiTheme();
+  const { colors, space } = useRudiTheme();
+  const layout = useAdaptiveLayout();
   const { datPhien } = useRudiSession();
   const [cho, setCho] = useState<OtpDangCho | null>(() => layOtpDangCho());
   const [ma, setMa] = useState("");
@@ -104,14 +111,22 @@ export function OtpScreen() {
     if (tiep.length === DO_DAI_MA && !ban) void xacMinh(tiep);
   };
 
+  const doiSo = () => {
+    xoaOtpDangCho();
+    router.replace("/login");
+  };
+  const bleed = layout.sizeClass === "compact" ? space.md : space.lg;
+
   return (
-    <RudiScreen contentStyle={styles.screen} testID="otp-screen">
-      <TopBar />
-      <Heading
-        title="Nhập mã 6 số"
-        subtitle={`Mã đã gửi tới ${cheSo(cho.phone)}. Có hiệu lực 5 phút; nhập đủ 6 số là tự kiểm.`}
-      />
-      <Card style={styles.card}>
+    <RudiScreen contentStyle={styles.screen} surface="cover" testID="otp-screen">
+      <StatusBar style="light" />
+      <CoverBand bleed={bleed} onBack={doiSo} style={styles.band}>
+        <Text style={[typography.hero, { color: colors.coverInk }]}>Nhập mã 6 số</Text>
+        <Text style={[typography.body, styles.dan, { color: colors.coverInkSoft }]}>
+          Mã đã gửi tới {cheSo(cho.phone)}. Có hiệu lực 5 phút; nhập đủ 6 số là tự kiểm.
+        </Text>
+      </CoverBand>
+      <View style={styles.form}>
         <OtpBoxes disabled={ban} length={DO_DAI_MA} onChange={doiMa} value={ma} />
         {trang.pha === "dang-xac-minh" ? (
           <Text style={[typography.caption, { color: colors.inkSoft }]}>Đang kiểm mã...</Text>
@@ -135,22 +150,16 @@ export function OtpScreen() {
             Gửi lại được sau {conLai} giây.
           </Text>
         ) : null}
-      </Card>
-      <RudiButton
-        disabled={ban}
-        label="Đổi số điện thoại"
-        onPress={() => {
-          xoaOtpDangCho();
-          router.replace("/login");
-        }}
-        variant="ghost"
-      />
+      </View>
+      <RudiButton disabled={ban} label="Đổi số điện thoại" onPress={doiSo} variant="ghost" />
     </RudiScreen>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { gap: 20 },
-  card: { gap: 16, maxWidth: 560, width: "100%", alignSelf: "center" },
+  band: { gap: 10 },
+  dan: { maxWidth: 520 },
+  form: { gap: 16, maxWidth: 560, width: "100%", alignSelf: "center" },
   demNguoc: { textAlign: "center" },
 });

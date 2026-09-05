@@ -134,7 +134,7 @@ export function RudiTabBar({ state, descriptors, navigation }: TabBarProps) {
         pointerEvents="none"
         style={[
           layout.rail ? styles.railIndicator : styles.indicator,
-          { backgroundColor: colors.accent, width: layout.rail ? 4 : `${100 / columns}%` },
+          layout.rail ? { backgroundColor: colors.accent, width: 4 } : { width: `${100 / columns}%` },
           indicatorStyle,
         ]}
       >
@@ -168,10 +168,10 @@ const styles = StyleSheet.create({
     borderWidth: 4,
     alignItems: "center",
     justifyContent: "center",
-    elevation: 10,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.28,
-    shadowRadius: 12,
+    elevation: 6,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
   },
   fabRaised: { marginTop: -22 },
   indicator: { position: "absolute", top: 0, height: 6, alignItems: "center", backgroundColor: "transparent" },
