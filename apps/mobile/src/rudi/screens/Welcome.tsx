@@ -1,4 +1,3 @@
-import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useRef, useState } from "react";
@@ -15,14 +14,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { CUA_FIXTURE_DEV } from "../cua-fixture";
 import { DAU_VAN_CAY } from "../dau-van-cay";
-import { displayFace, lopPhu, mucTrenAnh, typography, useRudiTheme } from "../theme";
+import { displayFace, lopPhu, typography, useRudiTheme } from "../theme";
 import { DemoBadge } from "../ui";
 import { CoverButton } from "../ui/CoverButton";
+import { RouteLine } from "../ui/RouteLine";
 import { StampButton } from "../ui/StampButton";
 import { useAdaptiveLayout } from "../ui/useAdaptiveLayout";
 import { useMotion } from "../ui/useMotion";
 import { Washi } from "../ui/Washi";
-import { Wordmark } from "../ui/Wordmark";
 import { WordmarkEmbossed } from "../ui/WordmarkEmbossed";
 
 /**
@@ -58,10 +57,11 @@ export function WelcomeScreen() {
   const insets = useSafeAreaInsets();
   const layout = useAdaptiveLayout();
   const motion = useMotion();
-  const { colors, brand } = useRudiTheme();
+  const { colors } = useRudiTheme();
   const pager = useRef<ScrollView>(null);
   const [page, setPage] = useState(0);
   const [pageWidth, setPageWidth] = useState(0);
+  const [routeBox, setRouteBox] = useState({ w: 0, h: 0 });
   const lift = useSharedValue(0);
 
   const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -96,18 +96,7 @@ export function WelcomeScreen() {
       <StatusBar style="light" />
       <Animated.View style={[styles.cover, { paddingTop: insets.top + 12, paddingBottom: Math.max(insets.bottom, 16) + 6 }, coverStyle]}>
         <View style={styles.top}>
-          <View style={styles.logoRow} accessibilityLabel="Rủ Đi">
-            <LinearGradient
-              colors={[brand.logoGradient.from, brand.logoGradient.to]}
-              end={{ x: 1, y: 1 }}
-              start={{ x: 0, y: 0 }}
-              style={styles.tile}
-            >
-              <Text style={styles.tileType}>Rủ{"\n"}Đi</Text>
-            </LinearGradient>
-            <Wordmark height={18} color={colors.coverInk} />
-          </View>
-          {CUA_FIXTURE_DEV ? <DemoBadge label="Bản trải nghiệm" /> : null}
+          {CUA_FIXTURE_DEV ? <DemoBadge label="Bản trải nghiệm" /> : <View />}
         </View>
 
         <View style={[styles.mark, short && styles.markShort]}>
@@ -115,6 +104,16 @@ export function WelcomeScreen() {
           <Washi tone="accent" tilt={-2} height={38} style={styles.tape}>
             <Text style={[styles.tagline, { color: colors.ink }]}>AI đi chơi, chia bill thông minh</Text>
           </Washi>
+        </View>
+
+        <View
+          onLayout={(e) => setRouteBox({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
+          style={styles.route}
+          pointerEvents="none"
+        >
+          {routeBox.h > 40 && !short ? (
+            <RouteLine width={routeBox.w} height={routeBox.h} color={colors.coverInkSoft} opacity={0.42} stops={4} />
+          ) : null}
         </View>
 
         <View style={styles.bottom}>
@@ -164,12 +163,10 @@ export function WelcomeScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  cover: { flex: 1, justifyContent: "space-between", paddingHorizontal: 20 },
-  top: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  logoRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  tile: { width: 34, height: 34, borderRadius: 11, alignItems: "center", justifyContent: "center" },
-  tileType: { color: mucTrenAnh, fontFamily: displayFace.extraBold, fontSize: 10, lineHeight: 10, letterSpacing: -0.4, textAlign: "center", transform: [{ skewX: "-9deg" }] },
-  mark: { alignItems: "center", gap: 22, marginTop: -10 },
+  cover: { flex: 1, paddingHorizontal: 20 },
+  top: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", minHeight: 28 },
+  mark: { alignItems: "center", gap: 22, marginTop: 36 },
+  route: { flex: 1, marginVertical: 8, marginHorizontal: 12 },
   markShort: { gap: 12 },
   tape: { alignSelf: "center", paddingHorizontal: 18 },
   tagline: { fontFamily: displayFace.bold, fontSize: 17, lineHeight: 21, letterSpacing: -0.1 },

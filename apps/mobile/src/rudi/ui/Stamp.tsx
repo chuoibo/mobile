@@ -37,7 +37,7 @@ export function Stamp({ label, tone = "accent", variant = "outline", tilt = 0, s
         {
           borderColor: ink,
           backgroundColor: filled ? ink : "transparent",
-          transform: tilt === 0 ? undefined : [{ rotate: `${tilt}deg` }],
+          ...(tilt === 0 ? {} : { transform: [{ rotate: `${tilt}deg` }] }),
         },
         style,
       ]}

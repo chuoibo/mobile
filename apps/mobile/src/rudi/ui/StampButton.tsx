@@ -42,7 +42,9 @@ export function StampButton({ label, onPress, icon = "arrow-forward", disabled, 
           backgroundColor: brand.coral,
           shadowColor: colors.cover,
           opacity: disabled ? 0.55 : 1,
-          transform: tilt === 0 ? undefined : [{ rotate: `${tilt}deg` }],
+          // Only spell `transform` when there is one: Reanimated turns an
+          // `undefined` transform into `null`, and RN's validator then throws.
+          ...(tilt === 0 ? {} : { transform: [{ rotate: `${tilt}deg` }] }),
         },
         style,
       ]}

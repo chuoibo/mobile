@@ -31,7 +31,7 @@ export function Washi({ tone = "accent", tilt = 0, height = 28, children, style 
       pointerEvents="box-none"
       style={[
         styles.strip,
-        { height, backgroundColor: fill, transform: tilt === 0 ? undefined : [{ rotate: `${tilt}deg` }] },
+        { height, backgroundColor: fill, ...(tilt === 0 ? {} : { transform: [{ rotate: `${tilt}deg` }] }) },
         style,
       ]}
     >
