@@ -657,7 +657,8 @@ const styles = StyleSheet.create({
   spendTrack: { height: 9, overflow: "hidden", borderRadius: 999 },
   spendFill: { height: "100%", borderRadius: 999 },
   transactions: { paddingVertical: 5 },
-  transaction: { minHeight: 64, flexDirection: "row", alignItems: "center", gap: 11 },
+  // Rows grow with sp: at font 1.3 a two-line subtitle used to meet the divider above.
+  transaction: { minHeight: 64, flexDirection: "row", alignItems: "center", gap: 11, paddingVertical: 10 },
   transactionIcon: { width: 41, height: 41, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   financeFootnote: { flexDirection: "row", alignItems: "flex-start", gap: 9 },
   levelHero: { overflow: "hidden", gap: 14, padding: 19 },

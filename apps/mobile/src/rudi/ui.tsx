@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { Image, ImageSource } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
+import { StatusBar } from "expo-status-bar";
 import { useRouter } from "expo-router";
 import type { ComponentProps, ReactNode } from "react";
 import {
@@ -26,6 +27,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { DemoPerson } from "./fixtures";
 import { useRudiSession } from "./session";
 import { cardShadow, lopPhu, mucTrenAnh, nenAnhTrong, RudiTone, toneColor, toneSoftColor, typography, useRudiTheme, displayFace } from "./theme";
+import { Grain } from "./ui/Grain";
 import { useAdaptiveLayout } from "./ui/useAdaptiveLayout";
 import { Wordmark } from "./ui/Wordmark";
 
@@ -62,6 +64,9 @@ export function RudiScreen({
   const tablet = layout.sizeClass !== "compact";
   const inner = [
     styles.screenInner,
+    // A cover band is the first child: no paper strip may show between the
+    // status bar (painted cover) and the band.
+    surface === "cover" && { paddingTop: 0 },
     padded && { paddingHorizontal: tablet ? space.lg : space.md },
     { paddingBottom: bottomInset },
     tablet && styles.tabletInner,
@@ -74,23 +79,29 @@ export function RudiScreen({
       style={[styles.safeArea, { backgroundColor: surface === "cover" ? colors.cover : colors.ground }]}
       testID={testID}
     >
+      {/* Light icons over the indigo cover, dark over paper; every screen re-asserts
+          so leaving a cover screen never leaves pale icons on cream. */}
+      <StatusBar style={surface === "cover" || dark ? "light" : "dark"} />
+      <View pointerEvents="none" style={[styles.paper, { backgroundColor: colors.ground }]}>
+        <Grain material="giayTrang" opacity={dark ? 0.05 : 0.07} />
+      </View>
       {scroll ? (
         <ScrollView
           contentContainerStyle={inner}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-          style={[styles.flex, { backgroundColor: colors.ground }]}
+          style={styles.flex}
         >
           {children}
         </ScrollView>
       ) : (
-        <View style={[inner, styles.flex, { backgroundColor: colors.ground }]}>{children}</View>
+        <View style={[inner, styles.flex]}>{children}</View>
       )}
       {footer ? (
         <View
           style={[
             styles.screenFooter,
-            { backgroundColor: colors.ground, paddingHorizontal: tablet ? space.lg : space.md, paddingBottom: footerInset },
+            { paddingHorizontal: tablet ? space.lg : space.md, paddingBottom: footerInset },
             tablet && styles.tabletInner,
           ]}
         >
@@ -903,6 +914,7 @@ const styles = StyleSheet.create({
   },
   flex: { flex: 1 },
   safeArea: { flex: 1, overflow: "hidden" },
+  paper: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0 },
   screenInner: { width: "100%", gap: 18, paddingTop: 8 },
   screenFooter: { width: "100%", paddingTop: 8, zIndex: 2 },
   tabletInner: { alignSelf: "center", maxWidth: 960, paddingTop: 22 },

@@ -469,6 +469,22 @@
         "vn-phone"
       ],
       "reason": "Wordmark «Rủ Đi» dạng vector: bốn chuỗi `d` của SVG path là toạ độ outline glyph (Baloo 2 ExtraBold, OFL) do fontTools trích, mỗi số làm tròn một chữ số thập phân; các dãy số dài và mẫu giống số điện thoại là toạ độ nối nhau, không phải dữ liệu người. Sinh một lần bởi công cụ ghi trong docs/claude/2026-09-05/ui-v2-direction-round.md; đổi outline thì sinh lại và ghim lại digest."
+    },
+    {
+      "path": "apps/mobile/assets/textures/vai-bia.png",
+      "sha256": "78efe51dd6b5c7c6dd935b0dfaad130ceadbac4385123c07201f18cbcf78f642",
+      "rules": [
+        "controlled-artifact"
+      ],
+      "reason": "Ô chất liệu 256×256 nền trong suốt cho thế giới «nhật ký chuyến đi» (UI v2, ADR-0020): sinh bằng script Pillow seed cố định, không phải ảnh chụp, không chứa người hay dữ liệu thật; provenance nhúng trong PNG bằng imp embed-prompt; README cùng thư mục ghi cấu tạo. Ghim digest để đổi một byte phải review lại."
+    },
+    {
+      "path": "apps/mobile/assets/textures/giay-trang.png",
+      "sha256": "4e19dba406313aca03e6d7e936478e31b2c6ceccafc111a72f501b69cf2e59f6",
+      "rules": [
+        "controlled-artifact"
+      ],
+      "reason": "Ô chất liệu 256×256 nền trong suốt cho thế giới «nhật ký chuyến đi» (UI v2, ADR-0020): sinh bằng script Pillow seed cố định, không phải ảnh chụp, không chứa người hay dữ liệu thật; provenance nhúng trong PNG bằng imp embed-prompt; README cùng thư mục ghi cấu tạo. Ghim digest để đổi một byte phải review lại."
     }
   ]
 }

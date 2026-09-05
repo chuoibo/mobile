@@ -41,6 +41,7 @@ import { datOtpDangCho } from "../../otp-dang-cho";
 import { typography, useRudiTheme } from "../../theme";
 import { DemoBadge, Field, Logo, RudiButton, RudiScreen } from "../../ui";
 import { CoverBand } from "../../ui/CoverBand";
+import { StampButton } from "../../ui/StampButton";
 import { useAdaptiveLayout } from "../../ui/useAdaptiveLayout";
 
 type Trang = { pha: "nhap" } | { pha: "dang-gui" } | { pha: "hong"; loi: string };
@@ -110,7 +111,7 @@ export function LoginScreen() {
           textContentType="telephoneNumber"
           value={phone}
         />
-        <RudiButton disabled={dangGui} label="Gửi mã" loading={dangGui} onPress={() => void gui()} />
+        <StampButton disabled={dangGui} icon="arrow-forward" label="Gửi mã" loading={dangGui} onPress={() => void gui()} testID="login-gui-ma" />
         {trang.pha === "hong" ? (
           <Text style={[typography.body, { color: colors.warn }]}>{trang.loi}</Text>
         ) : null}

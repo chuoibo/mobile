@@ -17,12 +17,13 @@ import { DAU_VAN_CAY } from "../dau-van-cay";
 import { displayFace, lopPhu, typography, useRudiTheme } from "../theme";
 import { DemoBadge } from "../ui";
 import { CoverButton } from "../ui/CoverButton";
+import { Grain } from "../ui/Grain";
 import { RouteLine } from "../ui/RouteLine";
 import { StampButton } from "../ui/StampButton";
 import { useAdaptiveLayout } from "../ui/useAdaptiveLayout";
 import { useMotion } from "../ui/useMotion";
 import { Washi } from "../ui/Washi";
-import { WordmarkEmbossed } from "../ui/WordmarkEmbossed";
+import { Wordmark } from "../ui/Wordmark";
 
 /**
  * The closed cover of the group's travel journal (FIRST VIEWPORT of the v2
@@ -94,14 +95,15 @@ export function WelcomeScreen() {
   return (
     <View style={[styles.root, { backgroundColor: colors.cover }]} testID="welcome-screen">
       <StatusBar style="light" />
+      <Grain material="vaiBia" opacity={0.11} />
       <Animated.View style={[styles.cover, { paddingTop: insets.top + 12, paddingBottom: Math.max(insets.bottom, 16) + 6 }, coverStyle]}>
         <View style={styles.top}>
           {CUA_FIXTURE_DEV ? <DemoBadge label="Bản trải nghiệm" /> : <View />}
         </View>
 
         <View style={[styles.mark, short && styles.markShort]}>
-          <WordmarkEmbossed height={markHeight} color={colors.coverInk} />
-          <Washi tone="accent" tilt={-2} height={38} style={styles.tape}>
+          <Wordmark height={markHeight} color={colors.coverInk} />
+          <Washi tone="accent" tilt={-2} height={40} style={styles.tape}>
             <Text style={[styles.tagline, { color: colors.ink }]}>AI đi chơi, chia bill thông minh</Text>
           </Washi>
         </View>
@@ -112,7 +114,15 @@ export function WelcomeScreen() {
           pointerEvents="none"
         >
           {routeBox.h > 40 && !short ? (
-            <RouteLine width={routeBox.w} height={routeBox.h} color={colors.coverInkSoft} opacity={0.42} stops={4} />
+            <RouteLine
+              width={routeBox.w}
+              height={routeBox.h}
+              color={colors.coverInk}
+              opacity={0.82}
+              stops={WELCOME_PAGES.length}
+              activeStop={page}
+              accessibilityLabel={`Chặng ${page + 1} trên ${WELCOME_PAGES.length}`}
+            />
           ) : null}
         </View>
 
@@ -141,7 +151,7 @@ export function WelcomeScreen() {
             ))}
           </View>
           <View style={styles.actions}>
-            <StampButton label="Rủ Đi thôi!" onPress={openCover} testID="welcome-cta" />
+            <StampButton label="Rủ Đi thôi!" onPress={openCover} testID="welcome-cta" tilt={-1.5} />
             <CoverButton
               icon="chevron-forward"
               label={page < WELCOME_PAGES.length - 1 ? "Tìm hiểu thêm" : "Xem lại từ đầu"}

@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
-import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
+import { ActivityIndicator, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 
-import { displayFace, useRudiTheme } from "../theme";
+import { displayFace, phuMau, useRudiTheme } from "../theme";
+import { Grain } from "./Grain";
 import { PressScale } from "./PressScale";
 
 export interface StampButtonProps {
@@ -9,49 +10,53 @@ export interface StampButtonProps {
   onPress: () => void;
   icon?: keyof typeof Ionicons.glyphMap;
   disabled?: boolean;
-  /** A hair of rotation, like a seal pressed by hand; 0 in lists and forms. */
-  tilt?: -2 | -1 | 0 | 1 | 2;
+  loading?: boolean;
+  /** A hair of rotation, like a seal pressed by hand: -1.5 on the cover, 0 in forms. */
+  tilt?: -2 | -1.5 | -1 | 0 | 1 | 1.5 | 2;
   style?: StyleProp<ViewStyle>;
   testID?: string;
 }
 
 /**
- * The cover's primary action: a coral seal with dark ink lettering.
+ * The ask, as a rubber stamp pressed into the page.
  *
- * On the indigo cover the page's gradient button reads muddy, and white text
- * on coral measures 2.92:1, so the seal inverts: `brand.coral` fill (5.35:1
- * against the cover, a large area) with `ink` lettering (5.41:1 on coral) in
- * the display face. No border: the fill is the affordance, so nothing here
- * owes the 1.4.11 boundary floor. 56dp tall, spring press, impact haptic.
+ * Not a pill: no drop shadow (a stamp sits IN the paper, it does not float),
+ * a double ink edge (the outer line the rubber leaves, a fainter inner line
+ * where the ink pooled), coral ink whose fill is broken by paper grain, and
+ * a slight tilt on the cover. Lettering is the display face in dark ink,
+ * 5.41:1 on coral; coral itself is a large area, so the brand tier is allowed.
+ * The same stamp is the primary action on Login, so the ask has one language.
  */
-export function StampButton({ label, onPress, icon = "arrow-forward", disabled, tilt = 0, style, testID }: StampButtonProps) {
+export function StampButton({ label, onPress, icon = "arrow-forward", disabled, loading, tilt = 0, style, testID }: StampButtonProps) {
   const { brand, colors } = useRudiTheme();
+  const busy = !!loading;
   return (
     <PressScale
       accessibilityLabel={label}
       accessibilityRole="button"
-      accessibilityState={{ disabled: !!disabled }}
-      disabled={disabled}
+      accessibilityState={{ disabled: !!disabled, busy }}
+      disabled={disabled || busy}
       haptic="impact"
       onPress={onPress}
-      pressedScale={0.96}
+      pressedScale={0.97}
       testID={testID}
       style={[
         styles.seal,
         {
           backgroundColor: brand.coral,
-          shadowColor: colors.cover,
+          borderColor: phuMau(colors.ink, 0.88),
           opacity: disabled ? 0.55 : 1,
-          // Only spell `transform` when there is one: Reanimated turns an
-          // `undefined` transform into `null`, and RN's validator then throws.
           ...(tilt === 0 ? {} : { transform: [{ rotate: `${tilt}deg` }] }),
         },
         style,
       ]}
     >
+      <Grain material="giayTrang" opacity={0.42} />
+      <View pointerEvents="none" style={[styles.innerEdge, { borderColor: phuMau(colors.ink, 0.32) }]} />
       <View style={styles.row}>
+        {busy ? <ActivityIndicator color={colors.ink} /> : null}
         <Text style={[styles.label, { color: colors.ink }]}>{label}</Text>
-        {icon ? <Ionicons color={colors.ink} name={icon} size={22} /> : null}
+        {icon && !busy ? <Ionicons color={colors.ink} name={icon} size={22} /> : null}
       </View>
     </PressScale>
   );
@@ -60,14 +65,13 @@ export function StampButton({ label, onPress, icon = "arrow-forward", disabled, 
 const styles = StyleSheet.create({
   seal: {
     minHeight: 56,
-    borderRadius: 16,
+    borderRadius: 14,
+    borderWidth: 2,
     paddingHorizontal: 22,
     justifyContent: "center",
-    elevation: 8,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.35,
-    shadowRadius: 16,
+    overflow: "hidden",
   },
+  innerEdge: { position: "absolute", left: 4, right: 4, top: 4, bottom: 4, borderRadius: 10, borderWidth: 1 },
   row: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
-  label: { fontFamily: displayFace.bold, fontSize: 18, lineHeight: 22, letterSpacing: -0.2 },
+  label: { fontFamily: displayFace.bold, fontSize: 18, lineHeight: 22, letterSpacing: 0.2 },
 });

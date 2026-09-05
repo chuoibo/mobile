@@ -7,6 +7,10 @@ export interface RouteLineProps {
   color: string;
   /** Number of stops drawn along the route, 2–5. */
   stops?: number;
+  /** Which stop is where the group is now (filled); the others stay hollow. Default: the last. */
+  activeStop?: number;
+  /** Pencil plan (dashed) or ink (solid, default). */
+  dashed?: boolean;
   /** Where the pen starts: the route reads left-to-right, top-to-bottom. */
   direction?: "down" | "up";
   opacity?: number;
@@ -19,10 +23,10 @@ export interface RouteLineProps {
  * It appears wherever the product talks about a night out as a sequence --
  * the cover, an outing's timeline, an empty plan -- drawn by the same pen so
  * every screen recognises it. A gentle S-curve, dashed like a pencil plan
- * (the trip is not lived yet), with small ringed stops; the last stop is
- * filled: that is where the evening ends and the bill is split.
+ * when `dashed`, solid ink otherwise, with ringed stops; the filled stop is
+ * where the group is now, so a pager can advance it one stop per page.
  */
-export function RouteLine({ width, height, color, stops = 3, direction = "down", opacity = 1, accessibilityLabel }: RouteLineProps) {
+export function RouteLine({ width, height, color, stops = 3, activeStop, dashed = false, direction = "down", opacity = 1, accessibilityLabel }: RouteLineProps) {
   const n = Math.min(5, Math.max(2, stops));
   const w = width, h = height;
   // Control points of one S-curve across the box; flipped for "up".
@@ -37,14 +41,15 @@ export function RouteLine({ width, height, color, stops = 3, direction = "down",
       y: mt ** 3 * p.y0 + 3 * mt ** 2 * t * p.c1y + 3 * mt * t ** 2 * p.c2y + t ** 3 * p.y1,
     };
   };
-  const r = Math.max(4, Math.min(7, w / 48));
+  const r = Math.max(5, Math.min(8, w / 44));
+  const active = activeStop === undefined ? n - 1 : Math.min(n - 1, Math.max(0, activeStop));
   return (
     <Svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} opacity={opacity} accessibilityLabel={accessibilityLabel} accessibilityRole={accessibilityLabel ? "image" : undefined}>
-      <Path d={d} stroke={color} strokeWidth={2} strokeDasharray="7 7" strokeLinecap="round" fill="none" />
+      <Path d={d} stroke={color} strokeWidth={3} {...(dashed ? { strokeDasharray: "7 7" } : {})} strokeLinecap="round" fill="none" />
       {Array.from({ length: n }, (_, i) => {
         const q = point(i / (n - 1));
-        const last = i === n - 1;
-        return <Circle key={i} cx={q.x} cy={q.y} r={r} fill={last ? color : "transparent"} stroke={color} strokeWidth={2} />;
+        const here = i === active;
+        return <Circle key={i} cx={q.x} cy={q.y} r={here ? r + 2 : r} fill={here ? color : "transparent"} stroke={color} strokeWidth={here ? 3 : 2.5} />;
       })}
     </Svg>
   );
