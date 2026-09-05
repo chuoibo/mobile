@@ -107,6 +107,8 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
             "32-ky-niem-that.yaml",
             "30-chat-that.yaml",
             "31-ban-phim-mo.yaml",
+            "33-ho-so-tuong-ban.yaml",
+            "34-anh-trong-chat.yaml",
             "35-diem-den.yaml",
             "40-ai-plan.yaml",
         ):
@@ -149,7 +151,7 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
         self.assertNotIn("EXPO_PUBLIC_RUDI_ACTOR=", script)
         self.assertIn("canary_otp", script)
         self.assertIn(
-            "22-*|23-*|24-*|25-*|26-*|27-*|28-*|29-*|31-*|32-*|35-*)"
+            "22-*|23-*|24-*|25-*|26-*|27-*|28-*|29-*|31-*|32-*|33-*|34-*|35-*)"
             ' [ "$OTP" = 1 ] || continue',
             script,
         )

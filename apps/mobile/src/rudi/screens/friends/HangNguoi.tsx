@@ -6,15 +6,30 @@
  * server answers.
  */
 import { type ReactNode } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { chuDau } from "../../../screens/ca-nhan/ban-be";
 import { typography, useRudiTheme } from "../../theme";
 
-export function HangNguoi({ ten, phu, duoi }: { ten: string; phu: string; duoi?: ReactNode }) {
+/**
+ * `onPress` turns the row into the way into that person's profile. It stays
+ * optional: a row for somebody the reader may not open (a pending request from
+ * a stranger) has no destination, and drawing it as a button would promise one.
+ */
+export function HangNguoi({
+  ten,
+  phu,
+  duoi,
+  onPress,
+}: {
+  ten: string;
+  phu: string;
+  duoi?: ReactNode;
+  onPress?: () => void;
+}) {
   const { colors } = useRudiTheme();
-  return (
-    <View style={styles.hang}>
+  const than = (
+    <>
       <View style={[styles.chuDau, { backgroundColor: colors.accentSoft }]}>
         <Text style={[typography.title, { color: colors.accent }]}>{chuDau(ten)}</Text>
       </View>
@@ -27,7 +42,18 @@ export function HangNguoi({ ten, phu, duoi }: { ten: string; phu: string; duoi?:
         </Text>
       </View>
       {duoi ? <View style={styles.duoi}>{duoi}</View> : null}
-    </View>
+    </>
+  );
+  if (onPress === undefined) return <View style={styles.hang}>{than}</View>;
+  return (
+    <Pressable
+      accessibilityLabel={`Xem hồ sơ ${ten}`}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={styles.hang}
+    >
+      {than}
+    </Pressable>
   );
 }
 

@@ -12,6 +12,7 @@
  * Keyboard: `KeyboardAvoidingView` with `padding`; the geometry is measured on
  * the emulator (flow 30 + `scripts/do_ban_phim.py`), not assumed from a prop.
  */
+import { Image } from "expo-image";
 import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -27,7 +28,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { ApiError, thongDiepNguoiDoc } from "../../../api";
+import { ApiError, taiAnhNhom, thongDiepNguoiDoc } from "../../../api";
 import { chuDau } from "../../../screens/ca-nhan/ban-be";
 import { danhSachThanhVien } from "../../../screens/vao-cua/cong-api";
 import {
@@ -43,6 +44,8 @@ import {
   type Tin,
 } from "../../chat/tin-song";
 import { TAT_KAV_QA } from "../../chat/qa-ban-phim";
+import { boAnh, chonAnh, nenVaDung } from "../../ky-niem/chon-anh";
+import { nguonAnh } from "../../ky-niem/ky-niem";
 import { useTinNhan } from "../../chat/useTinNhan";
 import { useRudiSession } from "../../session";
 import { typography, useRudiTheme } from "../../theme";
@@ -63,7 +66,7 @@ function goiMoHinh(body: string): boolean {
 
 export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
   const router = useRouter();
-  const { colors, space } = useRudiTheme();
+  const { colors, radius, space } = useRudiTheme();
   const insets = useSafeAreaInsets();
   const { phien } = useRudiSession();
   const personId = phien?.person_id ?? "";
@@ -78,6 +81,7 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
   // (where the pending card promised it), signed by who is speaking.
   const [thongBao, setThongBao] = useState<{ tu: string; cau: string; luc: string } | null>(null);
   const [dangChonPhanUng, setDangChonPhanUng] = useState<string | null>(null);
+  const [dangGuiAnh, setDangGuiAnh] = useState(false);
   const [tenTheoId, setTenTheoId] = useState<Record<string, string>>({});
 
   const tenNhom = phien?.contexts?.find((n) => n.id === contextId)?.display_name ?? "Nhóm";
@@ -105,6 +109,15 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
       song = false;
     };
   }, [contextId, personId]);
+
+  /**
+   * The frame for one image message: the read route is permission-checked, so
+   * the source carries this reader's headers rather than a bare url.
+   */
+  const anhTin = useCallback(
+    (tin: Tin) => nguonAnh(tin.image_url, personId, contextId),
+    [personId, contextId],
+  );
 
   const tenNguoi = useCallback(
     (id: string | null) => (id === null ? "Rủ Đi AI" : id === personId ? "Bạn" : tenTheoId[id] ?? "Thành viên"),
@@ -147,6 +160,50 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
     }
   };
 
+  /**
+   * Photo into the group, then into the feed.
+   *
+   * Same two steps the memory wall uses (`nenVaDung` shrinks and cleans up the
+   * temp files either way), and the same order as everywhere else: bytes
+   * first, message second, so a failed upload leaves nothing behind. Whatever
+   * is in the composer rides along as the caption -- one message, not two.
+   */
+  const guiAnh = async () => {
+    if (dangGuiAnh || dangGui) return;
+    let daChon = null;
+    try {
+      daChon = await chonAnh();
+    } catch (error) {
+      setThongBao({
+        tu: "Rủ Đi",
+        cau: error instanceof ApiError ? error.message : "Không mở được thư viện ảnh trên máy này.",
+        luc: new Date().toISOString(),
+      });
+      return;
+    }
+    if (daChon === null) return;
+    const caption = nhap.trim();
+    setDangGuiAnh(true);
+    setThongBao(null);
+    try {
+      await nenVaDung(daChon, async (anh) => {
+        const daTai = await taiAnhNhom(contextId, anh, personId);
+        await chat.guiAnhMoi(daTai.url, caption === "" ? null : caption);
+      });
+      setNhap("");
+      danhSachRef.current?.scrollToOffset({ offset: 0, animated: true });
+    } catch (error) {
+      await boAnh(daChon);
+      setThongBao({
+        tu: "Rủ Đi",
+        cau: error instanceof ApiError ? error.message : thongDiepNguoiDoc(0, null),
+        luc: new Date().toISOString(),
+      });
+    } finally {
+      setDangGuiAnh(false);
+    }
+  };
+
   const phanUng = async (tin: Tin, kind: LoaiPhanUng) => {
     setDangChonPhanUng(null);
     const cuaToi = tin.reactions?.some((r) => r.kind === kind && r.mine) ?? false;
@@ -176,7 +233,15 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
     const laAi = tin.kind === "ai_card";
     const chips = (tin.reactions ?? []).filter((r) => r.count > 0);
     return (
-      <View style={[styles.hang, cuaToi && !laAi && styles.hangToi]}>
+      <View
+        style={[
+          styles.hang,
+          cuaToi && !laAi && styles.hangToi,
+          // A photo makes the row tall; an initial pinned to the bottom of it
+          // floats away from the name it belongs to.
+          tin.kind === "image" && styles.hangCao,
+        ]}
+      >
         {!cuaToi && !laAi ? (
           <View style={[styles.chuDau, { backgroundColor: colors.accentSoft }]}>
             <Text style={[typography.caption, { color: colors.accent }]}>{chuDau(tenNguoi(tin.author_id))}</Text>
@@ -206,7 +271,29 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
                 },
               ]}
             >
-              <Text style={[typography.body, { color: cuaToi ? colors.accentInk : colors.ink }]}>{tin.body}</Text>
+              {tin.kind === "image" ? (
+                <View style={styles.anhKhoi}>
+                  {anhTin(tin) === null ? (
+                    <Text style={[typography.caption, { color: cuaToi ? colors.accentInk : colors.inkFaint }]}>
+                      Ảnh này máy không mở được.
+                    </Text>
+                  ) : (
+                    <Image
+                      accessibilityLabel={tin.body ? `Ảnh: ${tin.body}` : "Ảnh trong nhóm"}
+                      contentFit="cover"
+                      source={anhTin(tin)}
+                      style={[styles.anh, { borderRadius: radius.small }]}
+                    />
+                  )}
+                  {tin.body ? (
+                    <Text style={[typography.body, { color: cuaToi ? colors.accentInk : colors.ink }]}>
+                      {tin.body}
+                    </Text>
+                  ) : null}
+                </View>
+              ) : (
+                <Text style={[typography.body, { color: cuaToi ? colors.accentInk : colors.ink }]}>{tin.body}</Text>
+              )}
             </Pressable>
           )}
           <View style={styles.duoiBong}>
@@ -370,12 +457,20 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
           },
         ]}
       >
+        <IconButton
+          accessibilityLabel="Gửi ảnh"
+          disabled={dangGuiAnh || dangGui}
+          icon="image-outline"
+          loading={dangGuiAnh}
+          onPress={() => void guiAnh()}
+          quiet
+        />
         <TextInput
           accessibilityLabel="Ô soạn tin"
           cursorColor={colors.accent}
           multiline
           onChangeText={setNhap}
-          placeholder="Nhắn cho hội, hoặc gõ / để gọi Rủ Đi AI"
+          placeholder="Nhắn cho hội, hoặc gõ /"
           placeholderTextColor={colors.inkFaint}
           selectionColor={colors.accentSoft}
           style={[typography.body, styles.oNhap, { color: colors.ink }]}
@@ -397,12 +492,15 @@ export function GroupChatLiveScreen({ contextId }: { contextId: string }) {
 
 const styles = StyleSheet.create({
   man: { flex: 1 },
+  anhKhoi: { gap: 6 },
+  anh: { width: 208, height: 208 },
   thanhVien: { alignSelf: "center", borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, marginTop: -6 },
   danhSach: { paddingVertical: 12, gap: 12 },
   ngay: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 },
   duong: { flex: 1, height: StyleSheet.hairlineWidth },
   hang: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
   hangToi: { justifyContent: "flex-end" },
+  hangCao: { alignItems: "flex-start" },
   khoi: { maxWidth: "82%", gap: 4 },
   khoiToi: { alignItems: "flex-end" },
   khoiAi: { maxWidth: "100%", flex: 1 },
