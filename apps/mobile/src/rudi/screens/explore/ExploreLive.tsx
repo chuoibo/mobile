@@ -15,9 +15,6 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { ApiError, thongDiepNguoiDoc } from "../../../api";
 import type { Phien } from "../../../phien";
 import {
-  formatDistance,
-  formatPriceBand,
-  formatRating,
   matchLabel,
   type Category,
   type Place,
@@ -26,8 +23,8 @@ import { askSearch, hieuDuocGi, type TimKiemState } from "../../../screens/kham-
 import {
   bieuTuongLoai,
   boLuuDiaDiem,
-  cauMoCua,
   cauTimKiem,
+  chiTietNgan,
   daoLuu,
   docDaLuu,
   docDanhMuc,
@@ -283,25 +280,20 @@ function TheDiaDiem({
         <Text numberOfLines={1} style={[typography.caption, { color: colors.inkSoft }]}>
           {dongPhu(place)}
         </Text>
+        {/* Only the facts this place has (M9). Each item is ONE text node: a
+            multi-word Text that shares a wrapping row with siblings keeps its
+            first-row measurement and renders one word alone. */}
         <Inline gap={10} wrap>
-          <Inline gap={4}>
-            <Ionicons color={colors.accent} name="star" size={13} />
-            <Text style={[typography.caption, { color: colors.ink }]}>{formatRating(place.rating, place.ratingCount)}</Text>
-          </Inline>
-          <Inline gap={4}>
-            <Ionicons color={colors.inkFaint} name="navigate-outline" size={13} />
-            <Text style={[typography.caption, { color: colors.inkFaint }]}>{formatDistance(place.distanceKm)}</Text>
-          </Inline>
-          <Inline gap={4}>
-            <Ionicons color={colors.inkFaint} name="wallet-outline" size={13} />
-            {/* Price and status in ONE text node: a separate text item in a
-                wrapping row keeps its first-row (one-word) measurement and
-                rendered «Đang» alone. */}
-            <Text style={[typography.caption, { color: colors.inkFaint }]}>
-              {formatPriceBand(place.priceMinVnd, place.priceMaxVnd)} ·{" "}
-              <Text style={{ color: place.openNow ? colors.accent : colors.split }}>{place.openNow ? "Đang mở" : "Đã đóng"}</Text>
-            </Text>
-          </Inline>
+          {chiTietNgan(place).map((muc) => (
+            <Inline gap={4} key={muc.icon}>
+              <Ionicons
+                color={muc.icon === "star" ? colors.accent : colors.inkFaint}
+                name={muc.icon}
+                size={13}
+              />
+              <Text style={[typography.caption, { color: colors.inkFaint }]}>{muc.chu}</Text>
+            </Inline>
+          ))}
         </Inline>
         {hop !== null && hop.real ? (
           <View style={styles.huyHieu}>

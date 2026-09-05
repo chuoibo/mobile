@@ -15,8 +15,12 @@ import { datTokenPhien } from "../dist-test/api.js";
 import {
   bieuTuongLoai,
   boLuuDiaDiem,
+  cauDuongDi,
+  cauGia,
   cauMoCua,
+  cauNguonDuLieu,
   cauTimKiem,
+  chiTietNgan,
   daoLuu,
   docChiTiet,
   docDaLuu,
@@ -152,4 +156,115 @@ test("cauTimKiem: có kết quả thì im, mỗi kiểu thất bại một câu 
   assert.match(cauTimKiem({ kind: "qua-nhieu-lan", query: "x" }), /Hết lượt/);
   assert.match(cauTimKiem({ kind: "cau-khong-hop-le", max: 300 }), /300/);
   assert.match(cauTimKiem({ kind: "khong-noi-duoc", url: "u", detail: "d" }), /Không nối được/);
+});
+
+/* ------------------------------------------------------------------ M9 -- */
+/* Danh mục thật: cái gì không biết thì màn phải nói là chưa biết.
+ *
+ * Kể từ M9 (ADR-0017) địa điểm nhập từ OpenStreetMap: có tên, toạ độ, loại
+ * hình — và thường KHÔNG có giá, giờ mở cửa hay đánh giá. Nhóm test này gác
+ * đúng một câu: không có dữ liệu thì không được vẽ ra số.
+ */
+
+const CHO_OSM = {
+  id: "osm-node-4407",
+  name: "Cà Phê Sương",
+  category: "cafe",
+  kinds: ["Cà phê"],
+  rating: null,
+  ratingCount: null,
+  distanceKm: null,
+  priceMinVnd: null,
+  priceMaxVnd: null,
+  address: "6 Khu Hòa Bình, Đà Lạt",
+  openNow: null,
+  openHours: null,
+  travelMinutes: null,
+  photoCount: 0,
+  photoUrl: null,
+  traits: ["Wifi"],
+  groupFit: null,
+  flag: null,
+  lat: 11.9418,
+  lng: 108.4372,
+  source: "osm",
+  license: "ODbL-1.0",
+  match: null,
+};
+
+test("chỗ không có giá không bao giờ in ra một con số", () => {
+  assert.equal(cauGia(CHO_OSM), "Chưa có giá");
+  assert.equal(cauGia({ priceMinVnd: 200000, priceMaxVnd: 250000 }), "200.000đ – 250.000đ mỗi người");
+  assert.equal(cauGia({ priceMinVnd: 200000, priceMaxVnd: 200000 }), "200.000đ mỗi người");
+});
+
+test("giờ mở cửa có ba trạng thái, và «chưa biết» không phải «đã đóng»", () => {
+  assert.equal(cauMoCua(CHO_OSM), "Chưa có giờ mở cửa");
+  assert.equal(
+    cauMoCua({ openNow: null, openHours: "Mo-Su 07:00-22:00" }),
+    "Giờ mở cửa: Mo-Su 07:00-22:00",
+  );
+  assert.equal(cauMoCua({ openNow: true, openHours: "10:00 – 22:30" }), "Đang mở · 10:00 – 22:30");
+  assert.equal(cauMoCua({ openNow: false, openHours: "10:00 – 22:30" }), "Đã đóng · mở 10:00 – 22:30");
+});
+
+test("hàng chi tiết chỉ vẽ những gì có; không có gì thì vẽ địa chỉ", () => {
+  const chiOsm = chiTietNgan(CHO_OSM);
+  assert.deepEqual(
+    chiOsm.map((m) => m.icon),
+    ["location-outline"],
+    "chỗ OSM trần chỉ còn địa chỉ",
+  );
+  assert.equal(chiOsm[0].chu, "6 Khu Hòa Bình, Đà Lạt");
+
+  const day = chiTietNgan({
+    ...CHO_OSM,
+    rating: 4.7,
+    ratingCount: 128,
+    distanceKm: 1.2,
+    priceMinVnd: 200000,
+    priceMaxVnd: 250000,
+    openNow: true,
+    openHours: "10:00 – 22:30",
+  });
+  assert.deepEqual(
+    day.map((m) => m.icon),
+    ["star", "navigate-outline", "wallet-outline", "time-outline"],
+  );
+  assert.equal(day[0].chu, "4.7 (128)");
+});
+
+test("không dòng nào in chữ null hay undefined", () => {
+  const cau = [
+    cauGia(CHO_OSM),
+    cauMoCua(CHO_OSM),
+    cauDuongDi(CHO_OSM),
+    dongPhu(CHO_OSM),
+    ...chiTietNgan(CHO_OSM).map((m) => m.chu),
+  ];
+  for (const c of cau) {
+    assert.ok(!/null|undefined|NaN/.test(c), `«${c}» lộ giá trị rỗng`);
+  }
+});
+
+test("nguồn dữ liệu được ghi cho chỗ nhập từ OSM, không ghi cho chỗ seed", () => {
+  assert.equal(cauNguonDuLieu(CHO_OSM), "Dữ liệu địa điểm: OpenStreetMap (ODbL)");
+  assert.equal(cauNguonDuLieu({ source: "seed", license: null }), null);
+});
+
+test("hàng chỉ đường nói được cả khi không biết xa gần", () => {
+  assert.equal(cauDuongDi(CHO_OSM), "Mở bằng ứng dụng bản đồ");
+  assert.equal(cauDuongDi({ distanceKm: 1.2, travelMinutes: 25 }), "1.2 km · 25 phút đi xe");
+  assert.equal(cauDuongDi({ distanceKm: 1.2, travelMinutes: null }), "1.2 km");
+});
+
+test("dòng phụ bỏ phần thời gian khi máy chủ không biết", () => {
+  assert.equal(dongPhu(CHO_OSM), "Cà phê");
+  assert.equal(dongPhu({ kinds: ["Cà phê"], travelMinutes: 25 }), "Cà phê · 25 phút đi xe");
+});
+
+test("lọc theo tên vẫn chạy khi địa chỉ rỗng", () => {
+  const khongDiaChi = { ...CHO_OSM, address: null };
+  assert.equal(locTheoTen([khongDiaChi], "suong").length, 1);
+  assert.equal(locTheoTen([khongDiaChi], "hoa binh").length, 0);
 });
