@@ -3,6 +3,7 @@ import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import Svg, { Path } from "react-native-svg";
 
 import { phuMau, useRudiTheme, type RudiTone } from "../theme";
+import { duongVachSang, duongWashiXeMep } from "./duong-svg";
 
 export interface WashiProps {
   tone?: RudiTone;
@@ -11,21 +12,6 @@ export interface WashiProps {
   height?: number;
   children?: ReactNode;
   style?: StyleProp<ViewStyle>;
-}
-
-/** Torn tape ends: a jagged edge of small steps, seeded per side so no two look alike. */
-function tornOutline(w: number, h: number): string {
-  const step = 4;
-  const jag = (x0: number, dir: 1 | -1) => {
-    let d = "";
-    for (let y = 0; y <= h; y += step) {
-      const wobble = ((y * 7 + w) % 3) * 1.6 * dir;
-      d += ` L ${x0 + wobble} ${y}`;
-    }
-    return d;
-  };
-  // top edge → right torn end (down) → bottom edge → left torn end (up)
-  return `M 6 0 L ${w - 6} 0${jag(w - 6, 1)} L 6 ${h}${jag(6, -1).split(" L ").reverse().join(" L ")} Z`;
 }
 
 /**
@@ -46,8 +32,8 @@ export function Washi({ tone = "accent", tilt = 0, height = 30, children, style 
     >
       {width > 0 ? (
         <Svg pointerEvents="none" style={StyleSheet.absoluteFill} width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
-          <Path d={tornOutline(width, height)} fill={fill} fillOpacity={0.9} />
-          <Path d={`M 8 1.5 L ${width - 8} 1.5`} stroke={phuMau(colors.card, 0.35)} strokeWidth={1.5} />
+          <Path d={duongWashiXeMep(width, height)} fill={fill} fillOpacity={0.9} />
+          <Path d={duongVachSang(width)} stroke={phuMau(colors.card, 0.35)} strokeWidth={1.5} />
         </Svg>
       ) : null}
       <View style={styles.content}>{children}</View>

@@ -1,5 +1,7 @@
 import Svg, { Circle, Path } from "react-native-svg";
 
+import { duongCongS } from "./duong-svg";
+
 export interface RouteLineProps {
   width: number;
   height: number;
@@ -29,18 +31,8 @@ export interface RouteLineProps {
 export function RouteLine({ width, height, color, stops = 3, activeStop, dashed = false, direction = "down", opacity = 1, accessibilityLabel }: RouteLineProps) {
   const n = Math.min(5, Math.max(2, stops));
   const w = width, h = height;
-  // Control points of one S-curve across the box; flipped for "up".
-  const p = direction === "down"
-    ? { x0: w * 0.08, y0: h * 0.12, c1x: w * 0.9, c1y: h * 0.02, c2x: w * 0.05, c2y: h * 0.75, x1: w * 0.92, y1: h * 0.9 }
-    : { x0: w * 0.08, y0: h * 0.9, c1x: w * 0.9, c1y: h * 0.98, c2x: w * 0.05, c2y: h * 0.25, x1: w * 0.92, y1: h * 0.12 };
-  const d = `M ${p.x0} ${p.y0} C ${p.c1x} ${p.c1y}, ${p.c2x} ${p.c2y}, ${p.x1} ${p.y1}`;
-  const point = (t: number) => {
-    const mt = 1 - t;
-    return {
-      x: mt ** 3 * p.x0 + 3 * mt ** 2 * t * p.c1x + 3 * mt * t ** 2 * p.c2x + t ** 3 * p.x1,
-      y: mt ** 3 * p.y0 + 3 * mt ** 2 * t * p.c1y + 3 * mt * t ** 2 * p.c2y + t ** 3 * p.y1,
-    };
-  };
+  // Path grammar lives in `duong-svg.ts`, where node can parse it the way the Java side does.
+  const { d, diem: point } = duongCongS(w, h, direction);
   const r = Math.max(5, Math.min(8, w / 44));
   const active = activeStop === undefined ? n - 1 : Math.min(n - 1, Math.max(0, activeStop));
   return (
