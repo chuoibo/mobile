@@ -12,11 +12,13 @@ provenance, and the unique that makes a second import a no-op.
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 
-from app.api.repository import PlacePhotoRecord
+from app.api.repository import MemoryRecord, PlacePhotoRecord
 from app.places.catalog import PLACES
 
+from .helpers import actor_headers
 from .test_places import dang_nhap, get_places, silent_reasons, use_writer
 
 PLACE = PLACES[0]["id"]
@@ -164,3 +166,91 @@ def test_a_place_the_data_says_nothing_about_lists_no_activities(client, reposit
     del repository
     body = client.get(f"/places/{PLACES[6]['id']}").json()
     assert isinstance(body["activities"], list)
+
+
+# --- ảnh của nhóm (ADR-0017 §2.4) ------------------------------------------
+#
+# Nguồn ảnh thứ hai của một địa điểm, và là nguồn RIÊNG. Điều phải chứng minh ở
+# tầng này không phải «route trả về ảnh» — mà là người ngoài nhóm KHÔNG nhận
+# được ảnh ấy, và bộ đôi giả phải giữ đủ ảnh để cú rò rỉ có cái mà rò.
+
+
+def _anh_nhom(repository, place_id, context_id, author_id, caption="Tối qua"):
+    record = MemoryRecord(
+        id=uuid.uuid4(),
+        context_id=context_id,
+        author_id=author_id,
+        kind="photo",
+        image_url=f"/contexts/{context_id}/photos/{uuid.uuid4()}",
+        caption=caption,
+        place_id=place_id,
+        place_name="Quán",
+        lat=None,
+        lng=None,
+        created_at=dt.datetime(2026, 9, 6, 12, 0, tzinfo=dt.UTC),
+    )
+    repository.memories[record.id] = record
+    return record
+
+
+def test_a_group_photograph_reaches_the_group(client, repository):
+    headers = dang_nhap(repository)
+    toi = uuid.UUID(headers["X-Actor-ID"])
+    nhom = uuid.uuid4()
+    repository.active_memberships.add((nhom, toi))
+    anh = _anh_nhom(repository, PLACE, nhom, toi)
+
+    body = client.get(f"/places/{PLACE}/group-photos", headers=headers).json()
+    assert [row["id"] for row in body["photos"]] == [str(anh.id)]
+    assert body["photos"][0]["caption"] == "Tối qua"
+
+
+def test_a_group_photograph_never_reaches_somebody_outside_the_group(
+    client, repository
+):
+    """The one that matters. ADR-0017 §2.4: «Ảnh nhóm không bao giờ thành ảnh
+    minh hoạ công khai của một quán»."""
+
+    nguoi_la = uuid.uuid4()
+    nhom = uuid.uuid4()
+    repository.active_memberships.add((nhom, nguoi_la))
+    _anh_nhom(repository, PLACE, nhom, nguoi_la, caption="Riêng của nhóm kia")
+
+    headers = dang_nhap(repository)
+    body = client.get(f"/places/{PLACE}/group-photos", headers=headers).json()
+    assert body["photos"] == [], "ảnh của nhóm khác lọt ra ngoài"
+
+    # Và đối chứng dương: chính người trong nhóm ấy thì thấy. Nếu không có
+    # dòng này, một fake rỗng cũng cho ca trên màu xanh.
+    cua_ho = client.get(
+        f"/places/{PLACE}/group-photos", headers=actor_headers(actor_id=nguoi_la)
+    ).json()
+    assert len(cua_ho["photos"]) == 1
+
+
+def test_the_public_gallery_never_carries_a_group_photograph(client, repository):
+    """Hai nguồn, hai route. Gallery công khai không được lẫn ảnh của nhóm dù
+    ảnh ấy gắn đúng địa điểm này."""
+
+    headers = dang_nhap(repository)
+    toi = uuid.UUID(headers["X-Actor-ID"])
+    nhom = uuid.uuid4()
+    repository.active_memberships.add((nhom, toi))
+    _anh_nhom(repository, PLACE, nhom, toi)
+
+    body = client.get(f"/places/{PLACE}/photos").json()
+    assert body["photos"] == []
+
+
+def test_group_photos_need_a_session(client, repository):
+    dang_nhap(repository)
+    assert client.get(f"/places/{PLACE}/group-photos").status_code == 401
+
+
+def test_an_unknown_place_answers_empty_not_404(client, repository):
+    """404 ở đây là trả lời câu «id này có tồn tại không» cho bất kỳ ai."""
+
+    headers = dang_nhap(repository)
+    ra = client.get("/places/p-khong-co-that/group-photos", headers=headers)
+    assert ra.status_code == 200
+    assert ra.json()["photos"] == []

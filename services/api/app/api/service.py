@@ -1503,12 +1503,26 @@ class ApiService:
             {"is_group_member": self.repository.is_member(context_id, actor.id)},
         )
         _require_photo_url_context(context_id, request.image_url)
+        # The place, when the poster names one, is resolved here and not
+        # trusted from the body -- same rule `post_context_checkin` follows.
+        # A caller who could write their own `place_name` could file a picture
+        # of anything under any business's name, and this row is exactly what
+        # `GET /places/{id}/group-photos` shows to the rest of the group.
+        place = None
+        if request.place_id is not None:
+            place = self.place_row(request.place_id)
+            if place is None:
+                raise ApiProblem(
+                    422, "place_not_found", "No place in the catalogue has that id"
+                )
         record = self.repository.create_memory(
             context_id=context_id,
             author_id=actor.id,
             image_url=request.image_url,
             caption=request.caption,
             now=_now(),
+            place_id=None if place is None else place["id"],
+            place_name=None if place is None else place["name"],
         )
         return _wire_memory(record)
 
@@ -3601,6 +3615,31 @@ class ApiService:
             now=_now(),
         )
         return _wire_memory(record)
+
+    def group_photos_at_place(
+        self, place_id: str, actor: Actor, *, limit: int = 20
+    ) -> tuple[MemoryResponse, ...]:
+        """F: the pictures the reader's own groups took at this place (M12).
+
+        The second photo source of ADR-0017 §2.4, and the private one. It is a
+        separate route from `GET /places/{id}/photos` rather than a second
+        array inside it, because the two answer to different rules: one is
+        public and licensed, the other is somebody's group's and gated. Merged
+        into one response they would eventually be merged in a screen, and the
+        first mistake in that direction publishes a group's photograph as a
+        venue's illustration.
+
+        No 404 for an unknown place: it would answer «does this id exist» to
+        anybody, and the public route already answers that honestly. An id
+        nobody has photographed and an id nobody has heard of both come back
+        empty here, which is the same thing from where the reader is standing.
+        """
+
+        _require_permission("view_own_contexts", actor, {"is_self": True})
+        records = self.repository.group_photos_at_place(
+            place_id, viewer_id=actor.id, limit=limit
+        )
+        return tuple(_wire_memory(record) for record in records)
 
     def list_context_memories(
         self,

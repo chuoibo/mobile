@@ -1331,6 +1331,8 @@ class ApiRepository(Protocol):
         image_url: str,
         caption: str | None,
         now: datetime,
+        place_id: str | None = None,
+        place_name: str | None = None,
     ) -> MemoryRecord: ...
 
     def create_checkin(
@@ -1345,6 +1347,14 @@ class ApiRepository(Protocol):
         caption: str | None,
         now: datetime,
     ) -> MemoryRecord: ...
+
+    def group_photos_at_place(
+        self,
+        place_id: str,
+        *,
+        viewer_id: uuid.UUID,
+        limit: int,
+    ) -> tuple[MemoryRecord, ...]: ...
 
     def list_memories(
         self,
@@ -3722,13 +3732,25 @@ class SqlAlchemyApiRepository:
         image_url: str,
         caption: str | None,
         now: datetime,
+        place_id: str | None = None,
+        place_name: str | None = None,
     ) -> MemoryRecord:
+        """A photograph on the wall, optionally saying where it was taken (M12).
+
+        No latitude or longitude even when the place is known: a check-in reads
+        those from the `places` table because the *group* asserted it was
+        there, while a photograph asserts only that somebody pointed a camera.
+        The constraint says the same thing, and the two agreeing is the point.
+        """
+
         memory = Memory(
             context_id=context_id,
             author_id=author_id,
             kind=MemoryKind.PHOTO,
             image_url=image_url,
             caption=caption,
+            place_id=place_id,
+            place_name=place_name,
             created_at=now,
         )
         self.session.add(memory)
@@ -3771,6 +3793,51 @@ class SqlAlchemyApiRepository:
         self.session.add(memory)
         self.session.flush()
         return self._memory_record(memory)
+
+    def group_photos_at_place(
+        self,
+        place_id: str,
+        *,
+        viewer_id: uuid.UUID,
+        limit: int,
+    ) -> tuple[MemoryRecord, ...]:
+        """The reader's own groups' photographs of one place (M12, ADR-0017 §2.4).
+
+        This is the wall read in the other direction -- one place, every group
+        the reader belongs to -- and it is the one read here where getting the
+        gate wrong hands a stranger somebody's private pictures. So the
+        membership predicate is part of the *query*, a subselect over
+        `memberships`, not a filter applied to rows this method already
+        fetched: a row the reader may not see is never in the result set to be
+        forgotten about.
+
+        ACTIVE only, and `left_at IS NULL`. Somebody invited who never joined
+        never saw this wall, and somebody who left stopped being able to --
+        «was a member once» is not the question a screen open today asks.
+        """
+
+        nhom_cua_toi = (
+            select(Membership.context_id)
+            .where(
+                Membership.person_id == viewer_id,
+                Membership.state == MembershipState.ACTIVE,
+                Membership.left_at.is_(None),
+            )
+            .scalar_subquery()
+        )
+        rows = list(
+            self.session.scalars(
+                select(Memory)
+                .where(
+                    Memory.place_id == place_id,
+                    Memory.kind == MemoryKind.PHOTO,
+                    Memory.context_id.in_(nhom_cua_toi),
+                )
+                .order_by(Memory.created_at.desc(), Memory.id.desc())
+                .limit(limit)
+            )
+        )
+        return tuple(self._memory_record(row) for row in rows)
 
     def list_memories(
         self,
