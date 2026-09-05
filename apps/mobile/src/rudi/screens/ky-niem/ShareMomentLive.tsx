@@ -5,7 +5,7 @@
  * Attempt); a failure keeps the draft on screen instead of clearing it.
  */
 import { Image } from "expo-image";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -31,8 +31,14 @@ function cauGiaiDoan(giaiDoan: GiaiDoanTaiAnh | null): string | null {
 
 export function ShareMomentLiveScreen({ phien }: { phien: Phien }) {
   const router = useRouter();
+  const params = useLocalSearchParams<{ place?: string; ten?: string }>();
   const { colors, radius } = useRudiTheme();
   const contextId = phien.context_id;
+  // Mở từ màn một địa điểm thì ảnh được gắn vào chỗ ấy (M12, ADR-0017 §2.4).
+  // Chỉ id đi lên máy chủ; TÊN chỗ ở đây thuần tuý để nói cho người đăng biết
+  // họ đang gắn vào đâu, máy chủ tra tên của chính nó.
+  const placeId = typeof params.place === "string" && params.place !== "" ? params.place : null;
+  const tenCho = typeof params.ten === "string" && params.ten !== "" ? params.ten : null;
   const [anh, setAnh] = useState<TempPhoto | null>(null);
   const [caption, setCaption] = useState("");
   const [giaiDoan, setGiaiDoan] = useState<GiaiDoanTaiAnh | null>(null);
@@ -68,7 +74,7 @@ export function ShareMomentLiveScreen({ phien }: { phien: Phien }) {
     setBan(true);
     setThongBao(null);
     try {
-      await nenVaDung(anh, (nen) => dangAnhLenTuong(ctx, nen, caption.trim() === "" ? null : caption.trim(), phien.person_id, attempts.current), setGiaiDoan);
+      await nenVaDung(anh, (nen) => dangAnhLenTuong(ctx, nen, caption.trim() === "" ? null : caption.trim(), phien.person_id, attempts.current, placeId), setGiaiDoan);
       router.replace(`/groups/${ctx}/wall` as never);
     } catch (error) {
       // The draft stays: the caption is still in the field, the photo is
@@ -111,6 +117,11 @@ export function ShareMomentLiveScreen({ phien }: { phien: Phien }) {
         placeholder="Ví dụ: Đà Lạt về đêm"
         value={caption}
       />
+      {placeId === null ? null : (
+        <Text style={[typography.caption, { color: colors.inkSoft }]}>
+          {`Gắn vào ${tenCho ?? "địa điểm bạn vừa mở"}: ảnh sẽ hiện ở màn chỗ đó, cho người trong nhóm.`}
+        </Text>
+      )}
       <Text style={[typography.caption, { color: colors.inkSoft }]}>Đăng vào nhóm hiện tại. Máy chủ lột dữ liệu EXIF của ảnh trước khi lưu.</Text>
       <RudiButton disabled={ban || anh === null} icon="paper-plane-outline" label="Chia sẻ ngay vào nhóm" loading={ban} onPress={() => void chiaSe()} />
       {cauTrangThai !== null ? <Text style={[typography.caption, { color: colors.inkFaint }]}>{cauTrangThai}</Text> : null}

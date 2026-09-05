@@ -1765,10 +1765,18 @@ export async function themKyNiemAnh(
   caption: string | null,
   actorId: string,
   attempt: Attempt,
+  placeId: string | null = null,
 ): Promise<KyNiemWire> {
   return translatedAsActor<KyNiemWire>(ANH_REFUSALS, `/contexts/${contextId}/memories`, {
     method: "POST",
-    body: { image_url: imageUrl, caption: caption?.trim() ? caption.trim() : null },
+    // `place_id` chỉ đi khi có: máy chủ tra tên chỗ, client không gửi tên. Ai
+    // tự viết được `place_name` thì chụp cái gì cũng gán được vào tên một cơ sở
+    // kinh doanh, nên trường ấy không có mặt trong thân request (M12, §2.4).
+    body: {
+      image_url: imageUrl,
+      caption: caption?.trim() ? caption.trim() : null,
+      ...(placeId === null ? {} : { place_id: placeId }),
+    },
     actorId,
     attempt,
     roles: "member",

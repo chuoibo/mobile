@@ -322,6 +322,68 @@ export function anhBiaThe(
 }
 
 /**
+ * One photograph a group of the reader's took at this place (M12, §2.4).
+ *
+ * The other source, and the private one. It carries no author and no licence
+ * because it needs neither: the picture belongs to a group the reader is in,
+ * and the server proved that before sending it. What it does carry is
+ * `contextId` -- the bytes sit behind membership, so fetching them needs the
+ * headers `nguonAnh` builds, and those headers name a group.
+ */
+export type AnhNhom = {
+  id: string;
+  contextId: string;
+  /** Relative path on this API; `nguonAnh` resolves and signs it. */
+  imageUrl: string;
+  caption: string | null;
+};
+
+/**
+ * The reader's own groups' photographs of one place.
+ *
+ * Empty is the ordinary answer, and it means «none of your groups has
+ * photographed this place» -- never «this place has none». There is no such
+ * fact here to report: another group's photographs are not this reader's to
+ * count, and the server never told us how many there were.
+ */
+export async function docAnhNhom(placeId: string, personId: string): Promise<AnhNhom[]> {
+  const body = await translatedAsActor<{ photos?: unknown[] }>(
+    LOI_DIA_DIEM,
+    `/places/${encodeURIComponent(placeId)}/group-photos`,
+    { method: "GET", actorId: personId },
+  );
+  const ra: AnhNhom[] = [];
+  for (const raw of body.photos ?? []) {
+    const a = (raw ?? {}) as Record<string, unknown>;
+    const id = a.id;
+    const contextId = a.context_id;
+    const imageUrl = a.image_url;
+    const caption = a.caption;
+    // Ba trường phải là chuỗi thật thì tấm ảnh mới vẽ được; thiếu `context_id`
+    // là thiếu header để lấy bytes, và một khung rỗng thì thà đừng vẽ. Bỏ qua
+    // hàng hỏng chứ không ném: một hàng lạ không nên làm mất cả dải.
+    if (typeof id !== "string" || typeof contextId !== "string") continue;
+    if (typeof imageUrl !== "string" || !imageUrl.startsWith("/")) continue;
+    ra.push({
+      id,
+      contextId,
+      imageUrl,
+      caption: typeof caption === "string" && caption.trim() !== "" ? caption.trim() : null,
+    });
+  }
+  return ra;
+}
+
+/**
+ * The one line over the group strip.
+ *
+ * It says who else can see these, because that is the question a person asks
+ * before putting a photograph of their friends on a screen about a restaurant.
+ * The server is what enforces it; this sentence is what tells the reader.
+ */
+export const CAU_ANH_NHOM = "Ảnh nhóm bạn chụp ở đây. Người ngoài nhóm không thấy.";
+
+/**
  * The heading over «nên làm gì ở đây», or null when the server knows nothing.
  *
  * Returning null rather than an empty section keeps the screen from printing a

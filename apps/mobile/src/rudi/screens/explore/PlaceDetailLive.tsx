@@ -26,6 +26,7 @@ import {
 import {
   bieuTuongLoai,
   boLuuDiaDiem,
+  CAU_ANH_NHOM,
   CAU_NGUON_ANH,
   cauDuongDi,
   cauGia,
@@ -35,6 +36,7 @@ import {
   chiTietNgan,
   daoLuu,
   docAnhDiaDiem,
+  docAnhNhom,
   docChiTiet,
   docDaLuu,
   dongPhu,
@@ -43,9 +45,11 @@ import {
   nguonAnhDiaDiem,
   TIEN_TO_ANH,
   type AnhDiaDiem,
+  type AnhNhom,
 } from "../../kham-pha/dia-diem";
 import { typography, useRudiTheme } from "../../theme";
 import { AiNote, Card, Chip, Heading, Inline, ListRow, RudiButton, RudiScreen, SectionHeader, TopBar } from "../../ui";
+import { nguonAnh } from "../../ky-niem/ky-niem";
 import { MediaSlot } from "../../ui/MediaSlot";
 
 type Trang = { pha: "dang-doc" } | { pha: "xong"; place: PlaceDetail } | { pha: "hong"; loi: string };
@@ -73,6 +77,7 @@ export function PlaceDetailLiveScreen({ phien }: { phien: Phien }) {
   const [thongBao, setThongBao] = useState<string | null>(null);
   const [anh, setAnh] = useState<AnhDiaDiem[]>([]);
   const [loiAnh, setLoiAnh] = useState<string | null>(null);
+  const [anhNhom, setAnhNhom] = useState<AnhNhom[]>([]);
 
   const nap = useCallback(async () => {
     if (!placeId) {
@@ -83,6 +88,14 @@ export function PlaceDetailLiveScreen({ phien }: { phien: Phien }) {
       const [place, luu] = await Promise.all([docChiTiet(placeId), docDaLuu(phien.person_id)]);
       setTrang({ pha: "xong", place });
       setDaLuu(luu);
+      // Ảnh của nhóm: một request nữa, và im lặng khi hỏng. Không có ảnh nào
+      // và không đọc được là cùng một màn ở đây — cả hai đều là «không có gì
+      // của nhóm bạn để xem», và không có câu nào đúng hơn để nói.
+      try {
+        setAnhNhom(await docAnhNhom(placeId, phien.person_id));
+      } catch {
+        setAnhNhom([]);
+      }
       // A second request, and a failing one costs the pictures and nothing
       // else: the facts are already on the screen. The screen still says so --
       // «chưa tải được» is a different thing to go and check from a place that
@@ -169,7 +182,14 @@ export function PlaceDetailLiveScreen({ phien }: { phien: Phien }) {
       ) : null}
       {trang.pha === "xong" ? <ThanChiTiet
         anh={anh}
+        anhNhom={anhNhom}
         loiAnh={loiAnh}
+        onThemAnhNhom={() =>
+          router.push(
+            `/moments/new?place=${encodeURIComponent(trang.place.id)}&ten=${encodeURIComponent(trang.place.name)}` as never,
+          )
+        }
+        personId={phien.person_id}
         onChiDuong={() => void chiDuong(trang.place)}
         onThemVaoKeo={() => router.push(`/outings/chon?place=${encodeURIComponent(trang.place.id)}` as never)}
         place={trang.place}
@@ -211,20 +231,70 @@ function DaiAnh({ anh }: { anh: AnhDiaDiem[] }) {
   );
 }
 
+/**
+ * The group's own pictures of this place, and the line saying who can see them.
+ *
+ * A separate strip from the licensed one, never merged into it: those are
+ * public and carry a credit, these are a group's and carry a membership. One
+ * strip holding both would be the first step towards a group's photograph
+ * illustrating a restaurant for strangers.
+ */
+function DaiAnhNhom({ anh, personId }: { anh: AnhNhom[]; personId: string }) {
+  const { colors, radius } = useRudiTheme();
+  return (
+    <View style={styles.khoi}>
+      <SectionHeader title="Ảnh của nhóm bạn" />
+      <ScrollView
+        contentContainerStyle={styles.dai}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        testID="place-group-photos"
+      >
+        {anh.map((a) => {
+          const nguon = nguonAnh(a.imageUrl, personId, a.contextId);
+          if (nguon === null) return null;
+          return (
+            <View key={a.id} style={styles.oAnh}>
+              <MediaSlot
+                alt={a.caption ?? "Ảnh của nhóm bạn ở đây"}
+                radius={radius.base}
+                source={nguon}
+                width="100%"
+              />
+              {a.caption === null ? null : (
+                <Text numberOfLines={2} style={[typography.caption, { color: colors.inkSoft }]}>
+                  {a.caption}
+                </Text>
+              )}
+            </View>
+          );
+        })}
+      </ScrollView>
+      <Text style={[typography.caption, { color: colors.inkFaint }]}>{CAU_ANH_NHOM}</Text>
+    </View>
+  );
+}
+
 function ThanChiTiet({
   place,
   thongBao,
   anh,
+  anhNhom,
   loiAnh,
+  personId,
   onChiDuong,
   onThemVaoKeo,
+  onThemAnhNhom,
 }: {
   place: PlaceDetail;
   thongBao: string | null;
   anh: AnhDiaDiem[];
+  anhNhom: AnhNhom[];
   loiAnh: string | null;
+  personId: string;
   onChiDuong: () => void;
   onThemVaoKeo: () => void;
+  onThemAnhNhom: () => void;
 }) {
   const { colors, radius } = useRudiTheme();
   const hop = matchLabel(place.match);
@@ -347,6 +417,13 @@ function ThanChiTiet({
           </Card>
         </View>
       ) : null}
+      {anhNhom.length === 0 ? null : <DaiAnhNhom anh={anhNhom} personId={personId} />}
+      <RudiButton
+        icon="camera-outline"
+        label={anhNhom.length === 0 ? "Thêm ảnh của nhóm ở đây" : "Thêm một ảnh nữa"}
+        onPress={onThemAnhNhom}
+        variant="outline"
+      />
       {thongBao !== null ? <Text style={[typography.caption, { color: colors.warn }]}>{thongBao}</Text> : null}
     </>
   );

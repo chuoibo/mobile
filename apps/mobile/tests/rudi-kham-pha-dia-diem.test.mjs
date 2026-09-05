@@ -14,6 +14,7 @@ import test from "node:test";
 import { BASE_URL, datTokenPhien } from "../dist-test/api.js";
 import {
   anhBiaThe,
+  CAU_ANH_NHOM,
   CAU_NGUON_ANH,
   TIEN_TO_ANH,
   bieuTuongLoai,
@@ -28,6 +29,7 @@ import {
   chiTietNgan,
   daoLuu,
   docAnhDiaDiem,
+  docAnhNhom,
   docChiTiet,
   docDaLuu,
   docDanhMuc,
@@ -399,4 +401,46 @@ test("chi tiết cũ không có activities vẫn đọc được: danh sách r�
   const ct = await docChiTiet("p-1");
   assert.deepEqual(ct.activities, []);
   assert.equal(ct.photosAvailable, false);
+});
+
+/* ── Ảnh của nhóm gắn địa điểm (M12, ADR-0017 §2.4) ─────────────────────── */
+
+const ANH_NHOM = {
+  id: "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+  context_id: "1f2e3d4c-5b6a-4978-8695-a4b3c2d1e0f9",
+  author_id: "0a1b2c3d-4e5f-4061-8273-8495a6b7c8d9",
+  kind: "photo",
+  image_url: "/contexts/1f2e3d4c-5b6a-4978-8695-a4b3c2d1e0f9/photos/aa",
+  caption: "Tối qua ở đây",
+  place_id: "p-1",
+  place_name: "Tiệm Nướng Xóm Lào",
+};
+
+test("ảnh của nhóm đi với bearer, và câu trên dải nói rõ ai thấy được", async () => {
+  datTokenPhien("token-thu");
+  const goi = gia(() => ({ status: 200, body: { place_id: "p-1", photos: [ANH_NHOM] } }));
+  const ds = await docAnhNhom("p-1", "0a1b2c3d-4e5f-4061-8273-8495a6b7c8d9");
+  assert.equal(ds.length, 1);
+  assert.equal(ds[0].contextId, ANH_NHOM.context_id);
+  assert.equal(ds[0].caption, "Tối qua ở đây");
+  assert.match(goi[0].url, /\/places\/p-1\/group-photos$/);
+  assert.ok(goi[0].init.headers?.Authorization, "ảnh của nhóm KHÔNG công khai");
+  assert.match(CAU_ANH_NHOM, /Người ngoài nhóm không thấy/);
+});
+
+test("hàng thiếu context_id hoặc đường ảnh lạ bị bỏ, không làm mất cả dải", async () => {
+  datTokenPhien("token-thu");
+  gia(() => ({
+    status: 200,
+    body: {
+      place_id: "p-1",
+      photos: [
+        { ...ANH_NHOM, context_id: null },
+        { ...ANH_NHOM, id: "b", image_url: "https://vi-du.example/x.jpg" },
+        { ...ANH_NHOM, id: "c" },
+      ],
+    },
+  }));
+  const ds = await docAnhNhom("p-1", "0a1b2c3d-4e5f-4061-8273-8495a6b7c8d9");
+  assert.deepEqual(ds.map((a) => a.id), ["c"]);
 });

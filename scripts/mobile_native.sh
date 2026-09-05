@@ -707,6 +707,68 @@ PYCHECK
 # (POST /contexts/{id}/photos rồi POST /contexts/{id}/messages kind=image), vì
 # bộ chọn ảnh của hệ thống không lái được bằng flow. PNG sinh tại chỗ bằng
 # python3 (zlib + struct): không byte ảnh nào nằm trong Git.
+# Trước flow 38: đặt sẵn MỘT ảnh của nhóm gắn vào đúng địa điểm mà flow sẽ mở.
+#
+# Flow 38 mở thẻ ĐẦU TIÊN có ảnh bìa, và không ghim tên chỗ nào. Nên phép chuẩn
+# bị này cũng hỏi máy chủ cùng một câu (`GET /places`, cùng thứ tự) rồi lấy chỗ
+# đầu tiên có `photo_url` — hai bên đọc cùng một danh sách nên chỉ vào cùng một
+# chỗ. Lệch thì flow ĐỎ ở dòng «Ảnh của nhóm bạn», không im lặng.
+#
+# Đăng bằng phiên đang sống (OTP_PHONE của flow 22), không phải D: flow 38 chạy
+# trên phiên ấy, và ảnh của nhóm chỉ hiện cho người trong nhóm.
+chuan_bi_anh_nhom_cho_38() {
+  local goc body tok ctx cho anh url
+  goc="http://127.0.0.1:$API_PORT"
+  body="$(dang_nhap_curl "$OTP_PHONE")" || hong "trước flow 38: không đăng nhập được qua curl."
+  tok="$(printf '%s' "$body" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("token",""))')"
+  ctx="$(curl -sS "$goc/people/me/contexts" -H "Authorization: Bearer $tok" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+act = [c for c in d.get("contexts", []) if c.get("my_state") == "active"]
+print(act[0]["id"] if act else "")')"
+  [ -n "$tok" ] && [ -n "$ctx" ] || hong "trước flow 38: người của flow 22 chưa ở nhóm active nào."
+  cho="$(curl -sS "$goc/places" | python3 -c '
+import json, sys
+ps = json.load(sys.stdin).get("places", [])
+co = [p for p in ps if p.get("photo_url")]
+print(co[0]["id"] if co else "")')"
+  [ -n "$cho" ] || khong_do_duoc "trước flow 38: không có địa điểm nào có ảnh bìa."
+  anh="$(mktemp --suffix=.png)"
+  python3 - "$anh" <<'PYPNG'
+import struct, sys, zlib
+
+# 96x96 solid PNG dựng tại chỗ: không byte ảnh nào nằm trong repo.
+w = h = 96
+raw = b"".join(b"\x00" + bytes([0x8A, 0x3F, 0x2B]) * w for _ in range(h))
+
+def khoi(ten, than):
+    return struct.pack(">I", len(than)) + ten + than + struct.pack(">I", zlib.crc32(ten + than) & 0xFFFFFFFF)
+
+png = b"\x89PNG\r\n\x1a\n"
+png += khoi(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+png += khoi(b"IDAT", zlib.compress(raw, 9))
+png += khoi(b"IEND", b"")
+open(sys.argv[1], "wb").write(png)
+PYPNG
+  url="$(curl -sS -X POST "$goc/contexts/$ctx/photos" -H "Authorization: Bearer $tok" \
+      -F "file=@$anh;type=image/png" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("url",""))')"
+  rm -f "$anh"
+  case "$url" in
+    /contexts/*/photos/*) : ;;
+    *) hong "trước flow 38: tải ảnh lên nhóm không trả về địa chỉ ảnh (nhận «$url»)." ;;
+  esac
+  curl -sS -X POST "$goc/contexts/$ctx/memories" -H "Authorization: Bearer $tok" \
+    -H "Content-Type: application/json" -H "Idempotency-Key: qa-anh-nhom-$$-$RANDOM" \
+    -d "{\"image_url\":\"$url\",\"caption\":\"Nhom minh tung o day\",\"place_id\":\"$cho\"}" \
+    | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+if d.get("kind") != "photo" or not d.get("place_id"):
+    sys.exit("kỷ niệm không mang địa điểm: %s" % json.dumps(d)[:200])' \
+    || hong "trước flow 38: máy chủ không ghi được ảnh kỷ niệm gắn địa điểm."
+  echo "đã đặt sẵn một ảnh của nhóm gắn vào «$cho» cho flow 38"
+}
+
 chuan_bi_anh_cho_34() {
   local goc body tok ctx anh url
   goc="http://127.0.0.1:$API_PORT"
@@ -1322,6 +1384,7 @@ for f in "$FLOWS"/*.yaml; do
   # + tin nhắn kind=image) qua curl.
   case "$ten" in
     34-*) chuan_bi_anh_cho_34 ;;
+    38-*) chuan_bi_anh_nhom_cho_38 ;;
   esac
   DA_CHAY=$((DA_CHAY + 1))
   DA_CHAY_TEN="$DA_CHAY_TEN${ten%%-*} "
