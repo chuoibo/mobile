@@ -41,6 +41,20 @@ appId: com.lakiet.rudi
 - extendedWaitUntil:
     visible: "Chưa có nhóm nào"
     timeout: 30000
+# Màn nhóm rỗng KHÔNG có thanh tab — muốn tới Cá nhân thì phải có một nhóm
+# trước. Đo được ở lượt mini đầu tiên: bước «tapOn Cá nhân» ngay tại đây đỏ, và
+# nó đỏ vì flow viết sai chứ không vì màn sai.
+- tapOn: "Tạo nhóm"
+- extendedWaitUntil:
+    visible: "Đặt tên cho hội"
+    timeout: 30000
+- tapOn: "Ô tên nhóm"
+- inputText: "Nhom Gu"
+- hideKeyboard
+- tapOn: "Mở nhóm"
+- extendedWaitUntil:
+    visible: "Khám phá"
+    timeout: 30000
 - tapOn: "Cá nhân"
 - extendedWaitUntil:
     visible: "Sở thích"
