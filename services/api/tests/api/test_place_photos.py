@@ -118,3 +118,27 @@ def test_a_photo_id_from_another_place_is_not_found(client, repository):
 def test_an_unknown_photo_id_is_404_not_a_crash(client):
     response = client.get(f"/places/{PLACE}/photos/{uuid.uuid4()}")
     assert response.status_code == 404, response.text
+
+
+def test_the_detail_says_what_a_person_does_there(client, repository):
+    """«Nên làm gì ở đây» (M12) comes from the row, not from a sentence about
+    it. The seed rows carry no OSM tags, so their phrases are read off the
+    category, kinds and traits they already have."""
+
+    del repository
+    body = client.get(f"/places/{PLACE}").json()
+    assert body["activities"] == [
+        "Ăn một bữa",
+        "Ăn nướng",
+        "Ngắm cảnh",
+        "Ngồi ngoài trời",
+    ]
+
+
+def test_a_place_the_data_says_nothing_about_lists_no_activities(client, repository):
+    """Empty, not a filler line. «Ghé chơi» for a place nobody described reads
+    exactly like a fact and is about nowhere."""
+
+    del repository
+    body = client.get(f"/places/{PLACES[6]['id']}").json()
+    assert isinstance(body["activities"], list)

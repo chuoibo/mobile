@@ -115,6 +115,7 @@ class FakeReceipt:
 @lru_cache(maxsize=1)
 def _seed_place_records() -> tuple[PlaceRecord, ...]:
     """The seed catalogue as repository records, built once per process."""
+    from app.places.activities import hoat_dong_theo_dong
     from app.places.catalog import PLACES
     from app.places.details import find_detail
     from app.places.seed_catalog import _destination_for
@@ -143,6 +144,11 @@ def _seed_place_records() -> tuple[PlaceRecord, ...]:
                 photo_count=place["photo_count"],
                 traits=list(place["traits"]),
                 group_fit=dict(place["group_fit"]),
+                # Mirrors what `seed_catalog.py` writes into the real table
+                # (M12): a double that omits it would let a route look empty
+                # here and full in production, which is the drift this file
+                # exists to avoid.
+                activities=hoat_dong_theo_dong(place),
                 flag=place["flag"],
                 description=None if prose is None else prose["description"],
                 reviews=None if prose is None else list(prose["reviews"]),

@@ -184,6 +184,10 @@ ROUTES_WITHOUT_RESPONSE_VALIDATION: dict[tuple[str, str], str] = {
         "/contexts/{context_id}/photos/{photo_id}",
     ): "raw image bytes, no body model",
     ("GET", "/people/{person_id}/avatar"): "raw image bytes, no body model",
+    (
+        "GET",
+        "/places/{place_id}/photos/{photo_id}",
+    ): "raw image bytes, no body model",
     ("GET", "/g/{token}"): "guest HTML page; RENDERS MONEY with no pydantic boundary",
     ("GET", "/g/{token}/khong-phai-toi"): "guest HTML page",
     ("POST", "/g/{token}/khong-phai-toi"): "guest HTML redirect",

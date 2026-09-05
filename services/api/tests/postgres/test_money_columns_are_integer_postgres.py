@@ -113,6 +113,10 @@ JSONB_COLUMNS_REVIEWED: dict[tuple[str, str], str] = {
     ("places", "group_fit"): (
         "min/max headcount and a relation word; the two numbers are people"
     ),
+    ("places", "activities"): (
+        "«nên làm gì ở đây» (M12): câu chữ suy từ tag của chính dòng ấy, "
+        "không có số nào"
+    ),
     ("places", "reviews"): (
         "author, 0-5 rating and body text of a seed review; no amounts"
     ),

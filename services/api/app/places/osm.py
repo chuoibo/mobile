@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.places.activities import hoat_dong_theo_tag
 from app.places.prompt_safety import place_is_safe_for_prompt
 
 CATEGORY_BY_TAG: dict[tuple[str, str], str] = {
@@ -234,6 +235,8 @@ def row_from_element(
         "distance_km": None,
         "photo_count": 0,
         "traits": traits_for(tags),
+        # «Nên làm gì ở đây» (M12): computed here, from these tags, once.
+        "activities": hoat_dong_theo_tag(tags),
         "group_fit": None,
         "flag": None,
         "description": None,

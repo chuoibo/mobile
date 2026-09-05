@@ -2276,6 +2276,10 @@ class Place(Base):
         JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
     )
     group_fit: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
+    #: «Nên làm gì ở đây» (M12): short phrases derived from this row's own tags
+    #: at import, never written by a model and never computed per request. NULL
+    #: on a row imported before the column existed, which reads as «none».
+    activities: Mapped[list[str] | None] = mapped_column(JSONB(none_as_null=True))
     flag: Mapped[str | None] = mapped_column(Text)
     description: Mapped[str | None] = mapped_column(Text)
     reviews: Mapped[list[dict[str, Any]] | None] = mapped_column(

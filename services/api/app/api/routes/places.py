@@ -197,6 +197,11 @@ class PlaceDetail(Place):
     """
 
     description: str | None
+    #: «Nên làm gì ở đây» (M12): short phrases derived from this place's own
+    #: OpenStreetMap tags at import. Empty when the tags said nothing this
+    #: product knows how to say -- and empty draws as no line, never as a
+    #: sentence that could be about any place at all.
+    activities: list[str]
     reviews: list[Review]
     photos_available: bool
 
@@ -973,6 +978,7 @@ def get_place(
     return PlaceDetail(
         **card.model_dump(),
         description=place.get("description"),
+        activities=list(place.get("activities") or []),
         reviews=list(place.get("reviews") or []),
         # A real count now, not a constant: the gallery exists (M12), and this
         # field says whether THIS place has anything in it.
