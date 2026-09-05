@@ -61,6 +61,7 @@ from app.api.repository import (
     PersonContextSummaryRecord,
     PersonFinanceSummary,
     PersonRecord,
+    PlacePhotoRecord,
     PlaceRecord,
     PostRecord,
     ProfileCounts,
@@ -174,6 +175,25 @@ class SeedCatalogueReads:
     # like». These say «nothing», which is the state every test using this
     # mixin was written in -- a double that really tracks people (like
     # `FakeRepository`) overrides these and wins by MRO.
+    # M12: a catalogue row may have licensed photographs. These doubles have
+    # none, which is the state every test using this mixin was written in --
+    # and «no photograph» is a real answer the card draws as a typographic band.
+    def list_place_photos(self, place_id):
+        del place_id
+        return []
+
+    def get_place_photo(self, place_id, photo_id):
+        del place_id, photo_id
+        return None
+
+    def photo_covers(self, place_ids):
+        del place_ids
+        return {}
+
+    def photo_counts(self, place_ids):
+        del place_ids
+        return {}
+
     def list_person_interests(self, person_id):
         del person_id
         return []
@@ -248,6 +268,7 @@ class FakeRepository(SeedCatalogueReads):
         # fake did not model before (outing -> context, and check-ins).
         self.saved_places: dict[tuple[uuid.UUID, str], SavedPlaceRecord] = {}
         self.person_interests: dict[uuid.UUID, set[str]] = {}
+        self.place_photos: list[PlacePhotoRecord] = []
         self.outings_by_context: dict[uuid.UUID, uuid.UUID] = {}
         self.stop_checkins: set[tuple[uuid.UUID, uuid.UUID]] = set()
         self.account_session_ids_by_digest: dict[bytes, uuid.UUID] = {}
@@ -953,6 +974,32 @@ class FakeRepository(SeedCatalogueReads):
     def share_active_context(self, a, b):
         mine = {cid for (cid, pid) in self.active_memberships if pid == a}
         return any(cid in mine for (cid, pid) in self.active_memberships if pid == b)
+
+    # --- ảnh địa điểm có giấy phép (M12) ----------------------------------
+
+    def list_place_photos(self, place_id):
+        rows = [row for row in self.place_photos if row.place_id == place_id]
+        return sorted(rows, key=lambda row: (row.sort_order, str(row.id)))
+
+    def get_place_photo(self, place_id, photo_id):
+        for row in self.place_photos:
+            if row.id == photo_id and row.place_id == place_id:
+                return row
+        return None
+
+    def photo_covers(self, place_ids):
+        out = {}
+        for row in sorted(self.place_photos, key=lambda r: (r.sort_order, str(r.id))):
+            if row.place_id in place_ids:
+                out.setdefault(row.place_id, row)
+        return out
+
+    def photo_counts(self, place_ids):
+        out: dict[str, int] = {}
+        for row in self.place_photos:
+            if row.place_id in place_ids:
+                out[row.place_id] = out.get(row.place_id, 0) + 1
+        return out
 
     def list_saved_places(self, person_id):
         rows = [r for (pid, _), r in self.saved_places.items() if pid == person_id]

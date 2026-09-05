@@ -45,6 +45,7 @@ from app.api.repository import (
     PersonContextSummaryRecord,
     PersonFinanceSummary,
     PersonRecord,
+    PlacePhotoRecord,
     PostRecord,
     ReactionRecord,
     RecapOutingRecord,
@@ -1038,6 +1039,39 @@ class ApiService:
                 return row
         record = self.repository.get_place(place_id)
         return None if record is None else record.to_row()
+
+    # --- licensed place photographs (M12, ADR-0017) ------------------------
+
+    def place_photos(self, place_id: str) -> list[PlacePhotoRecord]:
+        """Every photograph of one place. 404 if the place is not in the
+        catalogue -- an empty gallery for an id nobody has is a different
+        answer from an empty gallery for a place with no photographs yet."""
+
+        self._known_place(place_id)
+        return self.repository.list_place_photos(place_id)
+
+    def place_photo_bytes(
+        self, place_id: str, photo_id: uuid.UUID
+    ) -> tuple[bytes, str]:
+        """The image itself.
+
+        No actor. These are licensed photographs of public places, served with
+        their author and licence beside them; a session would gate a picture
+        anybody may look at while doing nothing about the one thing that is
+        private here -- the group photographs, which live in another table and
+        another route entirely.
+        """
+
+        record = self.repository.get_place_photo(place_id, photo_id)
+        if record is None:
+            raise ApiProblem(404, "photo_not_found", "Không có ảnh này.")
+        content = _stored_image_bytes(
+            self.photo_storage,
+            record.storage_key,
+            code="photo_not_found",
+            message="Không có ảnh này.",
+        )
+        return content, record.content_type
 
     def register_person(
         self, person_id: uuid.UUID, display_name: str, actor: Actor

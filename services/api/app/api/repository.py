@@ -72,6 +72,7 @@ from app.db.models import (
     Person,
     PersonInterest,
     Place,
+    PlacePhoto,
     Post,
     PostAudience,
     ReceiptConfirmation,
@@ -561,6 +562,24 @@ class PlaceRecord:
             "source": self.source,
             "license": self.license,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class PlacePhotoRecord:
+    """One licensed photograph of a place, with the provenance it must carry."""
+
+    id: uuid.UUID
+    place_id: str
+    storage_key: str
+    content_type: str
+    byte_size: int
+    width: int
+    height: int
+    author: str
+    license: str
+    source_url: str
+    title: str | None
+    sort_order: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -1231,6 +1250,16 @@ class ApiRepository(Protocol):
     ) -> list[PlaceRecord]: ...
 
     def get_place(self, place_id: str) -> PlaceRecord | None: ...
+
+    def list_place_photos(self, place_id: str) -> list[PlacePhotoRecord]: ...
+
+    def get_place_photo(
+        self, place_id: str, photo_id: uuid.UUID
+    ) -> PlacePhotoRecord | None: ...
+
+    def photo_covers(self, place_ids: list[str]) -> dict[str, PlacePhotoRecord]: ...
+
+    def photo_counts(self, place_ids: list[str]) -> dict[str, int]: ...
 
     def list_saved_places(self, person_id: uuid.UUID) -> list[SavedPlaceRecord]: ...
 
@@ -3340,6 +3369,77 @@ class SqlAlchemyApiRepository:
     def get_place(self, place_id: str) -> PlaceRecord | None:
         row = self.session.get(Place, place_id)
         return None if row is None else self._place_record(row)
+
+    @staticmethod
+    def _place_photo_record(row: PlacePhoto) -> PlacePhotoRecord:
+        return PlacePhotoRecord(
+            id=row.id,
+            place_id=row.place_id,
+            storage_key=row.storage_key,
+            content_type=row.content_type,
+            byte_size=row.byte_size,
+            width=row.width,
+            height=row.height,
+            author=row.author,
+            license=row.license,
+            source_url=row.source_url,
+            title=row.title,
+            sort_order=row.sort_order,
+        )
+
+    def list_place_photos(self, place_id: str) -> list[PlacePhotoRecord]:
+        """Every photograph of one place, in the order the gallery draws."""
+        rows = self.session.scalars(
+            select(PlacePhoto)
+            .where(PlacePhoto.place_id == place_id)
+            .order_by(PlacePhoto.sort_order, PlacePhoto.id)
+        )
+        return [self._place_photo_record(row) for row in rows]
+
+    def get_place_photo(
+        self, place_id: str, photo_id: uuid.UUID
+    ) -> PlacePhotoRecord | None:
+        """One photograph, scoped by its place.
+
+        Both halves of the key, not the id alone: a photo id that belongs to a
+        different place answers «not found» rather than serving bytes for a row
+        the caller did not ask about.
+        """
+        row = self.session.scalar(
+            select(PlacePhoto).where(
+                PlacePhoto.id == photo_id, PlacePhoto.place_id == place_id
+            )
+        )
+        return None if row is None else self._place_photo_record(row)
+
+    def photo_covers(self, place_ids: list[str]) -> dict[str, PlacePhotoRecord]:
+        """The first photograph of each place, in one query for a whole page.
+
+        A per-card lookup would make the cost of a catalogue screen grow with
+        the catalogue, on the request the app opens with.
+        """
+        if not place_ids:
+            return {}
+        rows = self.session.scalars(
+            select(PlacePhoto)
+            .where(PlacePhoto.place_id.in_(place_ids))
+            .order_by(PlacePhoto.place_id, PlacePhoto.sort_order, PlacePhoto.id)
+        )
+        out: dict[str, PlacePhotoRecord] = {}
+        for row in rows:
+            out.setdefault(row.place_id, self._place_photo_record(row))
+        return out
+
+    def photo_counts(self, place_ids: list[str]) -> dict[str, int]:
+        """How many photographs each place has. Places with none are absent."""
+        if not place_ids:
+            return {}
+        rows = self.session.execute(
+            select(PlacePhoto.place_id, func.count())
+            .where(PlacePhoto.place_id.in_(place_ids))
+            .group_by(PlacePhoto.place_id)
+        )
+        return {place_id: count for place_id, count in rows}
 
     def list_saved_places(self, person_id: uuid.UUID) -> list[SavedPlaceRecord]:
         rows = self.session.scalars(
