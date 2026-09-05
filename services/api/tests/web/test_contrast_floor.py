@@ -38,7 +38,9 @@ KIT_PATH = REPO / "apps/mobile/src/rudi/ui.tsx"
 # so the kit is every file, joined with an export boundary so `kit_component`
 # stops at the end of a file the way it stops at the next export.
 KIT_DIR = REPO / "apps/mobile/src/rudi/ui"
-KIT_PATHS = [KIT_PATH, *sorted(KIT_DIR.glob("*.tsx"))] if KIT_DIR.is_dir() else [KIT_PATH]
+KIT_PATHS = (
+    [KIT_PATH, *sorted(KIT_DIR.glob("*.tsx"))] if KIT_DIR.is_dir() else [KIT_PATH]
+)
 CSS_PATH = REPO / "services/api/app/web/static/guest.css"
 DESIGN_PATH = REPO / "DESIGN.md"
 
@@ -82,7 +84,9 @@ def kit_component(name: str) -> str:
     """Source of one exported component, up to the next top-level export."""
     marker = f"export function {name}("
     start = KIT.find(marker)
-    assert start != -1, f"{name} is no longer exported from src/rudi/ui.tsx or src/rudi/ui/*.tsx"
+    assert start != -1, (
+        f"{name} is no longer exported from src/rudi/ui.tsx or src/rudi/ui/*.tsx"
+    )
     rest = KIT[start + len(marker) :]
     end = rest.find("\nexport ")
     return rest if end == -1 else rest[:end]

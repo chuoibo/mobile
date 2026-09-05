@@ -39,22 +39,32 @@ def test_o_chat_lieu_la_o_lap_thu_tuc(ten: str) -> None:
     # đọc khi load()) hoặc Comment của script sinh.
     anh.load()
     meta = anh.info
-    assert "impeccable:prompt" in meta or "Comment" in meta, f"{ten} không có provenance nhúng"
+    assert "impeccable:prompt" in meta or "Comment" in meta, (
+        f"{ten} không có provenance nhúng"
+    )
     # Không ô nào là ảnh chụp: nền trong suốt chiếm phần lớn diện tích alpha.
     alpha_mean = ImageStat.Stat(anh).mean[3]
-    assert alpha_mean < 80, f"{ten}: alpha trung bình {alpha_mean:.1f}, không còn là ô nhiễu trên nền trong"
+    assert alpha_mean < 80, (
+        f"{ten}: alpha trung bình {alpha_mean:.1f}, không còn là ô nhiễu trên nền trong"
+    )
 
 
 def test_muc_in_pha_duoc_mat_coral_o_do_mo_con_dau() -> None:
     anh = Image.open(THU_MUC / "muc-in.png")
     do = _do_tren(anh, CORAL, DO_MO_CON_DAU)
-    assert 6.0 <= do <= 12.0, f"stddev {do:.2f} trên coral @{DO_MO_CON_DAU}: dưới 6 là phẳng (như bảng 2026-09-05), trên 12 là nhiễu"
+    assert 6.0 <= do <= 12.0, (
+        f"stddev {do:.2f} trên coral @{DO_MO_CON_DAU}: dưới 6 là phẳng (như bảng 2026-09-05), trên 12 là nhiễu"
+    )
 
 
 def test_stamp_button_dung_dung_o_va_do_mo() -> None:
     src = (ROOT / "apps/mobile/src/rudi/ui/StampButton.tsx").read_text(encoding="utf-8")
-    assert 'material="mucIn"' in src, "StampButton phải dùng ô mực in, không phải ô giấy (đo phẳng trên coral)"
-    assert f"opacity={{{DO_MO_CON_DAU}}}" in src, "đổi opacity trong StampButton thì đổi DO_MO_CON_DAU ở đây để phép đo còn đúng"
+    assert 'material="mucIn"' in src, (
+        "StampButton phải dùng ô mực in, không phải ô giấy (đo phẳng trên coral)"
+    )
+    assert f"opacity={{{DO_MO_CON_DAU}}}" in src, (
+        "đổi opacity trong StampButton thì đổi DO_MO_CON_DAU ở đây để phép đo còn đúng"
+    )
 
 
 def test_script_sinh_ra_dung_tung_byte() -> None:
@@ -62,13 +72,17 @@ def test_script_sinh_ra_dung_tung_byte() -> None:
     import importlib.util
     import io
 
-    spec = importlib.util.spec_from_file_location("sinh_chat_lieu", ROOT / "scripts/sinh_chat_lieu_ui_v2.py")
+    spec = importlib.util.spec_from_file_location(
+        "sinh_chat_lieu", ROOT / "scripts/sinh_chat_lieu_ui_v2.py"
+    )
     mod = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(mod)
     anh = mod.sinh()
     tren_dia = Image.open(THU_MUC / "muc-in.png").convert("RGBA")
-    assert list(anh.getdata()) == list(tren_dia.getdata()), "muc-in.png trên đĩa không khớp script sinh (đổi tham số mà chưa sinh lại?)"
+    assert list(anh.getdata()) == list(tren_dia.getdata()), (
+        "muc-in.png trên đĩa không khớp script sinh (đổi tham số mà chưa sinh lại?)"
+    )
     buf = io.BytesIO()
     anh.save(buf, format="PNG")
     assert buf.tell() > 0
