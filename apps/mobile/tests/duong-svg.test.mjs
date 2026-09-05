@@ -83,5 +83,8 @@ test("vạch sáng: M + L, không số mũ ngay cả với bề rộng lẻ", ()
     const cmds = phanTich(duongVachSang(w));
     assert.deepEqual(cmds.map((k) => k.c), ["M", "L"]);
   }
-  assert.ok(!/e/i.test(duongVachSang(1e-7)));
+  // w - inset = 1e-7: JS prints «1e-7» for that number; the formatter must print a plain
+  // decimal (here it rounds to 0). Coordinates are dp, so the domain is < 1e6; 1e21+ is out of scope.
+  assert.equal(duongVachSang(8 + 1e-7), "M 8 1.5 L 0 1.5");
+  assert.ok(!/e/i.test(duongVachSang(8 + 1e-7)));
 });

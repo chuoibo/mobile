@@ -584,7 +584,7 @@ một mức: bảng tương phản vẫn áp cho bề mặt có vân.
 ### Named Rules
 **Luật Không Dập Nổi.** Không giả độ sâu bằng bóng lệch cứng (hard offset
 shadow). Reviewer loại «wordmark dập nổi» ở vòng 1; `WordmarkEmbossed.tsx`
-còn trong kit nhưng **không màn nào ship dùng** và không phải hệ.
+đã xoá khỏi cây ở `5cc57d2` sau verdict pass 2 và không phải hệ.
 
 ## Shapes
 
@@ -785,8 +785,8 @@ hợp lệ**: `moneyCountUpMs` trả 0 khi chưa hợp lệ, `standard` khi có.
 Có trong cây nhưng không phải hệ; người sau đừng lấy làm mẫu:
 
 - `Eyebrow`, `SurfaceLabel` (nhãn in hoa giãn chữ, ui.tsx) và
-  `WordmarkEmbossed.tsx` (dập nổi bằng bóng lệch): có trong kit, **không màn
-  nào ship dùng**; hai cái đầu là eyebrow bị craft floor cấm, cái sau bị
+  `WordmarkEmbossed.tsx` (dập nổi bằng bóng lệch): **đã xoá khỏi cây ở
+  `5cc57d2`**; hai cái đầu là eyebrow bị craft floor cấm, cái sau bị
   reviewer loại.
 - Bố cục v1 của Khám phá, Tin nhắn, Tài chính… trên nền v2 (thẻ trắng bo 20 +
   chip màu + ảnh stock fixture, như ảnh `phone-light-explore-tabbar.png`): là

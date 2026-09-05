@@ -11,4 +11,4 @@ Vì React Native Android không lái trục biến thiên từ style, bốn inst
 | `BricolageGrotesque-SemiBold.ttf` | 600 | 100 | 14 | nhãn thương hiệu nhỏ, chú thích Instax |
 | `BricolageGrotesque-CondensedBold.ttf` | 700 | 80 | 12 | chữ trên con dấu trạng thái, vé, tem |
 
-Face có `tnum` nên số tiền vẫn tabular. Body, nhãn nút, ô nhập, chip: system (Roboto / SF) theo ADR-0020. Bộ chữ Việt: đủ 527 glyph, đã kiểm dấu «ế ự ỡ ạ ổ ầ ẫ ỹ Đ» ở 12/17/28/40 sp (ảnh trong `docs/claude/2026-09-05/`). Nạp runtime bằng `expo-font` (`src/rudi/fonts.ts`), không nhúng lúc build, để đổi face không cần dựng lại dev client.
+Face có `tnum` nên số tiền vẫn tabular. Body, nhãn nút, ô nhập, chip: system (Roboto / SF) theo ADR-0020. Bộ chữ Việt: đủ 597 glyph (fontTools), đã kiểm dấu «ế ự ỡ ạ ổ ầ ẫ ỹ Đ» ở 12/17/28/40 sp (ảnh trong `docs/claude/2026-09-05/`). Nạp runtime bằng `expo-font` (`src/rudi/fonts.ts`), không nhúng lúc build, để đổi face không cần dựng lại dev client.

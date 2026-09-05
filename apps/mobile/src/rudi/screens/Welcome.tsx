@@ -1,6 +1,6 @@
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -67,6 +67,16 @@ export function WelcomeScreen() {
   const [pageWidth, setPageWidth] = useState(0);
   const [routeBox, setRouteBox] = useState({ w: 0, h: 0 });
   const lift = useSharedValue(0);
+  // One press opens one Login: a second tap inside the 300ms lift used to queue a
+  // second push. Reset when the cover regains focus (back from Login), together
+  // with the lift, so the cover is whole again instead of staying faded.
+  const dangMo = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      dangMo.current = false;
+      lift.value = 0;
+    }, [lift]),
+  );
 
   const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const next = Math.round(event.nativeEvent.contentOffset.x / Math.max(pageWidth, 1));
@@ -80,6 +90,8 @@ export function WelcomeScreen() {
   };
 
   const openCover = () => {
+    if (dangMo.current) return;
+    dangMo.current = true;
     // The cover lifts before the page shows; under Reduce Motion the route
     // changes at once. `router.push` waits on the animation, never on data.
     const ms = motion.ms("shared");

@@ -1,6 +1,6 @@
 # ADR-0020 — Hệ hình ảnh v2: thẩm quyền thị giác phân tầng, một display face tự host, bốn bậc chuyển động
 
-- **Trạng thái:** 🟡 **ĐỀ XUẤT** 2026-09-05 — chờ Lead đánh ĐÃ CHẤP NHẬN. Lát UI-1 trở đi không merge trước khi dòng này đổi; UI-0 (nền tảng) có thể merge vì không đổi màn nào.
+- **Trạng thái:** 🟡 **ĐỀ XUẤT** 2026-09-05 — chờ Lead đánh ĐÃ CHẤP NHẬN. UI-0 + UI-1 (nền tảng + vào cửa) đi chung một PR (#566) theo uỷ quyền của Lead 13:0x 05/09 («tự chọn hướng và tự thực hiện», §5 `docs/claude/2026-09-05/ui-v2-direction-round.md`) và lệnh merge trực tiếp của Lead tối 05/09; các lát UI-2 trở đi chờ Lead đổi dòng này.
 - **Quyết định bởi:** Lead (bốn quyết định chốt trong phiên 2026-09-05, ghi lại ở mục 2).
 - **Hiện thực:** chiến dịch UI v2, 9 PR xếp chồng bắt đầu từ `claude/p0-w-ui0-nen-tang-design-system`; kế hoạch ở `~/.claude/plans/t-i-nh-n-c-1-squishy-shell.md`, bản sao đưa vào `docs/architecture/03-ui-v2.md` ở PR UI-1.
 - **Thay đổi hệ hình ảnh và hai quyết định đã ghi trong DESIGN.md** (system stack; «bản ship là ground truth»), không đổi route, API, domain hay ba luật tiền.
@@ -24,7 +24,7 @@ Chạy `concept-seed --scope direction --mode persuade` trên danh sách 7 hư�
 Cam kết thương hiệu **không đổi** dù hướng nào: wordmark «Rủ Đi» script nghiêng có dấu hỏi là một phần hình; logo squircle gradient `#fc7b37 → #e75262`; ba tông mang nghĩa (cam = hành động, teal = tiền, tím = AI), một tông dẫn mỗi màn; giọng «Rủ Đi thôi!».
 
 ### 2.3 Một display face tự host, body giữ system, wordmark vector
-- **Một** face display có bộ chữ Việt đầy đủ, chọn từ thế giới của hướng (không theo liên tưởng thể loại, không nằm trong danh sách mặc định của Impeccable), nhúng bằng plugin `expo-font` lúc build, file `.ttf` pin vào `.repo-guard-allowlist.json` với giấy phép OFL và nguồn. Chỉ dùng cho tiêu đề, số tiền lớn và thương hiệu; body, nhãn, ô nhập, chip vẫn system (Roboto/SF) để dấu tiếng Việt và cỡ chữ hệ thống chắc chắn.
+- **Một** face display có bộ chữ Việt đầy đủ, chọn từ thế giới của hướng (không theo liên tưởng thể loại, không nằm trong danh sách mặc định của Impeccable), nạp runtime bằng `expo-font` (`useFonts`, `src/rudi/fonts.ts`); file `.ttf` pin vào `.repo-guard-allowlist.json` với giấy phép OFL và nguồn; plugin `expo-font` khai trong `app.json` không nhúng font lúc build, nên đổi face không cần dựng lại dev client. Chỉ dùng cho tiêu đề, số tiền lớn và thương hiệu; body, nhãn, ô nhập, chip vẫn system (Roboto/SF) để dấu tiếng Việt và cỡ chữ hệ thống chắc chắn.
 - **Cổng chọn face**: render «Rủ Đi thôi! ế ự ỡ ạ ổ ầ ẫ ỹ Đ đ» ở 12/17/28/40 sp trên emulator ở font 1.0 và 1.3; một dấu đặt sai là loại. Face được chọn ghi ở DESIGN.md v2 kèm ảnh chứng minh.
 - **Wordmark** là SVG (`react-native-svg`), không còn `fontStyle: "italic"` giả wordmark. Thêm `react-native-svg` và `expo-font` → rebuild dev client một lần (đã dự trong UI-0).
 

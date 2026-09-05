@@ -52,13 +52,15 @@ export function Money({
   const { colors } = useRudiTheme();
   const shown = useCountUp(vnd, countUp);
   const text = withSign(dinhDangTienVnd(Math.abs(shown)), shown, sign);
+  // The count-up is an effect, not data: assistive tech hears the settled amount only.
+  const textCuoi = withSign(dinhDangTienVnd(Math.abs(vnd)), vnd, sign);
   const base = size === "caption" ? typography.caption : size === "label" ? typography.label : size === "body" ? typography.body : size === "display" ? typography.display : typography.money;
   return (
     <Text
       testID={testID}
       numberOfLines={numberOfLines}
       adjustsFontSizeToFit={adjustsFontSizeToFit}
-      accessibilityLabel={text}
+      accessibilityLabel={textCuoi}
       style={[base, { fontVariant: ["tabular-nums"], color: colors[tone] }, style]}
     >
       {text}
