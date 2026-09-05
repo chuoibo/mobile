@@ -67,3 +67,82 @@ Bảng mặc định trên bản dựng này: `XANH: bảng qua (1 lượt), NEO
 Lead (13:0x, 05/09) giao cho Claude tự chọn và tự thực hiện, đánh giá bằng ảnh thật. Theo hợp đồng của direction round, khi người quyết định uỷ quyền thì **hướng được gán là hướng xây** (taste không phải cơ sở để tự re-roll): **«Nhật ký chuyến đi sau giờ làm»**, rendition bão hoà, mang đủ 6 raise. «Bàn nhậu nhìn từ trên» (PICK) và «Đông Hồ» (competitive) ghi lại làm phương án dự phòng nếu finish reviewer hoặc Lead bác thế giới này sau lát UI-1.
 
 **Thế giới (OWN-WORLD, đọc được khi bỏ hết chữ):** một cuốn sổ chuyến đi. *Bìa* vải indigo đậm là bề mặt Persuade (Welcome, Login, OTP) và dải đầu trang của các màn kể chuyện; *trang giấy* trắng ngà sáng là bề mặt Operate; ba tông nghĩa là ba cuộn *washi* bão hoà (cam = rủ/hành động, teal = tiền, tím = AI) chỉ dán lên **vùng đang quan trọng**; trạng thái là *con dấu* (viền mực + chữ ngắn), không phải chip màu lẫn chữ; ảnh là *Instax* có viền và dòng nguồn; kèo là *đường route bút mực* liên tục; khung kẻ (keyline) in trước, màu đổ sau khi có dữ liệu; lưới 4pt, snap ô nguyên. Display face: **Bricolage Grotesque** (một face, grotesque «lắp ghép từ mảnh tìm được» đúng tinh thần sổ dán vé và băng dính; có trục wdth cho tem/nhãn; bộ chữ Việt đầy đủ); body giữ system. Wordmark: outline Baloo 2 ExtraBold nghiêng 9° chuyển SVG (chữ script nghiêng đậm, dấu hỏi là một phần hình).
+
+## 6. Vòng chụp và những gì ảnh nói (UI-0 + vào cửa)
+
+**Vòng 1 (light, dấu vân `652496a`, nền tảng chưa đổi màn):** nền giấy `#f7f3ec` thay kem đào; tiêu đề/số tiền Bricolage ExtraBold đọc rõ, dấu Việt đúng ở 21–28 sp; logo + wordmark vector ổn. **Lỗi thấy bằng mắt, không thấy bằng code:** chỉ báo tab tô cả cột 20 % cam (style inline ghi đè container trong suốt) → sửa; bóng FAB nặng → hạ elevation.
+
+**Vòng 2 lần 1 (light, `fc434be`, Welcome/Login/OTP v2):** ảnh Welcome đầu đẹp và đúng thế giới (bìa indigo, wordmark dập nổi, washi coral chữ mực, con dấu CTA), nhưng **flow 01/02 đỏ ngay sau cú bấm đầu**: LogBox «Cannot read property 'forEach' of null» — `StampButton` ghi `transform: undefined`, Reanimated đổi thành `null`. tsc/npm test mù; chỉ emulator thấy. Sửa ở ba primitive. Cũng từ ảnh: hàng logo nhỏ trùng wordmark lớn (bỏ), khoảng trống chết giữa washi và đoạn giới thiệu (lấp bằng `RouteLine`, motif kế hoạch của sản phẩm).
+
+**Vòng 2 lần 2 (light, `48754d0`):** đang chạy; kế tiếp dark + font 1.3, mini-bảng flow 22 để chụp Login/OTP thật, rồi finish reviewer (context mới).
+
+**Sự cố emulator chung (14:47).** Trong lúc tôi chụp tablet thủ công (`pm clear` + `wm size 1600x2560` + deep link Metro), một lane khác đã bắt đầu bảng `--otp --ai` từ `wt-m10` trên cùng emulator-5554 (Metro 8095 của cây họ, từ ~14:44). Lệnh của tôi gần chắc chắn làm hỏng lượt đó (pm clear xoá phiên giữa flow; onboarding dev menu hiện lại). Ảnh «tablet» chụp ra là app của cây `wt-m10` (Welcome cũ) với sheet developer menu → không dùng. Bài học đã có trong memory («một emulator một lane»); từ đây tôi chỉ đụng emulator khi `pgrep -f 'mobile_native.sh'` của lane khác không còn, và ghi rõ trong PR.
+
+## 7. Finish reviewer (context mới) — verdict `fix`, 8 mục, và lô sửa
+
+Packet: yêu cầu gốc, 4 quyết định, contract, 12 ảnh phone (light `5eba3df`, dark/1.3 `48754d0`, OTP thật), mockup làm decision comp, craft-floor/android/operate, dòng «native không có detector». Reviewer đọc ảnh bằng PIL và lấy mẫu pixel.
+
+| # | Mục vật chất | Sửa (commit `ff18023`) |
+|---|---|---|
+| 1 | CTA là pill coral phẳng, đúng cái THESIS từ chối | `StampButton` thành con dấu: không bóng, viền mực kép, mực coral có hạt giấy, nghiêng -1.5° trên bìa; Login «Gửi mã» cũng là con dấu |
+| 2 | Bìa/giấy là màu phẳng, washi là hình chữ nhật xoay | Hai ô chất liệu sinh bằng Pillow (vải, giấy) qua `Grain`; `Washi` SVG mép xé, 0.9 |
+| 3 | Khe giấy giữa status bar và dải bìa | `RudiScreen surface="cover"` bỏ paddingTop trong |
+| 4 | Status bar sáng trên nền giấy ở màn cũ | `StatusBar` khai trong `RudiScreen` theo bề mặt |
+| 5 | Tài chính 1.3 (cắt, gãy chữ, đè divider), chưa có ảnh ở head | Đã sửa ở 5eba3df/e4e5581 + hàng giao dịch paddingVertical; chụp lại dark/1.3 ở head |
+| 6 | Giả dập nổi = bóng lệch cứng | Wordmark phẳng một lớp |
+| 7 | Nút back giữ ô nhấn vuông | Back tròn 48 bằng `PressScale` |
+| 8 | Phần ba giữa bìa chết | Route mực đặc, chặng «đang ở» theo trang pager |
+
+Giữ nguyên theo «keep» của reviewer: wordmark nghiêng lớn, washi tagline, Bricolage, cấu trúc bìa/giấy. Chụp lại cùng viewport + tablet trên `ff18023` → verdict pass.
+
+**Chụp lại lần 1 trên `ff18023` (15:09) đỏ cả 10 flow** — không phải harness: màn dev client «This development build encountered the following error: java.lang.IllegalArgumentException: Invalid number formatting character … com.horcrux.svg.PathParser.parse_number … PathView.setD». Mép xé bên trái của `Washi` được đảo chuỗi bằng split/reverse/join nên đường ra `… L 6 304.4 28 … L  Z` (hai số dính nhau, một `L` trống). react-native-svg parse `d` trong Java **lúc mount** → ném trong Fabric, không LogBox, app chết trước khung hình đầu. tsc mù (chuỗi), web export mù (trình duyệt vẽ đường cụt). Sửa ở `d14793f`: builder đường tách ra `src/rudi/ui/duong-svg.ts` (không React) + `tests/duong-svg.test.mjs` parse đúng cách Java parse (lệnh + arity, số thập phân thường); chạy trên thân cũ đỏ đúng chỗ, thân mới xanh. Chuỗi chụp lại chạy trên `d14793f`. Lần chụp trước đó bị ABORT đúng luật vì lane khác đang có bảng trên emulator chung — không đụng, chờ xong.
+
+**Chụp lại trên `d14793f` (light XANH 19 ảnh · dark/1.3 rc=0 · OTP mini 5 ảnh · tablet) — tôi xem từng ảnh và đo pixel trước khi gửi verdict pass; bốn thứ chưa đạt → lô sửa 2 = `8ac1a16`:**
+
+| Thấy gì (ảnh, số đo) | Nguyên nhân | Sửa |
+|---|---|---|
+| Login/OTP: vệt giấy `(247,243,236)` trên cùng với icon status bar sáng khó đọc; dải bìa bắt đầu dưới status bar | lớp giấy absolute phủ cả vùng inset của SafeAreaView; band nằm sau inset | `RudiScreen surface="cover"` bỏ edge top; `CoverBand underStatusBar` tự cộng `insets.top` |
+| Bìa Welcome: stddev **0.0** từ y≈700 trở xuống, chỉ phần trên có vân (2.7 mức); trang giấy tương tự | `Image resizeMode="repeat"` Android raster một lần theo cỡ view lúc yêu cầu → bitmap ngắn hơn view (đọc `ReactImageView.kt` `TilePostprocessor`) | `Grain` = lưới Image thường, ô = PNG ở đúng pixel máy, ≤ 60 view (`ui/luoi-chat-lieu.ts` + test); opacity đo lại bằng composite: bìa 0.30 (stddev ≈ 8), giấy 0.45 (≈ 2) — 0.11/0.07 là màu phẳng |
+| Scheme tối: chữ trên washi và trên con dấu là `(244,241,234)` trên coral `(251,105,62)` ≈ 2.4:1 | `colors.ink` đổi theo scheme nhưng coral không đổi | `mauSang.ink` tĩnh cho tagline, nhãn/viền/icon con dấu (5.41:1 cả hai scheme) |
+| Route: bốn vòng tròn rỗng, không nghĩa; trên tablet S-curve kéo ngang 1600px như sợi dây | — | `RouteLine glyphs` (people · compass · receipt · images, một glyph mỗi trang), chặng đang ở = con dấu coral viền mực; route/pager giữ bề rộng 560/640 trên medium/expanded |
+| OTP: vệt vuông tối đúng bounds nút back tròn trên nền có vân (zoom 4x) | PressScale animate `opacity` → lớp theo bounds hình chữ nhật | PressScale chỉ scale; mặt tròn là View con |
+
+Ngoài ra: Tài chính dark/1.3 dòng ngân sách xuống hai dòng, không cắt (fix 5 đạt); status bar tối trên giấy ở Explore/Finance (fix 4 đạt ở màn giấy); tablet lần này bị sheet dev menu che (script chưa bấm «Continue» sau `pm clear`) → sửa script, chụp lại. Hai lần chuỗi chụp tự dừng đúng: một vì lane khác đang có bảng, một vì cổng 8095 còn Metro cũ (harness từ chối, đúng thiết kế) → chuỗi chờ 8095 rảnh trước mỗi stage.
+
+**Ảnh cuối trên `8ac1a16`** (light XANH 19 ảnh · dark/1.3 rc=0 · OTP mini 5 ảnh · tablet qua mini-bảng Maestro ở 1600×2560@320: flow 00 đỏ vì tờ dev menu thắng cuộc đua ở lần mở lạnh trên cửa sổ vừa đổi cỡ, flow 01 xanh → có Welcome trang 2 + Login + Cá nhân hoá). Đo lại: vân bìa stddev ≈ 8 ở mọi độ cao (y 200 → 2300), vệt giấy trên status bar hết (dải bìa cùng màu bìa có vân), chữ trên washi/con dấu ở scheme tối là `(31,34,48)` = mực tối, nút back không còn vệt vuông (profile hàng/cột phẳng 35±1). Tự thấy nhưng **không sửa nữa** (đã hết hai vòng tự kiểm theo trần Impeccable, để verdict pass quyết): Login trên tablet — ô số + con dấu nằm trong cột hẹp giữa, hai nút viền và dòng chú thích dưới lại kéo hết bề rộng. Gửi verdict pass cho cùng reviewer với 14 ảnh trong `.impeccable/review/`.
+
+## 8. Verdict pass 1 (cùng reviewer, ảnh `8ac1a16`) — 7/8 đạt, 1 partial, 2 hồi quy → lô sửa 3
+
+| # | Verdict | Bằng chứng reviewer nêu |
+|---|---|---|
+| 1 con dấu | **partial** | viền mực `(203,89,59)`, nghiêng, một ngôn ngữ ask ở Welcome/Login/tablet — nhưng mặt coral phẳng: stddev 2.1/1.2/1.1 (ô giấy 0.42 không đo được) |
+| 2 chất liệu | đạt | bìa stddev 8.1 ở cả (60,1050) và (60,1850), dark 8.3; giấy 2.3 «ở ngưỡng, không hạ thêm»; washi răng cưa hai đầu |
+| 3 khe status bar | đạt | x=540 y110–175 là indigo có vân, không còn `(247,243,236)` |
+| 4 status bar trên giấy | đạt | icon tối `(99,97,94)` trên giấy ở Explore/Finance |
+| 5 Tài chính 1.3 | đạt (ở head) | ngân sách xuống hai dòng phải, huy hiệu một dòng; sửa lời nhận xét cũ: «đường qua hàng cuối» là thanh gesture, không phải lỗi |
+| 6 dập nổi | đạt | một lớp phẳng ở ba ảnh |
+| 7 nút back | đạt | ba góc ô vuông mean `(35,38,67)` stddev 8.0 = bìa xa `(36,39,69)` 8.3 |
+| 8 route | đạt | route đặc, bốn glyph, con dấu coral chạy chặng 1→2; tablet cùng bố cục 640dp |
+
+Hồi quy do lô 2: (a) tablet Login hai lưới (cột 560 cho ô số + con dấu, phần dưới kéo hết 1600); (b) tiêu đề TopBar Tài chính lệch trái (tâm ≈480/1080) vì ô phải giãn theo huy hiệu. Keep list nguyên vẹn. **Disposition: fix — một lô nữa cho ba mục; ship sau lô đó chỉ phủ các mục đã chấm + hai hồi quy trên phone light/dark-1.3 và tablet light.**
+
+**Lô sửa 3** (`git log -1`): ô chất liệu thứ ba `muc-in.png` (script `scripts/sinh_chat_lieu_ui_v2.py`, seed cố định, ra đúng từng byte; test `tests/test_chat_lieu_tiles.py` đo stddev trên coral ở 0.26 phải nằm 6–12) cho con dấu; Login/OTP một cột 560 bọc cả trang; TopBar đo bề rộng tự nhiên hai bên và lấy max cho cả hai, huy hiệu trong TopBar rút «Demo» (accessibilityLabel đủ câu) vì ở 360dp/1.3 không thể có cả tiêu đề cân giữa lẫn nhãn dài. Chụp lại đủ bốn viewport → verdict pass 2.
+
+**Chụp lại trên `f874b79`:** light XANH (con dấu stddev 8.6 trên coral ở cả Welcome/Login; tiêu đề Tài chính lệch −2.5 px so với tâm màn, huy hiệu «Demo» một dòng) · dark/1.3 rc=2 **hai lần** ở flow 10 (`scrollUntilVisible "Xác nhận cách chia"`), Tài chính dark/1.3 tiêu đề lệch −3 px · OTP 5 ảnh · tablet qua mini-bảng Maestro (sau khi `pm clear`, vì bảng OTP để lại phiên sống): Welcome trang 1 + Login một cột 560 cho cả trang.
+
+**Điều tra flow 10 (không đoán):** `maestro hierarchy` sau khi tái hiện: Button «Xác nhận cách chia» `[42,2180][1038,2316]` trên màn 2400, enabled, clickable — nút **có** và **trọn trên màn**. Bốn biến thể cùng bước trên cùng màn dark/1.3: căn giữa 100 % → đỏ · căn giữa 80 % → đỏ · **không căn giữa → xanh** · vuốt ×3 + assertVisible → xanh. Kết luận: Maestro không căn giữa được phần tử cuối nội dung cuộn rồi báo «không thấy»; các lần xanh trước là may rủi của quãng vuốt. Sửa ở flow (bỏ `centerElement` đúng bước đó, giữ lời khai «thấy và bấm»), không sửa UI.
+
+**Lô 3b (`d168b63`):** cũng từ lô 3, huy hiệu trong TopBar với nhãn khác mặc định («Nháp trên máy», «AI nháp») vẫn dài → ép tiêu đề; `DemoBadge compactLabel` áp cho mọi huy hiệu trong TopBar (hai màn dùng «Nháp»); nội dung ô phải sát mép phải khi ô trái rộng hơn. Chụp lại đủ bốn viewport trên `d168b63` → verdict pass 2. Ghi chú ngoài phạm vi: màn gán món (fixture, bố cục v1) cắt số tổng «1.28…» ở font 1.3 — để lát UI-5.
+
+**Ảnh cuối trên `d168b63`, bốn bảng đều xanh** (light lần 1 đỏ flow 06 vì launcher khi máy bận — bẫy đã ghi, chạy lại xanh 19 ảnh; dark/1.3 xanh 19 ảnh kể cả flow 10; OTP 5; tablet 4 gồm Welcome trang 1). Đo: con dấu stddev 8.58 trên coral (Welcome, Login), vải bìa 8.14 ở y=1800, dải bìa dưới status bar `(36,39,69)`, tiêu đề Tài chính lệch −2.5 px (light) / −3 px (dark 1.3). 15 ảnh trong `.impeccable/review/` → gửi verdict pass 2 cho cùng reviewer.
+
+## 9. Verdict pass 2 (ảnh `d168b63`) — **ship** trong phạm vi đã chấm
+
+| Mục | Verdict | Bằng chứng reviewer nêu |
+|---|---|---|
+| 1 mặt con dấu | đạt | stddev 8.5/7.0/7.4 trong coral ở Welcome, Login, dark 1.3, tablet Login, tablet Welcome (từ 2.1 ở pass 1) |
+| 2 tablet Login hai lưới | đạt | mọi phần tử dưới dải bìa nằm trong x≈240–1357/1600, một cột |
+| 3 tiêu đề TopBar | đạt | tâm mực 537.5 (light) / 537.0 (dark 1.3) so với 540; «Demo» một dòng, không cắt; adaptation được chấp nhận |
+| 7 mục pass 1 | giữ | vân bìa 8.1 ở hai độ cao; khe status bar hết; icon tối trên giấy; Tài chính 1.3; wordmark một lớp; nút back không vệt; route + con dấu trang 1→2 (tablet trang 1 nay có ảnh) |
+
+Không hồi quy trong 15 ảnh; keep list nguyên vẹn. **Disposition: ship — phủ tám mục vật chất và hai hồi quy pass 1 trên phone light 1.0, phone dark 1.3, tablet light tại d168b63; không phải phán quyết về bố cục các màn chưa redesign hay các viewport ngoài packet** (tablet dark, iOS, máy thật; số tổng màn gán món cắt ở 1.3 → UI-5).
