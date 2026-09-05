@@ -144,67 +144,70 @@ Có trong `ui.tsx` nhưng **không màn nào ship dùng**: `Eyebrow`, `SurfaceLa
 
 ## Màu, kèm số đo tương phản
 
-46 cặp chữ trên nền mà hệ này thật sự dùng đều được đo. Thấp nhất **4.52:1**,
-cao nhất **16.33:1**, không cặp nào dưới ngưỡng AA 4.5:1.
+50 cặp chữ trên nền mà hệ này thật sự dùng đều được đo, cả trang giấy lẫn bìa sổ. Thấp nhất **4.61:1**, cao nhất **16.50:1**, không cặp nào dưới ngưỡng AA 4.5:1.
 
-Bảng này chỉ đo **chữ**. Ranh giới của thành phần giao diện đi theo ngưỡng khác
-và nằm ở mục "Sàn phi-chữ 3:1" bên dưới. Đọc thiếu mục đó là cách lỗi viền nút
-1.21:1 đã lọt qua một lần.
+Bảng này chỉ đo **chữ**. Ranh giới của thành phần giao diện đi theo ngưỡng khác và nằm ở mục "Sàn phi-chữ 3:1" bên dưới. Đọc thiếu mục đó là cách lỗi viền nút 1.21:1 đã lọt qua một lần.
 
 ### Chế độ sáng
 
 | Cặp | Vai trò | Tỉ lệ | Ngưỡng |
 |---|---|---|---|
-| `ink` #1f2230 trên `ground` #feeee0 | Chữ thân trên nền trang | **13.93:1** | AAA |
+| `ink` #1f2230 trên `ground` #f7f3ec | Chữ thân trên nền trang | **14.28:1** | AAA |
 | `ink` #1f2230 trên `card` #ffffff | Chữ thân trên thẻ | **15.79:1** | AAA |
 | `inkSoft` #4e5563 trên `card` #ffffff | Chữ phụ trên thẻ | **7.49:1** | AAA |
-| `inkSoft` #4e5563 trên `ground` #feeee0 | Chữ phụ trên nền | **6.61:1** | AA |
+| `inkSoft` #4e5563 trên `ground` #f7f3ec | Chữ phụ trên nền | **6.77:1** | AA |
 | `inkFaint` #676e7b trên `card` #ffffff | Chú thích trên thẻ | **5.13:1** | AA |
-| `inkFaint` #676e7b trên `ground` #feeee0 | Chú thích trên nền | **4.52:1** | AA |
+| `inkFaint` #676e7b trên `ground` #f7f3ec | Chú thích trên nền | **4.64:1** | AA |
 | `accent` #c93900 trên `card` #ffffff | Cam trên thẻ | **5.16:1** | AA |
-| `accent` #c93900 trên `ground` #feeee0 | Cam trên nền | **4.55:1** | AA |
+| `accent` #c93900 trên `ground` #f7f3ec | Cam trên nền | **4.67:1** | AA |
 | `accentInk` #ffffff trên `accent` #c93900 | Nhãn trên nút cam | **5.16:1** | AA |
 | `accent` #c93900 trên `accentSoft` #fff0ea | Cam trên chip cam nhạt | **4.65:1** | AA |
 | `split` #00756b trên `card` #ffffff | Teal trên thẻ | **5.59:1** | AA |
-| `split` #00756b trên `ground` #feeee0 | Teal trên nền | **4.93:1** | AA |
+| `split` #00756b trên `ground` #f7f3ec | Teal trên nền | **5.05:1** | AA |
 | `splitInk` #ffffff trên `split` #00756b | Nhãn trên nút teal | **5.59:1** | AA |
 | `split` #00756b trên `splitSoft` #d5f5f0 | Teal trên chip teal nhạt | **4.83:1** | AA |
 | `ai` #7d49ef trên `card` #ffffff | Tím trên thẻ | **5.16:1** | AA |
-| `ai` #7d49ef trên `ground` #feeee0 | Tím trên nền | **4.55:1** | AA |
+| `ai` #7d49ef trên `ground` #f7f3ec | Tím trên nền | **4.66:1** | AA |
 | `aiInk` #ffffff trên `ai` #7d49ef | Nhãn trên nút tím | **5.16:1** | AA |
 | `ai` #7d49ef trên `aiSoft` #f5f1ff | Tím trên chip tím nhạt | **4.64:1** | AA |
 | `warn` #c2410c trên `card` #ffffff | Cảnh báo trên thẻ | **5.18:1** | AA |
-| `warn` #c2410c trên `ground` #feeee0 | Cảnh báo trên nền | **4.57:1** | AA |
+| `warn` #c2410c trên `ground` #f7f3ec | Cảnh báo trên nền | **4.68:1** | AA |
 | `ink` #1f2230 trên `accentSoft` #fff0ea | Chữ thân trên chip cam | **14.22:1** | AAA |
 | `ink` #1f2230 trên `splitSoft` #d5f5f0 | Chữ thân trên chip teal | **13.65:1** | AAA |
 | `ink` #1f2230 trên `aiSoft` #f5f1ff | Chữ thân trên chip tím | **14.22:1** | AAA |
+| `coverInk` #f7f3ec trên `cover` #1d2140 | Chữ trên bìa sổ | **14.13:1** | AAA |
+| `coverInkSoft` #c9c6d6 trên `cover` #1d2140 | Chữ phụ trên bìa sổ | **9.33:1** | AAA |
+
 ### Chế độ tối
 
 | Cặp | Vai trò | Tỉ lệ | Ngưỡng |
 |---|---|---|---|
-| `ink` #f7efe7 trên `ground` #17120f | Chữ thân trên nền trang | **16.33:1** | AAA |
-| `ink` #f7efe7 trên `card` #221c18 | Chữ thân trên thẻ | **14.8:1** | AAA |
-| `inkSoft` #c3b7ad trên `card` #221c18 | Chữ phụ trên thẻ | **8.58:1** | AAA |
-| `inkSoft` #c3b7ad trên `ground` #17120f | Chữ phụ trên nền | **9.47:1** | AAA |
-| `inkFaint` #8b8290 trên `card` #221c18 | Chú thích trên thẻ | **4.56:1** | AA |
-| `inkFaint` #8b8290 trên `ground` #17120f | Chú thích trên nền | **5.04:1** | AA |
-| `accent` #fb693e trên `card` #221c18 | Cam trên thẻ | **5.77:1** | AA |
-| `accent` #fb693e trên `ground` #17120f | Cam trên nền | **6.37:1** | AA |
+| `ink` #f4f1ea trên `ground` #151830 | Chữ thân trên nền trang | **15.45:1** | AAA |
+| `ink` #f4f1ea trên `card` #1f2340 | Chữ thân trên thẻ | **13.56:1** | AAA |
+| `inkSoft` #c4c2cf trên `card` #1f2340 | Chữ phụ trên thẻ | **8.72:1** | AAA |
+| `inkSoft` #c4c2cf trên `ground` #151830 | Chữ phụ trên nền | **9.93:1** | AAA |
+| `inkFaint` #9b9aae trên `card` #1f2340 | Chú thích trên thẻ | **5.56:1** | AA |
+| `inkFaint` #9b9aae trên `ground` #151830 | Chú thích trên nền | **6.33:1** | AA |
+| `accent` #fb693e trên `card` #1f2340 | Cam trên thẻ | **5.24:1** | AA |
+| `accent` #fb693e trên `ground` #151830 | Cam trên nền | **5.97:1** | AA |
 | `accentInk` #1c0d06 trên `accent` #fb693e | Nhãn trên nút cam | **6.48:1** | AA |
-| `accent` #fb693e trên `accentSoft` #3a0b00 | Cam trên chip cam nhạt | **5.86:1** | AA |
-| `split` #02a498 trên `card` #221c18 | Teal trên thẻ | **5.42:1** | AA |
-| `split` #02a498 trên `ground` #17120f | Teal trên nền | **5.99:1** | AA |
-| `splitInk` #04201d trên `split` #02a498 | Nhãn trên nút teal | **5.5:1** | AA |
-| `split` #02a498 trên `splitSoft` #002320 | Teal trên chip teal nhạt | **5.36:1** | AA |
-| `ai` #9667ff trên `card` #221c18 | Tím trên thẻ | **4.55:1** | AA |
-| `ai` #9667ff trên `ground` #17120f | Tím trên nền | **5.03:1** | AA |
-| `aiInk` #150a30 trên `ai` #9667ff | Nhãn trên nút tím | **5.08:1** | AA |
-| `ai` #9667ff trên `aiSoft` #221046 | Tím trên chip tím nhạt | **4.62:1** | AA |
-| `warn` #df5c2f trên `card` #221c18 | Cảnh báo trên thẻ | **4.58:1** | AA |
-| `warn` #df5c2f trên `ground` #17120f | Cảnh báo trên nền | **5.05:1** | AA |
-| `ink` #f7efe7 trên `accentSoft` #3a0b00 | Chữ thân trên chip cam | **15.03:1** | AAA |
-| `ink` #f7efe7 trên `splitSoft` #002320 | Chữ thân trên chip teal | **14.63:1** | AAA |
-| `ink` #f7efe7 trên `aiSoft` #221046 | Chữ thân trên chip tím | **15.0:1** | AAA |
+| `accent` #fb693e trên `accentSoft` #3d1a10 | Cam trên chip cam nhạt | **5.31:1** | AA |
+| `split` #02a498 trên `card` #1f2340 | Teal trên thẻ | **4.93:1** | AA |
+| `split` #02a498 trên `ground` #151830 | Teal trên nền | **5.61:1** | AA |
+| `splitInk` #04201d trên `split` #02a498 | Nhãn trên nút teal | **5.50:1** | AA |
+| `split` #02a498 trên `splitSoft` #0d2f30 | Teal trên chip teal nhạt | **4.61:1** | AA |
+| `ai` #a27dff trên `card` #1f2340 | Tím trên thẻ | **5.04:1** | AA |
+| `ai` #a27dff trên `ground` #151830 | Tím trên nền | **5.74:1** | AA |
+| `aiInk` #150a30 trên `ai` #a27dff | Nhãn trên nút tím | **6.18:1** | AA |
+| `ai` #a27dff trên `aiSoft` #251b4a | Tím trên chip tím nhạt | **5.18:1** | AA |
+| `warn` #e8734b trên `card` #1f2340 | Cảnh báo trên thẻ | **5.09:1** | AA |
+| `warn` #e8734b trên `ground` #151830 | Cảnh báo trên nền | **5.80:1** | AA |
+| `ink` #f4f1ea trên `accentSoft` #3d1a10 | Chữ thân trên chip cam | **13.75:1** | AAA |
+| `ink` #f4f1ea trên `splitSoft` #0d2f30 | Chữ thân trên chip teal | **12.70:1** | AAA |
+| `ink` #f4f1ea trên `aiSoft` #251b4a | Chữ thân trên chip tím | **13.95:1** | AAA |
+| `coverInk` #f4f1ea trên `cover` #0f1126 | Chữ trên bìa sổ | **16.50:1** | AAA |
+| `coverInkSoft` #c4c2cf trên `cover` #0f1126 | Chữ phụ trên bìa sổ | **10.60:1** | AAA |
+
 ## Sàn phi-chữ 3:1 (WCAG 1.4.11)
 
 Bảng 46 cặp bên trên chỉ đo **chữ trên nền**. Nó không đo một dòng nào cho
@@ -226,34 +229,25 @@ ngưỡng khác nhau thì cần hai token, nên `line` tách làm hai:
 
 | Cặp | Vai trò | Tỉ lệ | Ngưỡng |
 |---|---|---|---|
-| `lineStrong` #ac7f56 trên `ground` #feeee0 | Viền control trên nền trang | **3.13:1** | 1.4.11 |
-| `lineStrong` #ac7f56 trên `card` #ffffff | Viền control trên thẻ | **3.54:1** | 1.4.11 |
-| `line` #e7dace trên `ground` #feeee0 | Cạnh thẻ trên nền trang | **1.21:1** | trang trí |
-| `line` #e7dace trên `card` #ffffff | Đường kẻ trong thẻ | **1.37:1** | trang trí |
+| `lineStrong` #a7825d trên `ground` #f7f3ec | Viền control trên nền trang | **3.17:1** | 1.4.11 |
+| `lineStrong` #a7825d trên `card` #ffffff | Viền control trên thẻ | **3.50:1** | 1.4.11 |
+| `coverLineStrong` #8d92bd trên `cover` #1d2140 | Viền control trên bìa sổ | **5.19:1** | 1.4.11 |
+| `line` #e6dfd3 trên `ground` #f7f3ec | Cạnh thẻ trên nền trang | **1.20:1** | trang trí |
+| `line` #e6dfd3 trên `card` #ffffff | Đường kẻ trong thẻ | **1.32:1** | trang trí |
+| `coverLine` #3a3f63 trên `cover` #1d2140 | Đường kẻ trên bìa | **1.54:1** | trang trí |
 
 ### Chế độ tối
 
 | Cặp | Vai trò | Tỉ lệ | Ngưỡng |
 |---|---|---|---|
-| `lineStrong` #716962 trên `ground` #17120f | Viền control trên nền trang | **3.45:1** | 1.4.11 |
-| `lineStrong` #716962 trên `card` #221c18 | Viền control trên thẻ | **3.13:1** | 1.4.11 |
-| `line` #413c38 trên `ground` #17120f | Cạnh thẻ trên nền trang | **1.71:1** | trang trí |
-| `line` #413c38 trên `card` #221c18 | Đường kẻ trong thẻ | **1.55:1** | trang trí |
+| `lineStrong` #7d82a9 trên `ground` #151830 | Viền control trên nền trang | **4.68:1** | 1.4.11 |
+| `lineStrong` #7d82a9 trên `card` #1f2340 | Viền control trên thẻ | **4.11:1** | 1.4.11 |
+| `coverLineStrong` #9095c0 trên `cover` #0f1126 | Viền control trên bìa sổ | **6.42:1** | 1.4.11 |
+| `line` #363b5e trên `ground` #151830 | Cạnh thẻ trên nền trang | **1.61:1** | trang trí |
+| `line` #363b5e trên `card` #1f2340 | Đường kẻ trong thẻ | **1.42:1** | trang trí |
+| `coverLine` #2e3255 trên `cover` #0f1126 | Đường kẻ trên bìa | **1.51:1** | trang trí |
 
-Số của `line` ghi ra ở đây **chính vì nó không đạt 3:1**. Người sau đọc bảng
-này phải thấy ngay nó đứng ở đâu, thay vì thấy một token không có số rồi dùng
-nó cho một cái nút.
-
-`lineStrong` được chọn bằng cách hạ lightness của `line` và **giữ nguyên sắc và
-độ bão hoà**, đúng cách `accent` và `split` đã làm, nên nó vẫn là đường ấm cùng
-họ với nền kem chứ không phải một đường xám lạc lõng.
-
-**Cổng giữ nó**: `services/api/tests/web/test_contrast_floor.py` không kiểm token
-trong bảng, nó **đọc token ra từ `src/rudi/ui.tsx` và `guest.css` rồi mới đo**
-(`Kit.tsx` của App B đã đi cùng App B, 2026-09-04). Thêm một
-token đạt chuẩn mà không component nào dùng thì test vẫn đỏ, và một control lặng
-lẽ quay về `line` cũng đỏ. Chiều ngược lại cũng có cổng: đẩy cạnh thẻ lên
-`lineStrong` để cho dễ pass thì test cũng đỏ.
+Số của `line` và `coverLine` ghi ra ở đây **chính vì chúng không đạt 3:1**. Người sau đọc bảng này phải thấy ngay chúng đứng ở đâu, thay vì thấy một token không có số rồi dùng nó cho một cái nút. `coverLineStrong` là viền của control đặt trên bìa sổ (Welcome, Login), đo trên cả hai scheme.
 
 ### Tầng thương hiệu, đo riêng và giới hạn riêng
 

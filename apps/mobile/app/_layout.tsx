@@ -6,6 +6,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { diemVaoTuUrl, manDau } from "../src/rudi/duong-vao";
 import { datLoiMoiDen } from "../src/rudi/loi-moi-den";
+import { useRudiFonts } from "../src/rudi/fonts";
 import { RudiSessionProvider, useRudiSession } from "../src/rudi/session";
 import { useRudiTheme } from "../src/rudi/theme";
 
@@ -19,22 +20,36 @@ import { useRudiTheme } from "../src/rudi/theme";
 LogBox.ignoreAllLogs();
 
 /*
- * Direction contract (Impeccable, code-led; RN has no HTML to carry it):
- * THESIS  -- A warm evening with friends, organised by a calm assistant: every
- *            screen tells one group what happens next and what it costs, nothing more.
- * OWN-WORLD -- Cream ground, white cards, one leading tone per screen (accent =
- *            brand action, split = money, ai = machine output); brand gradients
- *            only on hero and primary CTA, never under small text.
- * STORY   -- Discover -> plan together in chat -> go -> photograph the bill ->
- *            everyone sees their own share; the screen never invents a number.
- * FIRST VIEWPORT -- The tab bar and one decision above it, on a 360x800 phone,
- *            with real data or an honest empty state; no fixture text in production.
- * FORM    -- expo-router stack + 4 tabs + create sheet; 44pt targets, 12px floor,
- *            tabular-nums for money, motion <= 220ms.
- *            Seed: none rolled. Every screen here is an Extension of the world
- *            already committed in DESIGN.md (tokens in packages/shared), so the
- *            direction is inherited, not re-rolled per screen.
- * FINISH: the shipped screens are reviewed on the emulator, not on the web export.
+ * Direction contract v2 (Impeccable Flow A, code-led; RN has no HTML, so the
+ * root layout carries it). Seed c8e88116, assigned index 6 of the grounded list.
+ * THESIS  -- A travel journal the whole group writes in one evening: cover for
+ *            the invitation, pages for the work; it refuses the category default
+ *            of sunset photo + white cards + coral pill.
+ * OWN-WORLD -- Indigo cloth cover (Persuade surfaces, story headers), bright
+ *            paper pages (Operate surfaces), three saturated washi tapes with
+ *            meaning (orange = the ask, teal = money, violet = AI) laid only on
+ *            the region that matters now; status is an ink stamp, photos are
+ *            Instax frames with their provenance line, plans are one continuous
+ *            ink route; keylines print first, colour arrives with data; a 4pt
+ *            grid snapped to whole units. Display: Bricolage Grotesque; body:
+ *            system. Wordmark: Baloo 2 ExtraBold outlines, leaning 9 degrees.
+ * STORY   -- Open the cover -> Rủ Đi thôi! -> discover a place -> plan it in
+ *            chat -> go -> photograph the bill -> everyone sees their own share
+ *            stamped, never a number the screen invented -> the night becomes
+ *            a page in the album.
+ * FIRST VIEWPORT -- Welcome is the closed cover: indigo full-bleed, wordmark
+ *            very large in the upper third, one diagonal orange washi strip
+ *            carrying "AI đi chơi, chia bill thông minh", the CTA
+ *            "Rủ Đi thôi!" as a large stamp at the bottom; pressing it opens
+ *            the cover onto the bright Login page.
+ * FORM    -- expo-router stack + 4 tabs + create sheet; 48dp targets, 12sp
+ *            floor, tabular money; motion instant 100 / standard 200 /
+ *            shared 300 / celebrate 550 once per event, Reduce Motion to zero.
+ *            Signature interaction: the cover opening, and a stamp landing when
+ *            a state becomes true.
+ * FINISH: unreviewed and undocumented is unfinished; this build ends with the
+ *         finish review, the verdict, DESIGN.md, and every shipping raster
+ *         carrying its provenance
  */
 /** Decides the first screen of a cold start, and routes warm links.
  *
@@ -106,6 +121,11 @@ function LegacyFragmentAdapter() {
 
 export default function RootLayout() {
   const { dark, colors } = useRudiTheme();
+  // Hold the first frame until the display face is in: a heading that flips
+  // from Roboto to Bricolage a beat after launch is the cheapest tell that a
+  // page was assembled rather than built.
+  const [fontsLoaded, fontsError] = useRudiFonts();
+  if (!fontsLoaded && !fontsError) return null;
 
   // Design contract: warm editorial surfaces, one semantic leading tone per
   // screen, native 44pt targets, real text, restrained motion, and no visual

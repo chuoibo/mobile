@@ -19,7 +19,7 @@ DESIGN.md hiện ghi hai quyết định mà việc sửa phải có chỗ ghi l
 3. **Mockup 21 màn** = decision comp và tham chiếu critique, có nhãn stale khi lệch. Không chép số, tên, QR hay ảnh người thật từ PNG.
 
 ### 2.2 Hướng hình ảnh chọn bằng direction round, không ghim trước
-Chạy `concept-seed --scope direction --mode persuade` trên danh sách 7 hướng cố định trước roll (doc `docs/claude/2026-09-05/ui-v2-direction-round.md`), trình một hướng đã nâng + challenger + lối ra chuẩn thể loại lên trang quyết định; Lead chọn. Hướng được chọn: **«CHỜ LEAD CHỌN»** (điền khi trang quyết định trả lời; tên hướng, ba dòng OWN-WORLD).
+Chạy `concept-seed --scope direction --mode persuade` trên danh sách 7 hướng cố định trước roll (doc `docs/claude/2026-09-05/ui-v2-direction-round.md`), trình một hướng đã nâng + challenger + lối ra chuẩn thể loại lên trang quyết định; Lead chọn. Hướng được chọn (Lead uỷ quyền cho Claude 05/09, xây hướng được gán): **«Nhật ký chuyến đi sau giờ làm»** — bìa vải indigo cho Persuade, trang giấy sáng cho Operate, washi bão hoà cam/teal/tím chỉ dán lên vùng đang quan trọng, con dấu là trạng thái, Instax có dòng nguồn cho ảnh, route bút mực cho kèo, khung kẻ in trước màu đổ sau. Display face **Bricolage Grotesque** (OFL), wordmark SVG từ outline Baloo 2 ExtraBold nghiêng.
 
 Cam kết thương hiệu **không đổi** dù hướng nào: wordmark «Rủ Đi» script nghiêng có dấu hỏi là một phần hình; logo squircle gradient `#fc7b37 → #e75262`; ba tông mang nghĩa (cam = hành động, teal = tiền, tím = AI), một tông dẫn mỗi màn; giọng «Rủ Đi thôi!».
 

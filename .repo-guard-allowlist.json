@@ -428,6 +428,47 @@
         "controlled-artifact"
       ],
       "reason": "Hinh VE stand-in cho mot tam anh nhom, dung DUY NHAT boi cua quet ?man=nhan-mat trong App.tsx de do man F22. Khong phai anh chup, khong co nguoi that, khong co du lieu nguoi tham gia -- va no phai giu nguyen nhu vay: anh chup mot nhom nguoi la dung loai file repo nay co luat khong bao gio commit. La SVG van bi guard chan vi fail-closed voi moi anh; ghim theo digest nen doi mot byte la phai review lai."
+    },
+    {
+      "path": "apps/mobile/assets/fonts/BricolageGrotesque-ExtraBold.ttf",
+      "sha256": "8865d033ae29e63a466bfaf5ed90a65d8b22597d01f7997001e7594eda1d4d3d",
+      "rules": [
+        "controlled-artifact"
+      ],
+      "reason": "Font display Bricolage Grotesque (SIL OFL 1.1, tác giả Mathieu Triay / Atelier Triay, nguồn google/fonts ofl/bricolagegrotesque @6ce172f74aa3), instance tĩnh cắt bằng fontTools instancer từ file biến thiên (opsz/wdth/wght) vì RN Android không lái trục biến thiên từ style. Chỉ dùng cho tiêu đề, số tiền lớn và thương hiệu (ADR-0020); body vẫn system. Giấy phép kèm ở OFL-BricolageGrotesque.txt; README.md cùng thư mục ghi trục của từng instance. Path và digest ghim để mọi thay đổi byte phải review lại."
+    },
+    {
+      "path": "apps/mobile/assets/fonts/BricolageGrotesque-Bold.ttf",
+      "sha256": "96b4e880f78318631a573954986c368bfcaa9896e0c0383f917d9ce3fd2b3259",
+      "rules": [
+        "controlled-artifact"
+      ],
+      "reason": "Font display Bricolage Grotesque (SIL OFL 1.1, tác giả Mathieu Triay / Atelier Triay, nguồn google/fonts ofl/bricolagegrotesque @6ce172f74aa3), instance tĩnh cắt bằng fontTools instancer từ file biến thiên (opsz/wdth/wght) vì RN Android không lái trục biến thiên từ style. Chỉ dùng cho tiêu đề, số tiền lớn và thương hiệu (ADR-0020); body vẫn system. Giấy phép kèm ở OFL-BricolageGrotesque.txt; README.md cùng thư mục ghi trục của từng instance. Path và digest ghim để mọi thay đổi byte phải review lại."
+    },
+    {
+      "path": "apps/mobile/assets/fonts/BricolageGrotesque-SemiBold.ttf",
+      "sha256": "819597313ecf2c5dc7afea5ff184aefffc849a189eb8e6013f9b18e9d1e6a718",
+      "rules": [
+        "controlled-artifact"
+      ],
+      "reason": "Font display Bricolage Grotesque (SIL OFL 1.1, tác giả Mathieu Triay / Atelier Triay, nguồn google/fonts ofl/bricolagegrotesque @6ce172f74aa3), instance tĩnh cắt bằng fontTools instancer từ file biến thiên (opsz/wdth/wght) vì RN Android không lái trục biến thiên từ style. Chỉ dùng cho tiêu đề, số tiền lớn và thương hiệu (ADR-0020); body vẫn system. Giấy phép kèm ở OFL-BricolageGrotesque.txt; README.md cùng thư mục ghi trục của từng instance. Path và digest ghim để mọi thay đổi byte phải review lại."
+    },
+    {
+      "path": "apps/mobile/assets/fonts/BricolageGrotesque-CondensedBold.ttf",
+      "sha256": "5c094bc64bce3d35e4abc9649d0085ac0b89429076dc0f16770556ab75b3e9e8",
+      "rules": [
+        "controlled-artifact"
+      ],
+      "reason": "Font display Bricolage Grotesque (SIL OFL 1.1, tác giả Mathieu Triay / Atelier Triay, nguồn google/fonts ofl/bricolagegrotesque @6ce172f74aa3), instance tĩnh cắt bằng fontTools instancer từ file biến thiên (opsz/wdth/wght) vì RN Android không lái trục biến thiên từ style. Chỉ dùng cho tiêu đề, số tiền lớn và thương hiệu (ADR-0020); body vẫn system. Giấy phép kèm ở OFL-BricolageGrotesque.txt; README.md cùng thư mục ghi trục của từng instance. Path và digest ghim để mọi thay đổi byte phải review lại."
+    },
+    {
+      "path": "apps/mobile/src/rudi/ui/Wordmark.tsx",
+      "sha256": "f1d79e99cce6e57cd2acd767fd6ff1fcc454818be9ad6b4636936acd807b1d4f",
+      "rules": [
+        "long-number",
+        "vn-phone"
+      ],
+      "reason": "Wordmark «Rủ Đi» dạng vector: bốn chuỗi `d` của SVG path là toạ độ outline glyph (Baloo 2 ExtraBold, OFL) do fontTools trích, mỗi số làm tròn một chữ số thập phân; các dãy số dài và mẫu giống số điện thoại là toạ độ nối nhau, không phải dữ liệu người. Sinh một lần bởi công cụ ghi trong docs/claude/2026-09-05/ui-v2-direction-round.md; đổi outline thì sinh lại và ghim lại digest."
     }
   ]
 }
