@@ -182,7 +182,7 @@ export function TopBar({
         ) : null}
       </View>
       <View style={[styles.topBarSide, styles.topBarRight, { minWidth: rongBen }]}>
-        <View onLayout={doBen("phai")} style={styles.topBarSideInner}>{right}</View>
+        <View onLayout={doBen("phai")} style={styles.topBarSideInnerRight}>{right}</View>
       </View>
     </View>
     </TrongTopBar.Provider>
@@ -225,7 +225,7 @@ export function Eyebrow({ children, tone = "accent" }: { children: ReactNode; to
  * Renders NOTHING in live mode. A badge saying "demo" over real money would be
  * the same lie as the reverse, pointed the other way.
  */
-export function DemoBadge({ label = "Dữ liệu demo" }: { label?: string }) {
+export function DemoBadge({ label = "Dữ liệu demo", compactLabel }: { label?: string; /** Short form used inside a TopBar; default «Demo». */ compactLabel?: string }) {
   const { colors } = useRudiTheme();
   const { cheDo } = useRudiSession();
   const trongTopBar = useContext(TrongTopBar);
@@ -233,7 +233,7 @@ export function DemoBadge({ label = "Dữ liệu demo" }: { label?: string }) {
   // In a title bar the full label cannot share a 360dp row with a centred title
   // at font 1.3; the flask plus «Demo» keeps the honesty, the accessibility
   // label keeps the full sentence for screen readers and the native gate.
-  const chu = trongTopBar && label === "Dữ liệu demo" ? "Demo" : label;
+  const chu = trongTopBar ? compactLabel ?? "Demo" : label;
   return (
     <View accessibilityLabel={label} style={[styles.demoBadge, { backgroundColor: colors.card, borderColor: colors.line }]}>
       <Ionicons color={colors.inkFaint} name="flask-outline" size={12} />
@@ -949,6 +949,8 @@ const styles = StyleSheet.create({
   // the title is centred on the screen even next to a badge.
   topBarSide: { minWidth: 52, flexShrink: 0, alignItems: "flex-start" },
   topBarSideInner: { alignSelf: "flex-start" },
+  // The right content hugs the right edge when the left side is the wider one (Logo instead of a chevron).
+  topBarSideInnerRight: { alignSelf: "flex-end" },
   topBarRight: { alignItems: "flex-end" },
   topBarTitleWrap: { flex: 1, alignItems: "center", paddingHorizontal: 8 },
   logoRow: { flexDirection: "row", alignItems: "center", flexShrink: 0, gap: 9 },

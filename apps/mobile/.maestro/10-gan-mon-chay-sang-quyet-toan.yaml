@@ -45,11 +45,16 @@ appId: com.lakiet.rudi
     text: "3 người"
     below: "Bò nướng"
 - takeScreenshot: 10-assignment-after
+# The confirm button is the LAST element of the scroll content, so Maestro can never
+# centre it: with centerElement it kept reporting «No visible element found» in
+# dark/1.3 on 2026-09-05 while its own hierarchy showed the button fully on screen
+# (bounds ending at y=2316/2400); the same step without centring, or plain swipes
+# plus assertVisible, passed. Visible and tappable is the claim; centred is not.
 - scrollUntilVisible:
     element:
       text: "Xác nhận cách chia"
     direction: DOWN
-    centerElement: true
+    centerElement: false
     timeout: 30000
 - tapOn: "Xác nhận cách chia"
 - extendedWaitUntil:
