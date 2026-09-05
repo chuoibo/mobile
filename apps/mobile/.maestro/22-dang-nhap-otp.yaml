@@ -46,6 +46,8 @@ appId: com.lakiet.rudi
 - takeScreenshot: 22-ma-sai-con-4-lan
 - tapOn: "Ô nhập mã"
 - inputText: "${OTP_CODE}"
+- runFlow:
+    file: _bo-qua-so-thich.yaml
 # Người mới, chưa ai mời: đăng nhập xong phải là trạng thái rỗng THẬT, không
 # phải tab Khám phá kể chuyện Team Đà Lạt.
 - extendedWaitUntil:

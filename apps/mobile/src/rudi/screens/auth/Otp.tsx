@@ -30,7 +30,7 @@ import { StyleSheet, Text, View } from "react-native";
 
 import { ApiError, thongDiepNguoiDoc } from "../../../api";
 import { guiOtp, xacMinhOtp } from "../../../phien";
-import { manDau } from "../../duong-vao";
+import { manSauDangNhap } from "../../duong-vao";
 import { cheSo, datOtpDangCho, layOtpDangCho, xoaOtpDangCho, type OtpDangCho } from "../../otp-dang-cho";
 import { useRudiSession } from "../../session";
 import { typography, useRudiTheme } from "../../theme";
@@ -78,7 +78,7 @@ export function OtpScreen() {
       const phien = await xacMinhOtp(cho.challengeId, cho.phone, code);
       xoaOtpDangCho();
       datPhien(phien);
-      router.replace(manDau(phien) as never);
+      router.replace(manSauDangNhap(phien) as never);
     } catch (error) {
       // The boxes clear so the next attempt starts from the first one; the
       // sentence stays until the person types again.

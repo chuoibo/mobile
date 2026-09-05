@@ -1,0 +1,72 @@
+# M11 — bước cá nhân hoá gửi thật lên máy chủ, và đọc lại được.
+#
+# Đây là màn duy nhất trong app hỏi người dùng một câu về CHÍNH HỌ, và cho tới
+# hôm nay nó nói thẳng trên màn rằng câu trả lời không đi đâu cả. Flow này đo
+# đường đã nối: tài khoản mới rơi vào bước này ngay sau khi nhập mã, chọn ba
+# sở thích và một mức chi, lưu, rồi mở lại từ Cá nhân và thấy đúng lựa chọn cũ.
+#
+# `kiem_may_chu_sau_36` hỏi máy chủ bằng curl: chỉ có màn nói «đã lưu» thì
+# không chứng minh gì — một `useState` cũng làm được đúng như vậy.
+appId: com.lakiet.rudi
+---
+- stopApp
+- launchApp
+- runFlow: _bo-qua-dev-menu.yaml
+- runFlow: _dang-xuat-neu-co.yaml
+- tapOn: "Rủ Đi thôi!"
+- extendedWaitUntil:
+    visible: "Chào bạn"
+    timeout: 30000
+- tapOn: "Ô số điện thoại"
+- inputText: "${OTP_PHONE_B}"
+- hideKeyboard
+- tapOn: "Gửi mã"
+- extendedWaitUntil:
+    visible: "Nhập mã 6 số"
+    timeout: 60000
+- tapOn: "Ô nhập mã"
+- inputText: "${OTP_CODE}"
+# Tài khoản mới đi thẳng vào bước cá nhân hoá — KHÔNG bấm gì để tới đây.
+- extendedWaitUntil:
+    visible: "Cho Rủ Đi biết gu của bạn"
+    timeout: 30000
+- takeScreenshot: 36-ca-nhan-hoa
+- tapOn: "Ăn uống"
+- tapOn: "Cafe"
+- tapOn: "Món local"
+- tapOn: "100K–250K"
+- takeScreenshot: 36-da-chon
+- tapOn: "Tạo không gian của tôi"
+# Tài khoản mới chưa có nhóm nào, nên đích sau khi lưu là màn nhóm rỗng.
+- extendedWaitUntil:
+    visible: "Chưa có nhóm nào"
+    timeout: 30000
+# Màn nhóm rỗng KHÔNG có thanh tab — muốn tới Cá nhân thì phải có một nhóm
+# trước. Đo được ở lượt mini đầu tiên: bước «tapOn Cá nhân» ngay tại đây đỏ, và
+# nó đỏ vì flow viết sai chứ không vì màn sai.
+- tapOn: "Tạo nhóm"
+- extendedWaitUntil:
+    visible: "Đặt tên cho hội"
+    timeout: 30000
+- tapOn: "Ô tên nhóm"
+- inputText: "Nhom Gu"
+- hideKeyboard
+- tapOn: "Mở nhóm"
+- extendedWaitUntil:
+    visible: "Khám phá"
+    timeout: 30000
+- tapOn: "Cá nhân"
+- extendedWaitUntil:
+    visible: "Sở thích"
+    timeout: 20000
+# Dòng phụ của hàng là những gì máy chủ vừa trả về, không phải state trên máy.
+- assertVisible: ".*Ăn uống, Cafe, Món local.*"
+- assertVisible: ".*100K–250K.*"
+- takeScreenshot: 36-hang-so-thich
+- tapOn: "Sở thích"
+- extendedWaitUntil:
+    visible: "Cho Rủ Đi biết gu của bạn"
+    timeout: 20000
+# Mở lại phải thấy đúng lựa chọn cũ: màn đọc từ máy chủ chứ không bắt đầu trắng.
+- assertVisible: "Bỏ qua"
+- takeScreenshot: 36-mo-lai

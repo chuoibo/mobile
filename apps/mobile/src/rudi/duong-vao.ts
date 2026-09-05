@@ -143,3 +143,29 @@ export function manDau(
   if (phien.context_id !== null && phien.membership_state === "active") return "/explore";
   return "/groups/empty";
 }
+
+/**
+ * Where a person lands the moment their session is minted (M11).
+ *
+ * A brand-new account goes through the personalization step first, and only
+ * then to `manDau`. That is the one moment the question is worth asking: the
+ * account has no check-ins, no group and no history, so a stated taste is the
+ * only thing suggestions can be built from -- and it is exactly when the
+ * product asked for it («personalized lúc mới tạo acc»).
+ *
+ * Everybody else skips it. The step is not a gate; it is editable forever from
+ * Cá nhân, and re-asking somebody who already answered would read as the app
+ * having forgotten them.
+ */
+export function manSauDangNhap(
+  phien:
+    | {
+        context_id: string | null;
+        membership_state: string | null;
+        is_new_person?: boolean;
+      }
+    | null,
+): "/welcome" | "/explore" | "/groups/empty" | "/personalization" {
+  if (phien !== null && phien.is_new_person === true) return "/personalization";
+  return manDau(phien);
+}

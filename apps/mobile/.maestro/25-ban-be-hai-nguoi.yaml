@@ -28,6 +28,8 @@ appId: com.lakiet.rudi
     timeout: 60000
 - tapOn: "Ô nhập mã"
 - inputText: "${OTP_CODE}"
+- runFlow:
+    file: _bo-qua-so-thich.yaml
 # C có nhóm từ flow 24 → vào thẳng tab.
 - extendedWaitUntil:
     visible: "Khám phá"

@@ -561,6 +561,26 @@ print("%d|%s" % (len(a), a[0].get("checkin_count") if a else ""))')"
 # Sau flow 35: điểm đến là dữ liệu của máy chủ, không phải chuỗi trên màn. Hỏi
 # thẳng: danh sách có Hội An không, và `/places?destination=d-hoi-an` có trả về
 # đúng thành phố ấy không.
+# Sau flow 36: sở thích người B vừa chọn phải nằm ở HỒ SƠ trên máy chủ, không
+# phải ở state của màn. Hỏi bằng phiên của chính B (đường sản phẩm), và khẳng
+# định cả ba tag lẫn mức chi — một màn nói «đã lưu» thì một `useState` cũng nói
+# được y như vậy.
+kiem_may_chu_sau_36() {
+  local goc body tok ket
+  goc="http://127.0.0.1:$API_PORT"
+  body="$(dang_nhap_curl "$OTP_PHONE_B")"
+  tok="$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("token",""))')"
+  [ -n "$tok" ] || hong "sau flow 36: không đăng nhập được bằng số B để kiểm."
+  ket="$(curl -sS -H "Authorization: Bearer $tok" "$goc/people/me" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+print("%s|%s" % (",".join(sorted(d.get("interests") or [])), d.get("budget_band") or ""))')"
+  IFS='|' read -r tags khoang <<< "$ket"
+  [ "$tags" = "an-uong,cafe,mon-local" ]     || hong "sau flow 36: hồ sơ trên máy chủ mang sở thích «$tags», mong «an-uong,cafe,mon-local»."
+  [ "$khoang" = "vua-phai" ]     || hong "sau flow 36: mức chi trên máy chủ là «$khoang», mong «vua-phai»."
+  echo "máy chủ xác nhận: hồ sơ B mang đúng 3 sở thích ($tags) và mức chi $khoang"
+}
+
 kiem_may_chu_sau_35() {
   local goc ket
   goc="http://127.0.0.1:$API_PORT"
@@ -1223,7 +1243,7 @@ for f in "$FLOWS"/*.yaml; do
     # môi trường chứ không phải vì app sai. `--live` chạy đúng và chỉ nhóm này.
     20-*)        [ "$LIVE" = 1 ] || continue ;;
     21-*)        [ "$DANG_NHAP" = 1 ] || continue ;;
-    22-*|23-*|24-*|25-*|26-*|27-*|28-*|29-*|31-*|32-*|33-*|34-*|35-*) [ "$OTP" = 1 ] || continue ;;
+    22-*|23-*|24-*|25-*|26-*|27-*|28-*|29-*|31-*|32-*|33-*|34-*|35-*|36-*) [ "$OTP" = 1 ] || continue ;;
     # Under the keyboard negative control the composer is meant to be covered,
     # so a flow that has to tap it (30, 40) would only fail for the reason the
     # probe already measures. The table for --tat-kav is the sign-in leg + 31.
@@ -1310,6 +1330,7 @@ if [ "$OTP" = 1 ]; then
   kiem_may_chu_sau_33
   kiem_may_chu_sau_34
   kiem_may_chu_sau_35
+  kiem_may_chu_sau_36
   [ "$TAT_KAV" = 1 ] || kiem_may_chu_sau_30
   [ "$AI" = 1 ] && [ "$TAT_KAV" = 0 ] && kiem_may_chu_sau_40
   canary_otp

@@ -270,6 +270,10 @@
     // Hồ sơ người khác + tường của họ (M8): compile để test chứng minh câu cho
     // tường rỗng KHÔNG khẳng định người ấy chưa đăng gì (máy chủ trả 200 rỗng
     // cho cả hai trường hợp), và mỗi bài luôn nói rõ ai đọc được.
-    "src/rudi/nguoi/ho-so-nguoi.ts"
+    "src/rudi/nguoi/ho-so-nguoi.ts",
+    // Sở thích cá nhân (M11): compile để test chứng minh câu dưới nút nói đúng
+    // sự thật ở cả hai trạng thái — giữ «Chưa gửi lên máy chủ» sau khi đã nối
+    // route là đúng cái lời nói dối mà luật vỏ sinh ra để cấm.
+    "src/rudi/nguoi/so-thich-song.ts"
   ]
 }

@@ -1,11 +1,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { COLLECTOR_INDEX, DEMO_GROUP, PEOPLE, demoAssets, formatVnd } from "../fixtures";
 import { BASE_URL } from "../../api";
+import { docSoThich, tomTat, type SoThichSong } from "../nguoi/so-thich-song";
 import { layTaiChinh, tinhTrangNo, type Finance } from "../../screens/ca-nhan/tai-chinh";
 import { noiLuu, noiLuuNgan } from "../luu-tru";
 import { useRudiSession } from "../session";
@@ -39,6 +40,22 @@ export function ProfileScreen() {
   const [panel, setPanel] = useState<"home" | "settings" | "account" | "edit" | "saved">("home");
   // Read once so the row below keeps the narrowing inside its own callback.
   const duongTuongToi = session.phien === null ? null : `/people/${session.phien.person_id}`;
+  const personId = session.phien?.person_id ?? null;
+  // The row's subtitle is what this person told the server (M11), read on
+  // focus rather than once: they may have just changed it on the step itself.
+  const [soThich, setSoThich] = useState<SoThichSong>({ muc: [], khoang: null });
+  useFocusEffect(
+    useCallback(() => {
+      if (personId === null) return;
+      let con = true;
+      void docSoThich(personId)
+        .then((da) => con && setSoThich(da))
+        .catch(() => undefined);
+      return () => {
+        con = false;
+      };
+    }, [personId]),
+  );
 
   if (panel === "settings") {
     return (
@@ -224,6 +241,13 @@ export function ProfileScreen() {
               onPress={() => duongTuongToi && router.push(duongTuongToi)}
               subtitle="Bài bạn đã đăng và ai đọc được"
               title="Tường của tôi"
+            />
+            <View style={[styles.rowLine, { backgroundColor: colors.line }]} />
+            <ListRow
+              icon="sparkles-outline"
+              onPress={() => router.push("/personalization")}
+              subtitle={tomTat(soThich)}
+              title="Sở thích"
             />
             <View style={[styles.rowLine, { backgroundColor: colors.line }]} />
           </>
