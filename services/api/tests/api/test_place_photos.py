@@ -85,6 +85,23 @@ def test_the_card_carries_a_cover_and_a_real_count(client, repository):
     assert card["photo_url"] == f"/places/{PLACE}/photos/{anh.id}"
 
 
+def test_the_card_carries_the_credit_beside_the_cover(client, repository):
+    """The URL alone is a photograph the client is not allowed to draw.
+
+    ADR-0017 §2.5 permits the picture only where the author and the licence are
+    shown next to it. The list response is the only thing a card has, so if the
+    credit did not travel with the URL, every card would have to choose between
+    breaking the rule and dropping the picture."""
+
+    use_writer(client, silent_reasons)
+    anh = _anh(repository, author="Trần B", license="CC BY 4.0")
+    body = get_places(client, headers=dang_nhap(repository)).json()
+    card = next(row for row in body["places"] if row["id"] == PLACE)
+    assert card["photo_url"] == f"/places/{PLACE}/photos/{anh.id}"
+    assert card["photo_author"] == "Trần B"
+    assert card["photo_license"] == "CC BY 4.0"
+
+
 def test_a_place_with_no_photograph_sends_null_not_a_stand_in(client, repository):
     """Null is what the typographic band is for. A stock picture in that gap
     would be a lie in the shape of a photograph (ADR-0017 §4)."""
@@ -95,6 +112,11 @@ def test_a_place_with_no_photograph_sends_null_not_a_stand_in(client, repository
     khac = next(row for row in body["places"] if row["id"] != PLACE)
     assert khac["photo_url"] is None
     assert khac["photo_count"] == 0
+    # All three go together: a credit with no picture is as unusable as a
+    # picture with no credit, and a screen reading one without the other would
+    # be reading a shape the server never sends.
+    assert khac["photo_author"] is None
+    assert khac["photo_license"] is None
 
 
 def test_the_detail_says_whether_this_place_has_any(client, repository):
