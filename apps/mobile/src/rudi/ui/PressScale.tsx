@@ -17,7 +17,7 @@ export interface PressScaleProps extends Omit<PressableProps, "style" | "childre
 
 /**
  * Press feedback on the UI thread: a spring to `pressedScale` on touch-down,
- * a spring back on release, an 8% dim while held. Replaces the `pressed`
+ * a spring back on release. Replaces the `pressed`
  * opacity branches the shell used everywhere, which ran on the JS thread and
  * could not honour Reduce Motion. Under Reduce Motion the spring resolves
  * instantly; the pressed state still shows, it just does not travel.
@@ -33,9 +33,12 @@ export function PressScale({
 }: PressScaleProps) {
   const motion = useMotion();
   const pressed = useSharedValue(0);
+  // Scale only. An animated opacity here left the pressable's rectangular
+  // bounds visible as a flat patch on the textured cover behind a round back
+  // button (OTP capture, 2026-09-05), and the dim added nothing the scale
+  // does not already say.
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: 1 - pressed.value * (1 - pressedScale) }],
-    opacity: 1 - pressed.value * 0.08,
   }));
 
   return (

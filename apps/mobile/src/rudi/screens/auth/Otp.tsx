@@ -120,7 +120,7 @@ export function OtpScreen() {
   return (
     <RudiScreen contentStyle={styles.screen} surface="cover" testID="otp-screen">
       <StatusBar style="light" />
-      <CoverBand bleed={bleed} onBack={doiSo} style={styles.band}>
+      <CoverBand bleed={bleed} onBack={doiSo} style={styles.band} underStatusBar>
         <Text style={[typography.hero, { color: colors.coverInk }]}>Nhập mã 6 số</Text>
         <Text style={[typography.body, styles.dan, { color: colors.coverInkSoft }]}>
           Mã đã gửi tới {cheSo(cho.phone)}. Có hiệu lực 5 phút; nhập đủ 6 số là tự kiểm.

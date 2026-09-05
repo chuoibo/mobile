@@ -88,7 +88,7 @@ export function LoginScreen() {
   return (
     <RudiScreen contentStyle={styles.screen} surface="cover" testID="login-screen">
       <StatusBar style="light" />
-      <CoverBand bleed={bleed} onBack style={styles.band}>
+      <CoverBand bleed={bleed} onBack style={styles.band} underStatusBar>
         <Logo compact ink={colors.coverInk} />
         <Text style={[typography.hero, styles.chao, { color: colors.coverInk }]}>Chào bạn</Text>
         <Text style={[typography.body, styles.dan, { color: colors.coverInkSoft }]}>

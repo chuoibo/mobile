@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { ActivityIndicator, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 
-import { displayFace, phuMau, useRudiTheme } from "../theme";
+import { displayFace, mauSang, phuMau, useRudiTheme } from "../theme";
 import { Grain } from "./Grain";
 import { PressScale } from "./PressScale";
 
@@ -23,12 +23,16 @@ export interface StampButtonProps {
  * Not a pill: no drop shadow (a stamp sits IN the paper, it does not float),
  * a double ink edge (the outer line the rubber leaves, a fainter inner line
  * where the ink pooled), coral ink whose fill is broken by paper grain, and
- * a slight tilt on the cover. Lettering is the display face in dark ink,
- * 5.41:1 on coral; coral itself is a large area, so the brand tier is allowed.
+ * a slight tilt on the cover. Lettering is the display face in the static
+ * dark ink (`mauSang.ink`, 5.41:1 on coral in either scheme); coral itself is a
+ * large area, so the brand tier is allowed.
  * The same stamp is the primary action on Login, so the ask has one language.
  */
 export function StampButton({ label, onPress, icon = "arrow-forward", disabled, loading, tilt = 0, style, testID }: StampButtonProps) {
-  const { brand, colors } = useRudiTheme();
+  const { brand } = useRudiTheme();
+  // Static dark ink: the seal is coral in both schemes, so its lettering never
+  // follows the scheme (the dark scheme's light ink on coral read 2.4:1).
+  const muc = mauSang.ink;
   const busy = !!loading;
   return (
     <PressScale
@@ -44,7 +48,7 @@ export function StampButton({ label, onPress, icon = "arrow-forward", disabled, 
         styles.seal,
         {
           backgroundColor: brand.coral,
-          borderColor: phuMau(colors.ink, 0.88),
+          borderColor: phuMau(muc, 0.88),
           opacity: disabled ? 0.55 : 1,
           ...(tilt === 0 ? {} : { transform: [{ rotate: `${tilt}deg` }] }),
         },
@@ -52,11 +56,11 @@ export function StampButton({ label, onPress, icon = "arrow-forward", disabled, 
       ]}
     >
       <Grain material="giayTrang" opacity={0.42} />
-      <View pointerEvents="none" style={[styles.innerEdge, { borderColor: phuMau(colors.ink, 0.32) }]} />
+      <View pointerEvents="none" style={[styles.innerEdge, { borderColor: phuMau(muc, 0.32) }]} />
       <View style={styles.row}>
-        {busy ? <ActivityIndicator color={colors.ink} /> : null}
-        <Text style={[styles.label, { color: colors.ink }]}>{label}</Text>
-        {icon && !busy ? <Ionicons color={colors.ink} name={icon} size={22} /> : null}
+        {busy ? <ActivityIndicator color={muc} /> : null}
+        <Text style={[styles.label, { color: muc }]}>{label}</Text>
+        {icon && !busy ? <Ionicons color={muc} name={icon} size={22} /> : null}
       </View>
     </PressScale>
   );

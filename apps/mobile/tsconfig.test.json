@@ -242,6 +242,8 @@
     // Đường SVG của bộ kit (UI v2): compile vì react-native-svg parse `d` trong
     // Java lúc mount; một token sai là app chết ở khung hình đầu, tsc và web mù.
     "src/rudi/ui/duong-svg.ts",
+    // Lưới ô chất liệu của `ui/Grain.tsx`: compile để test pin «phủ hết hộp» và «≤ 60 view».
+    "src/rudi/ui/luoi-chat-lieu.ts",
     // Nhịp chuyển động (UI v2): compile để test pin bốn bậc, luật Reduce
     // Motion và luật «tiền không animate trước domain state» bằng hàm thật.
     "src/rudi/motion.ts",

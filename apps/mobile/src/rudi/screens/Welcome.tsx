@@ -14,7 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { CUA_FIXTURE_DEV } from "../cua-fixture";
 import { DAU_VAN_CAY } from "../dau-van-cay";
-import { displayFace, lopPhu, typography, useRudiTheme } from "../theme";
+import { displayFace, lopPhu, mauSang, typography, useRudiTheme } from "../theme";
 import { DemoBadge } from "../ui";
 import { CoverButton } from "../ui/CoverButton";
 import { Grain } from "../ui/Grain";
@@ -53,12 +53,15 @@ export const WELCOME_PAGES = [
   },
 ];
 
+/** One glyph per page above: friends, finding a place, the bill, the memories. */
+const CHANG_GLYPHS = ["people", "compass", "receipt", "images"] as const;
+
 export function WelcomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const layout = useAdaptiveLayout();
   const motion = useMotion();
-  const { colors } = useRudiTheme();
+  const { brand, colors } = useRudiTheme();
   const pager = useRef<ScrollView>(null);
   const [page, setPage] = useState(0);
   const [pageWidth, setPageWidth] = useState(0);
@@ -95,7 +98,7 @@ export function WelcomeScreen() {
   return (
     <View style={[styles.root, { backgroundColor: colors.cover }]} testID="welcome-screen">
       <StatusBar style="light" />
-      <Grain material="vaiBia" opacity={0.11} />
+      <Grain material="vaiBia" opacity={0.3} />
       <Animated.View style={[styles.cover, { paddingTop: insets.top + 12, paddingBottom: Math.max(insets.bottom, 16) + 6 }, coverStyle]}>
         <View style={styles.top}>
           {CUA_FIXTURE_DEV ? <DemoBadge label="Bản trải nghiệm" /> : <View />}
@@ -104,7 +107,8 @@ export function WelcomeScreen() {
         <View style={[styles.mark, short && styles.markShort]}>
           <Wordmark height={markHeight} color={colors.coverInk} />
           <Washi tone="accent" tilt={-2} height={40} style={styles.tape}>
-            <Text style={[styles.tagline, { color: colors.ink }]}>AI đi chơi, chia bill thông minh</Text>
+            {/* Static dark ink: the tape is coral in both schemes, and the scheme's light ink on coral would read 2.4:1. */}
+            <Text style={[styles.tagline, { color: mauSang.ink }]}>AI đi chơi, chia bill thông minh</Text>
           </Washi>
         </View>
 
@@ -121,12 +125,15 @@ export function WelcomeScreen() {
               opacity={0.82}
               stops={WELCOME_PAGES.length}
               activeStop={page}
+              glyphs={CHANG_GLYPHS}
+              activeColor={brand.coral}
+              activeInk={mauSang.ink}
               accessibilityLabel={`Chặng ${page + 1} trên ${WELCOME_PAGES.length}`}
             />
           ) : null}
         </View>
 
-        <View style={styles.bottom}>
+        <View style={[styles.bottom, layout.sizeClass !== "compact" && styles.bottomWide]}>
           <ScrollView
             ref={pager}
             horizontal
@@ -176,11 +183,13 @@ const styles = StyleSheet.create({
   cover: { flex: 1, paddingHorizontal: 20 },
   top: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", minHeight: 28 },
   mark: { alignItems: "center", gap: 22, marginTop: 36 },
-  route: { flex: 1, marginVertical: 8, marginHorizontal: 12 },
+  // Never wider than a page: on a tablet the S-curve across 1600px read as a wire.
+  route: { flex: 1, marginVertical: 8, marginHorizontal: 12, alignSelf: "center", width: "100%", maxWidth: 560 },
   markShort: { gap: 12 },
   tape: { alignSelf: "center", paddingHorizontal: 18 },
   tagline: { fontFamily: displayFace.bold, fontSize: 17, lineHeight: 21, letterSpacing: -0.1 },
   bottom: { gap: 12, marginHorizontal: -20 },
+  bottomWide: { alignSelf: "center", width: "100%", maxWidth: 640, marginHorizontal: 0 },
   pageTitle: { fontFamily: displayFace.extraBold, fontSize: 28, lineHeight: 33, letterSpacing: -0.7, minHeight: 68 },
   pageBody: { marginTop: 6, minHeight: 60, maxWidth: 520 },
   dots: { flexDirection: "row", justifyContent: "center", gap: 7 },

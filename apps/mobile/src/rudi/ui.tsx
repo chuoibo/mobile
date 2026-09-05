@@ -64,8 +64,9 @@ export function RudiScreen({
   const tablet = layout.sizeClass !== "compact";
   const inner = [
     styles.screenInner,
-    // A cover band is the first child: no paper strip may show between the
-    // status bar (painted cover) and the band.
+    // A cover band is the first child and paints under the status bar itself
+    // (`CoverBand underStatusBar`); the screen adds no top inset, or a paper
+    // strip shows between the two.
     surface === "cover" && { paddingTop: 0 },
     padded && { paddingHorizontal: tablet ? space.lg : space.md },
     { paddingBottom: bottomInset },
@@ -75,7 +76,7 @@ export function RudiScreen({
 
   return (
     <SafeAreaView
-      edges={["top", "left", "right"]}
+      edges={surface === "cover" ? ["left", "right"] : ["top", "left", "right"]}
       style={[styles.safeArea, { backgroundColor: surface === "cover" ? colors.cover : colors.ground }]}
       testID={testID}
     >
@@ -83,7 +84,7 @@ export function RudiScreen({
           so leaving a cover screen never leaves pale icons on cream. */}
       <StatusBar style={surface === "cover" || dark ? "light" : "dark"} />
       <View pointerEvents="none" style={[styles.paper, { backgroundColor: colors.ground }]}>
-        <Grain material="giayTrang" opacity={dark ? 0.05 : 0.07} />
+        <Grain material="giayTrang" opacity={dark ? 0.3 : 0.45} />
       </View>
       {scroll ? (
         <ScrollView
