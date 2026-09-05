@@ -9,7 +9,8 @@
  * nobody; saving a place is the person's own row and goes with the bearer.
  * No synthetic `context_id` travels on the query string.
  */
-import { ApiError, translatedAnonymous, translatedAsActor } from "../../api";
+import { ApiError, BASE_URL, translatedAnonymous, translatedAsActor } from "../../api";
+import { nguonAnhAnToan } from "../../ui/nguon-anh";
 import {
   parsePlaceDetail,
   type PlaceDetail,
@@ -172,6 +173,144 @@ export async function docChiTiet(placeId: string): Promise<PlaceDetail> {
     method: "GET",
   });
   return parsePlaceDetail(body);
+}
+
+/**
+ * One licensed photograph of a place, with the provenance the screen prints
+ * beside it.
+ *
+ * ADR-0017 lets a photograph of a real venue into this product on exactly one
+ * condition: it can say whose work it is, under what licence, and where the
+ * original lives. So those three are non-optional here, and a row that arrives
+ * without them is refused rather than drawn without a credit -- the server
+ * already refuses to store one (`place_photo_cites_its_source`), and a client
+ * that would render it anyway is the second half of that promise missing.
+ */
+export type AnhDiaDiem = {
+  id: string;
+  /** A path on this app's own API, origin-checked like every other image. */
+  url: string;
+  author: string;
+  license: string;
+  /** Where the original lives, so a reader can check the credit. */
+  sourceUrl: string;
+  title: string | null;
+  width: number | null;
+  height: number | null;
+};
+
+function soDuong(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.trunc(v) : null;
+}
+
+function chuKhongRong(raw: Record<string, unknown>, khoa: string, field: string): string {
+  const v = raw[khoa];
+  if (typeof v !== "string" || v.trim() === "") {
+    throw new Error(`${field}.${khoa} phải là chuỗi không rỗng`);
+  }
+  return v;
+}
+
+/**
+ * Read one photograph, or throw naming the field.
+ *
+ * The URL goes through the same origin check as the cards' cover photograph:
+ * an `<Image>` dials whatever it is handed, so an address on somebody else's
+ * host would tell that host who opened this screen and when.
+ */
+export function parseAnhDiaDiem(raw: unknown, field: string): AnhDiaDiem {
+  const a = (raw ?? {}) as Record<string, unknown>;
+  const url = nguonAnhAnToan(a.url, BASE_URL);
+  if (url === null) throw new Error(`${field}.url không phải địa chỉ ảnh của máy chủ này`);
+  const title = a.title;
+  return {
+    id: chuKhongRong(a, "id", field),
+    url,
+    author: chuKhongRong(a, "author", field),
+    license: chuKhongRong(a, "license", field),
+    sourceUrl: chuKhongRong(a, "source_url", field),
+    title: typeof title === "string" && title.trim() !== "" ? title : null,
+    width: soDuong(a.width),
+    height: soDuong(a.height),
+  };
+}
+
+/**
+ * The gallery of one place.
+ *
+ * Public, like the catalogue: these are licensed photographs of a venue
+ * anybody can walk into. The other kind of photograph of the same place --
+ * one a group took there -- is that group's and never arrives on this route.
+ */
+export async function docAnhDiaDiem(placeId: string): Promise<AnhDiaDiem[]> {
+  const body = await translatedAnonymous<{ photos?: unknown[] }>(
+    LOI_DIA_DIEM,
+    `/places/${encodeURIComponent(placeId)}/photos`,
+    { method: "GET" },
+  );
+  return (body.photos ?? []).map((raw, i) => parseAnhDiaDiem(raw, `photos[${i}]`));
+}
+
+/** What an `<Image>` needs. No headers: these bytes are public. */
+export function nguonAnhDiaDiem(anh: Pick<AnhDiaDiem, "url">): { uri: string } {
+  return { uri: BASE_URL + anh.url };
+}
+
+/**
+ * The credit line under a photograph.
+ *
+ * Author first because that is whose work it is; the licence second because
+ * that is the permission this app is relying on. Both are printed, always --
+ * a photograph whose credit did not fit on the screen is a photograph this
+ * product is not allowed to show.
+ *
+ * «Quanh đây» is not padding. The importer finds these by geosearch within 250
+ * metres of the venue, so what it proves is that the picture was taken around
+ * here -- not that it is a picture *of* this business. A cover photograph with
+ * no such word on it is a claim the data does not support, which is the same
+ * failure as a stock photo wearing a real name.
+ */
+export function cauGiayPhep(anh: Pick<AnhDiaDiem, "author" | "license">): string {
+  return `Ảnh quanh đây: ${anh.author} · ${anh.license}`;
+}
+
+/**
+ * The one sentence under a gallery, where there is room to say the whole
+ * thing rather than the two words a card can fit.
+ */
+export const CAU_NGUON_ANH =
+  "Ảnh có giấy phép chụp quanh đây, từ Wikimedia Commons. Không phải ảnh do nơi này cung cấp.";
+
+/**
+ * The cover photograph of a card, or null when it may not be drawn.
+ *
+ * «May not», not «is not there»: a URL whose author or licence did not come
+ * with it is refused here, because ADR-0017 allows the picture only where the
+ * credit goes with it. The card then falls back to the typographic tile --
+ * which is exactly what the design rule prescribes for a photograph that
+ * cannot say where it came from.
+ */
+export function anhBiaThe(
+  place: Pick<Place, "photoUrl" | "photoAuthor" | "photoLicense">,
+): { nguon: { uri: string }; giayPhep: string } | null {
+  if (place.photoUrl === null || place.photoAuthor === null || place.photoLicense === null) {
+    return null;
+  }
+  return {
+    nguon: { uri: BASE_URL + place.photoUrl },
+    giayPhep: cauGiayPhep({ author: place.photoAuthor, license: place.photoLicense }),
+  };
+}
+
+/**
+ * The heading over «nên làm gì ở đây», or null when the server knows nothing.
+ *
+ * Returning null rather than an empty section keeps the screen from printing a
+ * promise it cannot keep: for most imported places the tags say nothing about
+ * what people do there, and a heading over blank space reads as a bug.
+ */
+export function cauHoatDong(activities: string[]): string | null {
+  return activities.length === 0 ? null : "Nên làm gì ở đây";
 }
 
 type DaLuuTraVe = { saved?: { place_id?: unknown }[] };

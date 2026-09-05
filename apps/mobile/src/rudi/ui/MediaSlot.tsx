@@ -39,14 +39,16 @@ export interface MediaSlotProps {
 /**
  * The one place a photograph may appear in the shell.
  *
- * Today live screens have no images on the wire, and the rule in DESIGN.md is
- * blunt: a stock photo standing in for a real place is a fabrication. This slot
- * exists so that rule can be kept *and* the layout can already be image-led:
- * the frame is drawn now, the fallback is authored artwork from the visual
- * world, and when M12 delivers licensed photos they drop into the same frame
- * with the author and licence printed beneath -- never a photo without its
- * provenance. Group photos (`nguonAnh`) come with request headers; a URL from
- * anywhere else is refused by that helper before it reaches here.
+ * The rule in DESIGN.md is blunt: a stock photo standing in for a real place is
+ * a fabrication. This slot exists so that rule can be kept *and* the layout can
+ * be image-led: the frame is the same whether or not there is a picture, the
+ * fallback is authored artwork from the visual world, and a licensed photograph
+ * drops into that frame with its author and licence printed beneath it --
+ * never a photo without its provenance. Since M12 the catalogue actually sends
+ * them: `docAnhDiaDiem` for a place's gallery, `anhBiaThe` for a card's cover,
+ * and both refuse a URL that arrived without a credit. Group photos
+ * (`nguonAnh`) come with request headers; a URL from anywhere else is refused
+ * by that helper before it reaches here.
  */
 export function MediaSlot({
   source,
@@ -83,8 +85,11 @@ export function MediaSlot({
         {overlay ? <View style={StyleSheet.absoluteFill} pointerEvents="box-none">{overlay}</View> : null}
       </View>
       {source && attribution ? (
+        // Two lines, not one: this credit is the condition on which the picture
+        // above it is allowed to be here, so a long author name has to wrap
+        // rather than end in an ellipsis.
         <Text
-          numberOfLines={1}
+          numberOfLines={2}
           style={[typography.caption, { color: colors.inkFaint, marginTop: space.xs }]}
         >
           {attribution.author} · {attribution.license}

@@ -75,6 +75,15 @@ appId: com.lakiet.rudi
 - assertVisible: ".*mỗi người"
 - assertVisible: "Lưu địa điểm"
 - takeScreenshot: 26-chi-tiet
+# «Nên làm gì ở đây» (M12b): câu sinh lúc nhập từ tag của chính chỗ này, không
+# phải mô hình viết lúc mở màn. Chỗ seed này ra «Ăn nướng» từ tên + category.
+- scrollUntilVisible:
+    element:
+      text: "Nên làm gì ở đây"
+    direction: DOWN
+    timeout: 20000
+- assertVisible: "Ăn nướng"
+- takeScreenshot: 26-nen-lam-gi
 # Cuộn tới cuối: nhận xét phải lên khỏi footer ghim, và footer vẫn bấm được.
 - scrollUntilVisible:
     element:

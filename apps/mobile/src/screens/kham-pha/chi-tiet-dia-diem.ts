@@ -46,12 +46,23 @@ export type PlaceDetail = Place & {
   /**
    * Whether photographs of this venue exist to be shown.
    *
-   * `false` today for every place, and the field is read rather than assumed
-   * because the server saying so out loud is the point: this product has no
-   * image store for venues, and a client left to infer it from an empty array
-   * would draw an empty gallery strip instead of no gallery at all.
+   * True once a licensed photograph has been imported for the place (M12),
+   * false for a place nobody has photographed yet. Still read rather than
+   * inferred, because the gallery is a second request: the screen has to know
+   * whether to make it at all, and an empty strip while that request is in
+   * flight is worse than no strip.
    */
   photosAvailable: boolean;
+  /**
+   * What people do at this venue, in the server's words.
+   *
+   * Written when the place was imported, out of its own OpenStreetMap tags,
+   * rather than asked of a model when the screen opens. So the sentences
+   * describe what somebody recorded on the ground, and an empty list is the
+   * honest answer for a venue whose tags say nothing about it -- the screen
+   * leaves the section out instead of inventing a line for it.
+   */
+  activities: string[];
 };
 
 /**
@@ -108,11 +119,21 @@ export function parsePlaceDetail(body: unknown): PlaceDetail {
   if (rawReviews !== undefined && !Array.isArray(rawReviews)) {
     throw new Error("place.reviews phải là mảng");
   }
+  const rawActivities = p.activities;
+  if (rawActivities !== undefined && rawActivities !== null && !Array.isArray(rawActivities)) {
+    throw new Error("place.activities phải là mảng");
+  }
   return {
     ...base,
     description: typeof description === "string" && description.trim() !== "" ? description : null,
     reviews: (rawReviews ?? []).map((r: unknown, i: number) => parseReview(r, `place.reviews[${i}]`)),
     photosAvailable: p.photos_available === true,
+    activities: (rawActivities ?? []).map((a: unknown, i: number) => {
+      if (typeof a !== "string" || a.trim() === "") {
+        throw new Error(`place.activities[${i}] phải là chuỗi không rỗng`);
+      }
+      return a;
+    }),
   };
 }
 

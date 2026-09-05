@@ -401,7 +401,32 @@ print("%d|%s" % (len(ds), ",".join(sorted(x for x in ds if isinstance(x, str))))
   IFS='|' read -r so_luu ids <<< "$ket"
   [ "${so_luu:-0}" -eq 1 ] || hong "sau flow 26: máy chủ giữ $so_luu địa điểm đã lưu cho D, mong 1."
   [ "$ids" = "p-tiem-nuong-xom-lao" ] || hong "sau flow 26: địa điểm đã lưu là '$ids', mong p-tiem-nuong-xom-lao."
+  # M12: «nên làm gì» phải đến từ máy chủ, và mọi thẻ có ảnh bìa phải mang theo
+  # credit — thẻ không có credit là tấm ảnh màn hình KHÔNG được phép vẽ.
+  ket="$(python3 - "$goc" <<'PY3'
+import json, sys, urllib.request
+goc = sys.argv[1]
+def get(path):
+    with urllib.request.urlopen(goc + path, timeout=30) as r:
+        return json.load(r)
+ct = get("/places/p-tiem-nuong-xom-lao")
+viec = [v for v in ct.get("activities", []) if isinstance(v, str) and v.strip()]
+places = get("/places").get("places", [])
+co_anh = [p for p in places if p.get("photo_url")]
+thieu = [p["id"] for p in co_anh if not p.get("photo_author") or not p.get("photo_license")]
+print("%d|%s|%d|%d" % (len(viec), viec[0] if viec else "", len(co_anh), len(thieu)))
+PY3
+)" || hong "sau flow 26: không đọc được /places từ máy chủ."
+  local so_viec viec_dau so_anh so_thieu
+  IFS='|' read -r so_viec viec_dau so_anh so_thieu <<< "$ket"
+  [ "${so_viec:-0}" -ge 1 ] \
+    || hong "sau flow 26: máy chủ không có «nên làm gì» cho p-tiem-nuong-xom-lao."
+  [ "${so_thieu:-0}" -eq 0 ] \
+    || hong "sau flow 26: $so_thieu thẻ có ảnh bìa mà thiếu tác giả hoặc giấy phép."
   echo "máy chủ xác nhận: D đã lưu đúng một địa điểm ($ids) từ chi tiết địa điểm"
+  echo "máy chủ xác nhận: $so_viec câu «nên làm gì» (đầu: $viec_dau); $so_anh thẻ có ảnh bìa, $so_thieu thiếu credit"
+  [ "${so_anh:-0}" -ge 1 ] \
+    || echo "  LƯU Ý: stack này chưa nhập ảnh nào, nên phép kiểm credit chạy trên tập RỖNG."
 }
 
 # Sau flow 27: nhóm của D có kèo «Keo QA» với hai chặng (chặng đầu trỏ
