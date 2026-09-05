@@ -9,6 +9,8 @@ way group photographs never are.
 
 from __future__ import annotations
 
+import importlib.util
+import pathlib
 import uuid
 
 import anyio
@@ -24,6 +26,27 @@ from app.db.models import Destination, Place, PlacePhoto
 from app.media.storage import PhotoStorage
 
 pytestmark = pytest.mark.postgres
+
+
+def _importer():
+    """Load `scripts/import_place_photos.py` as a module.
+
+    By path because it is a script, not a package -- and it is worth the
+    awkwardness: the rule about which places may carry a photograph is a claim
+    about rows, so the test that proves it has to run the importer's own query
+    against real rows, not read the file and hope."""
+
+    duong = (
+        pathlib.Path(__file__).resolve().parents[4]
+        / "scripts"
+        / "import_place_photos.py"
+    )
+    spec = importlib.util.spec_from_file_location("import_place_photos", duong)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
 
 MOT_ANH_PNG = bytes.fromhex(
     "89504e470d0a1a0a0000000d494844520000000100000001080600000"
@@ -176,3 +199,39 @@ def test_the_bytes_route_needs_no_session(postgres_session, tmp_path):
     postgres_session.flush()
     app = _app(postgres_session, storage)
     assert _get(app, f"/places/{place.id}/photos/{photo.id}").status_code == 200
+
+
+def test_a_synthetic_place_never_gets_a_real_photograph(postgres_session):
+    """The 12 seed rows describe no real business, so a real photograph under
+    one of their names is a lie in the shape of a photograph -- correct credit
+    and all (ADR-0017 §4).
+
+    Found on a machine, not in review: the first import run attached Wikimedia
+    photographs of Đà Lạt to every one of those rows, because geosearch around
+    a plausible coordinate returns real pictures of that street."""
+
+    diem_den = _diem_den(postgres_session)
+    chung = {
+        "destination_id": diem_den,
+        "name": "Quán thử",
+        "category": "cafe",
+        "kinds": ["Cà phê"],
+        "traits": [],
+        "lat": 11.94,
+        "lng": 108.44,
+    }
+    bia = Place(id=f"p-seed-{uuid.uuid4().hex[:8]}", source="seed", **chung)
+    that = Place(
+        id=f"p-osm-{uuid.uuid4().hex[:8]}",
+        source="osm",
+        license="ODbL-1.0",
+        source_ref=f"node/{uuid.uuid4().int % 10**7}",
+        **chung,
+    )
+    postgres_session.add_all([bia, that])
+    postgres_session.flush()
+
+    duoc = list(postgres_session.scalars(_importer().cau_dia_diem_that(diem_den)))
+    ids = {row.id for row in duoc}
+    assert that.id in ids, "chỗ nhập từ OSM là chỗ có thật, phải được gắn ảnh"
+    assert bia.id not in ids, "dòng seed là chỗ bịa, không được gắn ảnh thật"
