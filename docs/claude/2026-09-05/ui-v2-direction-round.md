@@ -146,3 +146,7 @@ Hồi quy do lô 2: (a) tablet Login hai lưới (cột 560 cho ô số + con d�
 | 7 mục pass 1 | giữ | vân bìa 8.1 ở hai độ cao; khe status bar hết; icon tối trên giấy; Tài chính 1.3; wordmark một lớp; nút back không vệt; route + con dấu trang 1→2 (tablet trang 1 nay có ảnh) |
 
 Không hồi quy trong 15 ảnh; keep list nguyên vẹn. **Disposition: ship — phủ tám mục vật chất và hai hồi quy pass 1 trên phone light 1.0, phone dark 1.3, tablet light tại d168b63; không phải phán quyết về bố cục các màn chưa redesign hay các viewport ngoài packet** (tablet dark, iOS, máy thật; số tổng màn gán món cắt ở 1.3 → UI-5).
+
+## 10. Cổng trên head gộp `main` (feb647a → f30453f)
+
+M10 và M11 đã vào `main` trong ngày → gộp `origin/main` (chỉ backend M11, không đụng `apps/mobile`), PR nhắm `main`. Trên head gộp: tsc, npm test 654/654, contract scripts, screens 38/38, guard range 22 commit. Bảng native: mặc định light XANH; bảng OTP lần 1 đỏ hai flow 30/32 vì chạy **không `--ai`** trong khi API 45211 có khoá mô hình sống (ảnh đỏ cho thấy «Rủ Đi AI gợi ý» đã trả lời — nhánh «không khoá» là nhánh sai, không phải UI hỏng); chạy lại với `--ai` sau bảng dark/1.3.
