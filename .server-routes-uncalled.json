@@ -118,6 +118,11 @@
       "route": "/places/{place_id}/photos/{photo_id}",
       "loai": "cong-mu",
       "reason": "M12 (ADR-0017). Đường ảnh do MÁY CHỦ trả về trong `photo_url`/`photos[].url`, nên client không bao giờ viết nó thành literal — cùng dạng với /contexts/{id}/photos/{id}. Người gọi thật là thẻ Khám phá (đã có từ PR này) qua giá trị máy chủ gửi."
+    },
+    {
+      "route": "/places/{place_id}/group-photos",
+      "loai": "tinh-nang",
+      "reason": "M12 (ADR-0017 §2.4). Ảnh do chính nhóm chụp ở một địa điểm, chỉ người cùng nhóm thấy. Máy chủ đi trước; màn chi tiết địa điểm nối ở PR client kế tiếp và gỡ dòng này. KHÔNG gộp vào /places/{id}/photos: một bên công khai có giấy phép, một bên riêng của nhóm, và gộp hai danh sách là bước đầu của việc một tấm ảnh riêng thành ảnh minh hoạ công khai."
     }
   ]
 }

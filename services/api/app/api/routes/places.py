@@ -34,7 +34,7 @@ from app.api.deps import (
 )
 from app.api.errors import ApiProblem
 from app.api.repository import ApiRepository, DestinationRecord
-from app.api.schemas import MoneyVnd
+from app.api.schemas import MemoryResponse, MoneyVnd
 from app.api.search_rate_limit import FixedWindowLimiter
 from app.api.service import ApiService
 from app.domain.place_search import PlaceSearchError, ground_search
@@ -898,6 +898,45 @@ def list_place_photos(
             )
             for photo in photos
         ],
+    )
+
+
+class PlaceGroupPhotosResponse(BaseModel):
+    """Photographs of this place taken by groups the reader belongs to (M12).
+
+    A separate response from `PlacePhotosResponse`, deliberately: those are
+    public and licensed, these are somebody's group's. Two shapes keep a screen
+    from ever pouring one list into the other -- the first mistake in that
+    direction publishes a group's photograph as a venue's illustration.
+    """
+
+    place_id: str
+    photos: list[MemoryResponse]
+
+
+@router.get(
+    "/places/{place_id}/group-photos",
+    response_model=PlaceGroupPhotosResponse,
+)
+def list_place_group_photos(
+    place_id: str,
+    actor: Annotated[Actor, Depends(get_actor)],
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+) -> PlaceGroupPhotosResponse:
+    """The other half of ADR-0017 §2.4: the group's own pictures of this place.
+
+    Needs a session, and answers only out of groups the server can prove this
+    reader is an ACTIVE member of. No 404 for an unknown place: that would
+    answer «does this id exist» to anybody who asks, and the public gallery
+    route already answers it honestly. Nothing to show and nothing to know come
+    back the same way here.
+
+    Declared before `/places/{place_id}` so the longer path wins.
+    """
+
+    return PlaceGroupPhotosResponse(
+        place_id=place_id,
+        photos=list(ApiService(repository).group_photos_at_place(place_id, actor)),
     )
 
 

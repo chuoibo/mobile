@@ -517,6 +517,55 @@ class FakeRepository(SeedCatalogueReads):
         )
         return MemoryPage(memories=tuple(rows[:limit]), has_more=len(rows) > limit)
 
+    def create_memory(
+        self,
+        *,
+        context_id,
+        author_id,
+        image_url,
+        caption,
+        now,
+        place_id=None,
+        place_name=None,
+    ):
+        record = MemoryRecord(
+            id=uuid.uuid4(),
+            context_id=context_id,
+            author_id=author_id,
+            kind="photo",
+            image_url=image_url,
+            caption=caption,
+            place_id=place_id,
+            place_name=place_name,
+            lat=None,
+            lng=None,
+            created_at=now,
+        )
+        self.memories[record.id] = record
+        return record
+
+    def group_photos_at_place(self, place_id, *, viewer_id, limit):
+        """The membership gate, in the fake, written as a gate and not a filter.
+
+        `is_member` is asked per row for the same reason the real query puts
+        the predicate in SQL: a test that broke the gate must see a *stranger's
+        photograph appear*, and that only happens if this fake would otherwise
+        have returned it.
+        """
+
+        rows = sorted(
+            (
+                record
+                for record in self.memories.values()
+                if record.place_id == place_id
+                and record.kind == "photo"
+                and self.is_member(record.context_id, viewer_id)
+            ),
+            key=lambda record: (record.created_at, record.id.bytes),
+            reverse=True,
+        )
+        return tuple(rows[:limit])
+
     def membership_role(self, context_id, person_id):
         if (context_id, person_id) in self.admin_memberships:
             return "admin"

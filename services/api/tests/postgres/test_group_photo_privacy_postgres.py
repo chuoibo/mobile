@@ -52,6 +52,10 @@ pytestmark = pytest.mark.postgres
 # whatever host this string names -- this product stores the string, never the
 # photograph -- which is itself the finding recorded in the QA report.
 PHOTO_URL = "https://anh.example/nhom-a/toi-thu-bay.jpg"
+#: Một id địa điểm để gắn ảnh vào (M12). Không có FK từ `memories` sang
+#: `places`, giống `expenses.context_id` ngày trước: id ở đây là nhãn của
+#: một hàng danh mục, và danh mục thì nhập lại được.
+PLACE_ID = "p-quan-thu"
 
 
 def _http(session: Session, monkeypatch: pytest.MonkeyPatch):
@@ -97,7 +101,14 @@ def _context(session: Session, owner: Person, name: str) -> Context:
     return context
 
 
-def _photo(session: Session, context: Context, author: Person) -> Memory:
+def _photo(
+    session: Session,
+    context: Context,
+    author: Person,
+    *,
+    place_id: str | None = None,
+    place_name: str | None = None,
+) -> Memory:
     memory = Memory(
         id=uuid.uuid4(),
         context_id=context.id,
@@ -105,6 +116,8 @@ def _photo(session: Session, context: Context, author: Person) -> Memory:
         kind=MemoryKind.PHOTO,
         image_url=PHOTO_URL,
         caption="Tối thứ bảy",
+        place_id=place_id,
+        place_name=place_name,
         created_at=NOW,
     )
     session.add(memory)
@@ -286,3 +299,101 @@ def test_guessing_group_ids_never_returns_a_photo_and_never_says_which_id_exists
 
     # The oracle check: an id that exists answers exactly like one that does not.
     assert {reply.status_code for reply in invented} == {real_reply.status_code}
+
+
+# --- ảnh của nhóm gắn địa điểm (M12, ADR-0017 §2.4) ------------------------
+
+
+def _get_group_photos(app, place_id: str, actor_id: uuid.UUID):
+    async def exchange():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
+            return await client.get(
+                f"/places/{place_id}/group-photos", headers=_headers(actor_id)
+            )
+
+    return anyio.run(exchange)
+
+
+def test_a_place_shows_my_groups_photographs_and_nobody_elses(
+    postgres_session, monkeypatch
+):
+    """The one live case ADR-0017 §5 asks for by name: «người ngoài nhóm KHÔNG
+    nhận được ảnh ấy trong gallery của địa điểm».
+
+    Two groups, one place, one photograph each. Each reader must see exactly
+    their own. The dangerous failure is not an error -- it is a 200 with one
+    extra row in it, which no status code notices.
+    """
+
+    app = _http(postgres_session, monkeypatch)
+    toi = _person(postgres_session, "Tôi")
+    ho = _person(postgres_session, "Người khác")
+    nhom_toi = _context(postgres_session, toi, "Nhóm tôi")
+    nhom_ho = _context(postgres_session, ho, "Nhóm họ")
+    # `_context` đã cho chủ nhóm một hàng ACTIVE; thêm nữa là vi phạm
+    # `uq_memberships_open_per_person`.
+
+    cua_toi = _photo(
+        postgres_session, nhom_toi, toi, place_id=PLACE_ID, place_name="Quán thử"
+    )
+    cua_ho = _photo(
+        postgres_session, nhom_ho, ho, place_id=PLACE_ID, place_name="Quán thử"
+    )
+    postgres_session.flush()
+
+    ra_toi = _get_group_photos(app, PLACE_ID, toi.id)
+    assert ra_toi.status_code == 200
+    assert [row["id"] for row in ra_toi.json()["photos"]] == [str(cua_toi.id)]
+
+    ra_ho = _get_group_photos(app, PLACE_ID, ho.id)
+    assert [row["id"] for row in ra_ho.json()["photos"]] == [str(cua_ho.id)]
+
+
+def test_an_invited_person_does_not_get_the_places_group_photographs(
+    postgres_session, monkeypatch
+):
+    """`invited` is the state that looks live: the row exists, `left_at` is
+    NULL, and a gate that asked «is there a membership row» would say yes."""
+
+    app = _http(postgres_session, monkeypatch)
+    chu = _person(postgres_session, "Chủ nhóm")
+    khach = _person(postgres_session, "Được mời")
+    nhom = _context(postgres_session, chu, "Nhóm")
+    _membership(postgres_session, nhom, khach, MembershipState.INVITED)
+    _photo(postgres_session, nhom, chu, place_id=PLACE_ID, place_name="Quán thử")
+    postgres_session.flush()
+
+    assert _get_group_photos(app, PLACE_ID, khach.id).json()["photos"] == []
+    assert len(_get_group_photos(app, PLACE_ID, chu.id).json()["photos"]) == 1
+
+
+def test_someone_who_left_stops_getting_the_places_group_photographs(
+    postgres_session, monkeypatch
+):
+    app = _http(postgres_session, monkeypatch)
+    chu = _person(postgres_session, "Chủ nhóm")
+    di = _person(postgres_session, "Đã rời")
+    nhom = _context(postgres_session, chu, "Nhóm")
+    _membership(postgres_session, nhom, di, MembershipState.LEFT, left_at=NOW)
+    _photo(postgres_session, nhom, chu, place_id=PLACE_ID, place_name="Quán thử")
+    postgres_session.flush()
+
+    assert _get_group_photos(app, PLACE_ID, di.id).json()["photos"] == []
+
+
+def test_a_photograph_with_no_place_is_not_pulled_into_any_place(
+    postgres_session, monkeypatch
+):
+    """Không gắn địa điểm thì không thuộc địa điểm nào. Một truy vấn quên mệnh
+    đề `place_id` sẽ đổ cả tường của nhóm vào màn chi tiết một cái quán."""
+
+    app = _http(postgres_session, monkeypatch)
+    toi = _person(postgres_session, "Tôi")
+    nhom = _context(postgres_session, toi, "Nhóm")
+    _photo(postgres_session, nhom, toi)
+    postgres_session.flush()
+
+    assert _get_group_photos(app, PLACE_ID, toi.id).json()["photos"] == []

@@ -1655,9 +1655,10 @@ class Memory(Base):
             desc("created_at"),
             desc("id"),
         ),
-        # Check-ins are read per place ("who has been here") as well as per
-        # feed, and the partial predicate keeps photo rows -- which have no
-        # place -- out of an index that could never serve them.
+        # Read per place ("who has been here", and since M12 "what did our
+        # group photograph here") as well as per feed. The predicate is still
+        # partial because most photo rows carry no place, but it no longer
+        # means "check-ins only".
         Index(
             "ix_memories_context_place",
             "context_id",
@@ -1665,13 +1666,37 @@ class Memory(Base):
             desc("created_at"),
             postgresql_where=text("place_id IS NOT NULL"),
         ),
+        # The other direction: one place, every group the reader belongs to.
+        # `GET /places/{id}/group-photos` asks exactly this, and without an
+        # index leading on `place_id` it would scan the whole wall of every
+        # group to answer a screen somebody opened.
+        Index(
+            "ix_memories_place_kind",
+            "place_id",
+            "kind",
+            desc("created_at"),
+            postgresql_where=text("place_id IS NOT NULL"),
+        ),
         # One constraint rather than five, because the invariant is a shape and
-        # not a set of independent facts: a photo has no location, a check-in
-        # has no image, and a row carrying both is a row no screen knows how to
+        # not a set of independent facts: a check-in has no image, and a row
+        # carrying neither an image nor a place is a row no screen knows how to
         # draw. Written the same way `messages.payload_matches_kind` is.
+        #
+        # A photo MAY name a place since M12 (ADR-0017 §2.4): "ảnh kỷ niệm đã
+        # gắn place_id" is the second of the two allowed photo sources, and it
+        # is what lets a place show the pictures the reader's own groups took
+        # there. Named or not named, both together -- half a place ("id but no
+        # name") is a row the wall would draw with a blank label.
+        #
+        # `lat`/`lng` stay NULL for photos even when the place is known. The
+        # coordinates on a check-in come from the `places` table, not the
+        # phone; reading the phone's GPS is F47 and is not built, and a photo
+        # row carrying coordinates would make it look like it had been.
         CheckConstraint(
             "(kind = 'photo' AND image_url IS NOT NULL AND image_url <> '' "
-            "AND place_id IS NULL AND place_name IS NULL "
+            "AND ((place_id IS NULL AND place_name IS NULL) "
+            "OR (place_id IS NOT NULL AND place_id <> '' "
+            "AND place_name IS NOT NULL AND place_name <> '')) "
             "AND lat IS NULL AND lng IS NULL) OR "
             "(kind = 'checkin' AND image_url IS NULL "
             "AND place_id IS NOT NULL AND place_id <> '' "

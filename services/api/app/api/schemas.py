@@ -1106,8 +1106,23 @@ class UploadedImageResponse(ApiModel):
 
 
 class MemoryCreateRequest(ApiModel):
+    """A photograph onto the group's wall, optionally naming where it was taken.
+
+    `place_id` is the second of the two photo sources ADR-0017 §2.4 allows on a
+    place: the group's own pictures, shown only to that group. It names a row
+    in the catalogue and nothing more -- the display name and the coordinates
+    are read server-side, exactly as `CheckinCreateRequest` does, so a caller
+    cannot photograph their kitchen and file it under a restaurant's name.
+
+    Optional, and staying optional matters: most pictures on a wall are of
+    people, not of venues, and forcing a place onto them would fill the
+    catalogue with rows that answer «what does this place look like» with a
+    photograph of somebody's birthday cake.
+    """
+
     image_url: RelativePhotoUrl
     caption: str | None = None
+    place_id: Annotated[StrictStr, Field(min_length=1, max_length=200)] | None = None
 
 
 class CheckinCreateRequest(ApiModel):
