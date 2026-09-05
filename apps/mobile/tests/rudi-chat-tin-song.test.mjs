@@ -21,6 +21,7 @@ import {
   docTrangTin,
   glyphPhanUng,
   gopTin,
+  guiAnh,
   guiTin,
   nhanNgay,
   nhomTheoNgay,
@@ -165,6 +166,36 @@ test("docTrangTin/guiTin/themPhanUng đi đúng route với Bearer, Idempotency-
     assert.match(daGoi[2].url, /\/messages\/a\/reactions$/);
     assert.deepEqual(JSON.parse(daGoi[2].init.body), { kind: "heart" });
     assert.ok(daGoi[2].init.headers["Idempotency-Key"]);
+  } finally {
+    globalThis.fetch = truoc;
+  }
+});
+
+test("guiAnh gửi kind image kèm địa chỉ ảnh; chú thích rỗng thành null", async () => {
+  datTokenPhien("tok-anh");
+  const daGoi = [];
+  const truoc = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    daGoi.push({ url, init });
+    return traLoi({ ...tin("m-anh", "2030-08-27T12:00:00Z"), intent: null }, 201);
+  };
+  try {
+    const duong = `/contexts/${CTX}/photos/7f000000-aaaa-4aaa-8aaa-00000000000a`;
+    await guiAnh(CTX, ME, duong, "  quán này nè  ", { key: "k-anh", at: 1 });
+    assert.deepEqual(JSON.parse(daGoi[0].init.body), {
+      kind: "image",
+      body: "quán này nè",
+      image_url: duong,
+      card: null,
+    });
+    assert.equal(daGoi[0].init.headers["Idempotency-Key"], "k-anh");
+    assert.equal(daGoi[0].init.headers["Authorization"], "Bearer tok-anh");
+
+    await guiAnh(CTX, ME, duong, "   ", { key: "k-anh-2", at: 2 });
+    assert.equal(JSON.parse(daGoi[1].init.body).body, null, "khoảng trắng không thành chú thích");
+
+    await guiAnh(CTX, ME, duong, null, { key: "k-anh-3", at: 3 });
+    assert.equal(JSON.parse(daGoi[2].init.body).body, null);
   } finally {
     globalThis.fetch = truoc;
   }

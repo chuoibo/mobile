@@ -121,6 +121,33 @@ export async function guiTin(
   });
 }
 
+/**
+ * Send a photograph already uploaded to this group's storage (M8).
+ *
+ * `image_url` is the relative address `POST /contexts/{id}/photos` answered
+ * with; the bytes never pass through this call. A caption is optional and
+ * rides in `body`, which the server's payload CHECK allows for `image` (only
+ * `card` has to be null) -- so one message carries the photo and the words
+ * about it instead of two.
+ */
+export async function guiAnh(
+  contextId: string,
+  personId: string,
+  imageUrl: string,
+  caption: string | null,
+  attempt: Attempt,
+): Promise<TinDaGui> {
+  const chu = caption === null ? null : caption.trim();
+  return translatedAsActor<TinDaGui>(LOI_CHAT, `/contexts/${contextId}/messages`, {
+    method: "POST",
+    body: { kind: "image", body: chu === "" ? null : chu, image_url: imageUrl, card: null },
+    actorId: personId,
+    roles: QUYEN,
+    contexts: contextId,
+    attempt,
+  });
+}
+
 export type DanhSachPhanUng = { message_id: string; reactions: PhanUngTomTat[] };
 
 export async function themPhanUng(

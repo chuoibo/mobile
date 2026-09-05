@@ -24,6 +24,7 @@ import {
   danhDauDaDoc,
   docTrangTin,
   gopTin,
+  guiAnh,
   guiTin,
   thayPhanUng,
   themPhanUng,
@@ -146,6 +147,23 @@ export function useTinNhan(contextId: string, personId: string) {
     [contextId, personId, dat, napMoi],
   );
 
+  /**
+   * Upload one picked photo into this group, then say it in the feed.
+   *
+   * Two server calls with one press, in this order on purpose: the message
+   * cannot exist before the address it points at. A failed upload therefore
+   * leaves no half-message behind, and the caller sees the upload's own words.
+   */
+  const guiAnhMoi = useCallback(
+    async (imageUrl: string, caption: string | null): Promise<TinDaGui> => {
+      const daGui = await guiAnh(contextId, personId, imageUrl, caption, newAttempt());
+      dat(gopTin(tinRef.current, [daGui]), { loi: null });
+      void napMoi();
+      return daGui;
+    },
+    [contextId, personId, dat, napMoi],
+  );
+
   const doiPhanUng = useCallback(
     async (messageId: string, kind: LoaiPhanUng, dangCoCuaToi: boolean) => {
       const ket = dangCoCuaToi
@@ -156,5 +174,5 @@ export function useTinNhan(contextId: string, personId: string) {
     [contextId, personId, dat],
   );
 
-  return { ...trang, napCuHon, napMoi, gui, doiPhanUng, taiLai: napDau };
+  return { ...trang, napCuHon, napMoi, gui, guiAnhMoi, doiPhanUng, taiLai: napDau };
 }

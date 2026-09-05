@@ -37,6 +37,8 @@ export function ProfileScreen() {
   const { colors } = useRudiTheme();
   const session = useRudiSession();
   const [panel, setPanel] = useState<"home" | "settings" | "account" | "edit" | "saved">("home");
+  // Read once so the row below keeps the narrowing inside its own callback.
+  const duongTuongToi = session.phien === null ? null : `/people/${session.phien.person_id}`;
 
   if (panel === "settings") {
     return (
@@ -215,6 +217,13 @@ export function ProfileScreen() {
               onPress={() => router.push("/friends")}
               subtitle="Bạn bè, lời mời đã nhận và đã gửi"
               title="Bạn bè"
+            />
+            <View style={[styles.rowLine, { backgroundColor: colors.line }]} />
+            <ListRow
+              icon="newspaper-outline"
+              onPress={() => duongTuongToi && router.push(duongTuongToi)}
+              subtitle="Bài bạn đã đăng và ai đọc được"
+              title="Tường của tôi"
             />
             <View style={[styles.rowLine, { backgroundColor: colors.line }]} />
           </>
