@@ -119,16 +119,28 @@ export async function docTuongNhom(
   };
 }
 
-/** Upload, then the memory: App B's two steps, the second under its own Attempt keyed by the stored url. */
+/** Upload, then the memory: App B's two steps, the second under its own Attempt keyed by the stored url.
+ *
+ * `placeId` filed with the picture is what makes it show up on that place's
+ * screen for the rest of the group (M12, ADR-0017 §2.4). Optional and staying
+ * optional: most pictures on a wall are of people, not of venues. */
 export async function dangAnhLenTuong(
   contextId: string,
   anh: { uri: string },
   caption: string | null,
   actorId: string,
   attempts: Record<string, Attempt>,
+  placeId: string | null = null,
 ): Promise<KyNiem> {
   const daTai = await taiAnhNhom(contextId, anh, actorId);
-  const w = await themKyNiemAnh(contextId, daTai.url, caption, actorId, attemptFor(attempts, `ky-niem:${daTai.url}`));
+  const w = await themKyNiemAnh(
+    contextId,
+    daTai.url,
+    caption,
+    actorId,
+    attemptFor(attempts, `ky-niem:${daTai.url}`),
+    placeId,
+  );
   return docKyNiemWire(w);
 }
 

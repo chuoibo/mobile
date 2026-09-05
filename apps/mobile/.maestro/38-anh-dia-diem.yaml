@@ -55,3 +55,18 @@ appId: com.lakiet.rudi
 # nên câu này là phép đo thật chứ không phải lời chúc.
 - assertNotVisible: "Chưa tải được ảnh"
 - takeScreenshot: 38-chi-tiet-co-anh
+# Nguồn ảnh thứ hai (ADR-0017 §2.4): ảnh chính nhóm này chụp ở đây, chỉ người
+# trong nhóm thấy. Harness đặt sẵn một tấm qua curl vào ĐÚNG chỗ flow vừa mở
+# (`chuan_bi_anh_nhom_cho_38` đọc cùng `GET /places`, lấy chỗ đầu có ảnh bìa).
+- scrollUntilVisible:
+    element:
+      text: "Ảnh của nhóm bạn"
+    direction: DOWN
+    timeout: 30000
+- assertVisible: "Nhom minh tung o day"
+# Maestro khớp TRỌN văn bản của node, và node ấy là cả câu
+# «Ảnh nhóm bạn chụp ở đây. Người ngoài nhóm không thấy.» — mẫu bắt đầu
+# bằng vế sau sẽ không khớp dù chữ hiện rành rành trên ảnh chụp.
+- assertVisible: ".*Người ngoài nhóm không thấy.*"
+- assertNotVisible: "Chưa tải được ảnh"
+- takeScreenshot: 38-anh-cua-nhom
