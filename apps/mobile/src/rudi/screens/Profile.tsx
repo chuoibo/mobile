@@ -453,7 +453,7 @@ function TaiChinhNhap() {
         </Text>
         <View style={styles.budgetCopy}>
           <Text style={[typography.caption, { color: colors.inkFaint }]}>So với ngân sách vui chơi</Text>
-          <Text style={[typography.caption, { color: colors.split }]}>
+          <Text style={[typography.caption, styles.budgetValue, { color: colors.split }]}>
             {mine <= budget
               ? `Còn ${formatVnd(budget - mine)} trong ${formatVnd(budget)}`
               : `Vượt ${formatVnd(mine - budget)} so với ${formatVnd(budget)}`}
@@ -646,6 +646,8 @@ const styles = StyleSheet.create({
   financeHeroTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   financeMoney: { fontSize: 34, lineHeight: 41, fontWeight: "900", letterSpacing: -0.9, fontVariant: ["tabular-nums"] },
   walletIcon: { width: 50, height: 50, borderRadius: 17, alignItems: "center", justifyContent: "center" },
+  // At font scale 1.3 the value ran past the card edge: it must wrap and shrink, the label must not.
+  budgetValue: { flexShrink: 1, textAlign: "right" },
   budgetCopy: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   financeMini: { flex: 1, gap: 5 },
   miniIcon: { width: 38, height: 38, borderRadius: 13, alignItems: "center", justifyContent: "center", marginBottom: 3 },

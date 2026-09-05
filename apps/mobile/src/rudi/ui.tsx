@@ -62,7 +62,6 @@ export function RudiScreen({
   const tablet = layout.sizeClass !== "compact";
   const inner = [
     styles.screenInner,
-    surface === "cover" && { backgroundColor: colors.ground },
     padded && { paddingHorizontal: tablet ? space.lg : space.md },
     { paddingBottom: bottomInset },
     tablet && styles.tabletInner,
@@ -80,18 +79,18 @@ export function RudiScreen({
           contentContainerStyle={inner}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-          style={styles.flex}
+          style={[styles.flex, { backgroundColor: colors.ground }]}
         >
           {children}
         </ScrollView>
       ) : (
-        <View style={[inner, styles.flex]}>{children}</View>
+        <View style={[inner, styles.flex, { backgroundColor: colors.ground }]}>{children}</View>
       )}
       {footer ? (
         <View
           style={[
             styles.screenFooter,
-            { paddingHorizontal: tablet ? space.lg : space.md, paddingBottom: footerInset },
+            { backgroundColor: colors.ground, paddingHorizontal: tablet ? space.lg : space.md, paddingBottom: footerInset },
             tablet && styles.tabletInner,
           ]}
         >
@@ -201,7 +200,7 @@ export function DemoBadge({ label = "Dữ liệu demo" }: { label?: string }) {
   return (
     <View style={[styles.demoBadge, { backgroundColor: colors.card, borderColor: colors.line }]}>
       <Ionicons color={colors.inkFaint} name="flask-outline" size={12} />
-      <Text style={[styles.demoText, { color: colors.inkFaint }]}>{label}</Text>
+      <Text numberOfLines={1} style={[styles.demoText, { color: colors.inkFaint }]}>{label}</Text>
     </View>
   );
 }
