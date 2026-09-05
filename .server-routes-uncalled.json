@@ -108,6 +108,16 @@
       "route": "/auth/google",
       "loai": "tinh-nang",
       "reason": "M1 (ADR-0016): nút «Tiếp tục với Google» trên màn Login của vỏ RuDi gọi sau khi Lead tạo client id (Google Cloud) và PR client Google nối @react-native-google-signin. Gỡ pin ở PR đó."
+    },
+    {
+      "route": "/interests",
+      "loai": "tinh-nang",
+      "reason": "M11 (ADR-0019). Từ vựng sở thích máy chủ giữ. Chưa màn nào đọc: màn cá nhân hoá hiện vẫn dùng danh sách cục bộ trong so-thich.ts và chưa gửi gì lên. PR client M11c nối màn /personalization vào đây và gỡ dòng này. Cổng chéo tests/test_interest_vocabulary_matches_client.py đã gác hai danh sách không lệch nhau trong lúc chờ."
+    },
+    {
+      "route": "/people/me/interests",
+      "loai": "tinh-nang",
+      "reason": "M11 (ADR-0019). Ghi sở thích của chính người dùng. Chưa màn nào gọi vì màn cá nhân hoá còn ghi vào bộ nhớ máy (so-thich.ts: ghiNhoSoThich). PR client M11c gọi PUT ở bước cá nhân hoá và ở mục Cá nhân, rồi gỡ dòng này."
     }
   ]
 }
