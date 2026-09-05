@@ -73,10 +73,22 @@ INEXACT_SQL_TYPES = frozenset(
 EXACT_INTEGER_TYPES = frozenset({"smallint", "integer", "bigint"})
 
 # Deny by default: an inexact column NOT listed here fails the gate. Each entry
-# states why it is not money. Two geographic coordinates, and nothing else.
+# states why it is not money. Coordinates, a bounding box, a star rating and a
+# distance -- nothing anybody pays.
 INEXACT_COLUMNS_REVIEWED: dict[tuple[str, str], str] = {
     ("memories", "lat"): "geographic latitude of a memory, not an amount",
     ("memories", "lng"): "geographic longitude of a memory, not an amount",
+    # M9 (ADR-0017), the catalogue as tables.
+    ("destinations", "lat"): "geographic latitude of a destination centre",
+    ("destinations", "lng"): "geographic longitude of a destination centre",
+    ("destinations", "bbox_south"): "bounding box the OSM import reads, degrees",
+    ("destinations", "bbox_west"): "bounding box the OSM import reads, degrees",
+    ("destinations", "bbox_north"): "bounding box the OSM import reads, degrees",
+    ("destinations", "bbox_east"): "bounding box the OSM import reads, degrees",
+    ("places", "lat"): "geographic latitude of a place, not an amount",
+    ("places", "lng"): "geographic longitude of a place, not an amount",
+    ("places", "rating"): "0-5 star rating, not an amount",
+    ("places", "distance_km"): "distance in km, not an amount",
 }
 
 # jsonb is untyped as far as money is concerned. These are pinned so that a new
@@ -89,6 +101,20 @@ JSONB_COLUMNS_REVIEWED: dict[tuple[str, str], str] = {
     ),
     ("messages", "card"): (
         "rendered chat card; amounts inside are display copies of ledger rows"
+    ),
+    # M9 (ADR-0017). Prices live in their own bigint columns
+    # (`price_min_vnd`, `price_max_vnd`); none of these four holds an amount.
+    ("places", "kinds"): (
+        "short words under the name (cuisine, amenity); strings, no amounts"
+    ),
+    ("places", "traits"): (
+        "facts a tag states outright («Ngoài trời», «Wifi»); strings, no amounts"
+    ),
+    ("places", "group_fit"): (
+        "min/max headcount and a relation word; the two numbers are people"
+    ),
+    ("places", "reviews"): (
+        "author, 0-5 rating and body text of a seed review; no amounts"
     ),
 }
 

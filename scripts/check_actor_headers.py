@@ -131,9 +131,30 @@ def server_routes() -> tuple[set[tuple[str, str]], set[tuple[str, str]]]:
     failing loudly rather than as a stack trace three frames deep.
     """
 
+    # Two facts per route, not one. The header parameter says «this route can
+    # read an actor»; the dependency says whether it *requires* one. Since M11
+    # `GET /places` declares the header through `get_actor_optional` and serves
+    # anonymous callers a catalogue with no match badge -- reading the header
+    # alone would make this gate demand a session for a public page.
     code = (
-        "import json;from app.api.main import app;"
-        "print(json.dumps(app.openapi()['paths']))"
+        "import json\n"
+        "from fastapi.routing import APIRoute\n"
+        "from app.api.main import app\n"
+        "def walk(dep):\n"
+        "    out = []\n"
+        "    for sub in dep.dependencies:\n"
+        "        if sub.call is not None:\n"
+        "            out.append(sub.call.__name__)\n"
+        "        out += walk(sub)\n"
+        "    return out\n"
+        "optional = [\n"
+        "    [method, route.path]\n"
+        "    for route in app.routes\n"
+        "    if isinstance(route, APIRoute)\n"
+        "    for method in route.methods\n"
+        "    if 'get_actor_optional' in walk(route.dependant)\n"
+        "]\n"
+        "print(json.dumps({'paths': app.openapi()['paths'], 'optional': optional}))"
     )
     try:
         out = subprocess.run(
@@ -152,9 +173,13 @@ def server_routes() -> tuple[set[tuple[str, str]], set[tuple[str, str]]]:
         )
 
     try:
-        paths = json.loads(out.stdout)
+        rendered = json.loads(out.stdout)
     except json.JSONDecodeError as exc:
         die(f"OpenAPI trả về thứ không phải JSON: {exc}")
+    paths = rendered["paths"]
+    optional = {
+        (method.upper(), normalise(path)) for method, path in rendered["optional"]
+    }
 
     need: set[tuple[str, str]] = set()
     free: set[tuple[str, str]] = set()
@@ -168,7 +193,8 @@ def server_routes() -> tuple[set[tuple[str, str]], set[tuple[str, str]]]:
                 if p.get("in") == "header"
             }
             key = (method.upper(), normalise(path))
-            (need if ACTOR_HEADER in headers else free).add(key)
+            wants_actor = ACTOR_HEADER in headers and key not in optional
+            (need if wants_actor else free).add(key)
 
     if not need:
         # Every route losing its actor dependency at once is not a green tree,

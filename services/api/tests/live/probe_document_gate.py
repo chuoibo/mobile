@@ -37,6 +37,7 @@ import adversarial_probe as corpus  # noqa: E402
 from app.api.vision_gemini import GeminiReceiptReader  # noqa: E402
 from app.domain.receipt import ReceiptError, read_scanned_document  # noqa: E402
 
+
 def injected_bill() -> bytes:
     """A bill with instructions to the reader printed on it.
 

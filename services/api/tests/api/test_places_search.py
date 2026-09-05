@@ -19,10 +19,11 @@ from __future__ import annotations
 import pytest
 
 from app.api.routes.places import get_place_searcher
-from app.places.catalog import CATEGORIES, GROUP, PLACES
+from app.places.catalog import CATEGORIES, PLACES
 from app.places.scoring import score_place
 
 from .helpers import actor_headers
+from .test_places import GU_TOI, dang_nhap
 
 BY_ID = {place["id"]: place for place in PLACES}
 REAL_IDS = [place["id"] for place in PLACES]
@@ -37,15 +38,17 @@ def searcher_returning(raw):
     is for is the answer, not the prompt.
     """
 
-    def search(query: str, places=None):
-        del query, places
+    def search(query: str, places=None, group=None):
+        del query, places, group
         return raw
 
     return search
 
 
 def use(client, raw):
-    client.app.dependency_overrides[get_place_searcher] = lambda: searcher_returning(raw)
+    client.app.dependency_overrides[get_place_searcher] = lambda: searcher_returning(
+        raw
+    )
 
 
 def understood(**overrides):
@@ -122,8 +125,8 @@ def test_every_field_on_a_returned_card_is_the_catalogue_row_not_the_model(clien
     assert "Quán Của Mô Hình" not in response_text(body)
 
 
-def test_the_score_is_the_same_arithmetic_the_browse_screen_shows(client):
-    """One score per place per group, or two screens disagree about one place."""
+def test_the_score_is_the_same_arithmetic_the_browse_screen_shows(client, repository):
+    """One score per place per profile, or two screens disagree about one place."""
 
     use(
         client,
@@ -133,10 +136,44 @@ def test_the_score_is_the_same_arithmetic_the_browse_screen_shows(client):
         },
     )
 
-    served = post(client).json()["places"][0]
-    expected, factors = score_place(BY_ID["p-lung-chung-cafe"], GROUP)
+    served = client.post(
+        "/places/search",
+        json={"query": "quán cafe chill"},
+        headers=dang_nhap(repository),
+    ).json()["places"][0]
+    expected, factors = score_place(BY_ID["p-lung-chung-cafe"], GU_TOI)
     assert served["match"]["score"] == expected
     assert len(served["match"]["factors"]) == len(factors)
+
+
+def test_a_searcher_who_has_said_nothing_is_scored_against_their_own_sentence(
+    client,
+):
+    """«cho 6 người dưới 300k» IS a statement about budget and headcount.
+
+    Scoring it against nobody would drop the model's sentence with the badge,
+    for somebody who just told us exactly what they wanted -- so the query's
+    own grounded figures stand in when the person has no stored profile.
+    """
+
+    use(
+        client,
+        {
+            "understood": understood(budget_per_person_vnd=300_000, group_size=6),
+            "results": [
+                {"id": "p-lung-chung-cafe", "reason": "Chill.", "verdict": "hop"}
+            ],
+        },
+    )
+
+    body = post(client).json()
+    assert body["group"]["basis"] == "ca-nhan"
+    assert body["group"]["budget_per_person_vnd"] == 300_000
+    assert body["group"]["people_answered"] == 0, (
+        "không ai khai gì cả -- con số này đến từ chính câu vừa gõ"
+    )
+    served = body["places"][0]
+    assert served["match"] is not None and served["match"]["reason"] == "Chill."
 
 
 def test_a_grounded_model_sentence_is_served_under_the_ai_label(client):
@@ -226,7 +263,9 @@ def test_a_sentence_written_without_a_verdict_is_never_labelled_ai(client):
         client,
         {
             "understood": understood(),
-            "results": [{"id": "p-lung-chung-cafe", "reason": "Chỗ này yên, hợp ngồi lâu."}],
+            "results": [
+                {"id": "p-lung-chung-cafe", "reason": "Chỗ này yên, hợp ngồi lâu."}
+            ],
         },
     )
 
@@ -258,8 +297,16 @@ def test_a_verdict_outside_the_closed_set_costs_the_row_its_label_not_the_answer
         {
             "understood": understood(),
             "results": [
-                {"id": "p-lung-chung-cafe", "verdict": "rất hợp", "reason": "Hợp nhóm."},
-                {"id": "p-tiem-nuong-xom-lao", "verdict": "hop", "reason": "Nướng ngon."},
+                {
+                    "id": "p-lung-chung-cafe",
+                    "verdict": "rất hợp",
+                    "reason": "Hợp nhóm.",
+                },
+                {
+                    "id": "p-tiem-nuong-xom-lao",
+                    "verdict": "hop",
+                    "reason": "Nướng ngon.",
+                },
             ],
         },
     )
@@ -367,7 +414,10 @@ def test_an_invented_identifier_costs_the_whole_answer_not_just_its_own_row(clie
             "results": [
                 {"id": "p-tiem-nuong-xom-lao", "reason": "Hợp."},
                 {"id": "p-lung-chung-cafe", "reason": "Hợp."},
-                {"id": "p-quan-nuong-bia-dat", "reason": "Quán nướng ngon nhất Đà Lạt."},
+                {
+                    "id": "p-quan-nuong-bia-dat",
+                    "reason": "Quán nướng ngon nhất Đà Lạt.",
+                },
             ],
         },
     )
@@ -413,7 +463,9 @@ def test_a_sentence_quoting_a_figure_nobody_supplied_loses_its_ai_label(client):
 
 
 def test_a_model_that_cannot_be_reached_is_an_honest_empty_answer_not_a_500(client):
-    client.app.dependency_overrides[get_place_searcher] = lambda: lambda query, places=None: None
+    client.app.dependency_overrides[get_place_searcher] = (
+        lambda: lambda query, places=None: None
+    )
 
     response = post(client)
     assert response.status_code == 200, response.text
@@ -440,7 +492,9 @@ def test_no_silent_fallback_to_keyword_search_when_the_model_is_down(client):
     the screen and leave nobody able to tell that the feature is not running.
     """
 
-    client.app.dependency_overrides[get_place_searcher] = lambda: lambda query, places=None: None
+    client.app.dependency_overrides[get_place_searcher] = (
+        lambda: lambda query, places=None: None
+    )
 
     body = post(client, query="cafe").json()
     assert body["places"] == []
@@ -553,9 +607,7 @@ def test_a_category_the_catalogue_does_not_publish_still_costs_the_whole_answer(
 
 
 @pytest.mark.parametrize("place_id", REAL_IDS)
-def test_the_route_hands_the_gate_every_place_the_catalogue_publishes(
-    client, place_id
-):
+def test_the_route_hands_the_gate_every_place_the_catalogue_publishes(client, place_id):
     """Same bound on the other argument, for the same reason.
 
     `allowed_places=[]` is caught by the happy-path case at the top of this

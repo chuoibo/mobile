@@ -42,7 +42,8 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from app.places.catalog import GroupProfile
+from app.places.reasons import profile_lines
+from app.places.taste import UNKNOWN, TasteProfile
 
 logger = logging.getLogger(__name__)
 
@@ -185,7 +186,9 @@ def _catalogue_line(place: dict[str, Any]) -> str:
             "dac_diem": place["traits"],
             "khoang_cach_km": place.get("distance_km"),
             "so_nguoi_hop": (
-                f"{fit.get('min_people')}-{fit.get('max_people')}" if fit else "không ghi"
+                f"{fit.get('min_people')}-{fit.get('max_people')}"
+                if fit
+                else "không ghi"
             ),
             "dang_mo": place.get("open_now"),
             "gio_mo": place.get("open_hours"),
@@ -195,7 +198,7 @@ def _catalogue_line(place: dict[str, Any]) -> str:
 
 
 def build_search_prompt(
-    query: str, places: list[dict[str, Any]], group: GroupProfile
+    query: str, places: list[dict[str, Any]], group: TasteProfile
 ) -> str:
     """Rules, then the group, then the catalogue, then the person's sentence.
 
@@ -214,17 +217,11 @@ def build_search_prompt(
     lines = [
         SEARCH_RULES,
         "",
-        "Hồ sơ nhóm:",
-        f"- {group['size']} người, {group['age_range']} tuổi",
-        f"- Ngân sách mỗi người khoảng {_k(group['budget_per_person_vnd'])}k",
-        f"- Nhóm thích: {', '.join(group['likes'])}",
-        f"- Không muốn đi xa quá {group['max_distance_km']}km",
-        f"- Thời điểm: {group['when']}",
-        "",
+        *profile_lines(group),
         # Derived from the rows themselves rather than taken as a parameter, so
         # the vocabulary shown to the model cannot drift from the vocabulary
         # the rows actually use, and a category with no places is never offered.
-        "Nhóm địa điểm (chỉ được dùng đúng các id này cho \"categories\"):",
+        'Nhóm địa điểm (chỉ được dùng đúng các id này cho "categories"):',
         ", ".join(dict.fromkeys(place["category"] for place in places)),
         "",
         "Danh mục địa điểm:",
@@ -259,7 +256,9 @@ def _post(prompt: str, api_key: str) -> str | None:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=SEARCH_TIMEOUT_SECONDS) as response:
+        with urllib.request.urlopen(
+            request, timeout=SEARCH_TIMEOUT_SECONDS
+        ) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as error:
         # Status only. On this route the error body can quote the request, and
@@ -278,7 +277,9 @@ def _post(prompt: str, api_key: str) -> str | None:
 
 
 def gemini_search(
-    query: str, places: list[dict[str, Any]] | None = None
+    query: str,
+    places: list[dict[str, Any]] | None = None,
+    group: TasteProfile | None = None,
 ) -> dict[str, Any] | None:
     """One call, raw model answer or `None`. Never raises.
 
@@ -297,8 +298,6 @@ def gemini_search(
         logger.info("Gemini search: GEMINI_API_KEY not set, search unavailable")
         return None
 
-    from app.places.catalog import GROUP
-
     # The catalogue is the route's read (M9: a table, not a module constant).
     # An empty one means the prompt would list nothing, and a model asked to
     # pick from nothing can only invent -- so refuse before spending a call.
@@ -306,7 +305,7 @@ def gemini_search(
         logger.info("Gemini search: empty catalogue, search unavailable")
         return None
 
-    text = _post(build_search_prompt(query, places, GROUP), api_key)
+    text = _post(build_search_prompt(query, places, group or UNKNOWN), api_key)
     if text is None:
         return None
     try:

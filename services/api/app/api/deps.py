@@ -164,6 +164,35 @@ def get_actor(
     return Actor(id=parsed_id, roles=roles, context_ids=contexts)
 
 
+def get_actor_optional(
+    request: Request,
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
+    actor_id: Annotated[str | None, Header(alias="X-Actor-ID")] = None,
+    actor_roles: Annotated[str | None, Header(alias="X-Actor-Roles")] = None,
+    actor_contexts: Annotated[str | None, Header(alias="X-Actor-Contexts")] = None,
+) -> Actor | None:
+    """The identity when the caller offered one, `None` when they did not.
+
+    For a public read whose *answer* improves if it knows who is asking. The
+    catalogue is the case that needed it (M11): anybody may browse places, and
+    a signed-in reader gets them ordered against tastes they stated.
+
+    Credentials that are present but wrong are still a 401. Degrading a stale
+    session to «anonymous» would answer 200 with a different page and never say
+    why -- the reader would see a catalogue that had quietly forgotten them and
+    have nothing to act on.
+    """
+
+    mode = getattr(request.app.state, "auth_mode", PROD)
+    offered = authorization if not trusts_actor_headers(mode) else actor_id
+    if offered is None:
+        return None
+    return get_actor(
+        request, repository, authorization, actor_id, actor_roles, actor_contexts
+    )
+
+
 def get_repository(request: Request) -> Generator[ApiRepository]:
     factory = get_session_factory()
     session = factory()

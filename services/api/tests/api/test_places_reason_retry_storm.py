@@ -53,6 +53,7 @@ the life of the process.
 from __future__ import annotations
 
 import threading
+from dataclasses import replace
 
 import pytest
 
@@ -63,6 +64,8 @@ from app.api.routes.places import (
 )
 from app.places.catalog import PLACES
 from app.places.reasons import PlaceReason
+
+from .test_places import GU_TOI, dang_nhap
 
 REQUESTS = 25
 
@@ -112,11 +115,26 @@ def install(client, writer, clock):
     return cached
 
 
+#: Headers for a reader with a taste profile. Since M11 a browse with no
+#: profile puts nothing to the model at all, so every count in this file would
+#: be zero and every assertion vacuous.
+HEADERS: dict[str, str] = {}
+
+
 def hit(client, times=REQUESTS):
     codes = set()
     for _ in range(times):
-        codes.add(client.get("/places").status_code)
+        codes.add(client.get("/places", headers=HEADERS).status_code)
     return codes
+
+
+@pytest.fixture(autouse=True)
+def reader(repository):
+    """Seed the reader `hit` browses as, for every test in this module."""
+
+    HEADERS.clear()
+    HEADERS.update(dang_nhap(repository))
+    return HEADERS
 
 
 def _served_places() -> list[dict]:
@@ -231,7 +249,7 @@ def test_a_suppressed_row_still_serves_every_reason_the_model_did_give(client):
     install(client, writer, clock)
 
     hit(client)
-    body = client.get("/places").json()
+    body = client.get("/places", headers=HEADERS).json()
 
     # `source`, not `reason`: an unlabelled card still carries a sentence, the
     # server's own template. `source: "ai"` is the claim that a model wrote it.
@@ -262,10 +280,35 @@ def test_two_apps_do_not_share_one_reason_cache():
     second = CachedReasonWriter(writer=second_writer, clock=FakeClock())
 
     rows = [row for row in _rows()]
-    first(rows)
-    second(rows)
+    first(rows, GU_TOI)
+    second(rows, GU_TOI)
 
     assert second_writer.calls == 1, "the second writer read the first one's cache"
+
+
+def test_two_profiles_do_not_share_one_sentence():
+    """A reason is an argument about whether a place suits PARTICULAR people.
+
+    «Đủ chỗ cho 6 người, hợp gu đồ nướng» is a sentence about one group. Serving
+    it to the next caller would be wrong twice: the claim would not be about
+    them, and it would tell them what the previous group likes. So the cache is
+    keyed by profile as well as by place (M11).
+    """
+
+    writer = CountingWriter(answers=ALL_IDS)
+    cached = CachedReasonWriter(writer=writer, clock=FakeClock())
+    rows = [row for row in _rows()]
+
+    cached(rows, GU_TOI)
+    assert writer.calls == 1
+    cached(rows, GU_TOI)
+    assert writer.calls == 1, "cùng một hồ sơ mà vẫn hỏi lại mô hình"
+
+    khac = replace(GU_TOI, interests=("nightlife",))
+    cached(rows, khac)
+    assert writer.calls == 2, (
+        "hồ sơ khác mà dùng lại câu cũ: câu ấy nói về gu của người trước"
+    )
 
 
 def _rows():
@@ -378,7 +421,7 @@ def test_a_fleet_of_concurrent_callers_buys_one_model_call_not_one_each():
 
     def ask() -> None:
         try:
-            cached(rows)
+            cached(rows, GU_TOI)
         except BaseException as exc:  # noqa: BLE001
             errors.append(exc)
         finally:
@@ -431,9 +474,9 @@ def test_a_writer_that_raises_is_cooled_down_like_one_that_answers_nothing():
     # exception. The rest are suppressed by the cooldown and degrade the way a
     # refusal does: no reasons, no raise, scores still served.
     with pytest.raises(RuntimeError):
-        cached(rows)
+        cached(rows, GU_TOI)
     for _ in range(REQUESTS - 1):
-        assert cached(rows) == {}
+        assert cached(rows, GU_TOI) == {}
 
     assert writer.calls == 1, (
         f"{REQUESTS} requests against a raising writer spent {writer.calls} "
@@ -455,10 +498,10 @@ def test_a_raising_writer_still_lets_go_of_its_rows():
     rows = _rows()
 
     with pytest.raises(RuntimeError):
-        cached(rows)
+        cached(rows, GU_TOI)
 
     clock.advance(REASON_RETRY_COOLDOWN_SECONDS + 1)
     with pytest.raises(RuntimeError):
-        cached(rows)
+        cached(rows, GU_TOI)
 
     assert writer.calls == 2, "the rows were never released after the raise"

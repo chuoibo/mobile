@@ -492,6 +492,27 @@ class TheTreeItselfPasses(unittest.TestCase):
             f"cổng hợp đồng đỏ trên cây này:\n{done.stdout}\n{done.stderr}",
         )
 
+    def test_a_route_that_merely_accepts_an_actor_is_not_demanded(self):
+        """Khai được header KHÔNG bằng đòi có phiên (M11).
+
+        `GET /places` đọc actor qua `get_actor_optional`: có phiên thì chấm theo
+        gu người ấy, không có thì trả danh mục không huy hiệu. OpenAPI của nó
+        vẫn khai `X-Actor-ID`, nên một cổng đọc mỗi tên header sẽ buộc tội mọi
+        lời gọi ẩn danh tới một trang công khai — đúng cái đã xảy ra ngày thêm
+        tham số ấy.
+
+        Ca này ghim phép phân biệt: bỏ nhánh `optional` trong script thì đỏ.
+        """
+
+        done = _run("--list")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        for dong in done.stdout.splitlines():
+            self.assertNotIn(
+                "GET /places\n",
+                dong + "\n",
+                "cổng đang đòi phiên cho một route công khai",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

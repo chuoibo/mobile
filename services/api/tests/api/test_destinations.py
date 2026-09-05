@@ -16,6 +16,7 @@ from app.api.repository import DestinationRecord, PlaceRecord
 from app.api.routes.places import MAX_REASON_ROWS, get_reason_writer
 
 from .conftest import ASGITestClient, SeedCatalogueReads, _seed_place_records
+from .helpers import actor_headers
 
 DA_LAT = DestinationRecord(
     id="d-da-lat",
@@ -149,7 +150,15 @@ def test_an_out_of_range_coordinate_is_refused_by_the_route(client):
 
 
 class ManyPlacesRepository(SeedCatalogueReads):
-    """One destination holding more places than a prompt should carry."""
+    """One destination holding more places than a prompt should carry.
+
+    The reader has a taste (M11), because a browse with no profile asks the
+    model nothing and the cap this class exists to measure would never be hit.
+    """
+
+    def list_person_interests(self, person_id):
+        del person_id
+        return ["cafe"]
 
     def __init__(self, how_many: int):
         self.rows = [
@@ -197,7 +206,7 @@ class CountingReasonWriter:
     def __init__(self):
         self.rows_seen = 0
 
-    def __call__(self, rows):
+    def __call__(self, rows, group=None):
         self.rows_seen = len(rows)
         return {}
 
@@ -221,7 +230,9 @@ def test_a_hundred_places_do_not_all_go_into_one_prompt(monkeypatch):
     app.dependency_overrides[get_reason_writer] = lambda: writer
     client = ASGITestClient(app)
 
-    body = client.get("/places").json()
+    # Signed in, with a taste: a browse by somebody we know nothing about puts
+    # nothing to the model at all (M11), and the cap would go untested.
+    body = client.get("/places", headers=actor_headers()).json()
     assert len(body["places"]) == 100, "mọi chỗ vẫn được phục vụ"
     assert writer.rows_seen == MAX_REASON_ROWS, (
         f"prompt nhận {writer.rows_seen} dòng, mong tối đa {MAX_REASON_ROWS}"

@@ -677,6 +677,71 @@ class ProfileResponse(ApiModel):
     created_at: datetime
     counts: ProfileCountsResponse
     login_methods: list[StrictStr]
+    #: The person's own taste answers (M11). Present here and in no other
+    #: response: `PublicPersonResponse` deliberately does not carry them.
+    interests: list[StrictStr]
+    budget_band: StrictStr | None
+
+
+class InterestTagResponse(ApiModel):
+    """One word from the closed taste vocabulary (M11, ADR-0019)."""
+
+    id: StrictStr
+    label: StrictStr
+
+
+class BudgetBandResponse(ApiModel):
+    """One spending band, per person per outing, in integer đồng.
+
+    `min_vnd` inclusive, `max_vnd` exclusive; `max_vnd` null means no ceiling.
+    The band travels as two bounds and never as a midpoint: a midpoint is
+    arithmetic, and arithmetic on money belongs to the server that does it,
+    not to the wire.
+    """
+
+    id: StrictStr
+    label: StrictStr
+    min_vnd: NonNegativeMoneyVnd
+    max_vnd: NonNegativeMoneyVnd | None
+
+
+class InterestVocabularyResponse(ApiModel):
+    """Everything the personalization step is allowed to say (`GET /interests`).
+
+    Public: the list is a product vocabulary, not anybody's data, and a client
+    that cannot read it before signing in could not draw the screen that comes
+    before signing in.
+    """
+
+    interests: list[InterestTagResponse]
+    budget_bands: list[BudgetBandResponse]
+
+
+class MyInterestsResponse(ApiModel):
+    """What this person said about themself. Nobody else ever reads this shape.
+
+    `budget_band` is null for «skipped», which is not the cheapest band: the
+    recommendation falls back to «unknown» rather than guessing hard.
+    """
+
+    interests: list[StrictStr]
+    budget_band: StrictStr | None
+
+
+class InterestsUpdateRequest(ApiModel):
+    """The whole answer, not a patch.
+
+    `interests` is required and may be empty -- finishing the step having
+    chosen nothing is a supported answer, and it has to be distinguishable
+    from never having answered. `budget_band` absent or null means skipped.
+
+    A PUT rather than a PATCH because the screen holds the complete answer: a
+    partial update would need the client to say what it removed, and a client
+    that gets that wrong leaves a taste nobody can see to take back.
+    """
+
+    interests: list[StrictStr]
+    budget_band: StrictStr | None = None
 
 
 class ProfileUpdateRequest(ApiModel):

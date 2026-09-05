@@ -169,6 +169,27 @@ class SeedCatalogueReads:
     way and should not have to grow a catalogue to do it.
     """
 
+    # M11: the catalogue is scored against whoever is asking, so every double
+    # the service is handed must be able to answer «what did they say they
+    # like». These say «nothing», which is the state every test using this
+    # mixin was written in -- a double that really tracks people (like
+    # `FakeRepository`) overrides these and wins by MRO.
+    def list_person_interests(self, person_id):
+        del person_id
+        return []
+
+    def interests_by_person(self, person_ids):
+        del person_ids
+        return {}
+
+    def budget_bands_by_person(self, person_ids):
+        del person_ids
+        return {}
+
+    def get_person(self, person_id):
+        del person_id
+        return None
+
     def list_places(self, *, destination_id=None, category=None):
         rows = [
             record
@@ -226,6 +247,7 @@ class FakeRepository(SeedCatalogueReads):
         # M2 profile: bookmarks, and the two sources the counts read that this
         # fake did not model before (outing -> context, and check-ins).
         self.saved_places: dict[tuple[uuid.UUID, str], SavedPlaceRecord] = {}
+        self.person_interests: dict[uuid.UUID, set[str]] = {}
         self.outings_by_context: dict[uuid.UUID, uuid.UUID] = {}
         self.stop_checkins: set[tuple[uuid.UUID, uuid.UUID]] = set()
         self.account_session_ids_by_digest: dict[bytes, uuid.UUID] = {}
@@ -889,6 +911,28 @@ class FakeRepository(SeedCatalogueReads):
             places_checked_in=places,
             memories=memories,
         )
+
+    def list_person_interests(self, person_id):
+        return sorted(self.person_interests.get(person_id, set()))
+
+    def set_person_interests(self, person_id, tags, now):
+        self.person_interests[person_id] = set(tags)
+        return self.list_person_interests(person_id)
+
+    def interests_by_person(self, person_ids):
+        return {
+            pid: sorted(self.person_interests[pid])
+            for pid in person_ids
+            if self.person_interests.get(pid)
+        }
+
+    def budget_bands_by_person(self, person_ids):
+        out = {}
+        for pid in person_ids:
+            person = self.people.get(pid)
+            if person is not None and person.budget_band is not None:
+                out[pid] = person.budget_band
+        return out
 
     def list_login_providers(self, person_id):
         return sorted(

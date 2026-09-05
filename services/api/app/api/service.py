@@ -76,6 +76,7 @@ from app.api.schemas import (
     BillSplitRequest,
     BillSplitResponse,
     BillSurchargeResponse,
+    BudgetBandResponse,
     ChatExpenseDraft,
     ChatExpenseDraftResponse,
     CheckinCreateRequest,
@@ -107,6 +108,9 @@ from app.api.schemas import (
     GroupRecapResponse,
     GroupSuggestionResponse,
     HeatmapArea,
+    InterestsUpdateRequest,
+    InterestTagResponse,
+    InterestVocabularyResponse,
     MapPlace,
     MeetingCandidate,
     MeetingPointRequest,
@@ -128,6 +132,7 @@ from app.api.schemas import (
     MessageQuery,
     MessageReactionsResponse,
     MessageResponse,
+    MyInterestsResponse,
     ObligationResponse,
     OtpRequestResponse,
     OutingCheckinListResponse,
@@ -214,6 +219,13 @@ from app.domain.friendship import (
 from app.domain.friendship import (
     open_request as open_friendship_request,
 )
+from app.domain.interests import (
+    BUDGET_BANDS,
+    INTEREST_TAGS,
+    InterestError,
+    normalise_budget_band,
+    normalise_interests,
+)
 from app.domain.ledger import (
     LedgerError,
     group_balances,
@@ -237,13 +249,18 @@ from app.media.images import ImageRejected, sanitize_image
 from app.media.storage import PhotoStorage, new_storage_key
 from app.places import social_map
 from app.places.areas import area_summary, find_area
-from app.places.catalog import GROUP
 from app.places.meeting import (
     MAX_ORIGIN_AREAS,
     MIN_ORIGIN_AREAS,
     rank_meeting_points,
 )
 from app.places.scoring import score_place
+from app.places.taste import (
+    UNKNOWN,
+    TasteProfile,
+    profile_for_group,
+    profile_for_person,
+)
 from app.web.guest_view import GuestViewError, build_guest_view
 from app.web.objection_view import (
     OBJECTION_REASONS,
@@ -869,17 +886,6 @@ def _summarise_reactions(
     return out
 
 
-def _group_budget_per_person_vnd() -> int | None:
-    """Read the optional catalogue budget without creating a second source."""
-
-    try:
-        from app.places.catalog import GROUP
-    except ImportError:
-        return None
-    budget = GROUP.get("budget_per_person_vnd")
-    return budget if isinstance(budget, int) else None
-
-
 #: How many places a model may be shown in one prompt. Forty is the number of
 #: cards a person plausibly scrolls; beyond it the prompt grows without the
 #: answer improving, and at a hundred it stops answering at all.
@@ -915,6 +921,74 @@ class ApiService:
         rows = self.repository.list_destinations()
         return rows[0] if rows else None
 
+    def taste_profile(
+        self, actor: Actor | None, context_id: uuid.UUID | None
+    ) -> TasteProfile:
+        """Whose budget and taste this page is scored against (M11, ADR-0019).
+
+        Three answers, and the response says which one it used, because the
+        same percentage means different things: «hợp gu nhóm» and «hợp gu bạn»
+        are different claims and «chưa biết» is a third.
+
+        * A group, when the caller named one **and** is an ACTIVE member of it.
+          The gate is the memory-wall gate, not a softer one: an aggregate of
+          what a group likes is still the group's.
+        * The caller's own answers, when there is a session and no group. This
+          is the case a brand-new account is in, and the case the feature was
+          asked for -- somebody who has just finished the personalization step
+          has no group yet and is exactly who the suggestions are for.
+        * Nobody, for an anonymous reader. Not a default group: the six
+          invented people that used to stand here scored every card in the
+          product for a year.
+
+        Naming a group without a session is 401 rather than «fall back to
+        nobody». The caller asked a question about a group; being told the
+        catalogue's answer for nobody instead would look like an answer.
+        """
+
+        if context_id is not None:
+            if actor is None:
+                raise ApiProblem(
+                    401, "authentication_required", "Cần đăng nhập để đọc gu nhóm."
+                )
+            _require_permission(
+                "view_group_preference_profile",
+                actor,
+                {"is_group_member": self.repository.is_member(context_id, actor.id)},
+            )
+            return self.group_taste(context_id)
+        if actor is None:
+            return UNKNOWN
+        person = self.repository.get_person(actor.id)
+        return profile_for_person(
+            self.repository.list_person_interests(actor.id),
+            person.budget_band if person is not None else None,
+        )
+
+    def group_taste(self, context_id: uuid.UUID) -> TasteProfile:
+        """One group's taste, summed from its ACTIVE members' own answers.
+
+        No permission check here on purpose, and it is not an oversight worth
+        a comment somewhere else: every caller is already inside a flow that
+        proved membership (the companion turn, the social map, the browse
+        route above). Putting the gate in both places would make the gate look
+        like it lives here, and the day somebody calls this from a fourth
+        place they would trust a check that is not theirs.
+
+        Two queries for the whole roster, not one per member.
+        """
+
+        people = [
+            member.person_id
+            for member in self.repository.list_members(context_id)
+            if member.state == "active"
+        ]
+        interests = self.repository.interests_by_person(people)
+        bands = self.repository.budget_bands_by_person(people)
+        return profile_for_group(
+            [(interests.get(person, []), bands.get(person)) for person in people]
+        )
+
     def place_rows(self, destination_id: str | None = None) -> list[dict]:
         """The whole catalogue, in the dict shape the scorers already read.
 
@@ -931,7 +1005,7 @@ class ApiService:
             self._place_rows = [row.to_row() for row in self.repository.list_places()]
         return self._place_rows
 
-    def model_place_rows(self) -> list[dict]:
+    def model_place_rows(self, group: TasteProfile = UNKNOWN) -> list[dict]:
         """The catalogue as a model may see it: one destination, capped.
 
         `place_rows()` is every place RuDi knows -- 1358 of them once an
@@ -947,8 +1021,13 @@ class ApiService:
         """
         diem_den = self.destination_or_default(None)
         rows = self.place_rows(destination_id=None if diem_den is None else diem_den.id)
+        # Ranked against whoever asked, when that is known (M11). With no
+        # profile every row scores `None` and the order falls back to the id,
+        # which is stable and says nothing -- the honest shape of «we have no
+        # reason to prefer any of these for you».
         rows = sorted(
-            rows, key=lambda place: (-score_place(place, GROUP)[0], place["id"])
+            rows,
+            key=lambda place: (-(score_place(place, group)[0] or 0), place["id"]),
         )
         return rows[:MAX_MODEL_PLACES]
 
@@ -3010,6 +3089,69 @@ class ApiService:
             )
         return self._profile_response(person)
 
+    # --- personalization (M11, ADR-0019) ----------------------------------
+
+    def interest_vocabulary(self) -> InterestVocabularyResponse:
+        """The words a person may use, straight off the domain list.
+
+        No repository call and no actor: this is the product's vocabulary, not
+        anybody's data, and the screen that asks for it is drawn before there
+        is a session to ask with.
+        """
+
+        return InterestVocabularyResponse(
+            interests=[
+                InterestTagResponse(id=tag.id, label=tag.label) for tag in INTEREST_TAGS
+            ],
+            budget_bands=[
+                BudgetBandResponse(
+                    id=band.id,
+                    label=band.label,
+                    min_vnd=band.min_vnd,
+                    max_vnd=band.max_vnd,
+                )
+                for band in BUDGET_BANDS
+            ],
+        )
+
+    def set_my_interests(
+        self, request: InterestsUpdateRequest, actor: Actor
+    ) -> MyInterestsResponse:
+        """Store the whole answer this person just gave about themself.
+
+        Unknown words are refused rather than dropped: a client shipping a chip
+        the server does not know would otherwise look like it worked, and the
+        person would keep re-choosing a taste that never lands. The 422 does
+        not echo the word back -- it is a string somebody's client sent, and
+        error bodies are not the place to reflect input.
+        """
+
+        _require_permission("manage_own_interests", actor, {"is_self": True})
+        try:
+            tags = normalise_interests(list(request.interests))
+            band = normalise_budget_band(request.budget_band)
+        except InterestError as exc:
+            raise ApiProblem(
+                422,
+                str(exc),
+                "Lựa chọn không nằm trong danh sách máy chủ biết.",
+            ) from exc
+        person = self.repository.get_person(actor.id)
+        if person is None:
+            raise ApiProblem(
+                404, "person_not_found", "Chưa có hồ sơ cho tài khoản này."
+            )
+        stored = self.repository.set_person_interests(actor.id, tags, _now())
+        if band != person.budget_band:
+            self.repository.update_person_profile(
+                actor.id, changes={"budget_band": band}
+            )
+        # Ordered by the vocabulary on the way out too: the storage layer
+        # sorts by tag, and the reading order is a product decision.
+        return MyInterestsResponse(
+            interests=normalise_interests(stored), budget_band=band
+        )
+
     def _profile_response(self, person: PersonRecord) -> ProfileResponse:
         counts = self.repository.profile_counts(person.id)
         return ProfileResponse(
@@ -3026,6 +3168,10 @@ class ApiService:
                 memories=counts.memories,
             ),
             login_methods=self.repository.list_login_providers(person.id),
+            interests=normalise_interests(
+                self.repository.list_person_interests(person.id)
+            ),
+            budget_band=person.budget_band,
         )
 
     def get_person_profile(
@@ -3594,9 +3740,12 @@ class ApiService:
         visited = social_map.visited_layer(rows)
         seen = {entry["place_id"] for entry in visited}
 
+        # Read once, outside the key: a sort key runs O(n log n) times, and
+        # this one would otherwise issue two queries per comparison.
+        gu = self.group_taste(context_id)
         scored = sorted(
             (place for place in self.place_rows() if place["id"] not in seen),
-            key=lambda place: (-score_place(place, GROUP)[0], place["id"]),
+            key=lambda place: (-(score_place(place, gu)[0] or 0), place["id"]),
         )
         return SocialMapResponse(
             context_id=context_id,
@@ -4288,14 +4437,18 @@ class ApiService:
                 members.append(
                     {"id": str(person.id), "display_name": person.display_name}
                 )
-        places = companion_places.load_place_catalogue(self.model_place_rows())
+        places = companion_places.load_place_catalogue(
+            self.model_place_rows(self.group_taste(context_id))
+        )
 
         try:
             raw = companion.reply(
                 conversation=model_conversation,
                 members=members,
                 places=places,
-                budget_per_person_vnd=_group_budget_per_person_vnd(),
+                budget_per_person_vnd=self.group_taste(
+                    context_id
+                ).budget_per_person_vnd,
             )
         except (CompanionError, RuntimeError) as error:
             # The exception type, never the exception text: a backend error
