@@ -20,8 +20,16 @@
  * Google is a button that says, truthfully, that it opens once the team has
  * configured OAuth; PR-BE4 and the client ids turn it into a chooser. Apple
  * renders on iOS only: on Android it would be a promise with nothing behind it.
+ *
+ * ## The page after the cover (UI v2)
+ *
+ * The cover of the journal continues for its first third -- indigo band with
+ * the logo, «Chào bạn» in the display face and one sentence -- then the paper
+ * begins and the form sits directly on it. No card around a single field: a
+ * frame around a frame was the tell the audit named.
  */
 import { useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import { useState } from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
 
@@ -31,7 +39,10 @@ import { chuanHoaSo } from "../../../screens/vao-cua/danh-tinh";
 import { CUA_FIXTURE_DEV } from "../../cua-fixture";
 import { datOtpDangCho } from "../../otp-dang-cho";
 import { typography, useRudiTheme } from "../../theme";
-import { Card, DemoBadge, Field, Heading, Logo, RudiButton, RudiScreen, TopBar } from "../../ui";
+import { DemoBadge, Field, Logo, RudiButton, RudiScreen } from "../../ui";
+import { CoverBand } from "../../ui/CoverBand";
+import { StampButton } from "../../ui/StampButton";
+import { useAdaptiveLayout } from "../../ui/useAdaptiveLayout";
 
 type Trang = { pha: "nhap" } | { pha: "dang-gui" } | { pha: "hong"; loi: string };
 
@@ -40,7 +51,8 @@ export const CAU_GOOGLE_CHO_CAU_HINH =
 
 export function LoginScreen() {
   const router = useRouter();
-  const { colors } = useRudiTheme();
+  const { colors, space } = useRudiTheme();
+  const layout = useAdaptiveLayout();
   const [phone, setPhone] = useState("");
   const [trang, setTrang] = useState<Trang>({ pha: "nhap" });
   const [thongBao, setThongBao] = useState<string | null>(null);
@@ -71,19 +83,22 @@ export function LoginScreen() {
   };
 
   const dangGui = trang.pha === "dang-gui";
+  const bleed = layout.sizeClass === "compact" ? space.md : space.lg;
 
   return (
-    <RudiScreen contentStyle={styles.screen} testID="login-screen">
-      <TopBar />
-      <View style={styles.brand}>
-        <Logo />
-        <Heading
-          align="center"
-          title="Chào bạn"
-          subtitle="Nhập số di động để nhận mã 6 số qua tin nhắn. Chưa có tài khoản thì Rủ Đi tạo luôn, không cần mật khẩu."
-        />
-      </View>
-      <Card style={styles.card}>
+    <RudiScreen contentStyle={styles.screen} surface="cover" testID="login-screen">
+      <StatusBar style="light" />
+      <CoverBand bleed={bleed} onBack style={styles.band} underStatusBar>
+        <Logo compact ink={colors.coverInk} />
+        <Text style={[typography.hero, styles.chao, { color: colors.coverInk }]}>Chào bạn</Text>
+        <Text style={[typography.body, styles.dan, { color: colors.coverInkSoft }]}>
+          Nhập số di động để nhận mã 6 số qua tin nhắn. Chưa có tài khoản thì Rủ Đi tạo luôn, không cần mật khẩu.
+        </Text>
+      </CoverBand>
+      {/* One reading width for the whole column: on a tablet the field group and the
+          buttons below it used to sit on two different grids. */}
+      <View style={styles.column}>
+      <View style={styles.form}>
         <Field
           accessibilityLabel="Ô số điện thoại"
           autoCapitalize="none"
@@ -99,11 +114,11 @@ export function LoginScreen() {
           textContentType="telephoneNumber"
           value={phone}
         />
-        <RudiButton disabled={dangGui} label="Gửi mã" loading={dangGui} onPress={() => void gui()} />
+        <StampButton disabled={dangGui} icon="arrow-forward" label="Gửi mã" loading={dangGui} onPress={() => void gui()} testID="login-gui-ma" />
         {trang.pha === "hong" ? (
           <Text style={[typography.body, { color: colors.warn }]}>{trang.loi}</Text>
         ) : null}
-      </Card>
+      </View>
       <View style={styles.orRow}>
         <View style={[styles.orLine, { backgroundColor: colors.line }]} />
         <Text style={[typography.caption, { color: colors.inkFaint }]}>hoặc</Text>
@@ -151,14 +166,18 @@ export function LoginScreen() {
       <Text style={[typography.caption, styles.phapLy, { color: colors.inkFaint }]}>
         Số điện thoại chỉ dùng để gửi mã và không hiển thị cho người khác.
       </Text>
+      </View>
     </RudiScreen>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { gap: 20 },
-  brand: { alignItems: "center", gap: 20, marginTop: 3 },
-  card: { gap: 14, maxWidth: 560, width: "100%", alignSelf: "center" },
+  band: { gap: 10 },
+  chao: { marginTop: 6 },
+  dan: { maxWidth: 520 },
+  column: { gap: 20, maxWidth: 560, width: "100%", alignSelf: "center" },
+  form: { gap: 14 },
   orRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   orLine: { flex: 1, height: StyleSheet.hairlineWidth },
   khac: { gap: 10 },

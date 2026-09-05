@@ -19,23 +19,42 @@ export function useRudiTheme() {
   };
 }
 
+/** Family names of the display instances (see `fonts.ts`); weight is baked in. */
+export const displayFace = {
+  extraBold: "BricolageGrotesque-ExtraBold",
+  bold: "BricolageGrotesque-Bold",
+  semiBold: "BricolageGrotesque-SemiBold",
+  condensedBold: "BricolageGrotesque-CondensedBold",
+} as const;
+
 export const typography = {
+  /** Cover and hero moments only: the wordmark's neighbour, one per screen. */
+  hero: {
+    fontFamily: displayFace.extraBold,
+    fontSize: 40,
+    lineHeight: 44,
+    fontWeight: "normal",
+    letterSpacing: -1.2,
+  } satisfies TextStyle,
   display: {
+    fontFamily: displayFace.extraBold,
     fontSize: 34,
     lineHeight: 39,
-    fontWeight: "800",
+    fontWeight: "normal",
     letterSpacing: -1.1,
   } satisfies TextStyle,
   h1: {
+    fontFamily: displayFace.extraBold,
     fontSize: 28,
     lineHeight: 34,
-    fontWeight: "800",
+    fontWeight: "normal",
     letterSpacing: -0.65,
   } satisfies TextStyle,
   h2: {
+    fontFamily: displayFace.bold,
     fontSize: 21,
     lineHeight: 27,
-    fontWeight: "700",
+    fontWeight: "normal",
     letterSpacing: -0.3,
   } satisfies TextStyle,
   title: {
@@ -59,10 +78,20 @@ export const typography = {
     lineHeight: 16,
     fontWeight: "600",
   } satisfies TextStyle,
+  /** Stamp lettering: condensed caps on tickets and status seals. */
+  stamp: {
+    fontFamily: displayFace.condensedBold,
+    fontSize: 12,
+    lineHeight: 14,
+    fontWeight: "normal",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  } satisfies TextStyle,
   money: {
+    fontFamily: displayFace.extraBold,
     fontSize: 21,
     lineHeight: 27,
-    fontWeight: "800",
+    fontWeight: "normal",
     fontVariant: ["tabular-nums"],
   } satisfies TextStyle,
 };

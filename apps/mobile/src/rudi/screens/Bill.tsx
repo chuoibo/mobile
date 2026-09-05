@@ -182,7 +182,7 @@ export function OcrAssignmentScreen() {
 
   return (
     <RudiScreen tone="split" testID="ocr-assignment-screen">
-      <TopBar title="Ai dùng món nào?" right={<DemoBadge label="Nháp trên máy" />} />
+      <TopBar title="Ai dùng món nào?" right={<DemoBadge compactLabel="Nháp" label="Nháp trên máy" />} />
       <Card style={styles.ocrSummary} tone="split">
         <View style={[styles.scanIcon, { backgroundColor: colors.split }]}>
           <Ionicons color={colors.splitInk} name="scan" size={24} />

@@ -236,6 +236,17 @@
     // `tests/e2e/vertical-slice.test.mjs` gọi được nó qua HTTP để biết.
     "src/rudi/doc-live.ts",
     "src/rudi/money.ts",
+    // Lớp kích cỡ (UI v2): compile để test đo đúng biên 600/840 và chiều cao
+    // ngắn; trước đó là số 700 gõ tay ở bốn chỗ, đọc nguồn không đo được biên.
+    "src/rudi/adaptive.ts",
+    // Đường SVG của bộ kit (UI v2): compile vì react-native-svg parse `d` trong
+    // Java lúc mount; một token sai là app chết ở khung hình đầu, tsc và web mù.
+    "src/rudi/ui/duong-svg.ts",
+    // Lưới ô chất liệu của `ui/Grain.tsx`: compile để test pin «phủ hết hộp» và «≤ 60 view».
+    "src/rudi/ui/luoi-chat-lieu.ts",
+    // Nhịp chuyển động (UI v2): compile để test pin bốn bậc, luật Reduce
+    // Motion và luật «tiền không animate trước domain state» bằng hàm thật.
+    "src/rudi/motion.ts",
     "src/rudi/places.ts",
     // Khám phá trên danh mục thật (M4): compile để test chứng minh danh mục được
     // đọc như người lạ KHÔNG mang context_id bịa và việc lưu đi với bearer.

@@ -33,6 +33,14 @@ import unittest
 REPO = pathlib.Path(__file__).resolve().parents[4]
 TOKENS_PATH = REPO / "packages/shared/tokens.json"
 KIT_PATH = REPO / "apps/mobile/src/rudi/ui.tsx"
+# UI v2 (2026-09-05): primitives moved to one file each under src/rudi/ui/. A
+# control that lives there and is not read here is a control nobody measures,
+# so the kit is every file, joined with an export boundary so `kit_component`
+# stops at the end of a file the way it stops at the next export.
+KIT_DIR = REPO / "apps/mobile/src/rudi/ui"
+KIT_PATHS = (
+    [KIT_PATH, *sorted(KIT_DIR.glob("*.tsx"))] if KIT_DIR.is_dir() else [KIT_PATH]
+)
 CSS_PATH = REPO / "services/api/app/web/static/guest.css"
 DESIGN_PATH = REPO / "DESIGN.md"
 
@@ -42,7 +50,9 @@ NON_TEXT_FLOOR = 3.0
 TEXT_FLOOR = 4.5
 
 TOKENS = json.loads(TOKENS_PATH.read_text(encoding="utf-8"))
-KIT = KIT_PATH.read_text(encoding="utf-8")
+KIT = "\n\nexport {}; // ---- file boundary ----\n".join(
+    path.read_text(encoding="utf-8") for path in KIT_PATHS
+)
 CSS = CSS_PATH.read_text(encoding="utf-8")
 DESIGN = DESIGN_PATH.read_text(encoding="utf-8")
 
@@ -74,7 +84,9 @@ def kit_component(name: str) -> str:
     """Source of one exported component, up to the next top-level export."""
     marker = f"export function {name}("
     start = KIT.find(marker)
-    assert start != -1, f"{name} is no longer exported from src/rudi/ui.tsx"
+    assert start != -1, (
+        f"{name} is no longer exported from src/rudi/ui.tsx or src/rudi/ui/*.tsx"
+    )
     rest = KIT[start + len(marker) :]
     end = rest.find("\nexport ")
     return rest if end == -1 else rest[:end]
@@ -119,7 +131,15 @@ def interactive_boundaries() -> list[tuple[str, str, str]]:
     button = kit_component("RudiButton")
     field = kit_component("Field")
     chip = kit_component("Chip")
+    cover_button = kit_component("CoverButton")
     return [
+        # UI v2: the quiet button on the indigo cover has no fill, so its border is
+        # the whole affordance and must clear 3:1 against `cover` in both schemes.
+        (
+            "app: nút CoverButton, viền trên bìa sổ",
+            kit_border_token(r"borderColor:\s*colors\.(\w+)", cover_button),
+            "cover",
+        ),
         # App. The outline button and the unselected chip have a card fill at
         # most, so the border is the affordance; it must clear the surface it
         # sits on (ground) and the fill it encloses (card).

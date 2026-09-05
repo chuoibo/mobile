@@ -314,3 +314,6 @@ apps/mobile/.fe12-web/
 # per run. Never committed -- they are build output, and a bill photo must not
 # enter git even as pixels.
 .anh-bon-man/
+
+# Impeccable serve-question daemon state (per machine, per session)
+.impeccable/questions/

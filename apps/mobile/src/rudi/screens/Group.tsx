@@ -222,7 +222,7 @@ export function AiItineraryScreen() {
 
   return (
     <RudiScreen tone="ai" testID="ai-itinerary-screen">
-      <TopBar title="Lịch trình AI" right={<DemoBadge label="AI nháp" />} />
+      <TopBar title="Lịch trình AI" right={<DemoBadge compactLabel="Nháp" label="AI nháp" />} />
       <Card style={styles.itineraryHero} tone="ai">
         <Inline gap={12}>
           <View style={[styles.itineraryIcon, { backgroundColor: colors.ai }]}>
