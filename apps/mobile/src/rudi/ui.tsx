@@ -907,7 +907,10 @@ const styles = StyleSheet.create({
   screenFooter: { width: "100%", paddingTop: 8, zIndex: 2 },
   tabletInner: { alignSelf: "center", maxWidth: 960, paddingTop: 22 },
   topBar: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  topBarSide: { width: 52, alignItems: "flex-start" },
+  // Sides are at least the 48dp target wide; the right one grows for a badge
+  // («Dữ liệu demo») instead of truncating it. A wider right side shifts the
+  // centred title by a few dp only on demo/fixture screens.
+  topBarSide: { minWidth: 52, flexShrink: 0, alignItems: "flex-start" },
   topBarRight: { alignItems: "flex-end" },
   topBarTitleWrap: { flex: 1, alignItems: "center", paddingHorizontal: 8 },
   logoRow: { flexDirection: "row", alignItems: "center", flexShrink: 0, gap: 9 },
