@@ -20,17 +20,7 @@ data may not live in Git.
 
 from __future__ import annotations
 
-from typing import Any, TypedDict
-
-
-class GroupProfile(TypedDict):
-    size: int
-    age_range: str
-    budget_per_person_vnd: int
-    likes: list[str]
-    max_distance_km: float
-    when: str
-
+from typing import Any
 
 CATEGORIES: list[dict[str, str]] = [
     {"id": "quan-an-local", "label": "Quán ăn local"},
@@ -38,22 +28,6 @@ CATEGORIES: list[dict[str, str]] = [
     {"id": "vui-choi", "label": "Vui chơi"},
     {"id": "di-choi-dem", "label": "Đi chơi đêm"},
 ]
-
-# The group every score in `scoring.py` is relative to, and the one the route
-# discloses in its response. A percentage whose basis is not stated is a
-# decoration; stating it here in one place is what makes the arithmetic
-# checkable by hand.
-#
-# Hard-coded for the vertical slice: the app has one synthetic group, and the
-# route takes `context_id` so the seam for reading a real one already exists.
-GROUP: GroupProfile = {
-    "size": 6,
-    "age_range": "22-28",
-    "budget_per_person_vnd": 250_000,
-    "likes": ["Chill", "View đẹp", "Đồ nướng", "Ngoài trời", "Nhóm đông"],
-    "max_distance_km": 5.0,
-    "when": "Tối nay",
-}
 
 PLACES: list[dict[str, Any]] = [
     {

@@ -15,11 +15,13 @@ from __future__ import annotations
 
 import anyio
 import pytest
+
 from app.api.deps import get_repository
 from app.api.main import create_app
 from app.api.repository import PlaceRecord
 
 from .conftest import ASGITestClient, SeedCatalogueReads
+from .helpers import actor_headers
 
 
 def _row(**overrides) -> PlaceRecord:
@@ -55,7 +57,15 @@ def _row(**overrides) -> PlaceRecord:
 
 
 class OneRowRepository(SeedCatalogueReads):
-    """A catalogue of exactly the rows a test hands it."""
+    """A catalogue of exactly the rows a test hands it.
+
+    Its reader claims one taste (M11) so the cases about a row's own missing
+    fields have a profile to be scored against.
+    """
+
+    def list_person_interests(self, person_id):
+        del person_id
+        return ["cafe"]
 
     def __init__(self, rows: list[PlaceRecord]):
         self.rows = rows
@@ -124,8 +134,13 @@ def test_the_card_says_where_the_row_came_from(imported_client):
 
 
 def test_a_place_with_no_price_still_scores_on_what_is_known(imported_client):
-    """Rescaling, not a penalty: an unpriced place is not a bad place."""
-    place = imported_client.get("/places").json()["places"][0]
+    """Rescaling, not a penalty: an unpriced place is not a bad place.
+
+    Signed in, because since M11 a score needs somebody to be a score FOR --
+    the row half of the arithmetic is what this case is about, and it needs the
+    other half to exist at all.
+    """
+    place = imported_client.get("/places", headers=actor_headers()).json()["places"][0]
     assert 0 <= place["match"]["score"] <= 100
     details = {
         factor["label"]: factor["detail"] for factor in place["match"]["factors"]

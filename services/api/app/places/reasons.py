@@ -56,7 +56,9 @@ from dataclasses import dataclass
 from fractions import Fraction
 from typing import Any, Literal
 
-from app.places.catalog import GroupProfile
+from app.domain.interests import INTEREST_TAGS
+from app.places.scoring import FAR_KM
+from app.places.taste import TasteProfile
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +95,40 @@ def _k(vnd: int) -> int:
     return vnd // 1000
 
 
-def build_prompt(rows: list[ReasonRow], group: GroupProfile) -> str:
+#: Tag id -> the word the person chose, for the profile block of the prompt.
+_LABELS: dict[str, str] = {tag.id: tag.label for tag in INTEREST_TAGS}
+
+
+def profile_lines(group: TasteProfile) -> list[str]:
+    """The «who is asking» block, carrying only what somebody actually said.
+
+    A line per known fact and no line at all for an unknown one. The deleted
+    version printed five lines unconditionally, three of which came from an
+    invented group -- and a model shown «6 người, 22-28 tuổi» writes sentences
+    about six people aged 22 to 28.
+
+    The header names the basis, because «nhóm thích X» and «bạn thích X» are
+    different claims and the model is asked to write for a reader who knows
+    which one they are.
+    """
+
+    if not group.known:
+        return []
+    who = "nhóm" if group.basis == "nhom" else "người hỏi"
+    lines = [f"Hồ sơ {who}:"]
+    if group.size is not None:
+        lines.append(f"- {group.size} người")
+    if group.budget_per_person_vnd is not None:
+        lines.append(f"- Ngân sách mỗi người khoảng {_k(group.budget_per_person_vnd)}k")
+    if group.interests:
+        likes = ", ".join(_LABELS[tag] for tag in group.interests)
+        lines.append(f"- Thích: {likes}")
+    lines.append(f"- Không muốn đi xa quá {FAR_KM}km")
+    lines.append("")
+    return lines
+
+
+def build_prompt(rows: list[ReasonRow], group: TasteProfile) -> str:
     """The open question.
 
     Read the negative instructions as the specification: each one is a way the
@@ -103,13 +138,7 @@ def build_prompt(rows: list[ReasonRow], group: GroupProfile) -> str:
     lines = [
         "Bạn giúp một nhóm bạn Việt Nam quyết định nên đi đâu. Viết tiếng Việt tự nhiên.",
         "",
-        "Hồ sơ nhóm:",
-        f"- {group['size']} người, {group['age_range']} tuổi",
-        f"- Ngân sách mỗi người khoảng {_k(group['budget_per_person_vnd'])}k",
-        f"- Nhóm thích: {', '.join(group['likes'])}",
-        f"- Không muốn đi xa quá {group['max_distance_km']}km",
-        f"- Thời điểm: {group['when']}",
-        "",
+        *profile_lines(group),
         "Dưới đây là danh sách địa điểm ở dạng JSON. Với MỖI địa điểm, tự đánh giá",
         "xem nó CÓ HỢP với nhóm này không, rồi viết 1-2 câu nói rõ kết luận đó.",
         "",
@@ -206,7 +235,7 @@ def _khoang_gia(place: dict[str, Any]) -> str:
     return f"{_k(low)}-{_k(high)}k"
 
 
-def allowed_numbers(place: dict[str, Any], group: GroupProfile) -> set[Fraction]:
+def allowed_numbers(place: dict[str, Any], group: TasteProfile) -> set[Fraction]:
     """Every figure the model was actually shown, in every unit it might quote.
 
     A field the row does not have contributes nothing -- which makes the gate
@@ -230,10 +259,12 @@ def allowed_numbers(place: dict[str, Any], group: GroupProfile) -> set[Fraction]
         place.get("rating"),
         place.get("rating_count"),
         place.get("photo_count"),
-        group["size"],
-        group["budget_per_person_vnd"],
-        _k(group["budget_per_person_vnd"]),
-        group["max_distance_km"],
+        group.size,
+        group.budget_per_person_vnd,
+        None
+        if group.budget_per_person_vnd is None
+        else _k(group.budget_per_person_vnd),
+        FAR_KM,
     ]
     if fit:
         raw.extend([fit["min_people"], fit["max_people"]])
@@ -241,7 +272,7 @@ def allowed_numbers(place: dict[str, Any], group: GroupProfile) -> set[Fraction]
     values = {Fraction(str(value)) for value in raw if value is not None}
     # Opening hours, the age band and the street number all appear verbatim in
     # the row, so a reason quoting them is quoting given data.
-    for text in (place.get("open_hours"), group["age_range"], place.get("address")):
+    for text in (place.get("open_hours"), place.get("address")):
         if not text:
             continue
         for token in _NUMBER.findall(text):
@@ -250,7 +281,7 @@ def allowed_numbers(place: dict[str, Any], group: GroupProfile) -> set[Fraction]
 
 
 def ungrounded_numbers(
-    reason: str, place: dict[str, Any], group: GroupProfile
+    reason: str, place: dict[str, Any], group: TasteProfile
 ) -> list[str]:
     """Numeric tokens in the reason that trace back to nothing the model was given.
 
@@ -313,7 +344,7 @@ def _salvage_objects(text: str) -> list[Any]:
 
 
 def parse_reasons(
-    text: str, rows: list[ReasonRow], group: GroupProfile
+    text: str, rows: list[ReasonRow], group: TasteProfile
 ) -> dict[str, PlaceReason]:
     """Model output to `{place_id: PlaceReason}`, dropping anything unusable.
 
@@ -420,7 +451,7 @@ def _post(prompt: str, api_key: str) -> str | None:
 
 
 def gemini_reasons(
-    rows: list[ReasonRow], group: GroupProfile
+    rows: list[ReasonRow], group: TasteProfile
 ) -> dict[str, PlaceReason]:
     """One batched call for the whole catalogue. Never raises.
 

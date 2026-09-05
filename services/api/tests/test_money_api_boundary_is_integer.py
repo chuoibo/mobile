@@ -143,7 +143,6 @@ INEXACT_API_FIELDS_REVIEWED: dict[tuple[str, str], str] = {
     ("DestinationSummary", "lng"): "geographic longitude, not an amount",
     ("DestinationSummary", "distance_km"): "distance in km, not an amount",
     ("Review", "rating"): "0-5 star rating, not an amount",
-    ("GroupSummary", "max_distance_km"): "distance in km, not an amount",
     ("Understood", "max_distance_km"): "distance in km, not an amount",
     ("SuggestionPlace", "rating"): "0-5 star rating, not an amount",
     ("SuggestionPlace", "distance_km"): "distance in km, not an amount",

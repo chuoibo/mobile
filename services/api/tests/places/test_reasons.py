@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-from app.places.catalog import GROUP, PLACES
+from app.places.catalog import PLACES
 from app.places.reasons import (
     ReasonRow,
     build_prompt,
@@ -19,6 +19,8 @@ from app.places.reasons import (
     parse_reasons,
     ungrounded_numbers,
 )
+
+from .nhom_mau import NHOM_MAU
 
 BY_ID = {place["id"]: place for place in PLACES}
 ROWS = [ReasonRow(place=place) for place in PLACES]
@@ -48,7 +50,7 @@ def test_the_row_put_to_the_model_has_no_score_field():
 def test_the_prompt_never_states_the_computed_score():
     """A model told the answer is 96 writes a justification for 96."""
 
-    prompt = build_prompt(ROWS, GROUP)
+    prompt = build_prompt(ROWS, NHOM_MAU)
     for place in PLACES:
         payload = json.loads(
             [line for line in prompt.splitlines() if f'"{place["id"]}"' in line][0]
@@ -61,10 +63,10 @@ def test_the_prompt_never_states_the_computed_score():
 
 
 def test_the_prompt_offers_not_suitable_as_a_real_answer():
-    """"Explain why this suits them" always gets an answer. Ask a question the
+    """ "Explain why this suits them" always gets an answer. Ask a question the
     model is allowed to answer no to, and no becomes informative."""
 
-    prompt = build_prompt(ROWS, GROUP)
+    prompt = build_prompt(ROWS, NHOM_MAU)
     assert "khong-hop" in prompt
     assert "CÓ HỢP" in prompt
     # And the anti-flattery line, which is the part that makes `khong-hop`
@@ -73,17 +75,17 @@ def test_the_prompt_offers_not_suitable_as_a_real_answer():
 
 
 def test_the_prompt_forbids_facts_that_were_not_supplied():
-    prompt = build_prompt(ROWS, GROUP)
+    prompt = build_prompt(ROWS, NHOM_MAU)
     assert "Không thêm món ăn" in prompt
     assert "giải thưởng" in prompt
 
 
 def test_the_prompt_carries_every_place_and_the_group_profile():
-    prompt = build_prompt(ROWS, GROUP)
+    prompt = build_prompt(ROWS, NHOM_MAU)
     for place in PLACES:
         assert place["id"] in prompt
         assert place["name"] in prompt
-    assert str(GROUP["size"]) in prompt
+    assert str(NHOM_MAU.size) in prompt
     assert "250k" in prompt
 
 
@@ -106,7 +108,7 @@ NUONG = BY_ID["p-tiem-nuong-xom-lao"]  # 200-250k, 1.2km, 25 phút, 4-10 ngườ
     ],
 )
 def test_reasons_quoting_only_supplied_figures_pass(reason):
-    assert ungrounded_numbers(reason, NUONG, GROUP) == []
+    assert ungrounded_numbers(reason, NUONG, NHOM_MAU) == []
 
 
 @pytest.mark.parametrize(
@@ -124,7 +126,7 @@ def test_reasons_asserting_figures_nobody_supplied_are_caught(reason, invented):
     cannot be allowed to reach a screen wearing an AI badge.
     """
 
-    stray = ungrounded_numbers(reason, NUONG, GROUP)
+    stray = ungrounded_numbers(reason, NUONG, NHOM_MAU)
     assert invented in stray
 
 
@@ -132,7 +134,7 @@ def test_the_gate_does_not_reject_the_places_own_street_number():
     """Over-rejection is a real cost: it silently drops good reasons and the
     catalogue goes quiet for no visible cause."""
 
-    assert ungrounded_numbers("Ngay 27/1 Yersin, dễ tìm.", NUONG, GROUP) == []
+    assert ungrounded_numbers("Ngay 27/1 Yersin, dễ tìm.", NUONG, NHOM_MAU) == []
 
 
 # ---------------------------------------------------------------------------
@@ -150,7 +152,7 @@ def test_a_well_formed_answer_parses():
             [{"id": NUONG["id"], "verdict": "hop", "reason": "Đúng 200-250k, 1.2km."}]
         ),
         one_row(NUONG["id"]),
-        GROUP,
+        NHOM_MAU,
     )
     assert out[NUONG["id"]].verdict == "hop"
 
@@ -171,7 +173,7 @@ def test_a_not_suitable_verdict_survives_parsing():
             ]
         ),
         [ReasonRow(place=hill)],
-        GROUP,
+        NHOM_MAU,
     )
     assert out[hill["id"]].verdict == "khong-hop"
 
@@ -197,7 +199,7 @@ def test_a_fabricated_figure_drops_that_place_only():
             ]
         ),
         rows,
-        GROUP,
+        NHOM_MAU,
     )
     assert NUONG["id"] not in out
     assert hill["id"] in out
@@ -211,7 +213,7 @@ def test_a_place_the_model_invented_is_discarded():
             [{"id": "p-khong-ton-tai", "verdict": "hop", "reason": "Chỗ này tuyệt."}]
         ),
         one_row(NUONG["id"]),
-        GROUP,
+        NHOM_MAU,
     )
     assert out == {}
 
@@ -226,12 +228,12 @@ def test_a_place_the_model_invented_is_discarded():
     ],
 )
 def test_malformed_items_are_dropped_not_coerced(item):
-    assert parse_reasons(model_says([item]), one_row(NUONG["id"]), GROUP) == {}
+    assert parse_reasons(model_says([item]), one_row(NUONG["id"]), NHOM_MAU) == {}
 
 
 @pytest.mark.parametrize("text", ["not json at all", '{"not": "a list"}', ""])
 def test_garbage_from_the_model_yields_no_reasons_and_no_exception(text):
-    assert parse_reasons(text, one_row(NUONG["id"]), GROUP) == {}
+    assert parse_reasons(text, one_row(NUONG["id"]), NHOM_MAU) == {}
 
 
 # ---------------------------------------------------------------------------
@@ -288,7 +290,7 @@ def test_good_items_after_a_broken_one_are_recovered_too():
             "]",
         ]
     )
-    kept = parse_reasons(text, three_rows(), GROUP)
+    kept = parse_reasons(text, three_rows(), NHOM_MAU)
     assert set(kept) == {NUONG["id"], HILL}
     assert kept[HILL].verdict == "khong-hop"
 
@@ -309,7 +311,7 @@ def test_a_recovered_item_still_faces_the_fabrication_gate():
             "]",
         ]
     )
-    assert parse_reasons(text, three_rows(), GROUP) == {}
+    assert parse_reasons(text, three_rows(), NHOM_MAU) == {}
 
 
 @pytest.mark.parametrize(
@@ -329,7 +331,7 @@ def test_recovery_does_not_relax_field_validation(item):
     """
 
     text = f"[\n{broken_item(CAFE)},\n{item}\n]"
-    assert parse_reasons(text, three_rows(), GROUP) == {}
+    assert parse_reasons(text, three_rows(), NHOM_MAU) == {}
 
 
 def test_prose_that_merely_contains_a_brace_recovers_nothing():
@@ -341,7 +343,7 @@ def test_prose_that_merely_contains_a_brace_recovers_nothing():
     """
 
     text = 'Xin lỗi, tôi không thể trả lời. {"id": nope} { { {'
-    assert parse_reasons(text, three_rows(), GROUP) == {}
+    assert parse_reasons(text, three_rows(), NHOM_MAU) == {}
 
 
 def test_a_response_cut_off_mid_array_keeps_what_arrived():
@@ -357,7 +359,7 @@ def test_a_response_cut_off_mid_array_keeps_what_arrived():
         + good_item(NUONG["id"], "Đồ nướng ngoài trời, 1.2km thôi.", "hop")
         + ',\n{"id": "p-the-hill-rooftop", "verdict": "khong-'
     )
-    kept = parse_reasons(text, three_rows(), GROUP)
+    kept = parse_reasons(text, three_rows(), NHOM_MAU)
     assert set(kept) == {NUONG["id"]}
 
 
@@ -376,7 +378,10 @@ def test_the_clean_path_never_reaches_the_salvage(monkeypatch):
     text = model_says(
         [{"id": NUONG["id"], "verdict": "hop", "reason": "Đúng 200-250k, 1.2km."}]
     )
-    assert parse_reasons(text, one_row(NUONG["id"]), GROUP)[NUONG["id"]].verdict == "hop"
+    assert (
+        parse_reasons(text, one_row(NUONG["id"]), NHOM_MAU)[NUONG["id"]].verdict
+        == "hop"
+    )
 
 
 def test_the_rescan_gives_up_instead_of_walking_every_brace(monkeypatch):
@@ -398,7 +403,7 @@ def test_the_rescan_gives_up_instead_of_walking_every_brace(monkeypatch):
         return real_raw_decode(self, s, idx)
 
     monkeypatch.setattr(json.JSONDecoder, "raw_decode", counting)
-    assert parse_reasons("{" * 5000, three_rows(), GROUP) == {}
+    assert parse_reasons("{" * 5000, three_rows(), NHOM_MAU) == {}
     assert len(attempts) < 100, f"rescan tried {len(attempts)} times on 5000 braces"
 
 
@@ -412,12 +417,12 @@ def test_no_key_means_no_call_and_no_reasons(monkeypatch):
     fabricated sentence."""
 
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    assert gemini_reasons(ROWS, GROUP) == {}
+    assert gemini_reasons(ROWS, NHOM_MAU) == {}
 
 
 def test_a_blank_key_is_treated_as_absent(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "   ")
-    assert gemini_reasons(ROWS, GROUP) == {}
+    assert gemini_reasons(ROWS, NHOM_MAU) == {}
 
 
 def test_the_key_never_reaches_a_log_or_an_error(monkeypatch, caplog):
@@ -436,7 +441,7 @@ def test_the_key_never_reaches_a_log_or_an_error(monkeypatch, caplog):
 
     monkeypatch.setattr("urllib.request.urlopen", explode)
     with caplog.at_level("DEBUG"):
-        assert gemini_reasons(one_row(NUONG["id"]), GROUP) == {}
+        assert gemini_reasons(one_row(NUONG["id"]), NHOM_MAU) == {}
     assert "SECRET" not in caplog.text
     assert "AIza" not in caplog.text
 
@@ -449,4 +454,4 @@ def test_a_network_failure_is_swallowed_into_an_empty_result(monkeypatch):
         raise TimeoutError("too slow")
 
     monkeypatch.setattr("urllib.request.urlopen", explode)
-    assert gemini_reasons(one_row(NUONG["id"]), GROUP) == {}
+    assert gemini_reasons(one_row(NUONG["id"]), NHOM_MAU) == {}

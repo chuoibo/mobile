@@ -27,9 +27,11 @@ from __future__ import annotations
 import pytest
 
 from app.api.routes.places import get_reason_writer
-from app.places.catalog import GROUP, PLACES
+from app.places.catalog import PLACES
 from app.places.prompt_safety import place_is_safe_for_prompt, safe_places
 from app.places.reasons import ReasonRow, build_prompt
+
+from .test_places import GU_TOI, dang_nhap
 
 #: Carries no digit on purpose. `ungrounded_numbers` rejects stray figures, so
 #: a payload containing "100 điểm" gets dropped for the number rather than for
@@ -55,7 +57,7 @@ def seed_places_of_default_destination() -> list[dict]:
 
     return sorted(
         (place for place in PLACES if _destination_for(place) == "d-da-lat"),
-        key=lambda place: (-score_place(place, GROUP)[0], place["id"]),
+        key=lambda place: (-score_place(place, GU_TOI)[0], place["id"]),
     )
 
 
@@ -69,7 +71,7 @@ class Recorder:
     def __init__(self) -> None:
         self.calls: list[list[ReasonRow]] = []
 
-    def __call__(self, rows: list[ReasonRow]) -> dict:
+    def __call__(self, rows: list[ReasonRow], group=None) -> dict:
         self.calls.append(list(rows))
         return {}
 
@@ -85,35 +87,45 @@ def recorder(client) -> Recorder:
     return writer
 
 
-def get_places(client, **params):
+def get_places(client, headers=None, **params):
     # `params=` rather than an f-string: the marker carries spaces and
     # diacritics, and hand-built query strings would test the encoder instead
     # of the route.
-    return client.get("/places", params=params)
+    return client.get("/places", params=params, headers=headers or {})
 
 
-def test_a_marker_in_context_id_never_reaches_the_prompt(client, recorder):
-    """`context_id` is the parameter that does not filter, so this cannot pass vacuously.
+def test_a_marker_in_context_id_is_refused_before_anything_is_built(client, recorder):
+    """`context_id` used to be free text the route accepted and threw away.
 
-    Every one of the twelve rows is handed to the writer, a real prompt is
-    built from them, and the marker still has to be absent. A test that asserts
-    "no injection" against an empty row list proves nothing; the row-count
-    assertion below is what keeps this one honest.
+    It is a `UUID` since M11, because the parameter now *does* something: it
+    names the group whose taste the page is scored against. So the marker no
+    longer «reaches nothing» -- it never gets past parsing, which is a stronger
+    property than the one this test used to assert. Nothing is built, nothing
+    is asked, and the writer is never called at all.
     """
 
     response = get_places(client, context_id=MARKER)
-    assert response.status_code == 200, response.text
+    assert response.status_code == 422, response.text
+    assert recorder.rows == [], "không được dựng prompt nào cho một tham số hỏng"
+    assert MARKER not in response.text.replace("\\u", ""), (
+        "câu lỗi dội lại nguyên văn chuỗi người gửi"
+    )
 
+
+def test_the_catalogue_still_reaches_the_model_for_a_reader_it_knows(
+    client, recorder, repository
+):
+    """The companion assertion, and the reason the one above cannot pass
+    vacuously: a signed-in reader really does put the whole served catalogue to
+    the writer, so «the marker is absent» is a claim about a real prompt."""
+
+    response = get_places(client, headers=dang_nhap(repository))
+    assert response.status_code == 200, response.text
     assert len(recorder.rows) == len(seed_places_of_default_destination()), (
         "expected the whole catalogue to be put to the model; got "
-        f"{len(recorder.rows)} rows, so the assertion below would be vacuous"
+        f"{len(recorder.rows)} rows"
     )
-    prompt = build_prompt(recorder.rows, GROUP)
-    assert MARKER not in prompt, (
-        "text from the request reached the Gemini prompt -- the injection "
-        "reproduced in tests/live/test_places_reason_quality_live.py is now "
-        "reachable from the network. See docs/security/prompt-injection-dia-diem.md"
-    )
+    assert MARKER not in build_prompt(recorder.rows, GU_TOI)
 
 
 @pytest.mark.parametrize("param", ["q", "category"])
@@ -137,7 +149,9 @@ def test_the_filter_parameters_send_nothing_when_they_match_nothing(
     )
 
 
-def test_the_prompt_is_exactly_the_prompt_the_seed_catalogue_builds(client, recorder):
+def test_the_prompt_is_exactly_the_prompt_the_seed_catalogue_builds(
+    client, recorder, repository
+):
     """Byte equality against a prompt built straight from `PLACES`.
 
     This is the invariant that survives new fields. `build_prompt` embeds
@@ -147,28 +161,30 @@ def test_the_prompt_is_exactly_the_prompt_the_seed_catalogue_builds(client, reco
     add a case for the new field.
     """
 
-    response = get_places(client, context_id=MARKER)
+    response = get_places(client, headers=dang_nhap(repository))
     assert response.status_code == 200, response.text
 
     assert len(recorder.rows) == len(seed_places_of_default_destination()), (
         f"only {len(recorder.rows)} rows reached the model; a short list would "
         "make the comparison below pass for the wrong reason"
     )
-    served = build_prompt(recorder.rows, GROUP)
+    served = build_prompt(recorder.rows, GU_TOI)
     # Sorted by id, which is the order the catalogue read returns since M9 (a
     # table has no file order). The invariant under test is that the bytes are
     # a pure function of the catalogue and the group profile -- not that the
     # rows arrive in the order somebody typed them into a module.
     from_seed = build_prompt(
         [ReasonRow(place=place) for place in seed_places_of_default_destination()],
-        GROUP,
+        GU_TOI,
     )
     assert served == from_seed, (
         "the prompt served to Gemini is no longer the seed catalogue's prompt"
     )
 
 
-def test_every_row_put_to_the_model_passed_the_safety_filter(client, recorder):
+def test_every_row_put_to_the_model_passed_the_safety_filter(
+    client, recorder, repository
+):
     """The alarm, re-aimed at the precondition that actually holds now.
 
     It used to assert object identity with `PLACES`: the route passed the very
@@ -183,7 +199,7 @@ def test_every_row_put_to_the_model_passed_the_safety_filter(client, recorder):
     filter is not vacuous by pushing an injected row through the real route.
     """
 
-    response = get_places(client)
+    response = get_places(client, headers=dang_nhap(repository))
     assert response.status_code == 200, response.text
     assert recorder.rows, "no rows were put to the model at all"
 

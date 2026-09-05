@@ -1214,6 +1214,10 @@ class ApiRepository(Protocol):
         self, person_ids: list[uuid.UUID]
     ) -> dict[uuid.UUID, list[str]]: ...
 
+    def budget_bands_by_person(
+        self, person_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, str]: ...
+
     def are_friends(self, a: uuid.UUID, b: uuid.UUID) -> bool: ...
 
     def share_active_context(self, a: uuid.UUID, b: uuid.UUID) -> bool: ...
@@ -3206,6 +3210,20 @@ class SqlAlchemyApiRepository:
         for person_id, tag in rows:
             out.setdefault(person_id, []).append(tag)
         return out
+
+    def budget_bands_by_person(
+        self, person_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, str]:
+        """Bands for several people in one query. People who skipped the
+        question are absent rather than present with None -- «did not answer»
+        is the caller's to interpret, and averaging over absent answers is a
+        different sum than averaging over zeroes."""
+        if not person_ids:
+            return {}
+        rows = self.session.execute(
+            select(Person.id, Person.budget_band).where(Person.id.in_(person_ids))
+        )
+        return {pid: band for pid, band in rows if band is not None}
 
     def are_friends(self, a: uuid.UUID, b: uuid.UUID) -> bool:
         return (

@@ -15,13 +15,15 @@ set and nothing else.
 from __future__ import annotations
 
 from app.domain.place_search import VERDICTS as GROUNDED_VERDICTS
-from app.places.catalog import GROUP, PLACES
+from app.places.catalog import PLACES
 from app.places.reasons import VERDICTS as BROWSE_VERDICTS
 from app.places.search import build_search_prompt
 
+from .nhom_mau import NHOM_MAU
+
 
 def prompt() -> str:
-    return build_search_prompt("quán nướng ngoài trời cho 6 người", PLACES, GROUP)
+    return build_search_prompt("quán nướng ngoài trời cho 6 người", PLACES, NHOM_MAU)
 
 
 def test_the_gate_accepts_exactly_the_vocabulary_the_browse_prompt_asks_for():
@@ -52,8 +54,6 @@ def test_the_search_prompt_still_owes_nothing_to_the_query():
     editing rules is to make one of them depend on what was asked.
     """
 
-    first = build_search_prompt("cho 6 người ăn nướng ngoài trời", PLACES, GROUP)
-    second = build_search_prompt("XXX", PLACES, GROUP)
-    assert first.replace(
-        '"cho 6 người ăn nướng ngoài trời"', '"XXX"'
-    ) == second
+    first = build_search_prompt("cho 6 người ăn nướng ngoài trời", PLACES, NHOM_MAU)
+    second = build_search_prompt("XXX", PLACES, NHOM_MAU)
+    assert first.replace('"cho 6 người ăn nướng ngoài trời"', '"XXX"') == second
