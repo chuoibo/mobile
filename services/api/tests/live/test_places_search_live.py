@@ -41,8 +41,9 @@ import os
 import pytest
 
 from app.domain.place_search import VERDICTS, PlaceSearchError, ground_search
-from app.places.catalog import CATEGORIES, GROUP, PLACES
+from app.places.catalog import CATEGORIES, PLACES
 from app.places.search import build_search_prompt, gemini_search
+from tests.places.nhom_mau import NHOM_MAU
 
 pytestmark = pytest.mark.skipif(
     not os.environ.get("GEMINI_API_KEY", "").strip()
@@ -189,5 +190,5 @@ def test_the_api_key_never_appears_in_the_prompt():
     """Cheap, and the failure it guards against is unrecoverable once shipped."""
 
     key = os.environ["GEMINI_API_KEY"].strip()
-    prompt = build_search_prompt(GRILL_QUERY, PLACES, GROUP)
+    prompt = build_search_prompt(GRILL_QUERY, PLACES, NHOM_MAU)
     assert key not in prompt

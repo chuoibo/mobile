@@ -83,10 +83,11 @@ class CountingSearcher:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    def __call__(self, query: str, places=None):
-        # `places` is the catalogue the route read (M9). Counted stubs take it
-        # and ignore it: what this one measures is whether it was reached.
-        del places
+    def __call__(self, query: str, places=None, group=None):
+        # `places` is the catalogue the route read (M9) and `group` is whose
+        # taste it is scored against (M11). Counted stubs take both and ignore
+        # them: what this one measures is whether it was reached.
+        del places, group
         self.calls.append(query)
         return ANSWER
 

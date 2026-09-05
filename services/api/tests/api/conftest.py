@@ -169,6 +169,27 @@ class SeedCatalogueReads:
     way and should not have to grow a catalogue to do it.
     """
 
+    # M11: the catalogue is scored against whoever is asking, so every double
+    # the service is handed must be able to answer «what did they say they
+    # like». These say «nothing», which is the state every test using this
+    # mixin was written in -- a double that really tracks people (like
+    # `FakeRepository`) overrides these and wins by MRO.
+    def list_person_interests(self, person_id):
+        del person_id
+        return []
+
+    def interests_by_person(self, person_ids):
+        del person_ids
+        return {}
+
+    def budget_bands_by_person(self, person_ids):
+        del person_ids
+        return {}
+
+    def get_person(self, person_id):
+        del person_id
+        return None
+
     def list_places(self, *, destination_id=None, category=None):
         rows = [
             record
@@ -904,6 +925,14 @@ class FakeRepository(SeedCatalogueReads):
             for pid in person_ids
             if self.person_interests.get(pid)
         }
+
+    def budget_bands_by_person(self, person_ids):
+        out = {}
+        for pid in person_ids:
+            person = self.people.get(pid)
+            if person is not None and person.budget_band is not None:
+                out[pid] = person.budget_band
+        return out
 
     def list_login_providers(self, person_id):
         return sorted(

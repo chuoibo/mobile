@@ -35,11 +35,14 @@ from __future__ import annotations
 import copy
 import os
 from collections import Counter
+from dataclasses import replace
 
 import pytest
 
-from app.places.catalog import GROUP, PLACES, GroupProfile
+from app.places.catalog import PLACES
 from app.places.reasons import ReasonRow, gemini_reasons
+from app.places.taste import TasteProfile
+from tests.places.nhom_mau import NHOM_MAU
 
 pytestmark = pytest.mark.skipif(
     not os.environ.get("GEMINI_API_KEY", "").strip()
@@ -50,17 +53,10 @@ pytestmark = pytest.mark.skipif(
 # Nothing in the catalogue is under 60k a head, so every row breaks this
 # group's one hard constraint. If the verdicts do not follow, they are not
 # derived from the profile at all.
-BROKE_GROUP: GroupProfile = {
-    "size": 6,
-    "age_range": "22-28",
-    "budget_per_person_vnd": 60_000,
-    "likes": GROUP["likes"],
-    "max_distance_km": 5.0,
-    "when": "Tối nay",
-}
+BROKE_GROUP = replace(NHOM_MAU, budget_per_person_vnd=60_000)
 
 
-def _verdicts(group: GroupProfile) -> dict[str, str]:
+def _verdicts(group: TasteProfile) -> dict[str, str]:
     rows = [ReasonRow(place=place) for place in PLACES]
     answers = gemini_reasons(rows, group)
     if not answers:
@@ -80,7 +76,7 @@ def test_verdicts_track_the_group_profile_rather_than_the_catalogue():
     two distributions is the claim, and it is a large gap.
     """
 
-    baseline = Counter(_verdicts(GROUP).values())
+    baseline = Counter(_verdicts(NHOM_MAU).values())
     broke = Counter(_verdicts(BROKE_GROUP).values())
 
     baseline_ok = baseline["hop"] + baseline["tam"]
@@ -130,7 +126,7 @@ def test_a_place_row_cannot_give_the_model_orders():
     by_id["p-bowling-sky"]["name"] += f" [{payload}]"
     by_id["p-the-hill-rooftop"]["traits"].append(payload)
 
-    answers = gemini_reasons([ReasonRow(place=place) for place in places], GROUP)
+    answers = gemini_reasons([ReasonRow(place=place) for place in places], NHOM_MAU)
     if not answers:
         pytest.skip("Gemini returned nothing for this run")
 

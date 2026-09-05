@@ -45,8 +45,10 @@ byte-for-byte what Gemini returned.
 
 from __future__ import annotations
 
-from app.places.catalog import GROUP, PLACES
+from app.places.catalog import PLACES
 from app.places.reasons import ReasonRow, parse_reasons
+
+from .nhom_mau import NHOM_MAU
 
 BY_ID = {place["id"]: place for place in PLACES}
 
@@ -84,7 +86,7 @@ def test_the_item_carrying_the_unescaped_quote_is_the_only_one_lost():
     a sentence the model did not write, and this test is what says no.
     """
 
-    kept = parse_reasons(MALFORMED_BATCH, ROWS, GROUP)
+    kept = parse_reasons(MALFORMED_BATCH, ROWS, NHOM_MAU)
     assert set(kept) == {"p-tiem-nuong-xom-lao"}
 
 
@@ -95,7 +97,7 @@ def test_a_well_formed_reason_survives_a_neighbour_that_is_broken():
     because one sentence had a stray quote in it.
     """
 
-    kept = parse_reasons(MALFORMED_BATCH, ROWS, GROUP)
+    kept = parse_reasons(MALFORMED_BATCH, ROWS, NHOM_MAU)
     assert "p-tiem-nuong-xom-lao" in kept
     assert kept["p-tiem-nuong-xom-lao"].verdict == "hop"
 
@@ -108,6 +110,6 @@ def test_a_clean_batch_still_parses():
     """
 
     clean = MALFORMED_BATCH.replace('"yên tĩnh"', "yên tĩnh")
-    kept = parse_reasons(clean, ROWS, GROUP)
+    kept = parse_reasons(clean, ROWS, NHOM_MAU)
     assert set(kept) == {"p-tiem-nuong-xom-lao", "p-an-cafe-da-lat"}
     assert kept["p-an-cafe-da-lat"].verdict == "khong-hop"

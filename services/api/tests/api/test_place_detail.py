@@ -14,11 +14,11 @@ from __future__ import annotations
 import pytest
 
 from app.api.routes.places import get_reason_writer
-from app.places.catalog import GROUP, PLACES
+from app.places.catalog import PLACES
 from app.places.details import PLACE_DETAILS
 from app.places.scoring import score_place
 
-from .test_places import fixed_reasons, silent_reasons, use_writer
+from .test_places import GU_TOI, dang_nhap, fixed_reasons, silent_reasons, use_writer
 
 PLACE = PLACES[0]
 
@@ -82,47 +82,57 @@ def test_prices_stay_integer_dong(client):
     assert not isinstance(body["price_min_vnd"], bool)
 
 
-def test_the_score_matches_the_grid_exactly(client):
+def test_the_score_matches_the_grid_exactly(client, repository):
     """One place, one number. Two call sites computing a score separately is
     how the same restaurant shows 94% on one screen and 87% on the next."""
 
-    listed = client.get("/places").json()
+    headers = dang_nhap(repository)
+    listed = client.get("/places", headers=headers).json()
     card = next(row for row in listed["places"] if row["id"] == PLACE["id"])
-    detail = client.get(f"/places/{PLACE['id']}").json()
+    detail = client.get(f"/places/{PLACE['id']}", headers=headers).json()
     assert detail["match"]["score"] == card["match"]["score"]
     assert detail["match"]["factors"] == card["match"]["factors"]
     # And that both agree with the arithmetic, not merely with each other:
     # two screens showing the same wrong number is still wrong.
-    assert detail["match"]["score"] == score_place(PLACE, GROUP)[0]
+    assert detail["match"]["score"] == score_place(PLACE, GU_TOI)[0]
 
 
-def test_no_model_answer_means_no_ai_label(client):
+def test_a_signed_out_reader_gets_the_row_without_a_badge(client):
+    """The detail page is public and stays public. What a session buys is the
+    percentage, because a match is a match with somebody."""
+
+    body = client.get(f"/places/{PLACE['id']}").json()
+    assert body["match"] is None
+    assert body["name"] == PLACE["name"] and body["address"] == PLACE["address"]
+
+
+def test_no_model_answer_means_no_ai_label(client, repository):
     """The silent writer is active. `source` must be `none` and `verdict` must
     be absent -- a percentage credited to a model that never answered is the
     exact lie `Match` exists to prevent."""
 
-    body = client.get(f"/places/{PLACE['id']}").json()
+    body = client.get(f"/places/{PLACE['id']}", headers=dang_nhap(repository)).json()
     assert body["match"]["source"] == "none"
     assert body["match"]["verdict"] is None
     assert body["match"]["reason"]
 
 
-def test_a_model_answer_is_labelled_ai(client):
+def test_a_model_answer_is_labelled_ai(client, repository):
     use_writer(client, fixed_reasons)
-    body = client.get(f"/places/{PLACE['id']}").json()
+    body = client.get(f"/places/{PLACE['id']}", headers=dang_nhap(repository)).json()
     assert body["match"]["source"] == "ai"
     assert body["match"]["verdict"] == "hop"
 
 
-def test_a_writer_that_raises_does_not_become_a_500(client):
+def test_a_writer_that_raises_does_not_become_a_500(client, repository):
     """A read-only catalogue row must survive a model outage."""
 
-    def exploding(rows):
+    def exploding(rows, group=None):
         del rows
         raise RuntimeError("gemini is down")
 
     use_writer(client, exploding)
-    response = client.get(f"/places/{PLACE['id']}")
+    response = client.get(f"/places/{PLACE['id']}", headers=dang_nhap(repository))
     assert response.status_code == 200, response.text
     assert response.json()["match"]["source"] == "none"
 

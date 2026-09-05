@@ -34,8 +34,9 @@ import re
 
 import pytest
 
-from app.places.catalog import GROUP, PLACES
+from app.places.catalog import PLACES
 from app.places.reasons import ReasonRow, gemini_reasons, ungrounded_numbers
+from tests.places.nhom_mau import NHOM_MAU
 
 pytestmark = pytest.mark.skipif(
     not os.environ.get("GEMINI_API_KEY", "").strip()
@@ -58,7 +59,7 @@ AWKWARD = ("p-the-hill-rooftop", "p-ca-phe-vot-hem", "p-bowling-sky")
 @pytest.fixture(scope="module")
 def answers():
     rows = [ReasonRow(place=place) for place in PLACES]
-    result = gemini_reasons(rows, GROUP)
+    result = gemini_reasons(rows, NHOM_MAU)
     if not result:
         pytest.fail(
             "Gemini returned nothing for all 12 places. Either the key is "
@@ -79,7 +80,7 @@ def test_every_surviving_reason_is_grounded_in_the_row_it_was_given(answers):
     this asserts the gate did its job rather than that the model behaved."""
 
     for place_id, reason in answers.items():
-        assert ungrounded_numbers(reason.reason, BY_ID[place_id], GROUP) == [], (
+        assert ungrounded_numbers(reason.reason, BY_ID[place_id], NHOM_MAU) == [], (
             f"{place_id}: {reason.reason}"
         )
 

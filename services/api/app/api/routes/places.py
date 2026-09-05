@@ -20,11 +20,12 @@ import threading
 import time
 from collections.abc import Callable
 from typing import Annotated, Any, Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field, field_validator
 
-from app.api.deps import Actor, get_actor, get_repository
+from app.api.deps import Actor, get_actor, get_actor_optional, get_repository
 from app.api.errors import ApiProblem
 from app.api.repository import ApiRepository, DestinationRecord
 from app.api.schemas import MoneyVnd
@@ -32,7 +33,7 @@ from app.api.search_rate_limit import FixedWindowLimiter
 from app.api.service import ApiService
 from app.domain.place_search import PlaceSearchError, ground_search
 from app.places.areas import haversine_km
-from app.places.catalog import CATEGORIES, GROUP, GroupProfile
+from app.places.catalog import CATEGORIES
 from app.places.prompt_safety import safe_places
 from app.places.reasons import (
     PlaceReason,
@@ -42,6 +43,7 @@ from app.places.reasons import (
 )
 from app.places.scoring import score_place
 from app.places.search import MAX_QUERY_CHARS, echoes_the_query, gemini_search
+from app.places.taste import TasteProfile, uncovered
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +126,10 @@ class Place(BaseModel):
     #: attribution for `osm`, and a reader deserves it for anything else.
     source: Literal["seed", "osm", "curated"] = "seed"
     license: str | None = None
-    match: Match
+    #: Null when nothing is known about who is asking (M11). A match is a
+    #: statement about particular people; an anonymous reader is nobody, and
+    #: the app has always drawn `null` here as «no badge».
+    match: Match | None
 
 
 class Review(BaseModel):
@@ -168,15 +173,28 @@ class GroupSummary(BaseModel):
     """The profile every score is relative to, sent so the badge is falsifiable.
 
     A percentage whose basis is not stated cannot be argued with, and a number
-    nobody can argue with is decoration. This is the basis.
+    nobody can argue with is decoration. This is the basis -- and since M11 it
+    is a real one: the six invented people it used to describe («22-28 tuổi»,
+    «Chill, View đẹp, Đồ nướng») are gone.
+
+    Every field but `basis` may be null, and null is not «zero»: it is the
+    reason the card carries no percentage. `people_answered` is here so the
+    screen can say what the number rests on -- «gu của 3/6 người đã chọn» is
+    checkable, «gu nhóm» is not.
     """
 
-    size: int
-    age_range: str
-    budget_per_person_vnd: MoneyVnd
-    likes: list[str]
-    max_distance_km: float
-    when: str
+    #: Whose taste: a group the caller belongs to, the caller's own, or nobody.
+    basis: Literal["nhom", "ca-nhan", "chua-biet"]
+    size: int | None
+    budget_per_person_vnd: MoneyVnd | None
+    #: Tag ids from the closed vocabulary (`GET /interests` names them).
+    interests: list[str]
+    #: How many people this rests on, and how many of them actually answered.
+    people: int
+    people_answered: int
+    #: Chosen tastes this catalogue has nothing to match against -- a claim
+    #: about the catalogue, never about the places.
+    uncovered_interests: list[str]
 
 
 class DestinationSummary(BaseModel):
@@ -338,22 +356,22 @@ class CachedReasonWriter:
     def __init__(
         self,
         *,
-        writer: Callable[[list[ReasonRow], GroupProfile], dict[str, PlaceReason]] = (
+        writer: Callable[[list[ReasonRow], TasteProfile], dict[str, PlaceReason]] = (
             gemini_reasons
         ),
-        group: GroupProfile = GROUP,
         cooldown_seconds: int = REASON_RETRY_COOLDOWN_SECONDS,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._writer = writer
-        self._group = group
         self._cooldown_seconds = cooldown_seconds
         self._clock = clock
-        self._answered: dict[str, PlaceReason] = {}
+        # Keyed by (profile, place id): a sentence written for one profile is
+        # not an answer for another. See `__call__`.
+        self._answered: dict[tuple[str, str], PlaceReason] = {}
         # Place id -> when we last asked and were given nothing. Successes are
         # never in here; an entry is the record that makes a refusal different
         # from a question nobody has asked yet.
-        self._refused_at: dict[str, float] = {}
+        self._refused_at: dict[tuple[str, str], float] = {}
         # Place ids with a model call in flight right now. The lock is dropped
         # before that call on purpose, so without this set two threads both
         # find a row missing and both pay for it: the ceiling would be one
@@ -361,22 +379,36 @@ class CachedReasonWriter:
         # anonymous GET would buy twenty. Nothing above records an in-flight
         # question, because a question nobody has finished asking is neither
         # answered nor refused.
-        self._asking: set[str] = set()
+        self._asking: set[tuple[str, str]] = set()
         # Sync routes run in a threadpool, so two concurrent browsers are two
         # real threads reading and writing these dicts.
         self._lock = threading.Lock()
 
-    def __call__(self, rows: list[ReasonRow]) -> dict[str, PlaceReason]:
+    def __call__(
+        self, rows: list[ReasonRow], group: TasteProfile
+    ) -> dict[str, PlaceReason]:
+        """Sentences for these rows, written for THIS profile.
+
+        The cache is keyed by `(profile, place)` since M11, and that is not an
+        optimisation detail. A reason is an argument about whether a place
+        suits particular people -- «đủ chỗ cho 6 người, hợp gu đồ nướng» -- so
+        a cache keyed by place alone would hand one group's sentence, and with
+        it one group's taste, to the next caller. Two profiles that are equal
+        share an entry, which is correct: the sentence is a function of exactly
+        what the key holds.
+        """
+
         now = self._clock()
+        key = group.cache_key
         with self._lock:
             missing = [
                 row
                 for row in rows
-                if row.place["id"] not in self._answered
-                and row.place["id"] not in self._asking
-                and self._may_ask(row.place["id"], now)
+                if (key, row.place["id"]) not in self._answered
+                and (key, row.place["id"]) not in self._asking
+                and self._may_ask((key, row.place["id"]), now)
             ]
-            self._asking.update(row.place["id"] for row in missing)
+            self._asking.update((key, row.place["id"]) for row in missing)
 
         if missing:
             # Outside the lock: this is the network call, and holding a lock
@@ -384,7 +416,7 @@ class CachedReasonWriter:
             # round trip.
             fresh: dict[str, PlaceReason] = {}
             try:
-                fresh = self._writer(missing, self._group)
+                fresh = self._writer(missing, group)
             finally:
                 # `finally`, not the success path. A writer that raises has
                 # still spent the call, so its rows go on the cooldown like
@@ -398,26 +430,30 @@ class CachedReasonWriter:
                 # call in `except Exception`, so a raising one degrades in
                 # silence.
                 with self._lock:
-                    self._answered.update(fresh)
+                    self._answered.update(
+                        {(key, place_id): reason for place_id, reason in fresh.items()}
+                    )
                     for row in missing:
                         place_id = row.place["id"]
                         if place_id in fresh:
-                            self._refused_at.pop(place_id, None)
+                            self._refused_at.pop((key, place_id), None)
                         else:
-                            self._refused_at[place_id] = now
-                    self._asking.difference_update(row.place["id"] for row in missing)
+                            self._refused_at[(key, place_id)] = now
+                    self._asking.difference_update(
+                        (key, row.place["id"]) for row in missing
+                    )
 
         with self._lock:
             return {
-                row.place["id"]: self._answered[row.place["id"]]
+                row.place["id"]: self._answered[(key, row.place["id"])]
                 for row in rows
-                if row.place["id"] in self._answered
+                if (key, row.place["id"]) in self._answered
             }
 
-    def _may_ask(self, place_id: str, now: float) -> bool:
+    def _may_ask(self, key: tuple[str, str], now: float) -> bool:
         """Caller holds the lock."""
 
-        refused_at = self._refused_at.get(place_id)
+        refused_at = self._refused_at.get(key)
         return refused_at is None or now - refused_at >= self._cooldown_seconds
 
 
@@ -458,7 +494,7 @@ def get_place_searcher():
 # ---------------------------------------------------------------------------
 
 
-def _fallback_reason(place: dict[str, Any], group: GroupProfile) -> str:
+def _fallback_reason(place: dict[str, Any]) -> str:
     """What a card says when no model answered for it.
 
     Assembled from the same figures the factor lines carry, so it is checkable
@@ -482,8 +518,22 @@ def _fallback_reason(place: dict[str, Any], group: GroupProfile) -> str:
     dau = ", ".join(manh) + ". " if manh else "Chưa có giá và khoảng cách cho chỗ này. "
     return (
         f"{dau}"
-        f"Điểm dưới đây do máy tính từ ngân sách, sở thích và khoảng cách của nhóm; "
+        f"Điểm dưới đây do máy tính từ ngân sách, sở thích và khoảng cách đã biết; "
         f"chưa có nhận xét của AI cho chỗ này."
+    )
+
+
+def _group_summary(group: TasteProfile) -> GroupSummary:
+    """The profile, as the response states it. Unknown stays unknown."""
+
+    return GroupSummary(
+        basis=group.basis,
+        size=group.size,
+        budget_per_person_vnd=group.budget_per_person_vnd,
+        interests=list(group.interests),
+        people=group.people,
+        people_answered=group.people_answered,
+        uncovered_interests=uncovered(group.interests),
     )
 
 
@@ -491,6 +541,7 @@ def _card(
     place: dict[str, Any],
     reason: str | None,
     verdict: Literal["hop", "tam", "khong-hop"] | None,
+    group: TasteProfile,
 ) -> Place:
     """One card, scored once.
 
@@ -513,12 +564,17 @@ def _card(
         reason = None
         verdict = None
 
-    score, factors = score_place(place, GROUP)
+    score, factors = score_place(place, group)
+    if score is None:
+        # Nothing known about who is asking, so there is no percentage to show
+        # and nothing for a sentence to be about. `match: null` is a shape the
+        # wire has always allowed and the app has always drawn as «no badge».
+        return Place(**{key: value for key, value in place.items()}, match=None)
     return Place(
         **{key: value for key, value in place.items()},
         match=Match(
             score=score,
-            reason=reason if reason else _fallback_reason(place, GROUP),
+            reason=reason if reason else _fallback_reason(place),
             source="ai" if reason else "none",
             verdict=verdict,
             factors=[MatchFactor(**factor) for factor in factors],
@@ -601,7 +657,8 @@ def list_destinations(
 def list_places(
     reason_writer: Annotated[Any, Depends(get_reason_writer)],
     repository: Annotated[ApiRepository, Depends(get_repository)],
-    context_id: Annotated[str | None, Query()] = None,
+    actor: Annotated[Actor | None, Depends(get_actor_optional)] = None,
+    context_id: Annotated[UUID | None, Query()] = None,
     category: Annotated[str | None, Query()] = None,
     q: Annotated[str | None, Query()] = None,
     destination: Annotated[str | None, Query()] = None,
@@ -618,9 +675,12 @@ def list_places(
     saying so, which would be false.
     """
 
-    del context_id
-
     service = ApiService(repository)
+    # Whose taste this page is scored against (M11). A group when the caller
+    # named one and belongs to it; their own answers when they are signed in;
+    # nobody when they are not -- and «nobody» means no percentages at all
+    # rather than percentages computed from an invented group.
+    group = service.taste_profile(actor, context_id)
     # One city at a time (M10). A catalogue that spans fifteen destinations is
     # not a list; asking for «places» without saying where is a question with
     # no answer, so the route picks the first destination and says which one it
@@ -648,14 +708,22 @@ def list_places(
     # for cards nobody scrolls to. The rows chosen are the ones the reader sees
     # first, ranked by the same arithmetic that orders the screen -- so the cap
     # never silently drops a card that would have been at the top.
+    #
+    # And nothing at all when the profile is empty: «hợp không?» has no
+    # subject, so there is no question to spend a model call on, and a
+    # sentence written for nobody would be flattery by construction.
     xep = sorted(
         safe_places(selected),
-        key=lambda place: (-score_place(place, GROUP)[0], place["id"]),
+        key=lambda place: (-(score_place(place, group)[0] or 0), place["id"]),
     )
-    rows = [ReasonRow(place=place) for place in xep[:MAX_REASON_ROWS]]
+    rows = (
+        [ReasonRow(place=place) for place in xep[:MAX_REASON_ROWS]]
+        if group.known
+        else []
+    )
     # Never lets a model outage become a 500 on a read-only catalogue.
     try:
-        written = reason_writer(rows) if rows else {}
+        written = reason_writer(rows, group) if rows else {}
     except Exception:  # noqa: BLE001
         written = {}
 
@@ -667,6 +735,7 @@ def list_places(
                 place,
                 reason.reason if reason else None,
                 reason.verdict if reason else None,
+                group,
             )
         )
 
@@ -684,10 +753,15 @@ def list_places(
     # neither. An unknown door is not an open one (it sorts with the closed
     # tier rather than ahead of a place known to be open), and an unrated place
     # sorts after a rated one at equal score instead of being ranked as zero.
+    # `match` is null when nothing is known about who is asking (M11), and an
+    # unscored card sorts after a scored one at the same tier rather than as a
+    # zero -- the same rule `rating` follows one line below. When nobody is
+    # known, every card is unscored and the order falls to open-now and rating,
+    # which is a catalogue browse order and is the honest one.
     out.sort(
         key=lambda place: (
             place.open_now is not True,
-            -place.match.score,
+            -(place.match.score if place.match is not None else -1),
             -(place.rating if place.rating is not None else -1.0),
             place.id,
         )
@@ -696,7 +770,7 @@ def list_places(
     return PlacesResponse(
         places=out,
         categories=[Category(**category_row) for category_row in CATEGORIES],
-        group=GroupSummary(**GROUP),
+        group=_group_summary(group),
         destination=_destination_summary(diem_den),
     )
 
@@ -710,6 +784,7 @@ def get_place(
     place_id: str,
     reason_writer: Annotated[Any, Depends(get_reason_writer)],
     repository: Annotated[ApiRepository, Depends(get_repository)],
+    actor: Annotated[Actor | None, Depends(get_actor_optional)] = None,
 ) -> PlaceDetail:
     """F10 -- one place, scored by the same arithmetic the grid used.
 
@@ -726,22 +801,28 @@ def get_place(
     full match anywhere and lands here as `place_id="search"`, answering 404 --
     the right answer for a path with no GET. The wiring test pins both.
 
-    No actor. The catalogue is the same public rows for everybody, this
-    handler reads no group data and takes no identity, so there is nothing here
-    to authorise -- exactly the position `GET /places` is in. The metering
+    The actor is optional (M11). The catalogue is the same public rows for
+    everybody and there is still nothing here to authorise; what a session buys
+    is a score, because a match percentage is a statement about particular
+    people and an anonymous reader is nobody. Signed out, the card comes back
+    with `match: null` and the row's own facts, which is the whole page minus
+    the badge. The metering
     argument that put `get_actor` on `/places/search` does not apply either: a
     reason is memoised per place per process, so a loop against this route costs
     one model call in total, not one per request.
     """
 
-    place = ApiService(repository).place_row(place_id)
+    service = ApiService(repository)
+    place = service.place_row(place_id)
     if place is None:
         raise ApiProblem(404, "place_not_found", "Không tìm thấy địa điểm này.")
 
+    group = service.taste_profile(actor, None)
     # Same failure posture as the list: a model outage must not turn a
-    # read-only catalogue row into a 500.
+    # read-only catalogue row into a 500. And no call at all for a reader we
+    # know nothing about: there is no «hợp với ai» for the model to answer.
     try:
-        written = reason_writer([ReasonRow(place=place)])
+        written = reason_writer([ReasonRow(place=place)], group) if group.known else {}
     except Exception:  # noqa: BLE001
         written = {}
     reason = written.get(place["id"])
@@ -750,6 +831,7 @@ def get_place(
         place,
         reason.reason if reason else None,
         reason.verdict if reason else None,
+        group,
     )
     return PlaceDetail(
         **card.model_dump(),
@@ -793,18 +875,22 @@ def search_places(
 
     limiter.check(actor.id)
 
+    service = ApiService(repository)
+    # The searcher's own profile: this route has no `context_id`, and the
+    # sentence somebody typed is about what THEY want.
+    group = service.taste_profile(actor, None)
     query = request.query
     unavailable = PlaceSearchResponse(
         query=query,
         understood=None,
         places=[],
         source="none",
-        group=GroupSummary(**GROUP),
+        group=_group_summary(group),
     )
 
-    rows = safe_places(ApiService(repository).place_rows())
+    rows = safe_places(service.place_rows())
     try:
-        raw = place_searcher(query, rows)
+        raw = place_searcher(query, rows, group)
     except Exception as error:  # noqa: BLE001 - a search box must not 500 on this
         logger.warning("place search: searcher failed (%s)", type(error).__name__)
         return unavailable
@@ -819,6 +905,20 @@ def search_places(
         logger.warning("place search: answer refused (%s)", error.code)
         return unavailable
 
+    # What the sentence is scored against. The caller's own answers when they
+    # have given any; otherwise the query itself -- somebody who typed «cho 6
+    # người dưới 300k» has just stated a budget and a headcount, and scoring
+    # against what they asked for is more honest than scoring against nobody.
+    # `understood` has already been grounded, so these are checked numbers.
+    if not group.known:
+        group = TasteProfile(
+            basis="ca-nhan",
+            budget_per_person_vnd=grounded["understood"].get("budget_per_person_vnd"),
+            size=grounded["understood"].get("group_size"),
+            people=1,
+            people_answered=0,
+        )
+
     out: list[Place] = []
     for item in grounded["results"]:
         place = item["place"]
@@ -826,7 +926,7 @@ def search_places(
         # Two reused gates, different blast radius, both per-row here because a
         # bad *sentence* about a real place is not a bad answer -- unlike a
         # place that does not exist, which `ground_search` already refused above.
-        if reason is not None and ungrounded_numbers(reason, place, GROUP):
+        if reason is not None and ungrounded_numbers(reason, place, group):
             logger.warning(
                 "place search: dropped ungrounded reason for %s", place["id"]
             )
@@ -839,7 +939,7 @@ def search_places(
         # what shipped `source: "ai"` beside `verdict: null` and cost the app
         # the whole response; `_card` now refuses to build that pair at all,
         # so a gate above that drops the sentence drops the verdict with it.
-        out.append(_card(place, reason, item["verdict"]))
+        out.append(_card(place, reason, item["verdict"], group))
 
     # Not re-sorted. `GET /places` orders by open-now and score because it is a
     # catalogue; this is a search, and relevance to the sentence is the model's
@@ -849,5 +949,5 @@ def search_places(
         understood=Understood(**grounded["understood"]),
         places=out,
         source="ai",
-        group=GroupSummary(**GROUP),
+        group=_group_summary(group),
     )
