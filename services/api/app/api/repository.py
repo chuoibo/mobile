@@ -70,6 +70,7 @@ from app.db.models import (
     PayerAcknowledgement,
     PaymentReport,
     Person,
+    PersonInterest,
     Place,
     Post,
     PostAudience,
@@ -113,6 +114,8 @@ class PersonRecord:
     created_at: datetime
     bio: str | None = None
     city: str | None = None
+    #: Band id from `app.domain.interests`, or None for «did not answer» (M11).
+    budget_band: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1201,6 +1204,16 @@ class ApiRepository(Protocol):
 
     def list_login_providers(self, person_id: uuid.UUID) -> list[str]: ...
 
+    def list_person_interests(self, person_id: uuid.UUID) -> list[str]: ...
+
+    def set_person_interests(
+        self, person_id: uuid.UUID, tags: list[str], now: datetime
+    ) -> list[str]: ...
+
+    def interests_by_person(
+        self, person_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, list[str]]: ...
+
     def are_friends(self, a: uuid.UUID, b: uuid.UUID) -> bool: ...
 
     def share_active_context(self, a: uuid.UUID, b: uuid.UUID) -> bool: ...
@@ -1799,6 +1812,7 @@ class SqlAlchemyApiRepository:
             created_at=person.created_at,
             bio=person.bio,
             city=person.city,
+            budget_band=person.budget_band,
         )
 
     @staticmethod
@@ -3127,6 +3141,71 @@ class SqlAlchemyApiRepository:
                 .order_by(AccountIdentity.provider)
             )
         )
+
+    def list_person_interests(self, person_id: uuid.UUID) -> list[str]:
+        """This person's taste tags, in the vocabulary's own order.
+
+        Ordered by `tag` here and re-ordered by the domain in the service: the
+        database has no opinion about the reading order of a product list, and
+        sorting by `created_at` would make the same set read differently
+        depending on which chip somebody tapped first.
+        """
+        return list(
+            self.session.scalars(
+                select(PersonInterest.tag)
+                .where(PersonInterest.person_id == person_id)
+                .order_by(PersonInterest.tag)
+            )
+        )
+
+    def set_person_interests(
+        self, person_id: uuid.UUID, tags: list[str], now: datetime
+    ) -> list[str]:
+        """Replace the whole set. Unticking a chip is how a taste is taken back.
+
+        Delete-then-insert rather than a diff, because the request states the
+        complete answer: a diff would need the client to say what it removed,
+        and a client that gets that wrong leaves a taste nobody can see to
+        remove. Rows that survive keep their `created_at` -- the delete only
+        touches tags that are actually leaving.
+        """
+        rows = list(
+            self.session.scalars(
+                select(PersonInterest).where(PersonInterest.person_id == person_id)
+            )
+        )
+        current = {row.tag for row in rows}
+        wanted = set(tags)
+        for row in rows:
+            if row.tag not in wanted:
+                self.session.delete(row)
+        for tag in sorted(wanted - current):
+            self.session.add(
+                PersonInterest(person_id=person_id, tag=tag, created_at=now)
+            )
+        self.session.flush()
+        return self.list_person_interests(person_id)
+
+    def interests_by_person(
+        self, person_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, list[str]]:
+        """Tastes for several people in one query -- the group profile's input.
+
+        People with no tags are absent from the result rather than present with
+        an empty list: «did not answer» is the caller's to interpret, and the
+        caller already knows who it asked about.
+        """
+        if not person_ids:
+            return {}
+        out: dict[uuid.UUID, list[str]] = {}
+        rows = self.session.execute(
+            select(PersonInterest.person_id, PersonInterest.tag)
+            .where(PersonInterest.person_id.in_(person_ids))
+            .order_by(PersonInterest.person_id, PersonInterest.tag)
+        )
+        for person_id, tag in rows:
+            out.setdefault(person_id, []).append(tag)
+        return out
 
     def are_friends(self, a: uuid.UUID, b: uuid.UUID) -> bool:
         return (

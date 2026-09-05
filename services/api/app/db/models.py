@@ -963,6 +963,51 @@ class Person(Base):
     # derived from either, and neither is required.
     bio: Mapped[str | None] = mapped_column(Text, nullable=True)
     city: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # What this person said they usually spend on one outing (M11, ADR-0019).
+    # A band id from the closed list in `app/domain/interests.py`, never an
+    # amount: a budget kept as a number invites the midpoint of a range, and
+    # the midpoint of an odd range is half a đồng. NULL is «did not answer»,
+    # which is not the cheapest band -- nothing is assumed from silence.
+    budget_band: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class PersonInterest(Base):
+    """One taste one person claimed (M11, ADR-0019).
+
+    A row per tag rather than an array column, so a taste can be counted across
+    a group with one GROUP BY instead of unnesting, and so the foreign key to
+    `people` is a real one.
+
+    `tag` is a word from the closed vocabulary the domain owns. There is no
+    CHECK listing the words here on purpose: the list is a product decision
+    that will grow, and a database constraint would make adding a chip a
+    migration. What the database does enforce is that a person cannot claim the
+    same taste twice -- the thing that would corrupt every count computed from
+    this table.
+
+    These rows are the person's own. `GET /people/{id}` never carries them, and
+    a group only ever shows them summed across several people (ADR-0019 §2.1).
+    """
+
+    __tablename__ = "person_interests"
+    __table_args__ = (
+        UniqueConstraint("person_id", "tag", name="uq_person_interests_person_tag"),
+        CheckConstraint("length(btrim(tag)) > 0", name="person_interest_tag_not_blank"),
+        Index("ix_person_interests_person", "person_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    person_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("people.id", name="fk_person_interests_person"),
+        nullable=False,
+    )
+    tag: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

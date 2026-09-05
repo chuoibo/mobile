@@ -200,6 +200,11 @@ _TABLE: dict[str, dict] = {
     },
     # Bookmarks are the person's, not the group's.
     "manage_saved_places": {"roles": {"member"}, "requires": ("is_self",)},
+    # Taste and budget are the person's too (M11, ADR-0019), and `is_self` is
+    # the whole rule: there is no action here for reading somebody else's,
+    # because no route hands one person another person's answers. A group only
+    # ever sees them summed.
+    "manage_own_interests": {"roles": {"member"}, "requires": ("is_self",)},
     # Resolving a telephone number the caller already holds to a person id.
     # No predicate beyond membership of the product, because the caller is
     # asking about a number they typed. What keeps this from being a directory

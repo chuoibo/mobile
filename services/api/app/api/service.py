@@ -76,6 +76,7 @@ from app.api.schemas import (
     BillSplitRequest,
     BillSplitResponse,
     BillSurchargeResponse,
+    BudgetBandResponse,
     ChatExpenseDraft,
     ChatExpenseDraftResponse,
     CheckinCreateRequest,
@@ -107,6 +108,9 @@ from app.api.schemas import (
     GroupRecapResponse,
     GroupSuggestionResponse,
     HeatmapArea,
+    InterestsUpdateRequest,
+    InterestTagResponse,
+    InterestVocabularyResponse,
     MapPlace,
     MeetingCandidate,
     MeetingPointRequest,
@@ -128,6 +132,7 @@ from app.api.schemas import (
     MessageQuery,
     MessageReactionsResponse,
     MessageResponse,
+    MyInterestsResponse,
     ObligationResponse,
     OtpRequestResponse,
     OutingCheckinListResponse,
@@ -213,6 +218,13 @@ from app.domain.friendship import (
 )
 from app.domain.friendship import (
     open_request as open_friendship_request,
+)
+from app.domain.interests import (
+    BUDGET_BANDS,
+    INTEREST_TAGS,
+    InterestError,
+    normalise_budget_band,
+    normalise_interests,
 )
 from app.domain.ledger import (
     LedgerError,
@@ -3010,6 +3022,69 @@ class ApiService:
             )
         return self._profile_response(person)
 
+    # --- personalization (M11, ADR-0019) ----------------------------------
+
+    def interest_vocabulary(self) -> InterestVocabularyResponse:
+        """The words a person may use, straight off the domain list.
+
+        No repository call and no actor: this is the product's vocabulary, not
+        anybody's data, and the screen that asks for it is drawn before there
+        is a session to ask with.
+        """
+
+        return InterestVocabularyResponse(
+            interests=[
+                InterestTagResponse(id=tag.id, label=tag.label) for tag in INTEREST_TAGS
+            ],
+            budget_bands=[
+                BudgetBandResponse(
+                    id=band.id,
+                    label=band.label,
+                    min_vnd=band.min_vnd,
+                    max_vnd=band.max_vnd,
+                )
+                for band in BUDGET_BANDS
+            ],
+        )
+
+    def set_my_interests(
+        self, request: InterestsUpdateRequest, actor: Actor
+    ) -> MyInterestsResponse:
+        """Store the whole answer this person just gave about themself.
+
+        Unknown words are refused rather than dropped: a client shipping a chip
+        the server does not know would otherwise look like it worked, and the
+        person would keep re-choosing a taste that never lands. The 422 does
+        not echo the word back -- it is a string somebody's client sent, and
+        error bodies are not the place to reflect input.
+        """
+
+        _require_permission("manage_own_interests", actor, {"is_self": True})
+        try:
+            tags = normalise_interests(list(request.interests))
+            band = normalise_budget_band(request.budget_band)
+        except InterestError as exc:
+            raise ApiProblem(
+                422,
+                str(exc),
+                "Lựa chọn không nằm trong danh sách máy chủ biết.",
+            ) from exc
+        person = self.repository.get_person(actor.id)
+        if person is None:
+            raise ApiProblem(
+                404, "person_not_found", "Chưa có hồ sơ cho tài khoản này."
+            )
+        stored = self.repository.set_person_interests(actor.id, tags, _now())
+        if band != person.budget_band:
+            self.repository.update_person_profile(
+                actor.id, changes={"budget_band": band}
+            )
+        # Ordered by the vocabulary on the way out too: the storage layer
+        # sorts by tag, and the reading order is a product decision.
+        return MyInterestsResponse(
+            interests=normalise_interests(stored), budget_band=band
+        )
+
     def _profile_response(self, person: PersonRecord) -> ProfileResponse:
         counts = self.repository.profile_counts(person.id)
         return ProfileResponse(
@@ -3026,6 +3101,10 @@ class ApiService:
                 memories=counts.memories,
             ),
             login_methods=self.repository.list_login_providers(person.id),
+            interests=normalise_interests(
+                self.repository.list_person_interests(person.id)
+            ),
+            budget_band=person.budget_band,
         )
 
     def get_person_profile(

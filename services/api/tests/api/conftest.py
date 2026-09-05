@@ -226,6 +226,7 @@ class FakeRepository(SeedCatalogueReads):
         # M2 profile: bookmarks, and the two sources the counts read that this
         # fake did not model before (outing -> context, and check-ins).
         self.saved_places: dict[tuple[uuid.UUID, str], SavedPlaceRecord] = {}
+        self.person_interests: dict[uuid.UUID, set[str]] = {}
         self.outings_by_context: dict[uuid.UUID, uuid.UUID] = {}
         self.stop_checkins: set[tuple[uuid.UUID, uuid.UUID]] = set()
         self.account_session_ids_by_digest: dict[bytes, uuid.UUID] = {}
@@ -889,6 +890,20 @@ class FakeRepository(SeedCatalogueReads):
             places_checked_in=places,
             memories=memories,
         )
+
+    def list_person_interests(self, person_id):
+        return sorted(self.person_interests.get(person_id, set()))
+
+    def set_person_interests(self, person_id, tags, now):
+        self.person_interests[person_id] = set(tags)
+        return self.list_person_interests(person_id)
+
+    def interests_by_person(self, person_ids):
+        return {
+            pid: sorted(self.person_interests[pid])
+            for pid in person_ids
+            if self.person_interests.get(pid)
+        }
 
     def list_login_providers(self, person_id):
         return sorted(
