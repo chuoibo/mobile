@@ -95,6 +95,9 @@ export function LoginScreen() {
           Nhập số di động để nhận mã 6 số qua tin nhắn. Chưa có tài khoản thì Rủ Đi tạo luôn, không cần mật khẩu.
         </Text>
       </CoverBand>
+      {/* One reading width for the whole column: on a tablet the field group and the
+          buttons below it used to sit on two different grids. */}
+      <View style={styles.column}>
       <View style={styles.form}>
         <Field
           accessibilityLabel="Ô số điện thoại"
@@ -163,6 +166,7 @@ export function LoginScreen() {
       <Text style={[typography.caption, styles.phapLy, { color: colors.inkFaint }]}>
         Số điện thoại chỉ dùng để gửi mã và không hiển thị cho người khác.
       </Text>
+      </View>
     </RudiScreen>
   );
 }
@@ -172,7 +176,8 @@ const styles = StyleSheet.create({
   band: { gap: 10 },
   chao: { marginTop: 6 },
   dan: { maxWidth: 520 },
-  form: { gap: 14, maxWidth: 560, width: "100%", alignSelf: "center" },
+  column: { gap: 20, maxWidth: 560, width: "100%", alignSelf: "center" },
+  form: { gap: 14 },
   orRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   orLine: { flex: 1, height: StyleSheet.hairlineWidth },
   khac: { gap: 10 },

@@ -7,7 +7,7 @@ import { luoiChatLieu } from "./luoi-chat-lieu";
 export interface GrainProps {
   material: keyof typeof chatLieu;
   /**
-   * Cloth 0.3 on the cover, paper 0.45 on pages, 0.42 inside a stamp. Measured
+   * Cloth 0.3 on the cover, paper 0.45 on pages, ink 0.26 inside a stamp. Measured
    * on the emulator at 1x: 0.11 / 0.07 read as flat colour. The tiles are
    * black-and-white noise with a neutral mean, so the token colour underneath
    * still measures the same to within a level.

@@ -4,8 +4,9 @@ import { Image, ImageSource } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import { useRouter } from "expo-router";
-import type { ComponentProps, ReactNode } from "react";
+import { createContext, useContext, useState, type ComponentProps, type ReactNode } from "react";
 import {
+  type LayoutChangeEvent,
   ActivityIndicator,
   DimensionValue,
   GestureResponderEvent,
@@ -114,6 +115,9 @@ export function RudiScreen({
   );
 }
 
+/** True inside a TopBar: a DemoBadge there shortens its label so the title can stay centred. */
+const TrongTopBar = createContext(false);
+
 export function TopBar({
   title,
   subtitle,
@@ -134,10 +138,22 @@ export function TopBar({
     if (onBack !== undefined) onBack();
     else router.back();
   };
+  // Both sides take the wider side's natural width, so the title is centred on
+  // the screen and not on whatever is left between a chevron and a badge. The
+  // natural width is measured on an inner view; measuring the slot itself would
+  // read back the minimum we set and never shrink again.
+  const [benRong, setBenRong] = useState({ trai: 0, phai: 0 });
+  const rongBen = Math.max(52, benRong.trai, benRong.phai);
+  const doBen = (ben: "trai" | "phai") => (e: LayoutChangeEvent) => {
+    const w = Math.ceil(e.nativeEvent.layout.width);
+    setBenRong((cu) => (cu[ben] === w ? cu : { ...cu, [ben]: w }));
+  };
 
   return (
+    <TrongTopBar.Provider value={true}>
     <View style={styles.topBar}>
-      <View style={styles.topBarSide}>
+      <View style={[styles.topBarSide, { minWidth: rongBen }]}>
+        <View onLayout={doBen("trai")} style={styles.topBarSideInner}>
         {back ? (
           <IconButton
             accessibilityLabel="Quay lại"
@@ -148,6 +164,7 @@ export function TopBar({
         ) : (
           <Logo compact />
         )}
+        </View>
       </View>
       <View style={styles.topBarTitleWrap}>
         {title ? (
@@ -164,8 +181,11 @@ export function TopBar({
           </Text>
         ) : null}
       </View>
-      <View style={[styles.topBarSide, styles.topBarRight]}>{right}</View>
+      <View style={[styles.topBarSide, styles.topBarRight, { minWidth: rongBen }]}>
+        <View onLayout={doBen("phai")} style={styles.topBarSideInner}>{right}</View>
+      </View>
     </View>
+    </TrongTopBar.Provider>
   );
 }
 
@@ -208,11 +228,16 @@ export function Eyebrow({ children, tone = "accent" }: { children: ReactNode; to
 export function DemoBadge({ label = "Dữ liệu demo" }: { label?: string }) {
   const { colors } = useRudiTheme();
   const { cheDo } = useRudiSession();
+  const trongTopBar = useContext(TrongTopBar);
   if (cheDo === "live") return null;
+  // In a title bar the full label cannot share a 360dp row with a centred title
+  // at font 1.3; the flask plus «Demo» keeps the honesty, the accessibility
+  // label keeps the full sentence for screen readers and the native gate.
+  const chu = trongTopBar && label === "Dữ liệu demo" ? "Demo" : label;
   return (
-    <View style={[styles.demoBadge, { backgroundColor: colors.card, borderColor: colors.line }]}>
+    <View accessibilityLabel={label} style={[styles.demoBadge, { backgroundColor: colors.card, borderColor: colors.line }]}>
       <Ionicons color={colors.inkFaint} name="flask-outline" size={12} />
-      <Text numberOfLines={1} style={[styles.demoText, { color: colors.inkFaint }]}>{label}</Text>
+      <Text numberOfLines={1} style={[styles.demoText, { color: colors.inkFaint }]}>{chu}</Text>
     </View>
   );
 }
@@ -920,10 +945,10 @@ const styles = StyleSheet.create({
   screenFooter: { width: "100%", paddingTop: 8, zIndex: 2 },
   tabletInner: { alignSelf: "center", maxWidth: 960, paddingTop: 22 },
   topBar: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  // Sides are at least the 48dp target wide; the right one grows for a badge
-  // («Dữ liệu demo») instead of truncating it. A wider right side shifts the
-  // centred title by a few dp only on demo/fixture screens.
+  // Sides are at least the 48dp target wide and always equal (see TopBar), so
+  // the title is centred on the screen even next to a badge.
   topBarSide: { minWidth: 52, flexShrink: 0, alignItems: "flex-start" },
+  topBarSideInner: { alignSelf: "flex-start" },
   topBarRight: { alignItems: "flex-end" },
   topBarTitleWrap: { flex: 1, alignItems: "center", paddingHorizontal: 8 },
   logoRow: { flexDirection: "row", alignItems: "center", flexShrink: 0, gap: 9 },

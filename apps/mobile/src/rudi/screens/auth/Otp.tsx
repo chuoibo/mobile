@@ -126,6 +126,7 @@ export function OtpScreen() {
           Mã đã gửi tới {cheSo(cho.phone)}. Có hiệu lực 5 phút; nhập đủ 6 số là tự kiểm.
         </Text>
       </CoverBand>
+      <View style={styles.column}>
       <View style={styles.form}>
         <OtpBoxes disabled={ban} length={DO_DAI_MA} onChange={doiMa} value={ma} />
         {trang.pha === "dang-xac-minh" ? (
@@ -152,6 +153,7 @@ export function OtpScreen() {
         ) : null}
       </View>
       <RudiButton disabled={ban} label="Đổi số điện thoại" onPress={doiSo} variant="ghost" />
+      </View>
     </RudiScreen>
   );
 }
@@ -160,6 +162,7 @@ const styles = StyleSheet.create({
   screen: { gap: 20 },
   band: { gap: 10 },
   dan: { maxWidth: 520 },
-  form: { gap: 16, maxWidth: 560, width: "100%", alignSelf: "center" },
+  column: { gap: 20, maxWidth: 560, width: "100%", alignSelf: "center" },
+  form: { gap: 16 },
   demNguoc: { textAlign: "center" },
 });

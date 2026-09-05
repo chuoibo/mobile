@@ -5,7 +5,9 @@ four files cannot disagree. Re-run after any colour change. Formatting of
 tokens.json is preserved by replacing whole blocks textually.
 """
 from __future__ import annotations
-import json, pathlib, re, sys
+import json
+import pathlib
+import re
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 TOKENS = ROOT / "packages/shared/tokens.json"
@@ -41,23 +43,26 @@ NONTEXT = [("lineStrong", "ground", "Viền control trên nền trang", True), (
 
 def lum(h):
     c = [int(h[i:i + 2], 16) / 255 for i in (1, 3, 5)]
-    l = [x / 12.92 if x <= 0.03928 else ((x + 0.055) / 1.055) ** 2.4 for x in c]
-    return 0.2126 * l[0] + 0.7152 * l[1] + 0.0722 * l[2]
+    lin = [x / 12.92 if x <= 0.03928 else ((x + 0.055) / 1.055) ** 2.4 for x in c]
+    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
 def cr(a, b):
-    la, lb = lum(a), lum(b); return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+    la, lb = lum(a), lum(b)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
 def tier(r): return "AAA" if r >= 7 else "AA"
 
 def table_text(pal):
     rows = ["| Cặp | Vai trò | Tỉ lệ | Ngưỡng |", "|---|---|---|---|"]
     for fg, bg, role in TEXT_PAIRS:
-        r = cr(pal[fg], pal[bg]); assert r >= 4.5, (fg, bg, r)
+        r = cr(pal[fg], pal[bg])
+        assert r >= 4.5, (fg, bg, r)
         rows.append(f"| `{fg}` {pal[fg]} trên `{bg}` {pal[bg]} | {role} | **{r:.2f}:1** | {tier(r)} |")
     return "\n".join(rows)
 def table_nontext(pal):
     rows = ["| Cặp | Vai trò | Tỉ lệ | Ngưỡng |", "|---|---|---|---|"]
     for fg, bg, role, control in NONTEXT:
         r = cr(pal[fg], pal[bg])
-        if control: assert r >= 3, (fg, bg, r)
+        if control:
+            assert r >= 3, (fg, bg, r)
         rows.append(f"| `{fg}` {pal[fg]} trên `{bg}` {pal[bg]} | {role} | **{r:.2f}:1** | {'1.4.11' if control else 'trang trí'} |")
     return "\n".join(rows)
 
@@ -74,7 +79,8 @@ def write_tokens():
         s = s.replace('    "violet": "#8350f6",\n', '    "violet": "#8350f6",\n    "teal": "#04a89d",\n', 1)
     if '"displayFace"' not in s:
         s = s.replace('  "type": {\n    "_":', '  "type": {\n    "displayFace": "BricolageGrotesque",\n    "hero": { "size": 40, "weight": "800", "tracking": -1.2 },\n    "_":', 1)
-    json.loads(s); TOKENS.write_text(s, encoding="utf-8")
+    json.loads(s)
+    TOKENS.write_text(s, encoding="utf-8")
 
 def css_name(k): return "--" + re.sub(r"([A-Z])", lambda m: "-" + m.group(1).lower(), k)
 def write_css():
@@ -88,19 +94,23 @@ def write_css():
                 # append after --warn
                 block_text = re.sub(r"(--warn:\s*#[0-9a-fA-F]{6};\n)", rf"\g<1>{indent}{n}: {v};\n", block_text, count=1)
         return block_text
-    m = re.search(r"(:root\s*\{)(.*?)(\})", s, re.S); assert m
+    m = re.search(r"(:root\s*\{)(.*?)(\})", s, re.S)
+    assert m
     s = s[:m.start(2)] + rewrite(m.group(2), LIGHT, "  ") + s[m.end(2):]
-    m = re.search(r"(prefers-color-scheme: dark\s*\)\s*\{\s*:root\s*\{)(.*?)(\})", s, re.S); assert m
+    m = re.search(r"(prefers-color-scheme: dark\s*\)\s*\{\s*:root\s*\{)(.*?)(\})", s, re.S)
+    assert m
     s = s[:m.start(2)] + rewrite(m.group(2), DARK, "    ") + s[m.end(2):]
     CSS.write_text(s, encoding="utf-8")
 
 def splice(s, start_marker, end_marker, new_body):
-    a = s.index(start_marker) + len(start_marker); b = s.index(end_marker, a)
+    a = s.index(start_marker) + len(start_marker)
+    b = s.index(end_marker, a)
     return s[:a] + "\n\n" + new_body + "\n" + s[b:]
 
 def write_design():
     s = DESIGN.read_text(encoding="utf-8")
-    sec = s.index("## Màu, kèm số đo tương phản"); nt = s.index("## Sàn phi-chữ 3:1")
+    sec = s.index("## Màu, kèm số đo tương phản")
+    nt = s.index("## Sàn phi-chữ 3:1")
     head, rest = s[:sec], s[sec:]
     ratios = [cr(p[fg], p[bg]) for p in (LIGHT, DARK) for fg, bg, _ in TEXT_PAIRS]
     intro = (f"## Màu, kèm số đo tương phản\n\n{len(ratios)} cặp chữ trên nền mà hệ này thật sự dùng đều được đo, cả trang giấy lẫn bìa sổ. "
@@ -108,10 +118,11 @@ def write_design():
              "Bảng này chỉ đo **chữ**. Ranh giới của thành phần giao diện đi theo ngưỡng khác và nằm ở mục \"Sàn phi-chữ 3:1\" bên dưới. "
              "Đọc thiếu mục đó là cách lỗi viền nút 1.21:1 đã lọt qua một lần.\n\n"
              f"### Chế độ sáng\n\n{table_text(LIGHT)}\n\n### Chế độ tối\n\n{table_text(DARK)}\n\n")
-    rest = intro + rest[rest.index("## Sàn phi-chữ 3:1") - 0:] if False else intro + s[nt:]
+    rest = intro + s[nt:]
     s = head + rest
     # non-text tables: replace the two tables under "## Sàn phi-chữ"
-    a = s.index("## Sàn phi-chữ 3:1"); b = s.index("### Tầng thương hiệu", a)
+    a = s.index("## Sàn phi-chữ 3:1")
+    b = s.index("### Tầng thương hiệu", a)
     seg = s[a:b]
     i = seg.index("### Chế độ sáng")
     seg = seg[:i] + f"### Chế độ sáng\n\n{table_nontext(LIGHT)}\n\n### Chế độ tối\n\n{table_nontext(DARK)}\n\n" \
@@ -120,8 +131,10 @@ def write_design():
     DESIGN.write_text(s, encoding="utf-8")
 
 def write_design_json():
-    d = json.loads(DJSON.read_text(encoding="utf-8")); t = json.loads(TOKENS.read_text(encoding="utf-8"))
-    d["color"] = t["color"]; d["brand"] = t["brand"]; d["type"] = t["type"]; d["motion"] = t["motion"]; d["radius"] = t["radius"]; d["space"] = t["space"]
+    d = json.loads(DJSON.read_text(encoding="utf-8"))
+    t = json.loads(TOKENS.read_text(encoding="utf-8"))
+    for k in ("color", "brand", "type", "motion", "radius", "space"):
+        d[k] = t[k]
     light = [{"fg": fg, "bg": bg, "fgHex": LIGHT[fg], "bgHex": LIGHT[bg], "ratio": round(cr(LIGHT[fg], LIGHT[bg]), 2)} for fg, bg, _ in TEXT_PAIRS]
     dark = [{"fg": fg, "bg": bg, "fgHex": DARK[fg], "bgHex": DARK[bg], "ratio": round(cr(DARK[fg], DARK[bg]), 2)} for fg, bg, _ in TEXT_PAIRS]
     allr = [x["ratio"] for x in light + dark]
@@ -131,5 +144,8 @@ def write_design_json():
     DJSON.write_text(json.dumps(d, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 if __name__ == "__main__":
-    write_tokens(); write_css(); write_design(); write_design_json()
+    write_tokens()
+    write_css()
+    write_design()
+    write_design_json()
     print("tokens.json, guest.css, DESIGN.md, design.json regenerated")

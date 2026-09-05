@@ -485,6 +485,14 @@
         "controlled-artifact"
       ],
       "reason": "Ô chất liệu 256×256 nền trong suốt cho thế giới «nhật ký chuyến đi» (UI v2, ADR-0020): sinh bằng script Pillow seed cố định, không phải ảnh chụp, không chứa người hay dữ liệu thật; provenance nhúng trong PNG bằng imp embed-prompt; README cùng thư mục ghi cấu tạo. Ghim digest để đổi một byte phải review lại."
+    },
+    {
+      "path": "apps/mobile/assets/textures/muc-in.png",
+      "sha256": "5fb4db0927f0bab1637c49e1a63e9563822187c966da5403c413272e996a980d",
+      "rules": [
+        "controlled-artifact"
+      ],
+      "reason": "Ô chất liệu 256×256 nền trong suốt «mực in» cho con dấu (UI v2, ADR-0020): sinh bằng scripts/sinh_chat_lieu_ui_v2.py (Python random seed 20260905, chạy lại ra đúng từng byte), không phải ảnh chụp, không chứa người hay dữ liệu thật; provenance nhúng trong PNG (tEXt Comment + imp embed-prompt). Ghim digest để đổi một byte phải review lại."
     }
   ]
 }

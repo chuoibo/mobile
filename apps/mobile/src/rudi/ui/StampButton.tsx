@@ -22,7 +22,7 @@ export interface StampButtonProps {
  *
  * Not a pill: no drop shadow (a stamp sits IN the paper, it does not float),
  * a double ink edge (the outer line the rubber leaves, a fainter inner line
- * where the ink pooled), coral ink whose fill is broken by paper grain, and
+ * where the ink pooled), coral ink whose fill is broken by the ink tile, and
  * a slight tilt on the cover. Lettering is the display face in the static
  * dark ink (`mauSang.ink`, 5.41:1 on coral in either scheme); coral itself is a
  * large area, so the brand tier is allowed.
@@ -55,7 +55,8 @@ export function StampButton({ label, onPress, icon = "arrow-forward", disabled, 
         style,
       ]}
     >
-      <Grain material="giayTrang" opacity={0.42} />
+      {/* Ink, not paper: the sparse paper tile measured flat on coral (stddev 2); this one lands at ~8 levels at 1x, like the cloth. */}
+      <Grain material="mucIn" opacity={0.26} />
       <View pointerEvents="none" style={[styles.innerEdge, { borderColor: phuMau(muc, 0.32) }]} />
       <View style={styles.row}>
         {busy ? <ActivityIndicator color={muc} /> : null}
