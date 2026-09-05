@@ -69,5 +69,6 @@ def test_script_sinh_ra_dung_tung_byte() -> None:
     anh = mod.sinh()
     tren_dia = Image.open(THU_MUC / "muc-in.png").convert("RGBA")
     assert list(anh.getdata()) == list(tren_dia.getdata()), "muc-in.png trên đĩa không khớp script sinh (đổi tham số mà chưa sinh lại?)"
-    buf = io.BytesIO(); anh.save(buf, format="PNG")
+    buf = io.BytesIO()
+    anh.save(buf, format="PNG")
     assert buf.tell() > 0
