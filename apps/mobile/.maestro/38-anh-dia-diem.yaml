@@ -45,5 +45,13 @@ appId: com.lakiet.rudi
     visible: "Chỉ đường"
     timeout: 60000
 - assertVisible: "Ảnh có giấy phép chụp quanh đây.*"
-- assertVisible: "Ảnh quanh đây:.*"
+# Dưới từng tấm trong dải: cùng một tiền tố với thẻ (TIEN_TO_ANH), rồi tác giả
+# và giấy phép. Lượt 2 của bảng bắt đúng chỗ này: màn chi tiết khi ấy in
+# «Prenn · CC BY-SA 4.0» — credit có, tiền tố thì không, tức hai màn nói hai
+# kiểu về cùng một tấm ảnh.
+- assertVisible: "Ảnh quanh đây: .* · .*"
+# Khung vẽ ra mà ảnh không về là chuyện flow KHÔNG thấy được bằng chữ — lượt
+# 2026-09-06 đi qua hết mọi assert với hai khung rỗng. `MediaSlot` nay nói ra,
+# nên câu này là phép đo thật chứ không phải lời chúc.
+- assertNotVisible: "Chưa tải được ảnh"
 - takeScreenshot: 38-chi-tiet-co-anh

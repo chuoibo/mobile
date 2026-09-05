@@ -41,6 +41,7 @@ import {
   duongChiDuong,
   luuDiaDiem,
   nguonAnhDiaDiem,
+  TIEN_TO_ANH,
   type AnhDiaDiem,
 } from "../../kham-pha/dia-diem";
 import { typography, useRudiTheme } from "../../theme";
@@ -198,7 +199,7 @@ function DaiAnh({ anh }: { anh: AnhDiaDiem[] }) {
       {anh.map((a) => (
         <MediaSlot
           alt={a.title ?? "Ảnh có giấy phép chụp quanh đây"}
-          attribution={{ author: a.author, license: a.license }}
+          attribution={{ author: a.author, license: a.license, prefix: TIEN_TO_ANH }}
           key={a.id}
           radius={radius.base}
           source={nguonAnhDiaDiem(a)}

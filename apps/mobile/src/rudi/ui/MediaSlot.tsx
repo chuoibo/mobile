@@ -1,5 +1,5 @@
 import { Image, type ImageSource } from "expo-image";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { StyleSheet, Text, View, type DimensionValue, type StyleProp, type ViewStyle } from "react-native";
 
 import { MOTION_MS } from "../motion";
@@ -12,6 +12,14 @@ export interface Attribution {
   license: string;
   /** Where the file came from; shown as text, opened by the screen if it wants. */
   source?: string;
+  /**
+   * A qualifier the credit must not be read without, e.g. «Ảnh quanh đây: ».
+   *
+   * It belongs here rather than in a line the screen draws next to the slot,
+   * because a qualifier that can be laid out separately is a qualifier that
+   * can end up on the other side of a scroll from the picture it qualifies.
+   */
+  prefix?: string;
 }
 
 export interface MediaSlotProps {
@@ -65,6 +73,13 @@ export function MediaSlot({
   testID,
 }: MediaSlotProps) {
   const { colors, radius: r, space } = useRudiTheme();
+  // A picture that fails to load leaves the frame drawn and empty, which reads
+  // as «this place looks like nothing» rather than as a broken address. It
+  // stayed invisible for a whole board run: the credit under the frame was
+  // correct, every assertion passed, and the two pictures were never there.
+  // Saying it out loud costs one line and gives a flow something to assert.
+  const [hong, setHong] = useState(false);
+  useEffect(() => setHong(false), [source]);
   const frame: ViewStyle = height !== undefined ? { width, height } : { width, aspectRatio: ratio };
   return (
     <View testID={testID} style={style}>
@@ -74,6 +89,7 @@ export function MediaSlot({
             accessibilityLabel={alt}
             source={source}
             contentFit={contentFit}
+            onError={() => setHong(true)}
             transition={MOTION_MS.standard}
             style={StyleSheet.absoluteFill}
           />
@@ -84,6 +100,11 @@ export function MediaSlot({
         )}
         {overlay ? <View style={StyleSheet.absoluteFill} pointerEvents="box-none">{overlay}</View> : null}
       </View>
+      {source && hong ? (
+        <Text style={[typography.caption, { color: colors.warn, marginTop: space.xs }]}>
+          Chưa tải được ảnh
+        </Text>
+      ) : null}
       {source && attribution ? (
         // Two lines, not one: this credit is the condition on which the picture
         // above it is allowed to be here, so a long author name has to wrap
@@ -92,6 +113,7 @@ export function MediaSlot({
           numberOfLines={2}
           style={[typography.caption, { color: colors.inkFaint, marginTop: space.xs }]}
         >
+          {attribution.prefix ?? ""}
           {attribution.author} · {attribution.license}
           {attribution.source ? ` · ${attribution.source}` : ""}
         </Text>

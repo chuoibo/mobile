@@ -1225,6 +1225,11 @@ cd "$APP"
 BANG=0
 DA_CHAY=0
 DO_LIST=""
+# Tên các flow ĐÃ chạy trong lượt này. Bảng mini (`--flows`) chỉ có vài flow,
+# và phép kiểm máy chủ của một flow KHÔNG chạy thì hoặc đỏ vì môi trường không
+# có gì để kiểm, hoặc tệ hơn là xanh vì trạng thái sót lại của lượt trước —
+# cả hai đều là câu trả lời cho một câu hỏi không ai hỏi.
+DA_CHAY_TEN=" "
 HA_TANG=""
 
 # Một flow đỏ vì máy ảo rụng KHÔNG phải một flow đỏ vì app sai, và cổng nào
@@ -1319,6 +1324,7 @@ for f in "$FLOWS"/*.yaml; do
     34-*) chuan_bi_anh_cho_34 ;;
   esac
   DA_CHAY=$((DA_CHAY + 1))
+  DA_CHAY_TEN="$DA_CHAY_TEN${ten%%-*} "
   set +e; chay_flow "$f"; rc=$?; set -e
   if [ "$rc" -eq 99 ]; then
     echo "  hạ tầng rụng ở $ten, thử lại một lần"
@@ -1380,20 +1386,42 @@ fi
 
 [ "$BANG" -eq 0 ] || hong "flow đỏ:$DO_LIST"
 
+# Chỉ kiểm những flow ĐÃ chạy. Trên bảng đầy đủ đây là mọi phép kiểm, không đổi
+# gì; trên bảng mini nó là khác nhau giữa «đo được cái vừa lái» và một câu đỏ về
+# một flow không có mặt (lượt 2026-09-06: bảng 22+26+38 đỏ ở kiem_may_chu_sau_24).
+da_chay() { case "$DA_CHAY_TEN" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+
+# Bảy phép kiểm dưới đây hỏi máy chủ về NGƯỜI D, còn flow của chúng lại chạy
+# trên phiên đang sống. Hai thứ ấy chỉ là một khi flow 25 đã đổi phiên sang D
+# — flow 22 đăng nhập bằng OTP_PHONE, không phải OTP_PHONE_D. Trên bảng đầy đủ
+# 25 luôn có nên không ai thấy sự phụ thuộc này; trên bảng mini nó làm phép
+# kiểm hỏi nhầm người và ra một câu đỏ nói về tính năng chứ không nói về bảng
+# (lượt 2026-09-06: «máy chủ giữ 0 địa điểm đã lưu cho D» trong khi màn vừa
+# lưu thật cho người của flow 22).
+#
+# Bỏ qua thì phải NÓI RA. Một phép kiểm tự tháo trong im lặng là dấu xanh cho
+# một câu hỏi không ai hỏi.
+kiem_can_25() {
+  da_chay 25 && return 0
+  echo "BỎ QUA $1: bảng này không có flow 25 nên phiên sống không phải của D;" \
+       "phép kiểm sẽ hỏi nhầm người. KHÔNG đọc dòng này thành «đã kiểm»."
+  return 1
+}
+
 if [ "$OTP" = 1 ]; then
-  kiem_may_chu_sau_24
-  kiem_may_chu_sau_25
-  kiem_may_chu_sau_26
-  kiem_may_chu_sau_27
-  kiem_may_chu_sau_28
-  kiem_may_chu_sau_29
-  kiem_may_chu_sau_32
-  kiem_may_chu_sau_33
-  kiem_may_chu_sau_34
-  kiem_may_chu_sau_35
-  kiem_may_chu_sau_36
-  [ "$TAT_KAV" = 1 ] || kiem_may_chu_sau_30
-  [ "$AI" = 1 ] && [ "$TAT_KAV" = 0 ] && kiem_may_chu_sau_40
+  da_chay 24 && kiem_can_25 kiem_may_chu_sau_24 && kiem_may_chu_sau_24
+  da_chay 25 && kiem_may_chu_sau_25
+  da_chay 26 && kiem_can_25 kiem_may_chu_sau_26 && kiem_may_chu_sau_26
+  da_chay 27 && kiem_can_25 kiem_may_chu_sau_27 && kiem_may_chu_sau_27
+  da_chay 28 && kiem_can_25 kiem_may_chu_sau_28 && kiem_may_chu_sau_28
+  da_chay 29 && kiem_can_25 kiem_may_chu_sau_29 && kiem_may_chu_sau_29
+  da_chay 32 && kiem_can_25 kiem_may_chu_sau_32 && kiem_may_chu_sau_32
+  da_chay 33 && kiem_can_25 kiem_may_chu_sau_33 && kiem_may_chu_sau_33
+  da_chay 34 && kiem_can_25 kiem_may_chu_sau_34 && kiem_may_chu_sau_34
+  da_chay 35 && kiem_may_chu_sau_35
+  da_chay 36 && kiem_may_chu_sau_36
+  { [ "$TAT_KAV" = 1 ] || ! da_chay 30; } || kiem_may_chu_sau_30
+  [ "$AI" = 1 ] && [ "$TAT_KAV" = 0 ] && da_chay 40 && kiem_may_chu_sau_40
   canary_otp
 elif [ "$LIVE" = 1 ]; then
   kiem_may_chu_sau_20

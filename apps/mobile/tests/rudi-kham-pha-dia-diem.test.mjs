@@ -11,10 +11,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { datTokenPhien } from "../dist-test/api.js";
+import { BASE_URL, datTokenPhien } from "../dist-test/api.js";
 import {
   anhBiaThe,
   CAU_NGUON_ANH,
+  TIEN_TO_ANH,
   bieuTuongLoai,
   boLuuDiaDiem,
   cauDuongDi,
@@ -334,10 +335,25 @@ test("docAnhDiaDiem đọc gallery công khai, không mang bearer", async () => 
   assert.equal(goi[0].init.headers?.Authorization, undefined, "ảnh địa điểm là công khai");
 });
 
-test("nguồn ảnh là địa chỉ của chính máy chủ này, và câu giấy phép có cả hai vế", () => {
+test("nguồn ảnh là địa chỉ TRỌN VẸN, không nối thêm base lần thứ hai", () => {
   const anh = parseAnhDiaDiem(ANH, "photos[0]");
-  assert.ok(nguonAnhDiaDiem(anh).uri.endsWith(ANH.url));
+  const uri = nguonAnhDiaDiem(anh).uri;
+  // `endsWith` không đủ: chuỗi bị nối base hai lần VẪN kết thúc đúng đường dẫn.
+  // Lượt bảng 2026-09-06 vẽ hai khung rỗng dưới hai credit đúng vì đúng chuyện
+  // đó, và không assertion nào của flow thấy được.
+  assert.equal(uri, BASE_URL + ANH.url);
+  assert.equal(uri.match(/https?:\/\//g).length, 1, `địa chỉ nối hai lần: ${uri}`);
   assert.equal(cauGiayPhep(anh), "Ảnh quanh đây: Nguyễn A · CC BY-SA 4.0");
+});
+
+test("ảnh bìa của thẻ cũng là địa chỉ trọn vẹn, không nối hai lần", () => {
+  const bia = anhBiaThe({
+    photoUrl: BASE_URL + "/places/p-1/photos/a",
+    photoAuthor: "Nguyễn A",
+    photoLicense: "CC BY-SA 4.0",
+  });
+  assert.equal(bia.nguon.uri, BASE_URL + "/places/p-1/photos/a");
+  assert.equal(bia.nguon.uri.match(/https?:\/\//g).length, 1);
 });
 
 test("thẻ chỉ vẽ ảnh bìa khi giấy phép đi cùng; thiếu một vế thì quay về dải chữ", () => {
@@ -352,6 +368,10 @@ test("thẻ chỉ vẽ ảnh bìa khi giấy phép đi cùng; thiếu một vế
 test("credit không bao giờ nói ảnh là của chính nơi này — importer tìm theo bán kính 250 m", () => {
   const anh = parseAnhDiaDiem(ANH, "photos[0]");
   assert.match(cauGiayPhep(anh), /quanh đây/);
+  // Thẻ dựng cả câu, màn chi tiết đưa TIEN_TO_ANH cho MediaSlot rồi nó ghép
+  // với «tác giả · giấy phép». Một hằng chung để hai màn không nói hai kiểu.
+  assert.ok(cauGiayPhep(anh).startsWith(TIEN_TO_ANH), "thẻ phải bắt đầu bằng đúng tiền tố ấy");
+  assert.equal(TIEN_TO_ANH + anh.author + " · " + anh.license, cauGiayPhep(anh));
   assert.match(CAU_NGUON_ANH, /Không phải ảnh do nơi này cung cấp/);
   assert.match(CAU_NGUON_ANH, /Wikimedia Commons/);
 });

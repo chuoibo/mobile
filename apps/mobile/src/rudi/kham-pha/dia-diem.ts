@@ -188,7 +188,15 @@ export async function docChiTiet(placeId: string): Promise<PlaceDetail> {
  */
 export type AnhDiaDiem = {
   id: string;
-  /** A path on this app's own API, origin-checked like every other image. */
+  /**
+   * An ABSOLUTE url on this app's own API.
+   *
+   * `nguonAnhAnToan` resolves the server's relative path against `BASE_URL`
+   * and hands back the finished address, so nothing downstream may prepend
+   * the base again. It did, for one run: the strip drew two empty frames with
+   * correct credits under them, because `http://…:46025http://…:46025/places/…`
+   * is a string an `<Image>` fails on in silence.
+   */
   url: string;
   author: string;
   license: string;
@@ -251,9 +259,10 @@ export async function docAnhDiaDiem(placeId: string): Promise<AnhDiaDiem[]> {
   return (body.photos ?? []).map((raw, i) => parseAnhDiaDiem(raw, `photos[${i}]`));
 }
 
-/** What an `<Image>` needs. No headers: these bytes are public. */
+/** What an `<Image>` needs. No headers: these bytes are public, and the
+ *  address is already absolute (see `AnhDiaDiem.url`). */
 export function nguonAnhDiaDiem(anh: Pick<AnhDiaDiem, "url">): { uri: string } {
-  return { uri: BASE_URL + anh.url };
+  return { uri: anh.url };
 }
 
 /**
@@ -271,8 +280,15 @@ export function nguonAnhDiaDiem(anh: Pick<AnhDiaDiem, "url">): { uri: string } {
  * failure as a stock photo wearing a real name.
  */
 export function cauGiayPhep(anh: Pick<AnhDiaDiem, "author" | "license">): string {
-  return `Ảnh quanh đây: ${anh.author} · ${anh.license}`;
+  return `${TIEN_TO_ANH}${anh.author} · ${anh.license}`;
 }
+
+/**
+ * The qualifier every credit carries, on the card and under the photograph
+ * alike. One constant because two screens saying it two ways is how the
+ * careful half of a sentence goes missing on one of them.
+ */
+export const TIEN_TO_ANH = "Ảnh quanh đây: ";
 
 /**
  * The one sentence under a gallery, where there is room to say the whole
@@ -297,7 +313,10 @@ export function anhBiaThe(
     return null;
   }
   return {
-    nguon: { uri: BASE_URL + place.photoUrl },
+    // `parsePlace` ran the cover through `nguonAnhAnToan` already, so this is
+    // the finished address. Prepending the base here is the bug that drew an
+    // empty frame under a correct credit.
+    nguon: { uri: place.photoUrl },
     giayPhep: cauGiayPhep({ author: place.photoAuthor, license: place.photoLicense }),
   };
 }
