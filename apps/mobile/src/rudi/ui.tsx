@@ -25,7 +25,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { DemoPerson } from "./fixtures";
 import { useRudiSession } from "./session";
-import { cardShadow, lopPhu, mauSang, mucTrenAnh, nenAnhTrong, RudiTone, toneColor, toneSoftColor, typography, useRudiTheme } from "./theme";
+import { cardShadow, lopPhu, mauSang, mucTrenAnh, nenAnhTrong, RudiTone, toneColor, toneSoftColor, typography, useRudiTheme, displayFace } from "./theme";
+import { useAdaptiveLayout } from "./ui/useAdaptiveLayout";
+import { Wordmark } from "./ui/Wordmark";
 
 export type IconName = ComponentProps<typeof Ionicons>["name"];
 
@@ -44,7 +46,7 @@ type ScreenProps = {
 export function RudiScreen({
   children,
   scroll = true,
-  tone = "accent",
+  tone: _tone = "accent",
   padded = true,
   bottomInset = 32,
   footer,
@@ -53,8 +55,8 @@ export function RudiScreen({
   testID,
 }: ScreenProps) {
   const { colors, dark, space } = useRudiTheme();
-  const { width } = useWindowDimensions();
-  const tablet = width >= 700;
+  const layout = useAdaptiveLayout();
+  const tablet = layout.sizeClass !== "compact";
   const inner = [
     styles.screenInner,
     padded && { paddingHorizontal: tablet ? space.lg : space.md },
@@ -69,7 +71,6 @@ export function RudiScreen({
       style={[styles.safeArea, { backgroundColor: colors.ground }]}
       testID={testID}
     >
-      <AmbientBackdrop tone={tone} />
       {scroll ? (
         <ScrollView
           contentContainerStyle={inner}
@@ -95,24 +96,6 @@ export function RudiScreen({
       ) : null}
       {Platform.OS === "web" && dark ? null : null}
     </SafeAreaView>
-  );
-}
-
-function AmbientBackdrop({ tone }: { tone: RudiTone }) {
-  const { colors } = useRudiTheme();
-  const color = toneSoftColor(colors, tone);
-
-  return (
-    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-      <View style={[styles.glow, styles.glowTop, { backgroundColor: color }]} />
-      <View
-        style={[
-          styles.glow,
-          styles.glowBottom,
-          { backgroundColor: colors.accentSoft },
-        ]}
-      />
-    </View>
   );
 }
 
@@ -172,7 +155,7 @@ export function TopBar({
 }
 
 export function Logo({ compact = false }: { compact?: boolean }) {
-  const { brand } = useRudiTheme();
+  const { brand, colors } = useRudiTheme();
   return (
     <View style={styles.logoRow} accessibilityLabel="Rủ Đi">
       <LinearGradient
@@ -185,10 +168,7 @@ export function Logo({ compact = false }: { compact?: boolean }) {
           Rủ{"\n"}Đi
         </Text>
       </LinearGradient>
-      <View style={styles.logoWordmark}>
-        <Text style={[styles.logoType, compact && styles.logoTypeCompact]}>Rủ</Text>
-        <Text style={[styles.logoType, compact && styles.logoTypeCompact]}>Đi</Text>
-      </View>
+      <Wordmark height={compact ? 18 : 26} color={colors.ink} />
     </View>
   );
 }
@@ -923,21 +903,15 @@ const styles = StyleSheet.create({
   screenInner: { width: "100%", gap: 18, paddingTop: 8 },
   screenFooter: { width: "100%", paddingTop: 8, zIndex: 2 },
   tabletInner: { alignSelf: "center", maxWidth: 960, paddingTop: 22 },
-  glow: { position: "absolute", width: 310, height: 310, borderRadius: 999, opacity: 0.52 },
-  glowTop: { right: -170, top: -190 },
-  glowBottom: { bottom: -220, left: -190, opacity: 0.34 },
   topBar: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   topBarSide: { width: 52, alignItems: "flex-start" },
   topBarRight: { alignItems: "flex-end" },
   topBarTitleWrap: { flex: 1, alignItems: "center", paddingHorizontal: 8 },
   logoRow: { flexDirection: "row", alignItems: "center", flexShrink: 0, gap: 9 },
-  logoWordmark: { flexDirection: "row", alignItems: "center", flexShrink: 0, gap: 4 },
   logoMark: { width: 48, height: 48, borderRadius: 17, alignItems: "center", justifyContent: "center", transform: [{ rotate: "-4deg" }] },
   logoMarkCompact: { width: 40, height: 40, borderRadius: 14 },
-  logoMarkType: { color: mucTrenAnh, fontSize: 14, lineHeight: 12, fontStyle: "italic", fontWeight: "900", letterSpacing: -0.8, textAlign: "center" },
+  logoMarkType: { color: mucTrenAnh, fontFamily: displayFace.extraBold, fontSize: 14, lineHeight: 13, letterSpacing: -0.6, textAlign: "center", transform: [{ skewX: "-9deg" }] },
   logoMarkTypeCompact: { fontSize: 12, lineHeight: 11 },
-  logoType: { color: mauSang.accent, fontSize: 29, lineHeight: 34, fontStyle: "italic", fontWeight: "900", letterSpacing: -1.7 },
-  logoTypeCompact: { fontSize: 18, lineHeight: 22, letterSpacing: -1.2 },
   eyebrow: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 11, paddingVertical: 7, borderRadius: 999 },
   eyebrowDot: { width: 6, height: 6, borderRadius: 3 },
   demoBadge: { flexDirection: "row", alignItems: "center", alignSelf: "flex-start", gap: 5, borderWidth: 1, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 5 },
