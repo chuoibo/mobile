@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import Destination, Place
+from app.places.activities import hoat_dong_theo_dong
 from app.places.catalog import PLACES
 from app.places.details import find_detail
 
@@ -110,6 +111,10 @@ def seed_place_catalog(session: Session) -> tuple[int, int]:
                 photo_count=place["photo_count"],
                 traits=list(place["traits"]),
                 group_fit=dict(place["group_fit"]),
+                # «Nên làm gì ở đây» (M12). The seed rows have no OSM tags, so
+                # the phrases are read off the columns they do have -- same
+                # rule, applied to the vocabulary this file is written in.
+                activities=hoat_dong_theo_dong(place),
                 flag=place["flag"],
                 description=None if prose is None else prose["description"],
                 reviews=None if prose is None else list(prose["reviews"]),

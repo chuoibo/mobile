@@ -87,6 +87,7 @@ from app.domain.capability import capability_scope
 from app.domain.friendship import Decision, FriendshipError
 from app.domain.friendship import decide as decide_friendship
 from app.domain.ledger import obligation_status
+from app.places.activities import doc_hoat_dong
 
 # A trip's `starts_on`/`ends_on` are wall-clock Vietnamese calendar days; an
 # expense's `occurred_at` is an instant. Folding the instant with whatever
@@ -534,6 +535,10 @@ class PlaceRecord:
     source: str
     source_ref: str | None
     license: str | None
+    #: «Nên làm gì ở đây» (M12), written by the importer from this row's own
+    #: tags. Last and defaulted so a row written before the column existed --
+    #: and every test double that builds one -- still describes a place.
+    activities: list[str] | None = None
 
     def to_row(self) -> dict[str, object]:
         return {
@@ -554,6 +559,7 @@ class PlaceRecord:
             "photo_count": self.photo_count,
             "traits": list(self.traits),
             "group_fit": self.group_fit,
+            "activities": doc_hoat_dong(self.activities),
             "flag": self.flag,
             "lat": self.lat,
             "lng": self.lng,
@@ -3331,6 +3337,7 @@ class SqlAlchemyApiRepository:
             photo_count=row.photo_count,
             traits=list(row.traits or []),
             group_fit=row.group_fit,
+            activities=row.activities,
             flag=row.flag,
             description=row.description,
             reviews=row.reviews,
