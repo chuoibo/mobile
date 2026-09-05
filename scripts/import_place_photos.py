@@ -14,6 +14,10 @@ This script is the only thing in the product allowed to call Commons; nothing
 serving a request does, and `tests/test_only_the_importer_talks_out.py` keeps it
 that way.
 
+Only real venues. Rows with `source='seed'` are the synthetic catalogue, and a
+real photograph under an invented business name is a lie in the shape of a
+photograph even when the credit beside it is correct.
+
 Refusal is the default. A file whose licence is not on the allowlist in
 `app/places/wikimedia.py`, or whose author or source page cannot be read, is
 skipped and counted. It is never imported with «Unknown» in an attribution
@@ -145,6 +149,25 @@ def nhap_cho_mot_dia_diem(
     return them, bo
 
 
+def cau_dia_diem_that(destination: str | None):
+    """Những địa điểm được phép gắn ảnh: chỗ CÓ THẬT.
+
+    Dòng `seed` là 12 địa điểm tổng hợp -- `app/places/catalog.py` tự nói «no
+    real business is being described» -- và toạ độ của chúng tuy hợp lý nhưng
+    không trỏ vào cơ sở nào. Geosearch quanh một toạ độ như thế vẫn trả về ảnh
+    thật của khu phố ấy, và một tấm ảnh thật đứng dưới tên một quán không tồn
+    tại là đúng thứ lời nói dối bằng hình mà ADR-0017 §4 bác bỏ -- credit đầy
+    đủ tới đâu cũng không cứu được, vì cái sai nằm ở cái tên chứ không ở tấm
+    ảnh. Lượt nhập đầu tiên trên máy đã gắn ảnh vào cả 12 dòng ấy trước khi
+    hàm này tồn tại.
+    """
+
+    cau = select(Place).where(Place.source != "seed").order_by(Place.id)
+    if destination:
+        cau = cau.where(Place.destination_id == destination)
+    return cau
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--destination", help="chỉ điểm đến này")
@@ -165,10 +188,7 @@ def main() -> int:
 
     tong_them = tong_bo = tong_cho = 0
     with Session(engine) as session:
-        cau = select(Place).order_by(Place.id)
-        if args.destination:
-            cau = cau.where(Place.destination_id == args.destination)
-        places = list(session.scalars(cau))
+        places = list(session.scalars(cau_dia_diem_that(args.destination)))
         for place in places:
             payload = (
                 payload_kho

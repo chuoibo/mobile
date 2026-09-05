@@ -126,8 +126,19 @@ export type Place = {
   openHours: string | null;
   travelMinutes: number | null;
   photoCount: number;
-  /** Server-sent photograph. Null today: the field is not sent yet. */
+  /** The cover photograph, as a path on this app's own API, or null for a
+   *  place nobody has photographed yet (M12). */
   photoUrl: string | null;
+  /**
+   * Whose photograph the cover is, and under what licence.
+   *
+   * They travel with the URL because ADR-0017 lets a photograph be *shown*
+   * only where its credit is shown: a card that has the picture but not the
+   * two words under it is not allowed to draw the picture. Null exactly when
+   * `photoUrl` is null.
+   */
+  photoAuthor: string | null;
+  photoLicense: string | null;
   traits: string[];
   groupFit: GroupFit | null;
   /** "new" | "hot" ribbon in the mockup's top-left. Null is the normal case. */
@@ -225,7 +236,7 @@ function strList(v: unknown, field: string): string[] {
 /**
  * Read a server-sent image URL. Tolerant on purpose: missing, null, a
  * non-string, or an empty string become `null` rather than a throw, because
- * today's server does not send this field and every card must still render.
+ * most places have no photograph and every card must still render.
  *
  * Only addresses on this app's own API are accepted, and the rule lives in
  * `nguonAnhAnToan` rather than here. This value goes straight into an
@@ -324,6 +335,8 @@ export function parsePlace(raw: unknown, field: string): Place {
     travelMinutes: intOrNull(p.travel_minutes, `${field}.travel_minutes`),
     photoCount: int(p.photo_count ?? 0, `${field}.photo_count`),
     photoUrl: parsePhotoUrl(p.photo_url),
+    photoAuthor: strOrNull(p.photo_author, `${field}.photo_author`),
+    photoLicense: strOrNull(p.photo_license, `${field}.photo_license`),
     traits: strList(p.traits ?? [], `${field}.traits`),
     groupFit: fit
       ? {

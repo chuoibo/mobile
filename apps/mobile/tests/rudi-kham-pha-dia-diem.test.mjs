@@ -11,23 +11,31 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { datTokenPhien } from "../dist-test/api.js";
+import { BASE_URL, datTokenPhien } from "../dist-test/api.js";
 import {
+  anhBiaThe,
+  CAU_NGUON_ANH,
+  TIEN_TO_ANH,
   bieuTuongLoai,
   boLuuDiaDiem,
   cauDuongDi,
   cauGia,
+  cauGiayPhep,
+  cauHoatDong,
   cauMoCua,
   cauNguonDuLieu,
   cauTimKiem,
   chiTietNgan,
   daoLuu,
+  docAnhDiaDiem,
   docChiTiet,
   docDaLuu,
   docDanhMuc,
   dongPhu,
   duongChiDuong,
   locTheoTen,
+  nguonAnhDiaDiem,
+  parseAnhDiaDiem,
   luuDiaDiem,
 } from "../dist-test/rudi/kham-pha/dia-diem.js";
 
@@ -284,4 +292,111 @@ test("lọc theo tên vẫn chạy khi địa chỉ rỗng", () => {
   const khongDiaChi = { ...CHO_OSM, address: null };
   assert.equal(locTheoTen([khongDiaChi], "suong").length, 1);
   assert.equal(locTheoTen([khongDiaChi], "hoa binh").length, 0);
+});
+
+/* ── Ảnh có giấy phép và «nên làm gì» (M12) ─────────────────────────────── */
+
+const ANH = {
+  id: "0f0e0d0c-0b0a-4a9b-8c7d-6e5f4a3b2c1d",
+  url: "/places/p-1/photos/0f0e0d0c-0b0a-4a9b-8c7d-6e5f4a3b2c1d",
+  author: "Nguyễn A",
+  license: "CC BY-SA 4.0",
+  source_url: "https://commons.wikimedia.org/wiki/File:X.jpg",
+  title: "Hồ Xuân Hương",
+  width: 1024,
+  height: 768,
+};
+
+test("ảnh thiếu tác giả, giấy phép hay nguồn bị từ chối chứ không vẽ thiếu credit", () => {
+  assert.deepEqual(parseAnhDiaDiem(ANH, "photos[0]").author, "Nguyễn A");
+  for (const khoa of ["author", "license", "source_url"]) {
+    assert.throws(
+      () => parseAnhDiaDiem({ ...ANH, [khoa]: "  " }, "photos[0]"),
+      new RegExp(khoa),
+      `thiếu ${khoa} phải ném`,
+    );
+  }
+});
+
+test("ảnh trỏ sang host khác bị từ chối: <Image> quay số cho bất kỳ địa chỉ nào nó nhận", () => {
+  assert.throws(
+    () => parseAnhDiaDiem({ ...ANH, url: "https://vi-du.example/anh.jpg" }, "photos[0]"),
+    /địa chỉ ảnh/,
+  );
+});
+
+test("docAnhDiaDiem đọc gallery công khai, không mang bearer", async () => {
+  datTokenPhien("token-thu");
+  const goi = gia(() => ({ status: 200, body: { place_id: "p-1", photos: [ANH] } }));
+  const ds = await docAnhDiaDiem("p-1");
+  assert.equal(ds.length, 1);
+  assert.equal(ds[0].sourceUrl, ANH.source_url);
+  assert.match(goi[0].url, /\/places\/p-1\/photos$/);
+  assert.equal(goi[0].init.headers?.Authorization, undefined, "ảnh địa điểm là công khai");
+});
+
+test("nguồn ảnh là địa chỉ TRỌN VẸN, không nối thêm base lần thứ hai", () => {
+  const anh = parseAnhDiaDiem(ANH, "photos[0]");
+  const uri = nguonAnhDiaDiem(anh).uri;
+  // `endsWith` không đủ: chuỗi bị nối base hai lần VẪN kết thúc đúng đường dẫn.
+  // Lượt bảng 2026-09-06 vẽ hai khung rỗng dưới hai credit đúng vì đúng chuyện
+  // đó, và không assertion nào của flow thấy được.
+  assert.equal(uri, BASE_URL + ANH.url);
+  assert.equal(uri.match(/https?:\/\//g).length, 1, `địa chỉ nối hai lần: ${uri}`);
+  assert.equal(cauGiayPhep(anh), "Ảnh quanh đây: Nguyễn A · CC BY-SA 4.0");
+});
+
+test("ảnh bìa của thẻ cũng là địa chỉ trọn vẹn, không nối hai lần", () => {
+  const bia = anhBiaThe({
+    photoUrl: BASE_URL + "/places/p-1/photos/a",
+    photoAuthor: "Nguyễn A",
+    photoLicense: "CC BY-SA 4.0",
+  });
+  assert.equal(bia.nguon.uri, BASE_URL + "/places/p-1/photos/a");
+  assert.equal(bia.nguon.uri.match(/https?:\/\//g).length, 1);
+});
+
+test("thẻ chỉ vẽ ảnh bìa khi giấy phép đi cùng; thiếu một vế thì quay về dải chữ", () => {
+  const co = anhBiaThe({ photoUrl: "/places/p-1/photos/a", photoAuthor: "Nguyễn A", photoLicense: "CC BY-SA 4.0" });
+  assert.ok(co !== null);
+  assert.equal(co.giayPhep, "Ảnh quanh đây: Nguyễn A · CC BY-SA 4.0");
+  assert.equal(anhBiaThe({ photoUrl: "/places/p-1/photos/a", photoAuthor: null, photoLicense: "CC BY-SA 4.0" }), null);
+  assert.equal(anhBiaThe({ photoUrl: "/places/p-1/photos/a", photoAuthor: "Nguyễn A", photoLicense: null }), null);
+  assert.equal(anhBiaThe({ photoUrl: null, photoAuthor: "Nguyễn A", photoLicense: "CC BY-SA 4.0" }), null);
+});
+
+test("credit không bao giờ nói ảnh là của chính nơi này — importer tìm theo bán kính 250 m", () => {
+  const anh = parseAnhDiaDiem(ANH, "photos[0]");
+  assert.match(cauGiayPhep(anh), /quanh đây/);
+  // Thẻ dựng cả câu, màn chi tiết đưa TIEN_TO_ANH cho MediaSlot rồi nó ghép
+  // với «tác giả · giấy phép». Một hằng chung để hai màn không nói hai kiểu.
+  assert.ok(cauGiayPhep(anh).startsWith(TIEN_TO_ANH), "thẻ phải bắt đầu bằng đúng tiền tố ấy");
+  assert.equal(TIEN_TO_ANH + anh.author + " · " + anh.license, cauGiayPhep(anh));
+  assert.match(CAU_NGUON_ANH, /Không phải ảnh do nơi này cung cấp/);
+  assert.match(CAU_NGUON_ANH, /Wikimedia Commons/);
+});
+
+test("«nên làm gì» chỉ có tiêu đề khi máy chủ có câu; rỗng thì màn không vẽ mục nào", () => {
+  assert.equal(cauHoatDong([]), null);
+  assert.equal(cauHoatDong(["Ăn một bữa"]), "Nên làm gì ở đây");
+});
+
+test("docChiTiet đọc «nên làm gì» và từ chối câu rỗng", async () => {
+  gia(() => ({
+    status: 200,
+    body: { ...CHO, description: null, reviews: [], photos_available: true, activities: ["Ăn một bữa", "Ngồi ngoài trời"] },
+  }));
+  const ct = await docChiTiet("p-1");
+  assert.deepEqual(ct.activities, ["Ăn một bữa", "Ngồi ngoài trời"]);
+  assert.equal(ct.photosAvailable, true);
+
+  gia(() => ({ status: 200, body: { ...CHO, reviews: [], activities: ["  "] } }));
+  await assert.rejects(docChiTiet("p-1"), /activities/);
+});
+
+test("chi tiết cũ không có activities vẫn đọc được: danh sách rỗng, không phải lỗi", async () => {
+  gia(() => ({ status: 200, body: { ...CHO, description: null, reviews: [] } }));
+  const ct = await docChiTiet("p-1");
+  assert.deepEqual(ct.activities, []);
+  assert.equal(ct.photosAvailable, false);
 });

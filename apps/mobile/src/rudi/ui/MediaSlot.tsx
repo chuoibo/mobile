@@ -1,5 +1,5 @@
 import { Image, type ImageSource } from "expo-image";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { StyleSheet, Text, View, type DimensionValue, type StyleProp, type ViewStyle } from "react-native";
 
 import { MOTION_MS } from "../motion";
@@ -12,6 +12,14 @@ export interface Attribution {
   license: string;
   /** Where the file came from; shown as text, opened by the screen if it wants. */
   source?: string;
+  /**
+   * A qualifier the credit must not be read without, e.g. «Ảnh quanh đây: ».
+   *
+   * It belongs here rather than in a line the screen draws next to the slot,
+   * because a qualifier that can be laid out separately is a qualifier that
+   * can end up on the other side of a scroll from the picture it qualifies.
+   */
+  prefix?: string;
 }
 
 export interface MediaSlotProps {
@@ -39,14 +47,16 @@ export interface MediaSlotProps {
 /**
  * The one place a photograph may appear in the shell.
  *
- * Today live screens have no images on the wire, and the rule in DESIGN.md is
- * blunt: a stock photo standing in for a real place is a fabrication. This slot
- * exists so that rule can be kept *and* the layout can already be image-led:
- * the frame is drawn now, the fallback is authored artwork from the visual
- * world, and when M12 delivers licensed photos they drop into the same frame
- * with the author and licence printed beneath -- never a photo without its
- * provenance. Group photos (`nguonAnh`) come with request headers; a URL from
- * anywhere else is refused by that helper before it reaches here.
+ * The rule in DESIGN.md is blunt: a stock photo standing in for a real place is
+ * a fabrication. This slot exists so that rule can be kept *and* the layout can
+ * be image-led: the frame is the same whether or not there is a picture, the
+ * fallback is authored artwork from the visual world, and a licensed photograph
+ * drops into that frame with its author and licence printed beneath it --
+ * never a photo without its provenance. Since M12 the catalogue actually sends
+ * them: `docAnhDiaDiem` for a place's gallery, `anhBiaThe` for a card's cover,
+ * and both refuse a URL that arrived without a credit. Group photos
+ * (`nguonAnh`) come with request headers; a URL from anywhere else is refused
+ * by that helper before it reaches here.
  */
 export function MediaSlot({
   source,
@@ -63,6 +73,13 @@ export function MediaSlot({
   testID,
 }: MediaSlotProps) {
   const { colors, radius: r, space } = useRudiTheme();
+  // A picture that fails to load leaves the frame drawn and empty, which reads
+  // as «this place looks like nothing» rather than as a broken address. It
+  // stayed invisible for a whole board run: the credit under the frame was
+  // correct, every assertion passed, and the two pictures were never there.
+  // Saying it out loud costs one line and gives a flow something to assert.
+  const [hong, setHong] = useState(false);
+  useEffect(() => setHong(false), [source]);
   const frame: ViewStyle = height !== undefined ? { width, height } : { width, aspectRatio: ratio };
   return (
     <View testID={testID} style={style}>
@@ -72,6 +89,7 @@ export function MediaSlot({
             accessibilityLabel={alt}
             source={source}
             contentFit={contentFit}
+            onError={() => setHong(true)}
             transition={MOTION_MS.standard}
             style={StyleSheet.absoluteFill}
           />
@@ -82,11 +100,20 @@ export function MediaSlot({
         )}
         {overlay ? <View style={StyleSheet.absoluteFill} pointerEvents="box-none">{overlay}</View> : null}
       </View>
+      {source && hong ? (
+        <Text style={[typography.caption, { color: colors.warn, marginTop: space.xs }]}>
+          Chưa tải được ảnh
+        </Text>
+      ) : null}
       {source && attribution ? (
+        // Two lines, not one: this credit is the condition on which the picture
+        // above it is allowed to be here, so a long author name has to wrap
+        // rather than end in an ellipsis.
         <Text
-          numberOfLines={1}
+          numberOfLines={2}
           style={[typography.caption, { color: colors.inkFaint, marginTop: space.xs }]}
         >
+          {attribution.prefix ?? ""}
           {attribution.author} · {attribution.license}
           {attribution.source ? ` · ${attribution.source}` : ""}
         </Text>

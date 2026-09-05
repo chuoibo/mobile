@@ -110,11 +110,6 @@
       "reason": "M1 (ADR-0016): nút «Tiếp tục với Google» trên màn Login của vỏ RuDi gọi sau khi Lead tạo client id (Google Cloud) và PR client Google nối @react-native-google-signin. Gỡ pin ở PR đó."
     },
     {
-      "route": "/places/{place_id}/photos",
-      "loai": "tinh-nang",
-      "reason": "M12 (ADR-0017). Gallery ảnh có giấy phép của một địa điểm. Màn chi tiết địa điểm chưa vẽ gallery — PR client M12b nối và gỡ dòng này. Thẻ Khám phá thì KHÔNG cần route này: ảnh bìa đi kèm trong chính `GET /places` qua `photo_url`."
-    },
-    {
       "route": "/places/{place_id}/photos/{photo_id}",
       "loai": "cong-mu",
       "reason": "M12 (ADR-0017). Đường ảnh do MÁY CHỦ trả về trong `photo_url`/`photos[].url`, nên client không bao giờ viết nó thành literal — cùng dạng với /contexts/{id}/photos/{id}. Người gọi thật là thẻ Khám phá (đã có từ PR này) qua giá trị máy chủ gửi."

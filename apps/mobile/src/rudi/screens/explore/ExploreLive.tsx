@@ -23,6 +23,7 @@ import { askSearch, hieuDuocGi, type TimKiemState } from "../../../screens/kham-
 import { SO_THICH } from "../../../screens/vao-cua/so-thich";
 import { docDiemDenDaChon } from "../../kham-pha/diem-den";
 import {
+  anhBiaThe,
   bieuTuongLoai,
   boLuuDiaDiem,
   cauTimKiem,
@@ -50,6 +51,7 @@ import {
   SearchField,
   SectionHeader,
 } from "../../ui";
+import { MediaSlot } from "../../ui/MediaSlot";
 
 type Trang =
   | { pha: "dang-doc" }
@@ -323,11 +325,19 @@ function TheDiaDiem({
 }) {
   const { colors } = useRudiTheme();
   const hop = matchLabel(place.match);
+  // The picture replaces the glyph, and only when its credit came with it --
+  // the credit is then a line in this card, so the photograph never appears
+  // anywhere its author is not named (ADR-0017 §2.5).
+  const bia = anhBiaThe(place);
   return (
     <Card accessibilityLabel={`Mở ${place.name}`} onPress={onMo} style={styles.the}>
-      <View style={[styles.theIcon, { backgroundColor: colors.accentSoft }]}>
-        <Ionicons color={colors.accent} name={bieuTuongLoai(place.category)} size={24} />
-      </View>
+      {bia === null ? (
+        <View style={[styles.theIcon, { backgroundColor: colors.accentSoft }]}>
+          <Ionicons color={colors.accent} name={bieuTuongLoai(place.category)} size={24} />
+        </View>
+      ) : (
+        <MediaSlot alt={`Ảnh ${place.name}`} height={48} radius={16} source={bia.nguon} width={48} />
+      )}
       <View style={styles.theChu}>
         <Text numberOfLines={1} style={[typography.title, { color: colors.ink }]}>
           {place.name}
@@ -355,6 +365,11 @@ function TheDiaDiem({
             <Chip icon="sparkles-outline" label={hop.text} selected tone="ai" />
           </View>
         ) : null}
+        {bia === null ? null : (
+          <Text numberOfLines={2} style={[typography.caption, { color: colors.inkFaint }]}>
+            {bia.giayPhep}
+          </Text>
+        )}
       </View>
       <IconButton
         accessibilityLabel={daLuu ? `Bỏ lưu ${place.name}` : `Lưu ${place.name}`}

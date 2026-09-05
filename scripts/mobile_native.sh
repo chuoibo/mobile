@@ -55,6 +55,11 @@ OTP=0
 TAT_KAV=0
 # --ai (cùng --otp): API phải có khoá Gemini còn sống; chạy thêm flow 40 và kiểm thẻ AI grounded.
 AI=0
+# --anh (cùng --otp): API phải đã nhập ảnh Wikimedia cho ít nhất một địa điểm;
+# chạy thêm flow 38 (ảnh + credit trên màn). Stack chưa nhập ảnh thì flow ấy
+# không có gì để đo, nên cờ này KHÔNG bật mặc định — và khi bật, harness hỏi
+# máy chủ trước để phân biệt «chưa nhập ảnh» với «vẽ ảnh thiếu credit».
+ANH=0
 # Mã debug của API ở chế độ --otp. CHỈ hợp lệ khi API dùng log sender
 # (MOBILE_OTP_DEBUG_CODE cạnh gateway thật làm create_app từ chối khởi động).
 OTP_CODE="000000"
@@ -78,6 +83,7 @@ while [ $# -gt 0 ]; do
     --otp) OTP=1; shift ;;
     --tat-kav) TAT_KAV=1; shift ;;
     --ai) AI=1; shift ;;
+    --anh) ANH=1; shift ;;
     *) echo "tham số lạ: $1" >&2; exit 64 ;;
   esac
 done
@@ -100,6 +106,9 @@ fi
 
 if [ "$AI" = 1 ] && [ "$OTP" = 0 ]; then
   echo "--ai đi cùng --otp (flow 40 cần người và nhóm của flow 24)" >&2; exit 64
+fi
+if [ "$ANH" = 1 ] && [ "$OTP" != 1 ]; then
+  echo "--anh đi cùng --otp (flow 38 cần phiên của flow 22)" >&2; exit 64
 fi
 if [ "$OTP" = 1 ]; then
   [ -n "$API_PORT" ] \
@@ -401,7 +410,32 @@ print("%d|%s" % (len(ds), ",".join(sorted(x for x in ds if isinstance(x, str))))
   IFS='|' read -r so_luu ids <<< "$ket"
   [ "${so_luu:-0}" -eq 1 ] || hong "sau flow 26: máy chủ giữ $so_luu địa điểm đã lưu cho D, mong 1."
   [ "$ids" = "p-tiem-nuong-xom-lao" ] || hong "sau flow 26: địa điểm đã lưu là '$ids', mong p-tiem-nuong-xom-lao."
+  # M12: «nên làm gì» phải đến từ máy chủ, và mọi thẻ có ảnh bìa phải mang theo
+  # credit — thẻ không có credit là tấm ảnh màn hình KHÔNG được phép vẽ.
+  ket="$(python3 - "$goc" <<'PY3'
+import json, sys, urllib.request
+goc = sys.argv[1]
+def get(path):
+    with urllib.request.urlopen(goc + path, timeout=30) as r:
+        return json.load(r)
+ct = get("/places/p-tiem-nuong-xom-lao")
+viec = [v for v in ct.get("activities", []) if isinstance(v, str) and v.strip()]
+places = get("/places").get("places", [])
+co_anh = [p for p in places if p.get("photo_url")]
+thieu = [p["id"] for p in co_anh if not p.get("photo_author") or not p.get("photo_license")]
+print("%d|%s|%d|%d" % (len(viec), viec[0] if viec else "", len(co_anh), len(thieu)))
+PY3
+)" || hong "sau flow 26: không đọc được /places từ máy chủ."
+  local so_viec viec_dau so_anh so_thieu
+  IFS='|' read -r so_viec viec_dau so_anh so_thieu <<< "$ket"
+  [ "${so_viec:-0}" -ge 1 ] \
+    || hong "sau flow 26: máy chủ không có «nên làm gì» cho p-tiem-nuong-xom-lao."
+  [ "${so_thieu:-0}" -eq 0 ] \
+    || hong "sau flow 26: $so_thieu thẻ có ảnh bìa mà thiếu tác giả hoặc giấy phép."
   echo "máy chủ xác nhận: D đã lưu đúng một địa điểm ($ids) từ chi tiết địa điểm"
+  echo "máy chủ xác nhận: $so_viec câu «nên làm gì» (đầu: $viec_dau); $so_anh thẻ có ảnh bìa, $so_thieu thiếu credit"
+  [ "${so_anh:-0}" -ge 1 ] \
+    || echo "  LƯU Ý: stack này chưa nhập ảnh nào, nên phép kiểm credit chạy trên tập RỖNG."
 }
 
 # Sau flow 27: nhóm của D có kèo «Keo QA» với hai chặng (chặng đầu trỏ
@@ -780,6 +814,31 @@ print("%d|%d|%d" % (len(texts), len(polls), hearts))')"
   echo "máy chủ xác nhận: nhóm của C có $so_text tin chữ, $so_poll thẻ bình chọn, $so_heart phản ứng ❤ — chat là thật"
 }
 
+# Stack này đã nhập ảnh địa điểm chưa — hỏi bằng chính route mà màn đọc.
+#
+# Không có ảnh nào thì flow 38 sẽ đỏ ở bước cuộn, và cái đỏ ấy nói về MÔI
+# TRƯỜNG chứ không phải về app. Hỏi trước để nói ra điều đó bằng câu của nó.
+kiem_co_anh_dia_diem() {
+  local goc ket so_anh so_thieu
+  goc="http://127.0.0.1:$API_PORT"
+  ket="$(python3 - "$goc" <<'PY3'
+import json, sys, urllib.request
+goc = sys.argv[1]
+with urllib.request.urlopen(goc + "/places", timeout=30) as r:
+    places = json.load(r).get("places", [])
+co = [p for p in places if p.get("photo_url")]
+thieu = [p["id"] for p in co if not p.get("photo_author") or not p.get("photo_license")]
+print("%d|%d" % (len(co), len(thieu)))
+PY3
+)" || khong_do_duoc "không đọc được /places để biết stack có ảnh chưa."
+  IFS='|' read -r so_anh so_thieu <<< "$ket"
+  [ "${so_anh:-0}" -ge 1 ] \
+    || khong_do_duoc "stack $API_PORT chưa nhập ảnh địa điểm nào (scripts/import_place_photos.py). Flow 38 không có gì để đo."
+  [ "${so_thieu:-0}" -eq 0 ] \
+    || hong "máy chủ gửi $so_thieu ảnh bìa thiếu tác giả hoặc giấy phép — màn KHÔNG được phép vẽ ảnh đó."
+  echo "máy chủ có $so_anh địa điểm có ảnh bìa, tất cả đều mang tác giả + giấy phép"
+}
+
 # Khoá AI còn sống không — hỏi bằng đường sản phẩm, không hỏi biến môi trường.
 kiem_khoa_ai() {
   local goc so body tok ctx ket
@@ -987,6 +1046,7 @@ if [ "$OTP" = 1 ] || [ "$LIVE" = 1 ]; then kiem_ma_debug; fi
 # nhưng thẻ không đứng được → vẫn là khoá sống, ghi lại. check_demo_ai_key.py chỉ
 # đối chiếu container demo, không dùng cho uvicorn trần.
 if [ "$AI" = 1 ]; then kiem_khoa_ai; fi
+if [ "$ANH" = 1 ]; then kiem_co_anh_dia_diem; fi
 
 (
   cd "$APP"
@@ -1165,6 +1225,11 @@ cd "$APP"
 BANG=0
 DA_CHAY=0
 DO_LIST=""
+# Tên các flow ĐÃ chạy trong lượt này. Bảng mini (`--flows`) chỉ có vài flow,
+# và phép kiểm máy chủ của một flow KHÔNG chạy thì hoặc đỏ vì môi trường không
+# có gì để kiểm, hoặc tệ hơn là xanh vì trạng thái sót lại của lượt trước —
+# cả hai đều là câu trả lời cho một câu hỏi không ai hỏi.
+DA_CHAY_TEN=" "
 HA_TANG=""
 
 # Một flow đỏ vì máy ảo rụng KHÔNG phải một flow đỏ vì app sai, và cổng nào
@@ -1248,6 +1313,7 @@ for f in "$FLOWS"/*.yaml; do
     # so a flow that has to tap it (30, 40) would only fail for the reason the
     # probe already measures. The table for --tat-kav is the sign-in leg + 31.
     30-*) [ "$OTP" = 1 ] && [ "$TAT_KAV" = 0 ] || continue ;;
+    38-*)        [ "$OTP" = 1 ] && [ "$ANH" = 1 ] || continue ;;
     40-*)        [ "$OTP" = 1 ] && [ "$AI" = 1 ] && [ "$TAT_KAV" = 0 ] || continue ;;
     *)           { [ "$LIVE" = 1 ] || [ "$DANG_NHAP" = 1 ] || [ "$OTP" = 1 ]; } && continue ;;
   esac
@@ -1258,6 +1324,7 @@ for f in "$FLOWS"/*.yaml; do
     34-*) chuan_bi_anh_cho_34 ;;
   esac
   DA_CHAY=$((DA_CHAY + 1))
+  DA_CHAY_TEN="$DA_CHAY_TEN${ten%%-*} "
   set +e; chay_flow "$f"; rc=$?; set -e
   if [ "$rc" -eq 99 ]; then
     echo "  hạ tầng rụng ở $ten, thử lại một lần"
@@ -1319,20 +1386,42 @@ fi
 
 [ "$BANG" -eq 0 ] || hong "flow đỏ:$DO_LIST"
 
+# Chỉ kiểm những flow ĐÃ chạy. Trên bảng đầy đủ đây là mọi phép kiểm, không đổi
+# gì; trên bảng mini nó là khác nhau giữa «đo được cái vừa lái» và một câu đỏ về
+# một flow không có mặt (lượt 2026-09-06: bảng 22+26+38 đỏ ở kiem_may_chu_sau_24).
+da_chay() { case "$DA_CHAY_TEN" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+
+# Bảy phép kiểm dưới đây hỏi máy chủ về NGƯỜI D, còn flow của chúng lại chạy
+# trên phiên đang sống. Hai thứ ấy chỉ là một khi flow 25 đã đổi phiên sang D
+# — flow 22 đăng nhập bằng OTP_PHONE, không phải OTP_PHONE_D. Trên bảng đầy đủ
+# 25 luôn có nên không ai thấy sự phụ thuộc này; trên bảng mini nó làm phép
+# kiểm hỏi nhầm người và ra một câu đỏ nói về tính năng chứ không nói về bảng
+# (lượt 2026-09-06: «máy chủ giữ 0 địa điểm đã lưu cho D» trong khi màn vừa
+# lưu thật cho người của flow 22).
+#
+# Bỏ qua thì phải NÓI RA. Một phép kiểm tự tháo trong im lặng là dấu xanh cho
+# một câu hỏi không ai hỏi.
+kiem_can_25() {
+  da_chay 25 && return 0
+  echo "BỎ QUA $1: bảng này không có flow 25 nên phiên sống không phải của D;" \
+       "phép kiểm sẽ hỏi nhầm người. KHÔNG đọc dòng này thành «đã kiểm»."
+  return 1
+}
+
 if [ "$OTP" = 1 ]; then
-  kiem_may_chu_sau_24
-  kiem_may_chu_sau_25
-  kiem_may_chu_sau_26
-  kiem_may_chu_sau_27
-  kiem_may_chu_sau_28
-  kiem_may_chu_sau_29
-  kiem_may_chu_sau_32
-  kiem_may_chu_sau_33
-  kiem_may_chu_sau_34
-  kiem_may_chu_sau_35
-  kiem_may_chu_sau_36
-  [ "$TAT_KAV" = 1 ] || kiem_may_chu_sau_30
-  [ "$AI" = 1 ] && [ "$TAT_KAV" = 0 ] && kiem_may_chu_sau_40
+  da_chay 24 && kiem_can_25 kiem_may_chu_sau_24 && kiem_may_chu_sau_24
+  da_chay 25 && kiem_may_chu_sau_25
+  da_chay 26 && kiem_can_25 kiem_may_chu_sau_26 && kiem_may_chu_sau_26
+  da_chay 27 && kiem_can_25 kiem_may_chu_sau_27 && kiem_may_chu_sau_27
+  da_chay 28 && kiem_can_25 kiem_may_chu_sau_28 && kiem_may_chu_sau_28
+  da_chay 29 && kiem_can_25 kiem_may_chu_sau_29 && kiem_may_chu_sau_29
+  da_chay 32 && kiem_can_25 kiem_may_chu_sau_32 && kiem_may_chu_sau_32
+  da_chay 33 && kiem_can_25 kiem_may_chu_sau_33 && kiem_may_chu_sau_33
+  da_chay 34 && kiem_can_25 kiem_may_chu_sau_34 && kiem_may_chu_sau_34
+  da_chay 35 && kiem_may_chu_sau_35
+  da_chay 36 && kiem_may_chu_sau_36
+  { [ "$TAT_KAV" = 1 ] || ! da_chay 30; } || kiem_may_chu_sau_30
+  [ "$AI" = 1 ] && [ "$TAT_KAV" = 0 ] && da_chay 40 && kiem_may_chu_sau_40
   canary_otp
 elif [ "$LIVE" = 1 ]; then
   kiem_may_chu_sau_20
