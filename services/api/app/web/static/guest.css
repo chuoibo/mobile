@@ -18,10 +18,10 @@
  */
 
 :root {
-  --ground: #feeee0;
+  --ground: #f7f3ec;
   --card: #ffffff;
-  --line: #e7dace;
-  --line-strong: #ac7f56;
+  --line: #e6dfd3;
+  --line-strong: #a7825d;
   --ink: #1f2230;
   --ink-soft: #4e5563;
   --ink-faint: #676e7b;
@@ -36,6 +36,11 @@
   --ai-ink: #ffffff;
   --ai-soft: #f5f1ff;
   --warn: #c2410c;
+  --cover-line-strong: #8d92bd;
+  --cover-line: #3a3f63;
+  --cover-ink-soft: #c9c6d6;
+  --cover-ink: #f7f3ec;
+  --cover: #1d2140;
 
   /* Shape lock, three documented steps:
    *   --radius          cards, the amount, the toast
@@ -51,24 +56,29 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --ground: #17120f;
-    --card: #221c18;
-    --line: #413c38;
-    --line-strong: #716962;
-    --ink: #f7efe7;
-    --ink-soft: #c3b7ad;
-    --ink-faint: #8b8290;
+    --ground: #151830;
+    --card: #1f2340;
+    --line: #363b5e;
+    --line-strong: #7d82a9;
+    --ink: #f4f1ea;
+    --ink-soft: #c4c2cf;
+    --ink-faint: #9b9aae;
     --accent: #fb693e;
     --accent-end: #e75262;
     --accent-ink: #1c0d06;
-    --accent-soft: #3a0b00;
+    --accent-soft: #3d1a10;
     --split: #02a498;
     --split-ink: #04201d;
-    --split-soft: #002320;
-    --ai: #9667ff;
+    --split-soft: #0d2f30;
+    --ai: #a27dff;
     --ai-ink: #150a30;
-    --ai-soft: #221046;
-    --warn: #df5c2f;
+    --ai-soft: #251b4a;
+    --warn: #e8734b;
+    --cover-line-strong: #9095c0;
+    --cover-line: #2e3255;
+    --cover-ink-soft: #c4c2cf;
+    --cover-ink: #f4f1ea;
+    --cover: #0f1126;
     --shadow: 0 1px 2px rgb(0 0 0 / 0.45), 0 10px 30px -14px rgb(0 0 0 / 0.65);
   }
 }

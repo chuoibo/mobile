@@ -1,20 +1,13 @@
 {
-  "_": "Sidecar of DESIGN.md. Generated from packages/shared/tokens.json; contrast values are computed, not typed by hand.",
+  "_": "Sidecar of DESIGN.md v2. Generated blocks (color, brand, type, motion, radius, space, contrast) come from packages/shared/tokens.json via scripts/sinh_token_ui_v2.py; descriptive keys (world, materials, kit, surfaces, narrative, shippedV2) are measured from the shipped artifact at d168b63.",
   "source": "packages/shared/tokens.json",
-  "measuredFrom": [
-    "/home/lakiet/mobile/product/mockup.png",
-    "/home/lakiet/mobile/product/features/02-kham-pha-va-goi-y-dia-diem.png",
-    "/home/lakiet/mobile/product/features/03-nhom-chat-va-ai-len-ke-hoach.png",
-    "/home/lakiet/mobile/product/features/04-chia-bill-thong-minh.png",
-    "/home/lakiet/mobile/product/features/05-ky-niem-cua-nhom.png",
-    "/home/lakiet/mobile/product/features/06-ho-so-va-hanh-trinh.png"
-  ],
+  "measuredFrom": "UI v2 (2026-09-05): tokens.json sinh bởi scripts/sinh_token_ui_v2.py; bìa sổ indigo + trang giấy sáng; đo lại từ artifact ở lát UI-8",
   "color": {
     "light": {
-      "ground": "#feeee0",
+      "ground": "#f7f3ec",
       "card": "#ffffff",
-      "line": "#e7dace",
-      "lineStrong": "#ac7f56",
+      "line": "#e6dfd3",
+      "lineStrong": "#a7825d",
       "ink": "#1f2230",
       "inkSoft": "#4e5563",
       "inkFaint": "#676e7b",
@@ -28,27 +21,37 @@
       "ai": "#7d49ef",
       "aiInk": "#ffffff",
       "aiSoft": "#f5f1ff",
-      "warn": "#c2410c"
+      "warn": "#c2410c",
+      "cover": "#1d2140",
+      "coverInk": "#f7f3ec",
+      "coverInkSoft": "#c9c6d6",
+      "coverLine": "#3a3f63",
+      "coverLineStrong": "#8d92bd"
     },
     "dark": {
-      "ground": "#17120f",
-      "card": "#221c18",
-      "line": "#413c38",
-      "lineStrong": "#716962",
-      "ink": "#f7efe7",
-      "inkSoft": "#c3b7ad",
-      "inkFaint": "#8b8290",
+      "ground": "#151830",
+      "card": "#1f2340",
+      "line": "#363b5e",
+      "lineStrong": "#7d82a9",
+      "ink": "#f4f1ea",
+      "inkSoft": "#c4c2cf",
+      "inkFaint": "#9b9aae",
       "accent": "#fb693e",
       "accentEnd": "#e75262",
       "accentInk": "#1c0d06",
-      "accentSoft": "#3a0b00",
+      "accentSoft": "#3d1a10",
       "split": "#02a498",
       "splitInk": "#04201d",
-      "splitSoft": "#002320",
-      "ai": "#9667ff",
+      "splitSoft": "#0d2f30",
+      "ai": "#a27dff",
       "aiInk": "#150a30",
-      "aiSoft": "#221046",
-      "warn": "#df5c2f"
+      "aiSoft": "#251b4a",
+      "warn": "#e8734b",
+      "cover": "#0f1126",
+      "coverInk": "#f4f1ea",
+      "coverInkSoft": "#c4c2cf",
+      "coverLine": "#2e3255",
+      "coverLineStrong": "#9095c0"
     }
   },
   "brand": {
@@ -57,6 +60,7 @@
     "coral": "#fb693e",
     "rose": "#e75262",
     "violet": "#8350f6",
+    "teal": "#04a89d",
     "logoGradient": {
       "from": "#fc7b37",
       "to": "#e75262",
@@ -92,7 +96,13 @@
     "xxl": 48
   },
   "type": {
-    "_": "System stack có chủ đích. iOS ship SF Pro, Android ship Roboto; cả hai render dấu tiếng Việt (ế ự ỡ ạ) đúng ở giá 0 byte. Một webfont ở đây tốn LCP trên mạng di động và có rủi ro vỡ dấu, đổi lại không được gì.",
+    "displayFace": "BricolageGrotesque",
+    "hero": {
+      "size": 40,
+      "weight": "800",
+      "tracking": -1.2
+    },
+    "_": "Body, nhãn, ô nhập, chip: system stack (SF Pro / Roboto, đúng dấu tiếng Việt, 0 byte). Tiêu đề, số tiền, con dấu: displayFace Bricolage Grotesque tự host (ADR-0020), nạp runtime, có tnum; đã kiểm dấu ế ự ỡ ạ ở 12/17/28/40 sp trên emulator.",
     "display": {
       "size": 34,
       "weight": "700",
@@ -132,24 +142,45 @@
     "raisedDark": "0 2px 6px rgb(0 0 0 / 0.5), 0 18px 44px -18px rgb(0 0 0 / 0.7)"
   },
   "motion": {
-    "_": "Bấm phải phản hồi trong một khung hình. Mọi thứ dài hơn 200ms trên màn tiền là bắt người ta chờ.",
-    "press": 100,
-    "fade": 160,
-    "settle": 220
+    "_": "Bốn bậc, src/rudi/motion.ts đọc thật (khối cũ press/fade/settle không ai đọc). instant = phản hồi bấm và chip; standard = đổi trạng thái, đổi nội dung, accordion; shared = thẻ sang chi tiết, kèo sang timeline, ảnh sang viewer; celebrate = một lần cho ba khoảnh khắc (chốt kèo, xong bill, mở huy hiệu), không bao giờ trên màn tiền trước khi domain state hợp lệ. Reduce Motion đưa mọi bậc trừ instant về 0. Easing là cubic-bezier [x1, y1, x2, y2]; transform và opacity là đường chính.",
+    "instant": 100,
+    "standard": 200,
+    "shared": 300,
+    "celebrate": 550,
+    "easing": {
+      "standard": [
+        0.2,
+        0,
+        0,
+        1
+      ],
+      "decelerate": [
+        0,
+        0,
+        0.2,
+        1
+      ],
+      "accelerate": [
+        0.3,
+        0,
+        1,
+        1
+      ]
+    }
   },
   "contrast": {
     "method": "WCAG 2.1 relative luminance, sRGB",
-    "pairsChecked": 46,
-    "min": 4.52,
-    "max": 16.33,
+    "pairsChecked": 50,
+    "min": 4.61,
+    "max": 16.5,
     "allPassAA": true,
     "light": [
       {
         "fg": "ink",
         "bg": "ground",
         "fgHex": "#1f2230",
-        "bgHex": "#feeee0",
-        "ratio": 13.93
+        "bgHex": "#f7f3ec",
+        "ratio": 14.28
       },
       {
         "fg": "ink",
@@ -169,8 +200,8 @@
         "fg": "inkSoft",
         "bg": "ground",
         "fgHex": "#4e5563",
-        "bgHex": "#feeee0",
-        "ratio": 6.61
+        "bgHex": "#f7f3ec",
+        "ratio": 6.77
       },
       {
         "fg": "inkFaint",
@@ -183,8 +214,8 @@
         "fg": "inkFaint",
         "bg": "ground",
         "fgHex": "#676e7b",
-        "bgHex": "#feeee0",
-        "ratio": 4.52
+        "bgHex": "#f7f3ec",
+        "ratio": 4.64
       },
       {
         "fg": "accent",
@@ -197,8 +228,8 @@
         "fg": "accent",
         "bg": "ground",
         "fgHex": "#c93900",
-        "bgHex": "#feeee0",
-        "ratio": 4.55
+        "bgHex": "#f7f3ec",
+        "ratio": 4.67
       },
       {
         "fg": "accentInk",
@@ -225,8 +256,8 @@
         "fg": "split",
         "bg": "ground",
         "fgHex": "#00756b",
-        "bgHex": "#feeee0",
-        "ratio": 4.93
+        "bgHex": "#f7f3ec",
+        "ratio": 5.05
       },
       {
         "fg": "splitInk",
@@ -253,8 +284,8 @@
         "fg": "ai",
         "bg": "ground",
         "fgHex": "#7d49ef",
-        "bgHex": "#feeee0",
-        "ratio": 4.55
+        "bgHex": "#f7f3ec",
+        "ratio": 4.66
       },
       {
         "fg": "aiInk",
@@ -281,8 +312,8 @@
         "fg": "warn",
         "bg": "ground",
         "fgHex": "#c2410c",
-        "bgHex": "#feeee0",
-        "ratio": 4.57
+        "bgHex": "#f7f3ec",
+        "ratio": 4.68
       },
       {
         "fg": "ink",
@@ -304,64 +335,78 @@
         "fgHex": "#1f2230",
         "bgHex": "#f5f1ff",
         "ratio": 14.22
+      },
+      {
+        "fg": "coverInk",
+        "bg": "cover",
+        "fgHex": "#f7f3ec",
+        "bgHex": "#1d2140",
+        "ratio": 14.13
+      },
+      {
+        "fg": "coverInkSoft",
+        "bg": "cover",
+        "fgHex": "#c9c6d6",
+        "bgHex": "#1d2140",
+        "ratio": 9.33
       }
     ],
     "dark": [
       {
         "fg": "ink",
         "bg": "ground",
-        "fgHex": "#f7efe7",
-        "bgHex": "#17120f",
-        "ratio": 16.33
+        "fgHex": "#f4f1ea",
+        "bgHex": "#151830",
+        "ratio": 15.45
       },
       {
         "fg": "ink",
         "bg": "card",
-        "fgHex": "#f7efe7",
-        "bgHex": "#221c18",
-        "ratio": 14.8
+        "fgHex": "#f4f1ea",
+        "bgHex": "#1f2340",
+        "ratio": 13.56
       },
       {
         "fg": "inkSoft",
         "bg": "card",
-        "fgHex": "#c3b7ad",
-        "bgHex": "#221c18",
-        "ratio": 8.58
+        "fgHex": "#c4c2cf",
+        "bgHex": "#1f2340",
+        "ratio": 8.72
       },
       {
         "fg": "inkSoft",
         "bg": "ground",
-        "fgHex": "#c3b7ad",
-        "bgHex": "#17120f",
-        "ratio": 9.47
+        "fgHex": "#c4c2cf",
+        "bgHex": "#151830",
+        "ratio": 9.93
       },
       {
         "fg": "inkFaint",
         "bg": "card",
-        "fgHex": "#8b8290",
-        "bgHex": "#221c18",
-        "ratio": 4.56
+        "fgHex": "#9b9aae",
+        "bgHex": "#1f2340",
+        "ratio": 5.56
       },
       {
         "fg": "inkFaint",
         "bg": "ground",
-        "fgHex": "#8b8290",
-        "bgHex": "#17120f",
-        "ratio": 5.04
+        "fgHex": "#9b9aae",
+        "bgHex": "#151830",
+        "ratio": 6.33
       },
       {
         "fg": "accent",
         "bg": "card",
         "fgHex": "#fb693e",
-        "bgHex": "#221c18",
-        "ratio": 5.77
+        "bgHex": "#1f2340",
+        "ratio": 5.24
       },
       {
         "fg": "accent",
         "bg": "ground",
         "fgHex": "#fb693e",
-        "bgHex": "#17120f",
-        "ratio": 6.37
+        "bgHex": "#151830",
+        "ratio": 5.97
       },
       {
         "fg": "accentInk",
@@ -374,22 +419,22 @@
         "fg": "accent",
         "bg": "accentSoft",
         "fgHex": "#fb693e",
-        "bgHex": "#3a0b00",
-        "ratio": 5.86
+        "bgHex": "#3d1a10",
+        "ratio": 5.31
       },
       {
         "fg": "split",
         "bg": "card",
         "fgHex": "#02a498",
-        "bgHex": "#221c18",
-        "ratio": 5.42
+        "bgHex": "#1f2340",
+        "ratio": 4.93
       },
       {
         "fg": "split",
         "bg": "ground",
         "fgHex": "#02a498",
-        "bgHex": "#17120f",
-        "ratio": 5.99
+        "bgHex": "#151830",
+        "ratio": 5.61
       },
       {
         "fg": "splitInk",
@@ -402,71 +447,85 @@
         "fg": "split",
         "bg": "splitSoft",
         "fgHex": "#02a498",
-        "bgHex": "#002320",
-        "ratio": 5.36
+        "bgHex": "#0d2f30",
+        "ratio": 4.61
       },
       {
         "fg": "ai",
         "bg": "card",
-        "fgHex": "#9667ff",
-        "bgHex": "#221c18",
-        "ratio": 4.55
+        "fgHex": "#a27dff",
+        "bgHex": "#1f2340",
+        "ratio": 5.04
       },
       {
         "fg": "ai",
         "bg": "ground",
-        "fgHex": "#9667ff",
-        "bgHex": "#17120f",
-        "ratio": 5.03
+        "fgHex": "#a27dff",
+        "bgHex": "#151830",
+        "ratio": 5.74
       },
       {
         "fg": "aiInk",
         "bg": "ai",
         "fgHex": "#150a30",
-        "bgHex": "#9667ff",
-        "ratio": 5.08
+        "bgHex": "#a27dff",
+        "ratio": 6.18
       },
       {
         "fg": "ai",
         "bg": "aiSoft",
-        "fgHex": "#9667ff",
-        "bgHex": "#221046",
-        "ratio": 4.62
+        "fgHex": "#a27dff",
+        "bgHex": "#251b4a",
+        "ratio": 5.18
       },
       {
         "fg": "warn",
         "bg": "card",
-        "fgHex": "#df5c2f",
-        "bgHex": "#221c18",
-        "ratio": 4.58
+        "fgHex": "#e8734b",
+        "bgHex": "#1f2340",
+        "ratio": 5.09
       },
       {
         "fg": "warn",
         "bg": "ground",
-        "fgHex": "#df5c2f",
-        "bgHex": "#17120f",
-        "ratio": 5.05
+        "fgHex": "#e8734b",
+        "bgHex": "#151830",
+        "ratio": 5.8
       },
       {
         "fg": "ink",
         "bg": "accentSoft",
-        "fgHex": "#f7efe7",
-        "bgHex": "#3a0b00",
-        "ratio": 15.03
+        "fgHex": "#f4f1ea",
+        "bgHex": "#3d1a10",
+        "ratio": 13.75
       },
       {
         "fg": "ink",
         "bg": "splitSoft",
-        "fgHex": "#f7efe7",
-        "bgHex": "#002320",
-        "ratio": 14.63
+        "fgHex": "#f4f1ea",
+        "bgHex": "#0d2f30",
+        "ratio": 12.7
       },
       {
         "fg": "ink",
         "bg": "aiSoft",
-        "fgHex": "#f7efe7",
-        "bgHex": "#221046",
-        "ratio": 15.0
+        "fgHex": "#f4f1ea",
+        "bgHex": "#251b4a",
+        "ratio": 13.95
+      },
+      {
+        "fg": "coverInk",
+        "bg": "cover",
+        "fgHex": "#f4f1ea",
+        "bgHex": "#0f1126",
+        "ratio": 16.5
+      },
+      {
+        "fg": "coverInkSoft",
+        "bg": "cover",
+        "fgHex": "#c4c2cf",
+        "bgHex": "#0f1126",
+        "ratio": 10.6
       }
     ],
     "nonText": {
@@ -542,7 +601,19 @@
           "ratio": 1.55,
           "role": "decorative divider, below 3:1 on purpose"
         }
-      ]
+      ],
+      "controls": {
+        "light": {
+          "lineStrong/ground": 3.17,
+          "lineStrong/card": 3.5,
+          "coverLineStrong/cover": 5.19
+        },
+        "dark": {
+          "lineStrong/ground": 4.68,
+          "lineStrong/card": 4.11,
+          "coverLineStrong/cover": 6.42
+        }
+      }
     }
   },
   "toneRule": "Ba tông mang nghĩa, không phải trang trí. accent (cam) = thương hiệu và hành động chính. split (teal) = chia bill, tiền, quyết toán. ai (tím) = thứ do máy sinh ra và người còn sửa được. Một màn hình chỉ có MỘT tông dẫn; hai tông dẫn cùng lúc là lỗi, không phải lựa chọn.",
@@ -574,6 +645,136 @@
       "Trạng thái là Chip tĩnh, không chữ inline; tiền qua typography.money.",
       "Card native ship cả viền line lẫn cardShadow; luật «bóng hoặc viền» là của guest.css.",
       "Không canonize: Eyebrow, SurfaceLabel, FloatingGlass (có trong ui.tsx, không màn nào dùng); không có VietQR/nút thanh toán (ADR-0015)."
+    ]
+  },
+  "shippedV2": {
+    "_": "UI v2, lát UI-0 + UI-1, đo từ artifact ở head d168b63 (2026-09-05); finish reviewer trả ship cho phạm vi đã chấm trên phone light 1.0, phone dark 1.3, tablet light.",
+    "commit": "d168b63",
+    "date": "2026-09-05",
+    "fullyV2": [
+      "Welcome",
+      "Login",
+      "Otp",
+      "RudiTabBar"
+    ],
+    "v1LayoutOnV2Ground": [
+      "Explore",
+      "Chat",
+      "Plan",
+      "Bill",
+      "Album",
+      "Profile",
+      "Finance",
+      "keo/*",
+      "nhom"
+    ],
+    "pendingSlices": "UI-2 đến UI-8; DESIGN.md đo lại sau UI-8",
+    "directionContract": {
+      "file": "apps/mobile/app/_layout.tsx",
+      "seed": "c8e88116",
+      "directionIndex": 6,
+      "name": "Nhật ký chuyến đi sau giờ làm",
+      "rendition": "saturated"
+    },
+    "adr": "ADR-0020"
+  },
+  "world": {
+    "northStar": "Nhật ký chuyến đi sau giờ làm",
+    "surfaces": {
+      "cover": "vải indigo, bề mặt Persuade: Welcome toàn màn, CoverBand đầu Login/OTP",
+      "page": "trang giấy sáng có vân, bề mặt Operate"
+    },
+    "washi": {
+      "accent": "brand.coral",
+      "split": "brand.teal",
+      "ai": "brand.violet",
+      "rule": "chỉ dán lên vùng đang quan trọng; fillOpacity 0.9; chữ trên coral dùng mauSang.ink tĩnh (5.41:1 cả hai scheme)"
+    },
+    "status": "con dấu (Stamp): viền mực 2px, chữ stamp CondensedBold 12 IN HOA, bo 6",
+    "plan": "RouteLine: đường S nét 3, chặng r16 (glyph), chặng đang ở tô coral r21",
+    "displayFace": "Bricolage Grotesque (OFL), 4 instance tĩnh; body system",
+    "wordmark": "SVG từ outline Baloo 2 ExtraBold nghiêng 9°, tỉ lệ 2.8804"
+  },
+  "materials": {
+    "_": "assets/textures/*.png 256x256, seed 20260905, Pillow; trải bằng ui/Grain.tsx (lưới Image, <= 60 ô), không resizeMode=repeat.",
+    "vaiBia": {
+      "opacity": 0.3,
+      "stddev": 8,
+      "on": "cover"
+    },
+    "giayTrang": {
+      "opacityLight": 0.45,
+      "opacityDark": 0.3,
+      "stddev": 2,
+      "on": "ground"
+    },
+    "mucIn": {
+      "opacity": 0.26,
+      "stddev": 8.6,
+      "on": "brand.coral",
+      "used": "StampButton"
+    }
+  },
+  "kit": {
+    "StampButton": "coral fill, viền 2px ink 0.88 + viền trong 1px ink 0.32 lùi 4, Grain mucIn 0.26, bo 14, minHeight 56, nhãn Bricolage Bold 18/22 mauSang.ink, icon 22, tilt -1.5 bìa / 0 form, PressScale 0.97 haptic impact, disabled 0.55, không bóng",
+    "CoverButton": "trong suốt, viền 1px coverLineStrong, bo 14, minHeight 50, label coverInk, icon 18, haptic select",
+    "CoverBand": "nền cover + Grain vaiBia 0.3, bo dưới 28, paddingTop md (+insets.top khi underStatusBar), paddingBottom lg, bleed = lề màn; back tròn 48 coverInk 0.08, PressScale 0.92 scale-only",
+    "Washi": "SVG mép xé, cao 30 (40 dưới wordmark), paddingHorizontal 18, minWidth 120, tilt ±1/±2, vạch sáng card 0.35 1.5px",
+    "Wordmark": "SVG, height mặc định 28; Welcome 118 compact / 150 medium+ / 72 short; coverInk trên bìa",
+    "RouteLine": "stroke 3, stops 2..5, glyph r16 (active r21), activeColor brand.coral + activeInk mauSang.ink, opacity 0.82 trên bìa, maxWidth 560",
+    "Stamp": "viền 2 màu tông, bo 6, đệm 8/4, minHeight 26, typography.stamp; outline mặc định, ink hiếm",
+    "Money": "typography.money 21/27 EB tabular; sizes display/money/body/label/caption; countUp chỉ khi domainStateValid (moneyCountUpMs)",
+    "RudiTabBar": "card + hairline line, cao 64 + max(insets.bottom,10), tab minHeight 48, icon 24, caption 12/14, active accent / inactive inkFaint, chỉ báo băng 28x4 accent trượt standard; FAB 56 coral vòng 4px ground nhô 22 elevation 6 PressScale 0.94; rail 104 ở >=600dp, mục 72, vạch 4px accent; iOS BlurView 78",
+    "PressScale": "scale-only; 0.97 mặc định, 0.94 FAB, 0.92 back; spring press {18,260,0.6} settle {20,180,0.8}; haptic select/impact",
+    "Sheet": "card, bo trên 20, tay nắm 40x4 lineStrong, scrim lopPhu.toi(0.42), spring settle vào / standard ra, back Android đóng",
+    "Skeleton": "xương line bo 10, băng card 0.55 1400ms, tắt dưới Reduce Motion",
+    "EmptyState": "h2 + body inkSoft maxWidth 420, một RudiButton compact (outline khi failure) + ghost phụ; full/inline",
+    "useAdaptiveLayout": "compact <600 (1 cột, gutter 16, tab đáy) / medium 600..839 (2 cột, 24, rail) / expanded >=840 (3 cột, 36, rail, twoPane, maxContent 1200); short <480"
+  },
+  "surfaces": {
+    "Welcome": "bìa đóng: cover + vaiBia 0.3, lề 20, wordmark phần ba trên, washi accent tilt -2 cao 40, RouteLine 4 chặng glyph people/compass/receipt/images theo pager, pager 4 trang (EB 28/33 coverInk, body coverInkSoft), chấm 7 (đang ở 20), StampButton «Rủ Đi thôi!» tilt -1.5, CoverButton «Tìm hiểu thêm»; mở bìa: translateY -48 + mờ 0.65 trong shared 300 accelerate rồi push /login",
+    "Login": "RudiScreen surface=cover; CoverBand underStatusBar bleed md/lg với Logo compact + hero «Chào bạn» + body coverInkSoft maxWidth 520; cột 560 gap 20: Field, StampButton «Gửi mã», divider «hoặc» (line + caption inkFaint), RudiButton outline Google / lời mời, caption inkFaint pháp lý",
+    "Otp": "CoverBand underStatusBar với hero «Nhập mã 6 số»; OtpBoxes 6x 44x54 viền 1.5 (accent ô đang nhập); caption inkSoft đang kiểm/đếm ngược; lỗi body warn",
+    "TabBar": "xem kit.RudiTabBar; các màn dưới tab dùng bottomInset 112"
+  },
+  "narrative": {
+    "northStar": "Nhật ký chuyến đi sau giờ làm",
+    "rules": [
+      {
+        "name": "Luật Một Tông Dẫn",
+        "section": "colors"
+      },
+      {
+        "name": "Luật Mực Tĩnh trên Coral",
+        "section": "colors"
+      },
+      {
+        "name": "Luật Cam Không Nhỏ trên Bìa",
+        "section": "colors"
+      },
+      {
+        "name": "Luật Hai Viền",
+        "section": "colors"
+      },
+      {
+        "name": "Luật Một Face",
+        "section": "typography"
+      },
+      {
+        "name": "Luật Số Tabular",
+        "section": "typography"
+      },
+      {
+        "name": "Luật Không Dập Nổi",
+        "section": "elevation"
+      }
+    ],
+    "notCanonized": [
+      "Eyebrow/SurfaceLabel (ui.tsx, không dùng)",
+      "WordmarkEmbossed.tsx (bị reviewer loại; đã xoá khỏi cây ở 5cc57d2)",
+      "bố cục v1 trên nền v2 của các màn chưa redesign",
+      "số tổng màn gán món cắt ở font 1.3 (UI-5)",
+      "bangMauFixture/giayHoaDon/mauSao"
     ]
   }
 }

@@ -1,0 +1,132 @@
+{
+  "title": "Chọn thế giới hình ảnh cho Rủ Đi v2",
+  "question": "Xúc xắc gán «Nhật ký chuyến đi sau giờ làm» (đã nâng bằng 6 raise). Giữ nó, lấy một phương án khác, hoặc re-roll theo hướng safer/bolder.",
+  "options": [
+    {
+      "id": "assigned",
+      "label": "Nhật ký chuyến đi sau giờ làm",
+      "kicker": "THE ROLL",
+      "lineage": "sổ du lịch bìa vải, washi, Instax, con dấu, bút mực",
+      "thesis": "Một cuốn sổ chuyến đi của hội: bìa indigo đậm cho lúc rủ, trang giấy sáng cho lúc làm, washi bão hoà cam/teal/tím là ba tông nghĩa, con dấu là trạng thái, Instax là kỷ niệm.",
+      "palette": ["#1d2140", "#fbf7f0", "#ff6b3d", "#00a693", "#7d49ef", "#1f2230"],
+      "materials": ["bìa vải indigo", "giấy sổ ngà sáng", "washi bão hoà", "con dấu mực", "khung Instax", "mực bút vẽ route"],
+      "viewport": "Welcome là bìa sổ indigo full-bleed: wordmark dập nổi rất lớn ở phần ba trên, một dải washi coral chạy chéo mang «AI đi chơi, chia bill thông minh», CTA «Rủ Đi thôi!» là con dấu lớn ở đáy; bấm là mở sổ sang trang Login sáng.",
+      "risk": "Nếu ship kiểu «giấy kem + chữ viết tay» thì trùng rendition mặc định của thể loại; phải giữ bìa đậm và washi bão hoà. Motif giấy dễ thành scrapbook trẻ con nếu lạm dụng.",
+      "raised": [
+        { "from": "challenger-star-atlas", "raise": "Xếp hạng AI bằng kích cỡ và độ đậm trên một thang cố định, không in phần trăm giả." },
+        { "from": "challenger-dong-ho", "raise": "Trạng thái là lớp mực: khung kẻ in trước làm skeleton, màu đổ vào khi có dữ liệu; khung không bao giờ dời." },
+        { "from": "challenger-glazier", "raise": "Màu chỉ đổ vào vùng đang quan trọng: một tông dẫn sáng đúng một vùng mỗi màn, không rải chip khắp nơi." },
+        { "from": "challenger-azulejo", "raise": "Bố cục snap theo ô nguyên trên lưới 4pt; album và collage xếp theo ô, không ô lẻ." },
+        { "from": "challenger-specimen", "raise": "Thứ bậc bằng tương phản cỡ chữ display, không ornament; hero Welcome để wordmark ở cỡ rất lớn." },
+        { "from": "challenger-oscilloscope", "raise": "Một lưới đo duy nhất xuyên app: mọi khoảng cách và chiều cao hàng đọc trên cùng một nhịp." }
+      ]
+    },
+    {
+      "id": "model-pick",
+      "label": "Bàn nhậu nhìn từ trên",
+      "kicker": "IMPECCABLE’S PICK",
+      "lineage": "bàn ăn chung của người Việt nhìn từ trên xuống",
+      "thesis": "Người là chỗ ngồi quanh bàn, món là đĩa tròn, chia bill là kéo đĩa về chỗ; ba tông nghĩa là ba ánh đèn trên bàn.",
+      "palette": ["#2a1a12", "#f4e9dc", "#ff7a3d", "#14b8a6", "#8b5cf6", "#ffd166"],
+      "materials": ["mặt bàn gỗ tối", "đĩa sứ tròn", "ánh đèn dây", "khăn giấy", "hoá đơn đặt trên bàn"],
+      "viewport": "Bàn trống đầy dần: đĩa và ly hạ xuống theo nhịp, wordmark là tấm menu dựng trên bàn, CTA «Rủ Đi thôi!» là chiếc đĩa lớn nhất ở giữa.",
+      "risk": "Ứng viên đứng đầu danh sách của tôi và chưa ai ship nên lạ; dễ sân khấu hoá, các màn tài chính và hồ sơ phải kìm lại thành «bàn đã dọn»."
+    },
+    {
+      "id": "challenger-dong-ho",
+      "label": "Tranh khắc gỗ Đông Hồ",
+      "verdict": "competitive",
+      "lineage": "in khắc gỗ nhiều bản màu (ukiyo-e, fuse thành Đông Hồ)",
+      "thesis": "Mỗi màn in từng lớp: khung đen in trước, rồi cam, teal, tím đổ vào theo lẫy khớp; thứ chưa tải chỉ có khung.",
+      "palette": ["#f5ecd8", "#1b1b1b", "#e2552f", "#0e8f82", "#7d49ef"],
+      "materials": ["giấy dó", "mực khung đen", "màu khối phẳng", "dấu triện đỏ"],
+      "viewport": "Welcome in dần: khung wordmark đen hiện trước, lớp cam quét vào kiểu bokashi, dấu triện «Rủ Đi thôi!» đóng cuối.",
+      "case": "Fuse sạch: trạng thái là lớp mực đã in hay chưa in, khung không bao giờ dời. Thua nhẹ ở nhận diện vì khắc gỗ là di sản hơn là đời sống hằng ngày của hội bạn.",
+      "risk": "Thành «tranh dân gian minh hoạ» nếu khối màu không phẳng và khung không kỷ luật.",
+      "hero": "https://impeccable.style/worlds/cards/graphic-worlds-publishing-ukiyoe-block-registration-hero.webp",
+      "board": "https://impeccable.style/worlds/cards/graphic-worlds-publishing-ukiyoe-block-registration.webp"
+    },
+    {
+      "id": "challenger-star-atlas",
+      "label": "Bản đồ sao",
+      "verdict": "declined",
+      "lineage": "star atlas, sao theo cấp sáng",
+      "thesis": "Địa điểm là sao, cỡ sao là độ hợp gu, chòm sao là route của hội.",
+      "palette": ["#0b1a3a", "#f4f1e8", "#ffb347"],
+      "materials": ["giấy biểu đồ navy", "phấn trắng", "đèn pin đỏ"],
+      "viewport": "Một tấm bản đồ sao của buổi tối, sao lớn nhất là quán hợp nhất.",
+      "case": "Bản đồ sao không phải thế giới hội bạn Việt đọc mỗi ngày; sổ cái không vừa khuôn.",
+      "kept": "Thứ bậc bằng kích cỡ trên thang cố định, không phần trăm giả.",
+      "risk": "Đẹp mà lạc; ledger tiền không có chỗ.",
+      "hero": "https://impeccable.style/worlds/cards/notation-diagram-systems-star-atlas-hero.webp"
+    },
+    {
+      "id": "challenger-glazier",
+      "label": "Vách kính màu xưởng",
+      "verdict": "declined",
+      "lineage": "vách kính khung thép, ô màu như nốt nhạc",
+      "thesis": "Mỗi ô một câu; chỉ ô đang quan trọng mới có màu; disabled là kính mờ.",
+      "palette": ["#111111", "#f4f6f4", "#1f4fd1", "#f2a900"],
+      "materials": ["thanh kính đen", "kính trắng đục", "kính màu cobalt/hổ phách"],
+      "viewport": "Lưới ô kính, một ô sáng lên là hành động chính.",
+      "case": "Không ai trong hội nhận ra mình ở xưởng kính; kỷ luật «một ô một câu» thì đáng giữ.",
+      "kept": "Màu chỉ đổ vào vùng đang quan trọng.",
+      "risk": "Lạnh và kiến trúc, xa buổi đi chơi.",
+      "hero": "https://impeccable.style/worlds/cards/craft-making-glazier-colorfield-partition-hero.webp"
+    },
+    {
+      "id": "challenger-azulejo",
+      "label": "Sảnh gạch azulejo",
+      "verdict": "declined",
+      "lineage": "gạch cobalt trên trắng, kể chuyện theo panel",
+      "thesis": "Mỗi màn là một panel gạch; bố cục snap theo ô nguyên.",
+      "palette": ["#ffffff", "#1d4ed8", "#d4a017"],
+      "materials": ["gạch tráng men", "ron gạch", "khung cuộn"],
+      "viewport": "Tấm panel gạch kể buổi đi chơi, viền cuộn ngăn các phần.",
+      "case": "Đơn sắc cobalt phá nghĩa của ba tông cam/teal/tím đã cam kết.",
+      "kept": "Bố cục snap theo ô nguyên, không ô lẻ.",
+      "risk": "Trái cam kết thương hiệu về màu.",
+      "hero": "https://impeccable.style/worlds/cards/architecture-places-azulejo-station-hall-hero.webp"
+    },
+    {
+      "id": "challenger-specimen",
+      "label": "Bản mẫu chữ biến thiên",
+      "verdict": "declined",
+      "lineage": "type specimen tương tác",
+      "thesis": "Một chữ khổng lồ chiếm màn; thứ bậc chỉ bằng tương phản cỡ.",
+      "palette": ["#fafafa", "#111111", "#ff4d00"],
+      "materials": ["giấy trắng", "mực đen", "một điểm nhấn"],
+      "viewport": "Wordmark «Rủ Đi» chiếm cả màn, nhãn mono nhỏ bên dưới.",
+      "case": "Người dùng không nhận ra mình trong một bản mẫu chữ; kỷ luật cỡ thì đáng giữ.",
+      "kept": "Thứ bậc bằng tương phản cỡ chữ display, không ornament.",
+      "risk": "Thành trang mẫu font, không thành app.",
+      "hero": "https://impeccable.style/worlds/cards/variable-font-specimen-hero.webp"
+    },
+    {
+      "id": "challenger-oscilloscope",
+      "label": "Dao động ký CRT",
+      "verdict": "declined",
+      "lineage": "màn phosphor trên lưới mười vạch",
+      "thesis": "Mọi thứ đo trên cùng một lưới; tín hiệu đứng yên khi khớp trigger.",
+      "palette": ["#06110a", "#39ff88", "#ffb000"],
+      "materials": ["kính tối", "phosphor xanh", "núm xoay"],
+      "viewport": "Một lưới xanh, số tiền là trace đứng yên.",
+      "case": "Xanh phosphor trên đen trái ba tông; hội bạn không sống trong phòng đo.",
+      "kept": "Một lưới đo duy nhất xuyên app.",
+      "risk": "Fintech tối, đúng cái rut cần tránh.",
+      "hero": "https://impeccable.style/worlds/cards/scientific-notation-oscilloscope-signal-bench-hero.webp"
+    }
+  ],
+  "reroll": { "registers": ["safer", "bolder"] },
+  "buildPath": { "value": "code", "toggle": false },
+  "canon": true,
+  "canonCard": {
+    "label": "Chuẩn thể loại (mockup chơi thẳng)",
+    "thesis": "Ảnh hoàng hôn full-bleed, thẻ trắng bo tròn, CTA pill cam gradient, làm ở mức craft cao nhất, bỏ QR và ảnh người thật.",
+    "palette": ["#feeee0", "#ffffff", "#c93900", "#1f2230"],
+    "materials": ["ảnh chụp", "thẻ trắng bóng mềm", "pill gradient"],
+    "viewport": "Hero ảnh + wordmark + hai nút pill, đúng mockup 01.01.",
+    "risk": "Không phân biệt được với mọi app du lịch hay social khác; đó là chủ ý."
+  },
+  "steer": true
+}

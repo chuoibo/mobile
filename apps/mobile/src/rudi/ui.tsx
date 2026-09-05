@@ -2,9 +2,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { Image, ImageSource } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
+import { StatusBar } from "expo-status-bar";
 import { useRouter } from "expo-router";
-import type { ComponentProps, ReactNode } from "react";
+import { createContext, useContext, useState, type ComponentProps, type ReactNode } from "react";
 import {
+  type LayoutChangeEvent,
   ActivityIndicator,
   DimensionValue,
   GestureResponderEvent,
@@ -25,7 +27,10 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { DemoPerson } from "./fixtures";
 import { useRudiSession } from "./session";
-import { cardShadow, lopPhu, mauSang, mucTrenAnh, nenAnhTrong, RudiTone, toneColor, toneSoftColor, typography, useRudiTheme } from "./theme";
+import { cardShadow, lopPhu, mucTrenAnh, nenAnhTrong, RudiTone, toneColor, toneSoftColor, typography, useRudiTheme, displayFace } from "./theme";
+import { Grain } from "./ui/Grain";
+import { useAdaptiveLayout } from "./ui/useAdaptiveLayout";
+import { Wordmark } from "./ui/Wordmark";
 
 export type IconName = ComponentProps<typeof Ionicons>["name"];
 
@@ -38,25 +43,32 @@ type ScreenProps = {
   footer?: ReactNode;
   footerInset?: number;
   contentStyle?: StyleProp<ViewStyle>;
+  /** `cover` when the first child is a CoverBand: the status-bar area is indigo, not paper. */
+  surface?: "page" | "cover";
   testID?: string;
 };
 
 export function RudiScreen({
   children,
   scroll = true,
-  tone = "accent",
+  tone: _tone = "accent",
   padded = true,
   bottomInset = 32,
   footer,
   footerInset = 0,
   contentStyle,
+  surface = "page",
   testID,
 }: ScreenProps) {
   const { colors, dark, space } = useRudiTheme();
-  const { width } = useWindowDimensions();
-  const tablet = width >= 700;
+  const layout = useAdaptiveLayout();
+  const tablet = layout.sizeClass !== "compact";
   const inner = [
     styles.screenInner,
+    // A cover band is the first child and paints under the status bar itself
+    // (`CoverBand underStatusBar`); the screen adds no top inset, or a paper
+    // strip shows between the two.
+    surface === "cover" && { paddingTop: 0 },
     padded && { paddingHorizontal: tablet ? space.lg : space.md },
     { paddingBottom: bottomInset },
     tablet && styles.tabletInner,
@@ -65,11 +77,16 @@ export function RudiScreen({
 
   return (
     <SafeAreaView
-      edges={["top", "left", "right"]}
-      style={[styles.safeArea, { backgroundColor: colors.ground }]}
+      edges={surface === "cover" ? ["left", "right"] : ["top", "left", "right"]}
+      style={[styles.safeArea, { backgroundColor: surface === "cover" ? colors.cover : colors.ground }]}
       testID={testID}
     >
-      <AmbientBackdrop tone={tone} />
+      {/* Light icons over the indigo cover, dark over paper; every screen re-asserts
+          so leaving a cover screen never leaves pale icons on cream. */}
+      <StatusBar style={surface === "cover" || dark ? "light" : "dark"} />
+      <View pointerEvents="none" style={[styles.paper, { backgroundColor: colors.ground }]}>
+        <Grain material="giayTrang" opacity={dark ? 0.3 : 0.45} />
+      </View>
       {scroll ? (
         <ScrollView
           contentContainerStyle={inner}
@@ -98,23 +115,8 @@ export function RudiScreen({
   );
 }
 
-function AmbientBackdrop({ tone }: { tone: RudiTone }) {
-  const { colors } = useRudiTheme();
-  const color = toneSoftColor(colors, tone);
-
-  return (
-    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-      <View style={[styles.glow, styles.glowTop, { backgroundColor: color }]} />
-      <View
-        style={[
-          styles.glow,
-          styles.glowBottom,
-          { backgroundColor: colors.accentSoft },
-        ]}
-      />
-    </View>
-  );
-}
+/** True inside a TopBar: a DemoBadge there shortens its label so the title can stay centred. */
+const TrongTopBar = createContext(false);
 
 export function TopBar({
   title,
@@ -136,10 +138,22 @@ export function TopBar({
     if (onBack !== undefined) onBack();
     else router.back();
   };
+  // Both sides take the wider side's natural width, so the title is centred on
+  // the screen and not on whatever is left between a chevron and a badge. The
+  // natural width is measured on an inner view; measuring the slot itself would
+  // read back the minimum we set and never shrink again.
+  const [benRong, setBenRong] = useState({ trai: 0, phai: 0 });
+  const rongBen = Math.max(52, benRong.trai, benRong.phai);
+  const doBen = (ben: "trai" | "phai") => (e: LayoutChangeEvent) => {
+    const w = Math.ceil(e.nativeEvent.layout.width);
+    setBenRong((cu) => (cu[ben] === w ? cu : { ...cu, [ben]: w }));
+  };
 
   return (
+    <TrongTopBar.Provider value={true}>
     <View style={styles.topBar}>
-      <View style={styles.topBarSide}>
+      <View style={[styles.topBarSide, { minWidth: rongBen }]}>
+        <View onLayout={doBen("trai")} style={styles.topBarSideInner}>
         {back ? (
           <IconButton
             accessibilityLabel="Quay lại"
@@ -150,6 +164,7 @@ export function TopBar({
         ) : (
           <Logo compact />
         )}
+        </View>
       </View>
       <View style={styles.topBarTitleWrap}>
         {title ? (
@@ -166,13 +181,16 @@ export function TopBar({
           </Text>
         ) : null}
       </View>
-      <View style={[styles.topBarSide, styles.topBarRight]}>{right}</View>
+      <View style={[styles.topBarSide, styles.topBarRight, { minWidth: rongBen }]}>
+        <View onLayout={doBen("phai")} style={styles.topBarSideInnerRight}>{right}</View>
+      </View>
     </View>
+    </TrongTopBar.Provider>
   );
 }
 
-export function Logo({ compact = false }: { compact?: boolean }) {
-  const { brand } = useRudiTheme();
+export function Logo({ compact = false, ink }: { compact?: boolean; ink?: string }) {
+  const { brand, colors } = useRudiTheme();
   return (
     <View style={styles.logoRow} accessibilityLabel="Rủ Đi">
       <LinearGradient
@@ -185,10 +203,7 @@ export function Logo({ compact = false }: { compact?: boolean }) {
           Rủ{"\n"}Đi
         </Text>
       </LinearGradient>
-      <View style={styles.logoWordmark}>
-        <Text style={[styles.logoType, compact && styles.logoTypeCompact]}>Rủ</Text>
-        <Text style={[styles.logoType, compact && styles.logoTypeCompact]}>Đi</Text>
-      </View>
+      <Wordmark height={compact ? 18 : 26} color={ink ?? colors.ink} />
     </View>
   );
 }
@@ -210,14 +225,19 @@ export function Eyebrow({ children, tone = "accent" }: { children: ReactNode; to
  * Renders NOTHING in live mode. A badge saying "demo" over real money would be
  * the same lie as the reverse, pointed the other way.
  */
-export function DemoBadge({ label = "Dữ liệu demo" }: { label?: string }) {
+export function DemoBadge({ label = "Dữ liệu demo", compactLabel }: { label?: string; /** Short form used inside a TopBar; default «Demo». */ compactLabel?: string }) {
   const { colors } = useRudiTheme();
   const { cheDo } = useRudiSession();
+  const trongTopBar = useContext(TrongTopBar);
   if (cheDo === "live") return null;
+  // In a title bar the full label cannot share a 360dp row with a centred title
+  // at font 1.3; the flask plus «Demo» keeps the honesty, the accessibility
+  // label keeps the full sentence for screen readers and the native gate.
+  const chu = trongTopBar ? compactLabel ?? "Demo" : label;
   return (
-    <View style={[styles.demoBadge, { backgroundColor: colors.card, borderColor: colors.line }]}>
+    <View accessibilityLabel={label} style={[styles.demoBadge, { backgroundColor: colors.card, borderColor: colors.line }]}>
       <Ionicons color={colors.inkFaint} name="flask-outline" size={12} />
-      <Text style={[styles.demoText, { color: colors.inkFaint }]}>{label}</Text>
+      <Text numberOfLines={1} style={[styles.demoText, { color: colors.inkFaint }]}>{chu}</Text>
     </View>
   );
 }
@@ -920,24 +940,24 @@ const styles = StyleSheet.create({
   },
   flex: { flex: 1 },
   safeArea: { flex: 1, overflow: "hidden" },
+  paper: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0 },
   screenInner: { width: "100%", gap: 18, paddingTop: 8 },
   screenFooter: { width: "100%", paddingTop: 8, zIndex: 2 },
   tabletInner: { alignSelf: "center", maxWidth: 960, paddingTop: 22 },
-  glow: { position: "absolute", width: 310, height: 310, borderRadius: 999, opacity: 0.52 },
-  glowTop: { right: -170, top: -190 },
-  glowBottom: { bottom: -220, left: -190, opacity: 0.34 },
   topBar: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  topBarSide: { width: 52, alignItems: "flex-start" },
+  // Sides are at least the 48dp target wide and always equal (see TopBar), so
+  // the title is centred on the screen even next to a badge.
+  topBarSide: { minWidth: 52, flexShrink: 0, alignItems: "flex-start" },
+  topBarSideInner: { alignSelf: "flex-start" },
+  // The right content hugs the right edge when the left side is the wider one (Logo instead of a chevron).
+  topBarSideInnerRight: { alignSelf: "flex-end" },
   topBarRight: { alignItems: "flex-end" },
   topBarTitleWrap: { flex: 1, alignItems: "center", paddingHorizontal: 8 },
   logoRow: { flexDirection: "row", alignItems: "center", flexShrink: 0, gap: 9 },
-  logoWordmark: { flexDirection: "row", alignItems: "center", flexShrink: 0, gap: 4 },
   logoMark: { width: 48, height: 48, borderRadius: 17, alignItems: "center", justifyContent: "center", transform: [{ rotate: "-4deg" }] },
   logoMarkCompact: { width: 40, height: 40, borderRadius: 14 },
-  logoMarkType: { color: mucTrenAnh, fontSize: 14, lineHeight: 12, fontStyle: "italic", fontWeight: "900", letterSpacing: -0.8, textAlign: "center" },
+  logoMarkType: { color: mucTrenAnh, fontFamily: displayFace.extraBold, fontSize: 14, lineHeight: 13, letterSpacing: -0.6, textAlign: "center", transform: [{ skewX: "-9deg" }] },
   logoMarkTypeCompact: { fontSize: 12, lineHeight: 11 },
-  logoType: { color: mauSang.accent, fontSize: 29, lineHeight: 34, fontStyle: "italic", fontWeight: "900", letterSpacing: -1.7 },
-  logoTypeCompact: { fontSize: 18, lineHeight: 22, letterSpacing: -1.2 },
   eyebrow: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 11, paddingVertical: 7, borderRadius: 999 },
   eyebrowDot: { width: 6, height: 6, borderRadius: 3 },
   demoBadge: { flexDirection: "row", alignItems: "center", alignSelf: "flex-start", gap: 5, borderWidth: 1, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 5 },
