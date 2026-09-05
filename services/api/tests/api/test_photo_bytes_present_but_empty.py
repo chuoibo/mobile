@@ -78,6 +78,8 @@ from .conftest import SeedCatalogueReads, ASGITestClient
 
 CONTEXT_ID = uuid.UUID("1aa00000-aaaa-4aaa-8aaa-0000a0000434")
 PHOTO_ID = uuid.UUID("2bb00000-bbbb-4bbb-8bbb-0000b0000434")
+#: A catalogue key, not a UUID: place ids are text (M9).
+PLACE_ID = "p-tiem-nuong-xom-lao"
 MEMBER_ID = uuid.UUID("3cc00000-cccc-4ccc-8ccc-0000c0000434")
 SUBJECT_ID = uuid.UUID("4dd00000-dddd-4ddd-8ddd-0000d0000434")
 
@@ -120,6 +122,18 @@ class StubRepository(SeedCatalogueReads):
         del person_id
         return StoredImage()
 
+    def get_place_photo(self, place_id, photo_id):
+        """A licensed place photograph whose file storage cannot produce (M12).
+
+        The third byte-serving route joined the product with the same two
+        conditions as the first two: the row is there and the file is gone, or
+        the row is there and the file is empty. Nothing about the picture being
+        public changes what «here is your picture» over zero bytes does to the
+        screen that receives it.
+        """
+        del place_id, photo_id
+        return StoredImage()
+
 
 # Keyed by the route function name so the keys of this table ARE the coverage
 # claim the derived-list case below checks. One source, not two.
@@ -137,6 +151,10 @@ ROUTES: dict[str, dict[str, str]] = {
     "read_person_avatar": {
         "path": f"/people/{SUBJECT_ID}/avatar",
         "not_found_code": "avatar_not_found",
+    },
+    "read_place_photo": {
+        "path": f"/places/{PLACE_ID}/photos/{PHOTO_ID}",
+        "not_found_code": "photo_not_found",
     },
 }
 
