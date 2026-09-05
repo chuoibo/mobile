@@ -144,11 +144,45 @@ def address_for(tags: dict[str, str], fallback_city: str | None = None) -> str |
     return ", ".join(parts)
 
 
+# Names that are the category word and nothing else. OpenStreetMap has plenty
+# of these -- a mapper who knew there was a cafe there but not what it is
+# called. «Café» on a card is not a place a person can choose between, so the
+# row is skipped rather than shown as one of twenty-five identical entries.
+GENERIC_NAMES = {
+    "cafe",
+    "café",
+    "coffee",
+    "restaurant",
+    "nha hang",
+    "nhà hàng",
+    "quan an",
+    "quán ăn",
+    "quan cafe",
+    "quán cafe",
+    "quan ca phe",
+    "quán cà phê",
+    "ca phe",
+    "cà phê",
+    "bar",
+    "pub",
+    "hotel",
+    "khach san",
+    "khách sạn",
+    "cafe restaurant",
+    "café restaurant",
+    "restaurant cafe",
+}
+
+
 def name_for(tags: dict[str, str]) -> str | None:
-    """The Vietnamese name if the element carries one, else its plain name."""
+    """The Vietnamese name if the element carries one, else its plain name.
+
+    `None` when the only name is the category word: «Café» tells a reader
+    nothing they did not already know from the filter they just tapped.
+    """
     for key in ("name:vi", "name"):
         value = tags.get(key, "").strip()
-        if value:
+        if value and value.casefold() not in GENERIC_NAMES:
             return value
     return None
 

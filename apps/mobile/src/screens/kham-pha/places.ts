@@ -341,16 +341,25 @@ export function parsePlace(raw: unknown, field: string): Place {
   };
 }
 
-export function parseCatalogue(body: unknown): { places: Place[]; categories: Category[] } {
+export function parseCatalogue(body: unknown): {
+  places: Place[];
+  categories: Category[];
+  destination: { id: string; name: string };
+} {
   const b = body as Record<string, unknown>;
   if (!Array.isArray(b?.places)) throw new Error("thiếu mảng `places`");
   const cats = Array.isArray(b.categories) ? b.categories : [];
+  // Required since M10: a list of places with no city attached cannot be
+  // labelled, and the screen would have to invent the name it prints.
+  const d = b.destination as Record<string, unknown> | undefined;
+  if (d === undefined || d === null) throw new Error("thiếu `destination`");
   return {
     places: b.places.map((p, i) => parsePlace(p, `places[${i}]`)),
     categories: cats.map((cat, i) => {
       const o = cat as Record<string, unknown>;
       return { id: str(o.id, `categories[${i}].id`), label: str(o.label, `categories[${i}].label`) };
     }),
+    destination: { id: str(d.id, "destination.id"), name: str(d.name, "destination.name") },
   };
 }
 

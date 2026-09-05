@@ -880,6 +880,12 @@ def _group_budget_per_person_vnd() -> int | None:
     return budget if isinstance(budget, int) else None
 
 
+#: How many places a model may be shown in one prompt. Forty is the number of
+#: cards a person plausibly scrolls; beyond it the prompt grows without the
+#: answer improving, and at a hundred it stops answering at all.
+MAX_MODEL_PLACES = 40
+
+
 class ApiService:
     def __init__(
         self,
@@ -895,16 +901,56 @@ class ApiService:
         # does not issue the same SELECT three times.
         self._place_rows: list[dict] | None = None
 
-    def place_rows(self) -> list[dict]:
+    def destination_or_default(self, destination_id: str | None):
+        """The destination asked for, or the first one. `None` if the id is unknown.
+
+        «The first one» is by `sort_order`, which is data rather than accident:
+        a caller who has not chosen yet gets a real city with real places in it,
+        and the route says which one it picked so the screen can offer to
+        change it. An empty destinations table returns `None` too -- there is
+        nothing honest to show, and 404 says that better than an empty list.
+        """
+        if destination_id is not None:
+            return self.repository.get_destination(destination_id)
+        rows = self.repository.list_destinations()
+        return rows[0] if rows else None
+
+    def place_rows(self, destination_id: str | None = None) -> list[dict]:
         """The whole catalogue, in the dict shape the scorers already read.
 
         `PlaceRecord.to_row()` is the only conversion; `scoring.py`,
         `search.py`, `social_map.py` and the card builder keep reading exactly
         what they read when the catalogue was twelve rows in a module.
         """
+        if destination_id is not None:
+            return [
+                row.to_row()
+                for row in self.repository.list_places(destination_id=destination_id)
+            ]
         if self._place_rows is None:
             self._place_rows = [row.to_row() for row in self.repository.list_places()]
         return self._place_rows
+
+    def model_place_rows(self) -> list[dict]:
+        """The catalogue as a model may see it: one destination, capped.
+
+        `place_rows()` is every place RuDi knows -- 1358 of them once an
+        OpenStreetMap import has run, which as a prompt is both a bill and a
+        timeout (measured: the browse route hit Gemini's 60 s ceiling three
+        times in a row at 107 rows). The companion needs enough places to
+        ground a card, not a gazetteer.
+
+        One destination and the best forty of it. The destination is the
+        catalogue's default until a group can say where it is going; the
+        ranking is the same arithmetic the screen orders by, so the rows a
+        model may name are the rows a person would have been shown first.
+        """
+        diem_den = self.destination_or_default(None)
+        rows = self.place_rows(destination_id=None if diem_den is None else diem_den.id)
+        rows = sorted(
+            rows, key=lambda place: (-score_place(place, GROUP)[0], place["id"])
+        )
+        return rows[:MAX_MODEL_PLACES]
 
     def place_row(self, place_id: str) -> dict | None:
         """One catalogue row, or None. Replaces `catalog.find_place`."""
@@ -1697,7 +1743,7 @@ class ApiService:
             for record in self.repository.group_recap(context_id, today=today)
         ]
 
-        places = companion_places.load_place_catalogue(self.place_rows())
+        places = companion_places.load_place_catalogue(self.model_place_rows())
         category_of = {
             place["id"]: place.get("category")
             for place in places
@@ -1955,7 +2001,7 @@ class ApiService:
             {"is_group_member": self.repository.is_member(context_id, actor.id)},
         )
 
-        # The FULL catalogue rows, not `companion_places.load_place_catalogue(self.place_rows())`.
+        # The FULL catalogue rows, not `companion_places.load_place_catalogue(self.model_place_rows())`.
         # That adapter is the *model-facing* projection and deliberately drops
         # `kinds`, which is exactly the field a taste label comes from. Nothing
         # here is sent to a model, so there is no reason to read the trimmed
@@ -2082,7 +2128,7 @@ class ApiService:
         if not has_conversation(digest):
             return _silent("no_conversation")
 
-        places = companion_places.load_place_catalogue(self.place_rows())
+        places = companion_places.load_place_catalogue(self.model_place_rows())
         try:
             raw = suggester(digest, places)
         except Exception as error:  # noqa: BLE001 - a chat screen must not 500
@@ -3845,7 +3891,8 @@ class ApiService:
             # cannot be forged from a phone.
             try:
                 card = ground_card(
-                    request.card, companion_places.load_place_catalogue(self.place_rows())
+                    request.card,
+                    companion_places.load_place_catalogue(self.model_place_rows()),
                 )
             except CompanionError as refused:
                 raise ApiProblem(
@@ -4241,7 +4288,7 @@ class ApiService:
                 members.append(
                     {"id": str(person.id), "display_name": person.display_name}
                 )
-        places = companion_places.load_place_catalogue(self.place_rows())
+        places = companion_places.load_place_catalogue(self.model_place_rows())
 
         try:
             raw = companion.reply(

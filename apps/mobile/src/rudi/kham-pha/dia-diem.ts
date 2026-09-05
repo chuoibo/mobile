@@ -9,7 +9,7 @@
  * nobody; saving a place is the person's own row and goes with the bearer.
  * No synthetic `context_id` travels on the query string.
  */
-import { translatedAnonymous, translatedAsActor } from "../../api";
+import { ApiError, translatedAnonymous, translatedAsActor } from "../../api";
 import {
   parsePlaceDetail,
   type PlaceDetail,
@@ -21,6 +21,7 @@ import {
   type Place,
 } from "../../screens/kham-pha/places";
 import type { TimKiemState } from "../../screens/kham-pha/tim-kiem";
+import { quenDiemDen } from "./diem-den";
 import type { IconName } from "../ui";
 
 const LOI_DIA_DIEM: Record<string, string> = {
@@ -28,19 +29,55 @@ const LOI_DIA_DIEM: Record<string, string> = {
   permission_denied: "Bạn cần đăng nhập để lưu địa điểm.",
 };
 
-export type DanhMuc = { places: Place[]; categories: Category[] };
+export type DanhMuc = {
+  places: Place[];
+  categories: Category[];
+  /** Which destination these places are from. The server always picks one and
+   *  says which, so the screen can name it instead of printing a city it hopes
+   *  is right. */
+  destination: { id: string; name: string };
+};
 
-/** The catalogue, optionally narrowed by a category id or a name query. */
-export async function docDanhMuc(opts: { category?: string | null; q?: string } = {}): Promise<DanhMuc> {
+/**
+ * The catalogue for one destination, optionally narrowed further.
+ *
+ * `destination` omitted means «you choose» -- the server answers with its
+ * default and names it in the body, which is what the header then draws.
+ */
+export async function docDanhMuc(
+  opts: { category?: string | null; q?: string; destination?: string | null } = {},
+): Promise<DanhMuc> {
   const params = new URLSearchParams();
   if (opts.category) params.set("category", opts.category);
   const q = opts.q?.trim();
   if (q) params.set("q", q);
+  if (opts.destination) params.set("destination", opts.destination);
   const duoi = params.toString();
   const body = await translatedAnonymous<unknown>(LOI_DIA_DIEM, duoi ? `/places?${duoi}` : "/places", {
     method: "GET",
   });
   return parseCatalogue(body);
+}
+
+/**
+ * The catalogue for a remembered destination, falling back to the server's own.
+ *
+ * A destination this phone stored can be gone from the catalogue -- an import
+ * can drop one -- and that answers 404. The right response is the default
+ * destination, not an error screen about a city somebody chose last week; the
+ * stored choice is cleared so it stops being asked for.
+ */
+export async function docDanhMucCoLui(daChon: string | null): Promise<DanhMuc> {
+  if (daChon === null) return docDanhMuc();
+  try {
+    return await docDanhMuc({ destination: daChon });
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      await quenDiemDen();
+      return docDanhMuc();
+    }
+    throw error;
+  }
 }
 
 export async function docChiTiet(placeId: string): Promise<PlaceDetail> {

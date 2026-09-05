@@ -119,8 +119,19 @@ def hit(client, times=REQUESTS):
     return codes
 
 
-ALL_IDS = {place["id"] for place in PLACES}
-DROPPED_ID = PLACES[0]["id"]
+def _served_places() -> list[dict]:
+    """The seed rows `GET /places` serves with no destination named (M10).
+
+    The route is scoped to one city now; the twelve seed rows sit in two, and a
+    set built from all twelve would be a set this route never returns.
+    """
+    from app.places.seed_catalog import _destination_for
+
+    return [place for place in PLACES if _destination_for(place) == "d-da-lat"]
+
+
+ALL_IDS = {place["id"] for place in _served_places()}
+DROPPED_ID = _served_places()[0]["id"]
 ALL_BUT_ONE = ALL_IDS - {DROPPED_ID}
 
 

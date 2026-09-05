@@ -544,7 +544,7 @@ else:
   esac
   IFS='|' read -r loai cho tim bl cau <<< "$ket"
   [ "$loai" = "checkin" ] || hong "sau flow 32: kỷ niệm là $loai, mong checkin."
-  [ "$cho" = "Quán Ốc Dì Bé" ] || hong "sau flow 32: check-in tại «$cho», mong «Quán Ốc Dì Bé»."
+  [ "$cho" = "Lưng Chừng Cafe" ] || hong "sau flow 32: check-in tại «$cho», mong «Lưng Chừng Cafe» (chỗ seed ở ĐÀ LẠT — «Quán Ốc Dì Bé» nằm ở TP.HCM và không còn trong điểm đến mặc định từ M10)."
   [ "${tim:-0}" -eq 1 ] && [ "${bl:-0}" -eq 1 ] || hong "sau flow 32: $tim tim, $bl bình luận; mong 1/1."
   [ "$cau" = "Oc ngon" ] || hong "sau flow 32: câu check-in là «$cau», mong «Oc ngon»."
   album="$(curl -sS "$goc/contexts/$ctx/albums" -H "Authorization: Bearer $tok" | python3 -c '
@@ -555,7 +555,34 @@ print("%d|%s" % (len(a), a[0].get("checkin_count") if a else ""))')"
   IFS='|' read -r so_album so_checkin <<< "$album"
   [ "${so_album:-0}" -eq 1 ] && [ "${so_checkin:-0}" -ge 1 ] \
     || hong "sau flow 32: album «Keo QA»: $so_album album, $so_checkin check-in; mong 1 album, >= 1 check-in."
-  echo "máy chủ xác nhận: tường «Hoi QA» có đúng một check-in «Quán Ốc Dì Bé» (1 tim, 1 bình luận, câu «Oc ngon»); album «Keo QA» đếm $so_checkin check-in"
+  echo "máy chủ xác nhận: tường «Hoi QA» có đúng một check-in «Lưng Chừng Cafe» (1 tim, 1 bình luận, câu «Oc ngon»); album «Keo QA» đếm $so_checkin check-in"
+}
+
+# Sau flow 35: điểm đến là dữ liệu của máy chủ, không phải chuỗi trên màn. Hỏi
+# thẳng: danh sách có Hội An không, và `/places?destination=d-hoi-an` có trả về
+# đúng thành phố ấy không.
+kiem_may_chu_sau_35() {
+  local goc ket
+  goc="http://127.0.0.1:$API_PORT"
+  ket="$(curl -sS "$goc/destinations" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+ds = d.get("destinations", [])
+ten = {x.get("id"): x.get("name") for x in ds}
+print("%d|%s|%s" % (len(ds), ten.get("d-hoi-an", ""), "yes" if d.get("nearest") is None else "no"))')"
+  IFS='|' read -r so ten_hoi_an khong_toa_do <<< "$ket"
+  [ "${so:-0}" -ge 2 ] || hong "sau flow 35: máy chủ chỉ có $so điểm đến."
+  [ "$ten_hoi_an" = "Hội An" ] || hong "sau flow 35: không thấy «Hội An» trong danh sách điểm đến (nhận «$ten_hoi_an»)."
+  [ "$khong_toa_do" = "yes" ] \
+    || hong "sau flow 35: hỏi không kèm toạ độ mà máy chủ vẫn trả «nearest» — nó đang đoán chỗ người gọi đứng."
+  ket="$(curl -sS "$goc/places?destination=d-hoi-an" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+print("%s|%d" % (d.get("destination", {}).get("id"), len(d.get("places", []))))')"
+  IFS='|' read -r id_tra so_cho <<< "$ket"
+  [ "$id_tra" = "d-hoi-an" ] \
+    || hong "sau flow 35: hỏi Hội An mà máy chủ trả điểm đến «$id_tra»."
+  echo "máy chủ xác nhận: $so điểm đến, «Hội An» có trong danh sách và trả đúng $so_cho địa điểm của nó"
 }
 
 # Sau flow 33: hai bài vừa đăng trên máy phải đi đúng mức người đọc. Hỏi máy chủ
@@ -1196,7 +1223,7 @@ for f in "$FLOWS"/*.yaml; do
     # môi trường chứ không phải vì app sai. `--live` chạy đúng và chỉ nhóm này.
     20-*)        [ "$LIVE" = 1 ] || continue ;;
     21-*)        [ "$DANG_NHAP" = 1 ] || continue ;;
-    22-*|23-*|24-*|25-*|26-*|27-*|28-*|29-*|31-*|32-*|33-*|34-*) [ "$OTP" = 1 ] || continue ;;
+    22-*|23-*|24-*|25-*|26-*|27-*|28-*|29-*|31-*|32-*|33-*|34-*|35-*) [ "$OTP" = 1 ] || continue ;;
     # Under the keyboard negative control the composer is meant to be covered,
     # so a flow that has to tap it (30, 40) would only fail for the reason the
     # probe already measures. The table for --tat-kav is the sign-in leg + 31.
@@ -1282,6 +1309,7 @@ if [ "$OTP" = 1 ]; then
   kiem_may_chu_sau_32
   kiem_may_chu_sau_33
   kiem_may_chu_sau_34
+  kiem_may_chu_sau_35
   [ "$TAT_KAV" = 1 ] || kiem_may_chu_sau_30
   [ "$AI" = 1 ] && [ "$TAT_KAV" = 0 ] && kiem_may_chu_sau_40
   canary_otp

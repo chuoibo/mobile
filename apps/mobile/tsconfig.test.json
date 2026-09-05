@@ -252,6 +252,10 @@
     "src/rudi/dot-thu/dot-thu.ts",
     "src/rudi/ky-niem/ky-niem.ts",
     "src/rudi/vote.ts",
+    // Điểm đến (M10): compile để test chứng minh toạ độ chỉ đi trong MỘT lời
+    // gọi và không nằm lại đâu cả, và câu «gần tôi» có đủ bốn trạng thái —
+    // trong đó có trạng thái «không nơi nào đủ gần», thứ dễ bị bỏ quên nhất.
+    "src/rudi/kham-pha/diem-den.ts",
     // Hồ sơ người khác + tường của họ (M8): compile để test chứng minh câu cho
     // tường rỗng KHÔNG khẳng định người ấy chưa đăng gì (máy chủ trả 200 rỗng
     // cho cả hai trường hợp), và mỗi bài luôn nói rõ ai đọc được.

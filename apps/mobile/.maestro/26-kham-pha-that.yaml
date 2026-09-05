@@ -23,30 +23,41 @@ appId: com.lakiet.rudi
 - extendedWaitUntil:
     visible: "Tiệm Nướng Xóm Lào"
     timeout: 60000
-- assertVisible: "12 nơi ở Đà Lạt"
+# Con số là của máy chủ (danh mục seed có 12 chỗ ở Đà Lạt; một stack đã nhập
+# OpenStreetMap có hàng trăm), nên flow gác HÌNH DẠNG câu chứ không gác con số:
+# tên thành phố phải là tên máy chủ vừa phục vụ, không phải chuỗi viết cứng.
+- assertVisible: "[0-9]+ nơi ở Đà Lạt"
 - assertNotVisible: "Xóm Lèo"
 - assertNotVisible: "Mẫu minh hoạ.*"
 - assertNotVisible: "Gợi ý mẫu.*"
 - takeScreenshot: 26-danh-muc-that
 # Lọc theo category của máy chủ.
 - tapOn: "Cafe"
+# Con số là của danh mục đang phục vụ: 3 trên stack seed, hàng chục trên stack
+# đã nhập OpenStreetMap. Flow gác việc BỘ LỌC CÓ CẮN (số kết quả ít hơn tổng,
+# và chỗ thuộc danh mục khác biến mất), không gác con số.
 - extendedWaitUntil:
-    visible: "3 kết quả"
+    visible: "[0-9]+ kết quả"
     timeout: 30000
 - assertVisible: "Lưng Chừng Cafe"
 - assertNotVisible: "Tiệm Nướng Xóm Lào"
 - takeScreenshot: 26-loc-cafe
 - tapOn: "Xóa lọc"
 - extendedWaitUntil:
-    visible: "12 nơi ở Đà Lạt"
+    visible: "[0-9]+ nơi ở Đà Lạt"
     timeout: 30000
-# Gõ tên thì lọc ngay trên máy, không cần dấu («di be» ra «Dì Bé»).
+# Gõ tên thì lọc ngay trên máy, không cần dấu («lung chung» ra «Lưng Chừng»).
+#
+# Chỗ được tìm phải nằm ở ĐIỂM ĐẾN ĐANG PHỤC VỤ. «Quán Ốc Dì Bé» của bộ seed
+# nằm ở TP.HCM — trước M10 route trả cả mười hai dòng bất kể thành phố nên flow
+# tìm thấy nó ở Đà Lạt, và đó chính là cái sai M10 sửa.
 - tapOn: "Ô tìm địa điểm"
-- inputText: "di be"
+- inputText: "lung chung"
 - hideKeyboard
 - extendedWaitUntil:
-    visible: "Quán Ốc Dì Bé"
+    visible: "Lưng Chừng Cafe"
     timeout: 30000
+# Tên riêng thì vẫn phải ra ĐÚNG một chỗ, kể cả trong danh mục hàng trăm dòng.
 - assertVisible: "1 kết quả"
 - takeScreenshot: 26-tim-ten
 - tapOn: "Xóa lọc"
@@ -59,7 +70,9 @@ appId: com.lakiet.rudi
     visible: "Chỉ đường"
     timeout: 60000
 - assertVisible: "27/1 Yersin.*"
-- assertVisible: ".*một người"
+# «mỗi người» chứ không phải «một người»: câu giá do `cauGia` dựng từ M9c, và
+# nó nói «Chưa có giá» cho chỗ nhập từ OSM. Chỗ seed này có giá nên phải ra dải.
+- assertVisible: ".*mỗi người"
 - assertVisible: "Lưu địa điểm"
 - takeScreenshot: 26-chi-tiet
 # Cuộn tới cuối: nhận xét phải lên khỏi footer ghim, và footer vẫn bấm được.
@@ -77,7 +90,7 @@ appId: com.lakiet.rudi
 # Thanh đầu đã cuộn khỏi màn; nút back của hệ thống đưa về danh mục.
 - back
 - extendedWaitUntil:
-    visible: "12 nơi ở Đà Lạt"
+    visible: "[0-9]+ nơi ở Đà Lạt"
     timeout: 30000
 - assertVisible: "Bỏ lưu Tiệm Nướng Xóm Lào"
 - takeScreenshot: 26-danh-muc-da-luu

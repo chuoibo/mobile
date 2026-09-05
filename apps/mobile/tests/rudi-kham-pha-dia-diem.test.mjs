@@ -67,8 +67,18 @@ function gia(handler) {
 }
 
 test("docDanhMuc đọc /places như người lạ, không mang context_id bịa, lọc theo category và q", async () => {
-  const goi = gia(() => ({ status: 200, body: { places: [CHO], categories: [{ id: "cafe", label: "Cafe" }], group: {} } }));
+  const goi = gia(() => ({
+    status: 200,
+    body: {
+      places: [CHO],
+      categories: [{ id: "cafe", label: "Cafe" }],
+      group: {},
+      // M10: mỗi câu trả lời nói nó của thành phố nào.
+      destination: { id: "d-da-lat", name: "Đà Lạt" },
+    },
+  }));
   const dm = await docDanhMuc({ category: "cafe", q: "  nướng " });
+  assert.equal(dm.destination.name, "Đà Lạt");
   assert.equal(dm.places[0].name, "Tiệm Nướng Xóm Lào");
   assert.equal(dm.places[0].priceMinVnd, 200000);
   assert.deepEqual(dm.categories, [{ id: "cafe", label: "Cafe" }]);
@@ -79,7 +89,14 @@ test("docDanhMuc đọc /places như người lạ, không mang context_id bịa
 });
 
 test("docDanhMuc từ chối đồng lẻ như App B từng làm", async () => {
-  gia(() => ({ status: 200, body: { places: [{ ...CHO, price_min_vnd: 199.5 }], categories: [] } }));
+  gia(() => ({
+    status: 200,
+    body: {
+      places: [{ ...CHO, price_min_vnd: 199.5 }],
+      categories: [],
+      destination: { id: "d-da-lat", name: "Đà Lạt" },
+    },
+  }));
   await assert.rejects(docDanhMuc());
 });
 

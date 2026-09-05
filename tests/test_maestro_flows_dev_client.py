@@ -77,6 +77,12 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
         # open after install; a flow that launches and does not dismiss it reads
         # the sheet as «no button». Measured 2026-09-03.
         for flow in self.flows:
+            # The helper IS the dismissal, and its own retry-launch (added
+            # 2026-09-05, after `launchApp` returned to the Android launcher
+            # often enough to redden eleven flows in one board) cannot be
+            # followed by a call to itself. Everything else still must be.
+            if flow.name == "_bo-qua-dev-menu.yaml":
+                continue
             lines = code_lines(flow)
             for i, line in enumerate(lines):
                 if line.strip() != "- launchApp":
@@ -103,6 +109,7 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
             "31-ban-phim-mo.yaml",
             "33-ho-so-tuong-ban.yaml",
             "34-anh-trong-chat.yaml",
+            "35-diem-den.yaml",
             "40-ai-plan.yaml",
         ):
             text = (FLOWS / name).read_text(encoding="utf-8")
@@ -144,7 +151,7 @@ class MaestroFlowsDriveTheDevClient(unittest.TestCase):
         self.assertNotIn("EXPO_PUBLIC_RUDI_ACTOR=", script)
         self.assertIn("canary_otp", script)
         self.assertIn(
-            "22-*|23-*|24-*|25-*|26-*|27-*|28-*|29-*|31-*|32-*|33-*|34-*)"
+            "22-*|23-*|24-*|25-*|26-*|27-*|28-*|29-*|31-*|32-*|33-*|34-*|35-*)"
             ' [ "$OTP" = 1 ] || continue',
             script,
         )

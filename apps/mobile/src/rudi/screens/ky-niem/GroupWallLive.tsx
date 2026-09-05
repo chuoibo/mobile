@@ -29,7 +29,7 @@ import {
   type KyNiem,
 } from "../../ky-niem/ky-niem";
 import { typography, useRudiTheme } from "../../theme";
-import { Card, Chip, Field, Heading, Inline, ListRow, RudiButton, RudiScreen, SectionHeader, TopBar } from "../../ui";
+import { Card, Chip, Field, Heading, Inline, ListRow, RudiButton, RudiScreen, SearchField, SectionHeader, TopBar } from "../../ui";
 
 type Trang =
   | { pha: "dang-doc" }
@@ -66,6 +66,7 @@ export function GroupWallLiveScreen({ phien, contextId }: { phien: Phien; contex
   const [nhap, setNhap] = useState("");
   const [moCheckIn, setMoCheckIn] = useState(false);
   const [danhMuc, setDanhMuc] = useState<Cho[] | null>(null);
+  const [timCho, setTimCho] = useState("");
   const [choChon, setChoChon] = useState<Cho | null>(null);
   const [cauCheckIn, setCauCheckIn] = useState("");
   const attempts = useRef<Record<string, Attempt>>({});
@@ -165,6 +166,18 @@ export function GroupWallLiveScreen({ phien, contextId }: { phien: Phien; contex
       setCauCheckIn("");
     });
 
+  // At most a dozen chips: a hundred is a haystack. Diacritic-insensitive, so
+  // «di be» finds «Dì Bé» the way the Explore filter does.
+  const choHienRa = (danhMuc ?? [])
+    .filter((cho) => {
+      const q = timCho.trim();
+      if (q === "") return true;
+      const gap = (x: string) =>
+        x.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/gi, "d").toLowerCase();
+      return gap(cho.name).includes(gap(q));
+    })
+    .slice(0, 12);
+
   return (
     <RudiScreen testID="group-wall-screen">
       <TopBar subtitle="Chỉ thành viên nhóm thấy" title="Tường nhóm" />
@@ -182,11 +195,28 @@ export function GroupWallLiveScreen({ phien, contextId }: { phien: Phien; contex
         <Card style={styles.form}>
           <SectionHeader title="Check-in ở đâu?" />
           {danhMuc === null ? <Text style={[typography.caption, { color: colors.inkFaint }]}>Đang đọc danh mục…</Text> : null}
+          {/* A destination holds a hundred places since the catalogue became
+              real (M9), so this stopped being a chip row and became a search:
+              a hundred chips is a haystack, not a choice. The box narrows;
+              what stays is the first dozen matches. */}
+          {danhMuc === null ? null : (
+            <SearchField
+              accessibilityLabel="Ô tìm chỗ check-in"
+              onChangeText={setTimCho}
+              placeholder="Tìm chỗ bạn đang ở"
+              value={timCho}
+            />
+          )}
           <Inline gap={6} wrap>
-            {(danhMuc === null ? [] : danhMuc).map((cho) => (
+            {choHienRa.map((cho) => (
               <Chip accessibilityLabel={`Chọn ${cho.name}`} key={cho.id} label={cho.name} onPress={() => setChoChon(cho)} selected={choChon !== null && choChon.id === cho.id} />
             ))}
           </Inline>
+          {danhMuc !== null && choHienRa.length === 0 ? (
+            <Text style={[typography.caption, { color: colors.inkFaint }]}>
+              Không có chỗ nào khớp «{timCho}». Thử tên ngắn hơn nhé.
+            </Text>
+          ) : null}
           <Field accessibilityLabel="Ô câu check-in" label="Một câu (không bắt buộc)" onChangeText={setCauCheckIn} placeholder="Ví dụ: Ốc ở đây ngon" value={cauCheckIn} />
           <RudiButton disabled={ban || choChon === null} icon="checkmark" label="Đăng check-in" loading={ban} onPress={() => void dangCheckIn()} />
           <RudiButton label="Thôi" onPress={() => setMoCheckIn(false)} variant="ghost" />
