@@ -74,7 +74,7 @@ from app.api.deps import get_photo_storage, get_repository
 from app.api.main import create_app
 from app.media.storage import PhotoStorage
 
-from .conftest import ASGITestClient
+from .conftest import SeedCatalogueReads, ASGITestClient
 
 CONTEXT_ID = uuid.UUID("1aa00000-aaaa-4aaa-8aaa-0000a0000434")
 PHOTO_ID = uuid.UUID("2bb00000-bbbb-4bbb-8bbb-0000b0000434")
@@ -96,7 +96,7 @@ class StoredImage:
     byte_size = len(HEALTHY_BYTES)
 
 
-class StubRepository:
+class StubRepository(SeedCatalogueReads):
     """Everyone asking is a member, so no case can go green on a refusal.
 
     A permission answer arriving before the storage read would satisfy every

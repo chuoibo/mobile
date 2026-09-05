@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from app.places.prompt_safety import safe_places
+
 CLIENT_PLACE_FIELDS = (
     "id",
     "name",
@@ -15,19 +17,26 @@ CLIENT_PLACE_FIELDS = (
 )
 
 
-def load_place_catalogue() -> list[dict]:
+def load_place_catalogue(rows: list[dict] | None = None) -> list[dict]:
     """Return only place facts the client contract is prepared to display.
 
-    Keeping this as an adapter avoids a second catalogue while the soft import
-    lets the companion fail closed on deployments that do not ship places yet.
+    Keeping this as an adapter avoids a second catalogue. `rows` is the caller's
+    catalogue read (M9: the service reads it from the table); the argument is
+    optional so a caller without a repository still fails closed on an empty
+    list rather than on an ImportError.
     """
 
-    try:
+    if rows is None:
+        # No caller: the seed rows, so the live probes and the offline scripts
+        # that ask for «the catalogue» with no session still get one. Every
+        # request path passes its own read; this branch is not one of them.
         from app.places.catalog import PLACES
-    except ImportError:
-        return []
 
+        rows = PLACES
+
+    # Only rows safe to put in front of a model (M9, ADR-0017): the catalogue
+    # is a table now, and its rows can come from data the world can edit.
     return [
         {field: place.get(field) for field in CLIENT_PLACE_FIELDS}
-        for place in PLACES
+        for place in safe_places(rows)
     ]

@@ -44,7 +44,7 @@ from app.api.search_rate_limit import (
 )
 from app.domain.suggestion import SUGGESTION_KIND
 
-from .conftest import ASGITestClient
+from .conftest import SeedCatalogueReads, ASGITestClient
 
 NOW = datetime(2030, 8, 27, 12, 0, tzinfo=UTC)
 CONTEXT_ID = uuid.UUID("3cc00000-cccc-4ccc-8ccc-0000c0000031")
@@ -156,7 +156,7 @@ CONTEXTUAL_CARD = {
 }
 
 
-class StubRepository:
+class StubRepository(SeedCatalogueReads):
     """One group, mid-conversation, so the model is reached every request.
 
     Two human lines and not one, deliberately. `has_conversation` stays quiet
@@ -243,7 +243,7 @@ def client(monkeypatch, suggester):
     monkeypatch.setattr(anyio.to_thread, "run_sync", run_sync_inline)
     monkeypatch.setattr("app.api.service._now", lambda: NOW)
     monkeypatch.setattr(
-        companion_places, "load_place_catalogue", lambda: list(CATALOGUE)
+        companion_places, "load_place_catalogue", lambda *_: list(CATALOGUE)
     )
     app = create_app()
     app.dependency_overrides[get_repository] = lambda: StubRepository()

@@ -180,6 +180,14 @@ start_api() {
       && MOBILE_DATABASE_URL="$DATABASE_URL" python3 -m alembic upgrade head ) || {
     echo "migration hỏng — không dựng được schema để chạy lát cắt" >&2; return 1; }
 
+  # M9: danh mục địa điểm là một bảng, và một database vừa dựng thì bảng ấy
+  # rỗng. Không seed thì Khám phá trống rỗng và mọi flow chạm địa điểm đỏ vì
+  # thiếu dữ liệu chứ không phải vì app sai.
+  echo "--- seed danh mục địa điểm"
+  ( cd "$REPO_ROOT/services/api" \
+      && MOBILE_DATABASE_URL="$DATABASE_URL" python3 -m app.places.seed_catalog ) || {
+    echo "seed danh mục hỏng" >&2; return 1; }
+
   local port
   port="$(python3 -c "import socket
 s = socket.socket()

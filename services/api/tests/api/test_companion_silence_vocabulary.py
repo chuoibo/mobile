@@ -52,7 +52,7 @@ from app.api.repository import (
 from app.domain import companion as companion_domain
 from app.domain.companion import CompanionError
 
-from .conftest import ASGITestClient
+from .conftest import SeedCatalogueReads, ASGITestClient
 
 NOW = datetime(2030, 8, 27, 12, 0, tzinfo=UTC)
 CONTEXT_ID = uuid.UUID("3cc00000-cccc-4ccc-8ccc-00000000f16a")
@@ -120,7 +120,7 @@ def _ai(seconds_ago: int) -> MessageRecord:
     )
 
 
-class ConversationRepository:
+class ConversationRepository(SeedCatalogueReads):
     """A group whose message history the test poses into each refusal state."""
 
     def __init__(self, conversation: tuple[MessageRecord, ...]) -> None:
@@ -195,7 +195,7 @@ def turn(monkeypatch):
     monkeypatch.setattr(anyio.to_thread, "run_sync", run_sync_inline)
     monkeypatch.setattr(service, "_now", lambda: NOW)
     monkeypatch.setattr(
-        companion_places, "load_place_catalogue", lambda: list(CATALOGUE)
+        companion_places, "load_place_catalogue", lambda *_: list(CATALOGUE)
     )
 
     def take(conversation, *, companion=None, requested=False):

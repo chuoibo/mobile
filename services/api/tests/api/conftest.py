@@ -13,6 +13,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from functools import lru_cache
 
 import anyio
 import httpx
@@ -40,6 +41,7 @@ from app.api.repository import (
     ConfirmedExpense,
     ContextBatchRow,
     ContextRecord,
+    DestinationRecord,
     ExpenseIdentity,
     FriendEdgeRecord,
     FrozenBatch,
@@ -59,6 +61,7 @@ from app.api.repository import (
     PersonContextSummaryRecord,
     PersonFinanceSummary,
     PersonRecord,
+    PlaceRecord,
     PostRecord,
     ProfileCounts,
     PublishObligation,
@@ -108,7 +111,90 @@ class FakeReceipt:
     idempotency_key: uuid.UUID
 
 
-class FakeRepository:
+@lru_cache(maxsize=1)
+def _seed_place_records() -> tuple[PlaceRecord, ...]:
+    """The seed catalogue as repository records, built once per process."""
+    from app.places.catalog import PLACES
+    from app.places.details import find_detail
+    from app.places.seed_catalog import _destination_for
+
+    out = []
+    for place in PLACES:
+        prose = find_detail(place["id"])
+        out.append(
+            PlaceRecord(
+                id=place["id"],
+                destination_id=_destination_for(place),
+                name=place["name"],
+                category=place["category"],
+                kinds=list(place["kinds"]),
+                address=place["address"],
+                lat=place["lat"],
+                lng=place["lng"],
+                rating=place["rating"],
+                rating_count=place["rating_count"],
+                price_min_vnd=place["price_min_vnd"],
+                price_max_vnd=place["price_max_vnd"],
+                open_hours=place["open_hours"],
+                open_now=place["open_now"],
+                travel_minutes=place["travel_minutes"],
+                distance_km=place["distance_km"],
+                photo_count=place["photo_count"],
+                traits=list(place["traits"]),
+                group_fit=dict(place["group_fit"]),
+                flag=place["flag"],
+                description=None if prose is None else prose["description"],
+                reviews=None if prose is None else list(prose["reviews"]),
+                source="seed",
+                source_ref=None,
+                license=None,
+            )
+        )
+    return tuple(out)
+
+
+@lru_cache(maxsize=1)
+def _seed_destination_records() -> tuple[DestinationRecord, ...]:
+    from app.places.seed_catalog import SEED_DESTINATIONS
+
+    return tuple(DestinationRecord(**row) for row in SEED_DESTINATIONS)
+
+
+class SeedCatalogueReads:
+    """The four catalogue reads, for a test double that is not `FakeRepository`.
+
+    Since M9 the catalogue is a table, so every repository the service is handed
+    has to be able to answer for it -- including the small hand-written doubles
+    in individual test modules, which exist to make one path fail in a specific
+    way and should not have to grow a catalogue to do it.
+    """
+
+    def list_places(self, *, destination_id=None, category=None):
+        rows = [
+            record
+            for record in _seed_place_records()
+            if (destination_id is None or record.destination_id == destination_id)
+            and (category is None or record.category == category)
+        ]
+        return sorted(rows, key=lambda record: record.id)
+
+    def get_place(self, place_id):
+        for record in _seed_place_records():
+            if record.id == place_id:
+                return record
+        return None
+
+    def list_destinations(self):
+        return list(_seed_destination_records())
+
+    def get_destination(self, destination_id):
+        for record in _seed_destination_records():
+            if record.id == destination_id:
+                return record
+        return None
+
+
+class FakeRepository(SeedCatalogueReads):
     def __init__(self):
         self.expenses: dict[uuid.UUID, ExpenseIdentity] = {}
         self.confirmed: dict[uuid.UUID, ConfirmedExpense] = {}

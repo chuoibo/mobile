@@ -104,10 +104,18 @@ def test_distance_reads_the_seed_as_decimal_not_as_binary_float():
     assert distance_fit(place, GROUP) == Fraction(1) - Fraction(12, 10) / Fraction(5)
 
 
-def test_group_size_is_all_or_nothing_and_absence_scores_zero():
+def test_group_size_is_all_or_nothing_and_absence_is_unknown_not_zero():
+    """M9 changed one half of this rule and left the other half alone.
+
+    A capacity that is stated and does not fit still scores 0. A capacity that
+    is not stated is now `None` -- the term drops out of the total instead of
+    being counted as a failure -- because no imported row carries one, and
+    «the map does not say» must not rank below «too small».
+    """
+
     place = BY_ID["p-tiem-nuong-xom-lao"]
     assert group_size_fit(place, GROUP) == 1
-    assert group_size_fit({**place, "group_fit": None}, GROUP) == 0
+    assert group_size_fit({**place, "group_fit": None}, GROUP) is None
     too_small = {**place, "group_fit": {"min_people": 2, "max_people": 4, "relation": "x"}}
     assert group_size_fit(too_small, GROUP) == 0
 

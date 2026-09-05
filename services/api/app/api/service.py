@@ -237,7 +237,7 @@ from app.media.images import ImageRejected, sanitize_image
 from app.media.storage import PhotoStorage, new_storage_key
 from app.places import social_map
 from app.places.areas import area_summary, find_area
-from app.places.catalog import GROUP, PLACES, find_place
+from app.places.catalog import GROUP
 from app.places.meeting import (
     MAX_ORIGIN_AREAS,
     MIN_ORIGIN_AREAS,
@@ -889,6 +889,30 @@ class ApiService:
     ):
         self.repository = repository
         self.photo_storage = PhotoStorage() if photo_storage is None else photo_storage
+        # The catalogue is reference data: the same rows for every caller, and
+        # only an import script writes it. Read at most once per service (that
+        # is, per request) so a route that scores, grounds and names places
+        # does not issue the same SELECT three times.
+        self._place_rows: list[dict] | None = None
+
+    def place_rows(self) -> list[dict]:
+        """The whole catalogue, in the dict shape the scorers already read.
+
+        `PlaceRecord.to_row()` is the only conversion; `scoring.py`,
+        `search.py`, `social_map.py` and the card builder keep reading exactly
+        what they read when the catalogue was twelve rows in a module.
+        """
+        if self._place_rows is None:
+            self._place_rows = [row.to_row() for row in self.repository.list_places()]
+        return self._place_rows
+
+    def place_row(self, place_id: str) -> dict | None:
+        """One catalogue row, or None. Replaces `catalog.find_place`."""
+        for row in self._place_rows or ():
+            if row["id"] == place_id:
+                return row
+        record = self.repository.get_place(place_id)
+        return None if record is None else record.to_row()
 
     def register_person(
         self, person_id: uuid.UUID, display_name: str, actor: Actor
@@ -1673,7 +1697,7 @@ class ApiService:
             for record in self.repository.group_recap(context_id, today=today)
         ]
 
-        places = companion_places.load_place_catalogue()
+        places = companion_places.load_place_catalogue(self.place_rows())
         category_of = {
             place["id"]: place.get("category")
             for place in places
@@ -1931,14 +1955,16 @@ class ApiService:
             {"is_group_member": self.repository.is_member(context_id, actor.id)},
         )
 
-        # The FULL catalogue rows, not `companion_places.load_place_catalogue()`.
+        # The FULL catalogue rows, not `companion_places.load_place_catalogue(self.place_rows())`.
         # That adapter is the *model-facing* projection and deliberately drops
         # `kinds`, which is exactly the field a taste label comes from. Nothing
         # here is sent to a model, so there is no reason to read the trimmed
         # copy -- and reading it produced a profile that was silently empty for
         # every group, because every visit resolved to a place with no kinds.
         catalogue = {
-            place["id"]: place for place in PLACES if isinstance(place.get("id"), str)
+            place["id"]: place
+            for place in self.place_rows()
+            if isinstance(place.get("id"), str)
         }
         # Check-ins only. A photograph names no catalogue place, and a caption
         # is somebody's sentence rather than evidence of a taste; counting one
@@ -2056,7 +2082,7 @@ class ApiService:
         if not has_conversation(digest):
             return _silent("no_conversation")
 
-        places = companion_places.load_place_catalogue()
+        places = companion_places.load_place_catalogue(self.place_rows())
         try:
             raw = suggester(digest, places)
         except Exception as error:  # noqa: BLE001 - a chat screen must not 500
@@ -2361,7 +2387,7 @@ class ApiService:
         for stop in request.stops:
             # A stop may name a catalogue place; a key the catalogue does not
             # know is a client bug, refused before anything is written.
-            if stop.place_id is not None and find_place(stop.place_id) is None:
+            if stop.place_id is not None and self.place_row(stop.place_id) is None:
                 raise ApiProblem(
                     422,
                     "stop_place_unknown",
@@ -3008,7 +3034,7 @@ class ApiService:
         _require_permission("manage_saved_places", actor, {"is_self": True})
         saved = []
         for record in self.repository.list_saved_places(actor.id):
-            place = find_place(record.place_id)
+            place = self.place_row(record.place_id)
             # A bookmark whose catalogue row is gone is not shown rather than
             # shown with a made-up name; the row stays for when it comes back.
             if place is not None:
@@ -3029,9 +3055,11 @@ class ApiService:
         self._known_place(place_id)
         self.repository.unsave_place(actor.id, place_id)
 
-    @staticmethod
-    def _known_place(place_id: str) -> dict:
-        place = find_place(place_id)
+    def _known_place(self, place_id: str) -> dict:
+        """The catalogue row for this key, or 404. An instance method since M9:
+        the catalogue is a table now, so looking a key up needs the repository
+        this service is holding rather than a module constant."""
+        place = self.place_row(place_id)
         if place is None:
             raise ApiProblem(
                 404, "place_not_found", "Không có địa điểm này trong danh mục."
@@ -3331,7 +3359,7 @@ class ApiService:
             actor,
             {"is_group_member": self.repository.is_member(context_id, actor.id)},
         )
-        place = find_place(request.place_id)
+        place = self.place_row(request.place_id)
         if place is None:
             raise ApiProblem(
                 422, "place_not_found", "No place in the catalogue has that id"
@@ -3521,13 +3549,16 @@ class ApiService:
         seen = {entry["place_id"] for entry in visited}
 
         scored = sorted(
-            (place for place in PLACES if place["id"] not in seen),
+            (place for place in self.place_rows() if place["id"] not in seen),
             key=lambda place: (-score_place(place, GROUP)[0], place["id"]),
         )
         return SocialMapResponse(
             context_id=context_id,
             visited=[VisitedPlace(**entry) for entry in visited],
-            trending=[MapPlace(**entry) for entry in social_map.trending_layer(PLACES)],
+            trending=[
+                MapPlace(**entry)
+                for entry in social_map.trending_layer(self.place_rows())
+            ],
             recommended=[
                 MapPlace(
                     place_id=place["id"],
@@ -3615,7 +3646,9 @@ class ApiService:
                 )
             origins.append(area)
 
-        candidates = rank_meeting_points(origins, PLACES, limit=_MEET_CANDIDATES)
+        candidates = rank_meeting_points(
+            origins, self.place_rows(), limit=_MEET_CANDIDATES
+        )
         return MeetingPointResponse(
             context_id=context_id,
             origins=[AreaSummary(**area_summary(area)) for area in origins],
@@ -3812,7 +3845,7 @@ class ApiService:
             # cannot be forged from a phone.
             try:
                 card = ground_card(
-                    request.card, companion_places.load_place_catalogue()
+                    request.card, companion_places.load_place_catalogue(self.place_rows())
                 )
             except CompanionError as refused:
                 raise ApiProblem(
@@ -4208,7 +4241,7 @@ class ApiService:
                 members.append(
                     {"id": str(person.id), "display_name": person.display_name}
                 )
-        places = companion_places.load_place_catalogue()
+        places = companion_places.load_place_catalogue(self.place_rows())
 
         try:
             raw = companion.reply(

@@ -1166,7 +1166,10 @@ class OutingStop(Base):
     label: Mapped[str] = mapped_column(Text, nullable=False)
     place_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Catalogue key of the place this stop is at (M4). Text, not a foreign key,
-    # while the catalogue is code; the service refuses a key it does not know.
+    # rather than a foreign key: the catalogue used to be code, and now that it
+    # is a table (M9) a stop must survive a re-import that drops a row -- an FK
+    # would delete somebody's timeline entry along with it. The service still
+    # refuses a key it does not know at write time.
     # Optional: a stop may be somewhere the catalogue has never heard of.
     place_id: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -2030,12 +2033,157 @@ class OtpChallenge(Base):
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class Destination(Base):
+    """One place people travel to: a city, a town, an island (M9, ADR-0017).
+
+    The row people choose in «Khám phá» before they browse anything, and the
+    row an outing points at. Slug rather than a uuid because it is written into
+    urls, seed scripts and Maestro flows, and because a destination is a fact
+    about the world rather than a record about a person -- two databases seeded
+    from the same import must agree on `d-da-lat`.
+
+    The bounding box is what the importer queries Overpass with and what says
+    which destination a place belongs to. It is stored rather than derived so a
+    re-import asks the same question a second time.
+    """
+
+    __tablename__ = "destinations"
+    __table_args__ = (
+        CheckConstraint("length(btrim(name)) > 0", name="destination_name_not_blank"),
+        CheckConstraint("lat >= -90 AND lat <= 90", name="destination_lat_range"),
+        CheckConstraint("lng >= -180 AND lng <= 180", name="destination_lng_range"),
+        CheckConstraint(
+            "bbox_south < bbox_north AND bbox_west < bbox_east",
+            name="destination_bbox_ordered",
+        ),
+        Index("ix_destinations_order", "sort_order", "id"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    province: Mapped[str | None] = mapped_column(Text)
+    lat: Mapped[float] = mapped_column(Float, nullable=False)
+    lng: Mapped[float] = mapped_column(Float, nullable=False)
+    bbox_south: Mapped[float] = mapped_column(Float, nullable=False)
+    bbox_west: Mapped[float] = mapped_column(Float, nullable=False)
+    bbox_north: Mapped[float] = mapped_column(Float, nullable=False)
+    bbox_east: Mapped[float] = mapped_column(Float, nullable=False)
+    blurb: Mapped[str | None] = mapped_column(Text)
+    sort_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0", default=0
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class Place(Base):
+    """One place to go, from the catalogue (M9, ADR-0017).
+
+    Replaces the twelve invented rows in `app/places/catalog.py`, which said
+    itself that the file was what a real catalogue would replace. Real venue
+    data may not live in Git, so it lives here and an import script puts it
+    there; the twelve seed rows are imported the same way, keep their ids, and
+    keep every test and flow that names them working.
+
+    Almost everything except name, category and coordinates is NULLABLE, and
+    that is the point. OpenStreetMap gives a name, a point and a kind; it does
+    not give opening hours, a price band or a rating. A column that is null
+    makes the screen say «chưa có», which is true. A column filled with a
+    plausible number would be a lie the app tells in the voice of a fact.
+
+    `rating` has no writer at all in this round: nobody rates a place here, and
+    a global star average is not a thing this product has. The column exists so
+    the seed rows keep their shape; new rows arrive without one, and the screen
+    shows how many people in your own groups have been instead.
+    """
+
+    __tablename__ = "places"
+    __table_args__ = (
+        CheckConstraint("length(btrim(name)) > 0", name="place_name_not_blank"),
+        CheckConstraint("lat >= -90 AND lat <= 90", name="place_lat_range"),
+        CheckConstraint("lng >= -180 AND lng <= 180", name="place_lng_range"),
+        CheckConstraint(
+            "source IN ('seed', 'osm', 'curated')", name="place_source_known"
+        ),
+        # An imported row has to say where it came from, and under what licence.
+        # Attribution is a condition of ODbL, not a nicety, so the database is
+        # where it is enforced rather than the importer that could forget.
+        CheckConstraint(
+            "(source <> 'osm') OR (source_ref IS NOT NULL AND license IS NOT NULL)",
+            name="place_osm_row_cites_its_source",
+        ),
+        CheckConstraint(
+            "price_min_vnd IS NULL OR price_min_vnd >= 0", name="place_price_min_sane"
+        ),
+        CheckConstraint(
+            "price_max_vnd IS NULL OR price_min_vnd IS NULL "
+            "OR price_max_vnd >= price_min_vnd",
+            name="place_price_band_ordered",
+        ),
+        CheckConstraint(
+            "rating IS NULL OR (rating >= 0 AND rating <= 5)", name="place_rating_range"
+        ),
+        UniqueConstraint("source", "source_ref", name="uq_places_source_ref"),
+        Index("ix_places_destination", "destination_id", "category", "id"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    destination_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("destinations.id", name="fk_places_destination"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(Text, nullable=False)
+    kinds: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    address: Mapped[str | None] = mapped_column(Text)
+    lat: Mapped[float] = mapped_column(Float, nullable=False)
+    lng: Mapped[float] = mapped_column(Float, nullable=False)
+    rating: Mapped[float | None] = mapped_column(Float)
+    rating_count: Mapped[int | None] = mapped_column(Integer)
+    price_min_vnd: Mapped[int | None] = mapped_column(BigInteger)
+    price_max_vnd: Mapped[int | None] = mapped_column(BigInteger)
+    open_hours: Mapped[str | None] = mapped_column(Text)
+    open_now: Mapped[bool | None] = mapped_column(Boolean)
+    travel_minutes: Mapped[int | None] = mapped_column(Integer)
+    distance_km: Mapped[float | None] = mapped_column(Float)
+    photo_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0", default=0
+    )
+    traits: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    group_fit: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
+    flag: Mapped[str | None] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text)
+    reviews: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSONB(none_as_null=True)
+    )
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    source_ref: Mapped[str | None] = mapped_column(Text)
+    license: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class SavedPlace(Base):
     """A catalogue place one person bookmarked (M2).
 
-    `place_id` is the catalogue key (`app/places/catalog.py`): text rather than
-    a foreign key while the catalogue is code, and the service checks the key
-    exists before writing. Unique per (person, place): saving twice is one
+    `place_id` is the catalogue key: text rather than a foreign key even now
+    that the catalogue is a table (M9), so a bookmark outlives a re-import that
+    no longer carries that row; the service checks the key exists when writing,
+    and the read drops a bookmark whose row has gone rather than inventing a
+    name for it. Unique per (person, place): saving twice is one
     bookmark, and the route answers 200 the second time rather than 409.
     """
 

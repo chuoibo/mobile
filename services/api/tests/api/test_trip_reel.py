@@ -22,7 +22,7 @@ from app.api.repository import MemoryRecord, OutingRecord, RecapOutingRecord
 from app.api.routes.albums import get_reel_limiter
 from app.api.search_rate_limit import FixedWindowLimiter
 
-from .conftest import ASGITestClient
+from .conftest import SeedCatalogueReads, ASGITestClient
 
 NOW = datetime(2030, 8, 30, 12, 0, tzinfo=UTC)
 CONTEXT_ID = uuid.UUID("37c00000-fee1-4fee-8fee-0000fee00037")
@@ -160,7 +160,7 @@ DEFAULT_RAW = {
 }
 
 
-class StubReelRepository:
+class StubReelRepository(SeedCatalogueReads):
     """Two groups in storage, with calls recorded to prove lookup order."""
 
     def __init__(self) -> None:

@@ -24,7 +24,7 @@ import uuid
 import anyio
 import pytest
 
-from app.api.deps import get_receipt_reader
+from app.api.deps import get_receipt_reader, get_repository
 from app.api.errors import ApiProblem
 from app.api.main import create_app
 from app.api.routes.places import get_place_searcher
@@ -36,7 +36,7 @@ from app.api.search_rate_limit import (
     build_receipt_scan_limiter,
 )
 
-from .conftest import ASGITestClient
+from .conftest import ASGITestClient, FakeRepository
 from .helpers import ADVANCER_ID, png_bytes
 
 PNG = png_bytes()
@@ -88,6 +88,11 @@ def client(monkeypatch, reader):
     monkeypatch.setattr(anyio.to_thread, "run_sync", run_sync_inline)
     app = create_app()
     app.dependency_overrides[get_receipt_reader] = lambda: reader
+    # `/places/search` reads the catalogue from the repository since M9, so an
+    # app in this file needs one; without it the route would reach for a real
+    # database and this file's subject (two ceilings, counted apart) would be
+    # decided by a connection error.
+    app.dependency_overrides[get_repository] = lambda: FakeRepository()
     return ASGITestClient(app)
 
 
@@ -220,8 +225,8 @@ def test_each_application_carries_its_own_scan_window(client):
 class SilentSearcher:
     """Stands in for Gemini on the neighbouring paid route."""
 
-    def __call__(self, query: str) -> dict:
-        del query
+    def __call__(self, query: str, places=None) -> dict:
+        del query, places
         return {
             "understood": {
                 "budget_per_person_vnd": 300_000,

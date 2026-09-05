@@ -20,6 +20,8 @@ from app.api.main import create_app
 
 from .helpers import create_batch, propose_and_confirm, publish_batch
 
+from tests.api.conftest import SeedCatalogueReads
+
 GUEST_PRIVACY_HEADERS = {
     "cache-control": "no-store",
     "referrer-policy": "no-referrer",
@@ -27,7 +29,7 @@ GUEST_PRIVACY_HEADERS = {
 }
 
 
-class _BoomRepository:
+class _BoomRepository(SeedCatalogueReads):
     """Every read raises: the shape of a database that has just fallen over.
 
     Deliberately not a route that raises on its own. The 500 has to come out of

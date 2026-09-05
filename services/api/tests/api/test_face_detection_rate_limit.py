@@ -36,7 +36,7 @@ from app.api.search_rate_limit import (
 )
 from app.media.face_detection import Detection, PixelBox
 
-from .conftest import ASGITestClient
+from .conftest import SeedCatalogueReads, ASGITestClient
 
 CONTEXT_ID = uuid.UUID("1aa00000-aaaa-4aaa-8aaa-0000a0000022")
 PHOTO_ID = uuid.UUID("2bb00000-bbbb-4bbb-8bbb-0000b0000022")
@@ -52,7 +52,7 @@ class StubImage:
     content_type = "image/png"
 
 
-class StubRepository:
+class StubRepository(SeedCatalogueReads):
     """Enough of the protocol for this route, and nothing else.
 
     Everybody who asks is a member, so no case here can go green because the

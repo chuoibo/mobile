@@ -77,7 +77,12 @@ services:
   # lần thứ ba trúng".
   migrate:
     <<: *api-image
-    command: ["alembic", "upgrade", "head"]
+    # M9: the place catalogue is a table, so a fresh database has an empty one.
+    # Seeding runs here, in the same one-shot container that migrates, so no
+    # deployment can come up migrated-but-catalogue-less; the seeder is
+    # idempotent and leaves rows an OSM import wrote alone.
+    command:
+      ["sh", "-c", "alembic upgrade head && python -m app.places.seed_catalog"]
     environment: *api-env
     depends_on:
       postgres:

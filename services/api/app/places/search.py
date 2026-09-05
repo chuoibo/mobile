@@ -174,16 +174,21 @@ def _catalogue_line(place: dict[str, Any]) -> str:
             # the prompt demanded a closed vocabulary it never actually showed.
             "nhom": place["category"],
             "loai": place["kinds"],
+            # «chưa có» rather than a formatted `None`: since M9 a row may
+            # carry no price, and a model shown «None-Nonek» writes about it.
             "khoang_gia_moi_nguoi": (
-                f"{_k(place['price_min_vnd'])}-{_k(place['price_max_vnd'])}k"
+                "chưa có"
+                if place.get("price_min_vnd") is None
+                or place.get("price_max_vnd") is None
+                else f"{_k(place['price_min_vnd'])}-{_k(place['price_max_vnd'])}k"
             ),
             "dac_diem": place["traits"],
-            "khoang_cach_km": place["distance_km"],
+            "khoang_cach_km": place.get("distance_km"),
             "so_nguoi_hop": (
                 f"{fit.get('min_people')}-{fit.get('max_people')}" if fit else "không ghi"
             ),
-            "dang_mo": place["open_now"],
-            "gio_mo": place["open_hours"],
+            "dang_mo": place.get("open_now"),
+            "gio_mo": place.get("open_hours"),
         },
         ensure_ascii=False,
     )
@@ -272,7 +277,9 @@ def _post(prompt: str, api_key: str) -> str | None:
         return None
 
 
-def gemini_search(query: str) -> dict[str, Any] | None:
+def gemini_search(
+    query: str, places: list[dict[str, Any]] | None = None
+) -> dict[str, Any] | None:
     """One call, raw model answer or `None`. Never raises.
 
     `None` is an honest outcome and the route serves it as an empty result with
@@ -290,9 +297,16 @@ def gemini_search(query: str) -> dict[str, Any] | None:
         logger.info("Gemini search: GEMINI_API_KEY not set, search unavailable")
         return None
 
-    from app.places.catalog import GROUP, PLACES
+    from app.places.catalog import GROUP
 
-    text = _post(build_search_prompt(query, PLACES, GROUP), api_key)
+    # The catalogue is the route's read (M9: a table, not a module constant).
+    # An empty one means the prompt would list nothing, and a model asked to
+    # pick from nothing can only invent -- so refuse before spending a call.
+    if not places:
+        logger.info("Gemini search: empty catalogue, search unavailable")
+        return None
+
+    text = _post(build_search_prompt(query, places, GROUP), api_key)
     if text is None:
         return None
     try:

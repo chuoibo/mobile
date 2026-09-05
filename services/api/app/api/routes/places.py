@@ -1,8 +1,9 @@
 """`GET /places` -- the catalogue behind the Khám phá tab (rd-be-05).
 
-Read-only, and the only route in this service that is not about money. It sits
-here rather than in `service.py` because there is no aggregate, no ledger entry
-and no repository call: seed rows in, scored rows out.
+Read-only, and the only route in this service that is not about money. Since
+M9 (ADR-0017) the rows come from the `places` table through the repository
+instead of from a module constant, because real venue data may not live in
+Git; the scoring, the grounding and the card shape did not change with them.
 
 The contract in one sentence: **a card never shows a number without showing
 where the number came from, and never shows the words AI MATCH unless a model
@@ -23,13 +24,15 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field, field_validator
 
-from app.api.deps import Actor, get_actor
+from app.api.deps import Actor, get_actor, get_repository
 from app.api.errors import ApiProblem
+from app.api.repository import ApiRepository
 from app.api.schemas import MoneyVnd
 from app.api.search_rate_limit import FixedWindowLimiter
+from app.api.service import ApiService
 from app.domain.place_search import PlaceSearchError, ground_search
-from app.places.catalog import CATEGORIES, GROUP, PLACES, GroupProfile, find_place
-from app.places.details import detail_fields
+from app.places.catalog import CATEGORIES, GROUP, GroupProfile
+from app.places.prompt_safety import safe_places
 from app.places.reasons import (
     PlaceReason,
     ReasonRow,
@@ -69,28 +72,43 @@ class GroupFit(BaseModel):
 
 
 class Place(BaseModel):
+    """One card. Since M9 most of it is optional, and that is the honest shape.
+
+    OpenStreetMap gives a name, a point and a kind. It does not give a rating,
+    a price band, opening hours or how long it takes to get there. Those fields
+    are `None` for an imported place and the screen says «chưa có» -- a card
+    that filled them with plausible numbers would be inventing facts about a
+    business that exists. The twelve invented seed rows still carry all of
+    them, which is why the types are optional rather than gone.
+    """
+
     id: str
     name: str
     category: str
     kinds: list[str]
-    rating: float
-    rating_count: int
-    distance_km: float
+    rating: float | None
+    rating_count: int | None
+    distance_km: float | None
     #: Integer đồng, both ends. Money law 1 does not stop at the ledger: a
     #: price band that leaves this service fractional means a float reached a
     #: money value somewhere upstream.
-    price_min_vnd: MoneyVnd
-    price_max_vnd: MoneyVnd
-    address: str
-    open_now: bool
-    open_hours: str
-    travel_minutes: int
+    price_min_vnd: MoneyVnd | None
+    price_max_vnd: MoneyVnd | None
+    address: str | None
+    #: `None` means «nobody told us», which is not the same as «closed».
+    open_now: bool | None
+    open_hours: str | None
+    travel_minutes: int | None
     photo_count: int
     traits: list[str]
     group_fit: GroupFit | None
     flag: Literal["new", "hot"] | None
     lat: float
     lng: float
+    #: Where the row came from, so a screen can name its source. ODbL requires
+    #: attribution for `osm`, and a reader deserves it for anything else.
+    source: Literal["seed", "osm", "curated"] = "seed"
+    license: str | None = None
     match: Match
 
 
@@ -109,8 +127,10 @@ class PlaceDetail(Place):
     to be calculated, which is how one dinner ends up showing two numbers.
 
     `description` and `reviews` are the only additions, and they are the only
-    two fields the list omits -- see `app/places/details.py` for why prose lives
-    in its own file.
+    two fields the list omits. Both live on the row now (M9): the twelve seed
+    rows carry the prose `app/places/details.py` was written for, and an
+    imported place carries none and says so with null rather than borrowing
+    somebody else's description.
 
     Photos are represented by `photo_count`, inherited from `Place`, and there
     is deliberately no `photos` array: this product has no image store for
@@ -404,11 +424,20 @@ def _fallback_reason(place: dict[str, Any], group: GroupProfile) -> str:
     serve under an `ai` label.
     """
 
-    low = place["price_min_vnd"] // 1000
-    high = place["price_max_vnd"] // 1000
-    band = f"{low}k" if low == high else f"{low}–{high}k"
+    manh: list[str] = []
+    low = place.get("price_min_vnd")
+    high = place.get("price_max_vnd")
+    if low is not None and high is not None:
+        low_k, high_k = low // 1000, high // 1000
+        band = f"{low_k}k" if low_k == high_k else f"{low_k}–{high_k}k"
+        manh.append(f"Khoảng {band}/người")
+    if place.get("distance_km") is not None:
+        manh.append(f"cách {place['distance_km']}km")
+    # An imported place may have none of these, and the sentence has to work
+    # without them rather than printing «Khoảng Nonek/người, cách Nonekm».
+    dau = ", ".join(manh) + ". " if manh else "Chưa có giá và khoảng cách cho chỗ này. "
     return (
-        f"Khoảng {band}/người, cách {place['distance_km']}km. "
+        f"{dau}"
         f"Điểm dưới đây do máy tính từ ngân sách, sở thích và khoảng cách của nhóm; "
         f"chưa có nhận xét của AI cho chỗ này."
     )
@@ -466,6 +495,7 @@ def _matches(text: str, place: dict[str, Any]) -> bool:
 @router.get("/places", response_model=PlacesResponse)
 def list_places(
     reason_writer: Annotated[Any, Depends(get_reason_writer)],
+    repository: Annotated[ApiRepository, Depends(get_repository)],
     context_id: Annotated[str | None, Query()] = None,
     category: Annotated[str | None, Query()] = None,
     q: Annotated[str | None, Query()] = None,
@@ -486,12 +516,15 @@ def list_places(
 
     selected = [
         place
-        for place in PLACES
+        for place in ApiService(repository).place_rows()
         if (category is None or place["category"] == category)
         and _matches(q or "", place)
     ]
 
-    rows = [ReasonRow(place=place) for place in selected]
+    # Only rows that are safe to show a model (M9, ADR-0017). A place whose
+    # name or traits talk to the model is dropped from the prompt, not quoted
+    # more carefully: it still appears on screen, with no AI sentence.
+    rows = [ReasonRow(place=place) for place in safe_places(selected)]
     # Never lets a model outage become a 500 on a read-only catalogue.
     try:
         written = reason_writer(rows) if rows else {}
@@ -519,11 +552,15 @@ def list_places(
     # distance and be recommended for tonight. As a tier it cannot. Keeping it
     # out of the arithmetic also leaves every hand-checked score in the suite
     # exactly where it was -- the ordering changed, no number did.
+    # `open_now` and `rating` are nullable since M9: OpenStreetMap gives
+    # neither. An unknown door is not an open one (it sorts with the closed
+    # tier rather than ahead of a place known to be open), and an unrated place
+    # sorts after a rated one at equal score instead of being ranked as zero.
     out.sort(
         key=lambda place: (
-            not place.open_now,
+            place.open_now is not True,
             -place.match.score,
-            -place.rating,
+            -(place.rating if place.rating is not None else -1.0),
             place.id,
         )
     )
@@ -543,6 +580,7 @@ def list_places(
 def get_place(
     place_id: str,
     reason_writer: Annotated[Any, Depends(get_reason_writer)],
+    repository: Annotated[ApiRepository, Depends(get_repository)],
 ) -> PlaceDetail:
     """F10 -- one place, scored by the same arithmetic the grid used.
 
@@ -559,7 +597,7 @@ def get_place(
     full match anywhere and lands here as `place_id="search"`, answering 404 --
     the right answer for a path with no GET. The wiring test pins both.
 
-    No actor. The catalogue is the same twelve public rows for everybody, this
+    No actor. The catalogue is the same public rows for everybody, this
     handler reads no group data and takes no identity, so there is nothing here
     to authorise -- exactly the position `GET /places` is in. The metering
     argument that put `get_actor` on `/places/search` does not apply either: a
@@ -567,7 +605,7 @@ def get_place(
     one model call in total, not one per request.
     """
 
-    place = find_place(place_id)
+    place = ApiService(repository).place_row(place_id)
     if place is None:
         raise ApiProblem(404, "place_not_found", "Không tìm thấy địa điểm này.")
 
@@ -586,7 +624,8 @@ def get_place(
     )
     return PlaceDetail(
         **card.model_dump(),
-        **detail_fields(place["id"]),
+        description=place.get("description"),
+        reviews=list(place.get("reviews") or []),
         photos_available=False,
     )
 
@@ -597,6 +636,7 @@ def search_places(
     actor: Annotated[Actor, Depends(get_actor)],
     limiter: Annotated[FixedWindowLimiter, Depends(get_search_rate_limiter)],
     place_searcher: Annotated[Any, Depends(get_place_searcher)],
+    repository: Annotated[ApiRepository, Depends(get_repository)],
 ) -> PlaceSearchResponse:
     """F12 -- "quán nướng ngoài trời cho 6 người dưới 300k" becomes real places.
 
@@ -633,8 +673,9 @@ def search_places(
         group=GroupSummary(**GROUP),
     )
 
+    rows = safe_places(ApiService(repository).place_rows())
     try:
-        raw = place_searcher(query)
+        raw = place_searcher(query, rows)
     except Exception as error:  # noqa: BLE001 - a search box must not 500 on this
         logger.warning("place search: searcher failed (%s)", type(error).__name__)
         return unavailable
@@ -642,7 +683,7 @@ def search_places(
         return unavailable
 
     try:
-        grounded = ground_search(raw, PLACES, CATEGORIES)
+        grounded = ground_search(raw, rows, CATEGORIES)
     except PlaceSearchError as error:
         # The code, never the answer. What provoked the refusal is model output
         # shaped by caller text, and neither belongs in a log line.

@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.schema import CreateSchema, DropSchema
 
 from app.db.models import Context, Person
+from app.places.seed_catalog import seed_place_catalog
 
 API_ROOT = Path(__file__).resolve().parents[2]
 DATABASE_URL_ENV = "MOBILE_TEST_DATABASE_URL"
@@ -116,6 +117,14 @@ def postgres_engine() -> Generator[Engine]:
             assert (
                 connection.scalar(text("select to_regclass('expenses')")) == "expenses"
             )
+
+        # M9: the catalogue is a table now, so a fresh schema has no places in
+        # it. Seed the same twelve invented rows the api tier fakes, or every
+        # test that saves a bookmark or attaches a stop to a place would fail
+        # on a catalogue that is merely empty rather than on its own subject.
+        with Session(test_engine) as session:
+            seed_place_catalog(session)
+            session.commit()
 
         yield test_engine
     finally:
