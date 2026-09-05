@@ -53,3 +53,5 @@ Không challenger nào thắng cả hai trục → hướng được gán vẫn 
 
 ### Trang quyết định
 Payload: `.impeccable/decision/ui-v2-direction.json` (trong worktree). Kết quả điền ở §5 sau khi người dùng chọn.
+
+**Nhật ký trang quyết định.** Server đầu (`http://127.0.0.1:44661/`, key `9b142e1b`) mở lúc 11:0x, trình duyệt Windows đã mở qua `cmd.exe start`; sau ~30 phút không có câu trả lời thì `--wait` báo «question server is gone» (rc=2, lỗi server, không phải người dùng từ chối). Khởi động lại đúng payload: `http://127.0.0.1:44817/`, key `0fa42bd7`, mở lại trình duyệt, tiếp tục chờ. Trong lúc chờ chỉ làm phần không phụ thuộc hướng (adaptive, motion, skeleton, empty/error, sheet, money, avatar, stepper, media slot, plugin FAB, dep svg/font, rebuild dev client).
