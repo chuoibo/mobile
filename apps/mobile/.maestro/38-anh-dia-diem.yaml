@@ -1,0 +1,49 @@
+# Ảnh địa điểm có giấy phép (M12): tấm ảnh và credit của nó không rời nhau.
+#
+# Flow này KHÔNG ghim tên một địa điểm nào. Ảnh đến từ Wikimedia Commons qua
+# `scripts/import_place_photos.py`, và chỗ nào có ảnh là chuyện của lượt nhập,
+# không phải của flow. Cái flow ghim là bất biến: trên màn Khám phá có ít nhất
+# một thẻ mang dòng «Ảnh quanh đây: <tác giả> · <giấy phép>», bấm vào dòng ấy
+# mở đúng chi tiết chỗ đó, và ở chi tiết có cả dải ảnh lẫn câu nói rõ ảnh chụp
+# quanh đây chứ không phải ảnh do nơi ấy cung cấp.
+#
+# Vì thế flow này ĐỎ trên stack chưa nhập ảnh — đúng như nó phải thế. «Không có
+# ảnh nào» và «có ảnh nhưng vẽ thiếu credit» là hai chuyện, và chỉ cái thứ hai
+# là lỗi sản phẩm; log của harness nói rõ stack có bao nhiêu thẻ có ảnh
+# (kiem_may_chu_sau_26) nên không đọc nhầm được.
+#
+# Chạy sau flow 26 và GIỮ phiên đang sống (nhịp 60 giây của OTP).
+appId: com.lakiet.rudi
+---
+- stopApp
+- launchApp
+- runFlow: _bo-qua-dev-menu.yaml
+- extendedWaitUntil:
+    visible: "Rủ Đi thôi!|Khám phá|Chưa có nhóm nào"
+    timeout: 150000
+- runFlow:
+    when:
+      visible: "Rủ Đi thôi!"
+    file: _dang-nhap-d.yaml
+- extendedWaitUntil:
+    visible: "Khám phá"
+    timeout: 60000
+- tapOn: "Khám phá"
+- extendedWaitUntil:
+    visible: "[0-9]+ nơi ở .*"
+    timeout: 60000
+# Thẻ có ảnh bìa mang credit ngay trong thẻ. Cuộn tới thẻ đầu tiên có nó.
+- scrollUntilVisible:
+    element:
+      text: "Ảnh quanh đây:.*"
+    direction: DOWN
+    timeout: 40000
+- takeScreenshot: 38-the-co-anh
+# Bấm vào chính dòng credit: cả thẻ là một nút, nên cú bấm mở chi tiết chỗ đó.
+- tapOn: "Ảnh quanh đây:.*"
+- extendedWaitUntil:
+    visible: "Chỉ đường"
+    timeout: 60000
+- assertVisible: "Ảnh có giấy phép chụp quanh đây.*"
+- assertVisible: "Ảnh quanh đây:.*"
+- takeScreenshot: 38-chi-tiet-co-anh

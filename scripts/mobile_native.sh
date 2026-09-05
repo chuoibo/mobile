@@ -55,6 +55,11 @@ OTP=0
 TAT_KAV=0
 # --ai (cùng --otp): API phải có khoá Gemini còn sống; chạy thêm flow 40 và kiểm thẻ AI grounded.
 AI=0
+# --anh (cùng --otp): API phải đã nhập ảnh Wikimedia cho ít nhất một địa điểm;
+# chạy thêm flow 38 (ảnh + credit trên màn). Stack chưa nhập ảnh thì flow ấy
+# không có gì để đo, nên cờ này KHÔNG bật mặc định — và khi bật, harness hỏi
+# máy chủ trước để phân biệt «chưa nhập ảnh» với «vẽ ảnh thiếu credit».
+ANH=0
 # Mã debug của API ở chế độ --otp. CHỈ hợp lệ khi API dùng log sender
 # (MOBILE_OTP_DEBUG_CODE cạnh gateway thật làm create_app từ chối khởi động).
 OTP_CODE="000000"
@@ -78,6 +83,7 @@ while [ $# -gt 0 ]; do
     --otp) OTP=1; shift ;;
     --tat-kav) TAT_KAV=1; shift ;;
     --ai) AI=1; shift ;;
+    --anh) ANH=1; shift ;;
     *) echo "tham số lạ: $1" >&2; exit 64 ;;
   esac
 done
@@ -100,6 +106,9 @@ fi
 
 if [ "$AI" = 1 ] && [ "$OTP" = 0 ]; then
   echo "--ai đi cùng --otp (flow 40 cần người và nhóm của flow 24)" >&2; exit 64
+fi
+if [ "$ANH" = 1 ] && [ "$OTP" != 1 ]; then
+  echo "--anh đi cùng --otp (flow 38 cần phiên của flow 22)" >&2; exit 64
 fi
 if [ "$OTP" = 1 ]; then
   [ -n "$API_PORT" ] \
@@ -805,6 +814,31 @@ print("%d|%d|%d" % (len(texts), len(polls), hearts))')"
   echo "máy chủ xác nhận: nhóm của C có $so_text tin chữ, $so_poll thẻ bình chọn, $so_heart phản ứng ❤ — chat là thật"
 }
 
+# Stack này đã nhập ảnh địa điểm chưa — hỏi bằng chính route mà màn đọc.
+#
+# Không có ảnh nào thì flow 38 sẽ đỏ ở bước cuộn, và cái đỏ ấy nói về MÔI
+# TRƯỜNG chứ không phải về app. Hỏi trước để nói ra điều đó bằng câu của nó.
+kiem_co_anh_dia_diem() {
+  local goc ket so_anh so_thieu
+  goc="http://127.0.0.1:$API_PORT"
+  ket="$(python3 - "$goc" <<'PY3'
+import json, sys, urllib.request
+goc = sys.argv[1]
+with urllib.request.urlopen(goc + "/places", timeout=30) as r:
+    places = json.load(r).get("places", [])
+co = [p for p in places if p.get("photo_url")]
+thieu = [p["id"] for p in co if not p.get("photo_author") or not p.get("photo_license")]
+print("%d|%d" % (len(co), len(thieu)))
+PY3
+)" || khong_do_duoc "không đọc được /places để biết stack có ảnh chưa."
+  IFS='|' read -r so_anh so_thieu <<< "$ket"
+  [ "${so_anh:-0}" -ge 1 ] \
+    || khong_do_duoc "stack $API_PORT chưa nhập ảnh địa điểm nào (scripts/import_place_photos.py). Flow 38 không có gì để đo."
+  [ "${so_thieu:-0}" -eq 0 ] \
+    || hong "máy chủ gửi $so_thieu ảnh bìa thiếu tác giả hoặc giấy phép — màn KHÔNG được phép vẽ ảnh đó."
+  echo "máy chủ có $so_anh địa điểm có ảnh bìa, tất cả đều mang tác giả + giấy phép"
+}
+
 # Khoá AI còn sống không — hỏi bằng đường sản phẩm, không hỏi biến môi trường.
 kiem_khoa_ai() {
   local goc so body tok ctx ket
@@ -1012,6 +1046,7 @@ if [ "$OTP" = 1 ] || [ "$LIVE" = 1 ]; then kiem_ma_debug; fi
 # nhưng thẻ không đứng được → vẫn là khoá sống, ghi lại. check_demo_ai_key.py chỉ
 # đối chiếu container demo, không dùng cho uvicorn trần.
 if [ "$AI" = 1 ]; then kiem_khoa_ai; fi
+if [ "$ANH" = 1 ]; then kiem_co_anh_dia_diem; fi
 
 (
   cd "$APP"
@@ -1273,6 +1308,7 @@ for f in "$FLOWS"/*.yaml; do
     # so a flow that has to tap it (30, 40) would only fail for the reason the
     # probe already measures. The table for --tat-kav is the sign-in leg + 31.
     30-*) [ "$OTP" = 1 ] && [ "$TAT_KAV" = 0 ] || continue ;;
+    38-*)        [ "$OTP" = 1 ] && [ "$ANH" = 1 ] || continue ;;
     40-*)        [ "$OTP" = 1 ] && [ "$AI" = 1 ] && [ "$TAT_KAV" = 0 ] || continue ;;
     *)           { [ "$LIVE" = 1 ] || [ "$DANG_NHAP" = 1 ] || [ "$OTP" = 1 ]; } && continue ;;
   esac
