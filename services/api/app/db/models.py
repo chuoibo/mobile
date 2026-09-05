@@ -1428,6 +1428,77 @@ class UploadedImage(Base):
     )
 
 
+class PlacePhoto(Base):
+    """One licensed photograph of one catalogue place (M12, ADR-0017).
+
+    ## Why provenance is three NOT NULL columns and not a nicety
+
+    `DESIGN.md` used to forbid photographs on catalogue places outright, and
+    the reason was good: the catalogue was invented, so any picture on it was a
+    picture of somewhere else. What changed is not the rule but its subject --
+    these are real places now, and a photograph of a real place is allowed
+    exactly when it can say where it came from. So `author`, `license` and
+    `source_url` are NOT NULL with non-blank CHECKs: a row that cannot name its
+    source cannot exist, rather than existing and being filtered on the way
+    out. The filter is the thing that gets forgotten.
+
+    ## Not `uploaded_images`
+
+    That table's CHECK is `num_nonnulls(context_id, owner_person_id) = 1` --
+    every image there has exactly one private owner. These have none: they are
+    public, licensed, and about a place rather than about anybody. Sharing the
+    table would have meant loosening that CHECK, which is the constraint that
+    keeps one group's photographs out of another group's screen.
+
+    The bytes live in `PhotoStorage` like every other image (EXIF stripped by
+    re-encode). No image bytes in Git, ever.
+    """
+
+    __tablename__ = "place_photos"
+    __table_args__ = (
+        UniqueConstraint("place_id", "source_url", name="uq_place_photos_place_source"),
+        CheckConstraint(
+            "content_type IN ('image/jpeg', 'image/png')",
+            name="place_photo_content_type_allowed",
+        ),
+        CheckConstraint(
+            "byte_size > 0 AND width > 0 AND height > 0",
+            name="place_photo_dimensions_positive",
+        ),
+        CheckConstraint(
+            "length(btrim(author)) > 0 AND length(btrim(license)) > 0 "
+            "AND length(btrim(source_url)) > 0",
+            name="place_photo_cites_its_source",
+        ),
+        Index("ix_place_photos_place", "place_id", "sort_order"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    place_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("places.id", name="fk_place_photos_place"), nullable=False
+    )
+    storage_key: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    content_type: Mapped[str] = mapped_column(Text, nullable=False)
+    byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    width: Mapped[int] = mapped_column(Integer, nullable=False)
+    height: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: Who took it, which licence it is under, and where it came from. Shown
+    #: under the photograph on screen -- not kept for an audit nobody reads.
+    author: Mapped[str] = mapped_column(Text, nullable=False)
+    license: Mapped[str] = mapped_column(Text, nullable=False)
+    source_url: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The file's own caption, when it has one. Never invented.
+    title: Mapped[str | None] = mapped_column(Text)
+    sort_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0", default=0
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class MemoryKind(StrEnum):
     """What a row on the memory wall is a record of.
 

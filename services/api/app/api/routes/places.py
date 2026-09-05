@@ -22,16 +22,23 @@ from collections.abc import Callable
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from pydantic import BaseModel, Field, field_validator
 
-from app.api.deps import Actor, get_actor, get_actor_optional, get_repository
+from app.api.deps import (
+    Actor,
+    get_actor,
+    get_actor_optional,
+    get_photo_storage,
+    get_repository,
+)
 from app.api.errors import ApiProblem
 from app.api.repository import ApiRepository, DestinationRecord
 from app.api.schemas import MoneyVnd
 from app.api.search_rate_limit import FixedWindowLimiter
 from app.api.service import ApiService
 from app.domain.place_search import PlaceSearchError, ground_search
+from app.media.storage import PhotoStorage
 from app.places.areas import haversine_km
 from app.places.catalog import CATEGORIES
 from app.places.prompt_safety import safe_places
@@ -82,6 +89,31 @@ class Match(BaseModel):
     factors: list[MatchFactor]
 
 
+class PlacePhotoResponse(BaseModel):
+    """One photograph, and the provenance the screen must print beside it.
+
+    `author`, `license` and `source_url` are not optional and not decoration:
+    ADR-0017 allows a photograph of a real place exactly when it can say where
+    it came from, and the database refuses a row that cannot. They travel on
+    the wire for the same reason -- a screen cannot print what it was not sent.
+    """
+
+    id: UUID
+    #: Relative to the API, like every other image this product serves.
+    url: str
+    author: str
+    license: str
+    source_url: str
+    title: str | None
+    width: int
+    height: int
+
+
+class PlacePhotosResponse(BaseModel):
+    place_id: str
+    photos: list[PlacePhotoResponse]
+
+
 class GroupFit(BaseModel):
     min_people: int
     max_people: int
@@ -117,6 +149,11 @@ class Place(BaseModel):
     open_hours: str | None
     travel_minutes: int | None
     photo_count: int
+    #: The first licensed photograph, as a relative URL, or null when there is
+    #: none. Null is the honest answer and the screen draws its typographic
+    #: band for it -- a stock picture in that gap would be a lie in the shape
+    #: of a photograph.
+    photo_url: str | None
     traits: list[str]
     group_fit: GroupFit | None
     flag: Literal["new", "hot"] | None
@@ -582,6 +619,39 @@ def _card(
     )
 
 
+def _photo_url(place_id: str, photo_id: UUID) -> str:
+    """Relative, like every other image URL this product serves."""
+    return f"/places/{place_id}/photos/{photo_id}"
+
+
+def _with_photos(
+    rows: list[dict[str, Any]], repository: ApiRepository
+) -> list[dict[str, Any]]:
+    """Attach the cover photograph and the real count to each row (M12).
+
+    Two queries for a whole page, not one per card: the cost of the catalogue
+    screen must not grow with the catalogue. `photo_count` is overwritten
+    rather than trusted -- the seed rows carry an invented number from the days
+    when no image store existed, and a count nobody can click through to is the
+    kind of decoration this file spends its docstrings arguing against.
+    """
+
+    ids = [row["id"] for row in rows]
+    covers = repository.photo_covers(ids)
+    counts = repository.photo_counts(ids)
+    out = []
+    for row in rows:
+        cover = covers.get(row["id"])
+        out.append(
+            {
+                **row,
+                "photo_count": counts.get(row["id"], 0),
+                "photo_url": None if cover is None else _photo_url(row["id"], cover.id),
+            }
+        )
+    return out
+
+
 def _matches(text: str, place: dict[str, Any]) -> bool:
     needle = text.strip().lower()
     if not needle:
@@ -691,12 +761,15 @@ def list_places(
             404, "destination_not_found", "Không có điểm đến nào với mã này."
         )
 
-    selected = [
-        place
-        for place in service.place_rows(destination_id=diem_den.id)
-        if (category is None or place["category"] == category)
-        and _matches(q or "", place)
-    ]
+    selected = _with_photos(
+        [
+            place
+            for place in service.place_rows(destination_id=diem_den.id)
+            if (category is None or place["category"] == category)
+            and _matches(q or "", place)
+        ],
+        repository,
+    )
 
     # Only rows that are safe to show a model (M9, ADR-0017). A place whose
     # name or traits talk to the model is dropped from the prompt, not quoted
@@ -776,6 +849,69 @@ def list_places(
 
 
 @router.get(
+    "/places/{place_id}/photos",
+    response_model=PlacePhotosResponse,
+    responses={404: {"description": "Không có địa điểm nào với mã này."}},
+)
+def list_place_photos(
+    place_id: str,
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+) -> PlacePhotosResponse:
+    """The gallery of one place, each photograph with its provenance (M12).
+
+    Public, like the catalogue it belongs to. What is NOT here is the other
+    half of ADR-0017 §2.4 -- photographs a group took at this place. Those are
+    the group's, they live in `memories`, and they reach only people the server
+    has proved are in that group. Two sources, two routes, and the private one
+    is never merged into this response by a screen that forgot which was which.
+
+    Declared before `/places/{place_id}` so the longer path wins.
+    """
+
+    photos = ApiService(repository).place_photos(place_id)
+    return PlacePhotosResponse(
+        place_id=place_id,
+        photos=[
+            PlacePhotoResponse(
+                id=photo.id,
+                url=_photo_url(place_id, photo.id),
+                author=photo.author,
+                license=photo.license,
+                source_url=photo.source_url,
+                title=photo.title,
+                width=photo.width,
+                height=photo.height,
+            )
+            for photo in photos
+        ],
+    )
+
+
+@router.get(
+    "/places/{place_id}/photos/{photo_id}",
+    responses={404: {"description": "Không có ảnh này."}},
+)
+def read_place_photo(
+    place_id: str,
+    photo_id: UUID,
+    repository: Annotated[ApiRepository, Depends(get_repository)],
+    photo_storage: Annotated[PhotoStorage, Depends(get_photo_storage)],
+) -> Response:
+    """The bytes. No session: a licensed photograph of a public place is public,
+    and its cache header says so -- unlike a group's photograph, which is
+    `private` and behind membership."""
+
+    content, content_type = ApiService(
+        repository, photo_storage=photo_storage
+    ).place_photo_bytes(place_id, photo_id)
+    return Response(
+        content=content,
+        media_type=content_type,
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@router.get(
     "/places/{place_id}",
     response_model=PlaceDetail,
     responses={404: {"description": "Không có địa điểm nào với mã này."}},
@@ -816,6 +952,7 @@ def get_place(
     place = service.place_row(place_id)
     if place is None:
         raise ApiProblem(404, "place_not_found", "Không tìm thấy địa điểm này.")
+    place = _with_photos([place], repository)[0]
 
     group = service.taste_profile(actor, None)
     # Same failure posture as the list: a model outage must not turn a
@@ -837,7 +974,9 @@ def get_place(
         **card.model_dump(),
         description=place.get("description"),
         reviews=list(place.get("reviews") or []),
-        photos_available=False,
+        # A real count now, not a constant: the gallery exists (M12), and this
+        # field says whether THIS place has anything in it.
+        photos_available=place["photo_count"] > 0,
     )
 
 
@@ -888,7 +1027,7 @@ def search_places(
         group=_group_summary(group),
     )
 
-    rows = safe_places(service.place_rows())
+    rows = _with_photos(safe_places(service.place_rows()), repository)
     try:
         raw = place_searcher(query, rows, group)
     except Exception as error:  # noqa: BLE001 - a search box must not 500 on this

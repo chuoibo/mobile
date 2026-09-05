@@ -772,8 +772,12 @@ hợp lệ**: `moneyCountUpMs` trả 0 khi chưa hợp lệ, `standard` khi có.
 - **Don't** dựng hình dạng máy chủ chưa có: không ô mã chuyển khoản, không
   VietQR, không số tài khoản (ADR-0015/0016); sản phẩm nói phần của mỗi người
   rồi dừng.
-- **Don't** dùng ảnh stock cho địa điểm thật, ảnh người thật cho avatar;
-  minh hoạ vector trước, ảnh có giấy phép sau M12 (ADR-0020 §2.5).
+- **Don't** dùng ảnh stock cho địa điểm thật, ảnh người thật cho avatar.
+  Ảnh địa điểm được phép **và chỉ được phép** khi nó nói được nguồn (M12,
+  ADR-0017 §2.5): ảnh có giấy phép thì hiện **tác giả + giấy phép** ngay dưới
+  ảnh; ảnh của nhóm thì chỉ người trong nhóm thấy, và máy chủ lọc chứ không
+  phải màn hình lọc. Không có xuất xứ thì quay về dải typographic — `photo_url`
+  là `null` và thẻ vẽ dải chữ, chứ không mượn một tấm ảnh nào khác.
 - **Don't** thêm face display thứ hai, hay đưa Bricolage vào body/nhãn/ô nhập.
 - **Don't** thêm toast hay modal lỗi; lỗi là một câu `warn` dưới form.
 - **Don't** ship nhãn demo trên tiền thật; `DemoBadge` phải rỗng ở phiên live.
