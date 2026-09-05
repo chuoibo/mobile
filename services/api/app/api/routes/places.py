@@ -154,6 +154,13 @@ class Place(BaseModel):
     #: band for it -- a stock picture in that gap would be a lie in the shape
     #: of a photograph.
     photo_url: str | None
+    #: Whose photograph the cover is, and under what licence. They travel WITH
+    #: the URL because ADR-0017 §2.5 permits the picture only where the credit
+    #: is shown: a card that got the URL and not these two may not draw it. So
+    #: sending the URL alone would be sending a photograph the client is not
+    #: allowed to use -- three fields that are null together, or not at all.
+    photo_author: str | None = None
+    photo_license: str | None = None
     traits: list[str]
     group_fit: GroupFit | None
     flag: Literal["new", "hot"] | None
@@ -652,6 +659,8 @@ def _with_photos(
                 **row,
                 "photo_count": counts.get(row["id"], 0),
                 "photo_url": None if cover is None else _photo_url(row["id"], cover.id),
+                "photo_author": None if cover is None else cover.author,
+                "photo_license": None if cover is None else cover.license,
             }
         )
     return out
